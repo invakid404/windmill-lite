@@ -1,8 +1,0 @@
-# JE-21/b (Q-JE-1): a thrown {} shows its debug form in b's message (checked
-# in the batch manifest), not its string form.
-spec: [JE-21/b]
-target: f/wl_jeopen/je21b_obj
-expect:
-  status: failure
-  result: {error: {}}
-  steps: {"m:a": {status: success, result: 1}}

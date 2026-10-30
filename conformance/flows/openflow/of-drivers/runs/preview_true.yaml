@@ -1,0 +1,11 @@
+# OF-7/d: the previews (flowpreview) of F7-seq, F7-par and F7-ba: with the
+# flag explicitly true each preview matches its deployed run: the failures
+# are kept as values.
+spec: [OF-7/d]
+target: f/wl_ofd/preview_true
+expect:
+  status: success
+  result:
+    seq: {success: true, result: [{error: {message: boom, name: Error}}, 2]}
+    par: {success: true, result: [{error: {message: boom, name: Error}}, 2]}
+    ba: {success: true, result: [{error: {message: b, name: Error}}, 2]}

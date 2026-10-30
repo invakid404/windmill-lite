@@ -1,0 +1,21 @@
+summary: FX-V1/a
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1]"}
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              language: bun
+              input_transforms: {}
+        parallel: false
+        skip_failures: false
+      stop_after_all_iters_if: {expr: null.x, skip_if_stopped: false}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

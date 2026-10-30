@@ -13,7 +13,7 @@ function seconds(j: any): number {
   return (Date.parse(j.completed_at) - Date.parse(j.started_at)) / 1000;
 }
 export async function main() {
-  const r = await fetch(`${base}/api/w/${ws}/jobs/completed/list?script_path_exact=f/wl_wr55/counter&per_page=100`, { headers });
+  const r = await fetch(`${base}/api/w/${ws}/jobs/completed/list?script_path_exact=f/wl_wr55/counter&job_kinds=script&per_page=100`, { headers });
   const list: any[] = await r.json();
   const results = await Promise.all(list.map(async (j) => (await job(j.id)).result));
   return { at_least_two: results.length >= 2, all_n_one: results.every((x) => x.n === 1), pids_distinct: new Set(results.map((x) => x.pid)).size === results.length };

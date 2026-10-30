@@ -1,0 +1,18 @@
+# Recording batch E3f (ADR 0012): the halves of Q-OF-1 that the harness's
+# runs of deployed flows cannot make: the previews of F7-seq, F7-par and
+# F7-ba with the skip flag absent, false and true (OF-7/a-d), and OF-3/b's
+# failed first lock. A Bun step talks to the oracle's API with its own token
+# and waits for the jobs it starts, so the fixture needs two workers
+# (OR-5/b). The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md (OF-3, OF-7). Deployed with oracle.deploy
+# api.
+id: openflow/of-drivers
+spec: [OF-3/b, OF-7/a, OF-7/b, OF-7/c, OF-7/d]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 2, deploy: api, concurrency: true}
+compare: {mode: subset}

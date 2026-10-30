@@ -1,5 +1,6 @@
 # WR-43/e (nativets): a promise that never settles with nothing pending
-# fails at once.
+# fails at once. The step's timeout of 10 s changes nothing on the oracle,
+# which fails at once; it bounds a runtime that waits instead.
 spec: [WR-43/e]
 target: f/wl_n43/wr43_e_nativets
 expect:

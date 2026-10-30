@@ -1,0 +1,29 @@
+# Recording batch E3f (ADR 0012): Q-FX-18's remaining cases on the reference
+# session: FX-1/a, FX-4/a (with OF-3/d's status ids, read at enqueue by a
+# Bun
+# step through the API with its own token), FX-5/a, FX-11/a, FX-11/b,
+# FX-47/b,
+# FX-V1/a, FX-V1/b and FX-V2/a. FX-24/g needs a native worker and is
+# recorded by languages/native-timeout. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md (FX-1, FX-4, FX-5, FX-11, FX-47, FX-V1,
+# FX-V2). Deployed with oracle.deploy api.
+id: execution/fx-18-rest
+spec:
+  - FX-1/a
+  - FX-4/a
+  - FX-5/a
+  - FX-11/a
+  - FX-11/b
+  - FX-47/b
+  - FX-V1/a
+  - FX-V1/b
+  - FX-V2/a
+  - OF-3/d
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

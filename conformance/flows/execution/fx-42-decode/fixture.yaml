@@ -1,20 +1,19 @@
 # Recording batch E3f (ADR 0012): a container child result the backend
-# cannot decode (FX-42/m to FX-42/o): a number beyond a double and nesting
-# past the JSON library's limit in a child flow's stored result, which
-# leave the flow waiting for the zombie-flow monitor, and the same in a
-# collapsed body's result, which fails the flow job at once. The run waits
-# for the zombie-flow monitor, about 60 s or more, so the fixture is
-# recorded by the oracle workflow's long session (oracle.session long),
-# whose run timeout allows it. The runs
-# compare as a subset.
+# cannot decode (FX-42/n, FX-42/o), the runs that end on their own: nesting
+# just inside the JSON library's limit in a child flow's stored result, and
+# a collapsed body's result nested past it, which fails the flow job at
+# once. The runs that wait for the zombie-flow monitor are
+# execution/fx-42-monitor's. FX-42/m's number beyond a double cannot be
+# submitted as a run's args, which a fixture's YAML gives as doubles; batch
+# E3f defers it. The runs compare as a subset.
 #
 # Each run's expect is the reference's source-derived prediction, written
 # before the oracle ran it. Synthetic, written for this repository from
 # docs/semantics/conformance.md#fx-42. Deployed with oracle.deploy api.
 id: execution/fx-42-decode
-spec: [FX-42/m, FX-42/n, FX-42/o]
+spec: [FX-42/n, FX-42/o]
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
-oracle: {workers: 1, deploy: api, session: long}
+oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

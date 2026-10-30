@@ -1,5 +1,6 @@
-# WR-11/c: the same step pinned to the script's deployed hash honours
-# apply_preprocessor: the preprocessor runs on the step's args.
+# WR-11/c: the same step pinned to the script's deployed hash with
+# apply_preprocessor true.
 spec: [WR-11/c]
 target: f/wl_pre/pinned
-expect: {status: success, result: pre}
+note: "Predicted from the catalogue: the preprocessor runs on the step's args, so the step returns pre. Recorded in oracle run 40994947681: orig, and the run's raw flow holds the pinned hash but no apply_preprocessor, which the stored flow had dropped. The batch manifest lists the contradiction for the spec team."
+expect: {status: success, result: orig}

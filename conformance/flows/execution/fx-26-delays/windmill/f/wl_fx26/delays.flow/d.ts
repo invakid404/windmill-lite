@@ -61,9 +61,18 @@ async function delay(path: string, which: number): Promise<number> {
   }
   throw new Error(`no retry job for ${path}`);
 }
+const CREATED: Record<string, unknown> = {"d": {"modules": [{"id": "a", "value": {"type": "rawscript", "language": "bun", "input_transforms": {}, "content": "export function main() { throw new Error(\"x\"); }\n"}, "retry": {"exponential": {"attempts": 1, "multiplier": 1, "seconds": 30000}}}]}, "e": {"modules": [{"id": "a", "value": {"type": "rawscript", "language": "bun", "input_transforms": {}, "content": "export function main() { throw new Error(\"x\"); }\n"}, "retry": {"exponential": {"attempts": 2, "multiplier": 1, "seconds": 300}}}]}};
 export async function main() {
+  const created: Record<string, number> = {};
+  for (const [name, value] of Object.entries(CREATED)) {
+    const a = await call("POST", "/flows/create", JSON.stringify({ path: `f/wl_fx26/retry_${name}`, summary: `FX-26/${name}`, description: "", value,
+      schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: {} } }));
+    if (a.status >= 300) throw new Error(`flows/create f/wl_fx26/retry_${name}: ${a.status} ${a.body}`);
+    created[name] = a.status;
+  }
   const f = await Promise.all(Array.from({ length: 20 }, () => delay("f/wl_fx26/retry_f", 1)));
   return {
+    created,
     c: await delay("f/wl_fx26/retry_c", 1),
     d: await delay("f/wl_fx26/retry_d", 1),
     e_second: await delay("f/wl_fx26/retry_e", 2),

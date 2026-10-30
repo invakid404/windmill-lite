@@ -1,0 +1,5 @@
+# OF-6/a: a branchall with one empty branch deploys with every default
+# filled in (checked in the batch manifest); the flow then returns z's 1.
+spec: [OF-6/a]
+target: f/wl_of/ba_shape
+expect: {status: success, result: 1}

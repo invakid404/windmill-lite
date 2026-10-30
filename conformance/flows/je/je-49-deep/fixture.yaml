@@ -12,7 +12,7 @@
 id: je/je-49-deep
 spec: [JE-49/d]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

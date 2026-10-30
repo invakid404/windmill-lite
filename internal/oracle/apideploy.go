@@ -66,7 +66,8 @@ type scriptMeta struct {
 // server absent. It reads a narrow tree:
 //
 //   - wmill.yaml, and folder.meta.yaml files, which are not sent;
-//   - Bun scripts f/<folder>/<name>.ts, each with an optional
+//   - Bun scripts f/<folder>/<name>.ts, also under subdirectories of the
+//     folder (f/<folder>/<dir>/<name>.ts), each with an optional
 //     <name>.script.yaml giving summary, description and cache_ttl;
 //   - flows f/<folder>/<name>.flow/flow.yaml, whose rawscript content and
 //     lock may be "!inline <file>" in the flow's directory, as the CLI
@@ -106,13 +107,11 @@ func DeployAPI(ctx context.Context, c *Client, workspace, dir string) (*APIDeplo
 			flows = append(flows, strings.TrimSuffix(rel, ".flow"))
 			return filepath.SkipDir
 		case e.IsDir():
-			if len(parts) > 2 {
-				return fmt.Errorf("oracle: api deploy: directory %s is neither a folder nor a flow", rel)
-			}
+			// A folder, or a directory of scripts under it.
 			return nil
 		case rel == "wmill.yaml", e.Name() == "folder.meta.yaml", strings.HasSuffix(e.Name(), ".script.yaml"):
 			return nil
-		case strings.HasSuffix(e.Name(), ".ts") && strings.Count(e.Name(), ".") == 1 && len(parts) == 3:
+		case strings.HasSuffix(e.Name(), ".ts") && strings.Count(e.Name(), ".") == 1 && len(parts) >= 3:
 			scripts = append(scripts, strings.TrimSuffix(rel, ".ts"))
 			return nil
 		}

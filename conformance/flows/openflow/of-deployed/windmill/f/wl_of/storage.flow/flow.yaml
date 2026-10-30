@@ -1,0 +1,20 @@
+summary: "OF-3/a: storage"
+value:
+  modules:
+    - {id: i, value: {type: identity, extra: 7}}
+    - {id: s, value: {type: script, path: f/wl_of/s}}
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1]}
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              language: bun
+              input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

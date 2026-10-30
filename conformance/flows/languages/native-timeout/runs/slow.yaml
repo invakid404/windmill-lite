@@ -1,0 +1,11 @@
+# FX-24/g: an in-process (native) step with timeout 1 that runs for 3 s
+# fails with the executor's query timeout.
+spec: [FX-24/g]
+target: f/wl_nto/slow
+expect:
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nQuery timeout after (>1s)"
+      step_id: a

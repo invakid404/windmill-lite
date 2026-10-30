@@ -1,0 +1,21 @@
+summary: CF-30/a
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+  failure_module:
+    id: h
+    value:
+      type: rawscript
+      content: "!inline h.ts"
+      language: bun
+      input_transforms: {}
+    sleep: {type: javascript, expr: nope}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

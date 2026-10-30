@@ -1,0 +1,5 @@
+# OF-7/d: F7-par deployed: with the flag explicitly false the deployed run
+# matches the preview: both iterations run and the loop fails.
+spec: [OF-7/d]
+target: f/wl_of/f7_par_false
+expect: {status: failure, result: [{error: {message: boom, name: Error}}, 2]}

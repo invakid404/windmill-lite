@@ -1,0 +1,8 @@
+# FX-11/b: a flow_env value that fails to resolve falls back to the literal,
+# and the flow does not fail.
+spec: [FX-11/b]
+target: f/wl_fx18/fx11b
+expect:
+  status: success
+  result: "$var:u/x/missing"
+  steps: {"m:a": {status: success, args: {x: "$var:u/x/missing"}}}

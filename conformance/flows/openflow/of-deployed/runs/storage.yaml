@@ -1,0 +1,12 @@
+# OF-3/a: the flow runs as stored (the deployed value's shape is checked in
+# the batch manifest against the recording's deployment evidence: identity
+# keeps extra, the script value gets no input_transforms, and the loop gets
+# skip_failures true and parallel false).
+spec: [OF-3/a]
+target: f/wl_of/storage
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:s": {status: success, result: 3}
+    "m:l": {status: success, result: [1]}

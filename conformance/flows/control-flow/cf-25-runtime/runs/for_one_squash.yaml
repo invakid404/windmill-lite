@@ -1,8 +1,9 @@
 # Q-CF-19: a sequential forloopflow over [1, 2, 3] with a one-step Bun body,
-# squash: true. The body keeps a module-scope counter and returns its pid,
-# the counter and v; step i reads the iterations back, with each job's log,
-# and says whether a runtime was reused (a pid repeated or a counter above
-# 1) and whether a log line starts dedicated worker bun:. The reference
+# squash: true. The body keeps a module-scope counter, logs its pid and
+# returns the counter and v; step i reads the iterations back with each
+# job's log and gives the counters, how many pids the logs name and how many
+# are distinct (a runtime reused shows as a counter above 1 or a repeated
+# pid), and whether a log line starts dedicated worker bun:. The reference
 # leaves the squashed outcome open, so the expect states the values only and
 # the recording holds the answer.
 spec: [CF-25]

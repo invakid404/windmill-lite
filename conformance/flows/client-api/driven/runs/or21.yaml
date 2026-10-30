@@ -12,14 +12,18 @@ expect:
     created: [201, 201, 201]
     flow_created: 201
     b: {flow_result: {secret: 7}, step_args: {x: 7}, step_result: {secret: 7}}
-    c: {response: "{\"secret\":7}", result: {}, args: {}, logs: "##DELETED##"}
+    c:
+      response: "{\"secret\": 7}"
+      result: {}
+      args: {}
+      logs: "##DELETED##"
     d:
-      response: "{\"secret\":7}"
+      response: "{\"secret\": 7}"
       result: {secret: 7}
       args: {x: 7}
       logs: kept
     d_zero:
-      response: "{\"secret\":7}"
+      response: "{\"secret\": 7}"
       result: {}
       args: {}
       logs: "##DELETED##"

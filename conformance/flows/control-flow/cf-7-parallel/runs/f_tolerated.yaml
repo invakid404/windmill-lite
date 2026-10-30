@@ -5,8 +5,5 @@ spec: [CF-7/f]
 target: f/wl_cf7p/f_tolerated
 expect:
   status: failure
-  result:
-    error:
-      name: InternalError
-      message: "Bad request: Unrecognized module status for ForloopFlow Failure {…"
+  result: {error: {name: InternalError, message: "<masked>"}}
   steps: {"m:n": {status: not_run}}

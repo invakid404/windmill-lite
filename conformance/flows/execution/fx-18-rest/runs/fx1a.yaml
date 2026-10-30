@@ -1,0 +1,9 @@
+# FX-1/a: two successful steps; the flow's result is the last step's.
+spec: [FX-1/a]
+target: f/wl_fx18/fx1
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, result: 1}
+    "m:b": {status: success, result: 2}

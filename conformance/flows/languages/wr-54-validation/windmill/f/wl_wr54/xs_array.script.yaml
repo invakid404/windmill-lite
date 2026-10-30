@@ -1,2 +1,0 @@
-summary: xs_array
-schema: {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"xs": {"type": ["array", "null"], "items": {"type": "string"}}}, "required": []}

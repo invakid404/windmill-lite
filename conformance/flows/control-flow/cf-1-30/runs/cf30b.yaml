@@ -1,0 +1,11 @@
+# CF-30/b: a forloop in a container-valued preprocessor's body runs as child
+# flows and never collapses, so the preprocessor gives [-999, -998, -997],
+# wrapped as the flow's input {value: ...} (FX-35).
+spec: [CF-30/b]
+target: f/wl_cf130/cf30b
+expect:
+  status: success
+  result: {value: [-999, -998, -997]}
+  steps:
+    "s:preprocessor": {status: success, result: [-999, -998, -997]}
+    "m:s": {status: success, result: {value: [-999, -998, -997]}}

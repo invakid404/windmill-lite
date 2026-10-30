@@ -13,7 +13,7 @@
 id: execution/fx-42-notation
 spec: [FX-42/a, FX-42/b, FX-42/e, FX-42/f, FX-42/i, FX-42/j, JE-44]
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun, python3]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

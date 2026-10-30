@@ -1,9 +1,0 @@
-# FX-42/o: the same loop as a branchone's default branch at step 0: the
-# branch's child flow fails with that error, and the root stays running
-# until the monitor cancels it, as in FX-42/m.
-spec: [FX-42/o]
-target: f/wl_fx42d/o_branch
-expect:
-  status: canceled
-  result: {error: {name: Canceled}}
-  steps: {"m:b": {status: not_run}}

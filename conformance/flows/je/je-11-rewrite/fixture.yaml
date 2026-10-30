@@ -2,7 +2,7 @@
 # the variable() call rewrite on non-ASCII text, which moves the inserted )
 # by the extra bytes, and an insertion inside a multi-byte character, which
 # fails with the runtime's panic report. That report's task number differs
-# between runs, so its message is masked and checked in the batch manifest.
+# between runs, so its message is masked; the raw captures hold it.
 # The runs compare as a subset.
 #
 # Each run's expect is the reference's source-derived prediction, written

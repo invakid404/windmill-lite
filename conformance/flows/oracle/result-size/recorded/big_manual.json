@@ -1,0 +1,155 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": {
+      "error": {
+        "name": "ResultTooLarge",
+        "message": "Result of job <job:m:a> is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "ResultTooLarge",
+            "message": "Result of job <job:m:a> is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+          }
+        }
+      },
+      "m:b": {
+        "status": "not_run",
+        "ran": false
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030030051-3c1bb5db00ea",
+      "revision": "3c1bb5db00ea465aea4cbf9145a35e24a05c295b",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40994947681"
+    },
+    "recorded_at": "2026-10-30T03:02:56Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MAX_RESULT_SIZE_MB": "3",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:38215"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 212,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T03:02:56.104795Z",
+          "started_at": "2026-10-30T03:02:56.153954Z",
+          "completed_at": "2026-10-30T03:02:56.222035Z",
+          "duration_ms": 68
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T03:02:56.155153Z",
+          "started_at": "2026-10-30T03:02:56.157766Z",
+          "completed_at": "2026-10-30T03:02:56.214141Z",
+          "duration_ms": 56
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "export function main() { return { wm_failure: \"m\", pad: \"x\".repeat(4.5 * 1024 * 1024) }; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "content": "export function main() { return 2; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { return { wm_failure: \"m\", pad: \"x\".repeat(4.5 * 1024 * 1024) }; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { return 2; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline b.ts",
+              "input_transforms": {},
+              "lock": "!inline b.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

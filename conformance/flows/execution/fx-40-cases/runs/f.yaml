@@ -3,6 +3,7 @@
 # the second one runs).
 spec: [FX-40/f]
 target: f/wl_fx40c/f
+note: "Predicted with a's module status a success; recorded in oracle run 40994947681 as a failure while a's job succeeded with 1, as for any stop (FX-V2/a)."
 expect:
   status: success
   result: {error: {name: EarlyStopError, message: halt}}
@@ -10,8 +11,8 @@ expect:
     "m:s1":
       status: failure
       result: {error: {name: EarlyStopError, message: halt}}
-    "m:s1/m:a": {status: success, result: 1}
+    "m:s1/m:a": {status: success, module: failure, result: 1}
     "m:s2":
       status: failure
       result: {error: {name: EarlyStopError, message: halt}}
-    "m:s2/m:a": {status: success, result: 1}
+    "m:s2/m:a": {status: success, module: failure, result: 1}

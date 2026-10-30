@@ -1,0 +1,11 @@
+# FX-5/a's control (FX-35): the same child run by path through the run API
+# runs its preprocessor, whose {x: 0} becomes the flow input.
+spec: [FX-5/a]
+target: f/wl_fx18/fx5_child
+args: {x: 5}
+expect:
+  status: success
+  result: 0
+  steps:
+    "s:preprocessor": {status: success, result: {x: 0}}
+    "m:a": {status: success, args: {x: 0}, result: 0}

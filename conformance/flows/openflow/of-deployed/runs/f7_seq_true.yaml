@@ -1,0 +1,5 @@
+# OF-7/d: F7-seq deployed: with the flag explicitly true the failure is kept
+# as a value.
+spec: [OF-7/d]
+target: f/wl_of/f7_seq_true
+expect: {status: success, result: [{error: {message: boom, name: Error}}, 2]}

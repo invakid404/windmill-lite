@@ -6,12 +6,12 @@ expect:
   status: failure
   result:
     error:
-      message: "Internal: Result of job is invalid json (empty)<loc>"
+      message: "Internal: Result of job is invalid json (empty) @jobs.rs:956:20"
       name: InternalErr
   steps:
     "m:a":
       status: failure
       result:
         error:
-          message: "Internal: Result of job is invalid json (empty)<loc>"
+          message: "Internal: Result of job is invalid json (empty) @jobs.rs:956:20"
           name: InternalErr

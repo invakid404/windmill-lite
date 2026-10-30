@@ -85,7 +85,7 @@ jobs:
           # recordings, made at 1 s with one worker, must hold unchanged
           # (OR-7/a).
           - id: workers2
-            args: --workers 2 --listen-interval 10 --skip-unmet-session conformance/flows/oracle/smoke conformance/flows/oracle/workers2 conformance/flows/client-api/dispatch conformance/flows/client-api/driven conformance/flows/control-flow/cf-7-release
+            args: --workers 2 --listen-interval 10 --skip-unmet-session conformance/flows/oracle/smoke conformance/flows/oracle/workers2 conformance/flows/client-api/dispatch conformance/flows/client-api/driven conformance/flows/control-flow/cf-7-release conformance/flows/openflow/of-drivers
           # A worker that serves the nativets tag (WORKER_TAGS=nativets,
           # Q-WR-21) records the native-step fixtures (batch E3f).
           - id: native

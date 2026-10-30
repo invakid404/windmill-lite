@@ -1,8 +1,0 @@
-# FX-40/i: {n: 1} then {n: 1.0}: the second call misses, so its result is
-# its own job's.
-spec: [FX-40/i]
-target: f/wl_fx40c/i_number
-expect:
-  status: success
-  result: "<job:m:s2/m:a>"
-  steps: {"m:s2/m:a": {status: success, result: "<job:m:s2/m:a>"}}

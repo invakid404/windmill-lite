@@ -2,7 +2,11 @@
 # FX-26/f, Q-FX-18). A Bun step starts each flow through the API with its
 # own token, reads the queued retry job's scheduled_for once the step's
 # status names it, subtracts the failed attempt's completion time and
-# cancels the flow. FX-26/e's second delay follows its first 300 s retry,
+# cancels the flow. FX-26/d's and FX-26/e's flows are created by the step
+# through flows/create, since the pinned CLI's generate-metadata, which the
+# harness runs on every API-deployed tree, refuses their retry intervals
+# ("retry interval exceeds the maximum of 21600 seconds", oracle run
+# 40994947681). FX-26/e's second delay follows its first 300 s retry,
 # so the run takes over five minutes: the fixture needs two workers (a step
 # that waits for a job, OR-5/b) and the long session's run timeout, and is
 # recorded by the workflow's long two-worker session. The run compares as a

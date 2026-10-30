@@ -42,7 +42,7 @@ const tag = () => root.replaceAll("-", "").slice(0, 12);
 
 export async function main() {
   await oracleAPI();
-  const id = await start("/jobs/run/f/f/wl_drv/restart", JSON.stringify({ key: tag() }));
+  const id = await start("/jobs/run/f/f/wl_drv/restarted", JSON.stringify({ key: tag() }));
   const first = await done(id);
   const re = await call("POST", `/jobs/restart/f/${id}`, JSON.stringify({ step_id: "b" }));
   if (re.status >= 300) return { first_success: first.success, restart: { status: re.status, body: re.body } };

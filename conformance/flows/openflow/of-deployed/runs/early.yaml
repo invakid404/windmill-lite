@@ -1,0 +1,12 @@
+# OF-V3/a: run-and-wait answers a's {stage: a} early, and the flow goes on
+# to complete with b's {stage: b}.
+spec: [OF-V3/a]
+target: f/wl_of/early
+submit: run_wait_result
+expect:
+  status: success
+  result: {stage: b}
+  response:
+    status: 200
+    content_type: application/json
+    body: "{\"stage\":\"a\"}"

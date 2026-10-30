@@ -1,0 +1,8 @@
+# FX-5/a: a subflow by path never runs its preprocessor, so the child sees
+# the 5 the parent passes.
+spec: [FX-5/a]
+target: f/wl_fx18/fx5
+expect:
+  status: success
+  result: 5
+  steps: {"m:c": {status: success, result: 5}}

@@ -12,4 +12,7 @@ async function logs(id: string): Promise<string> {
 function seconds(j: any): number {
   return (Date.parse(j.completed_at) - Date.parse(j.started_at)) / 1000;
 }
-export async function main(ids: string[]) { return { held: await Promise.all(ids.map(async (id) => seconds(await job(id)) >= 4.5)) }; }
+export async function main(ids: string[]) {
+  // An id the jobs API does not know reads null.
+  return { held: await Promise.all(ids.map(async (id) => { try { return seconds(await job(id)) >= 4.5; } catch { return null; } })) };
+}

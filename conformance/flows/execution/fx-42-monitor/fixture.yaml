@@ -1,0 +1,21 @@
+# Recording batch E3f (ADR 0012): a container child result the backend
+# cannot decode (FX-42/n, FX-42/o) that leaves the flow waiting for the
+# zombie-flow monitor. The run waits for the zombie-flow monitor, about 60 s
+# or more, so the fixture is recorded by the oracle workflow's long session
+# (oracle.session long), whose run timeout allows it. The monitor's message
+# and reason carry timestamps and the worker's name, so the fixture masks
+# them; they start "Flow <id> (<url>) was cancelled because it was hanging
+# in between 2 steps." in the raw captures. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-42. Deployed with oracle.deploy api.
+id: execution/fx-42-monitor
+spec: [FX-42/n, FX-42/o]
+scope: later
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api, session: long}
+compare:
+  mode: subset
+  mask: ["/result/error/message", "/result/error/reason"]

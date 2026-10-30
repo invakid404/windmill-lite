@@ -1,9 +1,12 @@
-summary: "WR-22/b: f/wl_ib/cjs/env"
+summary: 'WR-22/b: f/wl_ib/cjs/env'
 value:
   modules:
     - id: s
-      value: {type: script, path: f/wl_ib/cjs/env, input_transforms: {}}
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_ib/cjs/env
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}

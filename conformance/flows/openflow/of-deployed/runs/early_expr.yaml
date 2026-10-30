@@ -1,0 +1,9 @@
+# OF-V3/b: early_return 1+1 is an id lookup that matches no step, never
+# evaluated to 2, so run-and-wait answers the final result.
+spec: [OF-V3/b]
+target: f/wl_of/early_expr
+submit: run_wait_result
+expect:
+  status: success
+  result: 3
+  response: {status: 200, content_type: application/json, body: "3"}

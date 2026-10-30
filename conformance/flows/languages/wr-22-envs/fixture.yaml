@@ -11,7 +11,7 @@
 id: languages/wr-22-envs
 spec: [WR-22/b, WR-22/c]
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

@@ -44,10 +44,13 @@ export async function main() {
   await oracleAPI();
   const bodies = ['{"s": "x\\u0000y"}', '{"k\\u0000": 1}', '{"x": 1e131072}', '{"k": "\\ud83d"}', '{"k\\ud83d": 1}'];
   const refused: Answer[] = [];
-  for (const b of bodies) refused.push(await call("POST", "/jobs/run/f/f/wl_raw/target", b));
-  const jobs = await json("GET", "/jobs/list?script_path_exact=f/wl_raw/target&per_page=100");
+  const jobs_after: number[] = [];
+  for (const b of bodies) {
+    refused.push(await call("POST", "/jobs/run/f/f/wl_raw/target", b));
+    jobs_after.push((await json("GET", "/jobs/list?script_path_exact=f/wl_raw/target&per_page=100")).length);
+  }
   // Q-FX-7: a stored 1.50e3 and its siblings, read back as the job's args.
   const id = await start("/jobs/run/f/f/wl_raw/number", '{"n": 1.50e3, "m": 1.50, "k": 1.50e1}');
   const args = await call("GET", `/jobs_u/get_args/${id}`);
-  return { refused, jobs_created: jobs.length, stored_args: args.body };
+  return { refused, jobs_after, stored_args: args.body };
 }

@@ -5,7 +5,8 @@
 # without squash, a squashed Bash body, and a squashed loop whose body
 # leaves
 # a background child. A last step reads the iterations back through the jobs
-# API (pids, counters, logs and times), since a recording's provenance is
+# API (counters, logs and times; the pids are in the logs), since a
+# recording's provenance is
 # never compared. Q-CF-19 has no prediction for the squashed loops, so their
 # expects state the values only. The runs compare as a subset.
 #

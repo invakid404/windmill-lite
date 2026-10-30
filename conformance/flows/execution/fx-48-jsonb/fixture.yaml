@@ -16,7 +16,7 @@
 id: execution/fx-48-jsonb
 spec: [FX-48/b, FX-48/c, FX-50/a, FX-51/a, FX-51/b, FX-51/c]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

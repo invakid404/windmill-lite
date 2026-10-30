@@ -4,13 +4,13 @@ value:
     - id: a/b
       value:
         type: rawscript
-        content: "!inline a/b.ts"
+        content: "!inline a_slash_b.ts"
         language: bun
         input_transforms: {}
     - id: "a%2Fb"
       value:
         type: rawscript
-        content: "!inline a%2Fb.ts"
+        content: "!inline a_pct_b.ts"
         language: bun
         input_transforms: {}
 schema:

@@ -15,7 +15,7 @@
 id: je/je-20-providers
 spec: [JE-20/c, JE-20/d, JE-42/i, JE-42/j]
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}
