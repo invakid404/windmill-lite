@@ -154,7 +154,23 @@ const (
 	// engine cannot use (milestone F2c): it differs from the one the
 	// pool's other processes declared, or the engine finds it invalid.
 	RejectPlugin = "plugin_mismatch"
+	// RejectVersion refuses a host whose SDK is of another release than
+	// the engine (ADR 0009, milestone F3b; VersionsPair).
+	RejectVersion = "version_mismatch"
 )
+
+// VersionsPair reports whether a host SDK of version sdk, the harness
+// version its hello names, pairs with an engine of version engine (ADR
+// 0009, conformance/protocol/host/versions.json): an unstamped version
+// ("", "dev", "(devel)": the repository's own, a development build) pairs
+// with anything; two stamped ones pair when equal, a leading "v" aside.
+func VersionsPair(sdk, engine string) bool {
+	unstamped := func(v string) bool { return v == "" || v == "dev" || v == "(devel)" }
+	if unstamped(sdk) || unstamped(engine) {
+		return true
+	}
+	return strings.TrimPrefix(sdk, "v") == strings.TrimPrefix(engine, "v")
+}
 
 // Invoke asks the harness to run one step. Around, when not empty, lists
 // the host plugin's around wrappers whose selectors match the step's

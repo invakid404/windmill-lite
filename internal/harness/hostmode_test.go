@@ -16,6 +16,47 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
+// The cases of conformance/protocol/host/versions.json (ADR 0009,
+// milestone F3b), which the host SDK's tests run too
+// (harnesses/bun/test/host.test.ts): VersionsPair gives each its answer,
+// and in a host's handshake an SDK that does not pair is refused with
+// version_mismatch.
+func TestVersionPairingCases(t *testing.T) {
+	b, err := os.ReadFile("../../conformance/protocol/host/versions.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Cases []struct {
+			Case   string `json:"case"`
+			SDK    string `json:"sdk"`
+			Engine string `json:"engine"`
+			Pairs  bool   `json:"pairs"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil || len(f.Cases) == 0 {
+		t.Fatalf("%v, %d cases", err, len(f.Cases))
+	}
+	for _, c := range f.Cases {
+		t.Run(c.Case, func(t *testing.T) {
+			if got := VersionsPair(c.SDK, c.Engine); got != c.Pairs {
+				t.Fatalf("VersionsPair(%q, %q) = %v, want %v", c.SDK, c.Engine, got, c.Pairs)
+			}
+			hello := hostHello()
+			hello.Harness.Version = c.SDK
+			h, _, err := attach(t, HostConfig{Run: echoRun, EngineVersion: c.Engine}, hello)
+			w := h.expect(TypeWelcome).(Welcome)
+			var he *HandshakeError
+			switch {
+			case c.Pairs && (err != nil || w.Reject != nil):
+				t.Fatalf("a pairing SDK was refused: %v, %+v", err, w.Reject)
+			case !c.Pairs && (!errors.As(err, &he) || he.Code != RejectVersion || w.Reject == nil || w.Reject.Code != RejectVersion):
+				t.Fatalf("got %v, welcome %+v; want %s", err, w, RejectVersion)
+			}
+		})
+	}
+}
+
 // workdirCases are the cases of conformance/protocol/host/workdir.json,
 // which the host SDK's tests run too (harnesses/bun/test/host.test.ts).
 type workdirCase struct {

@@ -15,7 +15,7 @@
         "proto": 1,
         "harness": {
           "kind": "bun",
-          "version": "0.0.0-c1"
+          "version": "dev"
         },
         "runtime": "1.3.10",
         "caps": {

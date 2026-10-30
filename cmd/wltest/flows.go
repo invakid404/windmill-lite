@@ -50,6 +50,9 @@ import (
 type flowChecker struct {
 	bun, repo, mode string
 	js              expr.Engine
+	// afterRuns, when set, is called in host mode once a fixture's runs
+	// have ended, before its host's teardown (tests: hostmode_test.go).
+	afterRuns func(*hostRuntime)
 }
 
 // runResult is how one run of a fixture went.
@@ -183,21 +186,36 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	var diag syncBuffer
 	var rt *wl.Runtime
+	var host *hostRuntime
 	if b.out != "" {
 		// The runtime owns the fixture's platform services (ADR 0007): the
 		// bundle's resources and variables with the host's, its secrets
 		// and setup; the facade its steps reach, which attributes their
 		// calls; and the default dispatcher (milestone PF3) over the
-		// bundle's program, which runs the fixture's other roots.
-		rt, err = wl.Open(b.out, wl.Options{
+		// bundle's program, which runs the fixture's other roots. In host
+		// mode it serves the fixture's own host (openHost).
+		opts := wl.Options{
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
 			Providers: fixtureProviders(f),
-		})
-		if err != nil {
-			return failRuns(results, "open: "+err.Error())
 		}
-		defer rt.Close()
+		if fc.mode == ModeHost {
+			if host, err = fc.openHost(b.out, work, opts, &diag); err != nil {
+				// The host's output, which its close copied, says why.
+				results = failRuns(results, "host: "+err.Error())
+				for i := range results {
+					results[i].diag = diag.String()
+				}
+				return results
+			}
+			defer host.close()
+			rt = host.rt
+		} else {
+			if rt, err = wl.Open(b.out, opts); err != nil {
+				return failRuns(results, "open: "+err.Error())
+			}
+			defer rt.Close()
+		}
 	}
 
 	byName := map[string]int{}
@@ -265,6 +283,22 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			}
 		}
 	}
+	if host != nil {
+		if fc.afterRuns != nil {
+			fc.afterRuns(host)
+		}
+		// One generation serves the fixture: a host lost before its engine
+		// closes fails every run it took, whatever those runs observed.
+		early := host.exitedEarly()
+		host.close()
+		if early {
+			for i := range results {
+				if results[i].unsupported == "" {
+					results[i].problems = append(results[i].problems, "the fixture's host was lost before its engine closed")
+				}
+			}
+		}
+	}
 	if d := diag.String(); d != "" {
 		for i := range results {
 			if len(results[i].problems) > 0 {
@@ -273,6 +307,15 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 	}
 	return results
+}
+
+// moduleState is the module-state mode of the checker's bundles: a host
+// runs its steps warm (ADR 0006).
+func (fc *flowChecker) moduleState() string {
+	if fc.mode == ModeHost {
+		return conformance.ModeWarm
+	}
+	return fc.mode
 }
 
 // harnessRuntime is the Bun harness runtime the bundles are built for and
@@ -448,7 +491,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 		_, err = bundle.Build(ctx, bundle.Config{
 			Folder:         root,
 			Contract:       data,
-			ModuleState:    engine.ModuleState(fc.mode),
+			ModuleState:    engine.ModuleState(fc.moduleState()),
 			EngineVersion:  wl.Version(),
 			Bun:            fc.bun,
 			Helper:         filepath.Join(fc.repo, "harnesses", "bun", "build", "main.ts"),

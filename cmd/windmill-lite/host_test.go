@@ -45,7 +45,15 @@ import (
 // with the host command, and WL_TEST_ENGINE, which the supervisor sets,
 // reaches it through the host's environment.
 func TestMain(m *testing.M) {
+	if v := os.Getenv("WL_TEST_FAKE_ENGINE"); v != "" {
+		os.Exit(fakeEngine(v))
+	}
 	if os.Getenv("WL_TEST_ENGINE") == "1" {
+		// A stamped engine, as a release's -X main.version makes it
+		// (TestHostVersionPairing).
+		if v := os.Getenv("WL_TEST_ENGINE_VERSION"); v != "" {
+			version = v
+		}
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	code := m.Run()
@@ -95,6 +103,11 @@ func compiledHost(t *testing.T) string {
 // buildHostBundle builds testdata/hostfolder with its host contract into
 // out, for this binary's engine version.
 func buildHostBundle(bun, out string) (string, error) {
+	return buildHostBundleFor(bun, out, resolveVersion())
+}
+
+// buildHostBundleFor is buildHostBundle for an engine of version v.
+func buildHostBundleFor(bun, out, v string) (string, error) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		return "", err
@@ -106,7 +119,7 @@ func buildHostBundle(bun, out string) (string, error) {
 	_, err = bundle.Build(context.Background(), bundle.Config{
 		Folder:         "testdata/hostfolder",
 		Contract:       contract,
-		EngineVersion:  resolveVersion(),
+		EngineVersion:  v,
 		Bun:            bun,
 		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
 		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
@@ -123,7 +136,7 @@ func buildHostBundle(bun, out string) (string, error) {
 // current one exits. It never restarts a host for any other reason.
 type supervisor struct {
 	t      *testing.T
-	bin    string
+	argv   []string
 	dir    string
 	sock   string
 	env    []string
@@ -153,7 +166,12 @@ type generation struct {
 // its environment.
 func supervise(t *testing.T, killAfterMS int, env ...string) *supervisor {
 	t.Helper()
-	bin := compiledHost(t)
+	return superviseHost(t, []string{compiledHost(t)}, hostBundle, killAfterMS, env...)
+}
+
+// superviseHost is supervise for the host that argv starts, on bundle.
+func superviseHost(t *testing.T, argv []string, bundle string, killAfterMS int, env ...string) *supervisor {
+	t.Helper()
 	engineBin, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -165,8 +183,8 @@ func supervise(t *testing.T, killAfterMS int, env ...string) *supervisor {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	s := &supervisor{
-		t: t, bin: bin, dir: dir, sock: filepath.Join(dir, "host.sock"), ready: make(chan *generation, 4),
-		env: append(append(os.Environ(), "WL_TEST_ENGINE=1", "WL_ENGINE="+engineBin, "WL_BUNDLE="+hostBundle,
+		t: t, argv: argv, dir: dir, sock: filepath.Join(dir, "host.sock"), ready: make(chan *generation, 4),
+		env: append(append(os.Environ(), "WL_TEST_ENGINE=1", "WL_ENGINE="+engineBin, "WL_BUNDLE="+bundle,
 			fmt.Sprintf("WL_KILL_AFTER_MS=%d", killAfterMS)), env...),
 	}
 	s.env = append(s.env, "WL_HOST_SOCKET="+s.sock)
@@ -195,7 +213,7 @@ func (s *supervisor) start() {
 		s.t.Fatal(err)
 	}
 	g.stderr = f
-	g.cmd = exec.Command(s.bin)
+	g.cmd = exec.Command(s.argv[0], s.argv[1:]...)
 	g.cmd.Dir = s.dir
 	g.cmd.Env = s.env
 	g.cmd.Stderr = f
@@ -299,6 +317,16 @@ type runResult struct {
 	// SettledTenant is, for /settle, the tenant onSettled read from the
 	// host's scope.
 	SettledTenant *string `json:"settledTenant"`
+	// Released and Leases are, for /lease, how many leases onSettled
+	// released and the run's leases of the host's pool, timed in
+	// milliseconds after the run was submitted.
+	Released int `json:"released"`
+	Leases   []struct {
+		Released     bool    `json:"released"`
+		UsedReleased bool    `json:"usedReleased"`
+		LastUse      float64 `json:"lastUse"`
+		ReleasedAt   float64 `json:"releasedAt"`
+	} `json:"leases"`
 }
 
 // run submits a run of the flow at path through the host, as one of its
@@ -705,6 +733,62 @@ func TestHostWatchdog(t *testing.T) {
 	t.Logf("watchdog: the host was killed %v after the spinning run was sent (killAfter %v)", first.exitAt.Sub(sent).Round(time.Millisecond), killAfter)
 }
 
+// Case watchdog/finite-cpu of ADR 0004 in host mode (F3b's gate): a step
+// computes synchronously for 2 s and returns, with watchdog.killAfter 1 s
+// and a step timeout of 10 s. The engine kills the host after about 1 s,
+// and its in-flight runs end with it, a second run's included; a run on
+// the restarted host succeeds. With the watchdog disabled (killAfter 0),
+// the step completes with its result, on the first generation.
+func TestHostWatchdogFiniteCPU(t *testing.T) {
+	t.Run("killAfter 1 s", func(t *testing.T) {
+		const killAfter = time.Second
+		s := supervise(t, int(killAfter/time.Millisecond))
+		first := s.gen(0)
+		other := make(chan error, 1)
+		go func() {
+			_, err := s.run("f/host/two", "b", map[string]any{"ms": 20000}, nil)
+			other <- err
+		}()
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if h := s.health(t); h.InFlight == 1 && h.Runs == 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the second run's step is not in flight: %+v", s.health(t))
+			}
+		}
+		sent := time.Now()
+		if r, err := s.run("f/host/compute", "a", map[string]any{"ms": 2000}, nil); err == nil {
+			t.Fatalf("the computing run's caller got %+v, not the host's exit", r)
+		}
+		<-first.exited
+		if d := first.exitAt.Sub(sent); d < killAfter || d > killAfter+time.Second {
+			t.Fatalf("killed %v after the computing run was sent; want about killAfter (%v), within a second of it", d, killAfter)
+		}
+		if ws, ok := first.state.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
+			t.Fatalf("the host ended with %v, not SIGKILL", first.state)
+		}
+		if err := <-other; err == nil {
+			t.Fatal("the second run's caller did not see the host's exit")
+		}
+		s.waitReady(1)
+		r, err := s.run("f/host/echo", "c", map[string]any{"x": 3}, nil)
+		if err != nil || r.Status != "success" || string(r.Result) != `{"x":3}` {
+			t.Fatalf("a run on the restarted host: %+v, %v", r, err)
+		}
+	})
+	t.Run("watchdog disabled", func(t *testing.T) {
+		s := supervise(t, 0)
+		r, err := s.run("f/host/compute", "a", map[string]any{"ms": 2000}, nil)
+		if err != nil || r.Status != "success" || string(r.Result) != `{"ms":2000,"computed":true}` {
+			t.Fatalf("%+v, %v; want the step's result", r, err)
+		}
+		if g := s.generations(); g != 1 {
+			t.Fatalf("the host was restarted: %d generations", g)
+		}
+	})
+}
+
 // H1's no-code form through host mode: the run frame carries a static
 // stand-in for module b, whose script would throw.
 func TestHostStaticIntercept(t *testing.T) {
@@ -900,7 +984,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 			theirs.Close()
 			exited := make(chan error, 1)
 			go func() { exited <- cmd.Wait() }()
-			hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "test"}, Runtime: harness.PinnedBun,
+			hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "dev"}, Runtime: harness.PinnedBun,
 				Caps: harness.Caps{Fetch: true, Native: true, Host: true}, Bundle: digest, PID: os.Getpid(), Workdir: hostCwd}
 			if tc.plugin != "" {
 				hello.Plugin = jsonval.FromProducer([]byte(tc.plugin))
@@ -1048,6 +1132,33 @@ func TestHostRunSettled(t *testing.T) {
 	}
 }
 
+// The resource-release test of ADR 0004 (host mode item 5, F3b's gate): a
+// resource that an abandoned invocation holds is not released before
+// onRunSettled. A step takes a lease of the host's pool (a host-provided
+// module) for its run's tenant and uses it every 10 ms for 1.5 s, while
+// its timeout of 1 s abandons it; the host releases the run's leases at
+// its onSettled. The outcome comes at about 1 s, the step goes on using the
+// lease, and the run settles, and the lease is released, only after the
+// step's last use: the step never sees it released.
+func TestHostResourceRelease(t *testing.T) {
+	s := supervise(t, 30000)
+	r, err := s.post("/lease", map[string]any{"path": "f/host/lease", "tenant": "lease", "args": map[string]any{"ms": 1500}})
+	if err != nil || r.Status != "failure" {
+		t.Fatalf("%+v, %v; want the step's timeout", r, err)
+	}
+	if r.DoneAt < 900 || r.DoneAt > 1450 || r.SettledAt < 1450 {
+		t.Fatalf("the outcome at %.0f ms, settled at %.0f ms; want about 1000, then after the step's 1500", r.DoneAt, r.SettledAt)
+	}
+	if r.Released != 1 || len(r.Leases) != 1 {
+		t.Fatalf("released %d, leases %+v; want the step's one lease released at onSettled", r.Released, r.Leases)
+	}
+	l := r.Leases[0]
+	if !l.Released || l.UsedReleased || l.LastUse < 1450 || l.ReleasedAt < l.LastUse {
+		t.Fatalf("lease %+v: the abandoned step used it until about 1500 ms, and it must be released only after that", l)
+	}
+	t.Logf("resource release: the outcome at %.0f ms, the lease's last use at %.0f ms, released at %.0f ms", r.DoneAt, l.LastUse, l.ReleasedAt)
+}
+
 // A host runs a root script as a script job (WA-4), and gets a run that
 // does not start refused, with its reason.
 func TestHostScriptRun(t *testing.T) {
@@ -1107,6 +1218,42 @@ func TestHostRecycleModules(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("health %+v; want the modules trigger", h)
 		}
+	}
+}
+
+// The retired-entry recycle trigger (F3b, F3a's follow-up): it trips once
+// the host's pooled-connection layer reports more entries retired and not
+// released than the host allows, which only the process's exit frees (ADR
+// 0004 host mode item 5); health reports it and onRecycle hears it.
+func TestHostRecycleRetired(t *testing.T) {
+	s := supervise(t, 30000, "WL_RECYCLE_RETIRED=2")
+	retire := func() {
+		t.Helper()
+		resp, err := s.client.Get("http://host/retire")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	retire()
+	retire()
+	// The trigger is checked at every heartbeat (a second by default).
+	time.Sleep(1500 * time.Millisecond)
+	if h := s.health(t); h.Recycle != nil {
+		t.Fatalf("health %+v at the maximum; want no trigger", h)
+	}
+	retire()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		h := s.health(t)
+		if h.Recycle != nil && *h.Recycle == "retired" && h.Recycled != nil && *h.Recycled == "retired" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("health %+v; want the retired trigger", h)
+		}
+	}
+	if r, err := s.run("f/host/echo", "t", map[string]any{"x": 1}, nil); err != nil || r.Status != "success" {
+		t.Fatalf("%+v, %v: the host decides what a trigger means; it lives on", r, err)
 	}
 }
 
@@ -1248,4 +1395,114 @@ func buildPluginBundle(t *testing.T, f *conformance.PluginFile) string {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// The SDK–engine version pairing (ADR 0009, milestone F3b): a host takes
+// the SDK of its engine's release. A host whose SDK is stamped with another
+// release than its engine (bun run --define WL_RELEASE, as a release
+// stamps it; the engine's version as -X main.version sets it) is refused
+// in the handshake with version_mismatch, and its connect rejects with
+// that code; one stamped with the engine's release is welcomed and runs.
+func TestHostVersionPairing(t *testing.T) {
+	compiledHost(t)
+	bun := os.Getenv("WL_BUN")
+	const release = "v9.9.9"
+	bundleDir, err := buildHostBundleFor(bun, filepath.Join(t.TempDir(), "bundle"), release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := filepath.Abs("testdata/host/host.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamped := func(v string) []string {
+		return []string{bun, "run", "--define", fmt.Sprintf("WL_RELEASE=%q", v), script}
+	}
+	engine := "WL_TEST_ENGINE_VERSION=" + release
+
+	t.Run("another release is refused", func(t *testing.T) {
+		engineBin, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir, err := os.MkdirTemp("", "wl-h-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(dir)
+		argv := stamped("v9.9.8")
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", engine, "WL_ENGINE="+engineBin, "WL_BUNDLE="+bundleDir, "WL_HOST_SOCKET="+filepath.Join(dir, "host.sock"))
+		out, err := cmd.Output()
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 3 || !strings.HasPrefix(string(out), "refused version_mismatch ") || !strings.Contains(string(out), "v9.9.8") {
+			t.Fatalf("%v: %q; want the host refused with version_mismatch", err, out)
+		}
+	})
+
+	t.Run("an engine of another release that does not check is refused by the SDK", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "wl-h-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(dir)
+		engineBin, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := stamped(release)
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "WL_TEST_FAKE_ENGINE=v9.9.7", "WL_ENGINE="+engineBin, "WL_BUNDLE="+bundleDir, "WL_HOST_SOCKET="+filepath.Join(dir, "host.sock"))
+		out, err := cmd.Output()
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 3 || !strings.HasPrefix(string(out), "refused version_mismatch ") || !strings.Contains(string(out), "v9.9.7") {
+			t.Fatalf("%v: %q; want the SDK to refuse the engine with version_mismatch", err, out)
+		}
+	})
+
+	t.Run("the engine's release is welcomed", func(t *testing.T) {
+		s := superviseHost(t, stamped(release), bundleDir, 30000, engine)
+		r, err := s.run("f/host/echo", "t", map[string]any{"x": 1}, nil)
+		if err != nil || r.Status != "success" {
+			t.Fatalf("%+v, %v", r, err)
+		}
+	})
+}
+
+// fakeEngine is an engine of release version that does not check the
+// host's SDK version, as an engine from before the pairing does: it
+// answers the host's hello with a welcome, and waits for the host to go
+// (TestHostVersionPairing).
+func fakeEngine(version string) int {
+	conn, err := harness.HostConn()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer conn.Close()
+	var hdr [4]byte
+	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
+		return 1
+	}
+	payload := make([]byte, binary.BigEndian.Uint32(hdr[:]))
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		return 1
+	}
+	m, err := harness.Decode(payload)
+	hello, ok := m.(harness.Hello)
+	if err != nil || !ok {
+		return 1
+	}
+	w, err := harness.Encode(harness.Welcome{Proto: harness.ProtocolVersion, Engine: version, Bundle: hello.Bundle,
+		Config: &harness.WelcomeConfig{ModuleState: "warm", HeartbeatMS: 1000, MaxMessage: harness.DefaultMaxMessage}})
+	if err != nil {
+		return 1
+	}
+	if _, err := conn.Write(append(binary.BigEndian.AppendUint32(nil, uint32(len(w))), w...)); err != nil {
+		return 1
+	}
+	_, _ = io.Copy(io.Discard, conn)
+	return 0
 }

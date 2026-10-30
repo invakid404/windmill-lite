@@ -50,11 +50,11 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
-| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
+| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json`, `protocol/host/versions.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
 | plugins | `plugins/hooks.yaml` | in use (milestone F2c); run by `go test ./wl` (a TypeScript plugin in `warm` processes, and Go callbacks) and `go test ./cmd/windmill-lite` (the host SDK's plugin in host mode), on the pinned Bun |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | hooks | `hooks/<topic>.yaml` | in use (milestone F2b): `hooks/latch-precedence.yaml`, the latch-precedence cases of [ADR 0008](../docs/design/0008-host-hooks.md): the latch (H5), cancellation and deadlines (H4), fatal error names (H7), halts (H8) and the clock (H10) against retry, `continue_on_error`, `skip_failures` and the failure module, each case a synthetic flow of identity modules, the host's signals and what the run must show; windmill-lite's rules (provenance `policy`), never recorded; run by `go test ./wl` (`TestHookCases`) through the public hooks |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2, E3f), `flows/control-flow/cf-*` (E3d, N3c, NI, E3f) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a, E3f), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2, E3f), the other `flows/oracle/*` and `flows/openflow/*` fixtures (E3e, E3f), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -580,6 +580,15 @@ a stack. `left-behind` and `platform-left-behind` expect the `left_behind`
 warning ahead of the result; `welcome-fresh`, `fresh-one-invocation` and
 `fresh-exit` run a harness in `fresh` mode, which serves one invocation and
 exits with it.
+
+**`host/versions.json`** (milestone F3b) holds the cases of the SDK–engine
+version pairing ([ADR 0009](../docs/design/0009-host-adapters.md)): a host
+SDK's version, its hello's harness version, against an engine's, and
+whether they pair (an unstamped `dev` or `(devel)` pairs with anything; two
+stamped releases pair when equal). Both sides run them: the engine's
+`harness.VersionsPair`, which refuses a host with `version_mismatch` in the
+handshake (`go test ./internal/harness`), and the SDK's `versionsPair`,
+which refuses such an engine's welcome (`bun test`).
 
 **`host/workdir.json`** (milestone F3a) holds host mode's working-directory
 cases ([ADR 0004](../docs/design/0004-harness-protocol.md), the

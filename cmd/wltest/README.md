@@ -131,7 +131,7 @@ and exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of
@@ -144,10 +144,12 @@ It prints `pass` or `fail`, the case and its file, or the fixture and the
 run, then each difference; `unsupported`, the fixture, the run and why it
 was not checked; and a summary. It exits 1 when a case or run failed or a
 file or fixture is invalid, and 2 for usage errors. Unsupported runs do not
-fail it. `--mode` is `warm` (the default) or `fresh` (milestone C3b); host
-mode is F3b's. Flow fixtures run in either mode, through `wl` (milestone
-F1): in `fresh` each step gets a harness process of its own, as a step case
-does. `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
+fail it. `--mode` is `warm` (the default), `fresh` (milestone C3b) or
+`host` (milestone F3b, flow fixtures and expression files only). Flow
+fixtures run in any mode, through `wl` (milestone F1): in `fresh` each step
+gets a harness process of its own, as a step case does; in `host` each
+fixture's steps run in a Bun host that embeds the host SDK (host mode,
+below). `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
 `WL_NODE`, and empty skips the Node side of CommonJS codebase cases
 (below); the build refuses any Bun but the pin. `--repo` defaults to the
 nearest directory up from the working directory that holds `harnesses/bun`, whose build helper needs its
@@ -271,7 +273,8 @@ a few at a time (`flows.go`):
    bundle is built again without them; a folder that does not load, or a
    build that fails as a whole, fails every run.
 2. **Run.** The bundle is opened with `wl.Open`
-   ([wl](../../wl/README.md)) in the mode of `--mode`, on the pinned Bun and
+   ([wl](../../wl/README.md)) in the mode of `--mode` (`host` builds it
+   warm and opens it in host mode, below), on the pinned Bun and
    the repository's harness runtime, with the fixture's named `providers`
    as `wl.Options.Providers` (`fixtureProviders`: each answers its sites
    with its result or its error, or declines), and with its host data
@@ -519,8 +522,8 @@ Windmill v1.767.0's image).
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
   N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
-  E3f:
-  every run the flow suite requires passes in `warm` and in `fresh`,
+  E3f, and the flow-suite half of F3b's: every run the flow suite requires
+  passes in `warm` and in `fresh`, and in `host` (F3b),
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API; F2a, whose
   runs are `host/provided`'s, the run-time half of ADR 0002's provided-site
@@ -623,6 +626,51 @@ Windmill v1.767.0's image).
     other failing with `group_not_concurrent`, a failed run with
     `group_member_failed`, and a run that starts no module holding up no
     other.
+
+### Host mode
+
+`--mode host` (milestone F3b, the flow suite half of its gate) runs each
+fixture's runs on a Bun host that embeds the host SDK
+(`testdata/flowhost/host.ts`), whose steps run in the host's own process
+over the host-mode transport (ADR 0004 host mode), as every host's do.
+The checker keeps the engine in its own process (`hostmode.go`): the
+fixture's bundle is opened with `wl.Options.Host`, the runtime
+`windmill-lite host` opens, so that each run's trace, its hooks (effect
+sinks, concurrent groups) and its cancellation with a reason stay the
+checker's, as in warm and fresh mode.
+
+- **The engine the SDK spawns** is wltest itself (the test binary in
+  `go test`), in proxy mode (`WLTEST_ENGINE_PROXY`): it passes the host's
+  socket and child channel, its file descriptors 3 and 4, to the checker
+  over a Unix socket (`engineProxy`), then waits until the checker has
+  closed the runtime, when it exits and the host sees its engine exit and
+  exits. It keeps its own copies open until then: on macOS, closing a
+  socket while it is still in flight to the checker could end the
+  connection before the checker received it, which failed a fixture's
+  start now and then.
+- **Teardown** (`hostRuntime.close`) closes the runtime, then the host's
+  socket and child channel, which the runtime does not own, and the
+  proxy's connection; it waits for the host to exit and copies the host's
+  output, which went to a file, into the fixture's diagnostics.
+- **The watchdog is off,** since the engine is not the host's child here;
+  the engine's parent check is the watchdog's (ADR 0004 host mode item 4).
+  The watchdog's own cases run on the real topology, in
+  `cmd/windmill-lite`.
+- **One generation per fixture.** The host lives as long as its fixture;
+  one lost before its engine closes, its process exited or its connection
+  ended, fails every run it took, whatever those runs observed. The host's
+  output goes to a file, not a pipe: the proxy inherits it, and a pipe
+  would keep the host's wait open while the proxy lives.
+
+`hostmode_test.go` checks that a host killed after its fixture's runs
+fails them all (`TestHostModeHostLossFailsTheFixture`) and that closed
+fixtures leave no descriptor open, with garbage collection off
+(`TestHostModeClosesItsChannels`).
+- **The host's environment** is the base environment a spawned harness
+  gets (`harness.BaseEnv`), and its working directory is the fixture's.
+
+`TestFlowSuite` runs the suite in `warm`, `fresh` and `host` mode; every
+required run must pass in all three.
 
 ## Version
 

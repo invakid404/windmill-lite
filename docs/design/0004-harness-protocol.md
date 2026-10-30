@@ -602,8 +602,10 @@ change:
    resolves has the outcome of every run the engine took, unless the
    timeout came first. Recycle triggers
    that the host sets (resident memory over a threshold on consecutive
-   heartbeats, more script modules loaded than a cap) are reported through
-   `health()` for the host to act on; the SDK never drains on its own.
+   heartbeats, more script modules loaded than a cap, more pooled entries
+   retired and not released than a cap, which the host's pooled-connection
+   layer counts) are reported through `health()` for the host to act on;
+   the SDK never drains on its own.
 4. **The watchdog.** A host whose event loop is blocked (a step spinning in
    a synchronous loop) cannot answer anything, including its own health
    checks, so recovery cannot depend on it. The engine is a separate process
@@ -641,7 +643,10 @@ change:
      host is still its parent (`getppid()` equals the handshake pid); on
      Linux it also opens a pidfd of the host at the handshake, once that
      check holds, and signals through it, so the moment between the check
-     and the signal cannot reach a process that took the pid.
+     and the signal cannot reach a process that took the pid. The parent
+     check is the watchdog's: with the watchdog off (`killAfter` 0) the
+     engine signals no one, so a host it is not the child of is served
+     (`wltest check --mode host` keeps the engine in its own process).
 5. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
    `onRunSettled` fires when the run's abandoned invocations have all
    settled, which may be never. A resource that an abandoned invocation may
@@ -1090,6 +1095,15 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   `clock`, and run_done's `deviations`, without which a host-mode run had
   no write-capable site, deadline or record clock and never reported
   `may_have_mutated`.
+- Milestone F3b gated host mode (ADR 0012): the flow suite runs on a Bun
+  host that embeds the SDK and runs the steps in its own process, the
+  never-settling-step, watchdog, `watchdog/finite-cpu` and resource-release
+  tests and the H11 policy case run on a compiled host under a supervisor
+  that only restarts it on exit. It made the handshake's parent check the
+  watchdog's only, added the `retired` recycle trigger, and made the
+  harness version the release a host's SDK shares with its engine
+  (`version_mismatch`, [0009](0009-host-adapters.md)); the hello's
+  `harness.version` is now that release, `dev` in the repository.
 - Milestone F3a completed host mode on the engine's `wl` library and real
   bundles: `hello` gained `workdir` and the engine checks the host's
   working directory (host mode item 7, with the `engine_refused` reject

@@ -1,11 +1,12 @@
 // Developer checks of the host SDK's connect options (host/index.ts). The
 // host-mode gate runs in cmd/windmill-lite against a compiled host.
 
-import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkWorkdir, connect, HostError } from "../host/index.ts";
+import { HARNESS_VERSION, versionsPair } from "../runtime/version.ts";
 
 test("importing the SDK publishes the process scope, before any connect, for the host's own modules to capture", () => {
   const scope = (globalThis as Record<symbol, { capture: () => unknown } | undefined>)[Symbol.for("windmill-lite.processScope")];
@@ -23,6 +24,17 @@ async function code(p: Promise<unknown>): Promise<string | undefined> {
 
 type WorkdirCase = { case: string; title: string; workdir: string; cwd_mode?: string; other_mode?: string; expect: string | null };
 
+// The temporary directories the tests make, removed once they have run.
+const made: string[] = [];
+function tempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+}
+afterAll(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+
 // The shared cases of host mode's working-directory checks, which the
 // engine runs too (internal/harness, TestHostWorkdirCases).
 const workdir = (await Bun.file(new URL("../../../conformance/protocol/host/workdir.json", import.meta.url)).json()) as { cases: WorkdirCase[] };
@@ -32,7 +44,7 @@ describe("conformance/protocol/host/workdir.json", () => {
   for (const c of workdir.cases) {
     // Root writes through a read-only mode, so those checks cannot fail there.
     test.skipIf(root && (c.cwd_mode !== undefined || c.other_mode !== undefined))(`${c.case}: ${c.title}`, () => {
-      const dir = mkdtempSync(join(tmpdir(), "wl-host-workdir-"));
+      const dir = tempDir("wl-host-workdir-");
       const cwd = join(dir, "cwd");
       const other = join(dir, "other");
       mkdirSync(cwd);
@@ -58,13 +70,30 @@ describe("conformance/protocol/host/workdir.json", () => {
   }
 });
 
+// The shared cases of the SDK–engine version pairing, which the engine runs
+// too (internal/harness, TestVersionPairingCases): the SDK refuses a
+// welcome from an engine of another release (ADR 0009, milestone F3b).
+type VersionCase = { case: string; title: string; sdk: string; engine: string; pairs: boolean };
+const versions = (await Bun.file(new URL("../../../conformance/protocol/host/versions.json", import.meta.url)).json()) as { cases: VersionCase[] };
+
+describe("conformance/protocol/host/versions.json", () => {
+  for (const c of versions.cases) {
+    test(`${c.case}: ${c.title}`, () => {
+      expect(versionsPair(c.sdk, c.engine)).toBe(c.pairs);
+    });
+  }
+  test("the repository's own SDK is unstamped", () => {
+    expect(HARNESS_VERSION).toBe("dev");
+  });
+});
+
 test("connect checks the working directory before it starts the engine", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "wl-host-test-"));
+  const dir = tempDir("wl-host-test-");
   expect(await code(connect({ engine: "/nonexistent", bundle: dir, workdir: dir }))).toBe("workdir_mismatch");
 });
 
 test("an engine that cannot start is engine_start", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "wl-host-test-"));
+  const dir = tempDir("wl-host-test-");
   writeFileSync(join(dir, "manifest.json"), "{}");
   const cwd = process.cwd();
   process.chdir(dir);
@@ -76,7 +105,7 @@ test("an engine that cannot start is engine_start", async () => {
 });
 
 test("connect extracts the bundle's codebase assets into the working directory before it starts the engine", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "wl-host-test-"));
+  const dir = tempDir("wl-host-test-");
   const bundle = join(dir, "bundle");
   const work = join(dir, "work");
   mkdirSync(join(bundle, "assets", "data"), { recursive: true });

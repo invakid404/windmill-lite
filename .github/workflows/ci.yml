@@ -24,6 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # cmd/wltest's flow suite runs in warm, fresh and host mode (milestone
+    # F3b), about 9 minutes under -race on macOS before host mode.
     timeout-minutes: 25
     steps:
       - name: Check out repository
@@ -103,10 +105,7 @@ jobs:
         # instead of a skip, so the harness protocol and build tests, the
         # Q-WA-4 test and the host-mode tests (a host compiled with bun build
         # --compile) always run here; WL_REQUIRE_NODE does the same for
-        # D13's Node side of the step suite. The flow suite runs every
-        # fixture in two modes, which on macOS under -race already took
-        # nearly go test's default 10 minutes before batch E3f, so the
-        # timeout is set inside the job's.
+        # D13's Node side of the step suite.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
           WL_REQUIRE_BUN: "1"

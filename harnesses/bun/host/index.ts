@@ -68,13 +68,17 @@ export type ConnectOptions = {
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
   watchdog?: { killAfter: number };
   /** Recycle triggers (none by default): health() reports the first that
-   * trips, and onRecycle is called once with it ("rss" or "modules"). A
-   * host that sees one drains and exits, and its supervisor starts a new
-   * generation. rss trips when the resident set is at least rss bytes on
-   * samples consecutive heartbeats (default 2); modules when more than
-   * that many script modules are loaded, since a module stays loaded for
-   * the life of the process (ADR 0006). */
-  recycle?: { rss?: number; samples?: number; modules?: number };
+   * trips, and onRecycle is called once with it ("rss", "modules" or
+   * "retired"). A host that sees one drains and exits, and its supervisor
+   * starts a new generation. rss trips when the resident set is at least
+   * rss bytes on samples consecutive heartbeats (default 2); modules when
+   * more than that many script modules are loaded, since a module stays
+   * loaded for the life of the process (ADR 0006); retired when the host's
+   * pooled-connection layer reports more than max entries retired but not
+   * released: entries it superseded, whose leases an abandoned invocation
+   * may still hold, so that only the process's exit frees them (ADR 0004
+   * host mode item 5). count is asked at every heartbeat. */
+  recycle?: { rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } };
   onRecycle?: (reason: string) => void;
   /** Called when the connection to the engine ends other than by close().
    * The default writes a line to stderr and exits with code 1, so that the
@@ -332,6 +336,16 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             if (rssSamples >= (triggers.samples ?? 2)) trip("rss", `${h.rss} bytes resident on ${rssSamples} heartbeats, the trigger is ${triggers.rss}`);
           }
           if (triggers.modules !== undefined && h.modules > triggers.modules) trip("modules", `${h.modules} script modules loaded, more than ${triggers.modules}`);
+          if (triggers.retired !== undefined) {
+            let n: number;
+            try {
+              n = triggers.retired.count();
+            } catch (e) {
+              diag(`windmill-lite: the retired-entry count failed: ${e instanceof Error ? e.message : String(e)}`);
+              return;
+            }
+            if (n > triggers.retired.max) trip("retired", `${n} pooled entries retired and not released, more than ${triggers.retired.max}`);
+          }
         }
       : undefined,
     exit: (code) => {

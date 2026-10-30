@@ -116,7 +116,7 @@ func attach(t *testing.T, cfg HostConfig, hello Hello) (*fakeHost, *Process, err
 }
 
 func hostHello() Hello {
-	return Hello{Proto: ProtocolVersion, Harness: HarnessInfo{Kind: "bun", Version: "test"}, Runtime: PinnedBun, Caps: Caps{Fetch: true, Host: true}, Bundle: "sha256:b", PID: fakeHostPID}
+	return Hello{Proto: ProtocolVersion, Harness: HarnessInfo{Kind: "bun", Version: "dev"}, Runtime: PinnedBun, Caps: Caps{Fetch: true, Host: true}, Bundle: "sha256:b", PID: fakeHostPID}
 }
 
 func (h *fakeHost) send(m Message) {
@@ -175,25 +175,28 @@ func echoRun(ctx context.Context, p *Process, r RunRequest) RunDone {
 }
 
 // ADR 0004 host mode item 4: in host mode the engine is the host's child,
-// so the process that greets it must be its parent; a host must offer the
-// host capability.
+// so the process that greets it must be its parent, which its watchdog
+// would signal; with the watchdog off (F3b) that check, the watchdog's,
+// does not apply. A host must offer the host capability.
 func TestHostHandshake(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		edit  func(*Hello)
-		ppid  int
-		code  string
-		works bool
+		name      string
+		edit      func(*Hello)
+		ppid      int
+		killAfter time.Duration
+		code      string
+		works     bool
 	}{
-		{"parent", func(*Hello) {}, fakeHostPID, "", true},
-		{"not the parent", func(*Hello) {}, fakeHostPID + 1, RejectPID, false},
-		{"no host capability", func(h *Hello) { h.Caps.Host = false }, fakeHostPID, RejectHarness, false},
-		{"runtime", func(h *Hello) { h.Runtime = "1.4.2" }, fakeHostPID, RejectRuntime, false},
+		{"parent", func(*Hello) {}, fakeHostPID, 0, "", true},
+		{"not the parent", func(*Hello) {}, fakeHostPID + 1, 0, RejectPID, false},
+		{"not the parent, no watchdog", func(*Hello) {}, fakeHostPID + 1, WatchdogOff, "", true},
+		{"no host capability", func(h *Hello) { h.Caps.Host = false }, fakeHostPID, 0, RejectHarness, false},
+		{"runtime", func(h *Hello) { h.Runtime = "1.4.2" }, fakeHostPID, 0, RejectRuntime, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			hello := hostHello()
 			tc.edit(&hello)
-			h, p, err := attach(t, HostConfig{Run: echoRun, getppid: func() int { return tc.ppid }}, hello)
+			h, p, err := attach(t, HostConfig{Run: echoRun, KillAfter: tc.killAfter, getppid: func() int { return tc.ppid }}, hello)
 			w := h.expect(TypeWelcome).(Welcome)
 			if tc.works {
 				if err != nil || w.Config == nil || w.Config.ModuleState != "warm" || p.PID() != fakeHostPID {

@@ -136,10 +136,20 @@ a new protocol.
   engine opens only a bundle its own version built (refusing the host with
   `engine_refused` otherwise), and the handshake checks the protocol
   version, the harness kind, the pinned Bun and the bundle digest. The
-  SDK's own version is not compared with the engine's yet: that needs the
-  release to stamp it, so an SDK of another release that speaks the same
-  protocol is not refused. A host that pins the engine binary by digest
+  SDK's own version was not compared with the engine's then: that needed the
+  release to stamp it. A host that pins the engine binary by digest
   does so itself (as `pack --single --host bun` will, F6).
+- Milestone F3b made the pairing real. The SDK's version is the harness
+  version its hello names (`harnesses/bun/runtime/version.ts`), which a
+  release stamps with `--define WL_RELEASE='"vX.Y.Z"'` when it runs or
+  builds the host, or by setting the default in its tag; the repository's
+  own is `dev`. The engine refuses a host whose stamped SDK version differs
+  from its own stamped version with `version_mismatch` in the handshake,
+  and the SDK refuses an engine of another release in the welcome too, so
+  that an engine from before the check is not used either. An unstamped
+  version (`dev`, a development build's `(devel)`) pairs with anything,
+  since there is no release to compare. Both sides run the cases of
+  `conformance/protocol/host/versions.json`.
 
 ## Spec IDs relied on
 

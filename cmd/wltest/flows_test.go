@@ -83,10 +83,12 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite is the exit gate of milestones E1, N1a and F1: every run
-// the flow suite requires passes in warm and in fresh mode, through wl on
-// the engine and the real Bun harness on the pinned Bun, each compared
-// with its expect or recording. Every other fixture under
+// TestFlowSuite is the exit gate of milestones E1, N1a and F1, and in host
+// mode part of F3b's: every run the flow suite requires passes in warm and
+// in fresh mode, through wl on the engine and the real Bun harness on the
+// pinned Bun, and in host mode, on a Bun host that embeds the host SDK and
+// runs the steps in its own process (hostmode.go), each compared with its
+// expect or recording. Every other fixture under
 // conformance/flows, and every expression file under conformance/exprs as
 // its generated one-step flow fixture, also runs: each must load, and its
 // runs are reported as passing, failing or unsupported, with the reason.
@@ -108,7 +110,7 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
 	}
 	dirs = append(dirs, exprs...)
-	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh} {
+	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh, ModeHost} {
 		t.Run(mode, func(t *testing.T) {
 			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js}
 			type outcome struct {

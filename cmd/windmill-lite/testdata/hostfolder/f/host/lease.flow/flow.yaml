@@ -1,0 +1,6 @@
+summary: A step that holds a lease of the host's pool and runs on for flow_input.ms after its timeout of 1 s abandons it (the resource-release test of ADR 0004)
+value:
+  modules:
+    - id: a
+      timeout: 1
+      value: {type: script, path: f/host/lease, input_transforms: {ms: {type: javascript, expr: flow_input.ms}}}

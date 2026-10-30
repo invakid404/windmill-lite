@@ -1,0 +1,6 @@
+summary: A step that computes synchronously and returns, with a step timeout of 10 s (case watchdog/finite-cpu of ADR 0004)
+value:
+  modules:
+    - id: a
+      timeout: 10
+      value: {type: script, path: f/host/compute, input_transforms: {ms: {type: javascript, expr: flow_input.ms}}}
