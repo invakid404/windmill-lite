@@ -37,17 +37,27 @@ ignore = [
 ]
 include = []
 
+# The writing standard is docs/writing.md, and the glossary is
+# docs/glossary.md. As guidance files, Memoria lists them in every review
+# after the inline entries, and they are not inputs of any README. The
+# inline entries are the review checklist: the standard's checkable rules,
+# and what a reviewer verifies before an acknowledgement. Keep the limits
+# here equal to docs/writing.md and scripts/check-docs.py; the script's
+# tests compare them.
 [documentation]
 guidance = [
-    "Write in windmill-lite's house style: concise, technically precise, and honest about current state. Distinguish what ships from what is a stub, prototype, or planned. Never use marketing language, superlatives, or forward-looking claims dressed as present-tense capability.",
-    "Every README states its current state near the top, and every nested README also declares its document scope there; the root README leads with product and problem instead. State what the package or directory does today, what is stubbed, and what depends on unshipped work. When a claim is quantitative (test count, version, file count), quote it from source; otherwise omit the number.",
-    "Cross-check every prose claim against the code in the document's scope before acknowledgement. If the README describes exported names, commands, flags, or behaviour that no longer matches source, edit the README rather than acknowledging the drift.",
-    "Root README.md is the one document written for a new consumer: lead with product, problem, current state, and an index of every module README and of docs/. Nested READMEs stay inside their own directory; they may import short summaries from providers via `memoria render` but must not duplicate whole sections.",
+    "Review against the writing standard (docs/writing.md) and the glossary (docs/glossary.md), which Memoria lists after these entries. Read both before you review. These entries are the checklist of the standard's checkable rules.",
+    "Structure: each heading names one topic. The most important fact comes first in the document, in each section and in each paragraph. A procedure is numbered steps with one action each, a set is a bullet list, and a comparison or reference data is a table.",
+    "Length: a block of prose (a paragraph, a list item or a table cell) has at most 4 sentences and at most 80 words, and a sentence has at most 40 words. CI reports the blocks and sentences over these limits (scripts/check-docs.py).",
+    "Sentences: active voice; present tense for what the code does today; articles kept; no noun cluster of more than three nouns; values with their units, quoted from the source; no marketing language, and no planned work described as shipped.",
+    "Words: each glossary term only in its glossary meaning, and one term for one thing throughout the document.",
+    "Every README starts with a **Current state:** line that says what works today, what is a stub and what waits on later work; a nested README states its scope there too. The root README leads with the product and the problem, then its current state, a quick start, and an index of every module README and of docs/.",
+    "User-facing documents (the root README, the package READMEs and the guides) carry no milestone IDs, process history or review notes. Each fact has one home: link to it, or repeat it only through a Memoria import (`memoria render`). Never copy whole sections between READMEs.",
+    "Cross-check every claim against the code in the document's scope before you acknowledge. When the document describes a name, command, flag or behaviour that no longer matches the source, edit the document instead of acknowledging the drift.",
     "Clean room: describe Windmill behaviour in your own words, citing public documentation, the Apache-2.0 parts of Windmill, or observed behaviour. Never quote, translate, or paraphrase line by line any AGPL or proprietary Windmill source. Identifiers, JSON field names, enum values, and error strings that compatibility requires are fine.",
-    "Use GitHub-flavoured Markdown; use Mermaid for diagrams with neutral wording and default rendering (no theme/color overrides). Give each diagram one claim. Keep code fences, paths, identifiers, and quoted errors byte-exact.",
-    "Prefer short sections with clear takeaways and progressive detail over long walls. Explain each term the first time it appears. Number multi-step procedures.",
+    "Markdown: GitHub-flavoured; Mermaid diagrams with neutral wording, the default rendering (no theme or colour overrides) and one claim each; code spans, code blocks, paths, identifiers and quoted errors byte-exact.",
 ]
-guidance_files = []
+guidance_files = ["docs/writing.md", "docs/glossary.md"]
 section_guidance_files = []
 
 [fingerprints]
