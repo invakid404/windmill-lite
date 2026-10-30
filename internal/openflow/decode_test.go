@@ -275,10 +275,16 @@ func TestRestrictedTransforms(t *testing.T) {
 	if tt := v.Modules[0].Timeout; tt.Type != JavaScript || tt.Expr != "" {
 		t.Fatalf("timeout = %+v", tt)
 	}
+	// A loop's parallelism takes the ai type, which holds every iteration
+	// (CF-7/e); a timeout does not (below).
+	v = decodeOK(t, `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"modules":[],"parallelism":{"type":"ai"}}}]}`)
+	if l, ok := v.Modules[0].Value.(*ForLoop); !ok || l.Parallelism == nil || l.Parallelism.Type != AI {
+		t.Fatalf("parallelism = %+v", v.Modules[0].Value)
+	}
 	checkRejects(t, []rejectCase{
 		{"expr checked under static", identityWith(`,"timeout":{"type":"static","value":1,"expr":2}`), ErrFlowValue, "expected a string"},
 		{"value checked under javascript", identityWith(`,"timeout":{"type":"javascript","expr":"1","value":1.5}`), ErrFlowValue, "expected i32"},
-		{"ai is not allowed", identityWith(`,"timeout":{"type":"ai"}`), ErrFlowValue, "got value: ai for field `type`"},
+		{"ai is not allowed in a timeout", identityWith(`,"timeout":{"type":"ai"}`), ErrFlowValue, "got value: ai for field `type`"},
 		{"missing type", identityWith(`,"timeout":{"value":1}`), ErrFlowValue, "missing field `type`"},
 		{"bare string", identityWith(`,"timeout":"30"`), ErrFlowValue, `invalid type: string "30", expected i32 or an input transform object`},
 		{"bare float", identityWith(`,"timeout":1.5`), ErrFlowValue, "floating point"},

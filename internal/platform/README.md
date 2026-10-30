@@ -195,8 +195,16 @@ for a script job, its job variables.
   work it still runs.
 - **The lookups.** `Services.RootJob` answers `getRootJobId`: the
   effective root of a known job. `Services.JobEnv` gives the job variables
-  of a known script job, from which a resource read made with its `job_id`
-  resolves `$WM_*` strings (`APIEnv`).
+  of a known script job. `Services.ReadJobEnv` finds the job a resource
+  read's `job_id` names, as Windmill looks it up among the queued and
+  running jobs of the path's workspace
+  ([WA-12](../../docs/semantics/client-api.md#wa-12)/g, FU8): a live script
+  job of that workspace gives the variables its `$WM_*` strings resolve
+  from (`APIEnv`); an unknown id, a job that has ended and a job of
+  another workspace fail with the API's 404 `Not found: Job not found at
+  name <id>` (without Windmill's location, D14), and a live flow job,
+  whose job variables the registry does not keep, with
+  `ErrNoJobVariables`.
 
 **Flow user state** ([WA-14](../../docs/semantics/client-api.md#wa-14)) is
 a key/value map per flow job, which the stock helpers address by their
@@ -214,9 +222,10 @@ effective root, read from that registry, and forgets a run's maps when
 the run's registration through `Services.JobRegistry` ends and the
 registry no longer reports it live: windmill-lite's lifetime policy
 (WA-14's design note), faithful for every access the stock helpers make
-during the run; so a write by id after the run is refused with the 404,
-where whether Windmill accepts it is
-[Q-WA-10](../../docs/semantics/client-api.md#q-wa-10). So that it stays
+during the run, and for a read or a write by id after the run, which
+gets `null` or the 404 as Windmill answers them once the root's
+completion is committed (WA-14/c;
+[Q-WA-10](../../docs/semantics/client-api.md#q-wa-10), answered). So that it stays
 bounded with a registry that knows runs registered elsewhere, it also
 drops, each time it has doubled since the last sweep, the maps of jobs
 the registry no longer reports live, which no read could see. A host's
@@ -299,7 +308,12 @@ One walker implements resolution for the three contracts of
   only when it starts with a marker.
 - **Contract (b)** starts at depth 0, loads a nested `$res:` at the
   referring string's depth plus one (its path needs a `/`), and resolves
-  `$WM_*` strings only from a job's variables: `APIEnv` of a job's process
+  `$WM_*` strings only from a job's variables. A read that names its job
+  by id (`InterpolatedResourceOf`, the facade's `job_id`) looks it up
+  through a `JobLookup` only when the walk meets a `$WM_*` string, at each
+  one, so a value without one reads as if no job had been named, and a
+  failed lookup fails the read with its error (WA-12/g). The variables
+  are `APIEnv` of a job's process
   environment, its stored root in place of its effective root, so a step
   directly in a top-level flow sees `""` there
   ([WA-V3](../../docs/semantics/client-api.md#wa-v3),
@@ -343,6 +357,7 @@ One walker implements resolution for the three contracts of
   read and write after the run, with its maps forgotten), with a host's
   `Jobs` (writes, reads and the maps forgotten with the run), bounded with
   a registry whose runs end elsewhere, and with a host's `FlowUserState`;
+  the job a resource read's `job_id` names (`TestReadJobEnv`, WA-12/g);
   and the services' one registry, shared by callers that first ask at
   once.
 - `objects_test.go` (PF3) checks `DirObjects`: storages kept apart,
@@ -363,9 +378,14 @@ One walker implements resolution for the three contracts of
   WR-5/a to /e, FX-42/h and FX-51/c, among others, through the three
   contracts. It also checks the secret layer (plaintext, ciphertext with
   and without a host's `Secrets`, a host's resolvers), the chains, and
-  `APIEnv`; `TestUpdateVariable` the updates, a chain's included, and
-  `TestWithProviders` the per-run providers and what they share.
+  `APIEnv`; `TestInterpolatedReadJobLookup` that a read's job is looked
+  up only for a `$WM_*` string, nested resources included, and that a
+  failed lookup fails the read (WA-12/g); `TestUpdateVariable` the
+  updates, a chain's included, and `TestWithProviders` the per-run
+  providers and what they share.
 - `json_test.go` checks the double notation, parse and write, and the
-  parse errors with their positions.
+  parse errors with their positions, among them the reference's examples
+  of an input that ends early (`[` and `[1,2` an unclosed list, `[1,` a
+  value due).
 - `data_test.go` loads `testdata/bundle/data/`, a bundle's `data/` in
   internal/bundle's format.

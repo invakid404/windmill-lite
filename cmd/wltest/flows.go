@@ -65,8 +65,8 @@ type runResult struct {
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
 // fails. The slowest runs wait for real: a transition the monitor of
 // flows that hang between steps cancels at 60 s (JE-2/a), and retry delays
-// that add up to 26 s (FX-26/a).
-const flowRunTimeout = 150 * time.Second
+// that add up to 26 s (FX-26/a). Tests replace it.
+var flowRunTimeout = 150 * time.Second
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
 // its runs' results.
@@ -693,10 +693,13 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if err != nil {
 		return []string{"run: " + err.Error()}
 	}
+	// A canceled run has its trace too, so a run that timed out leaves no
+	// counter files either.
+	tr := res.Trace
+	defer removeCounters(tr)
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	tr := res.Trace
 	// A run whose calls disagree with its trace fails, and its observation
 	// is still compared, so that what made its steps fail is shown too.
 	var problems []string
@@ -724,6 +727,35 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	}
 	problems = append(problems, compareRun(f, r, got, generated)...)
 	return append(problems, checkDelays(tr, r.Delays)...)
+}
+
+// counterDir is where fixtures keep the files that count a step's attempts
+// across retries; tests replace it.
+var counterDir = "/tmp"
+
+// removeCounters removes the files a run's steps left in counterDir to
+// count their attempts across retries, which the fixtures name
+// wl-<fixture>-<job id>-<tag> after a job of the run (its root, a child
+// flow, or a step's own job): on Windmill they live in the worker's /tmp,
+// but a windmill-lite run would leave them in the host's (N5's follow-up).
+// Files named after other runs' jobs are left alone.
+func removeCounters(t *engine.Trace) {
+	ids := []string{t.RunID}
+	for _, c := range t.Children {
+		ids = append(ids, c.ID)
+	}
+	for _, rec := range t.Steps {
+		ids = append(ids, rec.Job)
+	}
+	for _, id := range ids {
+		if id == "" || strings.ContainsAny(id, `/\*?[`) {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(counterDir, "wl-*-"+id+"-*"))
+		for _, m := range matches {
+			os.Remove(m)
+		}
+	}
 }
 
 // checkDelays checks a run's delays on windmill-lite's side (JE-28, FX-23,

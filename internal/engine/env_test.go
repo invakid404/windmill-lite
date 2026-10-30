@@ -28,18 +28,21 @@ func (e *envs) Execute(_ context.Context, inv Invocation) (StepOutcome, error) {
 	return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte("null"))}, nil
 }
 
-// A path script's own envs reach a Bun step's environment under every
-// variable the worker sets later, a later entry winning (WR-22, WA-2); a
-// native step's environment has none of them (WR-45).
-func TestScriptEnvs(t *testing.T) {
+// envsEngine opens an engine on a folder whose three path scripts, a Bun
+// one (f/t/plain), a //native one (f/t/headed, bunnative) and a nativets
+// one (f/t/nativets), have the envs entries given, and whose flow f/t/main
+// runs them in that order as steps a, b and c.
+func envsEngine(t *testing.T, entries []string, exec StepExecutor) *Engine {
+	t.Helper()
 	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
 	if jsErr != nil {
 		t.Fatal(jsErr)
 	}
-	meta := "summary: ''\ndescription: ''\nkind: script\nenvs:\n" +
-		"  - 'A=1'\n  - 'B=x=y'\n  - 'A=2'\n  - 'EMPTY='\n  - 'NOEQUALS'\n  - '=nameless'\n" +
-		"  - 'WM_WORKSPACE=mine'\n  - 'WM_TOKEN=mine'\n  - 'PATH=/mine'\n  - 'BASE_URL=http://mine'\n  - 'BASE_INTERNAL_URL=http://internal'\n" +
-		"schema:\n  type: object\n  properties: {}\n  required: []\n"
+	meta := "summary: ''\ndescription: ''\nkind: script\nenvs:\n"
+	for _, e := range entries {
+		meta += "  - '" + e + "'\n"
+	}
+	meta += "schema:\n  type: object\n  properties: {}\n  required: []\n"
 	fsys := fstest.MapFS{
 		"wmill.yaml":               {Data: []byte("defaultTs: bun\n")},
 		"f/t/plain.ts":             {Data: []byte("export async function main() { return null }\n")},
@@ -49,7 +52,7 @@ func TestScriptEnvs(t *testing.T) {
 		"f/t/nativets.fetch.ts":    {Data: []byte("export async function main() { return null }\n")},
 		"f/t/nativets.script.yaml": {Data: []byte(meta)},
 		"f/t/main.flow/flow.yaml": {Data: []byte(`{"summary":"t","value":` +
-			flowOf(mod("a", "plain", "", ""), mod("b", "headed", "", ""), mod("c", "nativets", "", "")) + `}`)},
+			flowOf(mod("a", "plain", "", `"continue_on_error":true`), mod("b", "headed", "", `"continue_on_error":true`), mod("c", "nativets", "", "")) + `}`)},
 	}
 	folder, err := syncfolder.Load(fsys)
 	if err != nil {
@@ -60,11 +63,21 @@ func TestScriptEnvs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec := &envs{got: map[string]map[string]string{}, bnd: map[string]Boundary{}}
 	e, err := New(Config{Program: prog, Bundle: "sha256:test", Exec: exec, JS: jsEng, Workspace: "ws"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return e
+}
+
+// A path script's own envs reach a Bun step's environment under every
+// variable the worker sets later, each entry split at its first "=", an
+// empty name kept, a later entry winning (WR-22, WA-2); a native step's
+// environment has none of them (WR-45).
+func TestScriptEnvs(t *testing.T) {
+	exec := &envs{got: map[string]map[string]string{}, bnd: map[string]Boundary{}}
+	e := envsEngine(t, []string{"A=1", "B=x=y", "A=2", "EMPTY=", "=nameless",
+		"WM_WORKSPACE=mine", "WM_TOKEN=mine", "PATH=/mine", "BASE_URL=http://mine", "BASE_INTERNAL_URL=http://internal"}, exec)
 	if tr := runIt(t, e, "{}", nil); tr.Status != conformance.RunSuccess {
 		t.Fatalf("status %s, result %s", tr.Status, tr.Result)
 	}
@@ -72,12 +85,12 @@ func TestScriptEnvs(t *testing.T) {
 	if exec.bnd["f/t/plain"] != BoundaryBun {
 		t.Fatalf("f/t/plain runs at %q", exec.bnd["f/t/plain"])
 	}
-	for k, want := range map[string]string{"A": "2", "B": "x=y", "EMPTY": "", "BASE_INTERNAL_URL": "http://internal", "WM_WORKSPACE": "ws", "WM_FLOW_STEP_ID": "a"} {
+	for k, want := range map[string]string{"A": "2", "B": "x=y", "EMPTY": "", "": "nameless", "BASE_INTERNAL_URL": "http://internal", "WM_WORKSPACE": "ws", "WM_FLOW_STEP_ID": "a"} {
 		if got, ok := bun[k]; !ok || got != want {
-			t.Errorf("a Bun step's %s is %q (%v), want %q", k, got, ok, want)
+			t.Errorf("a Bun step's %q is %q (%v), want %q", k, got, ok, want)
 		}
 	}
-	for _, k := range []string{"NOEQUALS", "", "PATH", "BASE_URL"} {
+	for _, k := range []string{"PATH", "BASE_URL"} {
 		if v, ok := bun[k]; ok {
 			t.Errorf("a Bun step's environment has %q = %q", k, v)
 		}
@@ -92,15 +105,51 @@ func TestScriptEnvs(t *testing.T) {
 		if exec.bnd[script] != BoundaryNative {
 			t.Fatalf("%s runs at %q", script, exec.bnd[script])
 		}
-		for _, k := range []string{"A", "B", "EMPTY", "BASE_INTERNAL_URL"} {
+		for _, k := range []string{"A", "B", "EMPTY", "", "BASE_INTERNAL_URL"} {
 			if v, ok := env[k]; ok {
-				t.Errorf("native step %s has the script's env %s = %q", script, k, v)
+				t.Errorf("native step %s has the script's env %q = %q", script, k, v)
 			}
 		}
 		if env["WM_WORKSPACE"] != "ws" {
 			t.Errorf("native step %s's WM_WORKSPACE is %q", script, env["WM_WORKSPACE"])
 		}
 	}
+}
+
+// WR-22/c: an envs entry with no "=" fails a Bun job, and a bunnative one,
+// whose runtime ignores the entries, before it runs, with the worker's
+// execution error quoting the first such entry; a nativets job never reads
+// them and runs. The same holds for a script run by path.
+func TestScriptEnvsWithoutEquals(t *testing.T) {
+	exec := &envs{got: map[string]map[string]string{}, bnd: map[string]Boundary{}}
+	e := envsEngine(t, []string{"A=1", "NOEQ", "B"}, exec)
+	tr := runIt(t, e, "{}", nil)
+	wantStatus(t, tr, conformance.RunSuccess, "null")
+	for _, id := range []string{"a", "b"} {
+		rec := step(t, tr, id)
+		if rec.Status != conformance.StepFailure || !rec.Ran || rec.ResultOrigin != OriginEngine {
+			t.Fatalf("%s %+v", id, rec)
+		}
+		sameJSON(t, id+"'s result", rec.Result, `{"error":{"message":"execution error:\nBad request: Invalid env var: NOEQ. Must be in the form of KEY=VALUE","name":"ExecutionErr","step_id":"`+id+`"}}`)
+	}
+	if _, ran := exec.got["f/t/plain"]; ran {
+		t.Error("the Bun script ran")
+	}
+	if _, ran := exec.got["f/t/headed"]; ran {
+		t.Error("the bunnative script ran")
+	}
+	if _, ran := exec.got["f/t/nativets"]; !ran {
+		t.Error("the nativets script did not run")
+	}
+
+	res, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/plain", Args: jsonval.FromProducer([]byte(`{}`))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ran := exec.got["f/t/plain"]; !res.Failed || ran {
+		t.Fatalf("the script run %+v, ran %v", res, ran)
+	}
+	sameJSON(t, "the script run's result", res.Result, `{"error":{"message":"execution error:\nBad request: Invalid env var: NOEQ. Must be in the form of KEY=VALUE","name":"ExecutionErr"}}`)
 }
 
 // The worker copies its own NODE_PATH into a Bun job's environment after

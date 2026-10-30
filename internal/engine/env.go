@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/ir"
+	"github.com/invakid404/windmill-lite/internal/openflow"
 )
 
 // laterBunVariables are the variables Windmill's worker sets in a Bun job's
@@ -41,25 +43,46 @@ func workerSets(k string) bool {
 
 // addScriptEnvs adds a path script's own envs, the KEY=VALUE entries of
 // its metadata, to the environment of a Bun invocation of it (WR-22, item
-// 1 of its assembly order): every other source overrides them, so a name
-// the worker sets later, or one env already holds, is skipped, and among
-// the entries a later one wins. An entry with no "=", or with an empty
-// name, sets nothing. A native invocation gets none of them: the native
-// runtime's process.env holds only the base URLs and the reserved
-// variables (WR-45).
-func addScriptEnvs(env map[string]string, s *ir.Script, b Boundary) {
-	if s == nil || s.Metadata == nil || b != BoundaryBun {
-		return
+// 1 of its assembly order). Each entry is split at its first "=", with
+// nothing trimmed, so an empty name is kept; every other source overrides
+// them, so a name the worker sets later, or one env already holds, is
+// skipped, and among the entries a later one wins. A native invocation
+// gets none of them: the native runtime's process.env holds only the base
+// URLs and the reserved variables (WR-45).
+//
+// The worker reads the entries for every job of the common language
+// dispatch, a bunnative one's included, before it resolves the job's
+// arguments: an entry with no "=" fails the job before it runs, which the
+// returned error says (envError). A nativets job is dispatched before
+// that step, and its entries are never read (WR-22).
+func addScriptEnvs(env map[string]string, s *ir.Script, b Boundary) error {
+	if s == nil || s.Metadata == nil || s.Language == openflow.LangNativeTS {
+		return nil
 	}
 	own := map[string]string{}
 	for _, e := range s.Metadata.Envs {
-		if k, v, ok := strings.Cut(e, "="); ok && k != "" && !workerSets(k) {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok {
+			return envError(e)
+		}
+		if !workerSets(k) {
 			own[k] = v
 		}
+	}
+	if b != BoundaryBun {
+		return nil
 	}
 	for k, v := range own {
 		if _, set := env[k]; !set {
 			env[k] = v
 		}
 	}
+	return nil
+}
+
+// envError is the worker's refusal of an envs entry with no "=" (WR-22),
+// a bad request that the job's execution error quotes after its
+// "execution error:\n" lead-in (WR-37).
+func envError(entry string) error {
+	return errors.New("Bad request: Invalid env var: " + entry + ". Must be in the form of KEY=VALUE")
 }

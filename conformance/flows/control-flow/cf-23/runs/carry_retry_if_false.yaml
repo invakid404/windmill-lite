@@ -1,0 +1,11 @@
+# CF-23/f's control: with retry_if false inside retry, b runs one branch
+# job only and the flow fails as in CF-23/d (i).
+spec: [CF-23/f]
+target: f/cf23/carry_retry_if_false
+expect:
+  status: failure
+  result: 1
+  steps:
+    "m:b": {status: failure, branch_chosen: {type: default}, result: {error: {name: InternalError, message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}, carried: 1}
+    "m:b/b:default/m:r": {status: success, args: {x: 1}, result: 1}
+    "m:b/b:default/m:l": {status: not_run, ran: false}

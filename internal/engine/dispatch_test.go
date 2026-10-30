@@ -103,6 +103,52 @@ func TestDispatcherRunsRoots(t *testing.T) {
 	}
 }
 
+// FX-48/d, FX-51/d, FX-51/e: a run request whose arguments jsonb refuses
+// is refused with no job, as Windmill's run API answers it, with HTTP 400
+// and a plain-text body: the database error, SqlErr, for a NUL in a value
+// or a key, a number beyond numeric's range and an unpaired surrogate in a
+// value; and, for an unpaired surrogate in a top-level key, which the API
+// decodes first, Bad request: invalid json with the JSON library's message
+// and position, which internal/platform's reader of that library's rules
+// gives too.
+func TestDispatchRefusesUnstorableArguments(t *testing.T) {
+	s := &scripts{}
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("s", js("flow_input.s")), ""))}, s, testServices(t))
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	for _, c := range []struct {
+		args, body string
+		key        bool
+	}{
+		{`{"s": "x\u0000y"}`, "SqlErr: error returned from database: unsupported Unicode escape sequence", false},
+		{`{"k\u0000": 1}`, "SqlErr: error returned from database: unsupported Unicode escape sequence", false},
+		{`{"x": 1e131072}`, "SqlErr: error returned from database: value overflows numeric format", false},
+		{`{"k": "\ud83d"}`, "SqlErr: error returned from database: invalid input syntax for type json", false},
+		{`{"k\ud83d": 1}`, "Bad request: invalid json: unexpected end of hex escape at line 1 column 10", true},
+		{`{"k\udc00": 1}`, "Bad request: invalid json: lone leading surrogate in hex escape at line 1 column 9", true},
+		{`{"k\ud83d\n": 1}`, "Bad request: invalid json: unexpected end of hex escape at line 1 column 11", true},
+		{"{\"a\": \"\\u0000\",\n \"k\\ud83d\\u0041\": 1}", "Bad request: invalid json: lone leading surrogate in hex escape at line 2 column 15", true},
+		{`{"ok\ud83d\ude00": "\ud83d"}`, "SqlErr: error returned from database: invalid input syntax for type json", false},
+	} {
+		for _, kind := range []platform.DispatchKind{platform.DispatchFlow, platform.DispatchScript} {
+			target := map[platform.DispatchKind]string{platform.DispatchFlow: "f/t/main", platform.DispatchScript: "f/t/echo"}[kind]
+			id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: kind, Target: target, Args: []byte(c.args)})
+			var pe *platform.Error
+			if id != "" || !errors.As(err, &pe) || pe.HTTPStatus() != 400 || pe.Body() != c.body {
+				t.Errorf("%s %s: id %q, error %v", kind, c.args, id, err)
+			}
+		}
+		if c.key {
+			if _, err := platform.Reprint([]byte(c.args)); err == nil || "Bad request: invalid json: "+err.Error() != c.body {
+				t.Errorf("%s: the library's reader says %v", c.args, err)
+			}
+		}
+	}
+	if len(s.invs) != 0 {
+		t.Fatalf("a refused run ran %v", s.calls())
+	}
+}
+
 // gate holds every invocation until released, or until its context ends.
 type gate struct {
 	release chan struct{}

@@ -1,0 +1,15 @@
+# CF-23 route 3 in a branchone inside a loop: in iteration 0 the branch
+# aborts when s starts, r's sleep a string (FX-23/c), so the branch job
+# stores the InternalError and b carries the branch's last value, r's 1,
+# which ends the iteration and is the loop's entry; the loop does not skip
+# failures, so the flow fails with it.
+spec: [CF-23, FX-23/c]
+target: f/cf23/carry_in_loop
+expect:
+  status: failure
+  result: [1]
+  steps:
+    "m:l": {status: failure, result: [1]}
+    "m:l/i:0/m:b": {status: failure, branch_chosen: {type: default}, result: {error: {name: InternalError, message: "Expected an integer, found: String(\"1\")"}}, carried: 1}
+    "m:l/i:0/m:b/b:default/m:r": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:0/m:b/b:default/m:s": {status: not_run, ran: false}

@@ -552,7 +552,7 @@ func TestEngineStorageFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, tr, conformance.RunFailure, `{"e":{"name":"Anyhow","message":"Error: error returned from database: unsupported Unicode escape sequence"}}`)
+	wantStatus(t, tr, conformance.RunFailure, `{"e":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
 	if a := step(t, tr, "a"); a.Ran || a.Status != conformance.StepFailure {
 		t.Fatalf("a %+v", a)
 	}

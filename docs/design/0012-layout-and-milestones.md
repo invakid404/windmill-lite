@@ -511,10 +511,14 @@ waits on an external gate except R1.
   loop's re-entry starts only its first push from its last failed child's
   input; that the sleep before a parallel container delays every child of
   its push; and that a canceled container completes as a failure of
-  `Canceled` entries. The oracle contradicted CF-25/a: a squashed loop runs
-  on CE as an ordinary loop, so `squash` has no effect, and the manifest
-  lists the contradiction. FX-15/b, which N2 left to NI, passed first
-  under N3c, which merged first, through its declared `copies`. PF3 merged first
+  `Canceled` entries. The oracle contradicted CF-25/a, which holds only
+  for a build without the `private` feature: the CE image completed every
+  recorded squashed loop with its unsquashed result (CF-25/d), and the
+  manifest lists the contradiction. The recordings do not show whether CE
+  reuses one runtime across iterations (Q-CF-19), so the engine accepts
+  `squash` and ignores it, running the loop unsquashed. FX-15/b, which N2
+  left to NI, passed first under N3c, which merged first, through its
+  declared `copies`. PF3 merged first
   with WA-6/b's `client-api/flow-path/retry`, a retry in a loop's body,
   which NI's engine runs, so NI requires it. N3c left a retry on a subflow
   step refused for NI; no case of NI's row covers it, so it stayed refused,

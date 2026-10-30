@@ -51,8 +51,9 @@ func TestProviderRoutes(t *testing.T) {
 		// With the job's id, $WM_* strings are its stored fields: the
 		// stored root of a direct step is "".
 		{"WA-V3", "resources/get_value_interpolated/u/test/context?job_id=S", 200, "application/json", `{"job":"S","root":""}`},
-		// A job the facade does not know of.
-		{"WA-12", "resources/get_value_interpolated/u/test/context?job_id=nope", 501, "text/plain", UnsupportedPrefix + "GET /w/{ws}/resources/get_value_interpolated/{path}"},
+		// A job the job registry does not know of, looked up for a $WM_*
+		// string (WA-12/g).
+		{"WA-12/g", "resources/get_value_interpolated/u/test/context?job_id=nope", 404, "text/plain", "Not found: Job not found at name nope"},
 	} {
 		t.Run(c.spec+" "+c.path, func(t *testing.T) {
 			rep := intercept(f, "inv-a", "GET", "http://x"+base+c.path, nil, nil)
@@ -68,6 +69,58 @@ func TestProviderRoutes(t *testing.T) {
 	rep := intercept(f, "inv-a", "POST", "http://x"+base+"variables/create", nil, []byte(`{}`))
 	if rep.Status != 501 || string(rep.Body) != UnsupportedPrefix+"POST /w/{ws}/variables/create" {
 		t.Errorf("create: %d %s", rep.Status, rep.Body)
+	}
+}
+
+// WA-12/g: a read's job_id is looked up only for a $WM_* string, so a
+// value without one reads as if none had been sent, whatever it names.
+// For one, the job must be live and of the path's workspace: a random
+// UUID, a job that has ended and a job of another workspace answer 404,
+// and the caller's own job resolves. A live flow job, whose job variables
+// windmill-lite does not keep, answers 501, which the policy counts.
+func TestReadWithAJobID(t *testing.T) {
+	store := platform.NewStore()
+	for path, v := range map[string]string{"u/x/plain": `{"a":1}`, "u/x/ctx": `{"j":"$WM_JOB_ID"}`} {
+		if err := store.SetResource(path, platform.Resource{Type: "object", Value: json.RawMessage(v)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	services := &platform.Services{Resources: store}
+	f := newFacade(t, Config{Platform: services})
+	const run, step, done, foreign = "00000000-0000-4000-8000-0000000000f0", "00000000-0000-4000-8000-0000000000f1", "00000000-0000-4000-8000-0000000000f2", "00000000-0000-4000-8000-0000000000f3"
+	const random = "00000000-0000-4000-8000-0000000000ff"
+	endRun := services.JobRegistry().Begin(platform.Job{ID: run, Kind: platform.JobFlow, Root: run})
+	defer endRun()
+	s := f.Register("inv-a", run, env(step, run, "tok-a"))
+	defer s.End()
+	f.Register("inv-done", run, env(done, run, "tok-done")).End()
+	o := map[string]string{"WM_JOB_ID": foreign, "WM_FLOW_JOB_ID": run, "WM_ROOT_FLOW_JOB_ID": run, "WM_ROOT_JOB_ID": run, "WM_TOKEN": "tok-o", "WM_WORKSPACE": "other"}
+	defer f.Register("inv-o", run, o).End()
+	read := func(path, id string) harness.PlatformReply {
+		return intercept(f, "inv-a", "GET", "http://x/api/w/ws/resources/get_value_interpolated/"+path+"?job_id="+id, nil, nil)
+	}
+	for _, id := range []string{random, done, foreign, step, run, "nope"} {
+		if rep := read("u/x/plain", id); rep.Status != 200 || string(rep.Body) != `{"a":1}` {
+			t.Errorf("u/x/plain with %s: %d %s", id, rep.Status, rep.Body)
+		}
+	}
+	for _, id := range []string{random, done, foreign} {
+		if rep := read("u/x/ctx", id); rep.Status != 404 || rep.Headers["content-type"] != "text/plain" || string(rep.Body) != "Not found: Job not found at name "+id {
+			t.Errorf("u/x/ctx with %s: %d %s", id, rep.Status, rep.Body)
+		}
+	}
+	if rep := read("u/x/ctx", step); rep.Status != 200 || string(rep.Body) != `{"j":"`+step+`"}` {
+		t.Errorf("u/x/ctx with its own job: %d %s", rep.Status, rep.Body)
+	}
+	if got := s.Unsupported(context.Background()); len(got) != 0 {
+		t.Fatalf("unsupported before the flow job's read: %q", got)
+	}
+	const flowJob = UnsupportedPrefix + "GET /w/{ws}/resources/get_value_interpolated/{path} with the job_id of a flow job"
+	if rep := read("u/x/ctx", run); rep.Status != 501 || string(rep.Body) != flowJob {
+		t.Errorf("u/x/ctx with a live flow job: %d %s", rep.Status, rep.Body)
+	}
+	if _, message := s.unsupported(context.Background()); message != flowJob {
+		t.Errorf("the policy's message %q", message)
 	}
 }
 

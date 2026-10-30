@@ -22,16 +22,6 @@
       "expected_in": "internal/yamlx/testdata/sy9.json (A2)"
     },
     {
-      "spec": "SY-5/d",
-      "reason": "the published CLI's exact warning for a missing lock file, on standard output, which FU4 asked for: `Error reading inline path: <path>, Error: ENOENT: …`. The loader already gives the lock \"\" with a warning (SY-5/a here), but words the cause itself (`the file is missing`, internal/syncfolder); the semantics reference added the case on 2026-10-29 (SC3), and no recording holds it yet",
-      "expected_in": "a follow-up of A4 adopts the exact warning text; E3f records the CLI's output (docs/design/README.md, CLI warnings on push)"
-    },
-    {
-      "spec": "SY-19/e",
-      "reason": "the published CLI's text for a flow inline lock the decoder refuses: the lock \"\" with the missing-file warning `Lock file a.inline_script.lock not found, treating as empty` on standard error, which FU4 asked for. The loader already gives the lock \"\" (sy-19.json, the variant for a refused inline lock reached only as a reference), but with its own warning, `Error reading inline path: …` around the decoder's message (internal/syncfolder); the semantics reference added the case on 2026-10-29 (SC3), and no recording holds it yet",
-      "expected_in": "a follow-up of A4 adopts the exact warning text; E3f records the CLI's output (docs/design/README.md, CLI warnings on push)"
-    },
-    {
       "spec": "PA-3/a",
       "reason": "a schema clean-up for typed client generation, not the loader",
       "expected_in": "F7c and F7d (windmill-lite gen)"

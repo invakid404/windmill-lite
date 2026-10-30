@@ -84,7 +84,11 @@ func TestParseErrors(t *testing.T) {
 		{`"\x"`, "invalid escape at line 1 column 3"},
 		{`01`, "invalid number at line 1 column 2"},
 		{`tru`, "EOF while parsing a value at line 1 column 3"},
-		{`[`, "EOF while parsing a value at line 1 column 1"},
+		{`[`, "EOF while parsing a list at line 1 column 1"},
+		{"[ \n", "EOF while parsing a list at line 2 column 0"},
+		{`[1,2`, "EOF while parsing a list at line 1 column 4"},
+		{`[1,`, "EOF while parsing a value at line 1 column 3"},
+		{`{"a":1} x`, "trailing characters at line 1 column 9"},
 		{"{\n\"a\":1", "EOF while parsing an object at line 2 column 5"},
 		{strings.Repeat("[", 129) + strings.Repeat("]", 129), "recursion limit exceeded at line 1 column 129"},
 	} {
