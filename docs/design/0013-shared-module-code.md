@@ -306,7 +306,7 @@ decision below, which describes it in full.
 - **Deviation:** none in module state. It changes only three things (D18):
   - where dependency code is, as stack text and in a load error's message,
     and the names and source text that bundling gives it;
-  - when an ES module dependency initialises relative to a CommonJS one;
+  - when an ES module dependency's default export is read;
   - whether code, or a whole module, that a per-script bundle removed as
     unused can run.
 - **The other aspects:** below, under the decision.
@@ -320,8 +320,8 @@ decision below, which describes it in full.
 2. **JavaScriptCore's sharing of byte-identical sources** saves 8 of 42 MiB
    per module in the model. Bundles differ by their entry code, so a design
    cannot rely on it.
-3. **The runtime's kept metadata** costs about 0.5 MiB per module. F8b keeps
-   only the fields the runtime reads.
+3. **The runtime's kept metadata** costs about 0.5 MiB per module. The
+   runtime keeps only the fields it reads.
 4. **An uncompiled host** costs 42 rather than 55 MiB per module in the
    model. Hosts compile for deployment, so the target below is set on a
    compiled host.
@@ -366,8 +366,21 @@ instance of every module it imports, as on Windmill.
    - The build writes one CommonJS file per group, its **closure**. It holds
      every dependency module that any script of the group reaches, each
      behind the bundler's lazy wrapper.
-   - It exports a function that makes a fresh instance: a table from each
-     module's key to its initialiser.
+   - It exports a function that runs it for a fresh instance, with the
+     step module's scope (item 3). Its entry hands back a table from each
+     module's key to its initialiser, through a property of its own on the
+     global object rather than its `module.exports`, so the instance's
+     `module` stays the step's.
+   - **The file** is in Bun's own form of a module that a bundler wrote,
+     which Bun loads without transpiling it again. A large closure that Bun
+     transpiled would cost its first step module more than the per-script
+     bundle does. It is a CommonJS file (`// @bun @bun-cjs`).
+   - **An ES module codebase group's closure** is an ES module (`// @bun`)
+     instead. An ES module binds no `module` or `exports`, so dependency
+     code that reads either finds no binding, as in its ES module
+     per-script bundle. Bun's own bundler gives the ES module dependencies
+     of a Bun-built group free placeholders for those names in both
+     layouts, so their closure stays CommonJS.
    - **A module is its resolved file,** as in the bundler's module graph. A
      group resolves in one installation, so a module's key is its path:
      from the sync root for the folder's and the codebase's files, and in
@@ -389,17 +402,28 @@ instance of every module it imports, as on Windmill.
    - **The script's module.** Each script's module in the shared layout is
      its own code, with every import of a dependency module resolved to its
      instance's table. A plugin that only maps paths does this, as for
-     0010's other transforms. The script's own code and its dependencies
-     reach one instance of each injected module, as each module of a
-     per-script bundle imports the one copy that esbuild injects.
+     0010's other transforms.
+   - **Injected modules.** The script's own code and its dependencies reach
+     one instance of each injected module, as each module of a per-script
+     bundle imports the one copy that esbuild injects. The script's module
+     injects a proxy that re-exports the file's names from its instance.
    - **Making the instance.** When a step's module loads, it makes its
-     instance of the closure with its own `module`, `require`, `__filename`
-     and `__dirname`, and, for an ES module group, its own `import.meta`.
-     Dependency code that reads them, or that requires a file at run time,
-     sees the step's own, as in its per-script bundle (WR-50). A dynamic
-     `import()` resolves from the file that holds it, whatever the
-     instance passes, so item 5 keeps such a script on its per-script
+     instance of the closure with its own `require`, `__filename` and
+     `__dirname`. A CommonJS module also passes its `module` and `exports`;
+     an ES module has neither, as Bun runs it, and passes its
+     `import.meta`. Dependency code that reads them, changes the step's
+     `module.exports`, or requires a file at run time then sees the step's
+     own, as in its per-script bundle: a codebase bundle runs as the job's
+     module ([WR-50](../semantics/languages.md#wr-50)).
+   - **A dynamic `import()`** resolves from the file that holds it, whatever
+     the instance passes, so item 5 keeps such a script on its per-script
      bundle.
+   - **The `import.meta` parameter.** A bundler replaces only free
+     references with a define, so a binding of the parameter's name in a
+     dependency, at its top level or as a function's parameter, would
+     capture `import.meta`. The closure's parameter is therefore the first
+     of `__wl_meta`, `__wl_meta_2`, … that no input of the closure spells,
+     as 0010 chooses the env rewrite's binding.
    - **`import.meta.env`.** For an ES module group, the define table's
      rewrite of `import.meta.env` applies to dependency code as it does to
      an ES module bundle.
@@ -407,11 +431,28 @@ instance of every module it imports, as on Windmill.
      step's instance the first time the step reaches it. Cycles initialise
      as in the per-script bundle. A dependency the step never reaches never
      runs in its instance.
-   - **ES module scripts** (Bun-built scripts and `format: esm` entries)
-     reach their dependencies through CommonJS interop, with the same
-     `__esModule` and default-import rules as their per-script bundles. A
-     named import is then read from the module at each use, so live
-     bindings still hold.
+   - **Import order.** Dependencies initialise in import order, ES modules
+     and CommonJS ones alike, as in a per-script bundle: esbuild 0.28.0 and
+     Bun 1.3.10 both keep import order there. esbuild splits the entry's
+     code around each hoisted ES module.
+   - **CommonJS dependencies** are reached through a CommonJS reference,
+     with the bundler's interop as in the per-script bundle.
+   - **ES module dependencies** are reached through an ES module reference,
+     which re-exports the module's named exports, live through getters, and
+     exports its default. A named import is read from the module at each
+     use, so live bindings still hold.
+   - **Why an ES module reference.** A CommonJS reference alone would not
+     do. A bundler gives an ES module importer Node's interop with a
+     CommonJS module, whose default import is the whole exports object, and
+     Bun does so always.
+   - **Export names.** The reference lists the module's export names, which
+     the build reads from a bundle of the module alone. The namespace object
+     that the step's entry takes then has the module's names, in the order
+     its bundler gives a namespace. It does not have the CommonJS interop
+     marker (`__esModule`) of the reference that the names are read from.
+   - **Initialisation through a reference.** The reference imports the
+     module whatever names the step reads, so the module initialises as the
+     per-script bundle's import of it does.
    - **Pruning.** An import that the per-script bundle drops whole, such as
      a `sideEffects: false` module whose exports are unused, is dropped in
      the shared layout too, unless another script of the group reaches the
@@ -431,11 +472,10 @@ instance of every module it imports, as on Windmill.
      esbuild's `keepNames` off (WR-47), so a renamed function or class has
      another `.name`, and `Function.prototype.toString` of dependency code
      returns the closure's text.
-   - **Initialisation order.** A per-script bundle hoists an ES module
-     dependency and initialises it before the step first requires a
-     CommonJS dependency. In the shared layout, every dependency initialises
-     when the step first reaches it, in import order, so the two can run
-     their load effects in another order.
+   - **Default exports.** An ES module dependency's default export is read
+     when the step first reaches the module, so a default export that the
+     module reassigns later (`export { x as default }`, then `x = …`) keeps
+     the value it had then; its named exports stay live.
    - **Unused code.** A closure is the union of its group's scripts. Code
      that a per-script bundle removed as unused and free of effects can run
      in the shared layout when another script of the group uses it. That
@@ -451,8 +491,8 @@ instance of every module it imports, as on Windmill.
 5. **Where a script keeps its per-script bundle.** In some cases one shared
    closure cannot reproduce the per-script bundle. There, `warm` and host
    mode run the script's per-script bundle, the build warns
-   `shared_code_fallback` with the reason, and the script's metadata says
-   so. The cases:
+   `shared_code_fallback` with the reason and the module that causes it,
+   and the script's metadata says so. The cases:
    - **A `banner`** on its group's entry. A banner runs at the top of each
      output and declares bindings that both the entry's code and its
      dependencies' may read; this applies to the whole group.
@@ -467,6 +507,9 @@ instance of every module it imports, as on Windmill.
      closure would turn it into a synchronous `require`, with the `require`
      conditions, which cannot load a module with top-level `await`. In a
      CommonJS group both layouts already `require` it.
+   - **A module the runtime has built in** (Node's, with or without
+     `node:`, and Bun's own) loads the same either way, so an import of one
+     is not an external import here.
    - **A dynamic `import()` that the bundler keeps in a dependency module it
      reaches, in any group.** That is one whose specifier the bundler cannot
      resolve at build, such as `import(spec)` with a variable, or one that
@@ -481,8 +524,29 @@ instance of every module it imports, as on Windmill.
 
      A `require` with a variable specifier needs no fallback: it goes
      through the instance's `require`, which is the step's.
+   - **How kept imports are found.** The build parses the closure bundle,
+     so text that only looks like an `import()`, in a string or a comment,
+     does not count.
    - **A cycle through its own entry:** a dependency module that imports the
      script's own entry file.
+   - **A namespace object that its entry and a dependency module both
+     take,** of one ES module dependency. In the per-script bundle that is
+     one object. In the shared layout the entry's would be its reference
+     module's and the dependency's the closure's: two objects, which no
+     bundler interop makes one.
+     - A module takes a namespace object by a namespace import
+       (`import * as ns`), a namespace re-export (`export * as ns from`), or
+       an `import()` of a literal specifier, which the bundler resolves to
+       it.
+     - A script where only its entry, or only its dependencies, take it is
+       shared, since each side then sees one object.
+   - **An ES module dependency of its entry whose namespace a reference
+     cannot reproduce:**
+     - one whose namespace object the entry takes while the build cannot
+       list all its export names: a star re-export of a module that the
+       build leaves external, whose names are known only when it loads;
+     - one that exports a binding named `__esModule`, which the interop
+       marker of the reference's CommonJS module would shadow.
 6. **The bundle.**
    - **What stays.** The bundle keeps the per-script bundles byte for byte
      as without shared code. The parity check keeps comparing them with the
@@ -514,7 +578,7 @@ instance of every module it imports, as on Windmill.
    - Host-provided packages (option b) are not added: they would share
      state between steps, which shared code avoids.
 9. **Not the default.** A bundle built without the flag runs as today. A
-   later record can make shared code the default of `warm` once F8b's suites
+   later record can make shared code the default of `warm` once the suites
    have run both ways.
 
 **Memory target.** The target is the host's budget, for the host's shape:
@@ -527,11 +591,15 @@ instance of every module it imports, as on Windmill.
   1,000-run soak.
 - **On the public closure C,** the prototype holds 475 to 492 MiB with eight
   concurrent runs and 519 to 530 MiB at its peak.
-- **F8b's gate** runs C and S with the real shared layout in place of the
-  prototype, on the CI runners and on macOS:
+- **The gate,** on the real shared layout: `TestModuleMemoryClosure` and
+  `TestModuleMemory` assert it.
   - C: at most 650 MiB peak after its 1,000 runs, and at most 16 MiB per
     further module after a full collection;
   - S: at most 1.5 MiB per further module.
+- **Measured** on macOS, over several runs. S costs 0.17 to 0.27 MiB per
+  further module. C holds 439 to 450 MiB with its 34 modules loaded and 453
+  to 462 MiB with eight concurrent runs. It peaks at 492 to 497 MiB after
+  1,000 runs, at 9.9 to 10.3 MiB per further module.
 - **On its own bundle,** the host re-measures before it relies on the target.
 
 **Why not the others.**
@@ -557,9 +625,11 @@ instance of every module it imports, as on Windmill.
   rather than 3.6 to 3.8 s.
 - **The build** makes one more product per script and one closure per
   group.
-- **Conformance** gains a configuration: F8b runs the step and flow suites
-  in `warm` and host mode from bundles built with shared code. That is the
-  cost 0006 named for `shared`, accepted here for a host that needs it.
+- **Conformance** gains a configuration: the step cases of deviation
+  [D18](0001-equivalence-contract.md#5-named-deviations) run in `warm`
+  from a bundle built with shared code, and the flow suite in `warm` and
+  host mode from bundles built with it. That is the cost 0006 named for
+  `shared`, accepted here for a host that needs it.
 - **Two findings for 0010** come from the probes:
   - a host-provided file inside the folder that imports packages fails to
     build;
@@ -567,48 +637,60 @@ instance of every module it imports, as on Windmill.
 - **Two tests in the repository.** `TestModuleMemory` runs S in the three
   layouts wherever the host-mode tests run. `TestModuleMemoryClosure` runs
   C behind `WL_MEMORY_PROBE`, since it needs the network once and about
-  2 GiB. Both run the shared-code prototype until F8b replaces it with the
-  real layout.
+  2 GiB. Both run the real shared layout.
 
-## Conformance cases for F8b
+## Conformance cases
 
 **Step cases** go in `conformance/steps/bun/d18.yaml`. Each runs in `warm`
-and host mode from a bundle built with shared code, and in `fresh`, which
-runs the per-script bundles. Unless a case says otherwise, it has two or
-more scripts that share a dependency module:
+from a bundle built with shared code, and in `fresh`, which runs the
+per-script bundles. Host mode runs the flow suite and the memory tests
+with shared code instead, since step cases run on a spawned harness.
+
+Unless a case says otherwise, it has two or more scripts that share a
+dependency module. Each case is named `D18` with a variant that starts
+with its letter here (`a-state-per-script`), since the letters are not
+cases of the semantics catalogue:
 
 | Case | What it holds |
 |---|---|
 | D18/a | Module state per script: two scripts that count in a shared dependency's state each count their own calls (1 and 1, then 2 and 2 in `warm`; 1 and 1 in `fresh`); a script's own state, WR-1/a and WR-1/b, gives in shared code what it gives in `warm` |
 | D18/b | Identity per script: an object and a class a dependency exports are different for two scripts (`instanceof` across them is false) |
+| D18/b, namespaces | Within a script, an ES module dependency's namespace object is one object for its entry and its dependencies, directly and through a namespace re-export. The namespace object an entry takes has the module's names in its bundler's order and no `__esModule`. Both hold for Bun-built scripts and CommonJS and ES module codebase entries |
 | D18/c | A registry per script: two scripts that each register the same name in a dependency's registry, which refuses a second registration, both succeed (the `Order` probe, synthetic) |
 | D18/d | Lazy initialisation: a dependency a script never reaches runs no load effect in its instance; one required inside a function initialises at its first call, and its log line belongs to that invocation |
-| D18/e | Initialisation order: a script importing an ES module dependency and a CommonJS dependency, each with a load effect; the per-script order in `fresh`, the shared layout's import order in `warm` (deviation D18) |
+| D18/e | Initialisation order: a script importing an ES module dependency and a CommonJS dependency, each with a load effect, sees them initialise in import order in both layouts, as both bundlers keep it |
 | D18/f | Whole-module pruning: an unused import of a `sideEffects: false` module that no script of the group reaches runs no load effect in either layout |
 | D18/g | Unused code: an export whose `/* @__PURE__ */` initialiser has an effect after all, and a module that a `sideEffects: false` package re-exports beside one both scripts use, each used by one script and not by another; the other script's per-script bundle runs no effect, its shared instance does (deviation D18) |
 | D18/h | A codebase CommonJS dependency's `__dirname`, `__filename`, run-time `require` of an asset and `require` with a variable specifier are the step's, in both layouts (WR-50). A dependency's `import(spec)` with a variable specifier loads a step-local ES module asset, one of them with top-level `await`, and gives the per-script bundle's result in every layout, from scripts whose modules sit in two directories (two Bun-built scripts in different folders, and a codebase entry), so that one shared base cannot pass by accident |
+| D18/h, module and exports | An ES module dependency of a CommonJS codebase entry reads and changes the step's `module.exports` and reads its `exports`, as in the per-script bundle. One of an ES module codebase entry finds no binding of either, so reading one throws a `ReferenceError`, as in an ES module |
 | D18/i | An ES module group's dependency reads the step's `import.meta.url`, and `import.meta.env` gives each of concurrent invocations its own environment, in both layouts |
+| D18/i, the parameter | A dependency's own bindings named like the closure's `import.meta` parameter, at its top level and as a function's parameter, do not capture `import.meta` |
 | D18/j | Stack text and names: an error thrown in dependency code has the same name and message in both layouts, and its stack names the closure file in `warm`; two dependency modules that each declare a class of one name, and `Function.prototype.toString` of a dependency function, give the per-script bundle's names and text in `fresh` and the closure's in `warm` (deviation D18) |
 | D18/k | A load error: a dependency that throws while the step's module loads fails the step in both layouts; the `ExecutionErr` message's log tail names the closure file in `warm`, also when the tail is truncated (deviation D18) |
 | D18/l | Host-provided modules: a listed module that two scripts and a dependency of each import is the registered instance (D12), while the dependency is per script; the build still warns `host_module_shared_dependency` |
 | D18/m | Strictness: a sloppy CommonJS dependency imported by a script whose entry starts with `"use strict"` and by one whose entry does not reads an unbound `this` and assigns an undeclared variable as in each script's per-script bundle; a dependency of an ES module group runs strict, as in its ES module bundle |
-| D18/n | Interop: a Bun-built script and a `format: esm` codebase script read a dependency's live binding (`export let`, changed by a call) after the change; default and namespace imports of a CommonJS package, with and without `__esModule`, agree with the per-script bundle |
+| D18/n | Interop: a Bun-built script and a `format: esm` codebase script read a dependency's live binding (`export let`, changed by a call) after the change. Default and namespace imports of an ES module dependency give its default. Those of a CommonJS package, with and without `__esModule`, agree with the per-script bundle |
 | D18/o | Cycles: two dependency modules that import each other see each other's partial exports during initialisation, as in the per-script bundle |
 | D18/p | Physical copies: two copies of one package version that one script resolves from two places keep independent state, as in its per-script bundle |
 | D18/q | A script imported by another: its module in the importer's instance is not its own module as a root, and keeps state of its own |
 | D18/r | Injection: a script's own code and its dependencies reach one instance of an `inject` file, which another script's instance does not share |
 | D18/s | The fence: a timer a dependency starts while loading is not cleared when the loading invocation settles; one it starts during an invocation is (D9) |
 
-**Build cases** go in `conformance/build/d18.json`:
+**Build cases** go in `conformance/build/d18.json`, named the same way
+(`t-closure-membership`; `w` and `x` are checked within it):
 
 | Case | What it holds |
 |---|---|
 | D18/t | Closure membership: a group's dependency modules are in its closure, a script's own entry is not in its own role, the host-provided modules are not, and a module that two scripts resolve to one file is in it once |
+| D18/t, the parameter | A closure reads `import.meta` from a parameter whose name no input spells (`t-import-meta-binding`) |
 | D18/u | Groups: two codebase entries with different settings, an ordinary Bun script and a `//nodejs` one, and CommonJS entries with and without a leading `"use strict"` each get closures of their own; a module that two groups reach is in each |
 | D18/v | Installations: Bun-built scripts installed from identical locks are one group and share their modules; scripts of different locks are two groups, and a workspace file that both import resolves its package through each script's own lock, one version in each |
+| D18/v, targets | An ordinary Bun script and a `//nodejs` one of one lock reach a workspace module that re-exports a package with conditional exports. Each shared-layout module and closure takes its own target's files and names, whichever script the build meets first (`v-targets-bun-first`, `v-targets-node-first`) |
 | D18/w | The per-script bundles are byte for byte the same with and without shared code |
 | D18/x | The manifest: `shared_code: true`, the closures with their digests, D18 in the deviations, and another bundle digest than without shared code |
 | D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, a script of an ES module group whose dependency imports an external module statically (an asset with top-level `await`, and a package whose `import` and `require` conditions differ), a script of a CommonJS group and one of an ES module group whose dependency keeps an `import()` (a variable specifier, and an external one), and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
+| D18/y, namespaces | A script whose entry and a dependency module both take an ES module's namespace object, directly, through a namespace re-export or by an `import()` of a literal specifier, keeps its per-script bundle (`namespace_import`). One where only one side takes it is shared. Both hold for Bun-built scripts and CommonJS and ES module codebase entries (`y-namespace-imports`) |
+| D18/y, export names | A script whose entry imports an ES module whose namespace a reference cannot reproduce keeps its per-script bundle (`export_names`, `y-export-names`). Either its entry takes the namespace object while a star re-export of an external module leaves the names unknown, or the module exports `__esModule` |
 | D18/z | Native scripts are in no group and run in a realm of their own, as without shared code (D5) |
 
 **Flow and memory gates.**

@@ -250,6 +250,16 @@ run in the Bun harness (D5). `FindStepFiles` finds the files below its roots, `d
 aside, and `IsStepFile` tells one by its path. The format is described in
 [conformance](../../conformance/README.md#step-cases).
 
+A step file can also ask for shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)):
+
+- A file's `shared_code` builds its bundle with shared code.
+- A case's `scripts` are more entry scripts, by Windmill path, and a run's
+  `script` invokes one of them. `LoadStepFile` refuses a `scripts` path
+  that is not a Windmill path, and a run's `script` that is not one of
+  the case's `scripts`.
+- A Bun script's `files` may be workspace scripts that it imports
+  (`f/<folder>/<name>.ts`) without `codebase`.
+
 `CompareStep` compares one run's observation, the step's stored value as
 `{"status", "result"}`, with the run's check for a configuration: it masks
 the case's own `stack` and `mask` pointers on both sides, and

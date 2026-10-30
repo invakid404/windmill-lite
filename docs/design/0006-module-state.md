@@ -125,6 +125,9 @@ run's trace:
   further module costs is the state its dependencies make when they load,
   not their code; module identity stays per script, as this record
   decided.
+- Shared code is an option of `warm` and host mode, which a bundle opts
+  into at build (`windmill-lite build -shared-code`); `fresh` runs the
+  per-script bundles.
 - First-invocation latency includes module evaluation; eager loading
   ([0004](0004-harness-protocol.md)) moves it to process start.
 - Milestone C3b implemented `fresh` mode. A fresh process offers the

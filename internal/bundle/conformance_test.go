@@ -88,6 +88,8 @@ type buildCase struct {
 		// each starting with ../ (a codebase entry's relative_path may lie
 		// outside the root, WR-49).
 		Outside map[string]string `json:"outside"`
+		// SharedCode builds a Folder case with shared code (ADR 0013).
+		SharedCode bool `json:"shared_code"`
 	} `json:"given"`
 	Expect struct {
 		entryExpect
@@ -110,12 +112,38 @@ type buildCase struct {
 		HostModuleOrder []string          `json:"host_module_order"`
 		OrderProblem    *problemWant      `json:"order_problem"`
 		Warnings        []string          `json:"warnings"`
-		Run             *struct {
+		// Shared is what a Folder case built with shared code holds.
+		Shared *sharedWant `json:"shared"`
+		Run    *struct {
 			Env      map[string]string `json:"env"`
 			Register []string          `json:"register"`
 			Calls    []callWant        `json:"calls"`
 		} `json:"run"`
 	} `json:"expect"`
+}
+
+// sharedWant is what a bundle built with shared code holds (ADR 0013).
+type sharedWant struct {
+	// Scripts gives each script's record, by id: "closure:<label>", where
+	// one label is one closure and two labels are two, "fallback:<reason>",
+	// or "none" for a script without one (a native script).
+	Scripts map[string]string `json:"scripts"`
+	// Closures gives, by label, what the closure file names: module
+	// comments it holds once, text it holds, and text it does not.
+	Closures map[string]struct {
+		Once        []string `json:"once"`
+		Contains    []string `json:"contains"`
+		NotContains []string `json:"not_contains"`
+	} `json:"closures"`
+	// PerScriptIdentical builds the folder again without shared code: every
+	// per-script module is the same bytes, and the bundle digest differs.
+	PerScriptIdentical bool `json:"per_script_identical"`
+	// Modules gives, by script id, text its shared-layout module holds and
+	// text it does not.
+	Modules map[string]struct {
+		Contains    []string `json:"contains"`
+		NotContains []string `json:"not_contains"`
+	} `json:"modules"`
 }
 
 type entryExpect struct {
@@ -400,6 +428,156 @@ func runBuildCase(t *testing.T, bun, helper string, c buildCase) {
 	}
 }
 
+// checkShared checks what a bundle built with shared code holds (ADR
+// 0013): the manifest, each script's record and shared-layout module, the
+// closures, and, when asked, that the per-script bundles are the same bytes
+// as without shared code.
+func checkShared(t *testing.T, cfg Config, res *Result, w *sharedWant) {
+	t.Helper()
+	m := res.Manifest
+	if !m.SharedCode || !slices.Contains(m.Deviations, "D18") {
+		t.Errorf("manifest: shared_code %v, deviations %q; want shared code and D18", m.SharedCode, m.Deviations)
+	}
+	labels := map[string]string{} // label → closure id
+	ids := map[string]string{}    // closure id → label
+	for id, want := range w.Scripts {
+		meta, err := os.ReadFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(id)+".meta.json"))
+		if err != nil {
+			t.Errorf("script %s: %v", id, err)
+			continue
+		}
+		var sm ScriptMeta
+		if err := json.Unmarshal(meta, &sm); err != nil {
+			t.Fatal(err)
+		}
+		got := "none"
+		switch {
+		case sm.Shared != nil && sm.Shared.Closure != "":
+			got = "closure:" + sm.Shared.Closure
+		case sm.Shared != nil:
+			got = "fallback:" + sm.Shared.Fallback
+		}
+		kind, arg, _ := strings.Cut(want, ":")
+		shared := filepath.Join(cfg.Out, filepath.FromSlash(sharedModuleFile(id, sm.Format)))
+		_, statErr := os.Stat(shared)
+		switch kind {
+		case "closure":
+			gid, ok := strings.CutPrefix(got, "closure:")
+			if !ok {
+				t.Errorf("script %s: %s, want a closure", id, got)
+				continue
+			}
+			if old, seen := labels[arg]; seen && old != gid {
+				t.Errorf("script %s: closure %s, but label %s is %s", id, gid, arg, old)
+			}
+			if old, seen := ids[gid]; seen && old != arg {
+				t.Errorf("script %s: closure %s is label %s and %s", id, gid, old, arg)
+			}
+			labels[arg], ids[gid] = gid, arg
+			if statErr != nil {
+				t.Errorf("script %s: no shared-layout module: %v", id, statErr)
+			}
+		default:
+			if got != want {
+				t.Errorf("script %s: %s, want %s", id, got, want)
+			}
+			if statErr == nil {
+				t.Errorf("script %s: a shared-layout module, with %s", id, got)
+			}
+		}
+	}
+	var closures []string
+	for gid := range ids {
+		closures = append(closures, gid)
+	}
+	slices.Sort(closures)
+	if !slices.Equal(nonNil(m.Closures), nonNil(closures)) {
+		t.Errorf("manifest closures %q, want those of the scripts' records %q", m.Closures, closures)
+	}
+	for _, gid := range m.Closures {
+		_, cjs := m.Files[ClosureFile(gid)]
+		_, esm := m.Files[ClosureModuleFile(gid)]
+		if cjs == esm {
+			t.Errorf("closure %s: the manifest gives a digest for %t of its CommonJS file and %t of its module file, want exactly one", gid, cjs, esm)
+		}
+	}
+	for label, cw := range w.Closures {
+		gid, ok := labels[label]
+		if !ok {
+			t.Errorf("closure %s: no script has it", label)
+			continue
+		}
+		file := ClosureFile(gid)
+		if _, ok := m.Files[ClosureModuleFile(gid)]; ok {
+			file = ClosureModuleFile(gid)
+		}
+		b, err := os.ReadFile(filepath.Join(cfg.Out, filepath.FromSlash(file)))
+		if err != nil {
+			t.Errorf("closure %s: %v", label, err)
+			continue
+		}
+		text := string(b)
+		for _, s := range cw.Once {
+			if n := strings.Count(text, "\n// "+s+"\n"); n != 1 {
+				t.Errorf("closure %s names %s %d times, want once", label, s, n)
+			}
+		}
+		for _, s := range cw.Contains {
+			if !strings.Contains(text, s) {
+				t.Errorf("closure %s does not contain %q", label, s)
+			}
+		}
+		for _, s := range cw.NotContains {
+			if strings.Contains(text, s) {
+				t.Errorf("closure %s contains %q", label, s)
+			}
+		}
+	}
+	for id, mw := range w.Modules {
+		var text []byte
+		for _, ext := range []string{".shared.mjs", ".shared.cjs"} {
+			if b, err := os.ReadFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(id)+ext)); err == nil {
+				text = b
+			}
+		}
+		if text == nil {
+			t.Errorf("script %s: no shared-layout module", id)
+			continue
+		}
+		for _, s := range mw.Contains {
+			if !strings.Contains(string(text), s) {
+				t.Errorf("script %s: its shared-layout module does not contain %q", id, s)
+			}
+		}
+		for _, s := range mw.NotContains {
+			if strings.Contains(string(text), s) {
+				t.Errorf("script %s: its shared-layout module contains %q", id, s)
+			}
+		}
+	}
+	if w.PerScriptIdentical {
+		plain := cfg
+		plain.SharedCode = false
+		plain.Out = filepath.Join(t.TempDir(), "plain")
+		plain.Work = t.TempDir()
+		pres, err := Build(context.Background(), plain)
+		if err != nil {
+			t.Fatalf("Build without shared code: %v", err)
+		}
+		if pres.Digest == res.Digest {
+			t.Error("the bundle digest is the same with and without shared code")
+		}
+		for p, d := range pres.Manifest.Files {
+			if strings.HasSuffix(p, ".meta.json") {
+				continue
+			}
+			if got, ok := m.Files[p]; !ok || got != d {
+				t.Errorf("%s: %q with shared code, %q without", p, got, d)
+			}
+		}
+	}
+}
+
 type callWant struct {
 	Entry  string          `json:"entry"`
 	Export string          `json:"export"`
@@ -453,6 +631,7 @@ func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
 		Folder: filepath.Join(writeFolder(t, files), "windmill"), EngineVersion: fixtureEngine,
 		Bun: bun, Helper: helper, HarnessRuntime: repoPath(t, "harnesses/bun/runtime"),
 		Out: filepath.Join(t.TempDir(), "bundle"), Work: t.TempDir(), Env: env,
+		SharedCode: c.Given.SharedCode,
 	}
 	if c.Given.Contract != "" {
 		cfg.Contract = []byte(c.Given.Contract)
@@ -503,6 +682,9 @@ func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
 	}
 	for id, w := range c.Expect.Entries {
 		checkBuiltEntry(t, cfg.Out, id, w)
+	}
+	if w := c.Expect.Shared; w != nil {
+		checkShared(t, cfg, res, w)
 	}
 	if c.Expect.Assets != nil {
 		got := map[string]string{}

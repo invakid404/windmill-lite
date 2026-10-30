@@ -97,6 +97,7 @@ export type Trace = {
   run: string;
   bundle: string;
   module_state: string;
+  shared_code: boolean;
   status: string;
   result?: unknown;
   result_origin?: string;

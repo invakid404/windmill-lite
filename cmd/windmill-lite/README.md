@@ -9,6 +9,9 @@ folder, verifies a bundle, runs a bundle's flow or script through the
 starts, and serves host mode on a built bundle through `wl` (F3a). The commands that serve a bundle (`serve`), pack it
 (`pack`, `image`) or generate clients (`gen`) do not exist yet.
 
+`build -shared-code` builds the bundle with the shared code of
+[ADR 0013](../../docs/design/0013-shared-module-code.md).
+
 ## Usage
 
 ```sh
@@ -43,6 +46,7 @@ error.
 | `-harness-runtime` | the Bun harness runtime directory whose digest the manifest records; `$WL_HARNESS_RUNTIME`, or `runtime/` beside the helper's directory |
 | `-bun-mismatch` | build on another Bun and mark the bundle `nonconformant_runtime` |
 | `-module-state` | `warm` (default) or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
+| `-shared-code` | build with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Warm and host-mode processes then compile each build group's dependency modules once and give each step module its own instance of them; the differences are deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations). Fresh runs and CLI parity keep the per-script bundles |
 | `-strict` | refuse absent for-loop `skip_failures` and branchall `skip_failure` instead of defaulting them |
 | `-work` | a scratch directory for dependency installs; a temporary one by default |
 | `-verbose` | copy the build helper's output to standard error |
@@ -255,11 +259,18 @@ each in three layouts:
   module, as the build does today;
 - **shared-instance**: the shared module is host-provided (D12), so the
   host's one instance serves every step;
-- **shared-code**: the prototype of ADR 0013's decision. A host-provided
-  factory compiles the shared module's CommonJS build (esbuild, WR-47's
-  settings) once per process and instantiates it once per step module.
+- **shared-code**: ADR 0013's decision as the build makes it
+  (`Config.SharedCode`): one closure per build group,
+  compiled once per process, and an instance of it per step module. A
+  build that leaves any script on its per-script bundle
+  (`shared_code_fallback`) fails the test.
 
 | Test | What it shows |
 |---|---|
 | `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
 | `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, 34 CommonJS codebase scripts of about 6.9 MB each that import one module outside the sync folder, over mongoose, `windmill-client`, js-yaml, Babel's parser and types (pinned by `testdata/memory/closure.package.json` and `closure.bun.lock`, which it installs, so it needs the network once) and a generated package shaped like an API client. It reports the resident set with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs; with shared code, the soak's peak must stay within the embedder's budget of 650 MiB |
+
+With shared code, both tests assert the memory gate of [ADR 0013](../../docs/design/0013-shared-module-code.md).
+`TestModuleMemory` allows at most 1.5 MiB per further module.
+`TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
+peak of at most 650 MiB after its soak.

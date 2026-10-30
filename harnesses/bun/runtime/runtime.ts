@@ -22,7 +22,8 @@
 // which a timeout, a cancellation and settlement kill (WR-55).
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -307,6 +308,7 @@ export class Runtime {
     });
     installEnvView();
     installProcessScope();
+    installClosures(opts.bundleDir);
     installStepAPI();
     installTimers();
     installLogs();
@@ -716,7 +718,9 @@ export class Runtime {
 
   /** Loads a script's bundled module once per process (warm module state,
    * ADR 0006), on its first invocation, from the file its metadata names
-   * (moduleFile). The module evaluates in that invocation's context, so
+   * (moduleFile): under shared code, outside fresh mode, its shared-layout
+   * module, which makes its own instance of its group's closure when it
+   * loads (ADR 0013). The module evaluates in that invocation's context, so
    * its top-level code reads the invocation's environment (WA-1) and
    * writes to its log, and a throw fails it; but the timers, requests and
    * children its evaluation starts belong to the module, which outlives
@@ -726,7 +730,8 @@ export class Runtime {
     let p = this.modules.get(script);
     if (!p) {
       const c = current();
-      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir).then((path) => import(pathToFileURL(path).href));
+      const shared = this.mode !== "fresh" && sharedClosure(meta) !== undefined;
+      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir, shared).then((path) => import(pathToFileURL(path).href));
       p = c === undefined ? evaluate() : invocations.run({ ...c, work: undefined }, evaluate);
       this.modules.set(script, p);
     }
@@ -735,11 +740,14 @@ export class Runtime {
 
   /** Reads a script's metadata (scripts/bun/<id>.meta.json, ADR 0010)
    * once per process: the signature of each of its exports, which the
-   * build recorded (ADR 0002). */
+   * build recorded (ADR 0002), its module's form, and its shared code
+   * (ADR 0013). It keeps only the fields the runtime reads (runtimeMeta):
+   * the rest, a codebase script's metafile above all, would stay in memory
+   * for the life of the process. */
   private meta(script: string): Promise<unknown> {
     let p = this.metas.get(script);
     if (!p) {
-      p = scriptPath(this.opts.bundleDir, script, ".meta.json").then((path) => Bun.file(path).json());
+      p = scriptPath(this.opts.bundleDir, script, ".meta.json").then((path) => Bun.file(path).json()).then(runtimeMeta);
       this.metas.set(script, p);
     }
     return p;
@@ -1430,6 +1438,92 @@ async function scriptPath(bundleDir: string, script: string, ext: string): Promi
   return join(bundleDir, "scripts", "bun", ...idSegments(script)) + ext;
 }
 
+/** The fields of a script's metadata that the runtime reads. */
+const RUNTIME_META = ["bundler", "format", "boundary", "native", "signatures", "shared"] as const;
+
+/** A script's metadata with only the fields the runtime reads. */
+export function runtimeMeta(meta: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (meta === null || typeof meta !== "object") return out;
+  for (const k of RUNTIME_META) if (Object.hasOwn(meta, k)) out[k] = (meta as Record<string, unknown>)[k];
+  return out;
+}
+
+/** The closure of a script's shared code, or undefined for a script
+ * without it or one that keeps its per-script bundle (ADR 0013). */
+export function sharedClosure(meta: unknown): string | undefined {
+  const c = (meta as { shared?: { closure?: unknown } } | null)?.shared?.closure;
+  return typeof c === "string" && c !== "" ? c : undefined;
+}
+
+/** What a shared-layout module passes for its instance of a closure: its
+ * module and exports (a CommonJS module's; an ES module has neither),
+ * require, file names and, for an ES module, import.meta. */
+type ClosureScope = { module?: unknown; exports?: unknown; require?: unknown; filename?: unknown; dirname?: unknown; meta?: unknown };
+
+/** A closure file's export: a factory that runs the closure with a step
+ * module's scope, whose entry hands over, through CLOSURE_TABLE, a table
+ * from each dependency module's key to the function that initialises it in
+ * that instance and returns its exports. A CommonJS closure file's factory
+ * takes the step's module and exports first; an ES module closure file
+ * (<id>.mjs, an ES module codebase group's) binds neither, as its
+ * dependencies' ES module per-script bundle does not. */
+type ClosureFactory = (module: unknown, exports: unknown, require: unknown, filename: unknown, dirname: unknown, meta: unknown) => void;
+type ModuleClosureFactory = (require: unknown, filename: unknown, dirname: unknown, meta: unknown) => void;
+
+/** The global property a closure's entry puts its table on while the
+ * closure runs (the build's ClosureTable). */
+const CLOSURE_TABLE = Symbol.for("windmill-lite.closure-table");
+
+/** Installs the process-wide registry of the closures of shared code (ADR
+ * 0013), globalThis[Symbol.for("windmill-lite.closures")]: instance(id,
+ * scope) loads the bundle's scripts/bun/closures/<id>.cjs (or <id>.mjs)
+ * once per process
+ * and returns an accessor of a fresh instance of it, made with the
+ * calling module's scope (its module, exports, require, file names and
+ * import.meta, which the instance's dependency code sees as in the
+ * module's per-script bundle), so each step module that calls it has module
+ * state of its own while the closure's code is compiled once. The accessor
+ * returns a dependency module's exports by its key, initialising the
+ * module in that instance the first time. Loading a closure runs none of
+ * its modules, so no invocation owns anything it starts. */
+export function installClosures(bundleDir: string): void {
+  const key = Symbol.for("windmill-lite.closures");
+  if (Object.hasOwn(globalThis, key)) return;
+  const dir = join(bundleDir, "scripts", "bun", "closures");
+  const load = createRequire(join(dir, "index.cjs"));
+  const factories = new Map<string, (scope: ClosureScope | undefined) => void>();
+  const registry = {
+    instance(id: string, scope: ClosureScope): (key: string) => unknown {
+      if (typeof id !== "string" || !/^[a-z0-9-]+$/.test(id)) throw new Error(`windmill-lite: no closure ${JSON.stringify(id)}`);
+      let factory = factories.get(id);
+      if (factory === undefined) {
+        const esm = existsSync(join(dir, id + ".mjs"));
+        const f = esm ? (load(join(dir, id + ".mjs")) as { default?: unknown }).default : load(join(dir, id + ".cjs"));
+        if (typeof f !== "function") throw new Error(`windmill-lite: the closure ${id} is not a factory`);
+        factory = esm
+          ? (sc) => (f as ModuleClosureFactory)(sc?.require, sc?.filename, sc?.dirname, sc?.meta)
+          : (sc) => (f as ClosureFactory)(sc?.module, sc?.exports, sc?.require, sc?.filename, sc?.dirname, sc?.meta);
+        factories.set(id, factory);
+      }
+      let table: Record<string, unknown>;
+      try {
+        factory(scope);
+        table = (globalThis as Record<symbol, unknown>)[CLOSURE_TABLE] as Record<string, unknown>;
+      } finally {
+        delete (globalThis as Record<symbol, unknown>)[CLOSURE_TABLE];
+      }
+      if (table === null || typeof table !== "object") throw new Error(`windmill-lite: the closure ${id} gave no table of modules`);
+      return (k: string) => {
+        const init = Object.hasOwn(table, k) ? table[k] : undefined;
+        if (typeof init !== "function") throw new Error(`windmill-lite: the closure ${id} has no module ${JSON.stringify(k)}`);
+        return init();
+      };
+    },
+  };
+  Object.defineProperty(globalThis, key, { value: Object.freeze(registry), enumerable: false });
+}
+
 /** Whether a script's metadata is a codebase script's, which esbuild
  * bundled (milestone C2b). */
 function isCodebase(meta: unknown): boolean {
@@ -1444,11 +1538,14 @@ function isCodebase(meta: unknown): boolean {
  * main.js in the job directory beside its assets (WR-50), so its
  * __dirname, __filename and import.meta, and the relative paths its own
  * require resolves at run time, are the working directory's. The copy is
- * named by a digest of the id, with a leading dot. */
-export async function moduleFile(bundleDir: string, script: string, meta: unknown, workdir: string): Promise<string> {
+ * named by a digest of the id, with a leading dot. With shared, the
+ * script's shared-layout module, scripts/bun/<id>.shared.mjs or
+ * .shared.cjs, loads in its place, from the same copy for a codebase
+ * script (ADR 0013). */
+export async function moduleFile(bundleDir: string, script: string, meta: unknown, workdir: string, shared = false): Promise<string> {
   const m = meta as { bundler?: unknown; format?: unknown } | null;
   const ext = m?.format === "cjs" ? ".cjs" : ".mjs";
-  const file = await scriptPath(bundleDir, script, ext);
+  const file = await scriptPath(bundleDir, script, (shared ? ".shared" : "") + ext);
   if (!isCodebase(meta)) return file;
   const copy = join(workdir, ".windmill-lite-" + new Bun.CryptoHasher("sha256").update(script).digest("hex").slice(0, 16) + ext);
   copyFileSync(file, copy);

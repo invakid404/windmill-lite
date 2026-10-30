@@ -197,7 +197,7 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	cc := &CodebaseConfig{Folder: cfg.Folder, HostModules: all}
 	mods := make([]HostModule, 0, len(cfg.Modules))
 	for _, m := range cfg.Modules {
-		_, _, used, _, p := cc.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, settings[m.ID], "", shims)
+		_, _, used, _, p := cc.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, settings[m.ID], "", shims, nil)
 		if p != nil {
 			problems = append(problems, ItemProblem{item(m), *p})
 			continue
@@ -260,7 +260,7 @@ func (cfg *CodebaseConfig) outsideCopy(m OutsideHostModule, s *CodebaseSettings,
 		if n > 1 {
 			binding = fmt.Sprintf("%s_%d", EnvBinding, n)
 		}
-		out, inputs, _, _, p := cfg.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, s, binding, shims)
+		out, inputs, _, _, p := cfg.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, s, binding, shims, nil)
 		if p != nil {
 			return nil, p
 		}

@@ -162,6 +162,10 @@ Windmill `v1.767.0`, the Go package layout and the implementation
 milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
 
+A bundle opts into shared code at build (`windmill-lite build
+-shared-code`); with it, the embedder-shaped closure peaks at 492 to
+497 MiB, within the 650 MiB budget.
+
 The records are written by the build team under the clean-room rule of
 [AGENTS.md](../../AGENTS.md): from the semantics reference, Windmill's public
 documentation, the Apache-2.0 parts of Windmill, and observed behaviour.
@@ -250,6 +254,7 @@ each record):
 | Per-step latency of the walking skeleton (milestone W1), a one-step flow with one javascript transform, 300 sequential runs on Bun 1.3.10, engine built without the race detector | spawned warm harness: 56 µs p50, 120 µs p95 per run (invoke to result 31 µs p50); host mode in a compiled host, timed around `run`: 78 µs p50, 126 µs p95 | 0003, 0004 |
 | A compiled Bun 1.3.10 host in host mode, resident set after a full collection (milestone F8a): the synthetic reproduction (six Bun scripts importing one 4.36 MB module of 40,000 strings) and a closure shaped like an embedder's (34 CommonJS codebase scripts of 6.89 MB importing one module over mongoose, the stock client, js-yaml, Babel and a generated client package) | per script: 6.3 to 6.7 MiB and 53 MiB per further module, 1,911 MiB with eight concurrent runs, a 2,015 to 2,042 MiB peak after 1,000 runs; one shared instance: 0.1 and 0.2 MiB per module, a 185 to 194 MiB peak; shared code with an instance per script (prototype): 0.2 and 11 MiB per module, a 519 to 530 MiB peak | 0013 |
 | Shared chunks, one instance per package, and packages as host-provided modules (registry shims) in a loader model, Bun 1.3.10 (milestone F8a), and their semantics | 120 to 129 MiB, 132 MiB and 127 MiB for the closure's 34 modules, against 1,497 MiB per script, and 0.5 to 0.6 MiB per further module for chunks of the synthetic reproduction, against 6.8 to 7.8 MiB; chunks and one instance per package make the second of two scripts that register a Mongoose model of one name fail, as any shared instance does; chunks also run a CommonJS script as a strict ES module, where an assignment to an undeclared variable throws | 0013 |
+| The shared layout in host mode, a compiled Bun 1.3.10 host, resident set after a full collection | Over several runs, the synthetic reproduction costs 0.17 to 0.27 MiB per further module. The embedder-shaped closure holds 439 to 450 MiB with 34 modules loaded and 453 to 462 MiB with eight concurrent runs, and peaks at 492 to 497 MiB after 1,000 runs, at 9.9 to 10.3 MiB per further module. A closure in Bun's own CommonJS form loads its first module at the per-script bundle's cost; one that Bun transpiled cost about 21 MiB more | 0013 |
 
 ## Unsettled findings
 

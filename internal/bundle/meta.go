@@ -47,12 +47,72 @@ type ScriptMeta struct {
 	// Format is a codebase script's module format: "cjs", whose module is
 	// scripts/bun/<id>.cjs, or "esm". Empty means ESM, the Bun build's.
 	Format Format `json:"format,omitempty"`
+	// Shared is the script's record under shared code (ADR 0013), when the
+	// bundle is built with it and the script is not native.
+	Shared *SharedMeta `json:"shared,omitempty"`
 
 	esbuildWarnings []string
 	// nativeBundle is where a //native codebase script's bundle waits for
 	// its native form (BuildCodebase).
 	nativeBundle string
+	// binding is the env rewrite's binding its bundle uses, or "" for a
+	// bundle without the rewrite (BuildCodebase).
+	binding string
 }
+
+// SharedMeta is a script's record under shared code (ADR 0013): the
+// closure of its build group, of which its shared-layout module
+// (scripts/bun/<id>.shared.mjs, or .shared.cjs for a CommonJS codebase
+// script) makes an instance of its own, or the reason it keeps its
+// per-script bundle in every mode (one of the Fallback constants).
+type SharedMeta struct {
+	Closure  string `json:"closure,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
+}
+
+// The reasons a script keeps its per-script bundle under shared code
+// (ADR 0013, decision item 5), as SharedMeta.Fallback and the
+// shared_code_fallback warning name them.
+const (
+	// FallbackBanner: its codebase entry sets a banner, which runs at the
+	// top of each output and declares bindings the entry and its
+	// dependencies may both read.
+	FallbackBanner = "banner"
+	// FallbackDefineObject: its codebase entry's define gives an object or
+	// array value, of which esbuild makes one per bundle, shared by the
+	// script's code and its dependencies.
+	FallbackDefineObject = "define_object"
+	// FallbackTopLevelAwait: a dependency module it reaches uses top-level
+	// await, which a CommonJS closure cannot initialise.
+	FallbackTopLevelAwait = "top_level_await"
+	// FallbackExternalImport: in an ES module group, a dependency module it
+	// reaches imports an external module statically, which the closure
+	// would turn into a synchronous require.
+	FallbackExternalImport = "external_import"
+	// FallbackDynamicImport: a dependency module it reaches keeps an
+	// import() the bundler did not resolve, which resolves from the file
+	// that holds it.
+	FallbackDynamicImport = "dynamic_import"
+	// FallbackEntryCycle: a dependency module it reaches imports its own
+	// entry file.
+	FallbackEntryCycle = "entry_cycle"
+	// FallbackNamespaceImport: its entry and a dependency module it reaches
+	// both take the namespace object of one ES module dependency, which is
+	// one object in its per-script bundle and would be two in the shared
+	// layout.
+	FallbackNamespaceImport = "namespace_import"
+	// FallbackExportNames: its entry imports an ES module dependency whose
+	// namespace its reference module cannot reproduce: one whose namespace
+	// object the entry takes while the build cannot list all its export
+	// names (a star re-export of a module the build leaves external), or
+	// one that exports a binding named __esModule, which the CommonJS
+	// interop marker of the reference's CommonJS module would shadow.
+	FallbackExportNames = "export_names"
+)
+
+// WarningSharedCodeFallback: under shared code, a script keeps its
+// per-script bundle in warm and host mode too (ADR 0013).
+const WarningSharedCodeFallback = "shared_code_fallback"
 
 // NativeMeta is what the harness needs to run a native-boundary script
 // besides its module's text (harnesses/bun/build/native.ts): the module is

@@ -53,7 +53,7 @@ export type Request = {
   // scan: the host-provided modules' exports; build: every module; parse:
   // only what the source of each entry records, for codebase scripts,
   // which esbuild bundles in Go (C2b).
-  op: "scan" | "build" | "parse" | "native";
+  op: "scan" | "build" | "parse" | "native" | "kept" | "namespaces";
   require_bun?: string;
   folder: string;
   work: string;
@@ -69,6 +69,13 @@ export type Request = {
   env_binding: string;
   host_modules: HostModuleRequest[];
   entries: EntryRequest[];
+  // The build op also builds the shared layout (ADR 0013).
+  shared_code?: boolean;
+  // The kept op: closure bundles, by id, whose kept imports it reports.
+  closures?: { id: string; file: string }[];
+  // The namespaces op: module files, by absolute path, whose namespace
+  // imports it reports.
+  modules?: string[];
 };
 
 export type HostModuleResult = {
@@ -92,4 +99,14 @@ export type Response = {
   error?: Problem;
   host_modules: Record<string, HostModuleResult>;
   entries: Record<string, EntryResult>;
+  // The closures of shared code the build op wrote to <work>/closures, and
+  // by closure the name of its parameter that dependency code reads as
+  // import.meta.
+  closures?: string[];
+  closure_meta?: Record<string, string>;
+  // The kept op: by closure, the modules that keep an import().
+  kept?: Record<string, string[]>;
+  // The namespaces op: by module file, the specifiers whose namespace
+  // object it takes, or null for one that does not parse.
+  namespaces?: Record<string, string[] | null>;
 };
