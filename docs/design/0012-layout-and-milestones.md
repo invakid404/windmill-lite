@@ -124,6 +124,8 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F2c | host plugins over `host_call`: TypeScript hooks, `around`, the provider bridge | F2a, F3a | the `conformance/plugins` cases in `warm` (a plugin the runtime names) and in host mode (the host SDK's plugin): every F2a hook (H1, H2, H6, H8, H9, H12, H13) and a mandatory provided site answered by a TypeScript plugin over `host_call`, giving what the same cases give through Go callbacks; an `around` wrapper around a step; a plugin's error, a provider's decline and error, and a `host_call` timeout latching the run; `host_call` refused where it must be (a `fresh` runtime, an undeclared hook, a reply to no call, a declaration the engine cannot use); F2b's H3 and H7 answered by the plugin, and its budgets and latches carried to the run (H3, H4, H7, H10: `RunOptions` in `warm`, the `run` frame in host mode); step code's `wl.latch` latching the run and `wl.signal` aborting at a deadline | 10 | yes |
 | F7a | plain gRPC adapter | F5 | — | 10 | no |
 | F3b | **host-mode integration gate** | F2b, F2c, F3a, E1 | on Bun 1.3.10, with a public test supervisor that only restarts on exit: the flow suite in `warm` and in host mode; the never-settling-step, watchdog, `watchdog/finite-cpu` (host mode) and resource-release tests of [0004](0004-harness-protocol.md); the H11 policy case | 11 | yes |
+| F8a | **the shared module-code record** ([0013](0013-shared-module-code.md)): each option for memory that grows with the step modules a process loads, measured on a public synthetic reproduction and on a closure shaped like a host's; a design milestone | F3b, F3h | the record, with each option measured on both fixtures, in host mode or, where the runtime cannot load its layout yet, in a loader model; the synthetic reproduction as a host-mode test in three layouts (per-script, one shared instance, the shared-code prototype); the embedder-shaped closure as a test behind `WL_MEMORY_PROBE`; a Codex review of the record | 12 | yes |
+| F8b | **shared code** ([0013](0013-shared-module-code.md)): one closure per build group, an instance per step module in `warm` and host mode, the manifest and trace fields, D18; the runtime keeps only the metadata fields it reads | F8a | 0013's D18 step and build cases in `warm`, host mode and `fresh`; the flow suite in `warm` and host mode from bundles built with shared code; 0013's memory gate (the embedder-shaped closure at most 650 MiB peak with 34 modules and eight concurrent runs over 1,000 runs, at most 16 MiB per further module; the synthetic reproduction at most 1.5 MiB per further module) | 13 | yes |
 | R1 | `internal/platform/remote` (hybrid dispatch) | PF3, **H-b** | — | — | no |
 
 **L1, further harnesses** (Python, then Deno, Go, Bash) and the remaining
@@ -133,7 +135,8 @@ planned through its own records and split into milestones then.
 **Critical path to the first host integration:** K1 and A2, A3 → A4 → A5;
 K1, A1 and E2 → E3a → B2a, with B1a → B2b; C1 → C2a and W1 → C3a → E1; all of
 them, with E3b, into N1a → N1b (with E3c), N3a and N3b (with E3d) → N3c and
-NI → F1 → F2a, and F3a (with C2b) → F2c → F3b. W1 retires the process-model and
+NI → F1 → F2a, and F3a (with C2b) → F2c → F3b → F8a → F8b, since the first
+host's memory budget needs shared code ([0013](0013-shared-module-code.md)). W1 retires the process-model and
 pinned-Bun risks in wave 2, before the engine milestones build on them. A
 host whose flows use native steps also waits for S1 and C3n; nothing else
 waits on an external gate except R1.
@@ -712,6 +715,21 @@ waits on an external gate except R1.
   `sideEffects: false` package re-exports when a plugin's resolve filter
   matches the package's import, which hit a listed module's copy, so the
   Bun helper's filter now matches only the specifiers it resolves.
+
+- F8a is a design milestone, added after F3b when an embedder measured that
+  `warm` does not fit its memory budget: a compiled host serving 53
+  CommonJS codebase scripts that bundle one large dependency closure each
+  peaked at about 2.3 GiB with 34 modules loaded, against 650 MiB. Its
+  record, [0013](0013-shared-module-code.md), weighs shared chunks
+  ([0006](0006-module-state.md)'s option 4), host-provided packages, one
+  instance per package and shared code with an instance per script, and
+  chooses the last (D18), which keeps each script's module state its own.
+  Its tests are the record's evidence: `TestModuleMemory` in
+  [cmd/windmill-lite](../../cmd/windmill-lite/README.md) runs the public
+  synthetic reproduction in host mode in three layouts, and
+  `TestModuleMemoryClosure` the closure shaped like the embedder's, behind
+  `WL_MEMORY_PROBE`; F8b replaces their shared-code prototype with the real
+  layout.
 
 ## Spec IDs relied on
 

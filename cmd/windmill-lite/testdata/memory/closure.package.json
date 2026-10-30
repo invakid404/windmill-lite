@@ -1,0 +1,11 @@
+{
+  "name": "closure",
+  "private": true,
+  "dependencies": {
+    "@babel/parser": "8.0.10",
+    "@babel/types": "8.0.10",
+    "js-yaml": "5.5.0",
+    "mongoose": "8.9.5",
+    "windmill-client": "1.326.0"
+  }
+}
