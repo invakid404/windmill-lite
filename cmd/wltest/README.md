@@ -89,9 +89,15 @@ standard output. A run's `claims`, `delays` and `unit` cases are not checked
 here: `go test ./internal/oracle` checks them against the committed
 recordings, so a contradicted claim still leaves a recording to inspect.
 
+`record` replaces the oracle session's bearer token with
+`<redacted-token>` wherever it reads data from the oracle, so no
+recording, raw capture, report or log line holds it
+([internal/oracle](../../internal/oracle/README.md#the-session-token)).
+
 Fixtures in stub mode (`stub: true`) are pushed stubbed: `record` writes
 the stubbed copy of the sync tree, runs the CLI's `generate-metadata` in
-it, requires every script's schema to equal the original's, and answers
+it, requires every script's schema to equal the one the same CLI
+generates for the original source, and answers
 each run's stubs from its `replay` table through the replay service at
 `$WL_EFFECT_SINK/replay`. A run also fails when a stub's call has no
 outcome in the table, when a call disagrees with the walk, or when a
