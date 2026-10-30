@@ -138,6 +138,12 @@ type sharedWant struct {
 	// PerScriptIdentical builds the folder again without shared code: every
 	// per-script module is the same bytes, and the bundle digest differs.
 	PerScriptIdentical bool `json:"per_script_identical"`
+	// Modules gives, by script id, text its shared-layout module holds and
+	// text it does not.
+	Modules map[string]struct {
+		Contains    []string `json:"contains"`
+		NotContains []string `json:"not_contains"`
+	} `json:"modules"`
 }
 
 type entryExpect struct {
@@ -524,6 +530,28 @@ func checkShared(t *testing.T, cfg Config, res *Result, w *sharedWant) {
 		for _, s := range cw.NotContains {
 			if strings.Contains(text, s) {
 				t.Errorf("closure %s contains %q", label, s)
+			}
+		}
+	}
+	for id, mw := range w.Modules {
+		var text []byte
+		for _, ext := range []string{".shared.mjs", ".shared.cjs"} {
+			if b, err := os.ReadFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(id)+ext)); err == nil {
+				text = b
+			}
+		}
+		if text == nil {
+			t.Errorf("script %s: no shared-layout module", id)
+			continue
+		}
+		for _, s := range mw.Contains {
+			if !strings.Contains(string(text), s) {
+				t.Errorf("script %s: its shared-layout module does not contain %q", id, s)
+			}
+		}
+		for _, s := range mw.NotContains {
+			if strings.Contains(string(text), s) {
+				t.Errorf("script %s: its shared-layout module contains %q", id, s)
 			}
 		}
 	}

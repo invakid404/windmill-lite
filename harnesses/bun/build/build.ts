@@ -862,11 +862,14 @@ export class Builder {
   }
 
   // The export names of an ES module of a script's dependency set, as the
-  // exports of a bundle of it alone list them, and whether they are all of
-  // them: a star re-export of a module the build leaves external stays one
-  // in the output. undefined when it does not bundle alone.
+  // exports of a bundle of it alone for the script's target list them, and
+  // whether they are all of them: a star re-export of a module the build
+  // leaves external stays one in the output. undefined when it does not
+  // bundle alone. The target is part of what the names depend on: an
+  // ordinary Bun script and a //nodejs one can share a dependency set, and
+  // a package's conditional exports give each target other files.
   private async exportNamesOf(s: SharedEntry, p: string): Promise<ExportNames | undefined> {
-    const key = `${s.dir}\0${p}`;
+    const key = `${s.dir}\0${s.target}\0${p}`;
     if (this.exportNames.has(key)) return this.exportNames.get(key);
     let out: ExportNames | undefined;
     try {
@@ -937,7 +940,10 @@ export class Builder {
           if (p.startsWith("host/") || p.startsWith("wl/")) return undefined;
           if (!included.has(p)) return { path: empty };
           refs.set(p, join(s.dir, p));
-          const name = new Bun.CryptoHasher("sha256").update(p).digest("hex").slice(0, 16);
+          // A reference lists the module's export names for the script's
+          // target, so two targets that share a dependency set write
+          // references of their own.
+          const name = new Bun.CryptoHasher("sha256").update(`${s.target}\0${p}`).digest("hex").slice(0, 16);
           const cjs = this.materialise(s.dir, join("wl", "dep", name + ".cjs"), depReference(p));
           if (inputs[p]?.format !== "esm") return { path: cjs };
           cjsFiles.set(CJS_SPECIFIER + name, cjs);

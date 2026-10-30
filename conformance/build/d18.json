@@ -222,6 +222,166 @@
     },
     {
       "spec": "D18",
+      "variant": "v-targets-bun-first",
+      "provenance": "policy",
+      "title": "an ordinary Bun script and a //nodejs one of one lock each reach a workspace module that re-exports a package with conditional exports; each shared-layout module and closure takes the files and names of its own target, the ordinary script first",
+      "note": "The two scripts share a dependency set but not a build group (other targets). The package's exports select bun.js for the bun target and node.js for the node target. A reference lists its module's export names for the script's own target, so neither script's shared layout sees the other target's names, whichever script the build meets first.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/k/cond.ts": "export * from \"synthetic-conditional\";\n",
+          "f/k/a.ts": "import { bunOnly, target } from \"./cond.ts\";\nexport function main() { return [bunOnly, target]; }\n",
+          "f/k/b.ts": "//nodejs\nimport { nodeOnly, target } from \"./cond.ts\";\nexport function main() { return [nodeOnly, target]; }\n"
+        },
+        "packages": {
+          "synthetic-conditional@1.0.0": {
+            "package.json": "{\"name\":\"synthetic-conditional\",\"version\":\"1.0.0\",\"type\":\"module\",\"exports\":{\".\":{\"bun\":\"./bun.js\",\"node\":\"./node.js\",\"default\":\"./node.js\"}}}\n",
+            "bun.js": "export const bunOnly = \"bun only\";\nexport const target = \"bun\";\n",
+            "node.js": "export const nodeOnly = \"node only\";\nexport const target = \"node\";\n"
+          }
+        },
+        "locks": {
+          "f/k/a.ts": {
+            "synthetic-conditional": "1.0.0"
+          },
+          "f/k/b.ts": {
+            "synthetic-conditional": "1.0.0"
+          }
+        },
+        "contract": "roots:\n  - script: f/k/a\n  - script: f/k/b\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/k/a": "closure:B",
+            "f/k/b": "closure:N"
+          },
+          "closures": {
+            "B": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/bun.js"
+              ],
+              "not_contains": [
+                "nodeOnly",
+                "synthetic-conditional/node.js"
+              ]
+            },
+            "N": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/node.js"
+              ],
+              "not_contains": [
+                "bunOnly",
+                "synthetic-conditional/bun.js"
+              ]
+            }
+          },
+          "modules": {
+            "f/k/a": {
+              "contains": [
+                "bunOnly"
+              ],
+              "not_contains": [
+                "nodeOnly"
+              ]
+            },
+            "f/k/b": {
+              "contains": [
+                "nodeOnly"
+              ],
+              "not_contains": [
+                "bunOnly"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "v-targets-node-first",
+      "provenance": "policy",
+      "title": "an ordinary Bun script and a //nodejs one of one lock each reach a workspace module that re-exports a package with conditional exports; each shared-layout module and closure takes the files and names of its own target, the //nodejs script first",
+      "note": "The two scripts share a dependency set but not a build group (other targets). The package's exports select bun.js for the bun target and node.js for the node target. A reference lists its module's export names for the script's own target, so neither script's shared layout sees the other target's names, whichever script the build meets first.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/k/cond.ts": "export * from \"synthetic-conditional\";\n",
+          "f/k/a.ts": "//nodejs\nimport { nodeOnly, target } from \"./cond.ts\";\nexport function main() { return [nodeOnly, target]; }\n",
+          "f/k/b.ts": "import { bunOnly, target } from \"./cond.ts\";\nexport function main() { return [bunOnly, target]; }\n"
+        },
+        "packages": {
+          "synthetic-conditional@1.0.0": {
+            "package.json": "{\"name\":\"synthetic-conditional\",\"version\":\"1.0.0\",\"type\":\"module\",\"exports\":{\".\":{\"bun\":\"./bun.js\",\"node\":\"./node.js\",\"default\":\"./node.js\"}}}\n",
+            "bun.js": "export const bunOnly = \"bun only\";\nexport const target = \"bun\";\n",
+            "node.js": "export const nodeOnly = \"node only\";\nexport const target = \"node\";\n"
+          }
+        },
+        "locks": {
+          "f/k/a.ts": {
+            "synthetic-conditional": "1.0.0"
+          },
+          "f/k/b.ts": {
+            "synthetic-conditional": "1.0.0"
+          }
+        },
+        "contract": "roots:\n  - script: f/k/a\n  - script: f/k/b\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/k/a": "closure:N",
+            "f/k/b": "closure:B"
+          },
+          "closures": {
+            "B": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/bun.js"
+              ],
+              "not_contains": [
+                "nodeOnly",
+                "synthetic-conditional/node.js"
+              ]
+            },
+            "N": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/node.js"
+              ],
+              "not_contains": [
+                "bunOnly",
+                "synthetic-conditional/bun.js"
+              ]
+            }
+          },
+          "modules": {
+            "f/k/a": {
+              "contains": [
+                "nodeOnly"
+              ],
+              "not_contains": [
+                "bunOnly"
+              ]
+            },
+            "f/k/b": {
+              "contains": [
+                "bunOnly"
+              ],
+              "not_contains": [
+                "nodeOnly"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
       "variant": "y-fallbacks",
       "provenance": "policy",
       "title": "a script keeps its per-script bundle where one closure cannot serve it, with the reason, and the others of its group keep their shared layout",
