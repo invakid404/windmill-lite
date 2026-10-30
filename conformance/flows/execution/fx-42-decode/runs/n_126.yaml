@@ -1,4 +1,5 @@
-# FX-42/n: with 126 nested arrays the loop succeeds and b runs.
+# FX-42/n on a sequential loop: with 126 nested arrays the container
+# succeeds and b runs.
 spec: [FX-42/n]
 target: f/wl_fx42d/m_seq
 args:

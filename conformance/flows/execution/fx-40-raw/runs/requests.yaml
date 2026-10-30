@@ -1,0 +1,9 @@
+# FX-40/i: the cached flow run by path with {"n": 1} twice, then with {"n":
+# 1.0}, each as literal JSON: the second {"n": 1} run is a hit (the
+# control), the {"n": 1.0} run a miss, and each job's stored args keep the
+# spelling it was sent with.
+spec: [FX-40/i]
+target: f/wl_fx40r/requests
+expect:
+  status: success
+  result: {control_hit: true, hit_1_0: false, stored_n: ["1", "1.0"]}

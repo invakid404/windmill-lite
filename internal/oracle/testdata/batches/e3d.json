@@ -93,7 +93,7 @@
     {
       "case": "FX-40/i",
       "milestone": "N4",
-      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). Arguments match as jsonb values: an object with its keys in another order is a hit, while {\"n\": 1} and {\"n\": 1.0} miss. N4 implements the result cache. Recorded by batch E3f (conformance/flows/execution/fx-40-cases, run i_order; internal/oracle/testdata/batches/e3f.json)."
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). Arguments match as jsonb values: an object with its keys in another order is a hit, while {\"n\": 1} and {\"n\": 1.0} miss. N4 implements the result cache. Recorded by batch E3f (conformance/flows/execution/fx-40-cases, run i_order, the key order; conformance/flows/execution/fx-40-raw, run requests, 1 and 1.0 as literal JSON; internal/oracle/testdata/batches/e3f.json)."
     },
     {
       "case": "FX-40/j",

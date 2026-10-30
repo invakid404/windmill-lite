@@ -53,9 +53,6 @@
     "FX-42/f",
     "FX-42/i",
     "FX-42/j",
-    "FX-42/m",
-    "FX-42/n",
-    "FX-42/o",
     "FX-47/b",
     "FX-48/b",
     "FX-48/c",
@@ -239,8 +236,6 @@
     "conformance/flows/execution/fx-30-due",
     "conformance/flows/execution/fx-38-pickup",
     "conformance/flows/execution/fx-40-cases",
-    "conformance/flows/execution/fx-42-decode",
-    "conformance/flows/execution/fx-42-monitor",
     "conformance/flows/execution/fx-42-notation",
     "conformance/flows/execution/fx-47-null",
     "conformance/flows/execution/fx-48-jsonb",
@@ -277,11 +272,6 @@
     "conformance/flows/oracle/result-size"
   ],
   "deferred": [
-    {
-      "case": "FX-42/m",
-      "milestone": "none",
-      "reason": "the run's input {\"n\": 1e400} cannot be submitted: a fixture's YAML gives its args as doubles, as the CLI's parser does, so 1e400 reached the oracle as the string \"1e400\" (oracle run 40994947681), and the child flow's stored result held no number beyond a double; FX-42/n and FX-42/o record the same waiting route with nesting past the library's limit (execution/fx-42-monitor)"
-    },
     {
       "case": "CF-31/d",
       "milestone": "none",
@@ -442,12 +432,6 @@
       "reason": "the flow_node table is not reachable through the API; the submitted and deployed values are recorded in the deployment evidence"
     },
     {
-      "case": "FX-40/i",
-      "part": "{\"n\": 1} then {\"n\": 1.0} missing the cache",
-      "milestone": "none",
-      "reason": "a tree's YAML gives numbers as doubles, as the CLI's parser does, so 1.0 reached the server as 1 (oracle run 40994947681); the key-order half is recorded (i_order)"
-    },
-    {
       "case": "FX-40/e",
       "part": "the log line \"Job skipped because args & path found in cache and not expired\" on the hit jobs of FX-40/e to FX-40/m",
       "milestone": "none",
@@ -514,12 +498,6 @@
       "run": "conformance/flows/execution/fx-48-jsonb/result_low",
       "pointer": "/result/error/message",
       "prefix": "Internal: Could not add completed job "
-    },
-    {
-      "case": "FX-42/o",
-      "run": "conformance/flows/execution/fx-42-decode/o_128",
-      "pointer": "/result/error/message",
-      "prefix": "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column 128"
     },
     {
       "case": "JE-52/a",

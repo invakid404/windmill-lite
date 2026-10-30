@@ -1,0 +1,18 @@
+# Recording batch E3f (ADR 0012): FX-40/i's {"n": 1} and {"n": 1.0}
+# (Q-FX-21), which a tree's YAML cannot tell apart: a Bun step runs a flow
+# with cache_ttl 60 by path through the run API with literal JSON bodies,
+# with its own token, waits for each run and compares their results, so the
+# fixture needs two workers (a step that waits for a job, OR-5/b). The key
+# order half of FX-40/i is execution/fx-40-cases'. The run compares as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-40. Deployed with oracle.deploy api.
+id: execution/fx-40-raw
+spec: [FX-40/i]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 2, deploy: api, concurrency: true}
+compare: {mode: subset}

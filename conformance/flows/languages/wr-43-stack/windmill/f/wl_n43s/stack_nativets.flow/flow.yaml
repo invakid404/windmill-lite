@@ -1,0 +1,23 @@
+summary: "WR-43/c (nativets): the stack's first lines"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: nativets
+        input_transforms: {}
+      continue_on_error: true
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          lines:
+            type: javascript
+            expr: "results.a.error.stack.split(\"\\n\").slice(0, 2).map((l) => l.trim())"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
