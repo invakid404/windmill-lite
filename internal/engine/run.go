@@ -299,6 +299,14 @@ type outcome struct {
 	// under a clean stop that keeps it (endFailedStop), or as the error
 	// stop a branch's flow forwards for it.
 	handled bool
+	// aborted: a chaining error at a later transition ended the module
+	// (endChained, CF-23 route 3), so the flow aborts with its last
+	// carried value in hand (flowEnd.delivered). last is that value when
+	// it is not the previous_result handed to the module's start: a
+	// sequential container's previous child's result, when its next push
+	// failed.
+	aborted bool
+	last    *carry
 	// failedChild and lastChild are, for a container, its last child job
 	// that failed and its last child job, which a retry of the container
 	// starts from and records as the failed attempt (CF-22).
@@ -458,6 +466,15 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 		result: engineError("InternalErr", "windmill-lite: a module was interrupted with no latch or cancellation")}
 }
 
+// carry is a value a flow carries on, with who produced it when it is an
+// error and the pointers of the errors windmill-lite generated inside it
+// (outcome.carried, outcome.origin and outcome.nested).
+type carry struct {
+	value  jsonval.Value
+	origin Origin
+	nested []string
+}
+
 // flowEnd is how a frame's flow ended: its status and result (a host
 // verdict's status has none), whether a stop ended it (CF-12), errorStop
 // for a failure that a stop ended, handled when its failure module ended
@@ -468,6 +485,14 @@ type flowEnd struct {
 	origin    Origin
 	stopped   bool
 	errorStop bool
+	// delivered is set when a chaining error at a later transition aborted
+	// the flow (CF-23 route 3): its last carried value, the result of the
+	// module before the start that failed, which Windmill hands with the
+	// failure to the flow's parent while the flow job stores result, the
+	// InternalError. A branchone or a subflow step takes it as its value
+	// (carried); a loop or a branchall reads its children's results from
+	// storage, and the root stores result.
+	delivered *carry
 	// handled: the flow ran its failure module, which decided its status:
 	// success when it recovered (FX-33), or it failed with a container
 	// whose failure such a module handled below it. The flow then reports
@@ -489,6 +514,16 @@ type flowEnd struct {
 	// the flow job, and no module ran.
 	lastJobOK bool
 	cached    bool
+}
+
+// carried is the value a parent that takes the value delivered with the
+// flow's completion gets, a branchone or a subflow step: the last carried
+// value after an abort (delivered), else the flow's result (CF-23).
+func (e flowEnd) carried() carry {
+	if e.delivered != nil {
+		return *e.delivered
+	}
+	return carry{e.result, e.origin, e.nested}
 }
 
 // run runs the flow and records its outcome.
@@ -584,6 +619,10 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 	if prev.IsZero() {
 		prev = fr.input
 	}
+	// prevOrigin and prevNested go with prev, the last carried value,
+	// which an abort delivers (flowEnd.delivered).
+	var prevOrigin Origin
+	var prevNested []string
 	// A child flow scheduled for later, by the sleep before its container
 	// or a retry's delay (CF-21, FX-23, FX-26), is picked up then: none of
 	// its modules starts before. A cancellation while it is queued fails
@@ -625,6 +664,9 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 		if i > 0 && fr.modules[i-1].Sleep != nil {
 			b.sleep, b.sleepSite = fr.modules[i-1].Sleep, fr.sites[i-1]
 		}
+		// in is the last carried value when the module's start begins: the
+		// previous_result handed to it, the restored one for a retry.
+		in := carry{prev, prevOrigin, prevNested}
 		o, idx, st, ok := r.complete(ctx, fr, i, prev, prevID, b)
 		if !ok {
 			// A collapsed iteration's job keeps its result, the killed
@@ -661,6 +703,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 				break
 			}
 			attempt++
+			in = carry{value: p}
 			if o, idx, st, ok = r.complete(ctx, fr, i, p, prevID, nb); !ok {
 				return flowEnd{status: st}
 			}
@@ -672,6 +715,12 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 			errorStop: stop && d.status == conformance.RunFailure,
 			handled:   o.handled && d.status == conformance.RunFailure,
 			lastJobOK: o.rec.Status == conformance.StepSuccess || o.rec.Status == conformance.StepSkipped}
+		if o.end == endChained && o.aborted {
+			end.delivered = &in
+			if o.last != nil {
+				end.delivered = o.last
+			}
+		}
 		// haltAfter (H8): when the flow starts its next module, the run halts
 		// now; when a child flow ends, the halt is pending until the run's
 		// next start, after its containers' completions (pendingHalt); the
@@ -700,9 +749,9 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 			if d.direct {
 				id = ""
 			}
-			return r.failure(ctx, fr, o.carried, id, continues)
+			return r.failure(ctx, fr, carry{o.carried, o.origin, o.nested}, id, continues)
 		}
-		prev, prevID = o.carried, m.ID
+		prev, prevID, prevOrigin, prevNested = o.carried, m.ID, o.origin, o.nested
 	}
 	// Only a flow with no modules gets here: it completes with its input
 	// (FX-3), through the completion's host checks, the latch and then the
@@ -719,10 +768,11 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 // recovers; otherwise it fails with that result, or with the failure
 // module's own failure value. The failure module has no stop and ignores
 // its own continue_on_error (FX-19, FX-30), and a chaining error while it
-// starts is a later transition's (FX-15 context 1). Its own retry applies
-// to its failures (FX-32), and starting it resets the retry counter when
-// it has one (FX-27).
-func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID string, continues bool) flowEnd {
+// starts is a later transition's (FX-15 context 1), which delivers the
+// failing value to the flow's parent (CF-23 route 3). Its own retry
+// applies to its failures (FX-32), and starting it resets the retry
+// counter when it has one (FX-27).
+func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID string, continues bool) flowEnd {
 	i := len(fr.modules)
 	m := fr.failure
 	v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues, FailureModule: true, HaltBefore: r.hooks.HaltBefore(r.site(fr, i))})
@@ -732,7 +782,10 @@ func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID
 	if m.Retry != nil {
 		fr.failCount = 0
 	}
-	o, idx, st, ok := r.complete(ctx, fr, i, prev, prevID, begin{})
+	// in is the last carried value when the failure module's start begins,
+	// which an abort delivers.
+	in := failing
+	o, idx, st, ok := r.complete(ctx, fr, i, failing.value, prevID, begin{})
 	if !ok {
 		return flowEnd{status: st}
 	}
@@ -763,6 +816,9 @@ func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID
 			break
 		}
 		attempt++
+		// A failure module's retry starts from its failed attempt's value
+		// (restored).
+		in = carry{p, o.origin, o.nested}
 		if o, idx, st, ok = r.complete(ctx, fr, i, p, prevID, nb); !ok {
 			return flowEnd{status: st}
 		}
@@ -772,6 +828,8 @@ func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID
 		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, lastJobOK: true}
 	case o.end == endSucceeded:
 		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, lastJobOK: true}
+	case o.end == endChained && o.aborted:
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, delivered: &in}
 	case o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
 		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true}
 	}
@@ -1271,11 +1329,13 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	}
 	if !answered && !reused && preRun == nil {
 		// H2 rewrites the arguments of a module that launches its own job;
-		// the trace keeps both.
+		// the trace keeps both. Arguments it hands back unchanged need not
+		// be JSON: a replaced JSON.stringify's text fails their storage
+		// below (JE-15).
 		rewritten, err := r.hooks.RewriteArgs(ctx, r, site, args)
 		if err != nil {
 			r.Latch(HookLatchError(ctx, err))
-		} else if !isObject(rewritten) {
+		} else if !bytes.Equal(rewritten.Producer(), args.Producer()) && !isObject(rewritten) {
 			r.Latch(errors.New("engine: H2 returned arguments that are not a JSON object"))
 		}
 		if r.latch.Err() != nil {
@@ -1419,15 +1479,15 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			// (O3, JE-V3).
 			o.rec.ResolvedArgs = resolved
 		}
-		var rf *resolveFailure
+		var pf *pickupFailure
 		switch {
 		case errors.Is(err, errNotLaunched):
 			o.rec.Ran = false
 			return notLaunched()
-		case errors.As(err, &rf):
-			// JE-42 rule 4, WR-5: the job fails before its script runs, with
-			// the worker's execution error.
-			res := fail(workerError(fr.stepID(i), "execution error:\n"+rf.Error()), OriginEngine)
+		case errors.As(err, &pf):
+			// WR-22, JE-42 rule 4, WR-5: the job fails before its script
+			// runs, with the worker's execution error.
+			res := fail(workerError(fr.stepID(i), "execution error:\n"+pf.Error()), OriginEngine)
 			r.recordJob(fr, i, res.rec.Result)
 			r.ended(fr, &res)
 			return res
@@ -1629,10 +1689,24 @@ func passDirect(fr *frame, m *ir.Module) bool {
 // fr, which the worker runs at once, with no timer (FX-24): its result is
 // its stored arguments' previous_result, or {}. A job classified skipped
 // does not evaluate the module's stop_after_if (FX-17, FX-18).
+//
+// The worker checks the wm_failure marker on every job it completes
+// successfully, an identity job's included (FX-13): a mock value, or the
+// previous_result an identity or skipped module passes through, that
+// marks itself failed fails the job, kept with its ManualFailure error put
+// in, as a script's result does. The module is then Failure, which has no
+// skipped flag (OR-11: only a Success entry carries one).
 func (r *run) identityJob(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, skipped bool) outcome {
 	res := identityResult(stored)
 	r.ended(fr, &o)
-	o.rec.Ran, o.rec.Skipped = true, skipped
+	o.rec.Ran = true
+	if v, failed := ManualFailure(res.Producer()); failed {
+		o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginUser
+		o.end, o.carried, o.origin = endFailed, v, OriginUser
+		r.recordJob(fr, i, v)
+		return o
+	}
+	o.rec.Skipped = skipped
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, res, res
 	o.carried = res
 	r.recordJob(fr, i, res)
@@ -1735,7 +1809,9 @@ func (r *run) chaining(fr *frame, i int, o outcome, text string) outcome {
 //   - at a child flow's pickup the child fails at once with that error, and
 //     its first module never starts (context 3, CF-V3);
 //   - at a later transition the flow fails at once with it, named
-//     InternalError, and the module never starts (context 1).
+//     InternalError, and the module never starts (context 1); the flow
+//     job stores that error, and its parent is handed the flow's last
+//     carried value with the failure (outcome.aborted, CF-23 route 3).
 func (r *run) chainingAt(fr *frame, pickup bool, o outcome, text string) outcome {
 	o.chain = text
 	switch {
@@ -1750,7 +1826,7 @@ func (r *run) chainingAt(fr *frame, pickup bool, o outcome, text string) outcome
 		return o
 	}
 	o.rec.Status, o.rec.Module = conformance.StepNotRun, conformance.ModuleNotRun
-	o.end, o.carried, o.origin = endChained, engineError("InternalError", text), OriginEngine
+	o.end, o.carried, o.origin, o.aborted = endChained, engineError("InternalError", text), OriginEngine, true
 	return o
 }
 
@@ -2098,7 +2174,9 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 // timeout as a timer in the engine (ADR 0004 §Cancellation and deadlines
 // item 2), and returns its outcome, its job's id, WM_JOB_ID, and the
 // arguments its script received: args after the worker's resolution
-// (JE-41, JE-42), which fails it with a *resolveFailure before it runs.
+// (JE-41, JE-42). An envs entry the worker refuses (WR-22), which it reads
+// first, or a failed resolution fails it with a *pickupFailure before it
+// runs.
 // The job identity follows the flow the job runs in (WA-6, WA-V1,
 // ADR 0007): its job id, its innermost scope and its runnable path.
 func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
@@ -2120,7 +2198,9 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	// strings in a resource an argument names; neither the script's own
 	// envs nor H12's changes are among them.
 	reserved := maps.Clone(inv.Env)
-	addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary)
+	if err := addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary); err != nil {
+		return StepOutcome{}, inv.ID, jsonval.Value{}, &pickupFailure{err}
+	}
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.Latch(HookLatchError(ctx, err))
 	}
@@ -2131,7 +2211,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	// before the script runs (JE-41, JE-42, WR-5).
 	resolved, err := r.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
-		return StepOutcome{}, inv.ID, jsonval.Value{}, &resolveFailure{err}
+		return StepOutcome{}, inv.ID, jsonval.Value{}, &pickupFailure{err}
 	}
 	inv.Args = resolved
 	inv.Report = r.settle.Track(&runReporter{run: r, idx: idx})

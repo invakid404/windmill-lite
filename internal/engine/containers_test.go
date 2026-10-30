@@ -263,10 +263,11 @@ func TestLoopSkipIfMidLoop(t *testing.T) {
 	}
 }
 
-// CF-25: on the Community Edition a squashed loop runs as if it were not
-// squashed, sequential or parallel, a for loop or a while loop, collapsed
-// or not (recorded by the cf-25 fixture, where the catalogue predicted an
-// error).
+// CF-25: squash is accepted and ignored. windmill-lite runs a squashed
+// loop unsquashed, sequential or parallel, a for loop or a while loop,
+// collapsed or not, which gives the results the Community Edition image
+// recorded (CF-25/d, the cf-25 fixture); whether CE reuses one runtime
+// across the iterations is open (Q-CF-19).
 func TestContainerSquash(t *testing.T) {
 	one := []string{mod("b", "value", inputs("v", js("flow_input.iter.value")), "")}
 	two := append(slices.Clone(one), mod("c", "value", inputs("v", js("results.b")), ""))

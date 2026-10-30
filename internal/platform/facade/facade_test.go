@@ -299,8 +299,6 @@ func TestUnsupportedRoutes(t *testing.T) {
 		{"GET", o + "/api/w/ws/jobs_u/get/j1", "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}"},
 		{"POST", o + "/api/w/ws/jobs/run/preview?tag=a", "Not implemented in windmill-lite: POST /w/{ws}/jobs/run/preview"},
 		{"POST", o + "/api/w/ws/jobs_u/queue/cancel/j1", "Not implemented in windmill-lite: POST /w/{ws}/jobs_u/queue/cancel/{id}"},
-		// A job the facade does not know of (PF3's registry).
-		{"GET", o + "/api/w/ws/jobs_u/get_root_job_id/elsewhere", "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_root_job_id/{id}"},
 		{"GET", o + "/api/w/ws/no_such/route", "Not implemented in windmill-lite: GET /w/ws/no_such/route"},
 		{"GET", o + "/elsewhere", "Not implemented in windmill-lite: GET /elsewhere"},
 	} {
@@ -311,7 +309,7 @@ func TestUnsupportedRoutes(t *testing.T) {
 	}
 	got := s.Unsupported(context.Background())
 	want := []string{"GET /w/{ws}/jobs_u/get/{id}", "POST /w/{ws}/jobs/run/preview", "POST /w/{ws}/jobs_u/queue/cancel/{id}",
-		"GET /w/{ws}/jobs_u/get_root_job_id/{id}", "GET /w/ws/no_such/route", "GET /elsewhere"}
+		"GET /w/ws/no_such/route", "GET /elsewhere"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("unsupported %q, want %q", got, want)
 	}

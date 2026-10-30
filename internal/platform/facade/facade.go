@@ -40,6 +40,11 @@ const UnsupportedPrefix = "Not implemented in windmill-lite: "
 // invocation (ADR 0007, transports).
 const UnknownToken = "Not authorized: unknown windmill-lite invocation token"
 
+// Unauthorized is the body of the 401 Windmill answers, before the
+// handler runs, to an authenticated route called with a token that is not
+// valid for the workspace its path names (WA-4, WA-42).
+const Unauthorized = "Not authorized: Unauthorized"
+
 // Caller is the invocation a call is attributed to.
 type Caller struct {
 	// ID is the invocation's id; Run the run it belongs to.
@@ -482,6 +487,13 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 			h = f.handlers[r.Operation]
 		}
 	}
+	if call.Route != nil && authenticated(call.Route) && !ownWorkspace(call) {
+		rec.Status = 401
+		answered := f.answer(rec)
+		f.mu.Unlock()
+		answered()
+		return fixed(text(401, Unauthorized))
+	}
 	if h == nil {
 		rec.Status, rec.Unsupported, rec.Message = 501, true, UnsupportedPrefix+rec.name()
 		answered := f.answer(rec)
@@ -520,6 +532,29 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 		}()
 		return h(ctx, call)
 	}
+}
+
+// authenticated reports whether the API authenticates the caller of the
+// route by its token, so that the token must be valid for the workspace
+// the path names (WA-4): every route of a workspace (/w/{workspace}/…)
+// but those of an unauthenticated group, whose segment after the
+// workspace ends in _u. The reference names jobs_u, whose routes check no
+// token and in which the path's workspace only scopes the job lookup; the
+// API's other such group, apps_u (the routes of public apps), has no
+// handler, so its calls keep their 501 whatever the workspace.
+func authenticated(r *Route) bool {
+	return len(r.segs) > 2 && r.segs[0] == "w" && r.segs[1] == "{workspace}" && !strings.HasSuffix(r.segs[2], "_u")
+}
+
+// ownWorkspace reports whether the workspace in c's path is its caller's,
+// WM_WORKSPACE, for which the caller's token is valid (WA-4), or c's path
+// names none. It is the one workspace windmill-lite has jobs in: a
+// runtime runs its jobs under one host configuration. A caller without
+// WM_WORKSPACE is taken to be of every workspace.
+func ownWorkspace(c *Call) bool {
+	ws, ok := c.Params["workspace"]
+	own := c.Caller.Env["WM_WORKSPACE"]
+	return !ok || own == "" || ws == own
 }
 
 // answer returns the call to Answered for a record whose answer is

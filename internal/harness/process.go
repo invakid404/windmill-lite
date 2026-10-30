@@ -1752,10 +1752,17 @@ func (p *Process) Kill() { p.kill("killed by the engine") }
 // side of it.
 func (p *Process) kill(reason string) {
 	p.mu.Lock()
-	if p.killReason == "" {
+	first := p.killReason == ""
+	if first {
 		p.killReason = reason
 	}
 	p.mu.Unlock()
+	if first && reason != "watchdog" {
+		// The watchdog says why on its own; every other kill is named
+		// here, so that a step that ends as killed by SIGKILL says by what
+		// (FU8: the fresh-mode flake's diagnostics were empty).
+		p.diag.printf("killing the harness: %s", reason)
+	}
 	if p.host != nil {
 		p.conn.close()
 		return

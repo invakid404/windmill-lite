@@ -1052,6 +1052,22 @@ CF-29/a), [Q-OF-1](../semantics/openflow.md#q-of-1)'s fixtures,
 [Q-OF-13](../semantics/openflow.md#q-of-13)'s sync trees, and
 [Q-OR-17](../semantics/oracle.md#q-or-17)'s colliding identity pairs.
 
+**From the build team** (milestone FU8, N5's follow-up), for the reference
+session:
+
+- **A canceled flow step that is scheduled but not launched**
+  ([FX-38](../semantics/execution.md#fx-38)). `[s: bun: return 1 (sleep:
+  {type: static, value: 5}), f: flow f/x/child]`, the flow canceled 1 s in,
+  while `f` waits out `s`'s sleep, and the same with `f` a retried subflow
+  step canceled during its retry delay. Observe `f`'s status, its stored
+  result and whether it has a job. windmill-lite reads FX-38's rule for a
+  queued child: the step fails without running, with the `Canceled` value,
+  and keeps a record of its own with no job (milestone N5). It was not
+  recorded in FU8: a new fixture's sync-tree metadata comes only from the
+  oracle workflow's CLI, so recording it takes a batch of its own, and job
+  ids are masked in the comparison, so only the status and the result can
+  show a difference.
+
 ## Changing the design
 
 1. A record is changed by a pull request that edits it in place and says why

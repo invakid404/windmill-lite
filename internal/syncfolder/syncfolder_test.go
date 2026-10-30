@@ -309,6 +309,9 @@ func (d deniedFS) ReadFile(name string) ([]byte, error) {
 // reached only through a reference: a lock is the empty lock with the
 // CLI's warning, and inline content falls back to the module's name. A file
 // the walk reads fails the item instead, as the CLI's walk fails the push.
+// The reference gives no text for a script lock without read permission,
+// so its warning carries Go's error after `Error: `; a flow's inline lock
+// says "not found" whatever the failure.
 func TestUnreadableReferences(t *testing.T) {
 	load := func(cfg string) *Folder {
 		t.Helper()
@@ -337,7 +340,7 @@ func TestUnreadableReferences(t *testing.T) {
 	f := load("includes: ['**/x.ts', '**/flow.yaml']\n")
 	s, err := f.Script("f/a/x")
 	if err != nil || s.Lock == nil || *s.Lock != "" || s.LockFile != "" ||
-		!slices.Equal(s.Warnings, []string{"Error reading inline path: f/a/x.script.lock, read f/a/x.script.lock: permission denied"}) {
+		!slices.Equal(s.Warnings, []string{"Error reading inline path: f/a/x.script.lock, Error: read f/a/x.script.lock: permission denied"}) {
 		t.Errorf("script f/a/x = %+v, %v; want the empty lock and the CLI's warning", s, err)
 	}
 	fl, err := f.Flow("f/a/fl")
@@ -348,7 +351,7 @@ func TestUnreadableReferences(t *testing.T) {
 	in := fl.Inline[0]
 	if rs.Content != "// the fallback\n" || in.ContentFile != "f/a/fl.flow/a.ts" || *rs.Lock != "" || in.LockFile != "" ||
 		!slices.Equal(in.Warnings, []string{"Script file legacy.ts not found",
-			"Error reading inline path: f/a/fl.flow/a.lock, read f/a/fl.flow/a.lock: permission denied"}) {
+			"Lock file a.lock not found, treating as empty"}) {
 		t.Errorf("flow f/a/fl: content %q, lock %q, inline %+v", rs.Content, *rs.Lock, in)
 	}
 

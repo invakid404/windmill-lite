@@ -217,6 +217,22 @@ func TestFreshExitWithAnUnreadPong(t *testing.T) {
 	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
 		t.Fatalf("settled %s; calls %s", k, rec.log())
 	}
+	<-p.Done()
+	if d := diag.String(); strings.Contains(d, "killing the harness") {
+		t.Fatalf("the process was killed: %q", d)
+	}
+}
+
+// Every kill but the watchdog's, which says why on its own, is named in the
+// diagnostics, so a step that ends as killed by SIGKILL says by what (FU8).
+func TestKillIsNamed(t *testing.T) {
+	cfg, diag := fakeConfig(t, "ok")
+	p := spawn(t, cfg)
+	p.Kill()
+	<-p.Done()
+	if d := diag.String(); !strings.Contains(d, "killing the harness: killed by the engine") {
+		t.Fatalf("diagnostics %q", d)
+	}
 }
 
 // cl P4-3: silence is measured from frames received, so a harness that

@@ -205,6 +205,34 @@ func TestSubflowPickupError(t *testing.T) {
 	}
 }
 
+// CF-23 route 3: a flow step whose subflow aborts on a chaining error at a
+// later transition takes the subflow's last carried value, r's 1, as its
+// value: the caller's continue_on_error hands it on as previous_result,
+// while results.s reads the subflow job's stored InternalError; a caller
+// that ends on the failure fails with 1.
+func TestSubflowAborted(t *testing.T) {
+	child := flowOf(value("r", "1", ""), loopOf("l", []string{value("x", "1", "")}, `"iterator":`+js("({o: 1})")+`,"parallel":false,"skip_failures":false`, ""))
+	e := mustOpen(t, map[string]string{
+		"f/t/child": child,
+		"f/t/main": flowOf(
+			subflowOf("s", "f/t/child", "", `"continue_on_error":true`),
+			mod("c", "value", inputs("v", js("previous_result")), ""),
+			mod("d", "value", inputs("v", js("results.s")), ""),
+		),
+	}, &scripts{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, "")
+	wantAborted(t, at(t, tr, "m:s"), `1`)
+	sameJSON(t, "c's result", at(t, tr, "m:c").Result, `1`)
+	if name, _ := errorOf(tr.Result); name != "InternalError" {
+		t.Fatalf("the run's result %s", tr.Result)
+	}
+	e = mustOpen(t, map[string]string{"f/t/child": child, "f/t/main": flowOf(subflowOf("s", "f/t/child", "", ""))}, &scripts{})
+	tr = runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunFailure, `1`)
+	wantAborted(t, at(t, tr, "m:s"), `1`)
+}
+
 // ADR 0008 in subflows: hooks see a subflow's modules as modules of the
 // subflow's flow (Site.Flow), H1 answers for a flow step as for any launch,
 // and H2 rewrites its arguments.

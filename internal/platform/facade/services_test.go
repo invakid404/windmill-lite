@@ -7,13 +7,17 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // The root lookup answers from the job registry (milestone PF3): a job of
 // a live run after the job itself ended, the run, and a flow scope a job
-// runs in; a job whose run has ended, and one never registered, answer
-// 501. A read's job_id finds a script job's variables the same way.
+// runs in. An id with no job in the path's workspace answers as Windmill
+// answers one with no job row (WA-19/b): a job whose run has ended, one
+// never registered, an id that is not a UUID, and a job looked up in
+// another workspace, which the unauthenticated route does not refuse for
+// the token (WA-4/b).
 func TestRootLookupFromTheRegistry(t *testing.T) {
 	services := &platform.Services{}
 	f := newFacade(t, Config{Platform: services})
@@ -25,31 +29,34 @@ func TestRootLookupFromTheRegistry(t *testing.T) {
 	b := f.Register("inv-b", run, env("job-b", run, "tok-b"))
 	defer b.End()
 	origin := f.WarmOrigin()
-	lookup := func(id string) (int, string) {
-		rep := intercept(f, "inv-b", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/"+id, nil, nil)
-		return rep.Status, string(rep.Body)
+	lookup := func(inv, ws, id string) harness.PlatformReply {
+		return intercept(f, inv, "GET", origin+"/api/w/"+ws+"/jobs_u/get_root_job_id/"+id, nil, nil)
 	}
 	for _, id := range []string{"job-a", run, child, "job-b"} {
-		if code, body := lookup(id); code != 200 || body != `"`+run+`"` {
-			t.Errorf("%s: %d %s", id, code, body)
+		if rep := lookup("inv-b", "ws", id); rep.Status != 200 || rep.Headers["content-type"] != "application/json" || string(rep.Body) != `"`+run+`"` {
+			t.Errorf("%s: %d %s", id, rep.Status, rep.Body)
 		}
 	}
-	if code, body := lookup("elsewhere"); code != 501 || body != "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_root_job_id/{id}" {
-		t.Errorf("an unknown job: %d %s", code, body)
+	const noRow = "SqlErr: no rows returned by a query that expected to return at least one row"
+	noJob := func(what string, rep harness.PlatformReply) {
+		t.Helper()
+		if rep.Status != 400 || rep.Headers["content-type"] != "text/plain" || string(rep.Body) != noRow {
+			t.Errorf("%s: %d %v %s", what, rep.Status, rep.Headers, rep.Body)
+		}
 	}
-	if env, ok := f.jobEnv("job-a"); !ok || env["WM_FLOW_JOB_ID"] != child {
-		t.Errorf("the ended job's variables: %v %v", env, ok)
-	}
-	if _, ok := f.jobEnv(child); ok {
-		t.Error("a flow job has a script job's variables")
+	noJob("an unknown job", lookup("inv-b", "ws", "00000000-0000-0000-0000-000000000001"))
+	noJob("an id that is not a UUID", lookup("inv-b", "ws", "elsewhere"))
+	noJob("its own job in another workspace", lookup("inv-b", "other", "job-b"))
+	if code, body := get(t, f.FreshOrigin()+"/api/w/ws/jobs_u/get_root_job_id/00000000-0000-0000-0000-000000000001", "tok-b"); code != 400 || body != noRow {
+		t.Errorf("an unknown job over TCP: %d %s", code, body)
 	}
 	c := f.Register("inv-c", "run-c", env("job-c", "root-c", "tok-c"))
 	defer c.End()
 	endRun()
 	b.End()
-	rep := intercept(f, "inv-c", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/job-a", nil, nil)
-	if rep.Status != 501 {
-		t.Errorf("a job of an ended run: %d %s", rep.Status, rep.Body)
+	noJob("a job of an ended run", lookup("inv-c", "ws", "job-a"))
+	if got := c.Unsupported(context.Background()); len(got) != 0 {
+		t.Errorf("unsupported %q", got)
 	}
 }
 
@@ -179,10 +186,12 @@ func TestDispatchRoutes(t *testing.T) {
 	}
 }
 
-// The result polls (WA-15, WA-V2): a completed dispatched run, a running
-// one with and without get_started, a UUID that names no job, an id that
-// is not a UUID (400, so that waitJob fails at once), and a job of
-// windmill-lite's that the dispatcher did not start (501).
+// The result polls (WA-15, WA-V2, WA-19): a completed dispatched run, a
+// running one with and without get_started, a UUID that names no job, an
+// id that is not a UUID (400, so that waitJob fails at once), a job of
+// windmill-lite's that the dispatcher did not start (501), and a job
+// looked up in a workspace other than the caller's, which reads as
+// unknown (WA-V2/d).
 func TestResultRoutes(t *testing.T) {
 	const done, running, unknown = "00000000-0000-4000-8000-0000000000d0", "00000000-0000-4000-8000-0000000000d1", "00000000-0000-4000-8000-0000000000d2"
 	const step = "00000000-0000-4000-8000-0000000000e0"
@@ -207,14 +216,30 @@ func TestResultRoutes(t *testing.T) {
 		{"get_result_maybe/dispatch target not in bundle: u/t/x", 400, `Bad request: windmill-lite: the job id "dispatch target not in bundle: u/t/x" is not a UUID`},
 		{"get_result_maybe/" + step, 501, "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}"},
 		{"get_result/" + done, 200, `{"error":{"message":"boom","name":"Error"}}`},
-		{"get_result/" + running, 404, "Not found: windmill-lite: no completed job " + running},
-		{"get_result/" + unknown, 404, "Not found: windmill-lite: no completed job " + unknown},
+		{"get_result/" + running, 404, "Not found: Completed Job not found at name " + running},
+		{"get_result/" + unknown, 404, "Not found: Completed Job not found at name " + unknown},
 		{"get_result/" + step, 501, "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/completed/get_result/{id}"},
 		{"get_result/nope", 400, `Bad request: windmill-lite: the job id "nope" is not a UUID`},
 	} {
 		rep := intercept(f, "inv-a", "GET", base+c.path, nil, nil)
 		if rep.Status != c.status || string(rep.Body) != c.body {
 			t.Errorf("%s: %d %s", c.path, rep.Status, rep.Body)
+		}
+	}
+	other := f.WarmOrigin() + "/api/w/other/jobs_u/completed/"
+	for _, c := range []struct {
+		path   string
+		status int
+		body   string
+	}{
+		{"get_result_maybe/" + done, 200, `{"started":null,"success":null,"completed":false,"result":null}`},
+		{"get_result_maybe/" + step + "?get_started=true", 200, `{"started":false,"success":null,"completed":false,"result":null}`},
+		{"get_result/" + done, 404, "Not found: Completed Job not found at name " + done},
+		{"get_result/" + step, 404, "Not found: Completed Job not found at name " + step},
+	} {
+		rep := intercept(f, "inv-a", "GET", other+c.path, nil, nil)
+		if rep.Status != c.status || string(rep.Body) != c.body {
+			t.Errorf("another workspace's %s: %d %s", c.path, rep.Status, rep.Body)
 		}
 	}
 }
@@ -259,5 +284,75 @@ func TestObjectRoutes(t *testing.T) {
 	rep = intercept(none, "inv-b", "POST", none.WarmOrigin()+"/api/w/ws/job_helpers/upload_s3_file?file_key=k", nil, []byte("x"))
 	if rep.Status != 501 || !strings.HasSuffix(string(rep.Body), "(no object store is configured)") {
 		t.Errorf("no store: %d %s", rep.Status, rep.Body)
+	}
+}
+
+// WA-4/b: an authenticated route whose path names a workspace other than
+// the caller's (WM_WORKSPACE, which its token is valid for) answers 401
+// `Not authorized: Unauthorized` before any handler runs: before the 501
+// of an operation without one, and before a path or body rejection, on
+// both transports, and the stored state is unchanged. The call is
+// recorded with its 401 and is not unsupported. The unauthenticated
+// jobs_u routes and the routes outside a workspace are not refused for
+// it, and a caller without WM_WORKSPACE is of every workspace.
+func TestTokenWorkspace(t *testing.T) {
+	store := platform.NewStore()
+	store.SetVariable("u/admin/v", platform.Variable{Value: "x"})
+	services := &platform.Services{Variables: store}
+	var mu sync.Mutex
+	statuses := map[string]int{}
+	f := newFacade(t, Config{Platform: services, Answered: func(_ string, r Record) {
+		mu.Lock()
+		defer mu.Unlock()
+		statuses[r.Method+" "+r.Path] = r.Status
+	}})
+	const run = "00000000-0000-4000-8000-0000000000aa"
+	endRun := services.JobRegistry().Begin(platform.Job{ID: run, Kind: platform.JobFlow, Root: run})
+	defer endRun()
+	s := f.Register("inv-a", run, env("job-a", run, "tok-a"))
+	defer s.End()
+	origin := f.WarmOrigin()
+	for _, c := range []struct{ method, path, body string }{
+		{"GET", "/api/w/other/variables/get_value/u/admin/v", ""},
+		{"POST", "/api/w/other/jobs/flow/user_states/" + run + "/k", "1"},
+		{"POST", "/api/w/other/jobs/flow/user_states/abc/k", "hello"},
+		{"POST", "/api/w/other/variables/create", "{}"},
+	} {
+		rep := intercept(f, "inv-a", c.method, origin+c.path, nil, []byte(c.body))
+		if rep.Status != 401 || rep.Headers["content-type"] != "text/plain" || string(rep.Body) != Unauthorized {
+			t.Errorf("%s %s: %d %v %s", c.method, c.path, rep.Status, rep.Headers, rep.Body)
+		}
+		mu.Lock()
+		if got := statuses[c.method+" "+c.path]; got != 401 {
+			t.Errorf("%s %s recorded with %d", c.method, c.path, got)
+		}
+		mu.Unlock()
+	}
+	if code, body := get(t, f.FreshOrigin()+"/api/w/other/variables/get_value/u/admin/v", "tok-a"); code != 401 || body != Unauthorized {
+		t.Errorf("over TCP: %d %s", code, body)
+	}
+	if got := s.Unsupported(context.Background()); len(got) != 0 {
+		t.Errorf("unsupported %q", got)
+	}
+	for _, c := range []struct {
+		path   string
+		status int
+		body   string
+	}{
+		{"/api/w/ws/jobs/flow/user_states/" + run + "/k", 200, "null"},
+		{"/api/w/ws/variables/get_value/u/admin/v", 200, `"x"`},
+		{"/api/w/other/jobs_u/get_root_job_id/job-a", 400, "SqlErr: no rows returned by a query that expected to return at least one row"},
+		{"/api/w/ws/jobs_u/get_root_job_id/job-a", 200, `"` + run + `"`},
+		{"/api/users/whoami", 501, UnsupportedPrefix + "GET /users/whoami"},
+		{"/api/w/other/apps_u/public_app/f/x", 501, UnsupportedPrefix + "GET /w/{ws}/apps_u/public_app/{path}"},
+	} {
+		if rep := intercept(f, "inv-a", "GET", origin+c.path, nil, nil); rep.Status != c.status || string(rep.Body) != c.body {
+			t.Errorf("%s: %d %s", c.path, rep.Status, rep.Body)
+		}
+	}
+	n := f.Register("inv-n", run, map[string]string{"WM_JOB_ID": "job-n", "WM_TOKEN": "tok-n"})
+	defer n.End()
+	if rep := intercept(f, "inv-n", "GET", origin+"/api/w/any/variables/get_value/u/admin/v", nil, nil); rep.Status != 200 || string(rep.Body) != `"x"` {
+		t.Errorf("a caller without WM_WORKSPACE: %d %s", rep.Status, rep.Body)
 	}
 }

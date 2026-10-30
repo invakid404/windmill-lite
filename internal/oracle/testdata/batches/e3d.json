@@ -53,7 +53,7 @@
     {
       "case": "CF-7/e",
       "milestone": "later",
-      "reason": "later; source-derived in the reference's revision of 2026-10-29 (SC3): CE deploys an ai parallelism and holds every iteration job, so no body starts; no run of this batch records it, and docs/design/README.md requests the recording from a future batch E3f (squash and ai parallelism on the CE image). windmill-lite's engine refuses a program with an ai parallelism as not supported yet (internal/engine), and no milestone of ADR 0012 implements an ai parallelism"
+      "reason": "later; source-derived in the reference's revision of 2026-10-29 (SC3): CE deploys an ai parallelism and holds every iteration job, so no body starts; no run of this batch records it, and docs/design/README.md requests the recording from a future batch E3f (squash and ai parallelism on the CE image). windmill-lite runs an ai parallelism since the follow-up milestone FU8: the decoder takes {type: ai} in the restricted parallelism slot (internal/openflow, TestRestrictedTransforms), and the engine evaluates it to 0 and holds every iteration until the run ends (internal/engine, TestLoopParallelism)"
     },
     {
       "case": "CF-8/d",

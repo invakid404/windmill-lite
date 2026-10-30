@@ -403,6 +403,61 @@ func TestChains(t *testing.T) {
 	}
 }
 
+// WA-12/g: a read with a job id looks its job up only when the walk meets
+// a $WM_* string, at each one, nested resources included; a value without
+// one reads as if no job id had been sent, and a failed lookup fails the
+// whole read with its error, as it is.
+func TestInterpolatedReadJobLookup(t *testing.T) {
+	ctx := context.Background()
+	store := NewStore()
+	for path, v := range map[string]string{
+		"u/x/plain": `{"a":1,"b":"WM_JOB_ID"}`,
+		"u/x/two":   `{"j":"$WM_JOB_ID","w":"$WM_WORKSPACE","x":"$WM_UNKNOWN","o":"$res:u/x/ctx"}`,
+		"u/x/ctx":   `{"j":"$WM_JOB_ID"}`,
+	} {
+		if err := store.SetResource(path, Resource{Value: json.RawMessage(v)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := &Services{Resources: store}
+	calls := 0
+	job := func() (map[string]string, error) {
+		calls++
+		return map[string]string{"WM_JOB_ID": "J", "WM_WORKSPACE": "ws"}, nil
+	}
+	for _, c := range []struct {
+		path, want string
+		calls      int
+	}{
+		{"u/x/plain", `{"a":1,"b":"WM_JOB_ID"}`, 0},
+		{"u/x/two", `{"j":"J","o":{"j":"J"},"w":"ws","x":"$WM_UNKNOWN"}`, 4},
+	} {
+		calls = 0
+		got, err := s.InterpolatedResourceOf(ctx, c.path, job)
+		if err != nil || string(got) != c.want || calls != c.calls {
+			t.Errorf("%s: %s %v after %d lookups, want %s after %d", c.path, got, err, calls, c.want, c.calls)
+		}
+	}
+	// A value whose only $… string is not a $WM_* one needs no lookup.
+	if err := store.SetResource("u/x/none", Resource{Value: json.RawMessage(`{"a":"$5.00"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	failed := func() (map[string]string, error) {
+		return nil, &Error{Variant: "NotFound", Message: "Job not found at name J"}
+	}
+	if got, err := s.InterpolatedResourceOf(ctx, "u/x/none", failed); err != nil || string(got) != `{"a":"$5.00"}` {
+		t.Errorf("no $WM_* string: %s %v", got, err)
+	}
+	var pe *Error
+	if _, err := s.InterpolatedResourceOf(ctx, "u/x/ctx", failed); !errors.As(err, &pe) || pe.Body() != "Not found: Job not found at name J" {
+		t.Errorf("a failed lookup: %v", err)
+	}
+	other := errors.New("not kept")
+	if _, err := s.InterpolatedResourceOf(ctx, "u/x/two", func() (map[string]string, error) { return nil, other }); err != other {
+		t.Errorf("another error: %v", err)
+	}
+}
+
 // TestAPIEnv: the stored root is dropped when it equals the innermost
 // root, the parent or the job itself (WA-V1, WA-V3).
 func TestAPIEnv(t *testing.T) {

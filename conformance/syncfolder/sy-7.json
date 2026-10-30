@@ -45,7 +45,10 @@
           "flow": {
             "f/x": {
               "at": {
-                "/flow/value/modules/0/value/lock": ""
+                "/flow/value/modules/0/value/lock": "",
+                "/inline/0/warnings": [
+                  "Lock file a.inline_script.lock not found, treating as empty"
+                ]
               },
               "absent": [
                 "/inline/0/lock_file"
@@ -206,12 +209,43 @@
                 "/flow/value/modules/0/value/lock": "",
                 "/inline/0/content_file": "f/x.flow/a.inline_script.ts",
                 "/inline/0/warnings": [
-                  "Script file renamed.inline_script.ts not found"
+                  "Script file renamed.inline_script.ts not found",
+                  "Lock file renamed.inline_script.lock not found, treating as empty"
                 ]
               }
             }
           }
         }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "the missing-lock warning names the file as written",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline ./locks/a.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.inline_script.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "",
+                "/inline/0/warnings": [
+                  "Lock file ./locks/a.lock not found, treating as empty"
+                ]
+              },
+              "absent": [
+                "/inline/0/lock_file"
+              ]
+            }
+          }
+        },
+        "check_ok": true
       }
     },
     {

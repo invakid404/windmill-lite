@@ -387,16 +387,12 @@ func supportedRootScript(s *ir.Script) error {
 	return nil
 }
 
-// supportedLoop checks a for loop: its body, and the fields the engine
-// runs.
+// supportedLoop checks a for loop: its body. Every field it has runs: an
+// ai iterator fails the loop with CF-2's text, and an ai parallelism holds
+// every iteration (CF-7/e).
 func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
-	switch {
-	case l == nil:
+	if l == nil {
 		return errors.New("a forloopflow module with no loop")
-	case l.Parallelism != nil && l.Parallelism.Type == ir.AI:
-		// An ai iterator fails the loop with CF-2's text; the reference
-		// gives none for an ai parallelism.
-		return unsupported("an ai parallelism")
 	}
 	return supportedList(l.Modules, scripts)
 }

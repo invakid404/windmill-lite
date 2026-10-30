@@ -128,7 +128,7 @@ those keys as a set.
 | `aiagent` modules | rejects at load; an `ai` input transform on an ordinary step is left out of the arguments, as Windmill does | OF-9, FX-7, JE-47 |
 | Queues, worker tags, `priority`, concurrency limits, debouncing, `dedicated_worker` | decoded and ignored | FX-41, OF-16 |
 | Job rows, logs as a contract, the UI | not provided; logs are captured for error tails only | WR-20 |
-| `delete_after_use`, `delete_after_secs` | no effect, as on CE | OR-21 |
+| `delete_after_use`, `delete_after_secs` | no effect, as in CE's asynchronous flow worker, the one CE route windmill-lite reproduces; CE's synchronous script routes, which windmill-lite does not serve, blank a job at once for `delete_after_secs` 0 and only schedule a positive delay ([OR-21](../semantics/oracle.md#or-21)/c–d) | OR-21 |
 | Schedules, triggers, apps | recognised by the loader and skipped | SY-12 |
 | JSON-mode sync folders (`json: true`); and, until a later milestone, multi-file (`__mod`) scripts and file and fileset resources | rejected when the loader reads the item | SY-2, SY-10, SY-13 |
 | EE behaviour (codebase bundles server-side, dedicated workers, OIDC) | out unless observable on CE; see [0002](0002-ir-and-loader.md) for codebase scripts | WR-30, WR-36 |
