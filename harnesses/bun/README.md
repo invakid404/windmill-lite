@@ -16,17 +16,21 @@ methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
 ([WR-55](../../docs/semantics/languages.md#wr-55), below); milestone
 F3a, which completed the host SDK; and milestone F2c, host plugins
-answered over `host_call` (below). This
-README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
-of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
-host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
-`test/`, the developer checks. The
-build helper of milestone C2a, which bundles scripts and parses their
+answered over `host_call` (below).
+
+This README covers `harnesses/bun`: `runtime/`, the harness side of the
+protocol of [ADR 0004](../../docs/design/0004-harness-protocol.md);
+`host/`, the Bun host SDK of
+[ADR 0009](../../docs/design/0009-host-adapters.md); and `test/`, the
+developer checks. The build helper, which bundles scripts and parses their
 signatures, has its own README: [build/](build/README.md). The harness runs
 on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
-([WR-3](../../docs/semantics/languages.md#wr-3)). The runtime and the host
-SDK have no dependencies and no `package.json`; only the build helper has
-one, its TypeScript parser.
+([WR-3](../../docs/semantics/languages.md#wr-3)).
+
+The runtime and the host SDK have no dependencies and no `package.json`.
+The build helper has one, for its TypeScript parser. The type check in
+`test/typecheck` has one for TypeScript and Bun's type declarations, which
+only developers and CI install ([Type check](#type-check)).
 
 ## Running
 
@@ -422,26 +426,15 @@ re-exports the plugin types. `connect(options)`:
 
 It returns a `Host`:
 
-- `run(path, args, {kind, intercept, signal, onSettled, writeCapable,
-  fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock})` submits a run
-  of a flow, or with `kind: "script"` a script, and resolves with its
-  `id`, `status`, `result`, `mayHaveMutated`, `warnings`, `deviations`
-  (H7, H10) and, for a latched run, `latched` (the error it latched), or
-  rejects with a
-  `HostError` when the engine does not start it (`draining`, or `refused`:
-  no such target, arguments that are not an object). An aborted `signal`
-  cancels it. The scope the caller has when it calls `run` is captured
+- `run(path, args, options)` submits a run of a flow, or with
+  `kind: "script"` a script, with the options of
+  [Run options](#run-options). It resolves with the run's `id`, `status`,
+  `result`, `mayHaveMutated`, `warnings`, `deviations` (H7, H10) and, for
+  a latched run, `latched` (the error it latched). It rejects with a
+  `HostError` when the engine does not start the run: `draining`, or
+  `refused`. The scope the caller has when it calls `run` is captured
   with `AsyncLocalStorage.snapshot()`, and every invocation of the run
-  re-enters it (H11). `intercept` maps module ids to the results that
-  stand in for them (H1's static form). The run's budgets and latches
-  (F2b's, in the run frame) are its write-capable selectors (H3) and fatal
-  error names (H7), ahead of the plugin's, its hard and pre-write
-  deadlines in milliseconds (H4), and its clock (H10, `record` for quick
-  waits). `onSettled` is called once the run
-  has settled, after its outcome (`run_settled`, ADR 0004 host mode item
-  5), in the scope the run was submitted in (H11), outside every
-  invocation: every invocation it started has settled, which may be never,
-  and resources an abandoned step may still use are released there.
+  re-enters it (H11).
 - `health()` reports invocations in flight and abandoned, the age of the
   oldest abandoned one, unattributed errors, lag, RSS, the script modules
   loaded (`modules`), the runs in flight, whether it drains, and the
@@ -475,6 +468,40 @@ event loop stops answering (`watchdog.killAfter`, default 30 s, 0 disables
 it). A step reads a host scope only through a host-provided module; the
 bundle's step imports it through the shim the build generates, which
 takes each export from the registry.
+
+### Run options
+
+The run's own hooks and budgets go in its run frame, and come ahead of the
+plugin's.
+
+| Option | What it does |
+|---|---|
+| `kind` | `"flow"`, the default, or `"script"`: a root script, run as a script job |
+| `intercept` | Maps module ids to the results that stand in for those modules (H1's static form) |
+| `signal` | Cancels the run when it aborts |
+| `onSettled` | Called once the run has settled, after its outcome (`run_settled`, ADR 0004 host mode item 5), in the scope the run was submitted in (H11) and outside every invocation. Every invocation of the run has settled then, which may be never, so resources that an abandoned step may still use are released here. |
+| `writeCapable` | The run's write-capable selectors (H3): the plugin's `beforeFirstWrite` is asked before the first of them launches |
+| `haltBefore`, `haltAfter` | The run's own halts (below) |
+| `fatalErrorNames` | Error names that latch the run instead of failing a step (H7) |
+| `deadlineMs`, `preWriteDeadlineMs` | The hard and the pre-write deadline, in milliseconds from the run's submission (H4) |
+| `clock` | `"real"`, or `"record"`, which returns every sleep and retry delay at once (H10) |
+
+`haltBefore` and `haltAfter` end that run alone with status `halted`
+([H8](../../docs/design/0008-host-hooks.md#the-hooks)). The run halts
+before the first attempt of a module that a selector matches, or once
+such a module has its final outcome. Other runs of the flow, on the same
+connection too, run past the module, while the plugin's halts apply to
+every run of the host.
+
+`run` rejects with `refused` in these cases:
+
+- The engine has no such target, or the arguments are not an object.
+- `writeCapable`, `haltBefore` or `haltAfter` is not a list of objects.
+  The SDK checks this and sends no frame (`runSelectors`), because the
+  engine would read such a frame as broken and end the connection.
+- The engine finds a selector with an unknown field, a wrong form, or an
+  ambiguous module id. The error names the selector, such as
+  `the run's haltAfter[0]`.
 
 ## Host plugins
 
@@ -519,6 +546,9 @@ contract's form; the engine matches them.
   deviations and `PlatformCall`s.
 - **F2b's hooks.** A plugin may declare `writeCapable` selectors,
   `beforeFirstWrite` (a throw vetoes the write) and `fatalErrorNames`.
+- **Halts.** The plugin's `haltBefore` and `haltAfter` halt every run of
+  the host at the modules they match. A host that halts one run gives the
+  halts in that run's options instead ([Run options](#run-options)).
 - **The step API** (`installStepAPI`, `context.ts`). `wl` on `globalThis`
   gives step code `wl.latch(error)`, sent as a `latch` warning ahead of
   the step's result, which latches the run, and `wl.signal()`, the
@@ -790,7 +820,35 @@ of `conformance/steps` through it, [internal/bundle](../../internal/bundle/READM
 build helper, and [cmd/windmill-lite](../../cmd/windmill-lite/README.md)
 runs host mode end to end in a host compiled with `bun build --compile`.
 
+`test/host.test.ts` also checks that a run frame carries the run's
+write-capable selectors and halts as the host gave them.
+
 ```sh
 (cd harnesses/bun/build && bun install --frozen-lockfile)
 cd harnesses/bun && bun test
 ```
+
+### Type check
+
+`test/typecheck/check.sh` typechecks `host/` and `runtime/` as a host that
+vendors them as source sees them
+([ADR 0009](../../docs/design/0009-host-adapters.md)). It copies both
+directories into a temporary package of type module. There it runs
+TypeScript 6.0.3 against `@types/bun` 1.3.10, the type declarations of the
+pinned Bun, both from the lockfile in `test/typecheck`.
+
+- Its `tsconfig.json` resolves modules as Node.js does (`NodeNext`).
+- It runs `tsc` four times: with and without the DOM library, each in
+  strict and in non-strict mode, and exits 1 if any run reports an error.
+- CI's non-required `Bun SDK types` job runs it.
+
+The code uses only names that Bun's type declarations define, with or
+without the DOM library. Where those declarations miss what Bun does,
+the code names the gap in a comment and casts once: `RequestOf` (a
+`Request` built from a URL) and the file-descriptor form of `Bun.connect`.
+
+To run it:
+
+1. Install its dependencies:
+   `(cd harnesses/bun/test/typecheck && bun install --frozen-lockfile)`.
+2. Run `harnesses/bun/test/typecheck/check.sh`.

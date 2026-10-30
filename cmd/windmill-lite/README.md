@@ -216,7 +216,7 @@ that only restarts the host when it exits runs it. The tests:
 | `TestHostFacade` | a step reads a variable of the bundle through the job API at the `BASE_URL` its invocation carries |
 | `TestHostRecycleModules` | the modules recycle trigger trips once a second module loads, in `health()` and `onRecycle` |
 | `TestHostRecycleRetired` | F3b: the retired-entry recycle trigger trips once the host's count of pooled entries retired and not released passes its maximum, in `health()` and `onRecycle`; the host lives on |
-| `TestHostPluginCases` | F2c's gate in host mode: the cases of `conformance/plugins/hooks.yaml` on a bundle built from them, answered by the host's TypeScript plugin (the case plugin, from `WL_PLUGIN_CASES`) over `host_call`, each with its run's budgets and latches in the run frame (`caseRunBody`) and its expected status, `may_have_mutated`, result, latched error, log, warnings and deviations; every hook in the run's own tenant scope (H11); from the plugin's report file (`WL_PLUGIN_REPORT`), every case's run settling and none while one of its hooks still ran in the host; and a step that waits for `wl.signal()` alone settling once the run frame's deadline has aborted it |
+| `TestHostPluginCases` | The cases of `conformance/plugins/hooks.yaml` in host mode, answered over `host_call` by the host's case plugin (from `WL_PLUGIN_CASES`). Each run carries its own hooks and budgets in its run frame (`caseRunBody`) and gives its case's `expect`; a case's later runs share the connection, and every hook runs in the run's tenant scope (H11). The plugin's report file (`WL_PLUGIN_REPORT`) shows every run settling after its hooks. A step that waits for `wl.signal()` alone settles once the frame's deadline aborts it. |
 | `TestHostSurvivesADetachedRejection` | one detached rejection does not end the host; it is counted in health |
 | `TestHostNeverSettlingStep` | ADR 0004's never-settling-step test: after one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation; the host is never restarted |
 | `TestHostChildUnderBackpressure` | a step backs up the host's socket, starts a child and blocks the event loop; its timeout still kills the child, announced on the child channel (WR-55) |
@@ -229,6 +229,15 @@ that only restarts the host when it exits runs it. The tests:
 
 They need the pinned Bun in `WL_BUN` too, and the build helper's
 dependencies.
+
+`TestHostRunHalts` runs a second Bun host, `testdata/halthost/host.ts`,
+with `bun run`, on a bundle of `testdata/haltfolder`. On one connection,
+the host runs the two-step flow `f/repro/prefix` with `haltAfter` its
+first module, then without, and counts the modules that end in each run
+with its plugin's `onModuleEnd`. The first run ends `halted` after one
+module, and the second succeeds after two. Runs with a malformed halt, or
+with a halt option that is not a list, are refused, and the next run
+succeeds.
 
 `memory_test.go` measures what warm step modules cost a host process: the
 evidence of milestone F8a's record,

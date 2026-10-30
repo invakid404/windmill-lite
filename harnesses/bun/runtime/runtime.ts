@@ -184,12 +184,16 @@ export type RunOutcome = {
 };
 
 /** What a run frame carries besides its target and arguments: its static
- * intercept (JSON text), and its budgets and latches (F2b's, carried by
- * F2c): write-capable selectors (H3), fatal error names (H7), the hard and
- * pre-write deadlines in milliseconds (H4), and the clock (H10). */
+ * intercept (JSON text), and the run's own hooks and budgets, which a Go
+ * host gives in its run options: write-capable selectors (H3), halts
+ * before and after the modules selectors match (H8), fatal error names
+ * (H7), the hard and pre-write deadlines in milliseconds (H4), and the
+ * clock (H10). */
 export type RunFields = {
   intercept?: string;
   write_capable?: Selector[];
+  halt_before?: Selector[];
+  halt_after?: Selector[];
   fatal_error_names?: string[];
   deadline_ms?: number;
   pre_write_deadline_ms?: number;
@@ -1097,7 +1101,8 @@ export class Runtime {
       // connection ends.
       if (onSettled) this.settledHandlers.set(id, () => scope(() => invocations.exit(onSettled)));
       try {
-        const { intercept, write_capable, ...budgets } = fields;
+        const { intercept, write_capable, halt_before, halt_after, ...budgets } = fields;
+        const selectors = (s: Selector[] | undefined) => (s === undefined ? undefined : new Raw(JSON.stringify(s)));
         this.send({
           t: "run",
           id,
@@ -1105,7 +1110,9 @@ export class Runtime {
           path,
           args: new Raw(args),
           intercept: intercept === undefined ? undefined : new Raw(intercept),
-          write_capable: write_capable === undefined ? undefined : new Raw(JSON.stringify(write_capable)),
+          write_capable: selectors(write_capable),
+          halt_before: selectors(halt_before),
+          halt_after: selectors(halt_after),
           ...budgets,
         });
       } catch (e) {

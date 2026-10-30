@@ -1288,25 +1288,29 @@ func TestHostPluginCases(t *testing.T) {
 	var runs []string
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
-			tenant := "tenant-" + c.ID
-			r, err := s.post("/run", caseRunBody(c, tenant))
-			if err != nil || r.Refused != "" {
-				t.Fatalf("%+v, %v", r, err)
-			}
-			runs = append(runs, r.ID)
-			o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
-			scope := ""
-			for _, w := range r.Warnings {
-				o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})
-				if w.Code == "plugin_scope" {
-					scope = w.Message
+			// A case's later runs share the host's one connection with its
+			// first: a run's own hooks are that run's alone.
+			for i, cr := range append([]conformance.PluginThen{{Run: c.Run, Expect: c.Expect}}, c.Then...) {
+				tenant := fmt.Sprintf("tenant-%s-%d", c.ID, i)
+				r, err := s.post("/run", caseRunBody(c, cr.Run, tenant))
+				if err != nil || r.Refused != "" {
+					t.Fatalf("run %d: %+v, %v", i, r, err)
 				}
-			}
-			if d := c.Check(o); len(d) > 0 {
-				t.Fatalf("%s:\n  %s", c.Title, strings.Join(d, "\n  "))
-			}
-			if scope != tenant {
-				t.Fatalf("the plugin's onRunEnd ran in the scope of tenant %q, want the run's, %q", scope, tenant)
+				runs = append(runs, r.ID)
+				o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
+				scope := ""
+				for _, w := range r.Warnings {
+					o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})
+					if w.Code == "plugin_scope" {
+						scope = w.Message
+					}
+				}
+				if d := cr.Expect.Check(o); len(d) > 0 {
+					t.Fatalf("%s, run %d:\n  %s", c.Title, i, strings.Join(d, "\n  "))
+				}
+				if scope != tenant {
+					t.Fatalf("run %d: the plugin's onRunEnd ran in the scope of tenant %q, want the run's, %q", i, scope, tenant)
+				}
 			}
 		})
 	}
@@ -1338,7 +1342,7 @@ func TestHostPluginCases(t *testing.T) {
 		if c.ID != "run_deadline" {
 			continue
 		}
-		r, err := s.post("/settle?wait=10000", caseRunBody(c, "t"))
+		r, err := s.post("/settle?wait=10000", caseRunBody(c, c.Run, "t"))
 		if err != nil || r.Status != "canceled" || r.SettledAt < 0 {
 			t.Fatalf("%+v, %v: want canceled, then settled once wl.signal() aborted", r, err)
 		}
@@ -1348,18 +1352,104 @@ func TestHostPluginCases(t *testing.T) {
 	}
 }
 
-// caseRunBody is a plugin case's run as the host submits it: in tenant's
-// scope, with the run's budgets and latches in its run options, which the
-// host SDK carries in the run frame.
-func caseRunBody(c conformance.PluginCase, tenant string) map[string]any {
+// A host-mode host halts one run, not every run on its connection: a Bun
+// host (testdata/halthost/host.ts) runs the two-step flow f/repro/prefix
+// of testdata/haltfolder twice on one connection, the first time with
+// haltAfter check in the run's own options, the second without, and counts
+// the modules that end in each with its plugin's onModuleEnd. The first
+// run ends halted after one module, the second succeeds with result write
+// after two. A run whose halt option the engine finds malformed, or that
+// is not a list, is refused with a HostError refused, and the connection
+// still serves the next run.
+func TestHostRunHalts(t *testing.T) {
+	bun := bunForTest(t)
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := os.ReadFile("testdata/haltfolder/contract.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleDir := filepath.Join(t.TempDir(), "bundle")
+	if _, err := bundle.Build(context.Background(), bundle.Config{
+		Folder: "testdata/haltfolder", Contract: contract, EngineVersion: resolveVersion(), Bun: bun,
+		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
+		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
+		Out:            bundleDir, Work: filepath.Join(t.TempDir(), "work"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	script, err := filepath.Abs("testdata/halthost/host.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engineBin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bun, "run", script)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_ENGINE="+engineBin, "WL_BUNDLE="+bundleDir)
+	// A file, not a pipe: the engine inherits it, and a pipe would make the
+	// command wait for the engine's exit too.
+	stderr, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	cmd.Stderr = stderr
+	out, err := cmd.Output()
+	if err != nil {
+		log, _ := os.ReadFile(stderr.Name())
+		t.Fatalf("the host: %v\nstdout:\n%s\nstderr:\n%s", err, out, log)
+	}
+	type outcome struct {
+		Status  string          `json:"status"`
+		Result  json.RawMessage `json:"result"`
+		Ended   int             `json:"ended"`
+		Refused string          `json:"refused"`
+		Message string          `json:"message"`
+	}
+	var r struct {
+		Halted, Whole, Malformed, NotAList, After outcome
+	}
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if r.Halted.Status != "halted" || r.Halted.Ended != 1 {
+		t.Errorf("the run with haltAfter check: %+v; want halted with 1 module ended", r.Halted)
+	}
+	if r.Whole.Status != "success" || string(r.Whole.Result) != `"write"` || r.Whole.Ended != 2 {
+		t.Errorf("the run without halts: %+v; want success, result write, 2 modules ended", r.Whole)
+	}
+	if r.Malformed.Refused != "refused" || !strings.Contains(r.Malformed.Message, "the run's haltAfter[0]") {
+		t.Errorf("a run with a malformed haltAfter: %+v; want refused, naming haltAfter[0]", r.Malformed)
+	}
+	if r.NotAList.Refused != "refused" || !strings.Contains(r.NotAList.Message, "the run's haltBefore is not a list of selectors") {
+		t.Errorf("a run whose haltBefore is not a list: %+v; want refused", r.NotAList)
+	}
+	if r.After.Status != "success" || r.After.Ended != 2 {
+		t.Errorf("the run after the refusals: %+v; want success with 2 modules ended", r.After)
+	}
+}
+
+// caseRunBody is one of a plugin case's runs, r, as the host submits it:
+// in tenant's scope, with the run's own hooks and budgets in its run
+// options, which the host SDK carries in the run frame.
+func caseRunBody(c conformance.PluginCase, r conformance.PluginRun, tenant string) map[string]any {
 	body := map[string]any{"path": c.FlowPath(), "tenant": tenant, "args": map[string]any{}}
-	r := c.Run
-	if len(r.WriteCapable) > 0 {
+	for option, modules := range map[string][]string{"writeCapable": r.WriteCapable, "haltBefore": r.HaltBefore, "haltAfter": r.HaltAfter} {
+		if len(modules) == 0 {
+			continue
+		}
 		var sels []map[string]any
-		for _, m := range r.WriteCapable {
+		for _, m := range modules {
 			sels = append(sels, map[string]any{"flow": c.FlowPath(), "module": m})
 		}
-		body["writeCapable"] = sels
+		body[option] = sels
 	}
 	if len(r.FatalErrorNames) > 0 {
 		body["fatalErrorNames"] = r.FatalErrorNames

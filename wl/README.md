@@ -334,12 +334,24 @@ bridge).
    script run's too (`StatusLatched`, with `*engine.StepLatch` in
    `Result.Latched`, as a failed `around` gives a `*engine.PluginError`),
    and the signal aborts when the engine abandons the step.
-8. **A host's budgets.** In host mode a run frame carries what a Go host
-   gives in `RunOptions` (`hostBudgets`): write-capable selectors and
-   fatal error names, as the run's own hooks; the pre-write deadline; the
-   record clock; and a hard deadline, which bounds the run's context
-   until the run has settled. `run_done` carries `MayHaveMutated` and the
-   trace's deviations.
+8. **A run's own hooks in host mode.** A run frame carries what a Go host
+   gives in `RunOptions` (`hostBudgets`). Write-capable selectors, halts
+   and fatal error names become the run's own hooks, ahead of the
+   plugin's. The frame also carries the pre-write deadline, the record
+   clock, and a hard deadline, which bounds the run's context until the
+   run has settled; `run_done` carries `MayHaveMutated` and the trace's
+   deviations.
+   - **Halts per run.** The halts in a plugin's declaration apply to every
+     run on its host's connection. A run frame's `halt_before` and
+     `halt_after` apply to that run alone, as `Hooks.HaltBefore` and
+     `Hooks.HaltAfter` do for a Go host. So a host can evaluate a read-only
+     prefix of a flow that it also runs whole
+     ([H8](../docs/design/0008-host-hooks.md#the-hooks)).
+   - **Selector checks.** `hostBudgets` checks the frame's selectors as a
+     plugin's are checked (`checkSelectorIn`: known fields, form, no
+     ambiguity). A selector that fails refuses the run with `refused`, and
+     the error names it as the host SDK's run options do, such as
+     `the run's haltAfter[0]`.
 
 ## BuildInfo and Close
 

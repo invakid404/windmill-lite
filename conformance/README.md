@@ -605,35 +605,44 @@ sides check: the host SDK before it starts the engine (`checkWorkdir` in
 
 ## Plugin cases
 
-`plugins/hooks.yaml` (milestone F2c) holds the host-plugin cases of
-[ADR 0008](../docs/design/0008-host-hooks.md): every hook of F2a (H1, H2,
-H6, H8, H9, H12, H13) and a mandatory provided site answered by a host
-plugin over `host_call`, an `around` wrapper around a step, and the
-errors, declines and timeouts that latch a run; F2b's H3 and H7 answered
-by the plugin, its budgets and latches as a run carries them, and step
-code's `wl.latch` and `wl.signal`. Provenance `policy`:
-these are windmill-lite's rules for its hosts. The file's `scripts` and
-each case's `flow` (at `f/plugins/<id>`) make one sync folder, whose host
-contract has every flow as a root and the cases' `provided` sites; each
-case's `plugin` is declarative (intercept, rewrite_args, halt_before and
-halt_after, write_capable, first_write, fatal_error_names, around,
-observe, env, variables, fail_variables, fail_resources, slow_start_ms,
-providers, warnings), and its `run` holds the
-run's own budgets and latches (write_capable, fatal_error_names,
-deadline_ms, pre_write_deadline_ms, clock), which a Go host gives in
-`RunOptions` and a TypeScript host in its run frame, so the
-same cases run through a TypeScript plugin (`harnesses/bun/test/caseplugin.ts`)
-in `warm` processes and in host mode, and through Go callbacks built from
-the same plugin, unless `go: false` (which a failing or slow plugin
-needs); every plugin's `onRunEnd` reports its log of the run in the
-warning `plugin_log`, and its `onRunSettled` writes each run to a report
-file, with whether one of the run's hooks still ran, which the runners
-check never happens: every case's run must settle, none early. `expect` is the run's
-`status`, `may_have_mutated`, `result`, `latched` (a text of the latched
-error), the plugin's `log`, its `warnings`, the sites that ran no job
-(`not_ran`) and the run's `deviations`.
-`timeout_ms` is the plugin timeout of the runtimes that run them.
-`internal/conformance` loads and checks them (`plugins.go`).
+`plugins/hooks.yaml` holds the host-plugin cases of
+[ADR 0008](../docs/design/0008-host-hooks.md). Provenance `policy`: these
+are windmill-lite's rules for its hosts, not Windmill's. The cases cover:
+
+- every hook that a plugin answers over `host_call` (H1, H2, H6, H8, H9,
+  H12, H13), a mandatory provided site, and an `around` wrapper around a
+  step;
+- the errors, declines and timeouts that latch a run;
+- H3 and H7 answered by the plugin, and a run's own hooks and budgets as
+  the run carries them;
+- step code's `wl.latch` and `wl.signal`.
+
+The file's `scripts` and each case's `flow` (at `f/plugins/<id>`) make one
+sync folder. Its host contract has every flow as a root, and the cases'
+`provided` sites.
+
+| Field | What it holds |
+|---|---|
+| `plugin` | The case's declarative plugin: intercept, rewrite_args, halt_before and halt_after, write_capable, first_write, fatal_error_names, around, observe, env, variables, fail_variables, fail_resources, slow_start_ms, providers, warnings |
+| `run` | The run's own hooks and budgets, which a Go host gives in `RunOptions` and a TypeScript host in its run frame: write_capable, halt_before, halt_after, fatal_error_names, deadline_ms, pre_write_deadline_ms, clock |
+| `expect` | The run's `status`, `may_have_mutated`, `result`, `latched` (a text of the latched error), the plugin's `log`, its `warnings`, the sites that ran no job (`not_ran`) and the run's `deviations` |
+| `then` | More runs of the case's flow, each with its own `run` and `expect` (below) |
+| `go` | `false` runs the case only through the TypeScript plugin, as a failing or slow plugin needs |
+| `timeout_ms` | At the top of the file: the plugin timeout of the runtimes that run the cases |
+
+The same cases run three ways: through a TypeScript plugin
+(`harnesses/bun/test/caseplugin.ts`) in `warm` processes and in host mode,
+and through Go callbacks built from the same plugin. Every plugin's
+`onRunEnd` reports its log of the run in the warning `plugin_log`. Its
+`onRunSettled` writes each run to a report file, with whether one of the
+run's hooks still ran, and the runners check that every run settles, none
+early. `internal/conformance` loads and checks the cases (`plugins.go`).
+
+A case's `then` runs follow the case's run on the same runtime, and in
+host mode on the same connection, so a case shows that a run's own hooks
+reach that run alone. The `run_halt_*` cases use it: a run with its own
+halt ends `halted`, and the next run of the flow, without one, runs every
+module.
 
 ## Step cases
 

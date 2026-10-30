@@ -99,10 +99,7 @@ func newPlugin(decl jsonval.Value, prog *ir.Program, call hostCaller, timeout ti
 		return nil, fmt.Errorf("wl: the host plugin's declaration: %w", err)
 	}
 	check := func(where string, s Selector) error {
-		if err := checkSelector(s); err != nil {
-			return fmt.Errorf("the host plugin's %s: %w", where, err)
-		}
-		if err := ambiguous(s, prog); err != nil {
+		if err := checkSelectorIn(s, prog); err != nil {
 			return fmt.Errorf("the host plugin's %s: %w", where, err)
 		}
 		return nil

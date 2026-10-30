@@ -33,7 +33,7 @@ fixtures on windmill-lite.
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
 | `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
-| `plugins.go` | `PluginFile`, `PluginCase`, `PluginSpec`, `PluginFailure`, `PluginRun`, `PluginExpect`, `PluginOutcome`, `LoadPluginFile`, `ReadSettlement` (the case plugin's report of settled runs): the host-plugin cases of `conformance/plugins` (F2c), their folder and host contract, and the check of a run's outcome |
+| `plugins.go` | `PluginFile`, `PluginCase`, `PluginSpec`, `PluginFailure`, `PluginRun`, `PluginThen`, `PluginExpect`, `PluginOutcome`, `LoadPluginFile`, `ReadSettlement` (the case plugin's report of settled runs): the host-plugin cases of `conformance/plugins` and a case's later runs, their folder and host contract, and the check of each run's outcome |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`, `CheckReplay`: stub mode's replay table, the run-scoped service that answers stubs, and the check of a run's calls after it (see [Stub mode](#stub-mode)) |
 
 The engine, the harness, the oracle and `wltest` share this vocabulary, so
