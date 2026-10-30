@@ -1,49 +1,49 @@
 summary: a branchone in a loop whose branch aborts while chaining, failures skipped
 value:
   modules:
-  - id: l
-    value:
-      type: forloopflow
-      modules:
-      - id: b
-        value:
-          type: branchone
-          branches: []
-          default:
-          - id: r
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
             value:
-              type: script
-              input_transforms:
-                x:
-                  type: javascript
-                  expr: flow_input.iter.value
-              path: f/cf23/echo
-            sleep:
-              type: static
-              value: '1'
-          - id: s
-            value:
-              type: script
-              input_transforms:
-                x:
-                  type: static
-                  value: 2
-              path: f/cf23/echo
-      iterator:
-        type: javascript
-        expr: "[1, 2]"
-      parallel: false
-      skip_failures: true
-  - id: n
-    value:
-      type: script
-      input_transforms:
-        x:
+              type: branchone
+              branches: []
+              default:
+                - id: r
+                  value:
+                    type: script
+                    input_transforms:
+                      x:
+                        type: javascript
+                        expr: flow_input.iter.value
+                    path: f/cf23/echo
+                  sleep:
+                    type: static
+                    value: '1'
+                - id: s
+                  value:
+                    type: script
+                    input_transforms:
+                      x:
+                        type: static
+                        value: 2
+                    path: f/cf23/echo
+        iterator:
           type: javascript
-          expr: results.l
-      path: f/cf23/echo
+          expr: '[1, 2]'
+        parallel: false
+        skip_failures: true
+    - id: n
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.l
+        path: f/cf23/echo
 schema:
-  "$schema": https://json-schema.org/draft/2020-12/schema
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

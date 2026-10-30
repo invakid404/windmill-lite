@@ -526,9 +526,10 @@ Windmill v1.767.0's image).
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there; recording batch E3e listed the runs of its fixtures
   that windmill-lite already passes, FU5 the `oracle/nul` runs that
-  N1b's engine passes, and E4b the stub runs and the runs of the probe
+  N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
-  made checkable. A required run stays required. The test runs every
+  made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
+  inside a branchone (CF-23/d to f). A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

@@ -19,7 +19,8 @@
     "FU7",
     "F2a",
     "N5",
-    "E4c"
+    "E4c",
+    "FU8"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
