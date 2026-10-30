@@ -1,0 +1,14 @@
+# CF-23/e: the flow's failure module gets the carried 1 as
+# previous_result, and error derived from it by JE-17's rule 3, not the
+# branch job's stored InternalError; its result does not recover.
+spec: [CF-23/e, JE-17]
+target: f/cf23/carry_failure_module
+expect:
+  status: failure
+  result: [1, {name: UnknownError, message: Could not parse the error, error: 1}]
+  steps:
+    "m:b": {status: failure, branch_chosen: {type: default}, result: {error: {name: InternalError, message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}, carried: 1}
+    "m:b/b:default/m:r": {status: success, args: {x: 1}, result: 1}
+    "m:b/b:default/m:l": {status: not_run, ran: false}
+    "m:b/b:default/s:failure": {status: not_run, ran: false}
+    "s:failure": {status: success, args: {x: [1, {name: UnknownError, message: Could not parse the error, error: 1}]}, result: [1, {name: UnknownError, message: Could not parse the error, error: 1}]}

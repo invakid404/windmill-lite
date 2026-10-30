@@ -1,0 +1,44 @@
+summary: CF-23/f the control, a false retry_if
+value:
+  modules:
+  - id: b
+    value:
+      type: branchone
+      branches: []
+      default:
+      - id: r
+        value:
+          type: script
+          input_transforms:
+            x:
+              type: static
+              value: 1
+          path: f/cf23/echo
+      - id: l
+        value:
+          type: forloopflow
+          modules:
+          - id: x
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 1
+              path: f/cf23/echo
+          iterator:
+            type: javascript
+            expr: "({o: 1})"
+          parallel: false
+          skip_failures: false
+    retry:
+      constant:
+        attempts: 1
+        seconds: 0
+      retry_if:
+        expr: 'false'
+schema:
+  "$schema": https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,41 @@
+summary: a branchone in a loop whose branch aborts while chaining
+value:
+  modules:
+  - id: l
+    value:
+      type: forloopflow
+      modules:
+      - id: b
+        value:
+          type: branchone
+          branches: []
+          default:
+          - id: r
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/cf23/echo
+            sleep:
+              type: static
+              value: '1'
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 2
+              path: f/cf23/echo
+      iterator:
+        type: javascript
+        expr: "[1, 2]"
+      parallel: false
+      skip_failures: false
+schema:
+  "$schema": https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

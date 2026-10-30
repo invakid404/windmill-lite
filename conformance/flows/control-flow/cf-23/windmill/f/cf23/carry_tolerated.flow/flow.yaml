@@ -1,0 +1,55 @@
+summary: CF-23/d (ii) the carried value and the stored error after a tolerated branchone
+value:
+  modules:
+  - id: b
+    value:
+      type: branchone
+      branches: []
+      default:
+      - id: r
+        value:
+          type: script
+          input_transforms:
+            x:
+              type: static
+              value: 1
+          path: f/cf23/echo
+      - id: l
+        value:
+          type: forloopflow
+          modules:
+          - id: x
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 1
+              path: f/cf23/echo
+          iterator:
+            type: javascript
+            expr: "({o: 1})"
+          parallel: false
+          skip_failures: false
+    continue_on_error: true
+  - id: c
+    value:
+      type: script
+      input_transforms:
+        x:
+          type: javascript
+          expr: previous_result
+      path: f/cf23/echo
+  - id: d
+    value:
+      type: script
+      input_transforms:
+        x:
+          type: javascript
+          expr: results.b
+      path: f/cf23/echo
+schema:
+  "$schema": https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
