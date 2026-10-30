@@ -674,7 +674,7 @@ cases:
 | `env` | job variables that add to or replace those of the job identity ([internal/platform](../internal/platform/README.md)) |
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
 | `codebase` | makes the script a codebase script, bundled by esbuild (C2b): the settings of its `codebases` entry as `wmill.yaml` gives them (`format`, `define`, `inject`, `loader`, `banner`, `external`, `assets`) |
-| `files` | other files of the folder, by path from the sync root, that a codebase build reads: modules it imports, inject files, asset sources |
+| `files` | other files of the folder, by path from the sync root, that a codebase build reads: modules it imports, inject files, asset sources. For a Bun script, they are workspace scripts it imports, by the `.ts` paths that Windmill's import rewrite gives them (`f/<folder>/<name>.ts`, [WR-28](../docs/semantics/languages.md#wr-28)) |
 | `setup` | the variables and resources the case's platform facade serves, in `setup.yaml`'s format; a secret's `value` is its plaintext (milestone PF2: `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`, `wa-42.yaml`, `wa-v3.yaml`) |
 | `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared) unless `keep_stack` is set, for a case that states the stack in claims; `unordered` arrays; `strict_key_order` |
 | `deviation` | the deviation whose two readings the case's `by_mode` gives, or `5a` for the restriction of ADR 0001 §5a that a warm process reaches the platform only through `fetch` (`wa-31.yaml`) |
@@ -687,6 +687,25 @@ cases:
 | `runs[].calls` | the platform calls the facade recorded against the invocation, in order, each `<status> <METHOD> <route template>` (`501 POST /w/{ws}/jobs/run/p/{path}`), or the path as sent where no route matched; `[]` for none; compared when given. A call refused by the kernel, or with a token the facade does not know, is never listed (milestone PF1) |
 | `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own |
 | `runs[].node` | for a CommonJS codebase case: what the same bundle shows on Node (`expect`, `claims`) where it differs from the run's own check (D13); without it, the run's own `expect` and `claims` must hold on Node too |
+| `shared_code` | at the top of a step file: its bundle is built with shared code ([ADR 0013](../docs/design/0013-shared-module-code.md); deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)) |
+| `scripts` | more entry scripts of the case, by Windmill path (`f/<folder>/<name>`), built as its own script is (a Bun script, or a codebase script with its settings) |
+| `runs[].script` | the path of one of the case's `scripts` that the run invokes, in the same process, instead of the case's own script |
+
+**Shared code.** `d18.yaml` holds the step cases of shared code, the
+deviation file of [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations). Its bundle is built with shared code, so
+`warm` runs each script's shared-layout module, with its own instance of
+its group's closure, and `fresh` runs the per-script bundles.
+
+Most of its cases give two or more scripts that share a dependency module
+and invoke them in turn in one process (`runs[].script`). They show that
+each step module keeps module state of its own. They also show what a step
+sees of its dependencies: namespace objects and their shape, the step's
+`module` and `exports`, and the closure's `import.meta` parameter. Others
+cover stack text, load errors, host-provided modules, strictness, interop,
+cycles, inject files and the settle-time fence.
+
+Host mode runs the flow suite with shared code instead, since a step case
+runs on a spawned harness.
 
 **D13.** `wltest check --node` (or `WL_NODE`) runs each run of a CommonJS
 codebase case on Node as well, as Windmill runs such a bundle
@@ -812,6 +831,9 @@ imports a package without a lock
 | `expect.warnings` | for a clean build, when given, the codes of every warning the build reports, in order |
 | `expect.host_module_order` | for a clean build, the ids of the manifest's `host_modules`, in registration order |
 | `expect.run` | for a clean build, as above: each call's `entry` is a script id, its module the bundle's `.cjs` or `.mjs`; `register` names host-provided modules by id |
+| `given.shared_code` | build with shared code ([ADR 0013](../docs/design/0013-shared-module-code.md); deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)) |
+| `expect.shared` | for a build with shared code. `scripts` gives each script's record by id: `closure:<label>`, one label for each closure, `fallback:<reason>`, or `none` for a script in no group. `closures` gives, by label, the dependency modules each closure names `once`, and text it `contains` or `not_contains`. The manifest must have `shared_code`, the shared-code deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations) and the closures of the records |
+| `expect.shared.modules`, `expect.shared.per_script_identical` | by script id, text its shared-layout module `contains` or `not_contains`; and a check of every file but the metadata against a build without shared code, with another bundle digest |
 
 The codebase cases are whole-folder cases: `wr-47.json` (how the pinned
 CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
@@ -819,6 +841,11 @@ CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
 (assets, WR-49), and the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
 output) and `d12.json` (host-provided modules through their shims, those
 outside the folder included).
+
+`d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
+membership and the `import.meta` parameter, build groups, installations
+and targets, fallbacks (namespace objects and export names among them),
+and native scripts.
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails

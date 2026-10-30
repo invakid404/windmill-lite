@@ -334,6 +334,9 @@ type CodebaseConfig struct {
 
 	Entries     []CodebaseScript
 	HostModules []CodebaseHostModule
+	// SharedCode builds the scripts' shared layout too (ADR 0013): one
+	// closure per build group and a shared-layout module per script.
+	SharedCode bool
 }
 
 // CodebaseResult is what a codebase build produced.
@@ -350,6 +353,9 @@ type CodebaseResult struct {
 	// to the folder.
 	Assets   map[string]string
 	Warnings []Warning
+	// Closures are the ids of the closures of shared code it wrote,
+	// sorted.
+	Closures []string
 }
 
 func (cfg *CodebaseConfig) validate() error {
@@ -545,6 +551,12 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 		res.Assets[to] = a.from
 	}
 	res.Warnings = append(res.Warnings, unknown...)
+	// The shared layout of every script that built (ADR 0013).
+	if cfg.SharedCode && len(built) > 0 {
+		if res.Closures, err = cfg.shareCode(ctx, &bc, built, res, shims); err != nil {
+			return nil, err
+		}
+	}
 	for _, e := range built {
 		meta := res.Scripts[e.ID]
 		for _, w := range meta.esbuildWarnings {
@@ -738,7 +750,7 @@ func (cfg *CodebaseConfig) bundleOne(e CodebaseScript, s *CodebaseSettings, meta
 				binding = fmt.Sprintf("%s_%d", base, n)
 			}
 		}
-		out, inputs, used, warnings, p := cfg.esbuild(e, s, binding, shims)
+		out, inputs, used, warnings, p := cfg.esbuild(e, s, binding, shims, nil)
 		if p != nil {
 			return p
 		}
@@ -771,6 +783,7 @@ func (cfg *CodebaseConfig) bundleOne(e CodebaseScript, s *CodebaseSettings, meta
 		meta.HostModules = used
 		meta.Metafile = out.metafile
 		meta.esbuildWarnings = warnings
+		meta.binding = binding
 		return nil
 	}
 	return &Problem{ProblemBundleFailed, fmt.Sprintf("every candidate name for %s occurs in the bundle's sources", base)}
@@ -788,11 +801,12 @@ type esbuildOutput struct {
 
 // esbuild runs one build of a codebase script: the CLI's options plus,
 // with a binding, the env rewrite, and the host-provided modules' shims,
-// but the entry's own (plugin).
+// but the entry's own (plugin), with extra, when not nil, ahead of them
+// (the shared layout's dependency plugin, ADR 0013).
 // It returns the output, the text of every input of the folder (to check
 // the binding against), the keys of the host-provided modules used, and
 // esbuild's warnings.
-func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, binding string, shims map[string]string) (*esbuildOutput, []string, []string, []string, *Problem) {
+func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, binding string, shims map[string]string, extra *api.Plugin, adjust ...func(*api.BuildOptions)) (*esbuildOutput, []string, []string, []string, *Problem) {
 	o, err := s.CLIOptions(cfg.Folder, e.File)
 	if err != nil {
 		return nil, nil, nil, nil, &Problem{ProblemBundleFailed, err.Error()}
@@ -822,6 +836,12 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 		used[key] = true
 		mu.Unlock()
 	})}
+	if extra != nil {
+		o.Plugins = append([]api.Plugin{*extra}, o.Plugins...)
+	}
+	for _, f := range adjust {
+		f(&o)
+	}
 	r := api.Build(o)
 	if len(r.Errors) > 0 {
 		return nil, nil, nil, nil, &Problem{ProblemBundleFailed, esbuildMessages(r.Errors)}
@@ -868,7 +888,10 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 	var inputs []string
 	if binding != "" {
 		for p := range meta.Inputs {
-			if strings.HasPrefix(p, pluginNamespace+":") {
+			// The plugin's modules, and esbuild's own inputs, such as
+			// <define:NAME> for an object or array define value, are no files.
+			if strings.HasPrefix(p, pluginNamespace+":") || strings.HasPrefix(p, depNamespace+":") || strings.HasPrefix(p, supportNamespace+":") ||
+				strings.HasPrefix(p, "<") && strings.HasSuffix(p, ">") {
 				continue
 			}
 			full := p

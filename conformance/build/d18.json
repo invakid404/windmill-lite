@@ -1,0 +1,617 @@
+{
+  "finding": "D18",
+  "note": "Shared code (ADR 0013, ADR 0001 §5 D18): what a bundle built with it holds. Each case builds a whole sync folder with shared_code and checks each script's record (its group's closure, by a case-local label: one label is one closure, two labels two; a fallback with its reason; or none), what each closure holds, and, for t-closure-membership, that the per-script bundles are the same bytes as without shared code. What a script sees at run time is conformance/steps/bun/d18.yaml's.",
+  "cases": [
+    {
+      "spec": "D18",
+      "variant": "t-closure-membership",
+      "provenance": "policy",
+      "title": "a group's dependency modules are in its closure once, the scripts' own entries and the host-provided modules are not, and the per-script bundles stay the same bytes",
+      "note": "The host-provided module's file loads as its shim, under its own path, so the closure names the path but holds the shim, which reads the registry, not the module's text. It also holds D18/w and D18/x: the folder is built again without shared code, every per-script module is the same bytes, and the manifest's digest differs; the manifest records shared_code, lists the closure and D18.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/cb/lib/**\ncodebases:\n  - relative_path: f/cb\n    includes:\n      - f/cb/**\n",
+          "f/cb/a.ts": "import { dep } from \"./lib/dep\";\nimport { pkg } from \"pkg-t\";\nexport function main() { return [dep(), pkg]; }\n",
+          "f/cb/b.ts": "import { dep } from \"./lib/dep\";\nimport { main as aMain } from \"./a\";\nexport function main() { return [dep(), typeof aMain]; }\n",
+          "f/cb/lib/dep.ts": "import { ctx } from \"../../host/ctx\";\nexport function dep() { return ctx.tag; }\n",
+          "f/host/ctx.ts": "export const ctx = { tag: \"ctx\" };\n",
+          "node_modules/pkg-t/package.json": "{\"name\": \"pkg-t\", \"version\": \"1.0.0\", \"main\": \"index.js\"}\n",
+          "node_modules/pkg-t/index.js": "exports.pkg = \"pkg\";\n"
+        },
+        "contract": "roots:\n  - script: f/cb/a\n  - script: f/cb/b\nhost_modules: [f/host/ctx.ts]\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/cb/a": "closure:A",
+            "f/cb/b": "closure:A"
+          },
+          "closures": {
+            "A": {
+              "once": [
+                "f/cb/lib/dep.ts",
+                "node_modules/pkg-t/index.js",
+                "f/cb/a.ts",
+                "f/host/ctx.ts"
+              ],
+              "contains": [
+                "Symbol.for(\"windmill-lite.hostModules\")"
+              ],
+              "not_contains": [
+                "// f/cb/b.ts\n",
+                "tag: \"ctx\""
+              ]
+            }
+          },
+          "per_script_identical": true
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "t-import-meta-binding",
+      "provenance": "policy",
+      "title": "a closure reads import.meta from a parameter whose name no input spells, so a dependency's own binding of a candidate name, at its top level or as a function's parameter, does not capture it",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/me/lib/**\ncodebases:\n  - relative_path: f/me\n    includes:\n      - f/me/**\n    format: esm\n",
+          "f/m/lib/meta.ts": "const __wl_meta = { url: \"its own\" };\nexport function check(__wl_meta_2: { url: string }) { return [import.meta.url === __wl_meta.url, import.meta.url === __wl_meta_2.url]; }\n",
+          "f/m/a.ts": "import { check } from \"./lib/meta.ts\";\nexport function main() { return check({ url: \"another\" }); }\n",
+          "f/me/lib/meta.ts": "const __wl_meta = { url: \"its own\" };\nexport function check(__wl_meta_2: { url: string }) { return [import.meta.url === __wl_meta.url, import.meta.url === __wl_meta_2.url]; }\n",
+          "f/me/a.ts": "import { check } from \"./lib/meta\";\nexport function main() { return check({ url: \"another\" }); }\n"
+        },
+        "contract": "roots:\n  - script: f/m/a\n  - script: f/me/a\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/m/a": "closure:M",
+            "f/me/a": "closure:ME"
+          },
+          "closures": {
+            "M": {
+              "once": [
+                "src/f/m/lib/meta.ts"
+              ],
+              "contains": [
+                "__wl_meta_3.url === __wl_meta.url",
+                "windmillLiteClosure(module, exports, require, __filename, __dirname, __wl_meta_3)"
+              ]
+            },
+            "ME": {
+              "once": [
+                "f/me/lib/meta.ts"
+              ],
+              "contains": [
+                "__wl_meta_3.url === __wl_meta.url",
+                "export default function windmillLiteClosure(require, __filename, __dirname, __wl_meta_3)"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "u-groups",
+      "provenance": "policy",
+      "title": "codebase entries with other settings, an ordinary Bun script and a //nodejs one, and CommonJS entries with and without a leading use strict each get a closure of their own",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/shared/**\ncodebases:\n  - relative_path: f/c1\n    includes:\n      - f/c1/**\n  - relative_path: f/c2\n    includes:\n      - f/c2/**\n    define:\n      WL_FLAG: '\"two\"'\n",
+          "f/shared/both.ts": "export const both = \"both\";\n",
+          "f/c1/s.ts": "\"use strict\";\nimport { both } from \"../shared/both\";\nexport function main() { return both; }\n",
+          "f/c1/t.ts": "import { both } from \"../shared/both\";\nexport function main() { return both; }\n",
+          "f/c2/u.ts": "import { both } from \"../shared/both\";\nexport function main() { return both; }\n",
+          "f/b/w.ts": "export const w = \"w\";\n",
+          "f/b/one.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n",
+          "f/b/two.ts": "//nodejs\nimport { w } from \"./w.ts\";\nexport function main() { return w; }\n"
+        },
+        "contract": "roots:\n  - script: f/c1/s\n  - script: f/c1/t\n  - script: f/c2/u\n  - script: f/b/one\n  - script: f/b/two\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/c1/s": "closure:S",
+            "f/c1/t": "closure:T",
+            "f/c2/u": "closure:U",
+            "f/b/one": "closure:B1",
+            "f/b/two": "closure:B2"
+          },
+          "closures": {
+            "S": {
+              "once": [
+                "f/shared/both.ts"
+              ]
+            },
+            "T": {
+              "once": [
+                "f/shared/both.ts"
+              ]
+            },
+            "U": {
+              "once": [
+                "f/shared/both.ts"
+              ]
+            },
+            "B1": {
+              "once": [
+                "src/f/b/w.ts"
+              ]
+            },
+            "B2": {
+              "once": [
+                "src/f/b/w.ts"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "v-installations",
+      "provenance": "policy",
+      "title": "Bun scripts installed from one lock are one group, scripts of another lock another, and a workspace module both import resolves its package through each lock",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/v/w.ts": "import { version } from \"pkg-v\";\nexport const w = version;\n",
+          "f/v/a.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n",
+          "f/v/b.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n",
+          "f/v/c.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n"
+        },
+        "packages": {
+          "pkg-v@1.0.0": {
+            "index.js": "export const version = \"version one\";\n"
+          },
+          "pkg-v@2.0.0": {
+            "index.js": "export const version = \"version two\";\n"
+          }
+        },
+        "locks": {
+          "f/v/a.ts": {
+            "pkg-v": "1.0.0"
+          },
+          "f/v/b.ts": {
+            "pkg-v": "1.0.0"
+          },
+          "f/v/c.ts": {
+            "pkg-v": "2.0.0"
+          }
+        },
+        "contract": "roots:\n  - script: f/v/a\n  - script: f/v/b\n  - script: f/v/c\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/v/a": "closure:V1",
+            "f/v/b": "closure:V1",
+            "f/v/c": "closure:V2"
+          },
+          "closures": {
+            "V1": {
+              "once": [
+                "src/f/v/w.ts"
+              ],
+              "contains": [
+                "version one"
+              ],
+              "not_contains": [
+                "version two"
+              ]
+            },
+            "V2": {
+              "once": [
+                "src/f/v/w.ts"
+              ],
+              "contains": [
+                "version two"
+              ],
+              "not_contains": [
+                "version one"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "v-targets-bun-first",
+      "provenance": "policy",
+      "title": "an ordinary Bun script and a //nodejs one of one lock each reach a workspace module that re-exports a package with conditional exports; each shared-layout module and closure takes the files and names of its own target, the ordinary script first",
+      "note": "The two scripts share a dependency set but not a build group (other targets). The package's exports select bun.js for the bun target and node.js for the node target. A reference lists its module's export names for the script's own target, so neither script's shared layout sees the other target's names, whichever script the build meets first.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/k/cond.ts": "export * from \"synthetic-conditional\";\n",
+          "f/k/a.ts": "import { bunOnly, target } from \"./cond.ts\";\nexport function main() { return [bunOnly, target]; }\n",
+          "f/k/b.ts": "//nodejs\nimport { nodeOnly, target } from \"./cond.ts\";\nexport function main() { return [nodeOnly, target]; }\n"
+        },
+        "packages": {
+          "synthetic-conditional@1.0.0": {
+            "package.json": "{\"name\":\"synthetic-conditional\",\"version\":\"1.0.0\",\"type\":\"module\",\"exports\":{\".\":{\"bun\":\"./bun.js\",\"node\":\"./node.js\",\"default\":\"./node.js\"}}}\n",
+            "bun.js": "export const bunOnly = \"bun only\";\nexport const target = \"bun\";\n",
+            "node.js": "export const nodeOnly = \"node only\";\nexport const target = \"node\";\n"
+          }
+        },
+        "locks": {
+          "f/k/a.ts": {
+            "synthetic-conditional": "1.0.0"
+          },
+          "f/k/b.ts": {
+            "synthetic-conditional": "1.0.0"
+          }
+        },
+        "contract": "roots:\n  - script: f/k/a\n  - script: f/k/b\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/k/a": "closure:B",
+            "f/k/b": "closure:N"
+          },
+          "closures": {
+            "B": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/bun.js"
+              ],
+              "not_contains": [
+                "nodeOnly",
+                "synthetic-conditional/node.js"
+              ]
+            },
+            "N": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/node.js"
+              ],
+              "not_contains": [
+                "bunOnly",
+                "synthetic-conditional/bun.js"
+              ]
+            }
+          },
+          "modules": {
+            "f/k/a": {
+              "contains": [
+                "bunOnly"
+              ],
+              "not_contains": [
+                "nodeOnly"
+              ]
+            },
+            "f/k/b": {
+              "contains": [
+                "nodeOnly"
+              ],
+              "not_contains": [
+                "bunOnly"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "v-targets-node-first",
+      "provenance": "policy",
+      "title": "an ordinary Bun script and a //nodejs one of one lock each reach a workspace module that re-exports a package with conditional exports; each shared-layout module and closure takes the files and names of its own target, the //nodejs script first",
+      "note": "The two scripts share a dependency set but not a build group (other targets). The package's exports select bun.js for the bun target and node.js for the node target. A reference lists its module's export names for the script's own target, so neither script's shared layout sees the other target's names, whichever script the build meets first.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/k/cond.ts": "export * from \"synthetic-conditional\";\n",
+          "f/k/a.ts": "//nodejs\nimport { nodeOnly, target } from \"./cond.ts\";\nexport function main() { return [nodeOnly, target]; }\n",
+          "f/k/b.ts": "import { bunOnly, target } from \"./cond.ts\";\nexport function main() { return [bunOnly, target]; }\n"
+        },
+        "packages": {
+          "synthetic-conditional@1.0.0": {
+            "package.json": "{\"name\":\"synthetic-conditional\",\"version\":\"1.0.0\",\"type\":\"module\",\"exports\":{\".\":{\"bun\":\"./bun.js\",\"node\":\"./node.js\",\"default\":\"./node.js\"}}}\n",
+            "bun.js": "export const bunOnly = \"bun only\";\nexport const target = \"bun\";\n",
+            "node.js": "export const nodeOnly = \"node only\";\nexport const target = \"node\";\n"
+          }
+        },
+        "locks": {
+          "f/k/a.ts": {
+            "synthetic-conditional": "1.0.0"
+          },
+          "f/k/b.ts": {
+            "synthetic-conditional": "1.0.0"
+          }
+        },
+        "contract": "roots:\n  - script: f/k/a\n  - script: f/k/b\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/k/a": "closure:N",
+            "f/k/b": "closure:B"
+          },
+          "closures": {
+            "B": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/bun.js"
+              ],
+              "not_contains": [
+                "nodeOnly",
+                "synthetic-conditional/node.js"
+              ]
+            },
+            "N": {
+              "once": [
+                "src/f/k/cond.ts",
+                "node_modules/synthetic-conditional/node.js"
+              ],
+              "not_contains": [
+                "bunOnly",
+                "synthetic-conditional/bun.js"
+              ]
+            }
+          },
+          "modules": {
+            "f/k/a": {
+              "contains": [
+                "nodeOnly"
+              ],
+              "not_contains": [
+                "bunOnly"
+              ]
+            },
+            "f/k/b": {
+              "contains": [
+                "bunOnly"
+              ],
+              "not_contains": [
+                "nodeOnly"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "y-fallbacks",
+      "provenance": "policy",
+      "title": "a script keeps its per-script bundle where one closure cannot serve it, with the reason, and the others of its group keep their shared layout",
+      "note": "The reasons: a banner on its entry, an object or array define value, top-level await in a dependency (an ES module group, since a CommonJS bundle cannot hold it either), a static import of an external module from a dependency in an ES module group (a Node builtin is not one), a kept import() in a dependency, and a cycle through its own entry. Each such script gets the shared_code_fallback warning.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/y3/lib/**\n  - f/y4/lib/**\ncodebases:\n  - relative_path: f/y1\n    includes:\n      - f/y1/**\n    banner:\n      js: '// a banner'\n  - relative_path: f/y2\n    includes:\n      - f/y2/**\n    define:\n      WL_OBJ: '{\"a\": 1}'\n  - relative_path: f/y3\n    includes:\n      - f/y3/**\n  - relative_path: f/y4\n    includes:\n      - f/y4/**\n    format: esm\n    external: [y-external]\n",
+          "f/y1/a.ts": "export function main() { return 1; }\n",
+          "f/y2/a.ts": "export function main() { return 2; }\n",
+          "f/y3/cyc.ts": "import { back } from \"./lib/back\";\nexport const name = \"cyc\";\nexport function main() { return back(); }\n",
+          "f/y3/lib/back.ts": "import { name } from \"../cyc\";\nexport function back() { return name; }\n",
+          "f/y3/dyn.ts": "import { load } from \"./lib/load\";\nexport function main(spec: string) { return load(spec); }\n",
+          "f/y3/lib/load.ts": "export function load(spec: string) { return import(spec); }\n",
+          "f/y3/ok.ts": "import { fine } from \"./lib/fine\";\nexport function main() { return fine; }\n",
+          "f/y3/lib/fine.ts": "import { readFileSync } from \"node:fs\";\nexport const fine = typeof readFileSync;\n",
+          "f/y4/tla.ts": "import { later } from \"./lib/later\";\nexport function main() { return later; }\n",
+          "f/y4/lib/later.ts": "export const later = await Promise.resolve(\"later\");\n",
+          "f/y4/ext.ts": "import { ext } from \"./lib/ext\";\nexport function main() { return ext; }\n",
+          "f/y4/lib/ext.ts": "import { thing } from \"y-external\";\nexport const ext = thing;\n",
+          "f/y4/ok.ts": "import { sep } from \"node:path\";\nimport { fine } from \"./lib/fine\";\nexport function main() { return [sep, fine]; }\n",
+          "f/y4/lib/fine.ts": "import { join } from \"node:path\";\nexport const fine = typeof join;\n"
+        },
+        "contract": "roots:\n  - script: f/y1/a\n  - script: f/y2/a\n  - script: f/y3/cyc\n  - script: f/y3/dyn\n  - script: f/y3/ok\n  - script: f/y4/tla\n  - script: f/y4/ext\n  - script: f/y4/ok\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/y1/a": "fallback:banner",
+            "f/y2/a": "fallback:define_object",
+            "f/y3/cyc": "fallback:entry_cycle",
+            "f/y3/dyn": "fallback:dynamic_import",
+            "f/y3/ok": "closure:Y3",
+            "f/y4/tla": "fallback:top_level_await",
+            "f/y4/ext": "fallback:external_import",
+            "f/y4/ok": "closure:Y4"
+          },
+          "closures": {
+            "Y3": {
+              "once": [
+                "f/y3/lib/fine.ts"
+              ]
+            },
+            "Y4": {
+              "once": [
+                "f/y4/lib/fine.ts"
+              ]
+            }
+          }
+        },
+        "warnings": [
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback"
+        ]
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "y-namespace-imports",
+      "provenance": "policy",
+      "title": "a script whose entry and a dependency module both take the namespace object of one ES module dependency keeps its per-script bundle; a script where only one of them takes it is shared",
+      "note": "In a per-script bundle an ES module's namespace object is one object; in the shared layout the entry's would be its reference module's and a dependency's the closure's. A dependency takes it by a namespace import, a namespace re-export (export * as), or an import() of a literal specifier, which the bundler resolves to the namespace object. Shown for Bun-built scripts and for CommonJS and ES module codebase entries.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/nc/lib/**\n  - f/ne/lib/**\ncodebases:\n  - relative_path: f/nc\n    includes:\n      - f/nc/**\n  - relative_path: f/ne\n    includes:\n      - f/ne/**\n    format: esm\n",
+          "f/n/lib/dep.ts": "export const value = 1;\n",
+          "f/n/lib/other.ts": "import * as ns from \"./dep.ts\";\nexport const seen = ns;\n",
+          "f/n/lib/mid.ts": "export * as again from \"./dep.ts\";\n",
+          "f/n/direct.ts": "import * as ns from \"./lib/dep.ts\";\nimport { seen } from \"./lib/other.ts\";\nexport function main() { return ns === seen; }\n",
+          "f/n/through.ts": "import * as ns from \"./lib/dep.ts\";\nimport { again } from \"./lib/mid.ts\";\nexport function main() { return ns === again; }\n",
+          "f/n/named.ts": "import { value } from \"./lib/dep.ts\";\nimport { seen } from \"./lib/other.ts\";\nexport function main() { return seen.value === value; }\n",
+          "f/n/alone.ts": "import * as ns from \"./lib/dep.ts\";\nexport function main() { return ns.value; }\n",
+          "f/nc/lib/dep.ts": "export const value = 1;\n",
+          "f/nc/lib/other.ts": "import * as ns from \"./dep\";\nexport const seen = ns;\n",
+          "f/nc/lib/mid.ts": "export * as again from \"./dep\";\n",
+          "f/nc/direct.ts": "import * as ns from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return ns === seen; }\n",
+          "f/nc/through.ts": "import * as ns from \"./lib/dep\";\nimport { again } from \"./lib/mid\";\nexport function main() { return ns === again; }\n",
+          "f/nc/named.ts": "import { value } from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return seen.value === value; }\n",
+          "f/nc/alone.ts": "import * as ns from \"./lib/dep\";\nexport function main() { return ns.value; }\n",
+          "f/ne/lib/dep.ts": "export const value = 1;\n",
+          "f/ne/lib/other.ts": "import * as ns from \"./dep\";\nexport const seen = ns;\n",
+          "f/ne/lib/mid.ts": "export * as again from \"./dep\";\n",
+          "f/ne/direct.ts": "import * as ns from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return ns === seen; }\n",
+          "f/ne/through.ts": "import * as ns from \"./lib/dep\";\nimport { again } from \"./lib/mid\";\nexport function main() { return ns === again; }\n",
+          "f/ne/named.ts": "import { value } from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return seen.value === value; }\n",
+          "f/ne/alone.ts": "import * as ns from \"./lib/dep\";\nexport function main() { return ns.value; }\n",
+          "f/n/lib/lazy.ts": "export function load() { return import(\"./dep.ts\"); }\n",
+          "f/n/dyn.ts": "import * as ns from \"./lib/dep.ts\";\nimport { load } from \"./lib/lazy.ts\";\nexport async function main() { return ns === (await load()); }\n"
+        },
+        "contract": "roots:\n  - script: f/n/direct\n  - script: f/n/through\n  - script: f/n/named\n  - script: f/n/alone\n  - script: f/n/dyn\n  - script: f/nc/direct\n  - script: f/nc/through\n  - script: f/nc/named\n  - script: f/nc/alone\n  - script: f/ne/direct\n  - script: f/ne/through\n  - script: f/ne/named\n  - script: f/ne/alone\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/n/direct": "fallback:namespace_import",
+            "f/n/through": "fallback:namespace_import",
+            "f/n/named": "closure:N",
+            "f/n/alone": "closure:N",
+            "f/n/dyn": "fallback:namespace_import",
+            "f/nc/direct": "fallback:namespace_import",
+            "f/nc/through": "fallback:namespace_import",
+            "f/nc/named": "closure:NC",
+            "f/nc/alone": "closure:NC",
+            "f/ne/direct": "fallback:namespace_import",
+            "f/ne/through": "fallback:namespace_import",
+            "f/ne/named": "closure:NE",
+            "f/ne/alone": "closure:NE"
+          },
+          "closures": {
+            "N": {
+              "once": [
+                "src/f/n/lib/dep.ts",
+                "src/f/n/lib/other.ts"
+              ]
+            },
+            "NC": {
+              "once": [
+                "f/nc/lib/dep.ts",
+                "f/nc/lib/other.ts"
+              ]
+            },
+            "NE": {
+              "once": [
+                "f/ne/lib/dep.ts",
+                "f/ne/lib/other.ts"
+              ]
+            }
+          }
+        },
+        "warnings": [
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback"
+        ]
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "y-export-names",
+      "provenance": "policy",
+      "title": "a script whose entry imports an ES module dependency whose namespace a reference cannot reproduce keeps its per-script bundle: the entry takes its namespace object while a star re-export of an external module leaves its export names unknown, or the module exports __esModule",
+      "note": "A reference lists the module's export names, so its namespace object has them and not the CommonJS interop marker of the reference it reads them from. A script that only imports names of a module whose names are not all known is shared, as in the CommonJS codebase group; in the Bun-built group the module's static import of the external electron costs it its shared layout anyway (external_import).",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/xc/lib/**\ncodebases:\n  - relative_path: f/xc\n    includes:\n      - f/xc/**\n    external: [x-external]\n",
+          "f/xb/lib/estar.ts": "export * from \"electron\";\nexport const a = 1;\n",
+          "f/xb/lib/marker.ts": "export const __esModule = true;\nexport const v = 1;\n",
+          "f/xb/star.ts": "import * as ns from \"./lib/estar.ts\";\nexport function main() { return Object.keys(ns); }\n",
+          "f/xb/named.ts": "import { a } from \"./lib/estar.ts\";\nexport function main() { return a; }\n",
+          "f/xb/marker.ts": "import { v } from \"./lib/marker.ts\";\nexport function main() { return v; }\n",
+          "f/xc/lib/estar.ts": "export * from \"x-external\";\nexport const a = 1;\n",
+          "f/xc/lib/marker.ts": "export const __esModule = true;\nexport const v = 1;\n",
+          "f/xc/star.ts": "import * as ns from \"./lib/estar\";\nexport function main() { return Object.keys(ns); }\n",
+          "f/xc/named.ts": "import { a } from \"./lib/estar\";\nexport function main() { return a; }\n",
+          "f/xc/marker.ts": "import { v } from \"./lib/marker\";\nexport function main() { return v; }\n"
+        },
+        "contract": "roots:\n  - script: f/xb/star\n  - script: f/xb/named\n  - script: f/xb/marker\n  - script: f/xc/star\n  - script: f/xc/named\n  - script: f/xc/marker\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/xb/star": "fallback:export_names",
+            "f/xb/named": "fallback:external_import",
+            "f/xb/marker": "fallback:export_names",
+            "f/xc/star": "fallback:export_names",
+            "f/xc/named": "closure:XC",
+            "f/xc/marker": "fallback:export_names"
+          },
+          "closures": {
+            "XC": {
+              "once": [
+                "f/xc/lib/estar.ts"
+              ]
+            }
+          }
+        },
+        "warnings": [
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback"
+        ]
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "z-natives",
+      "provenance": "policy",
+      "title": "a native script is in no group and keeps its native form, as without shared code",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/z/n.ts": "//native\nexport function main() { return \"native\"; }\n",
+          "f/z/w.ts": "export const w = \"w\";\n",
+          "f/z/r.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n"
+        },
+        "contract": "roots:\n  - script: f/z/n\n  - script: f/z/r\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/z/n": "none",
+            "f/z/r": "closure:R"
+          },
+          "closures": {
+            "R": {
+              "once": [
+                "src/f/z/w.ts"
+              ]
+            }
+          }
+        },
+        "entries": {
+          "f/z/n": {
+            "boundary": "native"
+          }
+        }
+      }
+    }
+  ]
+}

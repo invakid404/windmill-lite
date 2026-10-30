@@ -38,6 +38,11 @@ type Config struct {
 	// EngineVersion is the exact version of the engine that builds the
 	// bundle. A runtime opens only a bundle of its own version.
 	EngineVersion string
+	// SharedCode builds the bundle with shared code (ADR 0013): besides
+	// each script's per-script bundle, one closure per build group and a
+	// shared-layout module per script, which warm and host-mode processes
+	// load. The manifest records it and lists the deviation of shared code.
+	SharedCode bool
 
 	// Bun, Helper, AllowBunMismatch, Env, Diagnostics and Timeout are those
 	// of BunConfig.
@@ -235,6 +240,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		Folder: root, Out: stage, Work: cfg.Work,
 		Scripts: files, Entries: entries, HostModules: hosts,
 		Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
+		SharedCode: cfg.SharedCode,
 	})
 	var be *BuildError
 	if err != nil && !errors.As(err, &be) {
@@ -270,6 +276,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			Bun: cfg.Bun, Helper: cfg.Helper, AllowBunMismatch: cfg.AllowBunMismatch,
 			Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
 			Folder: root, Out: stage, Work: cfg.Work, Entries: codebase, HostModules: chosts,
+			SharedCode: cfg.SharedCode,
 		})
 		if err != nil && !errors.As(err, &cbe) {
 			return nil, err
@@ -386,7 +393,8 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		Bundlers:             Bundlers{Bun: bres.BunVersion},
 		NonconformantRuntime: bres.NonconformantRuntime || cres.NonconformantRuntime,
 		ModuleState:          cfg.ModuleState,
-		Deviations:           manifestDeviations(prog.Deviations, cfg.ModuleState),
+		SharedCode:           cfg.SharedCode,
+		Deviations:           manifestDeviations(prog.Deviations, cfg.ModuleState, cfg.SharedCode),
 		Contract:             prog.Contract,
 		HostModules:          []HostModuleEntry{},
 		HarnessRuntimes:      map[string]string{string(ir.ClassBun): runtime},
@@ -395,6 +403,10 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	if len(codebase) > 0 {
 		m.Bundlers.Esbuild = EsbuildVersion
+	}
+	if cfg.SharedCode {
+		m.Closures = append(slices.Clone(bres.Closures), cres.Closures...)
+		slices.Sort(m.Closures)
 	}
 	for _, id := range bres.HostModuleOrder {
 		m.HostModules = append(m.HostModules, HostModuleEntry{Key: bres.HostModules[id].Key, ID: id})
@@ -483,7 +495,8 @@ func codebaseInputs(meta *ScriptMeta) []string {
 }
 
 // folderInputs are the files of the folder an esbuild bundle read, from
-// its metafile: inputs that are not the build's own modules, outside
+// its metafile: inputs that are not the build's own modules or esbuild's
+// (<define:NAME> for an object or array define value), outside
 // node_modules and inside the folder.
 func folderInputs(metafile json.RawMessage) []string {
 	var mf struct {
@@ -494,7 +507,7 @@ func folderInputs(metafile json.RawMessage) []string {
 	}
 	var out []string
 	for p := range mf.Inputs {
-		if strings.HasPrefix(p, pluginNamespace+":") || !inside(p) || slices.Contains(strings.Split(p, "/"), "node_modules") {
+		if strings.HasPrefix(p, pluginNamespace+":") || strings.HasPrefix(p, "<") && strings.HasSuffix(p, ">") || !inside(p) || slices.Contains(strings.Split(p, "/"), "node_modules") {
 			continue
 		}
 		out = append(out, p)

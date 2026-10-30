@@ -139,6 +139,12 @@ batch E3f, which recorded native steps on a worker that serves the
 `nativets` tag and what the reference's revisions SC3 and SC4 asked the
 oracle for, each in the oracle configuration it needs.
 
+With `-shared-code`, an opt-in that
+[ADR 0013](docs/design/0013-shared-module-code.md) decides, `build` also
+builds shared code: a `warm` or host-mode process then compiles each build
+group's dependency code once and gives each step module its own instance
+of it.
+
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
 keep their own licences: the Apache-2.0 files from Windmill under
@@ -232,7 +238,7 @@ reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
 and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race -timeout 30m ./...` (with Bun 1.3.10, the build
+`go vet ./...` and `go test -race -timeout 45m ./...` (with Bun 1.3.10, the build
 helper's parser and `windmill-client@1.767.0` installed, so the harness,
 build and host-mode tests cannot skip, and Node 20, on which the step suite
 runs each CommonJS codebase bundle as Windmill does, deviation D13; the

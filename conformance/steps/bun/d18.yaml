@@ -1,0 +1,940 @@
+# D18 (ADR 0001 §5, ADR 0013): shared code. The file's bundle is built with
+# shared code: a warm process runs each script's shared-layout module, which
+# makes its own instance of its build group's closure, so the scripts'
+# dependency modules are compiled once and their state stays per script; a
+# fresh process runs the per-script bundle, as without shared code. Each
+# case has scripts that share a dependency module, and every run of a case
+# goes to one warm process, so a run sees what the case's earlier runs
+# left in their instances. The cases show what a script sees of its
+# dependencies, which is what its per-script bundle shows, and the
+# differences D18 names: stack text (and a load error's message), when an
+# ES module dependency's default export is read, and unused code a union
+# closure can run. Bun-built cases import workspace scripts;
+# codebase cases import files and packages of the folder. The build side
+# (closure membership, groups, fallbacks, the manifest) is
+# conformance/build/d18.json's; host mode runs the flow suite and
+# cmd/windmill-lite's memory test with shared code.
+finding: D18
+scope: core
+shared_code: true
+cases:
+  - spec: D18
+    variant: a-state-per-script
+    provenance: policy
+    title: two scripts that count in a shared dependency module's state each count their own calls, and a script's own state stays its own
+    deviation: D1
+    files:
+      f/wl_step/d18_counter.ts: |
+        export const state = { calls: 0 };
+    path: f/wl_step/d18_a_one
+    script: |
+      import { state } from "./d18_counter.ts";
+      let own = 0;
+      export function main() { state.calls++; own++; return { dep: state.calls, own }; }
+    scripts:
+      f/wl_step/d18_a_two: |
+        import { state } from "./d18_counter.ts";
+        export function main() { state.calls++; return { dep: state.calls }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {dep: 1, own: 1}}
+      - args: '{}'
+        script: f/wl_step/d18_a_two
+        expect: {status: success, result: {dep: 1}}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: {dep: 2, own: 2}}}
+          fresh: {expect: {status: success, result: {dep: 1, own: 1}}}
+      - args: '{}'
+        script: f/wl_step/d18_a_two
+        by_mode:
+          warm: {expect: {status: success, result: {dep: 2}}}
+          fresh: {expect: {status: success, result: {dep: 1}}}
+  - spec: D18
+    variant: b-identity-per-script
+    provenance: policy
+    title: an object and a class that a dependency module exports are different for two scripts
+    deviation: D1
+    files:
+      f/wl_step/d18_identity.ts: |
+        export class Thing {}
+        export const object = { made: "here" };
+    path: f/wl_step/d18_b_one
+    script: |
+      import { Thing, object } from "./d18_identity.ts";
+      export function main() { (globalThis as any).d18b = { Thing, object }; return "stashed"; }
+    scripts:
+      f/wl_step/d18_b_two: |
+        import { Thing, object } from "./d18_identity.ts";
+        export function main() {
+          const s = (globalThis as any).d18b;
+          return { stashed: s !== undefined, sameClass: s?.Thing === Thing, sameObject: s?.object === object, instance: s ? new s.Thing() instanceof Thing : false };
+        }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: stashed}
+      - args: '{}'
+        script: f/wl_step/d18_b_two
+        by_mode:
+          warm: {expect: {status: success, result: {stashed: true, sameClass: false, sameObject: false, instance: false}}}
+          fresh: {expect: {status: success, result: {stashed: false, sameClass: false, sameObject: false, instance: false}}}
+  - spec: D18
+    variant: b-namespace-identity
+    provenance: policy
+    title: an ES module dependency's namespace object is one object for a Bun-built script's entry and its dependencies, directly and through a namespace re-export
+    note: >-
+      The entry and a dependency both take the dependency's namespace
+      object, so the first two scripts keep their per-script bundles in
+      warm mode too (shared_code_fallback, namespace_import); the third
+      takes it in a dependency only and runs its shared-layout module.
+    files:
+      f/wl_step/d18_nsb_dep.ts: |
+        export const value = 1;
+      f/wl_step/d18_nsb_other.ts: |
+        import * as ns from "./d18_nsb_dep.ts";
+        export const seen = ns;
+      f/wl_step/d18_nsb_mid.ts: |
+        export * as again from "./d18_nsb_dep.ts";
+    path: f/wl_step/d18_nsb_direct
+    script: |
+      import * as ns from "./d18_nsb_dep.ts";
+      import { seen } from "./d18_nsb_other.ts";
+      export function main() { return ns === seen; }
+    scripts:
+      f/wl_step/d18_nsb_through: |
+        import * as ns from "./d18_nsb_dep.ts";
+        import { again } from "./d18_nsb_mid.ts";
+        export function main() { return ns === again; }
+      f/wl_step/d18_nsb_named: |
+        import { value } from "./d18_nsb_dep.ts";
+        import { seen } from "./d18_nsb_other.ts";
+        export function main() { return seen.value === value && Object.keys(seen).join(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}
+      - args: '{}'
+        script: f/wl_step/d18_nsb_through
+        expect: {status: success, result: true}
+      - args: '{}'
+        script: f/wl_step/d18_nsb_named
+        expect: {status: success, result: value}
+  - spec: D18
+    variant: b-namespace-identity-cjs
+    provenance: policy
+    title: an ES module dependency's namespace object is one object for a CommonJS codebase script's entry and its dependencies, directly and through a namespace re-export
+    note: >-
+      The entry and a dependency both take the dependency's namespace
+      object, so the first two scripts keep their per-script bundles in
+      warm mode too (shared_code_fallback, namespace_import); the third
+      takes it in a dependency only and runs its shared-layout module.
+    codebase: {relative_path: f/wl_step, format: cjs}
+    files:
+      f/wl_step/d18_nsc_dep.ts: |
+        export const value = 1;
+      f/wl_step/d18_nsc_other.ts: |
+        import * as ns from "./d18_nsc_dep";
+        export const seen = ns;
+      f/wl_step/d18_nsc_mid.ts: |
+        export * as again from "./d18_nsc_dep";
+    path: f/wl_step/d18_nsc_direct
+    script: |
+      import * as ns from "./d18_nsc_dep";
+      import { seen } from "./d18_nsc_other";
+      export function main() { return ns === seen; }
+    scripts:
+      f/wl_step/d18_nsc_through: |
+        import * as ns from "./d18_nsc_dep";
+        import { again } from "./d18_nsc_mid";
+        export function main() { return ns === again; }
+      f/wl_step/d18_nsc_named: |
+        import { value } from "./d18_nsc_dep";
+        import { seen } from "./d18_nsc_other";
+        export function main() { return seen.value === value && Object.keys(seen).join(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}
+      - args: '{}'
+        script: f/wl_step/d18_nsc_through
+        expect: {status: success, result: true}
+      - args: '{}'
+        script: f/wl_step/d18_nsc_named
+        expect: {status: success, result: value}
+  - spec: D18
+    variant: b-namespace-identity-esm
+    provenance: policy
+    title: an ES module dependency's namespace object is one object for a format esm codebase script's entry and its dependencies, directly and through a namespace re-export
+    note: >-
+      The entry and a dependency both take the dependency's namespace
+      object, so the first two scripts keep their per-script bundles in
+      warm mode too (shared_code_fallback, namespace_import); the third
+      takes it in a dependency only and runs its shared-layout module.
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_nse_dep.ts: |
+        export const value = 1;
+      f/wl_step/d18_nse_other.ts: |
+        import * as ns from "./d18_nse_dep";
+        export const seen = ns;
+      f/wl_step/d18_nse_mid.ts: |
+        export * as again from "./d18_nse_dep";
+    path: f/wl_step/d18_nse_direct
+    script: |
+      import * as ns from "./d18_nse_dep";
+      import { seen } from "./d18_nse_other";
+      export function main() { return ns === seen; }
+    scripts:
+      f/wl_step/d18_nse_through: |
+        import * as ns from "./d18_nse_dep";
+        import { again } from "./d18_nse_mid";
+        export function main() { return ns === again; }
+      f/wl_step/d18_nse_named: |
+        import { value } from "./d18_nse_dep";
+        import { seen } from "./d18_nse_other";
+        export function main() { return seen.value === value && Object.keys(seen).join(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}
+      - args: '{}'
+        script: f/wl_step/d18_nse_through
+        expect: {status: success, result: true}
+      - args: '{}'
+        script: f/wl_step/d18_nse_named
+        expect: {status: success, result: value}
+  - spec: D18
+    variant: b-namespace-shape
+    provenance: policy
+    title: the namespace object a Bun-built script's entry takes of an ES module dependency has the module's names, in the bundler's order (Bun's is the source's), and no CommonJS interop marker
+    note: >-
+      Only the entry takes the namespace object, so the script runs its
+      shared-layout module in warm mode; its reference lists the module's
+      export names.
+    files:
+      f/wl_step/d18_shb_dep.ts: |
+        export const value = 1;
+        export function alpha() { return "a"; }
+        export default "the default";
+    path: f/wl_step/d18_shb
+    script: |
+      import * as ns from "./d18_shb_dep.ts";
+      export function main() {
+        return { names: Object.getOwnPropertyNames(ns), keys: Object.keys(ns), marker: "__esModule" in ns, value: ns.value, alpha: ns.alpha(), def: ns.default };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {names: [value, default, alpha], keys: [value, default, alpha], marker: false, value: 1, alpha: a, def: the default}}
+  - spec: D18
+    variant: b-namespace-shape-cjs
+    provenance: policy
+    title: the namespace object a CommonJS codebase script's entry takes of an ES module dependency has the module's names, in the bundler's order, and no CommonJS interop marker
+    note: >-
+      Only the entry takes the namespace object, so the script runs its
+      shared-layout module in warm mode; its reference lists the module's
+      export names.
+    codebase: {relative_path: f/wl_step, format: cjs}
+    files:
+      f/wl_step/d18_shc_dep.ts: |
+        export const value = 1;
+        export function alpha() { return "a"; }
+        export default "the default";
+    path: f/wl_step/d18_shc
+    script: |
+      import * as ns from "./d18_shc_dep";
+      export function main() {
+        return { names: Object.getOwnPropertyNames(ns), keys: Object.keys(ns), marker: "__esModule" in ns, value: ns.value, alpha: ns.alpha(), def: ns.default };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {names: [alpha, default, value], keys: [alpha, default, value], marker: false, value: 1, alpha: a, def: the default}}
+  - spec: D18
+    variant: b-namespace-shape-esm
+    provenance: policy
+    title: the namespace object a format esm codebase script's entry takes of an ES module dependency has the module's names, in the bundler's order, and no CommonJS interop marker
+    note: >-
+      Only the entry takes the namespace object, so the script runs its
+      shared-layout module in warm mode; its reference lists the module's
+      export names.
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_she_dep.ts: |
+        export const value = 1;
+        export function alpha() { return "a"; }
+        export default "the default";
+    path: f/wl_step/d18_she
+    script: |
+      import * as ns from "./d18_she_dep";
+      export function main() {
+        return { names: Object.getOwnPropertyNames(ns), keys: Object.keys(ns), marker: "__esModule" in ns, value: ns.value, alpha: ns.alpha(), def: ns.default };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {names: [alpha, default, value], keys: [alpha, default, value], marker: false, value: 1, alpha: a, def: the default}}
+  - spec: D18
+    variant: c-registry-per-script
+    provenance: policy
+    title: two scripts that each register one name in a dependency module's registry, which refuses a second registration, both succeed
+    note: >-
+      The synthetic form of ADR 0013's probe, where two scripts each
+      register a Mongoose model named Order: one shared instance refuses
+      the second; an instance per script, as on Windmill, does not.
+    files:
+      f/wl_step/d18_registry.ts: |
+        const names = new Set<string>();
+        export function register(name: string) {
+          if (names.has(name)) throw new Error(`already registered: ${name}`);
+          names.add(name);
+          return names.size;
+        }
+    path: f/wl_step/d18_c_one
+    script: |
+      import { register } from "./d18_registry.ts";
+      const size = register("Order");
+      export function main() { return size; }
+    scripts:
+      f/wl_step/d18_c_two: |
+        import { register } from "./d18_registry.ts";
+        const size = register("Order");
+        export function main() { return size; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}
+      - args: '{}'
+        script: f/wl_step/d18_c_two
+        expect: {status: success, result: 1}
+  - spec: D18
+    variant: d-lazy-initialisation
+    provenance: policy
+    title: a dependency module a script never reaches runs no load effect in its instance, and one required inside a function initialises at its first call
+    codebase: {relative_path: f/wl_step}
+    files:
+      f/wl_step/d18_eager.ts: |
+        (globalThis as any).d18d_eager = ((globalThis as any).d18d_eager ?? 0) + 1;
+        export const eager = "eager";
+      f/wl_step/d18_lazy.ts: |
+        (globalThis as any).d18d_lazy = ((globalThis as any).d18d_lazy ?? 0) + 1;
+        export const lazy = "lazy";
+      f/wl_step/d18_unreached.ts: |
+        (globalThis as any).d18d_unreached = ((globalThis as any).d18d_unreached ?? 0) + 1;
+        export const unreached = "unreached";
+    path: f/wl_step/d18_d_one
+    script: |
+      import { eager } from "./d18_eager";
+      export function main(load: boolean) {
+        const g = globalThis as any;
+        const before = g.d18d_lazy ?? 0;
+        const got = load ? require("./d18_lazy").lazy : null;
+        return { eager, got, before, after: g.d18d_lazy ?? 0, eagerLoads: g.d18d_eager ?? 0, unreached: g.d18d_unreached ?? 0 };
+      }
+    scripts:
+      f/wl_step/d18_d_two: |
+        import { unreached } from "./d18_unreached";
+        export function main() { return unreached; }
+    runs:
+      - args: '{"load":false}'
+        expect: {status: success, result: {eager: eager, got: null, before: 0, after: 0, eagerLoads: 1, unreached: 0}}
+      - args: '{"load":true}'
+        expect: {status: success, result: {eager: eager, got: lazy, before: 0, after: 1, eagerLoads: 1, unreached: 0}}
+  - spec: D18
+    variant: e-initialisation-order
+    provenance: policy
+    title: an ES module dependency and a CommonJS dependency initialise in import order in both layouts
+    note: >-
+      esbuild 0.28.0 and Bun 1.3.10 both keep import order in a per-script
+      bundle (esbuild splits the entry's code around each hoisted ES
+      module), as the shared layout does, so the order is the same.
+    codebase: {relative_path: f/wl_step}
+    files:
+      f/wl_step/d18_order_cjs.js: |
+        (globalThis.d18e ??= []).push("cjs");
+        module.exports = { cjs: 1 };
+      f/wl_step/d18_order_esm.ts: |
+        ((globalThis as any).d18e ??= []).push("esm");
+        export const esm = 1;
+    path: f/wl_step/d18_e
+    script: |
+      import cjs from "./d18_order_cjs.js";
+      import { esm } from "./d18_order_esm";
+      export function main() { return [cjs.cjs + esm, ...(globalThis as any).d18e]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [2, cjs, esm]}
+  - spec: D18
+    variant: f-whole-module-pruning
+    provenance: policy
+    title: an unused import of a sideEffects false module that no script of the group reaches runs no load effect in either layout
+    codebase: {relative_path: f/wl_step}
+    files:
+      node_modules/d18-pure/package.json: |
+        {"name": "d18-pure", "version": "1.0.0", "main": "index.js", "sideEffects": false}
+      node_modules/d18-pure/index.js: |
+        globalThis.d18f = (globalThis.d18f ?? 0) + 1;
+        exports.pure = 1;
+    path: f/wl_step/d18_f
+    script: |
+      import "d18-pure";
+      export function main() { return (globalThis as any).d18f ?? 0; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 0}
+  - spec: D18
+    variant: g-unused-code
+    provenance: policy
+    title: unused code another script uses, a pure initialiser with an effect and a re-exported sibling module, runs in the shared instance only
+    deviation: D18
+    note: >-
+      Both effects break the claims their code makes: the initialiser is
+      marked /* @__PURE__ */ and the package sideEffects false. The
+      per-script bundle drops them for the first script, which uses
+      neither; the group's closure keeps them for the second, and the first
+      script's instance initialises the modules that hold them.
+    codebase: {relative_path: f/wl_step}
+    files:
+      node_modules/d18-barrel/package.json: |
+        {"name": "d18-barrel", "version": "1.0.0", "main": "index.js", "sideEffects": false}
+      node_modules/d18-barrel/index.js: |
+        export { x } from "./x.js";
+        export { y } from "./y.js";
+      node_modules/d18-barrel/x.js: |
+        export const x = "x";
+      node_modules/d18-barrel/y.js: |
+        (globalThis.d18g ??= []).push("y");
+        export const y = "y";
+      f/wl_step/d18_pure.ts: |
+        function note(n: string) { ((globalThis as any).d18g ??= []).push(n); return n; }
+        export const used = "used";
+        export const other = /* @__PURE__ */ note("pure");
+    path: f/wl_step/d18_g_one
+    script: |
+      import { x } from "d18-barrel";
+      import { used } from "./d18_pure";
+      export function main() { return [x, used, ...((globalThis as any).d18g ?? [])]; }
+    scripts:
+      f/wl_step/d18_g_two: |
+        import { y } from "d18-barrel";
+        import { other } from "./d18_pure";
+        export function main() { return [y, other]; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: [x, used, y, pure]}}
+          fresh: {expect: {status: success, result: [x, used]}}
+        node: {expect: {status: success, result: [x, used]}}
+  - spec: D18
+    variant: h-require-and-import
+    provenance: policy
+    title: a codebase dependency's __dirname, __filename and run-time require are the step's, and its import() of a step-local asset resolves as in the per-script bundle
+    note: >-
+      A require with a variable specifier goes through the instance's
+      require, the step's. The import() resolves from the file holding it,
+      so the script keeps its per-script bundle in warm mode too
+      (shared_code_fallback, ADR 0013 decision item 5); the asset it loads
+      has top-level await.
+    codebase:
+      relative_path: f/wl_step
+      assets:
+        - {from: f/wl_step/data/d18h.json, to: data/d18h.json}
+        - {from: f/wl_step/data/d18h.mjs, to: data/d18h.mjs}
+    files:
+      f/wl_step/data/d18h.json: |
+        {"v": "json asset"}
+      f/wl_step/data/d18h.mjs: |
+        await Promise.resolve();
+        export const v = "tla asset";
+      f/wl_step/d18_where.ts: |
+        export function where(name: string) {
+          return { dirIsCwd: __dirname === process.cwd(), fileInCwd: __filename.startsWith(process.cwd() + "/"), asset: require(name).v };
+        }
+      f/wl_step/d18_dyn.ts: |
+        export async function load(spec: string) { return (await import(spec)).v; }
+    path: f/wl_step/d18_h_where
+    script: |
+      import { where } from "./d18_where";
+      export function main() { return where(["./data", "d18h.json"].join("/")); }
+    scripts:
+      f/wl_step/d18_h_dyn: |
+        import { load } from "./d18_dyn";
+        export async function main() { return load(["./data", "d18h.mjs"].join("/")); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {dirIsCwd: true, fileInCwd: true, asset: json asset}}
+      - args: '{}'
+        script: f/wl_step/d18_h_dyn
+        expect: {status: success, result: tla asset}
+  - spec: D18
+    variant: h-module-and-exports
+    provenance: policy
+    title: an ES module dependency of a CommonJS codebase script reads and changes the step module's module.exports, and reads its exports, as in the per-script bundle
+    note: >-
+      In the per-script bundle a dependency's free module and exports are
+      the step module's (WR-50); the closure runs with them too, and hands
+      its own table of modules over apart from them.
+    codebase: {relative_path: f/wl_step, format: cjs}
+    files:
+      f/wl_step/d18_module.ts: |
+        export function keys() { return Object.keys(module.exports).sort(); }
+        export function mark() { module.exports.marked = true; return keys(); }
+        export function exportsKeys() { return Object.keys(exports); }
+    path: f/wl_step/d18_h_module
+    script: |
+      import { keys, mark, exportsKeys } from "./d18_module";
+      export function main() { const before = keys(); return { before, after: mark(), exports: exportsKeys() }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {before: [main], after: [main, marked], exports: []}}
+  - spec: D18
+    variant: h-module-esm
+    provenance: policy
+    title: a dependency of a format esm codebase script finds no module or exports binding, as an ES module does, so reading either throws a ReferenceError
+    note: >-
+      An ES module codebase group's closure is an ES module file, which
+      binds neither name; a binding whose value is undefined would pass the
+      typeof checks but not the reads.
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_module_esm.ts: |
+        function read(f: () => unknown) { try { return String(f()); } catch (e) { return (e as Error).name; } }
+        export function kinds() { return [typeof module, typeof exports, read(() => module), read(() => exports)]; }
+    path: f/wl_step/d18_h_module_esm
+    script: |
+      import { kinds } from "./d18_module_esm";
+      export function main() { return kinds(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [undefined, undefined, ReferenceError, ReferenceError]}
+  - spec: D18
+    variant: h-module-bun
+    provenance: policy
+    title: a Bun-built dependency's module and exports are what its per-script bundle makes of them
+    files:
+      f/wl_step/d18_module_bun.ts: |
+        function read(f: () => unknown) { try { return String(f()); } catch (e) { return (e as Error).name; } }
+        export function kinds() { return [typeof module, typeof exports, read(() => module)]; }
+    path: f/wl_step/d18_h_module_bun
+    script: |
+      import { kinds } from "./d18_module_bun.ts";
+      export function main() { return kinds(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [undefined, object, ReferenceError]}
+  - spec: D18
+    variant: h-bun-import
+    provenance: policy
+    title: a Bun-built dependency's import() resolves from each script's own module, from two directories
+    note: >-
+      The case's two scripts' modules lie in two directories of the bundle
+      (scripts/bun/d18/ and scripts/bun/d18/<case>/); each asks the
+      dependency to import its own metadata file beside it, which only the
+      script's own module's directory holds. The scripts keep their
+      per-script bundles (shared_code_fallback).
+    files:
+      f/wl_dyn/d18_dyn_bun.ts: |
+        export async function load(spec: string) { return (await import(spec)).default.path; }
+    path: f/wl_a/d18_h_bun_one
+    script: |
+      import { load } from "/f/wl_dyn/d18_dyn_bun.ts";
+      export async function main() { return load("./" + new URL(import.meta.url).pathname.split("/").pop()!.replace(/\.mjs$/, ".meta.json")); }
+    scripts:
+      f/wl_b/d18_h_bun_two: |
+        import { load } from "/f/wl_dyn/d18_dyn_bun.ts";
+        export async function main() { return load("./" + new URL(import.meta.url).pathname.split("/").pop()!.replace(/\.mjs$/, ".meta.json")); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: f/wl_a/d18_h_bun_one}
+      - args: '{}'
+        script: f/wl_b/d18_h_bun_two
+        expect: {status: success, result: f/wl_b/d18_h_bun_two}
+  - spec: D18
+    variant: i-import-meta
+    provenance: policy
+    title: a Bun-built dependency reads the step's import.meta.url, and import.meta.env gives the invocation's environment
+    env: {D18_I: one}
+    files:
+      f/wl_step/d18_meta.ts: |
+        export const url = import.meta.url;
+        export function env() { return import.meta.env.D18_I; }
+    path: f/wl_step/d18_i
+    script: |
+      import { url, env } from "./d18_meta.ts";
+      export function main() { return { same: url === import.meta.url, env: env() }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {same: true, env: one}}
+  - spec: D18
+    variant: i-esm-codebase
+    provenance: policy
+    title: a dependency of a format esm codebase script reads the step's import.meta.url, and import.meta.env gives the invocation's environment
+    env: {D18_I: two}
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_meta_esm.ts: |
+        export const url = import.meta.url;
+        export function env() { return import.meta.env.D18_I; }
+    path: f/wl_step/d18_i_esm
+    script: |
+      import { url, env } from "./d18_meta_esm";
+      export function main() { return { same: url === import.meta.url, env: env() }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {same: true, env: two}}
+  - spec: D18
+    variant: i-import-meta-binding
+    provenance: policy
+    title: a Bun-built dependency's own bindings named like the closure's import.meta parameter, at its top level and as a function's parameter, do not capture import.meta
+    note: >-
+      The closure reads import.meta from a parameter whose name no input of
+      it spells (__wl_meta, __wl_meta_2, then __wl_meta_3 here).
+    files:
+      f/wl_step/d18_metab_dep.ts: |
+        const __wl_meta = { url: "its own" };
+        export function check(__wl_meta_2: { url: string }) {
+          return { top: import.meta.url === __wl_meta.url, param: import.meta.url === __wl_meta_2.url, url: import.meta.url };
+        }
+    path: f/wl_step/d18_metab
+    script: |
+      import { check } from "./d18_metab_dep.ts";
+      export function main() { const r = check({ url: "another" }); return { top: r.top, param: r.param, same: r.url === import.meta.url }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {top: false, param: false, same: true}}
+  - spec: D18
+    variant: i-import-meta-binding-esm
+    provenance: policy
+    title: a format esm codebase dependency's own bindings named like the closure's import.meta parameter, at its top level and as a function's parameter, do not capture import.meta
+    note: >-
+      The closure reads import.meta from a parameter whose name no input of
+      it spells (__wl_meta, __wl_meta_2, then __wl_meta_3 here).
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_metae_dep.ts: |
+        const __wl_meta = { url: "its own" };
+        export function check(__wl_meta_2: { url: string }) {
+          return { top: import.meta.url === __wl_meta.url, param: import.meta.url === __wl_meta_2.url, url: import.meta.url };
+        }
+    path: f/wl_step/d18_metae
+    script: |
+      import { check } from "./d18_metae_dep";
+      export function main() { const r = check({ url: "another" }); return { top: r.top, param: r.param, same: r.url === import.meta.url }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {top: false, param: false, same: true}}
+  - spec: D18
+    variant: j-stack-text
+    provenance: policy
+    title: an error thrown in dependency code keeps its name and message, and its stack names the closure file with shared code
+    deviation: D18
+    compare: {keep_stack: true}
+    files:
+      f/wl_step/d18_throw.ts: |
+        export function boom() { throw new TypeError("d18 boom"); }
+    path: f/wl_step/d18_j
+    script: |
+      import { boom } from "./d18_throw.ts";
+      export function main() { boom(); }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: TypeError}
+              - {at: /result/error/message, equals: d18 boom}
+              - {at: /result/error/stack, contains: [scripts/bun/closures/]}
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: TypeError}
+              - {at: /result/error/message, equals: d18 boom}
+              - {at: /result/error/stack, not_contains: [scripts/bun/closures/]}
+  - spec: D18
+    variant: k-load-error
+    provenance: policy
+    title: a dependency that throws while the step's module loads fails the step in both layouts, and the log tail of its message names the closure file with shared code
+    note: >-
+      The log tail is the end of the error's printed stack, cut to a length,
+      so with shared code the closure's and the shared-layout module's
+      frames fill it and can push the error's own line out of it, as a
+      long bundle path can in either layout; the tail's last frames are the
+      shared-layout module's with shared code and the per-script module's
+      without, whatever the length of the path.
+    deviation: D18
+    files:
+      f/wl_step/d18_loadfail.ts: |
+        throw new Error("d18 load failure");
+    path: f/wl_step/d18_k
+    script: |
+      import "./d18_loadfail.ts";
+      export function main() { return "never"; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+              - {at: /result/error/message, contains: [.shared.mjs]}
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+              - {at: /result/error/message, contains: [.mjs:]}
+              - {at: /result/error/message, not_contains: [.shared.mjs, bun/closures/]}
+  - spec: D18
+    variant: l-host-provided-modules
+    provenance: policy
+    title: a host-provided module that two scripts and a dependency of each import is the one registered instance, while the dependency is per script
+    deviation: D1
+    host_modules:
+      - path: f/wl_step/d18_host
+        script: |
+          export const reg = { n: 0 };
+          export function bump() { return ++reg.n; }
+    files:
+      f/wl_step/d18_l_dep.ts: |
+        import { bump } from "./d18_host.ts";
+        const dep = { own: 0 };
+        export function both() { dep.own++; return { host: bump(), own: dep.own }; }
+    path: f/wl_step/d18_l_one
+    script: |
+      import { both } from "./d18_l_dep.ts";
+      import { bump } from "./d18_host.ts";
+      export function main() { return { direct: bump(), ...both() }; }
+    scripts:
+      f/wl_step/d18_l_two: |
+        import { both } from "./d18_l_dep.ts";
+        import { bump } from "./d18_host.ts";
+        export function main() { return { direct: bump(), ...both() }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {direct: 1, host: 2, own: 1}}
+      - args: '{}'
+        script: f/wl_step/d18_l_two
+        by_mode:
+          warm: {expect: {status: success, result: {direct: 3, host: 4, own: 1}}}
+          fresh: {expect: {status: success, result: {direct: 1, host: 2, own: 1}}}
+  - spec: D18
+    variant: m-strictness
+    provenance: policy
+    title: a sloppy CommonJS dependency of a strict script and of a sloppy one runs as in each script's per-script bundle
+    note: >-
+      A leading "use strict" in a CommonJS entry makes its bundle strict,
+      dependencies included, so the two scripts are in two groups with
+      closures of their own.
+    codebase: {relative_path: f/wl_step}
+    files:
+      f/wl_step/d18_sloppy.js: |
+        module.exports.sloppy = function () {
+          var unbound = (function () { return this; })();
+          var assigned;
+          try { d18m_undeclared = 1; assigned = "assigned"; } catch (e) { assigned = e.name; }
+          return { thisUndefined: unbound === undefined, assigned: assigned };
+        };
+    path: f/wl_step/d18_m_strict
+    script: |
+      "use strict";
+      import { sloppy } from "./d18_sloppy.js";
+      export function main() { return sloppy(); }
+    scripts:
+      f/wl_step/d18_m_sloppy: |
+        import { sloppy } from "./d18_sloppy.js";
+        export function main() { return sloppy(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {thisUndefined: true, assigned: ReferenceError}}
+      - args: '{}'
+        script: f/wl_step/d18_m_sloppy
+        expect: {status: success, result: {thisUndefined: false, assigned: assigned}}
+  - spec: D18
+    variant: m-esm-strict
+    provenance: policy
+    title: a dependency of a Bun-built script runs strict, as in its ES module bundle
+    files:
+      f/wl_step/d18_strict_dep.ts: |
+        export function unbound() { return (function (this: unknown) { return this; })() === undefined; }
+    path: f/wl_step/d18_m_esm
+    script: |
+      import { unbound } from "./d18_strict_dep.ts";
+      export function main() { return unbound(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}
+  - spec: D18
+    variant: n-interop
+    provenance: policy
+    title: a dependency's live binding reads after the change, and default and namespace imports of CommonJS modules agree with the per-script bundle
+    codebase: {relative_path: f/wl_step}
+    files:
+      f/wl_step/d18_live.ts: |
+        export let count = 0;
+        export function inc() { count++; }
+      f/wl_step/d18_cjs_plain.js: |
+        module.exports = function plain() { return "plain"; };
+        module.exports.extra = "extra";
+      f/wl_step/d18_cjs_esm.js: |
+        Object.defineProperty(exports, "__esModule", { value: true });
+        exports.default = "dflt";
+        exports.named = "named";
+      f/wl_step/d18_esm_dflt.ts: |
+        export default function f() { return "esm default"; }
+        export const k = "k";
+    path: f/wl_step/d18_n
+    script: |
+      import { count, inc } from "./d18_live";
+      import plain, * as plainNs from "./d18_cjs_plain.js";
+      import dflt, * as esmNs from "./d18_cjs_esm.js";
+      import f, * as fNs from "./d18_esm_dflt";
+      export function main() {
+        inc();
+        return { count, plain: typeof plain, plainCall: plain(), extra: (plainNs as any).extra, dflt, named: (esmNs as any).named, nsDefault: (esmNs as any).default, f: f(), fNs: typeof fNs.default, k: fNs.k };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {count: 1, plain: function, plainCall: plain, extra: extra, dflt: dflt, named: named, nsDefault: dflt, f: esm default, fNs: function, k: k}}
+  - spec: D18
+    variant: n-bun-live
+    provenance: policy
+    title: a Bun-built script reads a dependency's live binding after the change, and its default and namespace imports of ES module dependencies
+    files:
+      f/wl_step/d18_live_bun.ts: |
+        export let count = 0;
+        export function inc() { count++; }
+        export default "dflt";
+      f/wl_step/d18_fn_bun.ts: |
+        export default function named() { return "fn"; }
+        export const other = "other";
+    path: f/wl_step/d18_n_bun
+    script: |
+      import dflt, { count, inc } from "./d18_live_bun.ts";
+      import fn, * as ns from "./d18_fn_bun.ts";
+      export function main() { inc(); return { count, dflt, fn: fn(), nsDefault: typeof ns.default, other: ns.other }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {count: 1, dflt: dflt, fn: fn, nsDefault: function, other: other}}
+  - spec: D18
+    variant: o-cycles
+    provenance: policy
+    title: two dependency modules that require each other see each other's partial exports, as in the per-script bundle
+    codebase: {relative_path: f/wl_step}
+    files:
+      f/wl_step/d18_cyc_a.js: |
+        exports.a = "a1";
+        var b = require("./d18_cyc_b.js");
+        exports.seen = b.seenA;
+        exports.a = "a2";
+      f/wl_step/d18_cyc_b.js: |
+        var a = require("./d18_cyc_a.js");
+        exports.seenA = a.a;
+    path: f/wl_step/d18_o
+    script: |
+      import { seen, a } from "./d18_cyc_a.js";
+      export function main() { return { seen, a }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {seen: a1, a: a2}}
+  - spec: D18
+    variant: p-physical-copies
+    provenance: policy
+    title: two copies of one package that one script resolves from two places keep independent state
+    codebase: {relative_path: f/wl_step}
+    files:
+      node_modules/d18-copy/package.json: |
+        {"name": "d18-copy", "version": "1.0.0", "main": "index.js"}
+      node_modules/d18-copy/index.js: |
+        module.exports = { n: 0 };
+      node_modules/d18-user/package.json: |
+        {"name": "d18-user", "version": "1.0.0", "main": "index.js"}
+      node_modules/d18-user/index.js: |
+        var copy = require("d18-copy");
+        module.exports = { nested: function () { return copy.n; } };
+      node_modules/d18-user/node_modules/d18-copy/package.json: |
+        {"name": "d18-copy", "version": "1.0.0", "main": "index.js"}
+      node_modules/d18-user/node_modules/d18-copy/index.js: |
+        module.exports = { n: 0 };
+    path: f/wl_step/d18_p
+    script: |
+      import top from "d18-copy";
+      import user from "d18-user";
+      export function main() { top.n++; return { top: top.n, nested: user.nested() }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {top: 1, nested: 0}}
+  - spec: D18
+    variant: q-script-imported-by-another
+    provenance: policy
+    title: a script another script imports is its own module in the importer's instance, apart from its module as a root
+    deviation: D1
+    path: f/wl_step/d18_q_one
+    script: |
+      let n = 0;
+      export function main() { return ++n; }
+    scripts:
+      f/wl_step/d18_q_two: |
+        import { main as one } from "./d18_q_one.ts";
+        export function main() { return one(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}
+      - args: '{}'
+        script: f/wl_step/d18_q_two
+        expect: {status: success, result: 1}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: 2}}
+          fresh: {expect: {status: success, result: 1}}
+  - spec: D18
+    variant: r-inject
+    provenance: policy
+    title: a script's own code and its dependencies reach one instance of an inject file, which another script's instance does not share
+    deviation: D1
+    codebase: {relative_path: f/wl_step, inject: [f/wl_step/d18_inject.ts]}
+    files:
+      f/wl_step/d18_inject.ts: |
+        export const injected = { n: 0 };
+      f/wl_step/d18_r_dep.ts: |
+        declare const injected: { n: number };
+        export function depBump() { return ++injected.n; }
+    path: f/wl_step/d18_r_one
+    script: |
+      import { depBump } from "./d18_r_dep";
+      declare const injected: { n: number };
+      export function main() { injected.n++; return { own: injected.n, viaDep: depBump() }; }
+    scripts:
+      f/wl_step/d18_r_two: |
+        import { depBump } from "./d18_r_dep";
+        declare const injected: { n: number };
+        export function main() { injected.n++; return { own: injected.n, viaDep: depBump() }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {own: 1, viaDep: 2}}
+      - args: '{}'
+        script: f/wl_step/d18_r_two
+        expect: {status: success, result: {own: 1, viaDep: 2}}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: {own: 3, viaDep: 4}}}
+          fresh: {expect: {status: success, result: {own: 1, viaDep: 2}}}
+        node: {expect: {status: success, result: {own: 1, viaDep: 2}}}
+  - spec: D18
+    variant: s-fence
+    provenance: policy
+    title: a timer a dependency starts while loading is module state, which the fence leaves running, and one it starts in an invocation is cleared when that settles
+    files:
+      f/wl_step/d18_timer.ts: |
+        export const ticks = { n: 0 };
+        setInterval(() => ticks.n++, 20);
+        export function later() { setTimeout(() => { (globalThis as any).d18s_late = true; }, 150); }
+    path: f/wl_step/d18_s
+    script: |
+      import { ticks, later } from "./d18_timer.ts";
+      export async function main(arm: boolean) {
+        if (arm) { later(); return "armed"; }
+        const at = ticks.n;
+        await new Promise((r) => setTimeout(r, 300));
+        return { ticking: ticks.n > at, late: (globalThis as any).d18s_late ?? false };
+      }
+    runs:
+      - args: '{"arm":true}'
+        expect: {status: success, result: armed}
+        warnings: [left_behind]
+      - args: '{"arm":false}'
+        expect: {status: success, result: {ticking: true, late: false}}

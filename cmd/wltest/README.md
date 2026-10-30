@@ -19,6 +19,9 @@ embeds. `diff`, which
 running the oracle and windmill-lite live, is in no milestone of ADR 0012
 yet: it prints that it is not implemented and exits 2.
 
+`check` can build every bundle with the shared code of
+[ADR 0013](../../docs/design/0013-shared-module-code.md) (`-shared-code`, below).
+
 `wltest` is windmill-lite's conformance and oracle runner
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
 flow fixtures (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
@@ -131,7 +134,7 @@ and exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of
@@ -156,6 +159,11 @@ nearest directory up from the working directory that holds `harnesses/bun`, whos
 dependencies installed (`bun install --frozen-lockfile` in
 `harnesses/bun/build`). `-v` prints the harness's diagnostics of a failed
 case or run.
+
+`-shared-code` builds every bundle with shared code
+([ADR 0013](../../docs/design/0013-shared-module-code.md); deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations)): `warm` and `host` then run the scripts'
+shared-layout modules, and `fresh` their per-script bundles, as a bundle
+built so runs them.
 
 ### Step cases
 
@@ -209,6 +217,14 @@ case states them, at the end of its case, so that a late report of work it
 left running after it settled, which the D9 fence must stop, fails the
 case; in `warm` mode the process is observed for 200 ms more after a last
 run that states its late reports or settlement, before it is drained.
+
+A step file with `shared_code: true` (`d18.yaml`) is built
+with shared code whatever the flag, so its cases compare `warm`, which runs
+the shared-layout modules, with `fresh`, which runs the per-script
+bundles. A case's `scripts` add workspace scripts beside its `files`, each
+built and invocable; a run's `script` invokes one of them instead of the
+case's own script, so one process runs several step modules that share a
+dependency.
 
 A case with `codebase` is a codebase script: `check` writes its `files`
 into the folder and builds it with esbuild (`bundle.BuildCodebase`), with
@@ -520,6 +536,9 @@ Windmill v1.767.0's image).
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
+- `TestStepSuite` runs `d18.yaml`'s cases from a bundle built with shared
+  code ([ADR 0013](../../docs/design/0013-shared-module-code.md)): `warm` runs the shared-layout modules and
+  `fresh` the per-script bundles.
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
   N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
   E3f, and the flow-suite half of F3b's: every run the flow suite requires
@@ -544,6 +563,8 @@ Windmill v1.767.0's image).
   `<file>/<case>`), as well: each must load, and the log
   gives the counts of passing, failing and unsupported runs, and names the
   runs that pass without being required.
+- `TestFlowSuite` also requires every required run to pass in `warm` and
+  `host` from bundles built with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)).
 - `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
   seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
   in `fresh` and in `warm`, since the result cache lives in the engine,
@@ -669,8 +690,9 @@ fixtures leave no descriptor open, with garbage collection off
 - **The host's environment** is the base environment a spawned harness
   gets (`harness.BaseEnv`), and its working directory is the fixture's.
 
-`TestFlowSuite` runs the suite in `warm`, `fresh` and `host` mode; every
-required run must pass in all three.
+`TestFlowSuite` runs the suite in `warm`, `fresh` and `host` mode, and in
+`warm` and `host` from bundles built with shared code; every
+required run must pass in all five.
 
 ## Version
 

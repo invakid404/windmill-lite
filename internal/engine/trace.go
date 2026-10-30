@@ -18,10 +18,13 @@ import (
 // a new snapshot, the one Hooks.OnRunSettled receives.
 type Trace struct {
 	// RunID is the run's id; Bundle is the digest of the bundle it ran
-	// (ADR 0010); ModuleState is the mode it ran in (ADR 0006).
+	// (ADR 0010); ModuleState is the mode it ran in (ADR 0006); SharedCode
+	// is set when its steps ran their shared-layout modules (ADR 0013),
+	// which also puts the deviation of shared code among its Deviations.
 	RunID       string
 	Bundle      string
 	ModuleState ModuleState
+	SharedCode  bool
 
 	// Status is the run's final status.
 	Status conformance.RunStatus
@@ -58,7 +61,8 @@ type Trace struct {
 	Warnings []Warning
 	// Deviations lists the deviations that depend on a run-time setting the
 	// host chose, by id (D2's watchdog, D15's cap, the H7 rule), as ADR 0001
-	// §5 requires.
+	// §5 requires. With shared code in warm mode it also lists the
+	// deviation of shared code (ADR 0013).
 	Deviations []string
 	// Spans are the run's timings (ADR 0011, run spans).
 	Spans []Span

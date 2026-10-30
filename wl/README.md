@@ -25,6 +25,9 @@ in host mode. The go-plugin adapter (F5, `wl/plugin`) comes later, as
 fields of `Options` and `RunOptions` and as a runtime over the same
 calls, so a host written against this API keeps compiling.
 
+A runtime runs bundles built with the shared code of
+[ADR 0013](../docs/design/0013-shared-module-code.md) (`BuildInfo` below).
+
 ## Files
 
 | File | Contents |
@@ -351,6 +354,13 @@ manifest's, with those of the module state in effect in place of the
 manifest's mode's when `Options.ModuleState` overrode it (D1, D2, D9, D10
 and D11 are warm mode's, ADR 0006; `bundle.ModeDeviations`, the rule the
 build lists them by).
+
+For a bundle built with the shared code of [ADR 0013](../docs/design/0013-shared-module-code.md),
+`BuildInfo().SharedCode` says whether steps run it: they do when the
+bundle has it and steps run warm, as in host mode. [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations), the
+differences of shared code, is then among the deviations, as warm mode's
+are. A run's trace records shared code too (`Trace.SharedCode`, and
+`shared_code` in the trace that a host plugin reads).
 
 `Close()` stops admitting runs, cancels the runs in flight and the
 dispatcher's and waits for them, then drains the harness pool (in host

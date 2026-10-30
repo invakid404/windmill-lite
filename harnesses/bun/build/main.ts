@@ -12,9 +12,10 @@
 // that cannot be served at all fails with exit code 2 and an `error` in the
 // response; a problem with one script or module is reported against it.
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { Builder, BuildProblem } from "./build.ts";
 import type { Request, Response } from "./protocol.ts";
+import { keptImports, namespaceImports, syntaxOf } from "./shared.ts";
 
 const [requestPath, responsePath] = process.argv.slice(2);
 if (requestPath === undefined || responsePath === undefined) {
@@ -36,7 +37,7 @@ try {
   response.error = { kind: "invalid_request", message: `cannot read the request: ${(e as Error).message}` };
   finish(2);
 }
-if (req.version !== 1 || (req.op !== "scan" && req.op !== "build" && req.op !== "parse" && req.op !== "native")) {
+if (req.version !== 1 || (req.op !== "scan" && req.op !== "build" && req.op !== "parse" && req.op !== "native" && req.op !== "kept" && req.op !== "namespaces")) {
   response.error = { kind: "invalid_request", message: `unsupported request version ${req.version} or op ${req.op}` };
   finish(2);
 }
@@ -64,6 +65,33 @@ const problemOf = (e: unknown) => {
   return { kind: "internal", message: String((e as Error)?.stack ?? e) };
 };
 
+// Kept imports of closure bundles the Go build wrote (ADR 0013).
+if (req.op === "kept") {
+  try {
+    response.kept = {};
+    for (const c of req.closures ?? []) response.kept[c.id] = [...keptImports(readFileSync(c.file, "utf8"))].sort();
+  } catch (e) {
+    response.error = problemOf(e);
+    finish(1);
+  }
+  finish(0);
+}
+
+// The namespace objects modules of a codebase bundle take (ADR 0013).
+if (req.op === "namespaces") {
+  response.namespaces = {};
+  for (const file of req.modules ?? []) {
+    let text: string | undefined;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      text = undefined;
+    }
+    response.namespaces[file] = text === undefined ? null : namespaceImports(text, syntaxOf(file));
+  }
+  finish(0);
+}
+
 for (const hm of req.op === "native" ? [] : req.host_modules) {
   try {
     if (req.op === "parse") {
@@ -85,6 +113,21 @@ if (req.op !== "scan") {
     } catch (err) {
       response.entries[e.id] = { meta: { path: e.path }, error: problemOf(err) };
     }
+  }
+}
+// The shared layout of the scripts that built (ADR 0013).
+if (req.op === "build" && req.shared_code) {
+  try {
+    const shared = await builder.buildShared();
+    response.closures = shared.closures;
+    response.closure_meta = shared.closureMeta;
+    for (const [id, record] of Object.entries(shared.shared)) {
+      const r = response.entries[id];
+      if (r !== undefined && r.error === undefined) r.meta.shared = record;
+    }
+  } catch (e) {
+    response.error = problemOf(e);
+    finish(1);
   }
 }
 finish(0);

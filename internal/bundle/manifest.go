@@ -38,6 +38,13 @@ type Manifest struct {
 	NonconformantRuntime bool `json:"nonconformant_runtime"`
 	// ModuleState is the module-state mode the bundle runs in (ADR 0006).
 	ModuleState engine.ModuleState `json:"module_state"`
+	// SharedCode is set when the bundle is built with shared code (ADR
+	// 0013): warm and host-mode processes load each script's shared-layout
+	// module, which makes its own instance of its group's closure.
+	SharedCode bool `json:"shared_code,omitempty"`
+	// Closures are the ids of the bundle's closures under shared code,
+	// sorted; each is scripts/bun/closures/<id>.cjs.
+	Closures []string `json:"closures,omitempty"`
 	// Deviations are the named deviations of ADR 0001 in effect for the
 	// bundle, sorted by number: those its content puts in effect, those of
 	// its module-state mode, and those every bundle has. Deviations that
@@ -162,17 +169,52 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 			return nil, "", fmt.Errorf("bundle: %s lists the host-provided module %q (%s) without its bundled copy", ManifestFile, h.Key, h.ID)
 		}
 	}
+	if len(m.Closures) > 0 && !m.SharedCode {
+		return nil, "", fmt.Errorf("bundle: %s lists closures without shared_code", ManifestFile)
+	}
+	for _, id := range m.Closures {
+		_, cjs := m.Files[ClosureFile(id)]
+		_, esm := m.Files[ClosureModuleFile(id)]
+		if cjs == esm || !validClosureID(id) {
+			return nil, "", fmt.Errorf("bundle: %s lists the closure %q without exactly one file", ManifestFile, id)
+		}
+	}
 	return &m, Digest(data), nil
 }
 
 // manifestDeviations are the deviations a bundle lists: the program's,
-// those of its module-state mode, and those of every bundle.
-func manifestDeviations(prog []string, mode engine.ModuleState) []string {
+// those of its module-state mode, the deviation of shared code (ADR 0013)
+// when the bundle has it, and those of every bundle.
+func manifestDeviations(prog []string, mode engine.ModuleState, shared bool) []string {
 	// Every bundle: windmill-lite job ids (D3), the interrupted expression
 	// attempt (D8), no Rust location suffix in generated messages (D14), and
 	// the expression engine's build: Math's digits from its libm (D16) and
 	// the recursion depth its frames fit (D17).
-	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17"), mode)
+	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17"), mode, shared)
+}
+
+// SharedCodeDeviation is the deviation of shared code (ADR 0013), which a
+// bundle built with it lists and fresh mode removes.
+const SharedCodeDeviation = "D18"
+
+// ClosureFile is the bundle path of a closure of shared code that is a
+// CommonJS file; ClosureModuleFile that of one that is an ES module, the
+// form of an ES module codebase group's closure.
+func ClosureFile(id string) string       { return "scripts/bun/closures/" + id + ".cjs" }
+func ClosureModuleFile(id string) string { return "scripts/bun/closures/" + id + ".mjs" }
+
+// validClosureID reports whether id is a closure id: lower-case letters,
+// digits and dashes, as the build names them.
+func validClosureID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // warmDeviations are the deviations of warm mode, which fresh mode removes
@@ -182,8 +224,10 @@ var warmDeviations = []string{"D1", "D2", "D9", "D10", "D11"}
 // ModeDeviations returns the deviations listed with those of the
 // module-state mode in place of the other mode's (ADR 0006), sorted by
 // number and each once: what a runtime that overrides a bundle's mode has
-// in effect, the bundle's other deviations kept.
-func ModeDeviations(listed []string, mode engine.ModuleState) []string {
+// in effect, the bundle's other deviations kept. A bundle with shared
+// code has the deviation of shared code in warm mode only, since fresh
+// runs the per-script bundles (ADR 0013).
+func ModeDeviations(listed []string, mode engine.ModuleState, shared bool) []string {
 	set := map[string]bool{}
 	for _, d := range listed {
 		set[d] = true
@@ -194,6 +238,11 @@ func ModeDeviations(listed []string, mode engine.ModuleState) []string {
 		} else {
 			delete(set, d)
 		}
+	}
+	if shared && mode == engine.ModuleStateWarm {
+		set[SharedCodeDeviation] = true
+	} else {
+		delete(set, SharedCodeDeviation)
 	}
 	out := make([]string, 0, len(set))
 	for d := range set {

@@ -55,8 +55,10 @@ type Engine struct {
 	// results is the result cache of cache_ttl (N4): the platform's, or
 	// the engine's own when it has none.
 	results platform.ResultCache
-	// moduleState is the module-state mode every invocation runs in.
+	// moduleState is the module-state mode every invocation runs in;
+	// sharedCode says that they run shared-layout modules (ADR 0013).
 	moduleState ModuleState
+	sharedCode  bool
 	// provide answers the named host-provided sites.
 	provide ProvideFunc
 }
@@ -103,6 +105,11 @@ type Config struct {
 	// (ADR 0006), which its Exec must serve: ModuleStateWarm, the default,
 	// or ModuleStateFresh.
 	ModuleState ModuleState
+	// SharedCode says that its invocations run the shared-layout modules of
+	// a bundle built with shared code (ADR 0013): only in warm mode, since
+	// fresh runs the per-script bundles. Each run's trace records it and
+	// lists the deviation of shared code.
+	SharedCode bool
 	// Provide answers the program's named host-provided sites (ADR 0002,
 	// ADR 0008): called at a provided site's launch, in place of the job
 	// its target would have run, with the site's stored arguments and the
@@ -145,6 +152,10 @@ func New(cfg Config) (*Engine, error) {
 	default:
 		return nil, fmt.Errorf("engine: module state %q is not warm or fresh", cfg.ModuleState)
 	}
+	if cfg.SharedCode && e.moduleState != ModuleStateWarm {
+		return nil, errors.New("engine: shared code runs in warm mode only")
+	}
+	e.sharedCode = cfg.SharedCode
 	if cfg.Workspace != "" {
 		e.host.Workspace = cfg.Workspace
 	}

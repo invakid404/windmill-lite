@@ -14,6 +14,10 @@ scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
 (below, step 3) and added the parse of host-provided modules outside the
 folder.
 
+The helper also builds shared code
+([ADR 0013](../../../docs/design/0013-shared-module-code.md); below,
+"Shared code"), with the `kept` and `namespaces` requests.
+
 ## Running
 
 ```sh
@@ -50,6 +54,9 @@ at all (unreadable, another Bun) exits with code 2 and an `error` in the
 response. A problem with one script or module is reported against it, and
 the rest are still built.
 
+Shared code adds two more requests, `kept` and `namespaces` (below,
+"Shared code").
+
 ## What it does
 
 | File | Contents |
@@ -62,6 +69,7 @@ the rest are still built.
 | `wac.ts` | Workflow-as-code detection |
 | `native.ts` | The native form of a module, the nativets transpile, the `//useragent` and `//proxy` header, the embedded client |
 | `text.ts` | Rust's line and whitespace rules, for the textual scans |
+| `shared.ts` | Shared code: the support module, dependency references and closure entry, the closure id, the parse for kept `import()` |
 | `protocol.ts` | The request and response |
 
 ### Bundling each script
@@ -154,6 +162,82 @@ Sources are written under the dependency set's directory before bundling,
 so the paths a bundle's comments name are the same on every machine:
 `entry/<id>.ts`, `src/<Windmill path>.ts`, `host/<id>.mjs` and
 `node_modules/…`.
+
+### Shared code
+
+A `build` request with `shared_code` also builds shared code for its `bun`
+and `node` target scripts (`buildShared`). Shared code is the decision of
+[ADR 0013](../../../docs/design/0013-shared-module-code.md); its
+differences from a per-script bundle are deviation [D18](../../../docs/design/0001-equivalence-contract.md#5-named-deviations). Each script's
+per-script bundle is built as without shared code.
+
+**Groups.** The scripts with one target and one lock, that is one
+dependency set, form a group. `//native` scripts form none. A group's
+closure id is `bun-` and twelve hex digits of the SHA-256 of what makes the
+group.
+
+**The shared-layout module** of a script is a second bundle of its entry,
+written to `scripts/bun/<id>.shared.mjs`:
+
+- Each import that the entry's own bundle resolved to a module of the
+  dependency set becomes a reference to that module in the script's
+  instance of the closure. Such a module is a workspace script under `src/`
+  or a package under `node_modules/`.
+- A CommonJS module gets a CommonJS reference. An ES module gets an ES
+  module reference, whose named exports stay live and whose default, when
+  it has one, is read once.
+- An ES module reference lists the module's export names for the script's
+  target (`exportNamesOf`, from a bundle of the module alone). Its
+  namespace object then has the module's names, and not the CommonJS
+  interop marker of the reference that it reads them from.
+- The env support module and the shims of host-provided modules stay as
+  the per-script bundle has them. An import that the per-script bundle
+  dropped (a module it pruned) becomes an empty module.
+
+**The closure** is a CommonJS bundle, written to
+`<work>/closures/<id>.cjs`, which Go wraps into its factory:
+
+- Its entry requires the env support module first. It then maps each
+  module that the group's scripts reach, by its path in the dependency
+  set's directory, to a function that requires the module.
+- The entry hands that table over through a global property
+  (`CLOSURE_TABLE`), so the instance's `module` stays the step's.
+- `import.meta` reads a parameter of the instance: the first of
+  `__wl_meta`, `__wl_meta_2`, … that no input of the closure spells, so no
+  binding of a dependency captures it. The response gives the name
+  (`closure_meta`).
+
+**Fallbacks.** In these cases a script keeps its per-script bundle, and the
+response records the reason instead of a closure:
+
+- `namespace_import`: the script's entry and another module of its bundle
+  both take the namespace object of one ES module dependency. In the shared
+  layout the entry's object would be its reference's and the dependency's
+  the closure's.
+- `export_names`: the entry takes the namespace object of an ES module
+  whose names are not all known (a star re-export of an external module),
+  or imports a module that exports `__esModule`.
+- `top_level_await`, `external_import` (a static import of an external
+  module, not one the runtime has built in) and `dynamic_import` (a kept
+  `import()`): a module that the script reaches cannot be held by the
+  CommonJS closure. The closure is then built again without those scripts.
+
+**Parsing.** The build finds namespace objects (`namespaceImports`) and
+kept imports (`keptImports`) by parsing with Babel, so text that only looks
+like an import does not count. Two requests run the same parses for the Go
+build's codebase groups:
+
+- `namespaces` parses the modules of their bundles.
+- `kept` parses their closure bundles and returns, for each, the modules
+  that keep an `import()`.
+
+**Resolution.** Every file that the shared build writes, and every file
+that a closure's entry requires, is reached by the absolute path that a
+plugin returns, never by Bun's resolver. Bun 1.3.10 keeps directory
+listings across builds in one process. On a file system with coarse
+timestamps, a file written in the same tick as an earlier read of its
+directory can be missing from that listing, so a relative import of it can
+fail to resolve.
 
 ### Native scripts
 

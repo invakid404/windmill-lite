@@ -28,6 +28,9 @@ on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
 SDK have no dependencies and no `package.json`; only the build helper has
 one, its TypeScript parser.
 
+The runtime also runs a bundle's shared code (below,
+[ADR 0013](../../docs/design/0013-shared-module-code.md)).
+
 ## Running
 
 The engine starts it; `internal/harness` has `BunCommand` for that:
@@ -81,6 +84,33 @@ cannot corrupt the protocol.
   ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
   `__filename` and `import.meta`, and the relative paths its own `require`
   resolves at run time, are the working directory's (`moduleFile`).
+- **Metadata.** The runtime keeps only the metadata fields it reads
+  (`runtimeMeta`: `bundler`, `format`, `boundary`, `native`, `signatures`,
+  `shared`), so a process does not hold every script's metafile.
+- **Shared code** ([ADR 0013](../../docs/design/0013-shared-module-code.md);
+  its differences from a per-script bundle are deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations)). In warm
+  mode and host mode, a script whose metadata names a closure
+  (`shared.closure`) loads its shared-layout module, `<id>.shared.mjs` or
+  `<id>.shared.cjs`. A codebase script loads it from the same
+  working-directory copy. Fresh mode, and a script that keeps its
+  per-script bundle (`shared.fallback`), load the per-script one.
+- **The closure registry.** Before any module loads, the runtime installs
+  a process-wide registry, `globalThis[Symbol.for("windmill-lite.closures")]`
+  (`installClosures`). Its `instance(id, scope)` loads the closure factory
+  `scripts/bun/closures/<id>.cjs` once per process, or the ES module
+  `<id>.mjs` of an ES module codebase group, whose factory takes no
+  `module` or `exports`.
+- **An instance per step module.** Each call makes a fresh instance with
+  the calling module's `module` and `exports` (a CommonJS module's; an ES
+  module passes neither), `require`, file names and `import.meta`, which
+  its dependency code sees as in the per-script bundle. The closure hands
+  the instance's table back through
+  `globalThis[Symbol.for("windmill-lite.closure-table")]`, which the
+  registry clears at once.
+- **What it costs.** Each step module has an instance of its own, so module
+  state stays per script while the dependency code is compiled once. A
+  dependency module initialises in an instance on its first reference.
+  Loading a closure runs none of its modules.
 - **Codebase assets.** A harness the engine spawned copies the bundle's
   `assets/` into its working directory, at their paths there, before any
   module loads (`extractAssets`; [ADR 0002](../../docs/design/0002-ir-and-loader.md),

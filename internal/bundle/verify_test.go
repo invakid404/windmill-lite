@@ -49,22 +49,34 @@ func TestCanonicalize(t *testing.T) {
 }
 
 func TestManifestDeviations(t *testing.T) {
-	if got, want := manifestDeviations([]string{"D12", "D5"}, engine.ModuleStateWarm),
+	if got, want := manifestDeviations([]string{"D12", "D5"}, engine.ModuleStateWarm, false),
 		[]string{"D1", "D2", "D3", "D5", "D8", "D9", "D10", "D11", "D12", "D14", "D16", "D17"}; !slices.Equal(got, want) {
 		t.Errorf("warm: %q, want %q", got, want)
 	}
-	if got, want := manifestDeviations([]string{"D7"}, engine.ModuleStateFresh),
+	if got, want := manifestDeviations([]string{"D7"}, engine.ModuleStateFresh, false),
 		[]string{"D3", "D7", "D8", "D14", "D16", "D17"}; !slices.Equal(got, want) {
 		t.Errorf("fresh: %q, want %q", got, want)
 	}
 	// A runtime that overrides the bundle's mode swaps the mode's
 	// deviations and keeps the others, both ways.
-	warm := manifestDeviations([]string{"D12"}, engine.ModuleStateWarm)
-	if got, want := ModeDeviations(warm, engine.ModuleStateFresh), manifestDeviations([]string{"D12"}, engine.ModuleStateFresh); !slices.Equal(got, want) {
+	warm := manifestDeviations([]string{"D12"}, engine.ModuleStateWarm, false)
+	if got, want := ModeDeviations(warm, engine.ModuleStateFresh, false), manifestDeviations([]string{"D12"}, engine.ModuleStateFresh, false); !slices.Equal(got, want) {
 		t.Errorf("warm to fresh: %q, want %q", got, want)
 	}
-	if got, want := ModeDeviations([]string{"D14", "D3", "D3"}, engine.ModuleStateWarm), []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}; !slices.Equal(got, want) {
+	if got, want := ModeDeviations([]string{"D14", "D3", "D3"}, engine.ModuleStateWarm, false), []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}; !slices.Equal(got, want) {
 		t.Errorf("fresh to warm: %q, want %q", got, want)
+	}
+	// Shared code lists its deviation (ADR 0013), which fresh mode removes, since it
+	// runs the per-script bundles, and warm mode keeps only when listed.
+	shared := manifestDeviations(nil, engine.ModuleStateWarm, true)
+	if !slices.Contains(shared, "D18") || slices.Contains(ModeDeviations(shared, engine.ModuleStateFresh, true), "D18") {
+		t.Errorf("shared code: %q, in fresh %q", shared, ModeDeviations(shared, engine.ModuleStateFresh, true))
+	}
+	if !slices.Contains(ModeDeviations(manifestDeviations(nil, engine.ModuleStateFresh, true), engine.ModuleStateWarm, true), "D18") {
+		t.Error("a shared-code bundle built fresh and run warm lost D18")
+	}
+	if slices.Contains(manifestDeviations(nil, engine.ModuleStateWarm, false), "D18") {
+		t.Error("D18 without shared code")
 	}
 }
 
