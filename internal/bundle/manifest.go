@@ -173,8 +173,10 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 		return nil, "", fmt.Errorf("bundle: %s lists closures without shared_code", ManifestFile)
 	}
 	for _, id := range m.Closures {
-		if _, ok := m.Files[ClosureFile(id)]; !ok || !validClosureID(id) {
-			return nil, "", fmt.Errorf("bundle: %s lists the closure %q without its file", ManifestFile, id)
+		_, cjs := m.Files[ClosureFile(id)]
+		_, esm := m.Files[ClosureModuleFile(id)]
+		if cjs == esm || !validClosureID(id) {
+			return nil, "", fmt.Errorf("bundle: %s lists the closure %q without exactly one file", ManifestFile, id)
 		}
 	}
 	return &m, Digest(data), nil
@@ -195,8 +197,11 @@ func manifestDeviations(prog []string, mode engine.ModuleState, shared bool) []s
 // bundle built with it lists and fresh mode removes.
 const SharedCodeDeviation = "D18"
 
-// ClosureFile is the bundle path of a closure of shared code.
-func ClosureFile(id string) string { return "scripts/bun/closures/" + id + ".cjs" }
+// ClosureFile is the bundle path of a closure of shared code that is a
+// CommonJS file; ClosureModuleFile that of one that is an ES module, the
+// form of an ES module codebase group's closure.
+func ClosureFile(id string) string       { return "scripts/bun/closures/" + id + ".cjs" }
+func ClosureModuleFile(id string) string { return "scripts/bun/closures/" + id + ".mjs" }
 
 // validClosureID reports whether id is a closure id: lower-case letters,
 // digits and dashes, as the build names them.

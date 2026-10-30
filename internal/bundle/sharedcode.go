@@ -101,12 +101,33 @@ func depReference(key string) string {
 // reference initialises. A bundler that gives an ES module importer Node's
 // interop with a CommonJS module hands a default import the whole exports
 // object, so a CommonJS reference alone would hand a default import the
-// module's namespace. The Bun helper's esmReference writes the same.
-func esmReference(key string, hasDefault bool) string {
+// module's namespace. With the module's export names all known, it lists
+// them, so its namespace object has the module's names, in the order the
+// bundler gives a namespace, and not the CommonJS interop marker
+// (__esModule) of the reference it reads them from; otherwise it
+// re-exports them all (export *), and the build keeps a script whose entry
+// takes the namespace object on its per-script bundle (FallbackExportNames).
+// The Bun helper's esmReference writes the same.
+func esmReference(key string, m moduleNames) string {
 	k, _ := json.Marshal(key)
 	cjs, _ := json.Marshal(cjsSpecifier + key)
-	text := fmt.Sprintf("export * from %s;\n", cjs)
-	if hasDefault {
+	// The CommonJS reference initialises the module, whatever names an
+	// importer reads, as the per-script bundle does for an import of it.
+	text := fmt.Sprintf("import %s;\nexport * from %s;\n", cjs, cjs)
+	if m.known() {
+		var list []string
+		for _, n := range m.names {
+			if n != "default" {
+				q, _ := json.Marshal(n)
+				list = append(list, string(q))
+			}
+		}
+		text = fmt.Sprintf("import %s;\n", cjs)
+		if len(list) > 0 {
+			text += fmt.Sprintf("export { %s } from %s;\n", strings.Join(list, ", "), cjs)
+		}
+	}
+	if m.hasDefault() {
 		text += fmt.Sprintf("import { dep } from %q;\nexport default dep(%s).default;\n", closureSpecifier, k)
 	}
 	return text
@@ -151,8 +172,26 @@ func closureEntrySource(files map[string]string) string {
 // a CommonJS module that a bundler wrote (the `// @bun @bun-cjs` pragma
 // and a function of the module's variables), which Bun loads without
 // transpiling it again.
-func wrapClosure(text []byte, strict bool, meta string) []byte {
+//
+// With module, the closure of an ES module codebase group, the file is an
+// ES module instead (`// @bun`, Bun's form of a module it bundled), whose
+// default export is the factory of (require, __filename, __dirname, meta):
+// an ES module binds no module or exports, so dependency code that reads
+// either finds no binding, as in its ES module per-script bundle. Bun's own
+// bundler gives the ES module dependencies of a Bun-built group free
+// placeholders for those names in either form, so its closure stays
+// CommonJS.
+func wrapClosure(text []byte, strict bool, meta string, module bool) []byte {
 	var b bytes.Buffer
+	if module {
+		b.WriteString("// @bun\nexport default function windmillLiteClosure(require, __filename, __dirname, " + meta + ") {\n")
+		b.Write(text)
+		if len(text) > 0 && text[len(text)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+		b.WriteString("}\n")
+		return b.Bytes()
+	}
 	b.WriteString("// @bun @bun-cjs\n(function(exports, require, module, __filename, __dirname) {")
 	if strict {
 		b.WriteString("\"use strict\";")
@@ -261,6 +300,41 @@ type metaInputs map[string]struct {
 	} `json:"imports"`
 }
 
+// exportNamesClash returns the ES module dependency imported by a script's
+// entry whose namespace its reference module cannot reproduce, or "" (see
+// FallbackExportNames). ns is namespaceClash's; names gives a module's
+// export names.
+func exportNamesClash(inputs metaInputs, entry string, ns func(file string) ([]string, bool), names func(file string) moduleNames) string {
+	taken := takenNamespaces(inputs, entry, ns)
+	for _, imp := range inputs[entry].Imports {
+		p := imp.Path
+		if imp.External || imp.Kind == "require-call" || imp.Kind == "require-resolve" || p == entry || !fileInput(p) || inputs[p].Format != "esm" {
+			continue
+		}
+		m := names(p)
+		if slices.Contains(m.names, "__esModule") || taken[p] && !m.known() {
+			return p
+		}
+	}
+	return ""
+}
+
+// takenNamespaces returns the files whose namespace object a module of a
+// script's bundle takes (namespaceClash).
+func takenNamespaces(inputs metaInputs, file string, ns func(file string) ([]string, bool)) map[string]bool {
+	specs, parsed := ns(file)
+	out := map[string]bool{}
+	for _, imp := range inputs[file].Imports {
+		if imp.External || imp.Kind == "require-call" || imp.Kind == "require-resolve" {
+			continue
+		}
+		if !parsed || slices.Contains(specs, imp.Original) {
+			out[imp.Path] = true
+		}
+	}
+	return out
+}
+
 // fileInput reports whether a metafile input is a file, not a module of a
 // plugin's namespace or a virtual input of esbuild's (<define:NAME>).
 func fileInput(p string) bool {
@@ -274,20 +348,7 @@ func fileInput(p string) bool {
 // taking every namespace it imports); each specifier is matched to the
 // file the bundle resolved it to.
 func namespaceClash(inputs metaInputs, entry string, ns func(file string) ([]string, bool)) string {
-	requires := func(kind string) bool { return kind == "require-call" || kind == "require-resolve" }
-	takes := func(file string) map[string]bool {
-		specs, parsed := ns(file)
-		out := map[string]bool{}
-		for _, imp := range inputs[file].Imports {
-			if imp.External || requires(imp.Kind) {
-				continue
-			}
-			if !parsed || slices.Contains(specs, imp.Original) {
-				out[imp.Path] = true
-			}
-		}
-		return out
-	}
+	takes := func(file string) map[string]bool { return takenNamespaces(inputs, file, ns) }
 	fromEntry := map[string]bool{}
 	for p := range takes(entry) {
 		if p != entry && inputs[p].Format == "esm" {
@@ -331,28 +392,45 @@ type codebaseGroup struct {
 	// reach holds, by script, the inputs of its per-script bundle, by path
 	// relative to the folder.
 	reach map[string]metaInputs
-	// defaults caches, by file, whether an ES module dependency has a
-	// default export.
-	mu       sync.Mutex
-	defaults map[string]bool
+	// exports caches, by file, the export names of an ES module dependency.
+	mu      sync.Mutex
+	exports map[string]moduleNames
 }
 
-// hasDefault reports whether an ES module file has a default export, by its
-// export names (moduleExports); one whose names do not read is taken to
-// have one.
-func (g *codebaseGroup) hasDefault(folder, file string) bool {
+// exportsOf returns the export names of an ES module file (moduleExports).
+func (g *codebaseGroup) exportsOf(folder, file string) moduleNames {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if d, ok := g.defaults[file]; ok {
-		return d
+	if m, ok := g.exports[file]; ok {
+		return m
 	}
-	names, err := moduleExports(folder, file, g.settings)
-	d := err != nil || slices.Contains(names, "default")
-	if g.defaults == nil {
-		g.defaults = map[string]bool{}
+	m := readModuleNames(folder, file, g.settings)
+	if g.exports == nil {
+		g.exports = map[string]moduleNames{}
 	}
-	g.defaults[file] = d
-	return d
+	g.exports[file] = m
+	return m
+}
+
+// moduleNames is what the build reads of an ES module file's export names:
+// the names, whether they are all of them (none comes from a star re-export
+// of a module the build leaves external), and whether they read at all.
+type moduleNames struct {
+	names    []string
+	complete bool
+	ok       bool
+}
+
+// known reports whether the names are all the module's.
+func (m moduleNames) known() bool { return m.ok && m.complete }
+
+// hasDefault reports whether the module has a default export; one whose
+// names do not read is taken to have one.
+func (m moduleNames) hasDefault() bool { return !m.ok || slices.Contains(m.names, "default") }
+
+func readModuleNames(folder, file string, s *CodebaseSettings) moduleNames {
+	names, complete, err := moduleExports(folder, file, s)
+	return moduleNames{names: names, complete: complete, ok: err == nil}
 }
 
 // fallback records that a script keeps its per-script bundle, with a
@@ -401,6 +479,7 @@ func (cfg *CodebaseConfig) shareCode(ctx context.Context, bc *BunConfig, built [
 			return nil, err
 		}
 	}
+	names := map[string]moduleNames{} // by settings and file
 	groups := map[string]*codebaseGroup{}
 	var order []string
 	for _, e := range built {
@@ -430,11 +509,24 @@ func (cfg *CodebaseConfig) shareCode(ctx context.Context, bc *BunConfig, built [
 			fallback(res, e, FallbackEntryCycle, "a module it imports imports its own entry file")
 			continue
 		}
-		if m := namespaceClash(inputs, e.File, func(file string) ([]string, bool) {
+		nsOf := func(file string) ([]string, bool) {
 			specs := ns[cfg.inputFile(file)]
 			return specs, specs != nil
-		}); m != "" {
+		}
+		if m := namespaceClash(inputs, e.File, nsOf); m != "" {
 			fallback(res, e, FallbackNamespaceImport, fallbackWhy(FallbackNamespaceImport)+" ("+m+")")
+			continue
+		}
+		if m := exportNamesClash(inputs, e.File, nsOf, func(file string) moduleNames {
+			key := string(e.Settings) + "\x00" + file
+			if m, ok := names[key]; ok {
+				return m
+			}
+			m := readModuleNames(cfg.Folder, cfg.inputFile(file), s)
+			names[key] = m
+			return m
+		}); m != "" {
+			fallback(res, e, FallbackExportNames, fallbackWhy(FallbackExportNames)+" ("+m+")")
 			continue
 		}
 		text, err := os.ReadFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(e.ID)+formatExt(s.Format)))
@@ -525,11 +617,11 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 		var mu sync.Mutex
 		own := map[string]string{}
 		reach := g.reach[e.ID]
-		p := depPlugin(cfg.Folder, e.File, g.id, esm, listed, proxies, func(key, file string) (bool, bool) {
+		p := depPlugin(cfg.Folder, e.File, g.id, esm, listed, proxies, func(key, file string) (bool, moduleNames) {
 			if reach[key].Format != "esm" {
-				return false, false
+				return false, moduleNames{}
 			}
-			return true, g.hasDefault(cfg.Folder, file)
+			return true, g.exportsOf(cfg.Folder, file)
 		}, func(key, file string) {
 			mu.Lock()
 			own[key] = file
@@ -613,7 +705,11 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 			live = kept
 			continue
 		}
-		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(g.id))), wrapClosure(text, g.strict, meta)); err != nil {
+		file := ClosureFile(g.id)
+		if esm {
+			file = ClosureModuleFile(g.id)
+		}
+		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(file)), wrapClosure(text, g.strict, meta, esm)); err != nil {
 			return "", err
 		}
 		for _, e := range live {
@@ -662,6 +758,8 @@ func fallbackWhy(reason string) string {
 		return "a module it imports keeps an import() that resolves from the file holding it"
 	case FallbackNamespaceImport:
 		return "it and a module it imports both take the namespace object of one ES module, which the shared layout would make two objects"
+	case FallbackExportNames:
+		return "it imports an ES module whose namespace the shared layout cannot reproduce: it takes the namespace object and the build cannot list all the module's export names, or the module exports __esModule"
 	}
 	return reason
 }
@@ -793,10 +891,15 @@ func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]strin
 // the entry itself, is left as the per-script bundle has it. The package's
 // sideEffects is kept, so the bundler prunes a reference as it would the
 // module (ADR 0013, decision item 3).
-func depPlugin(folder, entry, id string, esm bool, listed map[string]bool, proxies *injectProxySet, isESM func(key, file string) (esm, hasDefault bool), record func(key, file string)) api.Plugin {
+func depPlugin(folder, entry, id string, esm bool, listed map[string]bool, proxies *injectProxySet, isESM func(key, file string) (bool, moduleNames), record func(key, file string)) api.Plugin {
 	var mu sync.Mutex
-	esmDeps := map[string]bool{} // key → its default export, for an ES module dependency
+	esmDeps := map[string]moduleNames{} // key → its export names, for an ES module dependency
 	own := realPath(filepath.Join(folder, filepath.FromSlash(entry)))
+	// esbuild resolves files to their real paths, so a module's key, its
+	// path from the sync root as the metafile names it, is taken from the
+	// folder's real path, which a folder reached through a symbolic link
+	// (a temporary directory on macOS) does not share.
+	root := realPath(folder)
 	support := closureSupport(id, esm)
 	return api.Plugin{Name: "windmill-lite-shared", Setup: func(b api.PluginBuild) {
 		b.OnResolve(api.OnResolveOptions{Filter: `^` + regexp.QuoteMeta(closureSpecifier) + `$`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
@@ -827,15 +930,15 @@ func depPlugin(folder, entry, id string, esm bool, listed map[string]bool, proxi
 			if len(r.Errors) > 0 || r.External || r.Namespace != "file" || r.Path == own || listed[r.Path] {
 				return api.OnResolveResult{}, nil
 			}
-			rel, err := filepath.Rel(folder, r.Path)
+			rel, err := filepath.Rel(root, r.Path)
 			if err != nil {
 				return api.OnResolveResult{}, nil
 			}
 			key := filepath.ToSlash(rel)
 			record(key, r.Path)
-			if e, d := isESM(key, r.Path); e {
+			if e, names := isESM(key, r.Path); e {
 				mu.Lock()
-				esmDeps[key] = d
+				esmDeps[key] = names
 				mu.Unlock()
 			}
 			effects := api.SideEffectsTrue
@@ -850,11 +953,11 @@ func depPlugin(folder, entry, id string, esm bool, listed map[string]bool, proxi
 				return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
 			}
 			mu.Lock()
-			hasDefault, esm := esmDeps[a.Path]
+			names, esm := esmDeps[a.Path]
 			mu.Unlock()
 			text := depReference(a.Path)
 			if esm {
-				text = esmReference(a.Path, hasDefault)
+				text = esmReference(a.Path, names)
 			}
 			return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
 		})
@@ -894,7 +997,7 @@ func injectProxies(folder string, s *CodebaseSettings) (*injectProxySet, error) 
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(folder, filepath.FromSlash(f))
 		}
-		names, err := moduleExports(folder, abs, s)
+		names, _, err := moduleExports(folder, abs, s)
 		if err != nil {
 			return nil, fmt.Errorf("bundle: the inject file %s: %w", f, err)
 		}
@@ -915,10 +1018,15 @@ func injectProxies(folder string, s *CodebaseSettings) (*injectProxySet, error) 
 	return set, nil
 }
 
+// starExport matches a star re-export that an ES module output keeps.
+var starExport = regexp.MustCompile(`(?m)^export \* from `)
+
 // moduleExports returns the export names of an ES module file, read from
 // the metafile of an esbuild build of it alone, with the group's loaders
-// and its packages left external.
-func moduleExports(folder, file string, s *CodebaseSettings) ([]string, error) {
+// and its packages left external, and whether they are all of them: a
+// star re-export of an external module stays in the output as one, and
+// its names are not listed.
+func moduleExports(folder, file string, s *CodebaseSettings) ([]string, bool, error) {
 	o := api.BuildOptions{
 		AbsWorkingDir: folder, EntryPoints: []string{file}, Bundle: true, Write: false, Metafile: true,
 		Platform: api.PlatformNode, Format: api.FormatESModule, Packages: api.PackagesExternal, Outdir: "/", LogLevel: api.LogLevelSilent,
@@ -933,8 +1041,9 @@ func moduleExports(folder, file string, s *CodebaseSettings) ([]string, error) {
 	}
 	r := api.Build(o)
 	if len(r.Errors) > 0 {
-		return nil, fmt.Errorf("%s", esbuildMessages(r.Errors))
+		return nil, false, fmt.Errorf("%s", esbuildMessages(r.Errors))
 	}
+	complete := len(r.OutputFiles) > 0 && !starExport.Match(r.OutputFiles[0].Contents)
 	var meta struct {
 		Inputs  map[string]struct{ Format string } `json:"inputs"`
 		Outputs map[string]struct {
@@ -943,16 +1052,16 @@ func moduleExports(folder, file string, s *CodebaseSettings) ([]string, error) {
 		} `json:"outputs"`
 	}
 	if err := json.Unmarshal([]byte(r.Metafile), &meta); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for _, o := range meta.Outputs {
 		if o.EntryPoint == "" {
 			continue
 		}
 		if meta.Inputs[o.EntryPoint].Format == "cjs" {
-			return nil, nil
+			return nil, false, nil
 		}
-		return slices.Sorted(slices.Values(o.Exports)), nil
+		return slices.Sorted(slices.Values(o.Exports)), complete, nil
 	}
-	return nil, nil
+	return nil, false, nil
 }

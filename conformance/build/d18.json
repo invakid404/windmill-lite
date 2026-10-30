@@ -86,7 +86,7 @@
               ],
               "contains": [
                 "__wl_meta_3.url === __wl_meta.url",
-                "windmillLiteClosure(module, exports, require, __filename, __dirname, __wl_meta_3)"
+                "export default function windmillLiteClosure(require, __filename, __dirname, __wl_meta_3)"
               ]
             }
           }
@@ -359,6 +359,56 @@
         "warnings": [
           "shared_code_fallback",
           "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback"
+        ]
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "y-export-names",
+      "provenance": "policy",
+      "title": "a script whose entry imports an ES module dependency whose namespace a reference cannot reproduce keeps its per-script bundle: the entry takes its namespace object while a star re-export of an external module leaves its export names unknown, or the module exports __esModule",
+      "note": "A reference lists the module's export names, so its namespace object has them and not the CommonJS interop marker of the reference it reads them from. A script that only imports names of a module whose names are not all known is shared, as in the CommonJS codebase group; in the Bun-built group the module's static import of the external electron costs it its shared layout anyway (external_import).",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/xc/lib/**\ncodebases:\n  - relative_path: f/xc\n    includes:\n      - f/xc/**\n    external: [x-external]\n",
+          "f/xb/lib/estar.ts": "export * from \"electron\";\nexport const a = 1;\n",
+          "f/xb/lib/marker.ts": "export const __esModule = true;\nexport const v = 1;\n",
+          "f/xb/star.ts": "import * as ns from \"./lib/estar.ts\";\nexport function main() { return Object.keys(ns); }\n",
+          "f/xb/named.ts": "import { a } from \"./lib/estar.ts\";\nexport function main() { return a; }\n",
+          "f/xb/marker.ts": "import { v } from \"./lib/marker.ts\";\nexport function main() { return v; }\n",
+          "f/xc/lib/estar.ts": "export * from \"x-external\";\nexport const a = 1;\n",
+          "f/xc/lib/marker.ts": "export const __esModule = true;\nexport const v = 1;\n",
+          "f/xc/star.ts": "import * as ns from \"./lib/estar\";\nexport function main() { return Object.keys(ns); }\n",
+          "f/xc/named.ts": "import { a } from \"./lib/estar\";\nexport function main() { return a; }\n",
+          "f/xc/marker.ts": "import { v } from \"./lib/marker\";\nexport function main() { return v; }\n"
+        },
+        "contract": "roots:\n  - script: f/xb/star\n  - script: f/xb/named\n  - script: f/xb/marker\n  - script: f/xc/star\n  - script: f/xc/named\n  - script: f/xc/marker\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/xb/star": "fallback:export_names",
+            "f/xb/named": "fallback:external_import",
+            "f/xb/marker": "fallback:export_names",
+            "f/xc/star": "fallback:export_names",
+            "f/xc/named": "closure:XC",
+            "f/xc/marker": "fallback:export_names"
+          },
+          "closures": {
+            "XC": {
+              "once": [
+                "f/xc/lib/estar.ts"
+              ]
+            }
+          }
+        },
+        "warnings": [
           "shared_code_fallback",
           "shared_code_fallback",
           "shared_code_fallback",

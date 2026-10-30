@@ -51,7 +51,7 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 | `scripts/bun/<id>.cjs`, `<id>.meta.json` | a codebase script built as CommonJS (`BuildCodebase`, below); one built as ESM is `<id>.mjs` |
 | `assets/<to>` | every codebase entry's assets, at the path in the working directory they are extracted to |
 | `scripts/native/windmill.js`, `windmill.meta.json` | the native runtime's embedded client, when a script is nativets |
-| `scripts/bun/closures/<id>.cjs` | with shared code, each build group's closure (below) |
+| `scripts/bun/closures/<id>.cjs`, `<id>.mjs` | with shared code, each build group's closure (below), an ES module for an ES module codebase group |
 | `scripts/bun/<id>.shared.mjs`, `<id>.shared.cjs` | with shared code, each script's shared-layout module, beside its per-script bundle |
 | `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | each host-provided module's bundled copy and shim, named by its script path, or `outside/<n>/<path>` for a module outside the folder |
 | `data/resources.json`, `data/resource_types.json`, `data/variables.json` | every resource and resource type the folder keeps, and every variable but secrets, each file an object keyed by path (a resource type by name), with the record of [internal/syncfolder](../syncfolder/README.md) |
@@ -361,7 +361,11 @@ it:
     names and `import.meta`, so dependency code sees the step's, as in its
     per-script bundle. The entry hands the instance's table back through a
     global property of its own (`ClosureTable`), not `module.exports`,
-    which stays the step's. A strict group's closure is strict.
+    which stays the step's. A strict group's closure is strict. An ES
+    module codebase group's closure is an ES module instead
+    (`ClosureModuleFile`, `// @bun`), whose factory takes no `module` or
+    `exports`: an ES module binds neither, so dependency code that reads
+    one finds no binding, as in its ES module per-script bundle.
   - The Bun build helper's closure bundles go through the same wrapper
     (`BuildBun`).
 - **The shared-layout module** of a script is a second build of it in which
@@ -369,7 +373,11 @@ it:
   of a module of its own build to a reference to that module in the
   script's instance (`depReference`; `esmReference` for an ES module, whose
   named exports stay live and whose default is read once), keeping the
-  package's `sideEffects`. The env support module, host-provided modules'
+  package's `sideEffects`. An ES module reference lists the module's export
+  names (`moduleExports`, from a bundle of the module alone), so its
+  namespace object has the module's names and not the CommonJS interop
+  marker of the reference it reads them from. A module's key is its path
+  from the folder's real path, as esbuild resolves files. The env support module, host-provided modules'
   shims, external modules and the entry itself stay as the per-script
   bundle has them.
   - Each inject file is replaced by a proxy that re-exports its names from
@@ -387,6 +395,10 @@ it:
     `import()` of a literal specifier, which the build helper's
     `namespaces` op finds by parsing each module. In the per-script bundle
     that is one object; in the shared layout it would be two;
+  - an ES module dependency of its entry whose namespace a reference
+    cannot reproduce (`export_names`, `exportNamesClash`): the entry takes
+    its namespace object while a star re-export of an external module
+    leaves its names unknown, or the module exports `__esModule`;
   - and, by module of the closure:
     - top-level await, which fails the CommonJS build;
     - a static import of an external module from an ES module group (a

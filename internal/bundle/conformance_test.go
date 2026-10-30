@@ -489,8 +489,10 @@ func checkShared(t *testing.T, cfg Config, res *Result, w *sharedWant) {
 		t.Errorf("manifest closures %q, want those of the scripts' records %q", m.Closures, closures)
 	}
 	for _, gid := range m.Closures {
-		if _, ok := m.Files[ClosureFile(gid)]; !ok {
-			t.Errorf("closure %s: its file %s has no digest in the manifest", gid, ClosureFile(gid))
+		_, cjs := m.Files[ClosureFile(gid)]
+		_, esm := m.Files[ClosureModuleFile(gid)]
+		if cjs == esm {
+			t.Errorf("closure %s: the manifest gives a digest for %t of its CommonJS file and %t of its module file, want exactly one", gid, cjs, esm)
 		}
 	}
 	for label, cw := range w.Closures {
@@ -499,7 +501,11 @@ func checkShared(t *testing.T, cfg Config, res *Result, w *sharedWant) {
 			t.Errorf("closure %s: no script has it", label)
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(gid))))
+		file := ClosureFile(gid)
+		if _, ok := m.Files[ClosureModuleFile(gid)]; ok {
+			file = ClosureModuleFile(gid)
+		}
+		b, err := os.ReadFile(filepath.Join(cfg.Out, filepath.FromSlash(file)))
 		if err != nil {
 			t.Errorf("closure %s: %v", label, err)
 			continue

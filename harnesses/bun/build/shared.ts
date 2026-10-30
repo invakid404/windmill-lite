@@ -57,9 +57,22 @@ export function depReference(key: string): string {
 // export, read when the reference initialises. A bundler gives an ES module
 // importer Node's interop with a CommonJS module, whose default import is
 // the whole exports object, so a CommonJS reference alone would hand a
-// default import the module's namespace.
-export function esmReference(key: string, cjs: string, hasDefault: boolean): string {
-  let text = `export * from ${JSON.stringify(cjs)};\n`;
+// default import the module's namespace. With the module's export names all
+// known (names), it lists them, so its namespace object has the module's
+// names, in the order the bundler gives a namespace, and not the CommonJS
+// interop marker (__esModule) of the reference it reads them from;
+// otherwise it re-exports them all (export *), and the build keeps a script
+// whose entry takes the namespace object on its per-script bundle (the Go
+// build's esmReference).
+export function esmReference(key: string, cjs: string, hasDefault: boolean, names?: { names: string[]; complete: boolean }): string {
+  // The CommonJS reference initialises the module, whatever names an
+  // importer reads, as the per-script bundle does for an import of it.
+  let text = `import ${JSON.stringify(cjs)};\nexport * from ${JSON.stringify(cjs)};\n`;
+  if (names?.complete) {
+    const list = names.names.filter((n) => n !== "default").map((n) => (/^[A-Za-z_$][\w$]*$/.test(n) ? n : JSON.stringify(n)));
+    text = `import ${JSON.stringify(cjs)};\n`;
+    if (list.length > 0) text += `export { ${list.join(", ")} } from ${JSON.stringify(cjs)};\n`;
+  }
   if (hasDefault) {
     text += `import { dep } from ${JSON.stringify(CLOSURE_SPECIFIER)};\nexport default dep(${JSON.stringify(key)}).default;\n`;
   }

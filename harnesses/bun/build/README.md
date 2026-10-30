@@ -173,7 +173,10 @@ D18; `buildShared`). Each script's per-script bundle is built as without it.
   `node_modules/`) becomes a reference to that module in the script's
   instance of the closure: a CommonJS reference, or for an ES module an
   ES module one whose named exports stay live and whose default, when it
-  has one, is read once. The env support module and the shims of
+  has one, is read once. An ES module reference lists the module's export
+  names, from the exports of a bundle of the module alone
+  (`exportNamesOf`), so its namespace object has the module's names and
+  not the CommonJS interop marker of the reference it reads them from. The env support module and the shims of
   host-provided modules stay as the per-script bundle has them. An import
   the per-script bundle dropped (a module it pruned) becomes an empty
   module. It is written to `scripts/bun/<id>.shared.mjs`.
@@ -194,7 +197,11 @@ D18; `buildShared`). Each script's per-script bundle is built as without it.
   keeps its per-script bundle (`namespace_import`): in the shared layout
   the entry's would be its reference's and the dependency's the closure's.
   A `namespaces` request runs the same parse on the modules of the Go
-  build's codebase bundles.
+  build's codebase bundles. A script whose entry imports an ES module whose
+  namespace a reference cannot reproduce keeps its per-script bundle too
+  (`export_names`): the entry takes its namespace object while a star
+  re-export of an external module leaves its names unknown, or the module
+  exports `__esModule`.
 - **Fallbacks.** A module whose closure build fails on top-level await,
   which imports an external module statically (not a module the runtime
   has built in), or whose code keeps an `import()`, found by parsing the

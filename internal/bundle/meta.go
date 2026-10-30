@@ -101,6 +101,13 @@ const (
 	// one object in its per-script bundle and would be two in the shared
 	// layout.
 	FallbackNamespaceImport = "namespace_import"
+	// FallbackExportNames: its entry imports an ES module dependency whose
+	// namespace its reference module cannot reproduce: one whose namespace
+	// object the entry takes while the build cannot list all its export
+	// names (a star re-export of a module the build leaves external), or
+	// one that exports a binding named __esModule, which the CommonJS
+	// interop marker of the reference's CommonJS module would shadow.
+	FallbackExportNames = "export_names"
 )
 
 // WarningSharedCodeFallback: under shared code, a script keeps its

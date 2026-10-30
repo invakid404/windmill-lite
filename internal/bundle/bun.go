@@ -343,7 +343,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(id))), wrapClosure(text, true, meta)); err != nil {
+		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(id))), wrapClosure(text, true, meta, false)); err != nil {
 			return nil, err
 		}
 	}

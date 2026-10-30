@@ -697,8 +697,8 @@ shared-layout module, with its own instance of its group's closure, and
 `fresh` runs the per-script bundles; most cases give two or more scripts
 that share a dependency module and invoke them in turn in one process
 (`runs[].script`), showing that each step module keeps module state of its
-own (D18/a to D18/s, among them namespace objects, the step's `module`
-and `exports`, the closure's `import.meta` parameter, stack text, load
+own (D18/a to D18/s, among them namespace objects and their shape, the
+step's `module` and `exports`, the closure's `import.meta` parameter, stack text, load
 errors, host-provided modules, strictness, interop, cycles, inject files
 and the settle-time fence). Host mode runs the flow suite with shared code instead, since a
 step case runs on a spawned harness.
@@ -837,8 +837,8 @@ CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
 output) and `d12.json` (host-provided modules through their shims, those
 outside the folder included). `d18.json` holds the build
 cases of shared code: closure membership and the `import.meta`
-parameter, build groups, installations, fallbacks (namespace objects
-among them) and native scripts (D18/t to D18/z).
+parameter, build groups, installations, fallbacks (namespace objects and
+export names among them) and native scripts (D18/t to D18/z).
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails

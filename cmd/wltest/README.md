@@ -537,8 +537,7 @@ Windmill v1.767.0's image).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
   N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
   E3f, and the flow-suite half of F3b's: every run the flow suite requires
-  passes in `warm` and in `fresh`, and in `host` (F3b), and in `warm` and
-  `host` from bundles built with shared code,
+  passes in `warm` and in `fresh`, and in `host` (F3b),
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API; F2a, whose
   runs are `host/provided`'s, the run-time half of ADR 0002's provided-site
@@ -558,7 +557,9 @@ Windmill v1.767.0's image).
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log
   gives the counts of passing, failing and unsupported runs, and names the
-  runs that pass without being required.
+  runs that pass without being required. Every required run must also pass
+  in `warm` and `host` from bundles built with shared code
+  ([ADR 0013](../../docs/design/0013-shared-module-code.md)).
 - `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
   seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
   in `fresh` and in `warm`, since the result cache lives in the engine,

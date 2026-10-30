@@ -201,6 +201,74 @@ cases:
         script: f/wl_step/d18_nse_named
         expect: {status: success, result: value}
   - spec: D18
+    variant: b-namespace-shape
+    provenance: policy
+    title: the namespace object a Bun-built script's entry takes of an ES module dependency has the module's names, in the bundler's order (Bun's is the source's), and no CommonJS interop marker
+    note: >-
+      Only the entry takes the namespace object, so the script runs its
+      shared-layout module in warm mode; its reference lists the module's
+      export names.
+    files:
+      f/wl_step/d18_shb_dep.ts: |
+        export const value = 1;
+        export function alpha() { return "a"; }
+        export default "the default";
+    path: f/wl_step/d18_shb
+    script: |
+      import * as ns from "./d18_shb_dep.ts";
+      export function main() {
+        return { names: Object.getOwnPropertyNames(ns), keys: Object.keys(ns), marker: "__esModule" in ns, value: ns.value, alpha: ns.alpha(), def: ns.default };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {names: [value, default, alpha], keys: [value, default, alpha], marker: false, value: 1, alpha: a, def: the default}}
+  - spec: D18
+    variant: b-namespace-shape-cjs
+    provenance: policy
+    title: the namespace object a CommonJS codebase script's entry takes of an ES module dependency has the module's names, in the bundler's order, and no CommonJS interop marker
+    note: >-
+      Only the entry takes the namespace object, so the script runs its
+      shared-layout module in warm mode; its reference lists the module's
+      export names.
+    codebase: {relative_path: f/wl_step, format: cjs}
+    files:
+      f/wl_step/d18_shc_dep.ts: |
+        export const value = 1;
+        export function alpha() { return "a"; }
+        export default "the default";
+    path: f/wl_step/d18_shc
+    script: |
+      import * as ns from "./d18_shc_dep";
+      export function main() {
+        return { names: Object.getOwnPropertyNames(ns), keys: Object.keys(ns), marker: "__esModule" in ns, value: ns.value, alpha: ns.alpha(), def: ns.default };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {names: [alpha, default, value], keys: [alpha, default, value], marker: false, value: 1, alpha: a, def: the default}}
+  - spec: D18
+    variant: b-namespace-shape-esm
+    provenance: policy
+    title: the namespace object a format esm codebase script's entry takes of an ES module dependency has the module's names, in the bundler's order, and no CommonJS interop marker
+    note: >-
+      Only the entry takes the namespace object, so the script runs its
+      shared-layout module in warm mode; its reference lists the module's
+      export names.
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_she_dep.ts: |
+        export const value = 1;
+        export function alpha() { return "a"; }
+        export default "the default";
+    path: f/wl_step/d18_she
+    script: |
+      import * as ns from "./d18_she_dep";
+      export function main() {
+        return { names: Object.getOwnPropertyNames(ns), keys: Object.keys(ns), marker: "__esModule" in ns, value: ns.value, alpha: ns.alpha(), def: ns.default };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {names: [alpha, default, value], keys: [alpha, default, value], marker: false, value: 1, alpha: a, def: the default}}
+  - spec: D18
     variant: c-registry-per-script
     provenance: policy
     title: two scripts that each register one name in a dependency module's registry, which refuses a second registration, both succeed
@@ -415,18 +483,38 @@ cases:
   - spec: D18
     variant: h-module-esm
     provenance: policy
-    title: a dependency of a format esm codebase script sees no module or exports, as an ES module does
+    title: a dependency of a format esm codebase script finds no module or exports binding, as an ES module does, so reading either throws a ReferenceError
+    note: >-
+      An ES module codebase group's closure is an ES module file, which
+      binds neither name; a binding whose value is undefined would pass the
+      typeof checks but not the reads.
     codebase: {relative_path: f/wl_step, format: esm}
     files:
       f/wl_step/d18_module_esm.ts: |
-        export function kinds() { return [typeof module, typeof exports]; }
+        function read(f: () => unknown) { try { return String(f()); } catch (e) { return (e as Error).name; } }
+        export function kinds() { return [typeof module, typeof exports, read(() => module), read(() => exports)]; }
     path: f/wl_step/d18_h_module_esm
     script: |
       import { kinds } from "./d18_module_esm";
       export function main() { return kinds(); }
     runs:
       - args: '{}'
-        expect: {status: success, result: [undefined, undefined]}
+        expect: {status: success, result: [undefined, undefined, ReferenceError, ReferenceError]}
+  - spec: D18
+    variant: h-module-bun
+    provenance: policy
+    title: a Bun-built dependency's module and exports are what its per-script bundle makes of them
+    files:
+      f/wl_step/d18_module_bun.ts: |
+        function read(f: () => unknown) { try { return String(f()); } catch (e) { return (e as Error).name; } }
+        export function kinds() { return [typeof module, typeof exports, read(() => module)]; }
+    path: f/wl_step/d18_h_module_bun
+    script: |
+      import { kinds } from "./d18_module_bun.ts";
+      export function main() { return kinds(); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [undefined, object, ReferenceError]}
   - spec: D18
     variant: h-bun-import
     provenance: policy

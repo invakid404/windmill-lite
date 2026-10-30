@@ -22,7 +22,7 @@
 // which a timeout, a cancellation and settlement kill (WR-55).
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1457,8 +1457,12 @@ type ClosureScope = { module?: unknown; exports?: unknown; require?: unknown; fi
 /** A closure file's export: a factory that runs the closure with a step
  * module's scope, whose entry hands over, through CLOSURE_TABLE, a table
  * from each dependency module's key to the function that initialises it in
- * that instance and returns its exports. */
+ * that instance and returns its exports. A CommonJS closure file's factory
+ * takes the step's module and exports first; an ES module closure file
+ * (<id>.mjs, an ES module codebase group's) binds neither, as its
+ * dependencies' ES module per-script bundle does not. */
 type ClosureFactory = (module: unknown, exports: unknown, require: unknown, filename: unknown, dirname: unknown, meta: unknown) => void;
+type ModuleClosureFactory = (require: unknown, filename: unknown, dirname: unknown, meta: unknown) => void;
 
 /** The global property a closure's entry puts its table on while the
  * closure runs (the build's ClosureTable). */
@@ -1466,7 +1470,8 @@ const CLOSURE_TABLE = Symbol.for("windmill-lite.closure-table");
 
 /** Installs the process-wide registry of the closures of shared code (ADR
  * 0013), globalThis[Symbol.for("windmill-lite.closures")]: instance(id,
- * scope) loads the bundle's scripts/bun/closures/<id>.cjs once per process
+ * scope) loads the bundle's scripts/bun/closures/<id>.cjs (or <id>.mjs)
+ * once per process
  * and returns an accessor of a fresh instance of it, made with the
  * calling module's scope (its module, exports, require, file names and
  * import.meta, which the instance's dependency code sees as in the
@@ -1480,19 +1485,23 @@ export function installClosures(bundleDir: string): void {
   if (Object.hasOwn(globalThis, key)) return;
   const dir = join(bundleDir, "scripts", "bun", "closures");
   const load = createRequire(join(dir, "index.cjs"));
-  const factories = new Map<string, ClosureFactory>();
+  const factories = new Map<string, (scope: ClosureScope | undefined) => void>();
   const registry = {
     instance(id: string, scope: ClosureScope): (key: string) => unknown {
       if (typeof id !== "string" || !/^[a-z0-9-]+$/.test(id)) throw new Error(`windmill-lite: no closure ${JSON.stringify(id)}`);
       let factory = factories.get(id);
       if (factory === undefined) {
-        factory = load(join(dir, id + ".cjs")) as ClosureFactory;
-        if (typeof factory !== "function") throw new Error(`windmill-lite: the closure ${id} is not a factory`);
+        const esm = existsSync(join(dir, id + ".mjs"));
+        const f = esm ? (load(join(dir, id + ".mjs")) as { default?: unknown }).default : load(join(dir, id + ".cjs"));
+        if (typeof f !== "function") throw new Error(`windmill-lite: the closure ${id} is not a factory`);
+        factory = esm
+          ? (sc) => (f as ModuleClosureFactory)(sc?.require, sc?.filename, sc?.dirname, sc?.meta)
+          : (sc) => (f as ClosureFactory)(sc?.module, sc?.exports, sc?.require, sc?.filename, sc?.dirname, sc?.meta);
         factories.set(id, factory);
       }
       let table: Record<string, unknown>;
       try {
-        factory(scope?.module, scope?.exports, scope?.require, scope?.filename, scope?.dirname, scope?.meta);
+        factory(scope);
         table = (globalThis as Record<symbol, unknown>)[CLOSURE_TABLE] as Record<string, unknown>;
       } finally {
         delete (globalThis as Record<symbol, unknown>)[CLOSURE_TABLE];

@@ -7,9 +7,7 @@
 bundle's mandatory host-provided sites (F2a), its budgets and latches
 (F2b: write-capable steps and the first-write signal, deadlines, the
 latch, fatal error names, the clock and the jitter), host mode (F3a),
-and host plugins in TypeScript over `host_call` (F2c). It runs bundles
-built with the shared code of
-[ADR 0013](../docs/design/0013-shared-module-code.md). This README covers `wl`,
+and host plugins in TypeScript over `host_call` (F2c). This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
@@ -26,6 +24,8 @@ runtime asks over `host_call`: `Options.Plugin` in `warm`, the host's own
 in host mode. The go-plugin adapter (F5, `wl/plugin`) comes later, as
 fields of `Options` and `RunOptions` and as a runtime over the same
 calls, so a host written against this API keeps compiling.
+A runtime runs bundles built with the shared code of
+[ADR 0013](../docs/design/0013-shared-module-code.md) (`BuildInfo` below).
 
 ## Files
 

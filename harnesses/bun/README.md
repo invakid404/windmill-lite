@@ -94,7 +94,9 @@ cannot corrupt the protocol.
   runtime installs a process-wide registry,
   `globalThis[Symbol.for("windmill-lite.closures")]`, before any module
   loads (`installClosures`): `instance(id, scope)` loads the closure
-  factory `scripts/bun/closures/<id>.cjs` once per process and makes a
+  factory `scripts/bun/closures/<id>.cjs` (or the ES module `<id>.mjs` of
+  an ES module codebase group, whose factory takes no `module` or
+  `exports`) once per process and makes a
   fresh instance of it with the calling module's `module` and `exports` (a
   CommonJS module's; an ES module passes neither), `require`, file names
   and `import.meta`, which its dependency code sees as in the per-script
