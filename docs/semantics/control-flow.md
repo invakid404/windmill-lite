@@ -51,8 +51,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   N3c, NI and N5 have since recorded, in the same directory, the cases of
   CF-16 to CF-18, CF-20 to CF-29 and CF-V1 to CF-V5 that the
   reference configuration allows (oracle runs 40858228112, 40852609901,
-  40857510216, 40915682847 and 40926159329); each case names its run. The
-  other expectations are source-derived; [Q-CF-17](#q-cf-17) tracks what
+  40857510216, 40915682847 and 40926159329); each case names its run.
+  Batch E3f recorded the rest the reference requested (oracle runs
+  40990751153, 40994947681, 41000318656 and 41003988171; milestone FU8's
+  run 40987475130 recorded CF-23's route 3 too): a container in the
+  failure slot, handled
+  failures and forwarded stops under a container's own settings, a
+  retried parallel loop, `ai` parallelism, a squashed loop's runtime on
+  the CE image, and a refused container preprocessor. The other
+  expectations are source-derived; [Q-CF-17](#q-cf-17) tracks what
   remains.
 
 ## Summary for the design
@@ -117,7 +124,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
    `sleep` is never applied. A container in the failure slot is advanced
    by bookkeeping meant for list modules: a sequential loop or `branchall`
    there ends the flow after its first child, an empty one makes the failed
-   step succeed, and a parallel one never completes on its own
+   step succeed, and a parallel one never completes on its own. A
+   preprocessor that is not a script is refused, with HTTP 500, by every
+   route that would apply it, so a container never runs in that slot
    ([CF-6](#cf-6), [CF-V4](#cf-v4), [CF-24](#cf-24), [CF-30](#cf-30),
    [CF-31](#cf-31)).
 8. **Errors while starting a container take one of three routes:** a root
@@ -136,13 +145,18 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
    [CF-21](#cf-21), [CF-27](#cf-27), [CF-28](#cf-28)).
 10. **Every child boundary is a JSON round trip**, so siblings get
     independent copies ([CF-20](#cf-20)).
+11. **`squash` is not inert on the CE image.** A squashed sequential loop
+    runs each body step in one runtime for all its iterations, so
+    module-scope state carries over and `WM_JOB_ID` reads
+    `NOT_AVAILABLE`; results match the unsquashed loop only for bodies
+    that keep no such state ([CF-25](#cf-25)).
 
 ## A. Execution model of containers
 
 <a id="cf-1"></a>
 ### CF-1 · Every container body runs as a nested child flow scope
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (a stored-node body, oracle-observed; an inline body, source-traced) · **Status:** confirmed
 
 - **Rule:**
   - **Which bodies.** A `forloopflow` iteration, a `whileloopflow` iteration,
@@ -186,6 +200,11 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-queue/src/jobs.rs:5420-5440`;
   `backend/windmill-types/src/flows.rs:631`.
 - **Conformance:** [CF-1/a](conformance.md#cf-1)
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** CF-1/a's deployed half
+  is recorded as stated (fixture `conformance/flows/control-flow/cf-1-30`,
+  run `cf1`, oracle run 41000318656): the stored-node body step `b`
+  received the outer `flow_input.k`, and `c` the iteration's value. The
+  inline half needs a raw submission and stays unrecorded.
 
 <a id="cf-2"></a>
 ### CF-2 · `forloopflow` iterator evaluation
@@ -443,7 +462,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion
 
-**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1`; all oracle-observed); medium (start order among several eligible iterations); high (`type: ai` and the release delay, source-traced); high (a failed parallel loop under `continue_on_error`, source-traced) · **Status:** confirmed; drafted (`type: ai`, the release delay, `continue_on_error`)
+**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1` and, on two workers, under `parallelism: 2`; `type: ai`; a failed parallel loop under `continue_on_error`; all oracle-observed); medium (start order among several eligible iterations); high (the release delay's cause; a throwing or error-stopping `stop_after_all_iters_if` on a parallel loop; source-traced) · **Status:** confirmed; drafted (the release delay's cause; the `stop_after_all_iters_if` sentence, added 2026-10-30 by SC5)
 
 - **Rule:** With `parallel: true`:
   - **Spawning.** All iterations are created at once as child flows; the loop
@@ -477,9 +496,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     if `skip_failures` is true or every child counts as success; otherwise
     it fails with the full array as its result.
   - **A failed parallel loop under `continue_on_error`** (drafted; the same
-    for a parallel `branchall`, [CF-15](#cf-15)). A parallel loop fails
-    only with `skip_failures: false`, which a deployed flow must state: an
-    omitted flag is stored as `true` ([CF-6](#cf-6)). The parallel completion
+    for a parallel `branchall`, [CF-15](#cf-15)). Through its children's
+    completion statuses a parallel loop fails only with
+    `skip_failures: false`, which a deployed flow must state: an omitted
+    flag is stored as `true` ([CF-6](#cf-6)). (A `stop_after_all_iters_if`
+    that throws or error-stops fails the loop whatever `skip_failures`
+    says, [CF-13](#cf-13). That failure is an error stop of the enclosing
+    flow, which the continue decision handles before `continue_on_error`:
+    without a flow failure module the flow ends failed with the
+    `EarlyStopError` object, and the abort described next does not occur;
+    drafted.) The parallel completion
     path has no tolerance step: it does not advance the cursor, and the
     continue decision, which then still sees the loop as a step before the
     last, continues into it. A `retry` that is due runs first and re-runs
@@ -488,7 +514,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     [CF-23](#cf-23) route 3: name `InternalError`, message
     `Bad request: Unrecognized module status for ForloopFlow Failure { … }`
     (`BranchAll` for a branchall), the status printed in Rust debug
-    notation, which holds job ids. The next step never runs, at the last
+    notation, which holds the children's job ids and their start times and
+    durations (recorded, [CF-7/f](conformance.md#cf-7)). The next step
+    never runs, at the last
     position the flow does not succeed with the array, and the flow's
     failure module does not run. So `continue_on_error` never tolerates a
     failed parallel container; `skip_failures` (or `skip_failure` per
@@ -585,6 +613,30 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   parallel loop or parallel `branchall` does under `continue_on_error`: the
   flow aborts with an `InternalError` instead of continuing. New
   source-derived case CF-7/f.
+- **Revision 2026-10-30 (SC5, oracle batch E3f; SC4 validation round 3,
+  finding R3-1):** batch E3f recorded CF-7/e and CF-7/f as stated
+  (fixtures `conformance/flows/control-flow/cf-7-ai`, run `ai`, and
+  `cf-7-parallel`, runs `f_alone`, `f_tolerated` and `f_handler`, oracle
+  run 41000318656). An `ai` parallelism started no body script in 30 s,
+  and after the cancel the loop's entry holds a `Canceled` error for each
+  held iteration. A failed parallel loop under `continue_on_error`
+  aborted the flow with the `InternalError`, `n` never ran, and with a
+  flow handler each iteration ran its copy while the flow's own did not;
+  the message, which embeds the children's start times and durations, is
+  masked in the recording and its prefix was read in the raw captures. On
+  the two-worker session (fixture `cf-7-release`, runs `a` and `b`) four
+  iterations with `parallelism: 2` started their first two bodies at once,
+  and each completion released the next held iteration in index order,
+  which started within 6 s of it, whichever child had completed
+  ([Q-CF-18](#q-cf-18), answered). R3-1: the sentence that a parallel loop
+  fails only with `skip_failures: false` now says it concerns the
+  children's completion statuses; a throwing or error-stopping
+  `stop_after_all_iters_if` fails the loop regardless
+  (`worker_flow.rs:974-1016`, `:1019-1035`, where an error stop makes the
+  new status a failure), and the continue decision then takes the stop
+  before the `continue_on_error` arm (`:1350-1365`, `:1734-1735`). For
+  alignment: Windmill never continues a flow past a failed parallel loop
+  under `continue_on_error`; only `skip_failures` lets it through.
 
 <a id="cf-8"></a>
 ### CF-8 · The simple-loop-body fast path; eligibility follows the executing job's kind
@@ -803,7 +855,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-12"></a>
 ### CF-12 · Early stop raised inside a container body
 
-**Scope:** core · **Confidence:** high (oracle-observed); high (source-traced: the container's settings on a forwarded stop) · **Status:** confirmed; drafted (the container's settings on a forwarded stop, added 2026-10-29 by SC4)
+**Scope:** core · **Confidence:** high (oracle-observed, including a loop's `continue_on_error` and `retry` on a forwarded stop); high (source-traced: `branchone` and sequential `branchall` ignoring their `retry` on a forwarded stop) · **Status:** confirmed; drafted (`branchone` and sequential `branchall` ignoring their `retry` on a forwarded stop)
 
 - **Rule:**
   1. **Clean vs error stop.** A body step's `stop_after_if` that fires is a
@@ -911,6 +963,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   the loop (CF-12/c and CF-12/f use `skip_failures`). New source-derived
   case CF-12/g. Point 3's handled case is extended in [CF-16](#cf-16) point
   8.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** CF-12/g is recorded
+  as stated (fixture `conformance/flows/control-flow/cf-16-tolerated`,
+  runs `g_tolerated`, `g_alone` and `g_retry`, oracle run 40994947681):
+  with `continue_on_error` on the loop the forwarded error stop still
+  failed the flow with `[{"error":{"name":"EarlyStopError","message":"halt"}}]`
+  and `n` never ran; with a `retry` the loop ran twice, then failed the
+  same way. For alignment: a forwarded error stop is never tolerated by
+  the container's `continue_on_error`, at a middle or at the last
+  position.
 
 <a id="cf-13"></a>
 ### CF-13 · `stop_after_all_iters_if` (loops and branchall)
@@ -1077,7 +1138,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-16"></a>
 ### CF-16 · `failure_module` inside containers
 
-**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id, points 1 and 4, the recovery split); medium (the inline handler id; not recorded, outside the reference configuration); high (source-traced: point 8) · **Status:** confirmed; drafted (point 8, added 2026-10-29 by SC4)
+**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id, points 1 and 4, the recovery split, point 8 for sequential and parallel loops); medium (the inline handler id; not recorded, outside the reference configuration); high (source-traced: point 8's `flow` step that clears the mark) · **Status:** confirmed; drafted (point 8: a `flow` step by path clears the mark)
 
 - **Rule:**
   1. **Where the handler runs.** Each child flow carries a copy of the flow's
@@ -1195,11 +1256,23 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   as [CF-7](#cf-7) says, even when every failed child ran its handler
   ([CF-7/f](conformance.md#cf-7)); the handled mark then only keeps the
   flow's own handler out.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** point 8 is recorded.
+  CF-16/e and CF-16/f as stated (fixture
+  `conformance/flows/control-flow/cf-16-tolerated`, runs `e_next`,
+  `e_alone`, `e_next_fails` and `f_retry`, oracle run 40994947681),
+  including the mark lasting one completion: a later step that failed ran
+  the flow's handler. CF-7/f's handler variant for a parallel loop
+  (fixture `cf-7-parallel`, run `f_handler`, oracle run 41000318656). And
+  a retried parallel loop that fails for good in a flow with a handler
+  (CF-22/h's variant, fixture `cf-22-retried`, run `exhausted`, oracle run
+  40994947681): the retry ran, then the flow failed with the loop's array
+  and its own handler did not run. Only the `flow` step that clears the
+  mark stays source-traced.
 
 <a id="cf-17"></a>
 ### CF-17 · Subflows (`type: flow`, by path)
 
-**Scope:** core (scheduler overrides: out) · **Confidence:** high (oracle-observed: inputs, result, scope; a `retry` on the step); medium (`recover` across the boundary); medium (source-traced: the version each attempt runs, the subflow's own handler on each attempt, nesting depth) · **Status:** confirmed; drafted (the version each retry runs, the subflow's own handler on each attempt, nesting depth; added 2026-10-29 by SC4)
+**Scope:** core (scheduler overrides: out) · **Confidence:** high (oracle-observed: inputs, result, scope; a `retry` on the step; a flow calling itself by path); medium (`recover` across the boundary); medium (source-traced: the version each attempt runs, the subflow's own handler on each attempt, the cancel walk's depth limit) · **Status:** confirmed; drafted (the version each retry runs, the subflow's own handler on each attempt, the cancel walk's depth limit; added 2026-10-29 by SC4)
 
 - **Rule:** A `flow` step:
   - **Resolution.** Resolves `path` to the **latest deployed version** when
@@ -1355,6 +1428,11 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `a`, oracle run 40858228112): the subflow job's input was its step's
   arguments, its result the step's, and the caller's `results.s` was
   undefined.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** CF-17/j is recorded
+  as stated (fixture `conformance/flows/control-flow/cf-17-recursive`, run
+  `rec`, oracle run 40990751153): a flow that calls itself by path
+  deployed, and its run with `{"n": 3}` returned `0` through three nested
+  subflow steps. The cancel walk's depth limit stays source-traced.
 
 <a id="cf-18"></a>
 ### CF-18 · `identity`, skipped containers, mocked containers
@@ -1531,7 +1609,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-21"></a>
 ### CF-21 · Evaluation timing of container-level fields
 
-**Scope:** later · **Confidence:** high (once/per-child split); high (oracle-observed: the preceding step's `sleep`, the `timeout`'s scope, mid-loop `skip_if` on collapsed, child-flow and while loops, a parallel loop's single `skip_if`); medium (the order of `timeout` and `parallelism`, and a parallel `branchall`'s delayed children, source-traced) · **Status:** confirmed; drafted (the order of `timeout` and `parallelism`, and that a parallel `branchall`'s children all take the preceding step's delay; added 2026-10-29 by SC4)
+**Scope:** later · **Confidence:** high (once/per-child split); high (oracle-observed: the preceding step's `sleep`, the `timeout`'s scope, mid-loop `skip_if` on collapsed, child-flow and while loops, a parallel loop's single `skip_if`); high (oracle-observed: the order of `timeout` and `parallelism`, and an `iter` the enclosing input has in the `timeout`); medium (a parallel `branchall`'s delayed children, source-traced) · **Status:** confirmed; drafted (that a parallel `branchall`'s children all take the preceding step's delay; added 2026-10-29 by SC4)
 
 - **Rule:**
   - **Once, at container start:** the `iterator`, the `branchone`
@@ -1615,11 +1693,21 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   enclosing flow's input already has, an outer iteration's or one the
   caller passed. The two recorded failures hold for their top-level
   inputs. New source-derived case CF-21/f.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** fixture
+  `conformance/flows/control-flow/cf-21-throwing` recorded the order
+  within a child and CF-21/f as stated. With both the `timeout` and the
+  `parallelism` of a parallel loop throwing (run
+  `timeout_and_parallelism`, oracle run 40994947681) the flow aborted with
+  the `timeout`'s `InternalError` (``Error during evaluation of expression
+  `null.t`: …``) and no iteration existed; with only the `parallelism`
+  throwing (run `parallelism_only`, oracle run 40990751153) it aborted with
+  that expression's error. CF-21/f's runs `iter_input` and `nested`
+  (oracle run 40990751153) succeeded with `[1]` and `[2]`.
 
 <a id="cf-22"></a>
 ### CF-22 · `retry` on a container module
 
-**Scope:** later · **Confidence:** high (oracle-observed: the re-run, the restored `previous_result`, the `iter_parent` artefact, a collapsed loop's first push, a retried while loop, `branchone` and parallel `branchall`); medium (source-traced: the attempt and retry base of a parallel container; later iterations of a non-collapsed loop) · **Status:** confirmed; drafted (parallel containers, and the inputs of the children after the first at re-entry; added 2026-10-29 by SC4)
+**Scope:** later · **Confidence:** high (oracle-observed: the re-run, the restored `previous_result`, the `iter_parent` artefact, a collapsed loop's first push, a retried while loop, `branchone` and parallel `branchall`; a parallel loop's retry base and empty list of attempts; a parallel loop that fails for good in a flow with a handler); medium (source-traced: a parallel `branchall`'s retry base, which its inputs cannot show; later iterations of a non-collapsed loop) · **Status:** confirmed; drafted (a parallel `branchall`'s retry base, and the inputs of the children after the first at re-entry)
 
 - **Rule:**
   1. **Re-run.** A failed container step with `retry` re-runs from scratch
@@ -1670,9 +1758,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      again, so the base cannot be seen there. The module lists no failed
      attempt once its retry has started: a parallel container's completed
      entry always has an empty `failed_retries`
-     ([FX-27](execution.md#fx-27)). The attempt stays only in the flow-wide
-     list: if the retried container fails for good, the failure module's
-     entry lists it; if the container succeeds, it is listed nowhere.
+     ([FX-27](execution.md#fx-27)). The attempt stays only in the flow's
+     retry state (`flow_status.retry`), and no module's entry lists it. A
+     parallel container that fails for good in a flow with a failure
+     module is marked handled, since each failed child ran its copy of the
+     handler, so the flow's own handler does not run ([CF-16](#cf-16)
+     point 8): the flow fails with the container's array, each failed
+     child's entry being its handler's result. Without a failure module
+     the flow fails with the array too. If the container succeeds, the
+     attempt is listed nowhere.
 - **Evidence:** `worker_flow.rs:3720-3790`, `:3723-3790` (retry: reset,
   restoration; `"{}"` fallback at `:3768-3784`), `:3737`, `:3891-3908`
   (input from the last failed job), `:4158-4170` (`iter` insertion renames
@@ -1703,11 +1797,29 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   had read the base and the attempt as the last child to fail, with no
   recording to tell the two readings apart). New cases CF-22/b to
   CF-22/h.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** CF-22/h is recorded
+  as stated (fixture `conformance/flows/control-flow/cf-22-retried`, run
+  `retried`, oracle run 40990751153): both re-run iterations saw iteration
+  1's `iter` as `iter_parent`, so the base is the last child to complete
+  although it succeeded, and `l` listed no failed attempt. Its variant
+  contradicted the last sentence of rule 5 (run `exhausted`, oracle run
+  40994947681): with iteration 0 failing in every attempt and a flow
+  failure module `ret(1)`, the retry ran and failed again, and the flow
+  failed with `[1, {"index": 1, "value": 20}]`, iteration 0's entry being
+  its child flow's handler result, without running its own failure
+  module. Rule 5 had said that the failure module's entry lists the
+  attempt when the retried container fails for good. That cannot happen
+  for a parallel container in a flow with a handler: its failed
+  completion is always marked handled (`worker_flow.rs:1085-1091`), and
+  once the retries are spent the continue decision skips the handler for
+  a marked failure (`:1751-1758`), as [CF-16](#cf-16) point 8 says. The
+  sentence is corrected. For alignment: the retry base of a parallel loop
+  is the last child to complete, not the last to fail.
 
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container
 
-**Scope:** core (that the container fails; the message text); later (route-dependent error name and handler bypass) · **Confidence:** high (routing; the route 1 and route 3 forms, oracle-observed); high (the parent's recorded value on route 3, source-traced) · **Status:** confirmed; drafted (the parent's value on route 3)
+**Scope:** core (that the container fails; the message text); later (route-dependent error name and handler bypass) · **Confidence:** high (routing; the route 1 and route 3 forms; a `branchone` parent's value on route 3; all oracle-observed); high (a subflow parent's value on route 3, source-traced) · **Status:** confirmed; drafted (a subflow parent's value on route 3)
 
 - **Rule:** Errors raised while preparing a container's children are an
   iterator that is not an array or throws ([CF-2](#cf-2)), a `parallelism`
@@ -1812,6 +1924,26 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `conformance/flows/control-flow/cf-23`, runs `root_pickup` and
   `chaining`, oracle run 40852609901), and CF-23/c, which is CF-V3/a, by
   milestone N3c. CF-23/d to CF-23/f stay unrecorded.
+- **Revision 2026-10-30 (SC5, oracle batch E3f and milestone FU8):**
+  CF-23/d to CF-23/f are recorded as stated, by batch E3f (fixtures
+  `conformance/flows/control-flow/cf-23-branchone`, runs `d_alone`,
+  `d_tolerated` and `e_failure_module`, oracle run 40990751153, and
+  `cf-23-retry`, runs `f_retry_if` and `f_control`, oracle run
+  40994947681) and by milestone FU8 (fixture `cf-23`, runs `carry_alone`,
+  `carry_tolerated`, `carry_failure_module`, `carry_retry_if` and
+  `carry_retry_if_false`, oracle run 40987475130). The branch job stores
+  `{"error": {"name": "InternalError", "message": "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}`
+  and the `branchone` step's entry is a failure naming it; the flow fails
+  with the carried `1`; after a tolerated failure `previous_result` is
+  `1` while `results.b` reads the stored error; the failure module sees
+  `1` and the derived `UnknownError`; a `retry_if` true only for the
+  carried value re-ran the branch. The branch flow's own copy of the
+  handler does not run. FU8's runs `carry_in_loop` and
+  `carry_in_loop_skipped` show the same inside a loop: each iteration's
+  child flow ends with its branch's carried value, and the loop's array
+  holds those values (`[1]`, or `[1, 2]` when failures are skipped). For
+  alignment: on route 3 a `branchone` parent receives the aborted branch's
+  last carried value, never the stored `InternalError`.
 
 <a id="cf-24"></a>
 ### CF-24 · Child job paths and step ids
@@ -1862,7 +1994,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-25"></a>
 ### CF-25 · `squash`
 
-**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the six recorded CE outcomes, oracle-observed); low (what the CE image's runner does across iterations, [Q-CF-19](#q-cf-19)); low (EE semantics) · **Status:** confirmed; drafted (the conditions, the stub's error text, and the job kinds that request runners)
+**Scope:** EE (the CE image's runtime reuse: later) · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the CE image's outcomes, oracle-observed: six loops' results, and one runtime per body step reused across iterations, with `WM_JOB_ID` reading `NOT_AVAILABLE`); medium (the other reserved variables in a squashed runtime, read from the public start of a dedicated runtime); low (EE semantics) · **Status:** confirmed; drafted (the conditions, the stub's error text, the job kinds that request runners, and the reserved variables other than `WM_JOB_ID`)
 
 - **Rule:** `squash: true` on a sequential loop asks Windmill to run all
   iterations on one dedicated runner. The worker decides from public code
@@ -1895,13 +2027,35 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     Job counts and kinds cannot tell the paths apart either: the squash
     path queues the ordinary iteration job before it starts the runners,
     and a worker hands such a job to a runner without changing its kind.
-    Whether the CE image's runner reuses one runtime across iterations is
-    [Q-CF-19](#q-cf-19).
+    Whether the CE image's runner reuses one runtime across iterations was
+    [Q-CF-19](#q-cf-19); batch E3f recorded it (next bullet).
+  - **What the CE image's runner does** (batch E3f,
+    [CF-25/e](conformance.md#cf-25)). It runs each step of a squashed
+    loop's body in one runtime that serves every iteration, so
+    module-scope state carries over from one iteration to the next: a
+    one-step body whose counter starts at 0 reports 1, 2 and 3 over three
+    iterations, for a `forloopflow` and a `whileloopflow` alike, and a
+    two-step body running the same script twice keeps one runtime per step
+    (each step counts 1, 2, 3 on its own). Unsquashed, every call reports
+    1 from a process of its own. A worker hands each queued iteration job
+    to the runner of the job's step id, so each iteration is still a job
+    with its own stored arguments and result, but inside the runtime
+    `WM_JOB_ID` reads the literal `NOT_AVAILABLE` in every iteration. That
+    matches the public start of a dedicated runtime, which computes the
+    reserved variables once, when the runtime starts, with `NOT_AVAILABLE`
+    as the job id, `dedicated_worker` as the username,
+    `dedicated_worker@windmill.dev` as the email and empty flow, root and
+    step job ids (medium: the CE image's runner module is closed source,
+    and only `WM_JOB_ID` is recorded). A squashed Bash body, which the
+    runners do not serve, runs as usual. So `squash` changes behaviour on
+    the CE image: a body that keeps module-level state or reads its job id
+    sees the difference; a body that does neither gives the unsquashed
+    results ([CF-25/d](conformance.md#cf-25)).
 
   Empty loops start no runners, and parallel loops do not take the squash
-  start path, in every build. Whether squash changes data semantics in EE
-  (for example module state shared across iterations) is unknown
-  ([Q-CF-11](#q-cf-11)).
+  start path, in every build. On the CE image squash shares module state
+  across iterations (above); an EE build is not recorded
+  ([Q-CF-11](#q-cf-11), answered for the CE image).
 
   **When the runners are requested, exactly.** The attempt is made when the loop's first
   iteration is started: a `forloopflow` with `parallel` false whose
@@ -1962,8 +2116,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `:73-74`, `:146-150`, `:233-239`; `worker_flow.rs:2960-2977` (the start
   phase's error leaves the flow handler as a generic error),
   `backend/windmill-worker/src/worker.rs:3822-3840` (pickup conversion),
-  `worker_flow.rs:2103-2104` (chaining stores the display)
-- **Conformance:** [CF-25/a–CF-25/d](conformance.md#cf-25)
+  `worker_flow.rs:2103-2104` (chaining stores the display); the CE
+  image's runtime: `backend/windmill-worker/src/worker.rs:2879-2895` (a
+  queued job goes to the runner of its step id),
+  `backend/windmill-worker/src/bun_executor.rs:3735-3787` (the public
+  start of a dedicated runtime, compiled with `private`, computes the
+  reserved variables once with `NOT_AVAILABLE` as the job id),
+  `backend/windmill-common/src/variables.rs:281-293`, `:370-410`, `:447`
+  (absent ids become empty strings)
+- **Conformance:** [CF-25/a–CF-25/e](conformance.md#cf-25)
 - **Revision 2026-10-29 (SC3, source re-check, chain N3a):** milestone N3a
   refuses `squash` and asked whether CE has any route for it. It has none
   that runs squashed: CE fails the loop at its first iteration, or ignores
@@ -2037,6 +2198,22 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   (the tests' features), `:28-71`, `:299-341`, `:711-758`
   (the log line, a squashed Bun loop, the Bash fallback);
   `backend/tests/fixtures/dedicated_flows.sql:163-172`.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** batch E3f recorded
+  what the CE image's runner does (fixture
+  `conformance/flows/control-flow/cf-25-runtime`, oracle runs 41000318656
+  and 40994947681; new case CF-25/e): each body step of a squashed
+  sequential loop keeps one runtime across iterations, so module-scope
+  state carries over, and `WM_JOB_ID` reads `NOT_AVAILABLE` inside it; a
+  squashed Bash body ran as usual. The finding had called this unknown
+  ([Q-CF-19](#q-cf-19), answered for runtime reuse; [Q-CF-11](#q-cf-11),
+  answered for the CE image). CF-25/c is recorded as stated (fixture
+  `cf-25-squash`, runs `sleep` and `parallel`, oracle run 40990751153).
+  Not recorded: what the runners do with a child an iteration leaves
+  behind, and whether they log `dedicated worker bun:`, since the reading
+  step looked the iteration jobs up by the ids they reported, which are
+  not job ids. For alignment: running a squashed loop as an ordinary loop
+  gives Windmill's results only for bodies that keep no module-level
+  state and do not read their job id.
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details
@@ -2233,7 +2410,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-30"></a>
 ### CF-30 · The failure and preprocessor modules are slots, not list members
 
-**Scope:** core (failure module); later (preprocessor module) · **Confidence:** high (the lite version, virtual steps and `sleep`, source-traced); medium (container-valued slots: read, not traced end to end) · **Status:** drafted
+**Scope:** core (failure module); later (preprocessor module) · **Confidence:** high (the lite version and virtual steps, source-traced; the failure module's `sleep`, oracle-observed); high (a container preprocessor refused by the run API, oracle-observed; by the other routes, source-traced); medium (a container failure slot's bodies: read, not traced end to end) · **Status:** confirmed; drafted (points 1 and 2, and in point 4 the routes other than the run API and the failure slot)
 
 - **Rule:** a flow's `failure_module` and `preprocessor_module` are single
   modules kept beside the module list, and every transformation that works
@@ -2260,24 +2437,31 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      - the `sleep` of a step that fails into the failure module is not
        applied before the handler either (it is applied when the next
        list step starts, for example under `continue_on_error`).
-  4. **Container-valued slots.** If either module is a container, its
-     bodies are never stored as nodes. The runtime collapse check
-     ([CF-8](#cf-8)) still comes first, so:
-     - **a slot that is itself a loop** is judged like any loop of the job
-       executing it. A preprocessor that is a sequential forloop runs in
-       the root flow job (`Flow` for a by-path run), so with a simple body
-       (one inline script, no disqualifying field) and **no flow
-       `failure_module`** it collapses: each iteration is dispatched as a
-       script job directly, and since the body was not reduced, an inline
-       body script runs as a `preview` job, not a `flowscript` one. A while
-       loop slot with a simple body collapses the same way. A flow
-       `failure_module` disqualifies every body, so a failure module that
-       is itself a loop never collapses (the flow has one: itself);
-     - **bodies that do become child flows** (a non-simple body, a
-       branch's body, or any body when the flow has a failure module) are
-       raw flows and run as `FlowPreview` children, so a forloop nested in
-       one never collapses; a while loop nested in one still does when its
-       own body is simple and the flow has no failure module.
+  4. **Container-valued slots.**
+     - **The preprocessor slot takes only a script.** Every route that
+       applies a flow's preprocessor first reads the deployed version's
+       `preprocessor_module` to decide how to shape the start's
+       arguments: the API's run routes for a deployed flow (by path or by
+       version, asynchronous or run-and-wait) without
+       `skip_preprocessor=true`, webhooks, HTTP routes and the other
+       triggers. It accepts only an inline script (`rawscript`) or a
+       `script` by path there. Any other kind (a loop, a branch, a `flow`
+       step, an `identity`) fails the request with an internal error:
+       HTTP 500 and the body `Internal: Unsupported preprocessor module`
+       with a location suffix (recorded as ` @trigger_helpers.rs:343:36`),
+       before any job exists ([CF-30/b](conformance.md#cf-30)). Deployment
+       does not check it. With `skip_preprocessor=true` the job is pushed
+       with the slot removed and the flow runs without it; schedules and
+       `flow` steps never apply a preprocessor, and preview and raw flows
+       drop it ([FX-35](execution.md#fx-35)). So a container preprocessor
+       never runs on CE and none of its loops is ever dispatched
+       ([CF-30/c](conformance.md#cf-30)).
+     - **The failure slot.** A container there is never reduced to stored
+       nodes, and since the flow has a failure module (itself), no loop in
+       it collapses ([CF-8](#cf-8)), neither the slot loop itself nor a
+       loop nested in its bodies: every body runs as a `FlowPreview` child
+       flow and an inline script in it as a `preview` job. What the
+       container does at run time is [CF-31](#cf-31).
 - **Evidence:** `backend/windmill-worker/src/worker_lockfiles.rs:748-758`
   (the lite version reduces `modules` only), `:1594-1706` (the reduction
   walks module lists; virtual steps added at `:1706`), `:1553-1591` (a body
@@ -2295,12 +2479,25 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   before any child flow is built), `:5940-5958` (an inline script body
   becomes an inline-script payload); `backend/windmill-queue/src/jobs.rs:5477-5522`
   (inline-script jobs are `Preview`), `:5604-5667` (raw flows are
-  `FlowPreview`).
+  `FlowPreview`). The preprocessor slot's refusal:
+  `backend/windmill-trigger/src/trigger_helpers.rs:227-232`, `:284-354`
+  (the slot read from the deployed version; only `rawscript` and `script`
+  accepted, the internal error at `:342-346`), `:472-490` (triggers);
+  `backend/windmill-api/src/args.rs:296-312` (the API's run routes ask
+  for it unless `skip_preprocessor` is set),
+  `backend/windmill-api/src/jobs.rs:5284-5333`, `:4852-4867`;
+  `backend/windmill-api/src/triggers/http/handler.rs:473`;
+  `backend/windmill-api-jobs/src/execution.rs:742-748`,
+  `backend/windmill-common/src/lib.rs:1879` (a flow has a preprocessor
+  whenever the slot is set); `backend/windmill-queue/src/jobs.rs:5937-5947`
+  (the slot removed when it is not applied), `:5648-5651` (raw flows);
+  `backend/windmill-queue/src/schedule.rs:335-341`,
+  `worker_flow.rs:6034-6040` (schedules and `flow` steps never apply it).
 - **Conformance:** [CF-30/a to CF-30/c](conformance.md#cf-30)
 - **Note:** this answers questions from windmill-lite's IR compiler.
   [FX-23](execution.md#fx-23) and [JE-28](expressions.md#je-28) describe
   `sleep` on list modules. What a container in the failure slot does at run
-  time, beyond which of its loops collapse, is [CF-31](#cf-31).
+  time is [CF-31](#cf-31).
 - **Revision 2026-10-28 (validation round 1):** point 4 said that a
   container-valued slot's bodies always run as `FlowPreview` children, so
   that no forloop in a slot collapses. That confused the absence of a
@@ -2309,11 +2506,31 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   slot that is itself an eligible loop collapses. The rule now separates
   the slot loop from loops nested in its child flows, and
   [CF-30/c](conformance.md#cf-30) checks the direct case.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** batch E3f recorded
+  CF-30/a as stated (fixture `conformance/flows/control-flow/cf-1-30`, run
+  `cf30a`, oracle run 41000318656: the handler's throwing `sleep` caused no
+  error) and contradicted CF-30/b (run `cf30b`, oracle run 41003988171):
+  the run API refused a by-path run of a flow whose preprocessor is a
+  `branchone` with HTTP 500 and
+  `Internal: Unsupported preprocessor module @trigger_helpers.rs:343:36`,
+  and created no job, although the flow had deployed. Point 4 had
+  described which loops of a container preprocessor collapse, assuming
+  that it runs. The source explains the refusal (Evidence above): before
+  it shapes a start's arguments, every route that applies a preprocessor
+  reads the slot and accepts only `rawscript` or `script`; a run with
+  `skip_preprocessor=true` drops the slot, and schedules and `flow` steps
+  never apply it. Point 4 is rewritten, CF-30/b states the recorded
+  refusal and CF-30/c the same refusal. This also settles what
+  [CF-31](#cf-31) left untraced, how a container preprocessor completes:
+  it never starts. The status rises from `drafted` for the recorded
+  parts. For alignment: Windmill refuses every preprocessing start of a
+  flow whose preprocessor is not a script, with that HTTP 500; it has no
+  case where a container preprocessor runs.
 
 <a id="cf-31"></a>
 ### CF-31 · A container as the `failure_module`
 
-**Scope:** later · **Confidence:** high (the status bookkeeping and its effect on sequential loops, sequential `branchall` and `branchone`; source-traced); medium (empty bodies, a throwing `branchone` predicate, nesting through the copied handler, a retry on the slot: read, not traced end to end); low (how the parallel case finally ends, which depends on the server's monitor) · **Status:** drafted
+**Scope:** later · **Confidence:** high (a sequential loop, a one-item loop, a `branchone` and a parallel loop in the slot, oracle-observed; the status bookkeeping behind them and its effect on a sequential `branchall`, source-traced); high (an empty body's entry in the failed module's place, oracle-observed through the walker's refusal); medium (the rest of an empty body's route, a throwing `branchone` predicate, nesting through the copied handler, a retry on the slot: read, not traced end to end) · **Status:** confirmed; drafted (point 1's job kinds, point 2 for a sequential `branchall`, and points 3 to 7)
 
 - **Rule:** nothing refuses a container in the failure slot. The flow
   decoder checks only `retry` settings and workspace paths inside the
@@ -2373,7 +2590,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        fails the same way. The flow stays running until the server's monitor
        finds its last ping older than `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s
        by default) and cancels it, so it ends with a `Canceled` error whose
-       canceler is `monitor` (low: not traced end to end).
+       canceler is `monitor`, its message and reason starting
+       `Flow <id> (<url>) was cancelled because it was hanging in between 2 steps.`
+       (recorded, [CF-31/e](conformance.md#cf-31)).
   3. **A body that starts no child.** An empty iterator, a `branchall` with
      no branches, or a `branchone` whose chosen body is empty records a
      `Success` entry carrying the slot's id (normally `failure`) **in the
@@ -2419,9 +2638,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      ([CF-16](#cf-16) point 4, point 8); after point 3's route the child
      instead succeeds, and its container sees a successful child.
 
-  The preprocessor slot keeps its own status the same way; how a container
-  preprocessor completes is not traced here ([CF-30](#cf-30) point 4 covers
-  only which of its loops collapse).
+  A container never runs in the preprocessor slot: every route that
+  applies a preprocessor refuses it before any job exists ([CF-30](#cf-30)
+  point 4).
 - **Evidence:** the slot: `backend/windmill-types/src/flows.rs:222-262`
   (the decoder walks both slots as module trees, checking only `retry`
   settings and workspace paths), `:268-272`;
@@ -2466,6 +2685,25 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Revision 2026-10-29 (SC4, source re-check, milestone N3c):** new
   finding, answering N3c's open question 3. It extends [CF-30](#cf-30),
   which described only which loops in a container slot collapse.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** CF-31/a, CF-31/b,
+  CF-31/c and CF-31/e are recorded as stated (fixtures
+  `conformance/flows/control-flow/cf-31-slot`, runs `a_seq`, `a_recover`,
+  `b_one`, `b_true`, `c_matched` and `c_default`, oracle run
+  40994947681, and `cf-31-parallel`, run `e_parallel`, oracle run
+  41000318656, in the long session). A two-item loop in the slot ran only
+  its first child, and the flow ended with that child's `10`, or
+  recovered with `{"recover": true, "i": 1}`, while the slot's entry
+  stayed unfinished; a one-item loop gave `[10]`, or recovered on
+  `[true]`; a `branchone` chose on `error.message`; a parallel loop ran
+  both children and the monitor canceled the flow. CF-31/d's run was
+  refused by the oracle's walker, whose message shows the entry with the
+  slot's id `failure` in `a`'s place (oracle run 40994947681); the rest
+  of that case is not recorded. The status rises from `drafted` for the
+  recorded parts, and the preprocessor sentence is replaced: no container
+  ever runs in the preprocessor slot ([CF-30](#cf-30), revision of this
+  date). For alignment: Windmill accepts a container in the failure slot,
+  at deploy and at run time, and these recorded outcomes are its
+  behaviour.
 
 ## B. Findings added during validation
 
@@ -2740,6 +2978,14 @@ These are proposals made while studying the behaviour. They bind nothing.
   [CF-23/d](conformance.md#cf-23)). Milestone N3b's provisional reading,
   the stored `InternalError`, differs. A confirming recording of CF-23/d
   is requested for batch E3f ([docs/design/README.md](../design/README.md)).
+  **Answered 2026-10-30 (SC5).** Part (2)'s source answer is recorded:
+  batch E3f's [CF-23/d to CF-23/f](conformance.md#cf-23) (fixtures
+  `conformance/flows/control-flow/cf-23-branchone` and `cf-23-retry`,
+  oracle runs 40990751153 and 40994947681) and milestone FU8's `carry_*`
+  runs of `conformance/flows/control-flow/cf-23` (oracle run 40987475130)
+  gave the carried value to the `branchone` parent, its `retry_if`, its
+  failure module and the flow's result, while storage holds the
+  `InternalError` ([CF-23](#cf-23)). Status: closed.
 <a id="q-cf-4"></a>
 - **Q-CF-4** · affects [CF-14](#cf-14), [CF-15](#cf-15) · **Answered
   2026-10-28.** Both predictions hold on the oracle: an empty chosen
@@ -2781,11 +3027,21 @@ These are proposals made while studying the behaviour. They bind nothing.
   requested for batch E3f ([docs/design/README.md](../design/README.md)).
   As first asked: the `iter_parent` artefact on container retry, settled
   by an oracle run of CF-22/a.
+  *2026-10-30 (SC5):* rule 5 is recorded:
+  [CF-22/h](conformance.md#cf-22) (fixture
+  `conformance/flows/control-flow/cf-22-retried`, oracle runs 40990751153
+  and 40994947681) re-entered from the last child to complete, and its
+  variant corrected what the rule said of a parallel container that fails
+  for good in a flow with a handler ([CF-22](#cf-22)).
 <a id="q-cf-8"></a>
 - **Q-CF-8** · affects [CF-27](#cf-27) · Timeout enforcement outside the
   ordinary worker path (EE dedicated runners, `squash`, agent workers).
   *Settled by:* an EE oracle, only if windmill-lite ever needs those modes;
   out of scope otherwise.
+  *2026-10-30 (SC5):* the CE image does run a squashed loop's iterations
+  in reused runtimes ([Q-CF-19](#q-cf-19)), so `squash` is a CE route as
+  well; how its timeouts are enforced is not recorded. Still out of scope
+  unless windmill-lite runs squashed loops in a shared runtime.
 <a id="q-cf-9"></a>
 - **Q-CF-9** · affects [CF-28](#cf-28) · Kill latency and the final
   statuses of running children after a cancel are deliberately unspecified.
@@ -2799,6 +3055,13 @@ These are proposals made while studying the behaviour. They bind nothing.
   (shared module state across iterations?). *Settled by:* an EE oracle run
   comparing a squashed and an unsquashed loop whose body keeps module-level
   state.
+  **Answered 2026-10-30 (SC5) for the CE image.** The CE image compiles
+  the closed-source runner module, and batch E3f recorded it sharing
+  module state across iterations: each body step of a squashed loop keeps
+  one runtime for all iterations, and `WM_JOB_ID` reads `NOT_AVAILABLE`
+  inside it ([CF-25](#cf-25), [CF-25/e](conformance.md#cf-25)). An EE
+  build is not recorded and stays out of scope
+  ([CF-25/b](conformance.md#cf-25)). Status: closed.
 <a id="q-cf-12"></a>
 - **Q-CF-12** · affects [CF-19](#cf-19) · (design decision) A subflow can
   read its caller's `results.<id>`. The source behaviour is settled; whether
@@ -2896,6 +3159,16 @@ These are proposals made while studying the behaviour. They bind nothing.
   deployed half), CF-30/a and CF-30/b, and the source-derived cases this
   revision added (CF-7/f, CF-12/g, CF-16/e, CF-16/f, CF-17/j, CF-22/h,
   CF-31/a to CF-31/e). Still open.
+  **Re-scoped 2026-10-30 (SC5).** Batch E3f recorded every case still
+  listed except CF-31/d. CF-1/a's deployed half, CF-30/a, CF-7/f, CF-12/g,
+  CF-16/e, CF-16/f, CF-17/j, CF-22/h, CF-31/a to CF-31/c and CF-31/e hold
+  as the catalogue states them (CF-22/h's variant corrected the last
+  sentence of [CF-22](#cf-22) rule 5); CF-30/b was refused by the run
+  API, which corrected [CF-30](#cf-30) and CF-30/c. Each case names its
+  fixture and oracle run. CF-31/d's run was refused by the oracle's
+  walker, whose message confirms the entry in `a`'s place; its status and
+  result need the SC5 request in the
+  [design README](../design/README.md). Still open for CF-31/d.
 <a id="q-cf-18"></a>
 - **Q-CF-18** · affects [CF-7](#cf-7) · With one oracle worker, the
   recordings separate release from worker serialisation for the child
@@ -2932,6 +3205,16 @@ These are proposals made while studying the behaviour. They bind nothing.
   fixes the release order but not the start order among several released
   iterations, and two released iterations can run at once on two workers.
   Only a recording can show the observed pattern.
+  **Answered 2026-10-30 (SC5).** Batch E3f ran CF-7/a's and CF-7/b's
+  shape with `parallelism: 2` over four iterations on the two-worker
+  session (fixture `conformance/flows/control-flow/cf-7-release`, runs `a`
+  and `b`, oracle runs 41000318656 and 40994947681): the first two bodies
+  ran at once, and each completion released the next held iteration in
+  index order, which started within 6 s of that completion, whichever
+  child had completed ([CF-7](#cf-7), [CF-7/b](conformance.md#cf-7)).
+  Several iterations become eligible at once only when completions
+  outpace pickups; their start order stays unfixed by the source (above),
+  and no recorded result depends on it. Status: closed.
 
 <a id="q-cf-19"></a>
 - **Q-CF-19** · affects [CF-25](#cf-25) · open (oracle) · What does the
@@ -2993,3 +3276,19 @@ These are proposals made while studying the behaviour. They bind nothing.
   next to the same loop without `squash`, and record each iteration job's
   start and completion times (unsquashed, each iteration should complete
   only after its child, WR-55/a).
+  **Re-scoped 2026-10-30 (SC5).** Batch E3f recorded the request
+  (fixture `conformance/flows/control-flow/cf-25-runtime`, oracle runs
+  41000318656 and 40994947681). Runtime reuse is answered: the CE image
+  runs each body step of a squashed sequential loop, collapsed or not,
+  `forloopflow` or `whileloopflow`, in one runtime for every iteration
+  (counters 1, 2, 3; a two-step body counts per step), while the
+  unsquashed controls ran each call in a process of its own with the
+  counter at 1; a squashed Bash body ran as usual ([CF-25](#cf-25),
+  [CF-25/e](conformance.md#cf-25)). Inside that runtime `WM_JOB_ID` is
+  the literal `NOT_AVAILABLE`, so the reading step, which looked the
+  iteration jobs up by those ids, read no logs and no times: the process
+  ids, a `dedicated worker bun:` log line and the leftover-child timing
+  of [WR-55](languages.md#wr-55) are not recorded. *Settled by:* the SC5
+  request in the [design README](../design/README.md), which finds the
+  iteration jobs through the loop's status instead. Still open for those
+  three observations.
