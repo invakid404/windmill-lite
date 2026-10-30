@@ -8,7 +8,7 @@ scope: core
 cases:
   - spec: WR-45/a
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: what process.env holds (nativets)
     language: nativets
     env: {WM_TOKEN: wl-step-token}
@@ -19,7 +19,7 @@ cases:
         expect: {status: success, result: [string, a, true, "undefined", "undefined"]}
   - spec: WR-45/a
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: what process.env holds (bunnative)
     env: {WM_TOKEN: wl-step-token}
     script: |
@@ -61,7 +61,7 @@ cases:
         expect: {status: success, result: [wl_step, changed, wl_step]}
   - spec: WR-45/b
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: reserved names are bare identifiers in nativets
     language: nativets
     script: |
@@ -72,7 +72,7 @@ cases:
         expect: {status: success, result: string}
   - spec: WR-45/b
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: but not in bunnative
     script: |
       //native
@@ -82,7 +82,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: "undefined"}
   - spec: WR-45/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: redeclaring a preamble name fails the load (nativets)
     language: nativets
     script: |
@@ -133,7 +133,7 @@ cases:
           - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
   - spec: WR-45/d
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: installed globals (nativets)
     language: nativets
     script: |
@@ -143,7 +143,7 @@ cases:
         expect: {status: success, result: [function, function, function, function, object, function, function, function, object]}
   - spec: WR-45/d
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: installed globals (bunnative)
     script: |
       //native
@@ -172,7 +172,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: [number, 2, ping]}
   - spec: WR-45/e
-    provenance: source-derived
+    provenance: oracle-observed
     title: absent globals (nativets)
     language: nativets
     script: |
@@ -191,7 +191,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: ["undefined", "undefined", "undefined", "undefined", "undefined", "undefined", "undefined", object, object]}
   - spec: WR-45/f
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: //proxy is refused on CE
     language: nativets

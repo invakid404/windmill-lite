@@ -8,7 +8,7 @@ scope: core
 cases:
   - spec: WR-42/a
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: an undefined field is omitted (nativets)
     note: The catalogue's next-step transform, results.a.hasOwnProperty("a"), reads this stored value; it gives false.
     language: nativets
@@ -19,7 +19,7 @@ cases:
         expect: {status: success, result: {b: 1, c: [null]}}
   - spec: WR-42/a
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: an undefined field is omitted (bunnative)
     script: |
       //native
@@ -29,7 +29,7 @@ cases:
         expect: {status: success, result: {b: 1, c: [null]}}
   - spec: WR-42/b
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a top-level function becomes null (nativets)
     language: nativets
     script: |
@@ -39,7 +39,7 @@ cases:
         expect: {status: success, result: null}
   - spec: WR-42/b
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a top-level function becomes null (bunnative)
     script: |
       //native
@@ -63,7 +63,7 @@ cases:
         expect: {status: success, result: null}
   - spec: WR-42/c
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a BigInt fails the job with V8's TypeError (nativets)
     language: nativets
     script: |
@@ -73,7 +73,7 @@ cases:
         expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError}}}
   - spec: WR-42/c
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a BigInt fails the job with V8's TypeError (bunnative)
     script: |
       //native
@@ -83,7 +83,7 @@ cases:
         expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError}}}
   - spec: WR-42/d
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: toJSON is honoured, non-finite numbers are null, a Map is {} (nativets)
     language: nativets
     script: |
@@ -93,7 +93,7 @@ cases:
         expect: {status: success, result: {d: "2024-01-02T00:00:00.000Z", x: null, m: {}}}
   - spec: WR-42/d
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: toJSON is honoured, non-finite numbers are null, a Map is {} (bunnative)
     script: |
       //native

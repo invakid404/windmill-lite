@@ -17,7 +17,7 @@ cases:
         database: unsupported Unicode escape sequence
     rest_in: N1b, which fails the step with InternalErr after the insert retries
   - spec: FX-48/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: a NUL generated in args at root pickup
     note: The given text is what JSON.stringify writes for String.fromCharCode(0).
     given: '"\u0000"'

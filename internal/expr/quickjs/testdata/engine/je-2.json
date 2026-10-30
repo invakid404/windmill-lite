@@ -16,6 +16,22 @@
       }
     },
     {
+      "spec": "JE-2/b",
+      "provenance": "oracle-observed",
+      "deviation": "D8",
+      "title": "a job chain that never ends at a first module's transform is interrupted at the attempt limit",
+      "note": "The catalogue's outcome is flow-level: the zombie-flow monitor cancels the root flow hanging in its first transition and does not restart it, an outcome of the engine (internal/engine), not of an evaluation; recorded by batch E3f (conformance/flows/je/je-51-chain, run chain, oracle run 41000318656). At this level the evaluation never ends (JE-51 drains the job queue), so the attempt limit interrupts it between jobs, as for JE-2/a.",
+      "given": {
+        "expr": "(queueMicrotask(function f() { queueMicrotask(f) }), 1)",
+        "limits": {
+          "attempt_ms": 200
+        }
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
       "spec": "JE-2",
       "variant": "never-settling-promise",
       "provenance": "source-derived",

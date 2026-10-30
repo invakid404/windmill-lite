@@ -189,10 +189,10 @@ each with mimalloc and with its own `malloc`).
   with the catalogue's provenance. Cases that show a deviation (D8, D17)
   name it.
 - `testdata/globals.json` pins the names the full context defines. JE-1
-  lists what Windmill's context lacks and has. Whether it also has
+  lists what Windmill's context lacks and has, among them
   `queueMicrotask`, `performance` and `DOMException`, which QuickJS-ng's
-  full context adds, is open
-  ([Q-JE-2](../../../docs/semantics/expressions.md#q-je-2)).
+  full context adds; batch E3f recorded those on the oracle
+  ([Q-JE-2](../../../docs/semantics/expressions.md#q-je-2), answered).
 - The Go tests cover the binding, the preludes, the C library's name, host
   functions (concurrency and its bound, rejection, settling after queued
   jobs, the attempt's end, program code that calls the host while a call

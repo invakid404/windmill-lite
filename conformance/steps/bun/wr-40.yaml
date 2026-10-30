@@ -7,7 +7,7 @@ scope: core
 cases:
   - spec: WR-40/a
     variant: header
-    provenance: source-derived
+    provenance: oracle-observed
     title: language bun with a first line //native runs in the native runtime
     script: |
       //native
@@ -17,7 +17,7 @@ cases:
         expect: {status: success, result: "undefined"}
   - spec: WR-40/a
     variant: no-header
-    provenance: source-derived
+    provenance: oracle-observed
     title: language bunnative without the header runs as an ordinary Bun step
     language: bunnative
     script: |
@@ -26,7 +26,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: "object"}
   - spec: WR-40/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: nativets imports the embedded client as ./windmill.ts
     language: nativets
     script: |
@@ -56,7 +56,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: ["1.326.0", true, wl-step-token]}
   - spec: WR-40/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: a static import of a missing host file fails the load
     language: nativets
     script: |
@@ -72,7 +72,7 @@ cases:
           - {at: /result/error/stack, absent: true}
   - spec: WR-40/d
     variant: absolute
-    provenance: source-derived
+    provenance: oracle-observed
     title: the client imported as /windmill.ts
     language: nativets
     script: |
@@ -83,7 +83,7 @@ cases:
         expect: {status: success, result: "function"}
   - spec: WR-40/d
     variant: file-url
-    provenance: source-derived
+    provenance: oracle-observed
     title: the client imported as file:///windmill.ts
     language: nativets
     script: |
@@ -93,7 +93,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: "function"}
   - spec: WR-40/e
-    provenance: source-derived
+    provenance: oracle-observed
     title: a failed dynamic import is an ordinary rejection that main can catch
     language: nativets
     script: |
@@ -105,7 +105,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: [true, true]}
   - spec: WR-40/f
-    provenance: source-derived
+    provenance: oracle-observed
     title: an uncaught failed dynamic import gives the exception shape, not a load failure
     note: >-
       The reference's revision SC4 gives the error's name, TypeError, and

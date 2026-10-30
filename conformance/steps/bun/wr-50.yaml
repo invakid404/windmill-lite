@@ -43,7 +43,7 @@ cases:
             - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
             - {at: /result/error/exit_code, equals: 1}
   - spec: WR-50/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: //native takes an ESM codebase script into the native runtime
     note: >-
       The catalogue's probe: on Bun ["object","string"], on Node

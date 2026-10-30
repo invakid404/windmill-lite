@@ -61,7 +61,11 @@ deferred:
     reason: >-
       later: JavaScriptCore keeps a thrown error's frames only in its stack
       text, so a stack replaced by a non-string leaves no source line; the
-      step case WR-43/replaced-stack pins windmill-lite's null
+      step case WR-43/replaced-stack pins windmill-lite's null. The
+      semantics revision SC5 corrected the case to that null on Windmill
+      too, from batch E3f's recording (conformance/flows/languages/wr-43,
+      runs wr43_i_bunnative and wr43_i_nativets, oracle run 40990751153);
+      ADR 0001 D5 still lists it as a difference
     expected_in: ADR 0001 D5 (a difference of the native boundary mode)
   - spec: WR-44/c
     reason: >-
@@ -120,6 +124,31 @@ deferred:
       Batch E3f has since recorded it on the oracle:
       conformance/flows/languages/native-codebase, run cjs_native.
     expected_in: C3n (wr-50.yaml, variant native-commonjs) and ADR 0001 D5 (the message)
+  - spec: WR-50/g
+    reason: >-
+      later: an ESM codebase entry whose banner makes require with
+      createRequire loads under //native, and typeof require is
+      "function": esbuild's __require helper replaced the script's bare
+      require in the bundle, so it does not show that node:module loaded
+      (WR-50/h). The semantics reference added the case in its revision
+      SC5 (2026-10-30) from batch E3f's recording at the flow level
+      (conformance/flows/languages/native-codebase, run esmreq_native,
+      native session, oracle run 40990751153), which wltest check also
+      runs on windmill-lite (cmd/wltest/testdata/flowsuite.json); no step
+      case encodes it
+    expected_in: E3f (conformance/flows/languages/native-codebase, run esmreq_native, in the flow suite)
+  - spec: WR-50/h
+    reason: >-
+      later: in the WR-50/g bundle a call through require fails with
+      esbuild's helper's Error `Dynamic require of "node:path" is not
+      supported`, since the banner's import("node:module") rejects in the
+      native loader and leaves require undefined. Source-derived in the
+      semantics reference's revision SC5 (2026-10-30), and no recording
+      holds it yet; docs/design/README.md requests it from the next run of
+      batch E3f (section "Recording requests for a future batch E3f
+      (SC5)"), in a session whose worker serves the nativets tag; no step
+      case encodes it yet
+    expected_in: C3n (the native boundary mode, with wr-50.yaml)
   - spec: WA-2/b
     reason: later; an ordinary Python job's base URL, which needs the Python harness
     expected_in: L1

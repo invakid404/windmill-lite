@@ -9,7 +9,7 @@ scope: core
 cases:
   - spec: WR-41/a
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a Date parameter is not hydrated (nativets)
     language: nativets
     script: |
@@ -19,7 +19,7 @@ cases:
         expect: {status: success, result: "string"}
   - spec: WR-41/a
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a Date parameter is not hydrated (bunnative)
     script: |
       //native
@@ -29,7 +29,7 @@ cases:
         expect: {status: success, result: "string"}
   - spec: WR-41/b
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a missing argument takes its default, null stays null, extra keys are ignored (nativets)
     language: nativets
     script: |
@@ -39,7 +39,7 @@ cases:
         expect: {status: success, result: [3, null]}
   - spec: WR-41/b
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a missing argument takes its default, null stays null, extra keys are ignored (bunnative)
     script: |
       //native
@@ -49,7 +49,7 @@ cases:
         expect: {status: success, result: [3, null]}
   - spec: WR-41/c
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: every job gets a fresh isolate, even in a warm process (nativets)
     language: nativets
     script: |
@@ -62,7 +62,7 @@ cases:
         expect: {status: success, result: [1, 1]}
   - spec: WR-41/c
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: every job gets a fresh isolate, even in a warm process (bunnative)
     script: |
       //native
@@ -74,7 +74,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: [1, 1]}
   - spec: WR-41/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: nativets ignores the preprocessor entrypoint and runs main on the flow input
     note: >-
       The step half of the case: the flow's preprocessor step is invoked
