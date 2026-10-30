@@ -58,7 +58,7 @@
     {
       "case": "CF-7/f",
       "milestone": "N3c",
-      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (a container's own settings on handled failures and forwarded stops, item 4). A parallel loop that fails under its continue_on_error aborts the flow with an InternalError whose message starts `Bad request: Unrecognized module status for ForloopFlow Failure {`, alone too, and with a failure module, whose copy each iteration runs while the flow's own does not. continue_on_error is N1b's, and N3c runs a failure module in loop bodies"
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (a container's own settings on handled failures and forwarded stops, item 4). A parallel loop with skip_failures: false that fails under its continue_on_error (deployed, run by path; an omitted flag would be stored as true, CF-6, and the loop would succeed) aborts the flow with an InternalError whose message starts `Bad request: Unrecognized module status for ForloopFlow Failure {`, alone too, and with a failure module, whose copy each iteration runs while the flow's own does not. continue_on_error is N1b's, and N3c runs a failure module in loop bodies"
     },
     {
       "case": "CF-8/d",
@@ -88,7 +88,7 @@
     {
       "case": "FX-40/h",
       "milestone": "N4",
-      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A parallel loop at the last module stores by its own outcome: with a failing iteration both calls fail and run their iterations, and with skip_failures the second call is a hit. N4 implements the result cache"
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A parallel loop at the last module stores by its own outcome: with skip_failures: false and a failing iteration both calls fail and run their iterations; with skip_failures: true, or the flag left out on a deployed flow, which deployment stores as true (CF-6), the second call is a hit. N4 implements the result cache"
     },
     {
       "case": "FX-40/i",
