@@ -664,6 +664,25 @@ waits on an external gate except R1.
   retired-entry recycle trigger, are not `host_call` matters and go to
   F3b.
 
+- F3b is the host-mode integration gate. The flow suite runs in host mode
+  through `wltest check --mode host`: each fixture's runs go to a Bun host
+  that embeds the SDK and runs their steps in its own process, over the
+  host-mode transport. The checker keeps the engine (`wl.Options.Host`) in
+  its own process, so that it reads each run's trace and gives it the
+  hooks it gives warm and fresh runs; the SDK's spawned engine is the
+  checker's binary, which hands the host's sockets over and waits, and the
+  watchdog is off there. The watchdog, `watchdog/finite-cpu`,
+  never-settling-step and resource-release tests, and the H11 policy case,
+  run the real topology, a compiled host spawning `windmill-lite host`,
+  under a supervisor that only restarts it on exit. F3b also closed F3a's
+  two follow-ups: the SDK–engine version pairing
+  ([0009](0009-host-adapters.md)) and the `retired` recycle trigger, which
+  counts through the host's pooled-connection layer since windmill-lite
+  has none yet. F2c's two open questions are not the gate's: an abort
+  signal for plugin hooks needs a `host_call` cancel frame, and a seed in
+  the host's run frame matters to replay, neither of which the gate's
+  cases use, so both stay follow-ups.
+
 - F3h came from an embedder building its real folder. A host contract can
   list a file of a codebase entry's `relative_path` outside the sync root,
   which esbuild builds as `outside/<n>/...` ([0010](0010-packaging.md)).

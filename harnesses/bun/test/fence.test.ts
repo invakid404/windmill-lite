@@ -5,7 +5,7 @@
 // run them in the real harness; these pin the rules in one process.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -223,7 +223,8 @@ test("in a warm process a child leads a process group of its own, counted while 
   // spec: WR-55
   const cp = require("node:child_process");
   setChildGroups(true);
-  const stay = join(mkdtempSync(join(tmpdir(), "wl-fence-")), "stay.mjs");
+  const tmp = mkdtempSync(join(tmpdir(), "wl-fence-"));
+  const stay = join(tmp, "stay.mjs");
   writeFileSync(stay, "setInterval(() => {}, 1000);\n");
   const c = context();
   try {
@@ -249,6 +250,7 @@ test("in a warm process a child leads a process group of its own, counted while 
     for (const pid of pids) process.kill(-pid, "SIGKILL");
   } finally {
     c.resources.settle();
+    rmSync(tmp, { recursive: true, force: true });
   }
 });
 

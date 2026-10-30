@@ -48,7 +48,7 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
-| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
+| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json`, `protocol/host/versions.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
 | plugins | `plugins/hooks.yaml` | in use (milestone F2c); run by `go test ./wl` (a TypeScript plugin in `warm` processes, and Go callbacks) and `go test ./cmd/windmill-lite` (the host SDK's plugin in host mode), on the pinned Bun |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | hooks | `hooks/<topic>.yaml` | in use (milestone F2b): `hooks/latch-precedence.yaml`, the latch-precedence cases of [ADR 0008](../docs/design/0008-host-hooks.md): the latch (H5), cancellation and deadlines (H4), fatal error names (H7), halts (H8) and the clock (H10) against retry, `continue_on_error`, `skip_failures` and the failure module, each case a synthetic flow of identity modules, the host's signals and what the run must show; windmill-lite's rules (provenance `policy`), never recorded; run by `go test ./wl` (`TestHookCases`) through the public hooks |
@@ -569,6 +569,15 @@ a stack. `left-behind` and `platform-left-behind` expect the `left_behind`
 warning ahead of the result; `welcome-fresh`, `fresh-one-invocation` and
 `fresh-exit` run a harness in `fresh` mode, which serves one invocation and
 exits with it.
+
+**`host/versions.json`** (milestone F3b) holds the cases of the SDK–engine
+version pairing ([ADR 0009](../docs/design/0009-host-adapters.md)): a host
+SDK's version, its hello's harness version, against an engine's, and
+whether they pair (an unstamped `dev` or `(devel)` pairs with anything; two
+stamped releases pair when equal). Both sides run them: the engine's
+`harness.VersionsPair`, which refuses a host with `version_mismatch` in the
+handshake (`go test ./internal/harness`), and the SDK's `versionsPair`,
+which refuses such an engine's welcome (`bun test`).
 
 **`host/workdir.json`** (milestone F3a) holds host mode's working-directory
 cases ([ADR 0004](../docs/design/0004-harness-protocol.md), the

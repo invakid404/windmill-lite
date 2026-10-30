@@ -10,7 +10,9 @@
 // Environment: WL_ENGINE (the engine binary), WL_BUNDLE, WL_HOST_SOCKET,
 // WL_KILL_AFTER_MS (the watchdog's threshold), WL_WORKDIR (the working
 // directory it passes; its own by default), WL_RECYCLE_MODULES (the
-// modules recycle trigger, unset by default), WL_PLUGIN_CASES (a JSON file
+// modules recycle trigger, unset by default), WL_RECYCLE_RETIRED (the
+// retired-entry trigger's maximum, whose count /retire raises; unset by
+// default), WL_PLUGIN_CASES (a JSON file
 // of plugin cases, whose case plugin the host connects with, milestone
 // F2c), WL_PLUGIN_REPORT (the file that plugin's onRunSettled reports to)
 // and WL_ENGINE_FLAGS (flags for the engine, space-separated).
@@ -18,11 +20,15 @@
 import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
 import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
+import * as pool from "../hostfolder/f/host/pool.ts";
 import * as scopes from "../hostfolder/f/host/scopes.ts";
 import * as outside from "../hostlib/tenant.ts";
 
 const env = process.env;
 let recycled: string | null = null;
+// The entries a pooled-connection layer would have retired and not
+// released, which /retire counts up (the retired recycle trigger).
+let retired = 0;
 // The case plugin, whose onRunEnd also reports the tenant scope it runs in
 // (H11: a plugin call re-enters the run's scope).
 let plugin: Plugin | undefined;
@@ -40,9 +46,15 @@ try {
     engine: env.WL_ENGINE!,
     bundle: env.WL_BUNDLE!,
     workdir: env.WL_WORKDIR ?? process.cwd(),
-    hostModules: { "f/host/scopes.ts": scopes, "../hostlib/tenant.ts": outside },
+    hostModules: { "f/host/scopes.ts": scopes, "f/host/pool.ts": pool, "../hostlib/tenant.ts": outside },
     watchdog: { killAfter: Number(env.WL_KILL_AFTER_MS ?? "30000") },
-    recycle: env.WL_RECYCLE_MODULES ? { modules: Number(env.WL_RECYCLE_MODULES) } : undefined,
+    recycle:
+      env.WL_RECYCLE_MODULES || env.WL_RECYCLE_RETIRED
+        ? {
+            modules: env.WL_RECYCLE_MODULES ? Number(env.WL_RECYCLE_MODULES) : undefined,
+            retired: env.WL_RECYCLE_RETIRED ? { max: Number(env.WL_RECYCLE_RETIRED), count: () => retired } : undefined,
+          }
+        : undefined,
     onRecycle: (reason) => (recycled = reason),
     plugin,
     engineFlags: env.WL_ENGINE_FLAGS ? env.WL_ENGINE_FLAGS.split(" ") : undefined,
@@ -102,6 +114,29 @@ Bun.serve({
         await Promise.race([settled, Bun.sleep(Number(url.searchParams.get("wait") ?? "10000"))]);
         return Response.json({ ...r, doneAt, settledAt, settledTenant });
       }
+      case "/lease": {
+        // The resource-release test (ADR 0004 host mode item 5): the run's
+        // leases of the host's pool are released at its onSettled, in its
+        // scope, and never earlier; the response has the lease as the
+        // step left it, with when the outcome came and when it settled.
+        const b = await req.json();
+        const start = performance.now();
+        let settledAt = -1;
+        let released = 0;
+        let markSettled = () => {};
+        const settled = new Promise<void>((resolve) => (markSettled = resolve));
+        const r = await submit(b, () => {
+          released = pool.release(scopes.store.getStore()?.tenant ?? "");
+          settledAt = performance.now() - start;
+          markSettled();
+        });
+        const doneAt = performance.now() - start;
+        await Promise.race([settled, Bun.sleep(10000)]);
+        const leases = pool.leases
+          .filter((l) => l.tenant === b.tenant)
+          .map((l) => ({ ...l, lastUse: l.lastUse - start, releasedAt: l.releasedAt < 0 ? -1 : l.releasedAt - start }));
+        return Response.json({ ...r, doneAt, settledAt, released, leases });
+      }
       case "/drainorder": {
         // Submits a run, drains while it is in flight, and reports in which
         // order the run's caller and the drain finished, with the length of
@@ -125,6 +160,9 @@ Bun.serve({
       }
       case "/health":
         return Response.json({ ...host.health(), recycled });
+      case "/retire":
+        retired++;
+        return Response.json({ retired });
       case "/pid":
         return Response.json({ host: process.pid, engine: host.enginePid });
       case "/bench": {

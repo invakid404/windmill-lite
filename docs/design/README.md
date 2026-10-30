@@ -128,6 +128,12 @@ host-mode run carries F2b's budgets and latches in its `run` frame; and
 step code reaches its run's latch and signal through `wl.latch` and
 `wl.signal`. The plugins level of [0003](0003-semantics-placement.md)
 runs its cases three ways with one outcome.
+Milestone F3b gates host mode: the flow suite runs in host mode, on a Bun
+host that embeds the SDK, beside warm and fresh; the never-settling-step,
+watchdog, `watchdog/finite-cpu` and resource-release tests of
+[0004](0004-harness-protocol.md) and the H11 policy case run on a compiled
+host under a supervisor that only restarts it on exit; and a host's SDK
+pairs with its engine's release ([0009](0009-host-adapters.md)).
 Milestone N5, added to [0012](0012-layout-and-milestones.md) after the
 first plan, retries a flow step that runs a flow by path: the oracle
 recorded where a failed attempt's subflow sits, below the step's `r:<k>`,

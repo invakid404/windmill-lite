@@ -66,14 +66,16 @@ import {
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
 import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, type StepOutcome } from "./plugin.ts";
+import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 export { TAIL_LENGTH } from "./context.ts";
 
 /** The protocol version this harness speaks. */
 export const PROTOCOL_VERSION = 1;
-/** The harness's own version; packaging (milestone F4) stamps it. */
-export const HARNESS_VERSION = "0.0.0-c1";
+/** The harness's version: the release it belongs to, which a host's SDK
+ * must share with its engine (version.ts). */
+export { HARNESS_VERSION } from "./version.ts";
 /** The code of a warning frame for a process-level error that no
  * invocation's context raised (ADR 0004, the shared-process failure model,
  * item 3). */
@@ -425,6 +427,15 @@ export class Runtime {
     if (m.reject) {
       this.diag(`windmill-lite harness: rejected: ${m.reject.code}: ${m.reject.message}`);
       this.opts.onReject?.(m.reject.code, m.reject.message);
+      this.stop(EXIT.rejected);
+      return;
+    }
+    if (this.opts.host && !versionsPair(HARNESS_VERSION, m.engine)) {
+      // A host takes the SDK of its engine's release (ADR 0009); an engine
+      // of another release that does not check is refused here.
+      const message = `the host's SDK is version ${HARNESS_VERSION}, the engine ${m.engine}; a host takes the SDK of its engine's release`;
+      this.diag(`windmill-lite harness: rejected: version_mismatch: ${message}`);
+      this.opts.onReject?.("version_mismatch", message);
       this.stop(EXIT.rejected);
       return;
     }

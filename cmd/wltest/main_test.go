@@ -22,7 +22,8 @@ func TestUsage(t *testing.T) {
 		{[]string{"check", "main.go"}, 2, "is neither a step file"},
 		{[]string{"check", "../../conformance/exprs/deferred.yaml"}, 2, "is neither a step file"},
 		{[]string{"check"}, 2, "usage: wltest check"},
-		{[]string{"check", "--mode", "host", "x"}, 2, `mode "host" is not warm or fresh (host mode is milestone F3b)`},
+		{[]string{"check", "--mode", "hosted", "x"}, 2, `mode "hosted" is not warm, fresh or host`},
+		{[]string{"check", "--mode", "host", "../../conformance/steps/bun/wa-2.yaml"}, 2, "host mode runs flow fixtures and expression files; step files run in warm or fresh mode"},
 		{[]string{"diff", "x"}, 2, "wltest diff is not implemented yet"},
 		{[]string{"stub", "x"}, 2, "usage: wltest record"},
 		{[]string{"stub", "--out", t.TempDir() + "/o"}, 2, "usage: wltest record"},
@@ -130,4 +131,11 @@ func TestStub(t *testing.T) {
 	if code := run(context.Background(), []string{"stub", "--out", filepath.Join(t.TempDir(), "o"), tree}, &stdout, &stderr); code != 1 || !strings.HasPrefix(stdout.String(), `{"error":"stub_unsupported","file":"f/x/a.py"`) {
 		t.Fatalf("exit %d, stdout %q", code, stdout.String())
 	}
+}
+
+// TestMain lets the test binary be the engine a flow-suite host spawns in
+// host mode (engineProxy), as the wltest binary is.
+func TestMain(m *testing.M) {
+	proxyMain()
+	os.Exit(m.Run())
 }

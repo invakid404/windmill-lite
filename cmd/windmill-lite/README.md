@@ -181,11 +181,15 @@ trace summary, a failing one exits 1 with its error, and a run without the
 harness runtime the bundle was built for does not start.
 
 `host_test.go` runs host mode end to end: the host-mode half of W1's exit
-gate, the host-mode gate of milestone C2b, F3a's exit gate and F3h's
-host-mode case.
+gate, the host-mode gate of milestone C2b, F3a's exit gate, F3h's
+host-mode case, and F3b's host-mode cases (the never-settling-step,
+watchdog, `watchdog/finite-cpu` and resource-release tests and the H11
+policy case, on a compiled host under a supervisor that only restarts it
+on exit; the flow-suite half of F3b's gate is `cmd/wltest`'s).
 `testdata/hostfolder/` is a synthetic sync folder with its host contract
 (`contract.yaml`), which the test builds once with `bundle.Build`, and
-whose host-provided modules are `f/host/scopes.ts` and
+whose host-provided modules are `f/host/scopes.ts`, `f/host/pool.ts` (a
+pool of leases the host releases at a run's `onSettled`, F3b) and
 `../hostlib/tenant.ts`: `testdata/hostlib/` lies outside the sync root,
 as the `relative_path` of a codebases entry whose script
 `f/hostout/read.ts` imports the module from there.
@@ -211,11 +215,15 @@ that only restarts the host when it exits runs it. The tests:
 | `TestHostScriptRun` | a root script runs as a script job; a run of no target is refused |
 | `TestHostFacade` | a step reads a variable of the bundle through the job API at the `BASE_URL` its invocation carries |
 | `TestHostRecycleModules` | the modules recycle trigger trips once a second module loads, in `health()` and `onRecycle` |
+| `TestHostRecycleRetired` | F3b: the retired-entry recycle trigger trips once the host's count of pooled entries retired and not released passes its maximum, in `health()` and `onRecycle`; the host lives on |
 | `TestHostPluginCases` | F2c's gate in host mode: the cases of `conformance/plugins/hooks.yaml` on a bundle built from them, answered by the host's TypeScript plugin (the case plugin, from `WL_PLUGIN_CASES`) over `host_call`, each with its run's budgets and latches in the run frame (`caseRunBody`) and its expected status, `may_have_mutated`, result, latched error, log, warnings and deviations; every hook in the run's own tenant scope (H11); from the plugin's report file (`WL_PLUGIN_REPORT`), every case's run settling and none while one of its hooks still ran in the host; and a step that waits for `wl.signal()` alone settling once the run frame's deadline has aborted it |
 | `TestHostSurvivesADetachedRejection` | one detached rejection does not end the host; it is counted in health |
 | `TestHostNeverSettlingStep` | ADR 0004's never-settling-step test: after one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation; the host is never restarted |
 | `TestHostChildUnderBackpressure` | a step backs up the host's socket, starts a child and blocks the event loop; its timeout still kills the child, announced on the child channel (WR-55) |
 | `TestHostWatchdog` | ADR 0004's watchdog test: a step that spins forever, with a second run active; the engine kills the host within `killAfter` plus one second, naming both runs, the second run's caller sees the exit, and a run on the restarted host succeeds |
+| `TestHostWatchdogFiniteCPU` | F3b: case `watchdog/finite-cpu` in host mode: a step computes synchronously for 2 s with `killAfter` 1 s and a step timeout of 10 s; the engine kills the host after about 1 s, a second run's caller sees the exit, and a run on the restarted host succeeds; with the watchdog off the step completes on the first generation |
+| `TestHostResourceRelease` | F3b: ADR 0004's resource-release test: a step holds a lease of the host's pool (the host-provided module `f/host/pool.ts`) and uses it after its timeout abandons it; the host releases the run's leases at its `onSettled`, which comes only after the step's last use |
+| `TestHostVersionPairing` | F3b: the SDK–engine version pairing (ADR 0009): a host whose SDK is stamped with another release (`bun run --define WL_RELEASE`) is refused with `version_mismatch` by the engine (stamped as `-X main.version` would, `WL_TEST_ENGINE_VERSION`), the SDK refuses a welcome from an engine of another release that does not check (`fakeEngine`), and the engine's own release is welcomed and runs |
 | `TestHostStaticIntercept` | H1's static form through the run frame |
 | `TestHostStepLatency` | reports the per-step latency of host mode |
 

@@ -53,7 +53,7 @@ import (
 func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	mode := fs.String("mode", conformance.ModeWarm, "configuration: warm or fresh (host mode is milestone F3b)")
+	mode := fs.String("mode", conformance.ModeWarm, "configuration: warm, fresh, or host (flow fixtures only, on a Bun host that embeds the host SDK)")
 	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun executable: the pin, "+harness.PinnedBun)
 	node := fs.String("node", os.Getenv("WL_NODE"), "the Node executable that runs CommonJS codebase bundles as Windmill does (D13); empty skips that side")
 	repo := fs.String("repo", "", "the repository root, which holds harnesses/bun (default: found from the working directory)")
@@ -65,8 +65,8 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: wltest check [flags] <step file, fixture, expression file or directory>...")
 		return 2
 	}
-	if *mode != conformance.ModeWarm && *mode != conformance.ModeFresh {
-		fmt.Fprintf(stderr, "wltest check: mode %q is not warm or fresh (host mode is milestone F3b)\n", *mode)
+	if *mode != conformance.ModeWarm && *mode != conformance.ModeFresh && *mode != ModeHost {
+		fmt.Fprintf(stderr, "wltest check: mode %q is not warm, fresh or host\n", *mode)
 		return 2
 	}
 	for _, a := range fs.Args() {
@@ -91,6 +91,11 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	dirs = append(dirs, exprs...)
+	if *mode == ModeHost && len(files) > 0 {
+		// A step case runs on a spawned harness; a host's steps are a flow's.
+		fmt.Fprintln(stderr, "wltest check: host mode runs flow fixtures and expression files; step files run in warm or fresh mode")
+		return 2
+	}
 	if len(files)+len(dirs) == 0 {
 		fmt.Fprintln(stderr, "wltest check: no step files, flow fixtures or expression files found")
 		return 2

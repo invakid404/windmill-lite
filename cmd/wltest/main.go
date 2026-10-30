@@ -39,6 +39,8 @@ import (
 var version = ""
 
 func main() {
+	// A flow-suite host spawns wltest as its engine (host mode, F3b).
+	proxyMain()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
@@ -56,7 +58,8 @@ replay stub (ADR 0011).
 check runs step-case files (conformance/steps) on windmill-lite's Bun
 harness, in warm mode or with --mode fresh in one process per run, and
 compares each step's stored value with the case's, and runs flow fixtures
-(conformance/flows) on windmill-lite, in warm mode, and compares each
+(conformance/flows) on windmill-lite, in warm mode, with --mode fresh, or
+with --mode host on a Bun host that embeds the host SDK, and compares each
 run's observation with its expect or recording. Run wltest check -h for
 its flags. diff is not implemented yet.
 `
