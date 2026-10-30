@@ -12,7 +12,7 @@
 # (JE-20). Synthetic, written for this repository from
 # docs/semantics/client-api.md and docs/semantics/conformance.md.
 id: client-api/user-state
-spec: [WA-14/a, WA-V1, JE-20, OR-14]
+spec: [WA-14/a, WA-14/e, WA-V1, JE-20, OR-14]
 scope: core
 provenance: oracle-observed
 languages: [bun]

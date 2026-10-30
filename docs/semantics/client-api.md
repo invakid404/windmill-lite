@@ -162,7 +162,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-2"></a>
 ### WA-2 · Which base-URL variables a job sees
 
-**Scope:** core (Bun); later (Python) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (Bun); later (Python) · **Confidence:** high; oracle-observed (the Bun half, [WA-2/a](conformance.md#wa-2)) · **Status:** confirmed
 
 - **Rule:**
   - **Bun (non-native).** The worker clears the environment, then sets, in
@@ -193,6 +193,9 @@ interface); `WA-Vn` findings were added during validation.
 - **Design note (not Windmill behaviour):** set both `BASE_URL` and
   `BASE_INTERNAL_URL` to the facade origin for every language; that covers every
   Windmill branch, and both clients resolve to it.
+- **Revision 2026-10-29 (SC4, recordings of milestone PF1):** WA-2/a is recorded as stated (fixture
+  `conformance/flows/client-api/identity`, oracle run 40805963567). The
+  Python half (WA-2/b) is not recorded.
 
 <a id="wa-3"></a>
 ### WA-3 · Python client: one global client, created lazily from env
@@ -267,7 +270,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-4"></a>
 ### WA-4 · Reserved ("contextual") variables injected into every job
 
-**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check)
+**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); oracle-observed (WA-4/a); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check)
 
 - **Rule:** every job's process env contains the variables below. "Parent" is
   the job's `parent_job`: the enclosing flow, or a loop-iteration or branch
@@ -350,11 +353,17 @@ interface); `WA-Vn` findings were added during validation.
   source checks it against the token's own workspace on every authenticated
   route (401 `Not authorized: Unauthorized`) and not at all on the
   unauthenticated job routes.
+- **Revision 2026-10-29 (SC4, recordings of milestone E1):** WA-4/a is recorded as stated (fixture
+  `conformance/flows/client-api/job-env`, oracle run 40771900586), with a
+  step by path whose `WM_JOB_PATH` is its script's own path. The oracle
+  probe `env` of `conformance/flows/oracle/probes` records the whole set a
+  flow step sees, identity values masked ([OR-29](oracle.md#or-29)); jobs
+  a step dispatches are in [WA-V1](#wa-v1).
 
 <a id="wa-5"></a>
 ### WA-5 · State path formula
 
-**Scope:** core (the value; the state store is WA-13) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (the value; the state store is WA-13) · **Confidence:** high; oracle-observed (WA-5/a; inside bodies, [WA-6](#wa-6); dispatched jobs, [WA-V1](#wa-v1)) · **Status:** confirmed
 
 - **Rule:** let `trigger` be the job's `created_by` username when the job has a
   schedule path, otherwise the literal `user`. Then:
@@ -372,11 +381,17 @@ interface); `WA-Vn` findings were added during validation.
 - **Conformance:** [WA-5/a, WA-5/b, WA-5/c](conformance.md#wa-5)
 - **Note:** a transformation preserves a step's state path only if it keeps the
   parent flow path, the step id **and** the trigger ([WA-50](#wa-50)).
+- **Revision 2026-10-29 (SC4, recordings of milestones PF1 and PF3):** WA-5/a is recorded as stated
+  (fixture `conformance/flows/client-api/identity`), with a step by path
+  that takes its flow step's state path. Fixture `client-api/flow-path`
+  recorded the formula inside loop and branch bodies ([WA-6](#wa-6)), and
+  `client-api/dispatch` the `nostep` form for a script a step dispatches
+  ([WA-V1](#wa-v1)). WA-5/b and WA-5/c are not recorded.
 
 <a id="wa-6"></a>
 ### WA-6 · When loop and branch bodies run as sub-flows, and the runnable paths that drive `WM_FLOW_PATH`, `WM_JOB_PATH` and `WM_STATE_PATH`
 
-**Scope:** core (top-level steps); later (exact parity inside bodies) · **Confidence:** high (source-traced; per-variable values await oracle corroboration, Q-WA-13) · **Status:** confirmed
+**Scope:** core (top-level steps); later (exact parity inside bodies) · **Confidence:** high (oracle-observed: WA-6/a to WA-6/d, with the `WM_JOB_PATH` and `WM_STATE_PATH` that follow) · **Status:** confirmed
 
 - **Rule:**
   - A step job's runnable path is `<parent runnable path>/<module id>` for
@@ -411,11 +426,17 @@ interface); `WA-Vn` findings were added during validation.
 - **Conformance:** [WA-6/a, WA-6/b, WA-6/c, WA-6/d](conformance.md#wa-6)
 - **Note:** loop and branch semantics are in [control-flow.md](control-flow.md).
   Answers [Q-WA-1](#q-wa-1).
+- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** WA-6/a to WA-6/d are recorded as stated
+  (fixture `conformance/flows/client-api/flow-path`, runs `seq`, `retry`,
+  `par`, `branch` and `branch_default`, oracle run 40839879047), each body
+  step also reporting `WM_JOB_PATH` and `WM_STATE_PATH` (for the collapsed
+  body of WA-6/a, `<flow>/loop-<i>` and `<flow>/<loop id>_user`). This is
+  the oracle corroboration [Q-WA-1](#q-wa-1) asked for.
 
 <a id="wa-v1"></a>
 ### WA-V1 · Stored root fields, effective root identity and innermost flow scope are distinct
 
-**Scope:** core · **Confidence:** high (enqueue arguments, storage normalisation, env and API lookup traced) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (enqueue arguments, storage normalisation, env and API lookup traced); high (oracle-observed: jobs a step dispatches, [WA-V1/b](conformance.md#wa-v1)) · **Status:** confirmed
 
 - **Rule:** for ordinary OpenFlow execution:
   - **Effective root.** A flow-created child's effective root is the effective
@@ -432,16 +453,51 @@ interface); `WA-Vn` findings were added during validation.
   - **Consequence.** Nested steps can have different `WM_ROOT_FLOW_JOB_ID`
     values while sharing the same effective root, and so the same flow user
     state ([WA-14](#wa-14)).
-  - This rule covers flow-created children. It must not be generalised to jobs
-    dispatched separately by a client ([WA-15](#wa-15)) without tracing their
-    submitted ancestry.
+  - This rule covers flow-created children. Jobs a client dispatches follow
+    the next bullet.
+  - **Jobs a step dispatches** (oracle-observed). The run routes
+    (`jobs/run/p/…`, `jobs/run/f/…`) store the query's `parent_job` as the
+    new job's parent and its `root_job` as the new job's **innermost root**,
+    leaving its stored root unset; the stock clients send
+    `root_job=<WM_ROOT_FLOW_JOB_ID>` ([WA-15](#wa-15)). So a script `P` that a
+    direct step `a` of flow F dispatches this way sees `WM_FLOW_JOB_ID` =
+    `a`'s job and `WM_ROOT_FLOW_JOB_ID` = F, and its effective root, its root
+    lookup and so its flow user state are F's. Its `WM_FLOW_PATH` is `a`'s
+    runnable path, and with that parent path but no step id its state path
+    is `<a's path>/nostep_<trigger>` ([WA-4](#wa-4), [WA-5](#wa-5)). A flow D
+    dispatched the same way hands F on to its steps as their innermost root,
+    so they see `WM_FLOW_JOB_ID` = D, `WM_ROOT_FLOW_JOB_ID` = F and effective
+    root F. A job dispatched without the query (`runFlowAsync` by default)
+    has neither: it is its own root, and a dispatched flow's steps see it as
+    parent, innermost scope and root. A script dispatched with either field
+    is queued at priority 2 (scheduling, `out`).
 - **Evidence:** `backend/windmill-worker/src/worker_flow.rs:4318-4330`,
   `:4419-4421`; `backend/windmill-queue/src/jobs.rs:6373-6382`;
   `backend/windmill-worker/src/common.rs:1834-1839`;
-  `backend/windmill-api/src/jobs.rs:498-507`.
-- **Conformance:** [WA-V1/a](conformance.md#wa-v1)
+  `backend/windmill-api/src/jobs.rs:498-507`. Jobs a step dispatches:
+  `backend/windmill-api/src/jobs.rs:136-140`, `:172-176` (the run routes);
+  `backend/windmill-api-jobs/src/execution.rs:757-759` (flows),
+  `:971-973` (scripts: `parent_job`, no stored root, `root_job` in the
+  innermost-root slot), `:983-987` (priority);
+  `backend/windmill-queue/src/jobs.rs:5058-5060` (the push's order of
+  those parameters); `backend/windmill-worker/src/common.rs:508-549` (the
+  env built from those fields), with the flow rule above for a dispatched
+  flow's steps.
+- **Conformance:** [WA-V1/a, WA-V1/b](conformance.md#wa-v1)
 - **Note:** answers [Q-WA-5](#q-wa-5) and, with [WA-6](#wa-6),
   [Q-WA-1](#q-wa-1).
+- **Revision 2026-10-29 (SC4, recordings of milestones E1 and PF3):** the
+  rule left jobs a client dispatches open. Fixture
+  `conformance/flows/client-api/dispatch` (run `identity`, oracle run
+  40842413751) recorded them; the new bullet states the rule and the source
+  explains it (the run routes put `root_job` in the innermost-root slot).
+  The
+  direct-step half of WA-V1/a is recorded by `client-api/job-env` (oracle run
+  40771900586), and inside a by-path subflow `WM_FLOW_JOB_ID` and
+  `WM_ROOT_FLOW_JOB_ID` are the subflow's job in milestone N5's
+  `control-flow/subflow-retry` recordings ([CF-17](control-flow.md#cf-17));
+  `getRootJobId()` there and the shared state are not recorded, so WA-V1/a
+  stays source-derived.
 
 <a id="wa-v10"></a>
 ### WA-V10 · Runnable identity depends on the flow-step representation
@@ -743,7 +799,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-10"></a>
 ### WA-10 · `getResource` / `get_resource`: path syntax, mocked API, error wrapping
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high; oracle-observed (the server's answer in WA-10/a) · **Status:** confirmed
 
 - **Rule:**
   - **TS path handling:** the path is taken from `$res:<p>` (prefix stripped),
@@ -768,11 +824,16 @@ interface); `WA-Vn` findings were added during validation.
 - **Evidence:** `typescript-client/client.ts:103-135`, `:1505-1512`;
   `python-client/wmill/wmill/client.py:628-673`, `:2204-2211`.
 - **Conformance:** [WA-10/a](conformance.md#wa-10)
+- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** the server's answer in WA-10/a, 404
+  `Not found: Resource <p> not found` from the interpolated read, is
+  recorded (fixture `conformance/flows/client-api/providers`, oracle run
+  40824738438); the clients' own parts were not run and are the stock
+  clients' code.
 
 <a id="wa-11"></a>
 ### WA-11 · Variables: `getVariable` / `setVariable`
 
-**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; high (source-traced: secrets that cannot be decrypted) · **Status:** confirmed; drafted (secrets that cannot be decrypted, the `already_encrypted` check)
+**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; oracle-observed (WA-11/a's two reads); high (source-traced: secrets that cannot be decrypted, the answers to a write) · **Status:** confirmed; drafted (secrets that cannot be decrypted, the `already_encrypted` check, the answers to a write)
 
 - **Rule:**
   - **Reads.**
@@ -836,6 +897,28 @@ interface); `WA-Vn` findings were added during validation.
       another key passes, and every later read fails as above. A value of
       any other shape is refused with HTTP 400
       `Bad request: Variable <p> was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.`
+    - **The answers to a write** (drafted). Both routes answer with plain
+      text (`text/plain; charset=utf-8`):
+      - **Create**, `POST /w/{ws}/variables/create`: HTTP 201 with
+        `variable <path> created`. A path that already holds a variable
+        gives HTTP 400 `Bad request: Variable <path> already exists`.
+      - **Update**, `POST /w/{ws}/variables/update/{path}`: HTTP 200 with
+        `variable <path> updated (npath: "<new path>")`. The part in
+        parentheses is the variable's path after the update, quoted, with
+        `"` and `\` escaped: the same path unless the body renamed it, so
+        an update of `u/x/v`'s value answers
+        `variable u/x/v updated (npath: "u/x/v")`. A missing variable
+        gives HTTP 404 `Not found: Variable not found at name <path> (variables.rs:<line>)`,
+        where `<line>` is the backend's source line (1275 at the pin when
+        the body sets a value, 1293 when it sets nothing the table holds,
+        such as `{}`). Changing `is_secret` without a new value gives HTTP
+        400 `Bad request: cannot change is_secret without updating value too`.
+      - **What a script sees.** Neither client returns the text. TS
+        `setVariable` first asks `GET /w/{ws}/variables/exists/{path}`
+        (HTTP 200, JSON `true` or `false`), then updates or creates, and
+        resolves to `undefined`; Python `set_variable` returns `None`. A
+        failed write throws (TS) or raises (Python). The text matters only
+        to a caller of the HTTP route itself.
 - **Evidence:** `typescript-client/client.ts:743-802`;
   `python-client/wmill/wmill/client.py:573-626`, `:2241-2245`;
   `backend/windmill-store/src/variables.rs:447-499` (permission explanation),
@@ -849,8 +932,17 @@ interface); `WA-Vn` findings were added during validation.
   salt), `:263-271` (the inner texts). The shape check:
   `backend/windmill-store/src/variables.rs:539-566`, `:616-622` (create),
   `:1119-1124` (update); `cli/src/commands/variable/variable.ts:127-198`
-  (`alreadyEncrypted` unless plain secrets).
-- **Conformance:** [WA-11/a, WA-11/b, WA-11/c, WA-11/d](conformance.md#wa-11)
+  (`alreadyEncrypted` unless plain secrets). The answers to a write:
+  `backend/windmill-store/src/variables.rs:64-76` (the routes), `:503-519`
+  (`exists`, a JSON boolean), `:568-690` (create; the 201 text at
+  `:686-689`; the conflict `:521-537`), `:1050-1416` (update: the
+  not-found answers at `:1275` and `:1293`, the `is_secret` refusal at
+  `:1142-1154`, the text at `:1416`); `backend/windmill-common/src/utils.rs:338-352`
+  (`not_found_if_none` names the calling file and line);
+  `typescript-client/client.ts:772-802` (`setVariable`: the existence
+  probe, then update or create, no return value);
+  `python-client/wmill/wmill/client.py:594-627`.
+- **Conformance:** [WA-11/a–e](conformance.md#wa-11)
 - **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
   fails ciphertext and `$encrypted:` with its own text. Added Windmill's
   texts for a secret that cannot be decrypted and the server's shape check
@@ -861,11 +953,21 @@ interface); `WA-Vn` findings were added during validation.
   under another key. A key that leaves valid padding and valid UTF-8 makes
   the read succeed, so WA-11/c is now an observation with three allowed
   outcomes, and its recording selects a ciphertext that fails.
+- **Revision 2026-10-29 (SC4, source re-check, milestone F1):** milestone
+  F1 serves the update route and answers `updated variable <path>`, a
+  text of its own, because the reference gave none. Added Windmill's
+  answers to a create and an update (status, text, the not-found and
+  refusal texts) and the existence probe TS `setVariable` makes first.
+  New source-derived case WA-11/e.
+- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WA-11/a's two reads are recorded (fixture
+  `conformance/flows/client-api/providers`, oracle run 40824738438): the
+  plain path answers the value, and a path starting `$var:` answers 404
+  `Not found: Variable $var:<p> not found`.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
 
-**Scope:** core · **Confidence:** high (traced) · **Status:** confirmed; drafted (an unusable `job_id`, `CUSTOM_INSTANCE_DB/` paths, the `$jsonvar:` body)
+**Scope:** core · **Confidence:** high (traced); oracle-observed (WA-12/c, WA-12/d, and WA-12/a but for its array depth) · **Status:** confirmed; drafted (an unusable `job_id`, `CUSTOM_INSTANCE_DB/` paths, the `$jsonvar:` body)
 
 - **Rule:** `get_value_interpolated` loads the stored value (a NULL value gives
   JSON `null`) and transforms it recursively.
@@ -972,11 +1074,16 @@ interface); `WA-Vn` findings were added during validation.
 - **Design note (not Windmill behaviour):** windmill-lite has to own this
   interpolation (in Go); a shared engine must keep the contexts of
   [WA-V3](#wa-v3) and [WA-40](#wa-40) apart.
+- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** fixture `conformance/flows/client-api/providers`
+  (oracle run 40824738438) recorded WA-12/c (500 and the depth text for a
+  50-level resource) and WA-12/d, and the `$var:`, nested `$res:` and
+  literal `$WM_*` parts of WA-12/a; WA-12/a's array part is not recorded,
+  so that case stays source-derived.
 
 <a id="wa-v3"></a>
 ### WA-V3 · Shared interpolation needs separate resource and argument contexts
 
-**Scope:** core · **Confidence:** high (both callers and transformations traced) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (both callers and transformations traced); oracle-observed (WA-V3/a, WA-V3/b) · **Status:** confirmed
 
 - **Rule:**
   - Client resource reads start API interpolation at depth 0 with no job id.
@@ -1003,6 +1110,9 @@ interface); `WA-Vn` findings were added during validation.
   root normalisation `backend/windmill-queue/src/jobs.rs:6373-6382`.
 - **Conformance:** [WA-V3/a, WA-V3/b](conformance.md#wa-v3)
 - **Note:** the worker side is specified in [expressions.md](expressions.md).
+- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WA-V3/a and WA-V3/b are recorded as stated
+  (fixture `conformance/flows/client-api/providers`, oracle run
+  40824738438).
 
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
@@ -1040,7 +1150,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-14"></a>
 ### WA-14 · Flow user state: a key/value map on the root flow job, live while it runs
 
-**Scope:** core (TS); later (Python; access after the run) · **Confidence:** high (handlers traced); high for access after the run and for the request rejections (source-traced) · **Status:** confirmed; drafted (access after the run, request rejections)
+**Scope:** core (TS); later (Python; access after the run) · **Confidence:** high (handlers traced; oracle-observed: the routes' answers, sharing across parallel iterations and the stored form, [WA-14/e](conformance.md#wa-14)); high for access after the run and for the request rejections (source-traced) · **Status:** confirmed; drafted (access after the run, request rejections)
 
 - **Rule:**
   - **Keying.** Both clients first resolve `root = getRootJobId(WM_JOB_ID)`,
@@ -1073,6 +1183,17 @@ interface); `WA-Vn` findings were added during validation.
   - **Sharing.** Values set by one step are visible to later steps, to
     parallel branches and iterations, and to sub-flow steps whose root resolves
     to the same job (including steps inside a called sub-flow, [WA-V1](#wa-v1)).
+  - **Stored form** (oracle-observed). The POST parses its body into the
+    backend's JSON value and stores it with `jsonb_set`; the GET reads the
+    stored `jsonb` value back and serialises it compactly. A value therefore
+    reads back with its keys in `jsonb` order (shorter keys first,
+    [FX-42](execution.md#fx-42)), escapes decoded, and numbers as the
+    backend's parse leaves them: an integer that fits in 64 bits as written,
+    any other number as a double with a fraction (`1e3` reads back `1000.0`, `1.50` reads back
+    `1.5`, `1.0` stays `1.0`). The raw body
+    `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"\u0041"],"x":null}}` reads back
+    as `{"a":1.0,"b":1,"c":{"x":null,"y":[1.5,"A"]},"ab":1000.0}`
+    ([WA-14/e](conformance.md#wa-14)).
   - **After the run.** Upstream does not stop a script from addressing a
     finished run's flow state: generated services can pass any job id. From
     the moment the root's completion is committed, GET returns `null` and
@@ -1109,7 +1230,7 @@ interface); `WA-Vn` findings were added during validation.
   serde_path_to_error 0.1.20 (`src/lib.rs:119-126`) and uuid 1.24.0
   (`src/external/serde_support.rs:133-135`, `src/error.rs:61-206`), each
   checked against `backend/Cargo.lock`.
-- **Conformance:** [WA-14/a, WA-14/b, WA-14/c, WA-14/d](conformance.md#wa-14)
+- **Conformance:** [WA-14/a, WA-14/b, WA-14/c, WA-14/d, WA-14/e](conformance.md#wa-14)
 - **Design note (not Windmill behaviour):** discarding the map when the run
   ends is a windmill-lite lifetime policy. It is faithful for every access made
   through the stock helpers during the run, and for an explicit-id write after
@@ -1127,11 +1248,21 @@ interface); `WA-Vn` findings were added during validation.
   Windmill's status and text for an id that is not a UUID and a body that is
   not JSON, where windmill-lite answers 400 with texts of its own (the status
   agrees; the texts are the framework's, above).
+- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** fixture
+  `conformance/flows/client-api/user-state` (runs `basic` and `order`,
+  oracle run 40839879047) recorded the routes' answers (`Flow job state
+  updated`, `null` for a missing key, 404 `Not found: Flow job not found`
+  for a write at a script job and `null` for its read), sharing between a
+  step, the iterations of a parallel loop and a later step, and the stored
+  form, which the reference did not state; the **Stored form** bullet and
+  new case WA-14/e record them (handlers:
+  `backend/windmill-api/src/jobs.rs:4214-4234`, `:4236-4261`). WA-14/a
+  itself stays source-derived: its standalone-script half was not run.
 
 <a id="wa-15"></a>
 ### WA-15 · Dispatch: `run*Async`, `run*`, `waitJob`
 
-**Scope:** core (interface); later (local execution vs delegation, WA-50; Python result helpers) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (interface); later (local execution vs delegation, WA-50; Python result helpers) · **Confidence:** high; medium (the key order of a failure's message, source-traced) · **Status:** confirmed; drafted (the key order of a failure's message)
 
 - **Rule:**
   - **TS script async.** Args are POSTed as JSON to `/w/{ws}/jobs/run/p/{path}`
@@ -1150,7 +1281,11 @@ interface); `WA-Vn` findings were added during validation.
   - **`waitJob(id)`** polls `get_result_maybe` every 500 ms with no timeout. On
     `completed && success` it returns `result`. On `completed && !success` it
     throws an `Error` whose message is `Job <id> was not successful: ` followed
-    by the JSON serialisation of `result.error`. Polling responses are in
+    by the JSON serialisation of `result.error`. That serialisation keeps the
+    key order of the polled body, whose `result` is the stored `jsonb` value
+    read back as text, keys shortest first ([FX-42](execution.md#fx-42)): a
+    failed Bun child gives `{"name":"Error","stack":…,"message":…}` (drafted).
+    Polling responses are in
     [WA-V2](#wa-v2); on an unknown but valid UUID, stock TS `waitJob` polls
     forever.
   - **Python** makes the same requests.
@@ -1178,13 +1313,24 @@ interface); `WA-Vn` findings were added during validation.
   `:377-539`; `python-client/wmill/wmill/client.py:105-125`, `:165-438`
   (`:257-339`, `:363-438`), `:550-571`, `:1465-1645` (`:1527-1560`,
   `:1614-1645`), `:1683-1697`, `:2088-2155`;
-  `backend/windmill-api/src/jobs.rs:9197-9300`, `:9305-9328`.
+  `backend/windmill-api/src/jobs.rs:9197-9300`, `:9305-9328`; the result
+  read as the stored `jsonb` text: `:9223-9234`.
 - **Conformance:** [WA-15/a, WA-15/b, WA-15/c, WA-15/d, WA-15/e](conformance.md#wa-15)
+- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** fixture
+  `conformance/flows/client-api/dispatch` (runs `wait` and `identity`, oracle
+  runs 40839879047 and 40842413751) dispatched scripts and flows with the
+  requests the stock clients send and polled them as `waitJob` does: each
+  dispatch answered 201 with the job id, and a failed Bun child's polled
+  `result` held exactly `{"error": {"name", "message", "stack"}}`. WA-15/a
+  expected `message` right after `name` in the client's message; the polled
+  value comes from `jsonb`, so `stack` comes between them. Corrected (the
+  order itself was not captured). What the server does with the
+  `parent_job` and `root_job` the clients send is in [WA-V1](#wa-v1).
 
 <a id="wa-v2"></a>
 ### WA-V2 · Unfinished and unknown-job polling responses carry explicit nulls
 
-**Scope:** core (dispatch interface) · **Confidence:** high (response struct and all response branches read); high (ids that are not UUIDs, anonymous reads; source-traced) · **Status:** confirmed; drafted (ids that are not UUIDs, anonymous reads)
+**Scope:** core (dispatch interface) · **Confidence:** high (response struct and all response branches read); oracle-observed (WA-V2/a, WA-V2/b); high (ids that are not UUIDs, anonymous reads; source-traced) · **Status:** confirmed; drafted (ids that are not UUIDs, anonymous reads)
 
 - **Rule:** `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}`:
   - **Default query.** A job without a completed row returns all four fields:
@@ -1222,6 +1368,10 @@ interface); `WA-Vn` findings were added during validation.
   the answer to an id that is not a UUID (windmill-lite answers 400 with a
   text of its own; Windmill's status agrees and its text is the framework's,
   above) and the anonymous reading of a token from another workspace.
+- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** WA-V2/a and WA-V2/b are recorded (fixture
+  `conformance/flows/client-api/dispatch`, run `wait`, oracle run
+  40839879047): the two bodies for a UUID that names no job; the status
+  was not captured. This is the corroboration [Q-WA-2](#q-wa-2) asked for.
 
 <a id="wa-16"></a>
 ### WA-16 · Object store (S3) client contract
@@ -1387,7 +1537,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-19"></a>
 ### WA-19 · Job introspection from scripts (`getJob`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
-**Scope:** core (`getRootJobId`); later (`getJob`, `getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); high (the root lookup's and `getResult`'s error answers, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup's and `getResult`'s error answers)
+**Scope:** core (`getRootJobId`); later (`getJob`, `getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a); high (the root lookup's and `getResult`'s error answers, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup's and `getResult`'s error answers)
 
 - **Rule:** scripts can read their own job tree. `JobService.getJob({id})`
   returns a `Job` (`oneOf` `QueuedJob`/`CompletedJob` with discriminator `type`,
@@ -1443,6 +1593,10 @@ interface); `WA-Vn` findings were added during validation.
   unknown id is a 400 `SqlErr` text, not a 404 and not windmill-lite's 501;
   `getResult` on a job that has not completed is the 404 not-found text above,
   the status windmill-lite already gives.
+- **Revision 2026-10-29 (SC4, recordings of milestone PF1):** WA-19/a is recorded as stated (fixture
+  `conformance/flows/client-api/identity`, oracle run 40805963567): the
+  root lookup answered 200 with the flow's job from an inline step and from
+  a step by path, equal to `WM_ROOT_JOB_ID`.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour
@@ -1823,7 +1977,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-42"></a>
 ### WA-42 · Error status codes and bodies
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed; drafted (request-extraction and authentication rejections)
+**Scope:** core · **Confidence:** high; oracle-observed (WA-42/b, WA-42/c) · **Status:** confirmed; drafted (request-extraction and authentication rejections)
 
 - **Rule:** every variant of the API `Error` type is rendered as `text/plain`
   with its display string as the body. The full mapping:
@@ -1900,6 +2054,9 @@ interface); `WA-Vn` findings were added during validation.
   token for another workspace is added.
 
 ## G. Hybrid: delegating chosen steps to a real Windmill
+- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WA-42/b and WA-42/c are recorded (fixture
+  `conformance/flows/client-api/providers`, oracle run 40824738438),
+  WA-42/c up to the resource path, before the location suffix.
 
 <a id="wa-50"></a>
 ### WA-50 · Delegation endpoints and their semantics
@@ -2224,3 +2381,33 @@ interface); `WA-Vn` findings were added during validation.
   UTF-8 cause, and more rarely the read succeeds. The recording therefore
   selects a ciphertext whose read fails with the padding cause and records
   which one it kept ([WA-11/c](conformance.md#wa-11)).
+  **Re-scoped 2026-10-29 (SC4).** The opening sentence no longer holds.
+  Milestones E1 and PF1 to PF3 recorded the fixtures under
+  `conformance/flows/client-api/` (`job-env`, `identity`, `providers`,
+  `flow-path`, `user-state`, `dispatch`; oracle runs 40771900586,
+  40805963567, 40824738438, 40826651517, 40839879047 and 40842413751), each
+  making, with `fetch` and the step's own token, the requests the stock
+  clients make. Now `oracle-observed`: [WA-2/a](conformance.md#wa-2),
+  [WA-4/a](conformance.md#wa-4), [WA-5/a](conformance.md#wa-5),
+  [WA-6/a to WA-6/d](conformance.md#wa-6) (Q-WA-1's corroboration),
+  [WA-10/a](conformance.md#wa-10) (its server answer),
+  [WA-11/a](conformance.md#wa-11), [WA-12/c, WA-12/d](conformance.md#wa-12),
+  [WA-19/a](conformance.md#wa-19), [WA-42/b, WA-42/c](conformance.md#wa-42),
+  [WA-V2/a, WA-V2/b](conformance.md#wa-v2) (Q-WA-2's corroboration),
+  [WA-V3/a, WA-V3/b](conformance.md#wa-v3), and
+  [WR-5/a, WR-5/b, WR-5/c, WR-5/e](conformance.md#wr-5) in languages; new
+  recorded cases [WA-14/e](conformance.md#wa-14) (flow user state's stored
+  form) and [WA-V1/b](conformance.md#wa-v1) (jobs a step dispatches).
+  Partly recorded, so still source-derived: WA-12/a (all but its array
+  depth), WA-14/a (all but the standalone script), WA-15/a (the polled
+  error's name, message and keys, not their order; the case was corrected
+  from the source), WA-V1/a (the direct step's half, and inside a by-path
+  subflow the two flow-job variables, [CF-17](control-flow.md#cf-17); not
+  `getRootJobId()` there or the shared state) and WR-5/d (its rule recorded
+  with `$WM_ROOT_JOB_ID` instead of `$WM_WORKSPACE`). WA-15/c tests the
+  client against a recording facade and needs no oracle; what the server
+  does with the query it checks is WA-V1/b. Still open for the oracle: the
+  other server cases listed above, among them WA-11/c to WA-11/e,
+  WA-12/g, WA-12/h, WA-14/c, WA-14/d, WA-19/b to WA-19/d, WA-V2/c and
+  WA-V2/d, requested for batch E3f
+  ([docs/design/README.md](../design/README.md)).

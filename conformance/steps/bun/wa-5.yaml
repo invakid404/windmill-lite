@@ -8,7 +8,7 @@ note: >-
   (ADR 0001 §3), so the trigger part is always "user".
 cases:
   - spec: WA-5/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a flow step, run manually, has <flow path>/<step id>_user
     script: |
       export function main() {

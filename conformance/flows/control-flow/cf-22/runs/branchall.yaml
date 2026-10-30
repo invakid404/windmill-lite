@@ -1,7 +1,7 @@
-# CF-22 rule 1: a failed branchall with a retry runs every branch again
+# CF-22/e (CF-22 rule 1): a failed branchall with a retry runs every branch again
 # after the backoff; branch 0 then succeeds. A branchall has no job of its
 # own, so its failed attempt has no site.
-spec: [CF-22, CF-15]
+spec: [CF-22/e, CF-15]
 target: f/cf22/branchall
 note: "Corrected after recording: the prediction had the failed attempt at m:ba/r:0; oracle run 40852609901 walked none, since the module's entry lists no failed attempt."
 expect:

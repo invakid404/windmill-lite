@@ -9,7 +9,7 @@ note: >-
   that listens for a fresh process.
 cases:
   - spec: WA-2/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a Bun job sees BASE_URL but not BASE_INTERNAL_URL
     script: |
       export function main() {

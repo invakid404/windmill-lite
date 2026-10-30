@@ -1,7 +1,7 @@
-# CF-21: the sleep of the step before a collapsed loop delays its
+# CF-21/d: the sleep of the step before a collapsed loop delays its
 # first child only: iteration 0's first job starts at least 2 s after a's
 # job ended, and iteration 1 follows at once (the recording's provenance).
-spec: [CF-21, FX-23]
+spec: [CF-21/d, FX-23]
 target: f/cf21/sleep_before_collapsed
 delays:
   - {from: "m:a", to: "m:l/i:0/m:b", at_least_ms: 2000}

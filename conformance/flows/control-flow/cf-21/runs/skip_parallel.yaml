@@ -1,7 +1,7 @@
-# CF-21: only a sequential loop re-evaluates its skip_if; a parallel loop
+# CF-21/c: only a sequential loop re-evaluates its skip_if; a parallel loop
 # evaluates it once, at its start, where previous_result is 0, so every
 # iteration runs although each later result would make it hold.
-spec: [CF-21]
+spec: [CF-21/c]
 target: f/cf21/skip_parallel
 expect:
   status: success
