@@ -148,20 +148,33 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	scripts, byFile := folderScripts(folder)
 	var problems []ItemProblem
 	var hosts []HostModule
+	var outside []OutsideHostModule
 	for _, key := range prog.Contract.HostModules {
 		p, ok := byFile[key]
 		if !ok {
+			// A file of a codebase entry outside the folder, which its
+			// scripts import (milestone F3h).
+			if m, isOutside, why := outsideModule(root, key, folder.Config.Codebases); isOutside {
+				if why != "" {
+					problems = append(problems, ItemProblem{"host module " + key, Problem{ProblemUnknownHostModule, why}})
+				} else {
+					outside = append(outside, m)
+				}
+				continue
+			}
 			// A script of the folder that fails to read says why; anything
 			// else is a package.
-			if path, _, _ := strings.Cut(key, "."); strings.HasSuffix(key, ".ts") {
-				if _, err := folder.Script(path); err != nil {
+			if strings.HasSuffix(key, ".ts") {
+				dir, base := path.Split(key)
+				name, _, _ := strings.Cut(base, ".")
+				if _, err := folder.Script(dir + name); err != nil {
 					problems = append(problems, ItemProblem{"host module " + key, Problem{"load", err.Error()}})
 					continue
 				}
 			}
 			problems = append(problems, ItemProblem{"host module " + key, Problem{ProblemUnsupportedFeature,
 				"unsupported: host-provided module " + key + ": it is not the file of a Bun script of the folder, " +
-					"and host-provided packages are not supported yet"}})
+					"nor a file of a codebase entry outside it, and host-provided packages are not supported yet"}})
 			continue
 		}
 		s := scripts[p]
@@ -227,16 +240,32 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil && !errors.As(err, &be) {
 		return nil, err
 	}
-	// Codebase scripts, with esbuild, once the scan has written the shims
-	// of the host-provided modules their imports resolve to.
+	var chosts []CodebaseHostModule
+	for _, m := range hosts {
+		chosts = append(chosts, CodebaseHostModule{Key: m.Key, File: m.File, Package: m.Package, Shim: shimFile(stage, m.ID)})
+	}
+	// The host-provided modules outside the folder, with esbuild, once the
+	// scan has written the shims of the others (milestone F3h).
+	ores := &OutsideResult{HostModules: map[string]*HostModuleMeta{}}
+	var obe *BuildError
+	if len(outside) > 0 && be == nil {
+		ores, err = BuildOutside(ctx, OutsideConfig{
+			Bun: cfg.Bun, Helper: cfg.Helper, AllowBunMismatch: cfg.AllowBunMismatch,
+			Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
+			Folder: root, Out: stage, Work: cfg.Work, Modules: outside, Inside: chosts,
+		})
+		if err != nil && !errors.As(err, &obe) {
+			return nil, err
+		}
+		for _, m := range outside {
+			chosts = append(chosts, CodebaseHostModule{Key: m.Key, File: m.Key, Shim: shimFile(stage, m.ID)})
+		}
+	}
+	// Codebase scripts, with esbuild, once the shims of the host-provided
+	// modules their imports resolve to are written.
 	cres := &CodebaseResult{Scripts: map[string]*ScriptMeta{}}
 	var cbe *BuildError
-	if len(codebase) > 0 && be == nil {
-		var chosts []CodebaseHostModule
-		for _, m := range hosts {
-			chosts = append(chosts, CodebaseHostModule{Key: m.Key, File: m.File, Package: m.Package,
-				Shim: filepath.Join(stage, "scripts", "bun", "provided", "shims", filepath.FromSlash(m.ID)+".mjs")})
-		}
+	if len(codebase) > 0 && be == nil && obe == nil {
 		cres, err = BuildCodebase(ctx, CodebaseConfig{
 			Bun: cfg.Bun, Helper: cfg.Helper, AllowBunMismatch: cfg.AllowBunMismatch,
 			Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
@@ -246,7 +275,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			return nil, err
 		}
 	}
-	for _, e := range []*BuildError{be, cbe} {
+	for _, e := range []*BuildError{be, obe, cbe} {
 		if e == nil {
 			continue
 		}
@@ -310,6 +339,11 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			}
 		}
 	}
+	for _, p := range ores.Inputs {
+		if err := src.add(p); err != nil {
+			return nil, err
+		}
+	}
 	for _, from := range cres.Assets {
 		if p := path.Clean(filepath.ToSlash(from)); inside(p) {
 			if err := src.add(p); err != nil {
@@ -364,6 +398,10 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	for _, id := range bres.HostModuleOrder {
 		m.HostModules = append(m.HostModules, HostModuleEntry{Key: bres.HostModules[id].Key, ID: id})
+	}
+	// The outside modules after the others, which never import them.
+	for _, id := range ores.Order {
+		m.HostModules = append(m.HostModules, HostModuleEntry{Key: ores.HostModules[id].Key, ID: id})
 	}
 	manifest, err := m.Canonical()
 	if err != nil {
@@ -439,13 +477,19 @@ func addScriptSources(src *sourceFS, scripts map[string]*syncfolder.Script, p st
 }
 
 // codebaseInputs are the files of the folder a codebase bundle read, from
+// its metafile (folderInputs).
+func codebaseInputs(meta *ScriptMeta) []string {
+	return folderInputs(meta.Metafile)
+}
+
+// folderInputs are the files of the folder an esbuild bundle read, from
 // its metafile: inputs that are not the build's own modules, outside
 // node_modules and inside the folder.
-func codebaseInputs(meta *ScriptMeta) []string {
+func folderInputs(metafile json.RawMessage) []string {
 	var mf struct {
 		Inputs map[string]json.RawMessage `json:"inputs"`
 	}
-	if json.Unmarshal(meta.Metafile, &mf) != nil {
+	if json.Unmarshal(metafile, &mf) != nil {
 		return nil
 	}
 	var out []string
