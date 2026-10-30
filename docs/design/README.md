@@ -126,9 +126,9 @@ Milestone F2c gives TypeScript hosts the same seams: a host plugin
 declares its hooks in its harness's hello and answers them over
 `host_call` ([0004](0004-harness-protocol.md)), with `around` wrappers
 and the provider bridge of [0007](0007-platform-interface.md); a
-host-mode run carries F2b's budgets and latches in its `run` frame; and
-step code reaches its run's latch and signal through `wl.latch` and
-`wl.signal`. The plugins level of [0003](0003-semantics-placement.md)
+host-mode run carries F2b's budgets and latches, and its own halts, in
+its `run` frame; and step code reaches its run's latch and signal through
+`wl.latch` and `wl.signal`. The plugins level of [0003](0003-semantics-placement.md)
 runs its cases three ways with one outcome.
 Milestone F3b gates host mode: the flow suite runs in host mode, on a Bun
 host that embeds the SDK, beside warm and fresh; the never-settling-step,

@@ -42,14 +42,18 @@
 # so far (plugin_settled) and settled while one of their hooks still ran
 # (plugin_settled_early): every case's run must settle, none early.
 # provided: the case's host-provided sites: [{module, provider}].
-# run: the run's own budgets and latches, which a Go host gives in
+# run: the run's own hooks and budgets, which a Go host gives in
 #   RunOptions and a TypeScript host in its run frame:
-#   write_capable: [module ids] (H3); fatal_error_names: [names] (H7);
+#   write_capable: [module ids] (H3); halt_before / halt_after: [module
+#   ids] (H8); fatal_error_names: [names] (H7);
 #   deadline_ms, pre_write_deadline_ms: the hard and pre-write deadlines,
 #   from the run's start (H4); clock: real or record (H10)
 # expect: status; may_have_mutated; result (the run's result); latched (a text the latched
 # error contains); log; warnings (codes besides plugin_log); not_ran
 # (sites with no job); deviations (the run's run-time deviations).
+# then: more runs of the case's flow, after its run, each a run and an
+#   expect as above: on the same runtime, and in host mode on the same
+#   connection, so a run's own hooks must not reach them.
 # go: false runs a case only through the TypeScript plugin.
 # timeout_ms: the plugin timeout of the runtimes that run these cases.
 timeout_ms: 1000
@@ -58,6 +62,11 @@ scripts:
     // Returns its arguments and the variable H12 sets.
     export async function main(x?: unknown, y?: unknown) {
       return { x: x ?? null, y: y ?? null, tenant: process.env.PLUGIN_TENANT ?? null };
+    }
+  f/plugins/label.ts: |
+    // Returns its label.
+    export async function main(label: string) {
+      return label;
     }
   f/plugins/getvar.ts: |
     // Reads the variable u/plugins/v through the job API at BASE_URL, and
@@ -401,6 +410,85 @@ cases:
     plugin: {}
     run: {deadline_ms: 300}
     expect: {status: canceled, not_ran: ["m:b"]}
+
+  # A run's own halts (H8) are that run's alone: the flow's later run, on
+  # the same runtime and in host mode on the same connection, runs past
+  # the module. The observers' log shows which modules started and ended.
+  - id: run_halt_after
+    spec: [H8]
+    title: the run's own halt after a module halts that run only, and a later run of the flow runs whole
+    flow:
+      modules:
+        - {id: check, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: check}}}}
+        - {id: write, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: write}}}}
+    plugin: {observe: true}
+    run: {halt_after: [check]}
+    expect: {status: halted, log: ["start:m:check", "end:m:check:success"], not_ran: ["m:write"]}
+    then:
+      - expect: {status: success, result: write, log: ["start:m:check", "end:m:check:success", "start:m:write", "end:m:write:success"]}
+
+  - id: run_halt_before
+    spec: [H8]
+    title: the run's own halt before a module halts that run only, and a later run of the flow runs whole
+    flow:
+      modules:
+        - {id: check, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: check}}}}
+        - {id: write, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: write}}}}
+    plugin: {observe: true}
+    run: {halt_before: [write]}
+    expect: {status: halted, log: ["start:m:check", "end:m:check:success"], not_ran: ["m:write"]}
+    then:
+      - expect: {status: success, result: write, log: ["start:m:check", "end:m:check:success", "start:m:write", "end:m:write:success"]}
+
+  # A run's own halt takes the place of a Go host's or a plugin's in the
+  # precedence (ADR 0008): it comes before the first-write signal at a
+  # module's start, after the latch, and never hides a failure.
+  - id: run_halt_before_write
+    spec: [H8, H3]
+    title: the run's own halt before its write-capable module ends it halted before the first-write signal, which would veto
+    flow:
+      modules:
+        - {id: check, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: check}}}}
+        - {id: write, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: write}}}}
+    plugin: {first_write: "veto: no writes for this run"}
+    run: {write_capable: [write], halt_before: [write]}
+    expect: {status: halted, may_have_mutated: false, not_ran: ["m:write"]}
+    then:
+      - run: {write_capable: [write]}
+        expect: {status: latched, may_have_mutated: false, latched: no writes for this run, not_ran: ["m:write"]}
+
+  - id: run_halt_after_write
+    spec: [H8, H3]
+    title: the run's own halt after its approved write-capable module ends it halted, and the run may have mutated
+    flow:
+      modules:
+        - {id: check, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: check}}}}
+        - {id: write, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: write}}}}
+    plugin: {first_write: approve}
+    run: {write_capable: [check], halt_after: [check]}
+    expect: {status: halted, may_have_mutated: true, not_ran: ["m:write"]}
+
+  - id: run_halt_after_latch
+    spec: [H8, H5]
+    title: a step's latch outranks the run's own halt after that step
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/latch, input_transforms: {}}}
+        - {id: b, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: b}}}}
+    plugin: {}
+    run: {halt_after: [a]}
+    expect: {status: latched, latched: "Error: the step latched its run", not_ran: ["m:b"]}
+
+  - id: run_halt_after_failure
+    spec: [H8, FX-2]
+    title: the run's own halt after a failed step that ends the run leaves the run failed
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: a}}}}
+        - {id: b, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: b}}}}
+    plugin: {intercept: [{module: a, failed: {name: Denied, message: no}}]}
+    run: {halt_after: [a]}
+    expect: {status: failure, not_ran: ["m:b"]}
 
   # A provider of H13's bridge that fails or times out latches the run, as
   # any plugin hook does (ADR 0004 §Host plugins, H5): the step that reads

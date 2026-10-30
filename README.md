@@ -255,6 +255,11 @@ expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
 the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
 job runs the Bun harness's own `bun test`, which is not a required check.
+Another, `Bun SDK types`, typechecks the Bun host SDK and the harness
+runtime as a host that vendors them does, against the pinned Bun's type
+declarations, with and without the DOM library
+([type check](harnesses/bun/README.md#type-check)); it is not a required
+check either.
 The [codebase parity workflow](.github/workflows/parity.yml) runs the
 pinned `windmill-cli@1.767.0`, unmodified, as a tool: it pushes synthetic
 codebase scripts to a recording HTTP stub, and the bundles it uploads must

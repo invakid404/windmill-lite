@@ -1,0 +1,4 @@
+# The host contract of the per-run halt test (cmd/windmill-lite/host_test.go,
+# TestHostRunHalts): the one flow its host runs.
+roots:
+  - flow: f/repro/prefix

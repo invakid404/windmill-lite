@@ -177,7 +177,7 @@ export class InvocationLog {
   closed = false;
   /** The Console that formats this invocation's console calls, made on
    * its first one, so counters, timers and groups are its own. */
-  console?: Console;
+  console?: import("node:console").Console;
   private batch: string[] = [];
   private partial: Record<string, string> = {};
   private recent = "";
@@ -528,7 +528,13 @@ export type PlatformCall = {
   body?: Uint8Array;
 };
 
-export type PlatformAnswer = { status: number; headers: Record<string, string>; body?: Uint8Array };
+export type PlatformAnswer = { status: number; headers: Record<string, string>; body?: Uint8Array<ArrayBuffer> };
+
+/** Request's constructor with any input that fetch takes. Bun's Request
+ * takes a URL, which it reads as its string, but Bun's type declarations
+ * without the DOM library list only a string, a Request and an object
+ * with a url, and no union of them. */
+export type RequestOf = new (input: string | URL | Request, init?: RequestInit) => Request;
 
 // The process-wide hooks are installed once and route to the runtime that
 // installed them last, so a host that reconnects counts its errors and
@@ -569,7 +575,7 @@ export function installFetch(
   if (fetchInstalled) return;
   fetchInstalled = true;
   const inner = globalThis.fetch;
-  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const route = fetchRoute!;
     const facade = route.origin();
     const inv = invocations.getStore();
@@ -591,7 +597,7 @@ export function installFetch(
     }
     if (inv === undefined) throw new TypeError("windmill-lite: a platform call outside any invocation cannot be attributed");
     if (inv.resources.settled) throw new TypeError("windmill-lite: the invocation has settled, so its platform calls are refused");
-    const req = new Request(input, init);
+    const req = new (Request as RequestOf)(input, init);
     req.signal.throwIfAborted();
     // Bodies travel as bytes, so binary uploads and downloads stay exact.
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : new Uint8Array(await req.arrayBuffer());
@@ -713,7 +719,7 @@ function observeReads(res: Response, end: () => void) {
   });
 }
 
-function originOf(input: RequestInfo | URL): string | undefined {
+function originOf(input: string | URL | Request): string | undefined {
   try {
     if (input instanceof Request) return new URL(input.url).origin;
     return new URL(String(input)).origin;

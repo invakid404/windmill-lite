@@ -337,12 +337,24 @@ bridge).
    script run's too (`StatusLatched`, with `*engine.StepLatch` in
    `Result.Latched`, as a failed `around` gives a `*engine.PluginError`),
    and the signal aborts when the engine abandons the step.
-8. **A host's budgets.** In host mode a run frame carries what a Go host
-   gives in `RunOptions` (`hostBudgets`): write-capable selectors and
-   fatal error names, as the run's own hooks; the pre-write deadline; the
-   record clock; and a hard deadline, which bounds the run's context
-   until the run has settled. `run_done` carries `MayHaveMutated` and the
-   trace's deviations.
+8. **A run's own hooks in host mode.** A run frame carries what a Go host
+   gives in `RunOptions` (`hostBudgets`). Write-capable selectors, halts
+   and fatal error names become the run's own hooks, ahead of the
+   plugin's. The frame also carries the pre-write deadline, the record
+   clock, and a hard deadline, which bounds the run's context until the
+   run has settled; `run_done` carries `MayHaveMutated` and the trace's
+   deviations.
+   - **Halts per run.** The halts in a plugin's declaration apply to every
+     run on its host's connection. A run frame's `halt_before` and
+     `halt_after` apply to that run alone, as `Hooks.HaltBefore` and
+     `Hooks.HaltAfter` do for a Go host. So a host can evaluate a read-only
+     prefix of a flow that it also runs whole
+     ([H8](../docs/design/0008-host-hooks.md#the-hooks)).
+   - **Selector checks.** `hostBudgets` checks the frame's selectors as a
+     plugin's are checked (`checkSelectorIn`: known fields, form, no
+     ambiguity). A selector that fails refuses the run with `refused`, and
+     the error names it as the host SDK's run options do, such as
+     `the run's haltAfter[0]`.
 
 ## BuildInfo and Close
 
@@ -442,6 +454,12 @@ exist, a fresh module state, a bundle of another engine version and no
 working directory. cmd/windmill-lite runs host mode end to end with the
 Bun host SDK.
 
+`TestHostRunHalts`, in `host_test.go`, runs one flow several times on one
+connection. Only a run whose frame names a halt ends `halted`, before or
+after its module, and the host plugin's own halt still halts every run of
+its flow. A run whose halt selector is malformed, ambiguous or has an
+unknown field is refused, naming the selector, and the next run succeeds.
+
 `plugin_test.go` (F2c) covers host plugins without Bun: a plugin refused
 in a `fresh` runtime and as `Options.Plugin` in host mode, a host whose
 declaration has a malformed or ambiguous selector refused with
@@ -454,8 +472,8 @@ while in flight and is not made for a settled run
 (`TestPluginCallsHoldSettlement`). `plugincases_test.go` runs the cases of
 `conformance/plugins/hooks.yaml` on a bundle built from them, through
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
-through Go callbacks built from the same plugins, each case with its
-run's budgets and latches in `RunOptions` (`caseRun`), and checks that
+through Go callbacks built from the same plugins, each of a case's runs
+with its own hooks and budgets in `RunOptions` (`caseRun`), and checks that
 every run's `onRunEnd` reported it, a canceled run's too, and, from the
 plugin's report file, that every case's run settled and none while one
 of its hooks still ran (`checkSettlement`); it needs Bun like

@@ -130,8 +130,8 @@ func refuseHost(h *Host, version string, diag io.Writer, cause error) {
 // serveHost runs one run the host submitted, with Run, and returns what
 // goes back in run_done: its outcome, or why it did not start. Its
 // intercept stands in for the modules it names (H1's static form), its
-// budgets and latches are the run's (hostBudgets), and its Settled closes
-// once the run has settled (onRunSettled).
+// own hooks and budgets are the run's (hostBudgets), and its Settled
+// closes once the run has settled (onRunSettled).
 func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.RunRequest) harness.RunDone {
 	// Runs can arrive before AttachHost has returned.
 	rt.hostProc.Store(p)
@@ -147,7 +147,7 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 		}
 		hooks = engine.StaticIntercepts{Results: results}
 	}
-	opts, err := hostBudgets(r)
+	opts, err := hostBudgets(r, rt.prog)
 	if err != nil {
 		return refused(err)
 	}
@@ -189,24 +189,43 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 	return done
 }
 
-// hostBudgets are the RunOptions of a run frame: its id and kind, and the
-// budgets and latches F2b gives a Go host (ADR 0008, carried over the host
-// protocol by F2c): write-capable selectors (H3) and fatal error names
-// (H7) as the run's own hooks, ahead of the plugin's; the pre-write
-// deadline (H4), from now; and the record clock (H10). The hard deadline
-// is the run's context's (serveHost).
-func hostBudgets(r harness.RunRequest) (RunOptions, error) {
+// hostBudgets are the RunOptions of a run frame: its id and kind, and what
+// a Go host gives in RunOptions (ADR 0008): write-capable selectors (H3),
+// halts (H8) and fatal error names (H7), as the run's own hooks, which
+// come ahead of the plugin's (mergeHooks); the pre-write deadline (H4),
+// from now; and the record clock (H10). The hard deadline is the run's
+// context's (serveHost). The run's selectors are checked as a plugin's
+// are (checkSelectorIn), against prog. A selector that fails refuses the
+// run, and the error names it as the host SDK's run options do, such as
+// haltAfter[0].
+func hostBudgets(r harness.RunRequest, prog *ir.Program) (RunOptions, error) {
 	opts := RunOptions{ID: r.ID, Kind: r.Kind}
 	var h Hooks
-	if !r.WriteCapable.IsZero() {
-		dec := json.NewDecoder(bytes.NewReader(r.WriteCapable.Producer()))
+	for _, f := range []struct {
+		field, option string
+		raw           jsonval.Value
+		sels          *[]Selector
+	}{
+		{"write_capable", "writeCapable", r.WriteCapable, &h.WriteCapable},
+		{"halt_before", "haltBefore", r.HaltBefore, &h.HaltBefore},
+		{"halt_after", "haltAfter", r.HaltAfter, &h.HaltAfter},
+	} {
+		if f.raw.IsZero() {
+			continue
+		}
+		dec := json.NewDecoder(bytes.NewReader(f.raw.Producer()))
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&h.WriteCapable); err != nil {
-			return opts, fmt.Errorf("the run's write_capable: %w", err)
+		if err := dec.Decode(f.sels); err != nil {
+			return opts, fmt.Errorf("the run's %s: %w", f.field, err)
+		}
+		for i, s := range *f.sels {
+			if err := checkSelectorIn(s, prog); err != nil {
+				return opts, fmt.Errorf("the run's %s[%d]: %w", f.option, i, err)
+			}
 		}
 	}
 	h.FatalErrorNames = r.FatalErrorNames
-	if len(h.WriteCapable) > 0 || len(h.FatalErrorNames) > 0 {
+	if len(h.WriteCapable) > 0 || len(h.HaltBefore) > 0 || len(h.HaltAfter) > 0 || len(h.FatalErrorNames) > 0 {
 		opts.Hooks = &h
 	}
 	if r.PreWriteDeadlineMS > 0 {

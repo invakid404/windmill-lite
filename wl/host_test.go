@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -258,5 +261,104 @@ func TestDoneOutsideHostMode(t *testing.T) {
 	defer rt.Close()
 	if rt.Done() != nil {
 		t.Fatal("Done is not nil")
+	}
+}
+
+// A host-mode run's own halts (H8), from its run frame, are that run's
+// alone: one connection, one flow, two runs, and only the run that names
+// the halt ends halted, with no later module started. The host's plugin
+// observes the modules (on_module_start, on_module_end), and its own
+// halt, declared in the hello, still applies to every run. A run whose
+// halt selector is malformed or ambiguous is refused, naming the selector
+// as the host SDK's run options do, and the connection serves on.
+func TestHostRunHalts(t *testing.T) {
+	flows := map[string]string{
+		"f/t/prefix": `{"modules":[{"id":"check","value":{"type":"identity"},"mock":{"enabled":true,"return_value":"check"}},` +
+			`{"id":"write","value":{"type":"identity"},"mock":{"enabled":true,"return_value":"write"}}]}`,
+		"f/t/plugin_halt": `{"modules":[{"id":"a","value":{"type":"identity"}},{"id":"b","value":{"type":"identity"}}]}`,
+		"f/t/dup":         testFlows["f/t/dup"],
+	}
+	dir := writeBundleOf(t, flows, nil, "test-engine", nil, nil)
+	work := t.TempDir()
+	_, err, h, _ := openPluginHost(t, dir, Options{Host: &Host{Workdir: work}}, work,
+		`{"halt_after":[{"flow":"f/t/plugin_halt","module":"a"}],"on_module_start":true,"on_module_end":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// run submits a run and answers its host calls until its run_done, and
+	// returns the run_done and the sites the plugin saw start and end.
+	n := 0
+	run := func(path, haltBefore, haltAfter string) (d harness.RunDone, started, ended []string) {
+		t.Helper()
+		n++
+		r := harness.RunRequest{ID: fmt.Sprintf("0b6d2a4e-5b5d-4f00-9c3e-%012d", n), Kind: harness.RunFlow, Path: path, Args: jsonval.FromProducer([]byte(`{}`))}
+		if haltBefore != "" {
+			r.HaltBefore = jsonval.FromProducer([]byte(haltBefore))
+		}
+		if haltAfter != "" {
+			r.HaltAfter = jsonval.FromProducer([]byte(haltAfter))
+		}
+		h.send(r)
+		for {
+			switch m := h.next().(type) {
+			case harness.HostCall:
+				switch m.Hook {
+				case "on_module_start":
+					started = append(started, m.Site)
+				case "on_module_end":
+					ended = append(ended, m.Site)
+				}
+				h.send(harness.HostReply{ID: m.ID, Payload: jsonval.FromProducer([]byte(`{}`))})
+			case harness.RunDone:
+				if m.ID != r.ID {
+					t.Fatalf("run_done %+v for another run than %s", m, r.ID)
+				}
+				if m.Error == nil {
+					if s, ok := h.next().(harness.RunSettled); !ok || s.ID != r.ID {
+						t.Fatalf("after run_done: %+v; want run_settled", s)
+					}
+				}
+				return m, started, ended
+			default:
+				t.Fatalf("unexpected %T %+v", m, m)
+			}
+		}
+	}
+	afterCheck := `[{"flow":"f/t/prefix","module":"check"}]`
+
+	d, started, ended := run("f/t/prefix", "", afterCheck)
+	if d.Status != StatusHalted || d.Error != nil || !slices.Equal(started, []string{"m:check"}) || !slices.Equal(ended, []string{"m:check"}) {
+		t.Fatalf("the run with halt_after check: %+v, started %q, ended %q; want halted after check alone", d, started, ended)
+	}
+	d, started, ended = run("f/t/prefix", "", "")
+	if d.Status != StatusSuccess || string(d.Result.Producer()) != `"write"` || len(started) != 2 || !slices.Equal(ended, []string{"m:check", "m:write"}) {
+		t.Fatalf("the next run of the flow, without halts: %+v (result %s), started %q, ended %q; want success, result write, both modules", d, d.Result.Producer(), started, ended)
+	}
+	d, started, _ = run("f/t/prefix", `[{"flow":"f/t/prefix","module":"write"}]`, "")
+	if d.Status != StatusHalted || !slices.Equal(started, []string{"m:check"}) {
+		t.Fatalf("the run with halt_before write: %+v, started %q; want halted before write", d, started)
+	}
+	// The plugin's halt, declared once in the hello, applies to every run.
+	for range 2 {
+		if d, started, _ := run("f/t/plugin_halt", "", ""); d.Status != StatusHalted || !slices.Equal(started, []string{"m:a"}) {
+			t.Fatalf("a run under the plugin's halt_after a: %+v, started %q", d, started)
+		}
+	}
+	for _, tc := range []struct {
+		name, before, after, refusal string
+	}{
+		{"a malformed halt_after", "", `[{"flow":"f/t/prefix"}]`, "the run's haltAfter[0]: wl: invalid selector"},
+		{"an ambiguous halt_before", `[{"flow":"f/t/prefix","module":"check"},{"flow":"f/t/dup","module":"a"}]`, "", "the run's haltBefore[1]: ambiguous_selector"},
+		{"an unknown selector field", "", `[{"flow":"f/t/prefix","modul":"check"}]`, `the run's halt_after: json: unknown field "modul"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, started, _ := run("f/t/prefix", tc.before, tc.after)
+			if d.Error == nil || d.Error.Code != harness.RunRefused || !strings.Contains(d.Error.Message, tc.refusal) || len(started) > 0 {
+				t.Fatalf("%+v, started %q; want refused with %q", d.Error, started, tc.refusal)
+			}
+		})
+	}
+	if d, _, _ := run("f/t/prefix", "", ""); d.Status != StatusSuccess {
+		t.Fatalf("after the refusals: %+v", d)
 	}
 }

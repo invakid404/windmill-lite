@@ -361,12 +361,14 @@ const (
 // that stand in for those modules: the static, no-code form of H1
 // (ADR 0008).
 //
-// The rest are the run's budgets and latches (ADR 0008, milestone F2b,
-// carried by F2c): WriteCapable, if not zero, is a JSON array of
-// selectors (H3); FatalErrorNames are error names that latch (H7);
-// DeadlineMS and PreWriteDeadlineMS, when positive, are the hard and the
-// pre-write deadline (H4), in milliseconds from the engine's receipt of
-// the frame; Clock is ClockReal ("" too) or ClockRecord (H10).
+// The rest are the run's own hooks and budgets (ADR 0008), which a Go
+// host gives in its run options: WriteCapable, if not zero, is a JSON
+// array of selectors (H3); HaltBefore and HaltAfter, if not zero, are JSON
+// arrays of selectors at whose modules the run ends halted (H8);
+// FatalErrorNames are error names that latch (H7); DeadlineMS and
+// PreWriteDeadlineMS, when positive, are the hard and the pre-write
+// deadline (H4), in milliseconds from the engine's receipt of the frame;
+// Clock is ClockReal ("" too) or ClockRecord (H10).
 type RunRequest struct {
 	ID                 string
 	Kind               string
@@ -374,6 +376,8 @@ type RunRequest struct {
 	Args               jsonval.Value
 	Intercept          jsonval.Value
 	WriteCapable       jsonval.Value
+	HaltBefore         jsonval.Value
+	HaltAfter          jsonval.Value
 	FatalErrorNames    []string
 	DeadlineMS         int64
 	PreWriteDeadlineMS int64
@@ -722,8 +726,13 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if !m.Intercept.IsZero() {
 		e.raw("intercept", m.Intercept.Producer())
 	}
-	if !m.WriteCapable.IsZero() {
-		e.raw("write_capable", m.WriteCapable.Producer())
+	for _, f := range []struct {
+		k string
+		v jsonval.Value
+	}{{"write_capable", m.WriteCapable}, {"halt_before", m.HaltBefore}, {"halt_after", m.HaltAfter}} {
+		if !f.v.IsZero() {
+			e.raw(f.k, f.v.Producer())
+		}
 	}
 	if m.FatalErrorNames != nil {
 		e.strings("fatal_error_names", m.FatalErrorNames)
@@ -1052,11 +1061,16 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("intercept") {
 			r.Intercept = d.raw("intercept")
 		}
-		// The budgets and latches (F2c carries F2b's).
-		if d.present("write_capable") {
-			r.WriteCapable = d.raw("write_capable")
-			if derr == nil && !bytes.HasPrefix(bytes.TrimLeft(r.WriteCapable.Producer(), " \t\r\n"), []byte("[")) {
-				d.fail(CodeBadField, "run write_capable is not an array")
+		// The run's own hooks and budgets: selector lists are arrays.
+		for _, f := range []struct {
+			k string
+			v *jsonval.Value
+		}{{"write_capable", &r.WriteCapable}, {"halt_before", &r.HaltBefore}, {"halt_after", &r.HaltAfter}} {
+			if k, v := f.k, f.v; d.present(k) {
+				*v = d.raw(k)
+				if derr == nil && !bytes.HasPrefix(bytes.TrimLeft(v.Producer(), " \t\r\n"), []byte("[")) {
+					d.fail(CodeBadField, "run %s is not an array", k)
+				}
 			}
 		}
 		if d.present("fatal_error_names") {

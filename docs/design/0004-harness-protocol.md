@@ -1095,6 +1095,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   `clock`, and run_done's `deviations`, without which a host-mode run had
   no write-capable site, deadline or record clock and never reported
   `may_have_mutated`.
+- A `run` frame also carries the run's own halts, `halt_before` and
+  `halt_after`: arrays of selectors, which both codecs check as they check
+  `write_capable`, and which end that run alone `halted`
+  ([0008](0008-host-hooks.md) H8). The halts of a host plugin, in its
+  hello, apply to every run of its host.
 - Milestone F3b gated host mode (ADR 0012): the flow suite runs on a Bun
   host that embeds the SDK and runs the steps in its own process, the
   never-settling-step, watchdog, `watchdog/finite-cpu` and resource-release

@@ -86,6 +86,11 @@ Every adapter below is a transport over these calls.
      dependency on the release tag, or a vendored copy of `harnesses/bun/host`
      at that tag). The SDK version equals the engine version; the handshake
      rejects any other pairing.
+   - **Types.** A host that vendors the SDK, with the harness runtime it
+     imports, typechecks them with its own program. So the SDK and the
+     runtime use only names that the pinned Bun's type declarations
+     (`@types/bun`) define, with or without the DOM library, and CI
+     typechecks them that way (`harnesses/bun/test/typecheck`).
 3. **Plain gRPC.** The same `Runner` service on a Unix or TCP socket, without
    the go-plugin handshake, for hosts in other languages.
 4. **HTTP.** `POST /v1/run/{f|p}/{path}` with the arguments as the body,

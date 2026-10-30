@@ -100,6 +100,14 @@ export type RunOptions = {
    * the plugin's beforeFirstWrite, when it has one, is asked before the
    * first of them launches, and the run then may have mutated. */
   writeCapable?: Selector[];
+  /** The flow run's halts (H8), with the plugin's: the run ends with
+   * status halted before the first attempt of a module that a haltBefore
+   * selector matches, or once a module that a haltAfter selector matches
+   * has its final outcome and the run would start something other than a
+   * failure module. Only this run halts there; other runs of the flow, on
+   * this connection too, run past the module. */
+  haltBefore?: Selector[];
+  haltAfter?: Selector[];
   /** Error names that latch the flow run instead of failing a step (H7),
    * with the plugin's. */
   fatalErrorNames?: string[];
@@ -149,8 +157,9 @@ export type Health = HostHealth & {
 export type Host = {
   /** Runs the flow (or script) at path with args, inside the caller's
    * current scope. It rejects with a HostError when the run does not
-   * start: "draining", or "refused" (no such target, or arguments that
-   * are not an object). */
+   * start: "draining", or "refused": no such target, arguments that are
+   * not an object, a selector option that is not a list of objects, or a
+   * selector that the engine finds malformed or ambiguous. */
   run(path: string, args?: Record<string, unknown>, opts?: RunOptions): Promise<RunResult>;
   /** In-flight and abandoned invocations, the age of the oldest abandoned
    * one, process-level errors no invocation owned, event-loop lag, RSS,
@@ -188,6 +197,21 @@ export function checkWorkdir(dir: string): string {
     throw new HostError("workdir_mismatch", `${dir} is not the working directory ${process.cwd()}`);
   }
   return abs;
+}
+
+/** A run option's selectors as the run frame carries them, or undefined
+ * when the option is not given. The engine decodes a selector list that
+ * is not an array as a broken frame, which would end the connection, so
+ * the list and each entry's shape are checked here: a list of objects.
+ * The engine checks the selectors themselves, as it checks a plugin's
+ * (fields, form and ambiguity), and refuses the run otherwise. */
+function runSelectors(option: string, list: unknown): Selector[] | undefined {
+  if (list === undefined || list === null) return undefined;
+  if (!Array.isArray(list)) throw new Error(`the run's ${option} is not a list of selectors`);
+  list.forEach((s, i) => {
+    if (s === null || typeof s !== "object" || Array.isArray(s)) throw new Error(`the run's ${option}[${i}]: a selector is an object`);
+  });
+  return list as Selector[];
 }
 
 /** Registers the host's instances of host-provided modules, by the keys
@@ -374,6 +398,16 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     enginePid: child.pid ?? -1,
     run(path, args = {}, opts = {}) {
       if (draining) return Promise.reject(new HostError("draining", "the host is draining and takes no new runs"));
+      let selectors;
+      try {
+        selectors = {
+          write_capable: runSelectors("writeCapable", opts.writeCapable),
+          halt_before: runSelectors("haltBefore", opts.haltBefore),
+          halt_after: runSelectors("haltAfter", opts.haltAfter),
+        };
+      } catch (e) {
+        return Promise.reject(new HostError("refused", (e as Error).message));
+      }
       let submitted;
       try {
         // Submitted synchronously, so the scope captured is the caller's.
@@ -383,7 +417,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
           JSON.stringify(args),
           {
             intercept: opts.intercept && JSON.stringify(opts.intercept),
-            write_capable: opts.writeCapable,
+            ...selectors,
             fatal_error_names: opts.fatalErrorNames,
             deadline_ms: opts.deadlineMs,
             pre_write_deadline_ms: opts.preWriteDeadlineMs,
