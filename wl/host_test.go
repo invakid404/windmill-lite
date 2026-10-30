@@ -26,6 +26,9 @@ type testHost struct {
 	t    *testing.T
 	conn net.Conn
 	r    *bufio.Reader
+	// plugin, when not empty, is the host plugin declaration its hello
+	// carries (F2c).
+	plugin string
 }
 
 // newTestHost returns the engine's end of a socketpair and a host on the
@@ -92,16 +95,27 @@ func (h *testHost) next() harness.Message {
 // hello greets the engine as a host whose working directory is workdir.
 // The engine checks that the host is its parent: this test's parent.
 func (h *testHost) hello(digest, workdir string) {
-	h.send(harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "test"}, Runtime: harness.PinnedBun,
-		Caps: harness.Caps{Fetch: true, Native: true, Host: true}, Bundle: digest, PID: os.Getppid(), Workdir: workdir})
+	hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "test"}, Runtime: harness.PinnedBun,
+		Caps: harness.Caps{Fetch: true, Native: true, Host: true}, Bundle: digest, PID: os.Getppid(), Workdir: workdir}
+	if h.plugin != "" {
+		hello.Plugin = jsonval.FromProducer([]byte(h.plugin))
+	}
+	h.send(hello)
 }
 
 // openHost opens dir in host mode (opts.Host) on a socketpair, greets it
 // from the test host, whose working directory is hostCwd, and returns the
 // runtime, Open's error and the host, which has read the welcome.
 func openHost(t *testing.T, dir string, opts Options, hostCwd string) (*Runtime, error, *testHost, harness.Welcome) {
+	return openPluginHost(t, dir, opts, hostCwd, "")
+}
+
+// openPluginHost is openHost for a host whose hello declares the plugin
+// plugin (F2c).
+func openPluginHost(t *testing.T, dir string, opts Options, hostCwd, plugin string) (*Runtime, error, *testHost, harness.Welcome) {
 	t.Helper()
 	conn, h := newTestHost(t)
+	h.plugin = plugin
 	opts.Host.Conn = conn
 	// The watchdog stays off: the pid the engine would signal is this
 	// test's parent.

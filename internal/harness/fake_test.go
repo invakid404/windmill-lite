@@ -89,6 +89,9 @@ func fakeHarness(mode string) int {
 	if mode == "fresh-unread-pong" || mode == "fresh-hang" {
 		hello.Caps.Fresh = true
 	}
+	if mode == "plugin" {
+		hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+	}
 	send(hello)
 	w := recv().(Welcome)
 	if w.Reject != nil {
@@ -96,6 +99,17 @@ func fakeHarness(mode string) int {
 	}
 	heartbeat := time.Duration(w.Config.HeartbeatMS) * time.Millisecond
 	switch mode {
+	case "plugin":
+		// Answers every host_call with the hook it was for (F2c).
+		for {
+			switch m := recv().(type) {
+			case HostCall:
+				send(HostReply{ID: m.ID, Payload: jsonval.FromProducer([]byte(`{"hook":"` + m.Hook + `","run":"` + m.Run + `"}`))})
+			case Drain:
+				send(Bye{})
+				return 0
+			}
+		}
 	case "silent-reader":
 		// Heartbeats on its own and never reads again: the engine's writes
 		// back up while frames keep arriving from this side.

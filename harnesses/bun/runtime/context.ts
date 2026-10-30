@@ -49,6 +49,9 @@ export type InvocationContext = {
   work: InvocationResources | undefined;
   /** The invocation's log (WR-20, WR-23). */
   log: InvocationLog;
+  /** Latches text on the invocation's run (H5, wl.latch); throws once the
+   * engine no longer waits for the invocation. */
+  latch?: (text: string) => void;
 };
 
 /** The registry that work started in the caller's context registers in,
@@ -293,6 +296,63 @@ export function installProcessScope() {
 }
 
 installProcessScope();
+
+/** The step API (ADR 0008 H4 and H5, milestone F2c): `wl` on globalThis,
+ * which step code calls without importing anything, so a script that
+ * guards it (`globalThis.wl?.latch(e)`) still runs on Windmill.
+ *
+ * - `wl.latch(error)` latches error on the step's run (H5): the run starts
+ *   nothing more and ends latched with error's text (`<name>: <message>`
+ *   for an Error), whatever the step then returns or throws.
+ * - `wl.signal()` is the step's AbortSignal: it aborts, with the cancel's
+ *   reason (`timeout`, `canceled`, `run_ended`), when the engine abandons
+ *   the step: its timeout, the run's cancellation or deadlines (H4), or
+ *   the run's end. A step that ties its I/O to it stops with the run.
+ *
+ * Both throw a TypeError outside an open invocation, so a host plugin's
+ * hook, which runs outside every invocation, latches by throwing; an
+ * around wrapper runs inside its step's invocation and may call both. A
+ * native step's realm (D5) has no `wl`. */
+export type StepAPI = {
+  latch(error: unknown): void;
+  signal(): AbortSignal;
+};
+
+/** The current invocation, or a TypeError naming what needs one. */
+function openInvocation(what: string): InvocationContext {
+  const inv = invocations.getStore();
+  if (inv === undefined || inv.resources.settled) throw new TypeError(`windmill-lite: ${what} needs an open invocation: call it from step code while the step runs`);
+  return inv;
+}
+
+/** An error's text as a latch carries it. It never throws. */
+function latchText(error: unknown): string {
+  try {
+    if (error instanceof Error) return `${error.name}: ${error.message}`;
+    if (typeof error === "string") return error;
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return "(an error that cannot be printed)";
+  }
+}
+
+const stepAPI: StepAPI = Object.freeze({
+  latch(error: unknown) {
+    const inv = openInvocation("wl.latch");
+    if (error === undefined || error === null) throw new TypeError("windmill-lite: wl.latch needs the error to latch");
+    if (inv.latch === undefined) throw new TypeError("windmill-lite: wl.latch needs an open invocation: call it from step code while the step runs");
+    inv.latch(latchText(error));
+  },
+  signal() {
+    return openInvocation("wl.signal").signal;
+  },
+});
+
+/** Publishes the step API as globalThis.wl, before any step module loads;
+ * a step cannot replace it for the steps that share its process. */
+export function installStepAPI() {
+  if (!Object.hasOwn(globalThis, "wl")) Object.defineProperty(globalThis, "wl", { value: stepAPI, enumerable: false });
+}
 
 /** ABSENT: the current invocation deleted the variable. */
 const ABSENT = Symbol("absent");

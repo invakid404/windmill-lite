@@ -103,6 +103,13 @@ type ProcessConfig struct {
 	Facade   string
 	Platform PlatformHandler
 
+	// ExpectPlugin, when not nil, is the host plugin declaration the
+	// harness's hello must carry, byte for byte (milestone F2c): a pool
+	// whose first process loaded a plugin holds every later one to it, so
+	// all of them answer the same hooks. Another is refused with
+	// RejectPlugin.
+	ExpectPlugin []byte
+
 	// notify is called, outside every lock, after an invocation is
 	// abandoned and after an abandoned invocation settles completed, before
 	// its Reporter hears of either, and once the process has exited, before
@@ -245,6 +252,13 @@ type Process struct {
 	killReason string
 	readErr    error
 	status     ExitStatus
+
+	// hostCalls are the host_calls waiting for their replies, by id, under
+	// mu (milestone F2c); lateHostCalls those the engine stopped waiting
+	// for, until their replies come, each with what closes then.
+	hostCalls     map[string]chan HostReply
+	hostCallSeq   uint64
+	lateHostCalls map[string]chan struct{}
 }
 
 type procState int
@@ -541,11 +555,18 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		// watchdog would signal is its parent, and the one that greets it
 		// must be that process (ADR 0004 host mode item 4).
 		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine's parent is pid %d", h.PID, p.host.getppid())}
-	case p.host != nil && p.host.workdir != "":
+	case p.host != nil && p.host.workdir != "" && CheckWorkdir(p.host.workdir, h.Workdir) != nil:
 		// The host's working directory is where its steps run and where
 		// the engine writes their args.json (ADR 0004, the shared-process
 		// failure model, item 5).
 		reject = CheckWorkdir(p.host.workdir, h.Workdir)
+	case p.cfg.ExpectPlugin != nil && string(h.Plugin.Producer()) != string(p.cfg.ExpectPlugin):
+		// Every process of a pool answers the same hooks (F2c).
+		reject = &Reject{RejectPlugin, "the harness's host plugin declaration differs from the pool's"}
+	case p.host != nil && p.host.check != nil:
+		// The engine's own checks of the host, such as its plugin's
+		// declaration (F2c).
+		reject = p.host.check(h)
 	}
 	if reject != nil {
 		w.Reject = reject
@@ -669,6 +690,8 @@ func (p *Process) handleMessage(m Message) error {
 		err = p.onRun(m)
 	case Drain:
 		err = p.onHostDrain()
+	case HostReply:
+		err = p.onHostReply(m)
 	case RunCancel:
 		if p.host == nil {
 			err = protoErr(CodeUnexpected, "run_cancel from a harness that is not in host mode")
@@ -1548,6 +1571,11 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.ModuleState, p.cfg.Facade); err != nil {
 		return engine.StepOutcome{}, notDispatched, err
 	}
+	if len(inv.Around) > 0 && p.Hello().Plugin.IsZero() {
+		// The wrappers are the plugin's: a harness without one cannot run
+		// the step inside them (F2c).
+		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q: around wrappers %v, and the harness loaded no host plugin", inv.ID, inv.Around)
+	}
 	// The script receives, and args.json holds, the arguments without the
 	// worker's internal keys (WR-5).
 	args := scriptArgs(inv.Args)
@@ -1571,6 +1599,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		Args:     args,
 		Env:      env,
 		Boundary: string(inv.Boundary),
+		Around:   inv.Around,
 	})
 	if err != nil {
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)

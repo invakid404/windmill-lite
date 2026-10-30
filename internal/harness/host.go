@@ -71,6 +71,11 @@ type HostConfig struct {
 	// bundle did not open) and tells the host why before it exits. Run is
 	// then not needed.
 	Refuse *Reject
+	// Check, when set, is the engine's own check of the host's hello, after
+	// the protocol's: a reject it returns refuses the host, such as one
+	// whose host plugin declaration the engine cannot use (milestone F2c).
+	// It runs before the welcome goes out.
+	Check func(h Hello) *Reject
 	// Run serves one run the host submitted, on a goroutine of its own,
 	// and returns its outcome; the ID of what it returns is set from the
 	// request. ctx ends when the host cancels the run (with cause
@@ -93,6 +98,7 @@ type hostSide struct {
 	// has checked it, set before the welcome lets the host submit a run.
 	dir     string
 	refuse  *Reject
+	check   func(h Hello) *Reject
 	getppid func() int
 	signal  func(pid int) error
 
@@ -265,7 +271,7 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		cfg.Conn.Close()
 		return nil, err
 	}
-	p.host = &hostSide{run: cfg.Run, workdir: cfg.Workdir, refuse: cfg.Refuse, getppid: cfg.getppid, signal: cfg.signal}
+	p.host = &hostSide{run: cfg.Run, workdir: cfg.Workdir, refuse: cfg.Refuse, check: cfg.Check, getppid: cfg.getppid, signal: cfg.signal}
 	if cfg.Workdir != "" {
 		if p.host.dir, err = filepath.Abs(cfg.Workdir); err != nil {
 			cfg.Conn.Close()

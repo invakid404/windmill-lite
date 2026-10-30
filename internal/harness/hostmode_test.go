@@ -440,3 +440,226 @@ func TestHostRunRightAfterWelcome(t *testing.T) {
 		}
 	}
 }
+
+// pluginHello is a host's hello that declares a host plugin (F2c).
+func pluginHello() Hello {
+	h := hostHello()
+	h.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+	return h
+}
+
+// A host_call goes to the harness's plugin and returns its reply (F2c):
+// an answer, or an error the plugin gave, as a *HostCallError.
+func TestHostCallReplies(t *testing.T) {
+	h, p, err := attach(t, HostConfig{Run: echoRun}, pluginHello())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	type res struct {
+		v   jsonval.Value
+		err error
+	}
+	call := func() chan res {
+		ch := make(chan res, 1)
+		go func() {
+			v, err := p.HostCall(context.Background(), "on_module_start", "r1", "m:a", jsonval.FromProducer([]byte(`{"site":{}}`)))
+			ch <- res{v, err}
+		}()
+		return ch
+	}
+	ch := call()
+	c := h.expect(TypeHostCall).(HostCall)
+	if c.Hook != "on_module_start" || c.Run != "r1" || c.Site != "m:a" || string(c.Payload.Producer()) != `{"site":{}}` {
+		t.Fatalf("host_call %+v", c)
+	}
+	h.send(HostReply{ID: c.ID, Payload: jsonval.FromProducer([]byte(`{"ok":1}`))})
+	if r := <-ch; r.err != nil || string(r.v.Producer()) != `{"ok":1}` {
+		t.Fatalf("%s, %v", r.v.Producer(), r.err)
+	}
+	ch = call()
+	c = h.expect(TypeHostCall).(HostCall)
+	h.send(HostReply{ID: c.ID, Error: &HostError{Code: HostErrorUnknownHook, Message: "no such hook"}})
+	var he *HostCallError
+	if r := <-ch; !errors.As(r.err, &he) || he.Code != HostErrorUnknownHook || he.Hook != "on_module_start" {
+		t.Fatalf("%v; want the plugin's unknown_hook", r.err)
+	}
+}
+
+// A host_call whose context ends returns its cause, and the reply that
+// comes later is dropped, not a protocol error; a reply to no call is
+// one, which ends the connection.
+func TestHostCallLateAndStrayReplies(t *testing.T) {
+	h, p, err := attach(t, HostConfig{Run: echoRun}, pluginHello())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	cause := errors.New("the call's deadline")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.HostCall(ctx, "on_module_start", "r1", "", jsonval.FromProducer([]byte(`{}`)))
+		done <- err
+	}()
+	c := h.expect(TypeHostCall).(HostCall)
+	cancel(cause)
+	if err := <-done; !errors.Is(err, cause) {
+		t.Fatalf("%v; want the context's cause", err)
+	}
+	h.send(HostReply{ID: c.ID, Payload: jsonval.FromProducer([]byte(`{}`))})
+	h.send(Ping{ID: "after-late"})
+	if m := h.expect(TypePong).(Pong); m.ID != "after-late" {
+		t.Fatalf("pong %+v", m)
+	}
+	h.send(HostReply{ID: "hc-never", Payload: jsonval.FromProducer([]byte(`{}`))})
+	if !h.closed(2 * time.Second) {
+		t.Fatal("a reply to no host_call did not end the connection")
+	}
+}
+
+// Every host_call the engine stopped waiting for is remembered until its
+// reply comes, however many others ended meanwhile (F2c review R1-4): a
+// late reply is dropped and closes its call's Done, which tells a run's
+// settlement that the hook has finished (R1-2); a second reply to it
+// answers no call; and the harness's exit closes the Done of every call
+// still unanswered.
+func TestHostCallManyLateReplies(t *testing.T) {
+	h, p, err := attach(t, HostConfig{Run: echoRun}, pluginHello())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	const n = 300
+	ids := make([]string, n)
+	late := make([]*LateHostCallError, n)
+	for i := range n {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.HostCall(ctx, "on_module_start", "r", "", jsonval.FromProducer([]byte(`{}`)))
+			done <- err
+		}()
+		ids[i] = h.expect(TypeHostCall).(HostCall).ID
+		cancel()
+		if !errors.As(<-done, &late[i]) || !errors.Is(late[i], context.Canceled) {
+			t.Fatalf("call %d: want a *LateHostCallError with the context's cause", i)
+		}
+	}
+	select {
+	case <-late[0].Done:
+		t.Fatal("Done closed before the hook's reply came")
+	default:
+	}
+	h.send(HostReply{ID: ids[0], Payload: jsonval.FromProducer([]byte(`{}`))})
+	select {
+	case <-late[0].Done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first call's late reply did not close its Done")
+	}
+	h.send(HostReply{ID: ids[n-1], Error: &HostError{Code: HostErrorPlugin, Message: "late"}})
+	<-late[n-1].Done
+	h.send(Ping{ID: "after-late"})
+	if m := h.expect(TypePong).(Pong); m.ID != "after-late" {
+		t.Fatalf("pong %+v: a late reply ended the connection", m)
+	}
+	h.send(HostReply{ID: ids[0], Payload: jsonval.FromProducer([]byte(`{}`))})
+	if !h.closed(2 * time.Second) {
+		t.Fatal("a second reply to a call did not end the connection")
+	}
+	select {
+	case <-late[1].Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the harness's exit did not close an unanswered call's Done")
+	}
+}
+
+// A harness that declared no plugin is asked nothing, and gets no step to
+// run inside around wrappers; a host_call from a harness is a protocol
+// error (it goes from the engine to the harness only).
+func TestHostCallRefusals(t *testing.T) {
+	h, p, err := attach(t, HostConfig{Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
+		_, err := p.Execute(ctx, engine.Invocation{ID: "i", Run: r.ID, Script: "s", Entry: "main", Args: r.Args, Around: []int{0}})
+		if err == nil || !strings.Contains(err.Error(), "loaded no host plugin") {
+			return RunDone{Status: "failure"}
+		}
+		return RunDone{Status: "success"}
+	}}, hostHello())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	if _, err := p.HostCall(context.Background(), "intercept", "r", "m:a", jsonval.FromProducer([]byte(`{}`))); !errors.Is(err, ErrNoPlugin) {
+		t.Fatalf("%v; want ErrNoPlugin", err)
+	}
+	h.send(RunRequest{ID: "r1", Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(`{}`))})
+	if d := h.expect(TypeRunDone).(RunDone); d.Status != "success" {
+		t.Fatalf("an invocation with around wrappers reached a harness without a plugin: %+v", d)
+	}
+	h.send(HostCall{ID: "x", Hook: "intercept", Payload: jsonval.FromProducer([]byte(`{}`))})
+	if !h.closed(2 * time.Second) {
+		t.Fatal("a host_call from the harness did not end the connection")
+	}
+}
+
+// The handshake refuses a harness whose plugin declaration the engine
+// cannot use: one that differs from the pool's (ExpectPlugin), and one the
+// engine's own check refuses (HostConfig.Check), with plugin_mismatch.
+func TestHostPluginDeclarationRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  HostConfig
+	}{
+		{"its own check", HostConfig{Run: echoRun, Check: func(h Hello) *Reject {
+			if string(h.Plugin.Producer()) != `{"on_module_start":true}` {
+				return nil
+			}
+			return &Reject{RejectPlugin, "a selector names no module"}
+		}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _, err := attach(t, tc.cfg, pluginHello())
+			w := h.expect(TypeWelcome).(Welcome)
+			var he *HandshakeError
+			if !errors.As(err, &he) || he.Code != RejectPlugin || w.Reject == nil || w.Reject.Message != "a selector names no module" {
+				t.Fatalf("got %v, welcome %+v", err, w)
+			}
+		})
+	}
+	// A spawned process held to another declaration than its own, as a
+	// pool holds its later processes to its first one's.
+	cfg, _ := fakeConfig(t, "plugin")
+	cfg.ExpectPlugin = []byte(`{"intercept":[]}`)
+	_, err := Spawn(context.Background(), cfg)
+	var he *HandshakeError
+	if !errors.As(err, &he) || he.Code != RejectPlugin {
+		t.Fatalf("%v; want plugin_mismatch", err)
+	}
+}
+
+// A warm pool asks its process's plugin (Pool.HostCall), and reports the
+// declaration the process loaded (Pool.Plugin), starting a process for
+// either when none serves.
+func TestPoolHostCall(t *testing.T) {
+	cfg, _ := fakeConfig(t, "plugin")
+	pl, err := NewPool(PoolConfig{Key: Key{Class: "fake", Runtime: "fake-1", Deps: "d", ModuleState: engine.ModuleStateWarm}, Process: cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pl.Close(context.Background()) })
+	decl, err := pl.Plugin(context.Background())
+	if err != nil || string(decl.Producer()) != `{"on_module_start":true}` {
+		t.Fatalf("declaration %s, %v", decl.Producer(), err)
+	}
+	out, err := pl.HostCall(context.Background(), "on_module_start", "r1", "m:a", jsonval.FromProducer([]byte(`{}`)))
+	if err != nil || string(out.Producer()) != `{"hook":"on_module_start","run":"r1"}` {
+		t.Fatalf("reply %s, %v", out.Producer(), err)
+	}
+	fresh, err := NewPool(PoolConfig{Key: Key{Class: "fake", Runtime: "fake-1", Deps: "d", ModuleState: engine.ModuleStateFresh}, Process: cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fresh.HostCall(context.Background(), "on_module_start", "r1", "", jsonval.FromProducer([]byte(`{}`))); err == nil {
+		t.Fatal("a fresh pool asked a plugin")
+	}
+}

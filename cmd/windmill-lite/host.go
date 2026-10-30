@@ -27,6 +27,7 @@ func runHost(args []string, stderr io.Writer) int {
 	digest := fs.String("digest", "", "the bundle `digest` the bundle must have")
 	variables := fs.String("variables", "", "a JSON `file` of host variables, keyed by path, as in a bundle's data/variables.json; secrets go here")
 	resources := fs.String("resources", "", "a JSON `file` of host resources, keyed by path, as in a bundle's data/resources.json")
+	pluginTimeout := fs.Duration("plugin-timeout", 0, "how long a host_call to the host's plugin waits for its reply (default 1m)")
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
@@ -56,7 +57,7 @@ func runHost(args []string, stderr io.Writer) int {
 		defer children.Close()
 		host.Children = children
 	}
-	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host}
+	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout}
 	if opts.Variables, err = hostVariables(*variables); err == nil {
 		opts.Resources, err = hostResources(*resources)
 	}

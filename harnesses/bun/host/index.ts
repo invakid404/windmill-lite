@@ -18,7 +18,10 @@ import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { exitProcess, realStderr } from "../runtime/context.ts";
+import type { Plugin, Selector } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
+
+export type { AroundCall, Call, Outcome, PlatformCall, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, Warning } from "../runtime/plugin.ts";
 
 /** The process-wide registry of host-provided modules: module path to the
  * module's namespace (ADR 0010). */
@@ -53,6 +56,14 @@ export type ConnectOptions = {
   /** The host's own instances of the bundle's host-provided modules, by
    * module path. */
   hostModules?: Record<string, object>;
+  /** The host's plugin (ADR 0008, milestone F2c): TypeScript hooks for the
+   * host's runs (H1, H2, H6, H8, H9, H12, H13), around wrappers, and the
+   * providers of the bundle's host-provided sites, which the engine calls
+   * over host_call, each in the scope of the run it serves (H11). The
+   * engine checks its declaration in the handshake and refuses the host
+   * (plugin_mismatch) when a selector is malformed or ambiguous, or a
+   * provider the host contract names is missing. */
+  plugin?: Plugin;
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
   watchdog?: { killAfter: number };
@@ -81,6 +92,24 @@ export type RunOptions = {
   /** Static stand-ins for modules of the flow, by module id: H1's no-code
    * form (ADR 0008). */
   intercept?: Record<string, unknown>;
+  /** The flow run's write-capable selectors (H3), ahead of the plugin's:
+   * the plugin's beforeFirstWrite, when it has one, is asked before the
+   * first of them launches, and the run then may have mutated. */
+  writeCapable?: Selector[];
+  /** Error names that latch the flow run instead of failing a step (H7),
+   * with the plugin's. */
+  fatalErrorNames?: string[];
+  /** The run's hard deadline, in milliseconds from its submission (H4): the
+   * run ends canceled when it passes, and steps it left running are
+   * abandoned. */
+  deadlineMs?: number;
+  /** The flow run's pre-write deadline, in milliseconds from its
+   * submission (H4): it ends the run canceled if it passes before the
+   * first write is approved. */
+  preWriteDeadlineMs?: number;
+  /** The flow run's clock (H10): "record" returns every sleep and retry
+   * delay at once, and the run's deviations then list H10. */
+  clock?: "real" | "record";
   /** Cancels the run when it aborts. */
   signal?: AbortSignal;
   /** Called once the run has settled, after its outcome: every invocation
@@ -98,6 +127,11 @@ export type RunResult = {
   result?: unknown;
   mayHaveMutated: boolean;
   warnings: { code: string; message: string }[];
+  /** The error a latched run latched (H5), such as provider_declined. */
+  latched?: string;
+  /** The flow run's deviations that depend on a run-time setting, as its
+   * trace lists them (H7, H10). */
+  deviations: string[];
 };
 
 export type Health = HostHealth & {
@@ -271,6 +305,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     host: true,
     children,
     diag,
+    plugin: o.plugin,
     transport: {
       // Accepting nothing while the socket's buffer is full keeps the
       // sender's order: a small frame waits behind at most one part frame
@@ -328,7 +363,20 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       let submitted;
       try {
         // Submitted synchronously, so the scope captured is the caller's.
-        submitted = runtime.submit(opts.kind ?? "flow", path, JSON.stringify(args), opts.intercept && JSON.stringify(opts.intercept), opts.onSettled);
+        submitted = runtime.submit(
+          opts.kind ?? "flow",
+          path,
+          JSON.stringify(args),
+          {
+            intercept: opts.intercept && JSON.stringify(opts.intercept),
+            write_capable: opts.writeCapable,
+            fatal_error_names: opts.fatalErrorNames,
+            deadline_ms: opts.deadlineMs,
+            pre_write_deadline_ms: opts.preWriteDeadlineMs,
+            clock: opts.clock,
+          },
+          opts.onSettled,
+        );
       } catch (e) {
         return Promise.reject(e);
       }
@@ -345,6 +393,8 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             result: o.result === undefined ? undefined : JSON.parse(o.result),
             mayHaveMutated: o.may_have_mutated,
             warnings: o.warnings,
+            latched: o.latched,
+            deviations: o.deviations,
           }),
           (e) => {
             throw e instanceof RunError ? new HostError(e.code, e.detail) : e;
