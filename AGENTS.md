@@ -6,9 +6,9 @@ windmill-lite is and what works today.
 
 ## Layout
 
-Add a package or a top-level directory only where
-[ADR 0012](docs/design/0012-layout-and-milestones.md) places it, or amend
-ADR 0012 in the same pull request.
+Add a package or a top-level directory only where the package layout
+([ADR 0012](docs/design/0012-layout-and-milestones.md)) places it, or amend
+that ADR in the same pull request.
 
 ## Language
 
@@ -92,6 +92,9 @@ The semantics team writes and validates the semantics reference
 
 - Write documentation to the [writing standard](docs/writing.md), and use
   the terms in the [glossary](docs/glossary.md).
+- Keep documentation self-contained and durable: no milestone IDs or other
+  work codes, and no history of the work
+  ([Self-contained and durable](docs/writing.md#self-contained-and-durable)).
 - Give every module directory a `README.md`, and index it from the root
   [README](README.md).
 - After your last edit, follow the per-session flow in

@@ -82,10 +82,9 @@ class BlockTest(unittest.TestCase):
     def test_escaped_pipe_stays_in_its_cell(self) -> None:
         self.assertEqual(checker.table_cells(r"| a \| b | c |"), [r"a \| b", "c"])
 
-    def test_code_comments_and_headings_are_not_prose(self) -> None:
+    def test_code_and_comments_are_not_prose(self) -> None:
         long = words(90)
         text = "\n".join([
-            f"# {long}",
             "```sh",
             long,
             "```",
@@ -101,6 +100,11 @@ class BlockTest(unittest.TestCase):
             f"    {long}",
         ])
         self.assertEqual(checker.blocks(text), [])
+
+    def test_headings_are_checked_for_work_codes_only(self) -> None:
+        text = f"# {words(90)}\n\n## Added in F3b\n"
+        self.assertEqual([b.kind for b in checker.blocks(text)], ["heading", "heading"])
+        self.assertEqual([(f.rule, f.line) for f in checker.check_text("doc.md", text)], [("work-code", 3)])
 
     def test_indented_text_after_a_list_item_is_prose(self) -> None:
         text = f"- Item.\n\n    {words(45)}\n"
@@ -138,6 +142,33 @@ class SentenceTest(unittest.TestCase):
 
     def test_punctuation_is_not_a_word(self) -> None:
         self.assertEqual(checker.words("a — b | c"), 3)
+
+
+class WorkCodeTest(unittest.TestCase):
+    def test_milestone_ids_and_plan_codes_are_reported(self) -> None:
+        for code in ("F3b", "SC5", "DS1", "N5", "B1a", "PF2", "FU8", "NI", "SR-4", "M3-F5", "MD-D9", "R16"):
+            with self.subTest(code=code):
+                self.assertEqual(checker.work_codes(f"Added in {code} last week."), [code])
+
+    def test_process_words_and_pull_request_numbers_are_reported(self) -> None:
+        self.assertEqual(checker.work_codes("Wave 2 lands it (#77)."), ["#77", "Wave 2"])
+        self.assertEqual(checker.work_codes("The second review round fixed it."), ["second review round"])
+        self.assertEqual(checker.work_codes("Fix round 2 and round 3 did."), ["Fix round 2", "round 3"])
+        self.assertEqual(checker.work_codes("Keep review rounds out of the tree."), [])
+
+    def test_identifiers_that_documents_define_are_not_work_codes(self) -> None:
+        text = "WR-2, OR-30, FX-40, Q-WA-4, deviation D9, hook H3, V8, ADR 0006, S3, E2E, be664ca1, 1.3.10, C0, F7-seq"
+        self.assertEqual(checker.work_codes(text), [])
+
+    def test_one_finding_for_each_block(self) -> None:
+        findings = checker.check_text("doc.md", "F3b and F3b, then SC5.\n")
+        self.assertEqual([(f.rule, f.message) for f in findings], [
+            ("work-code", "paragraph names F3b, SC5; name the behaviour or the decision instead"),
+        ])
+
+    def test_inline_code_and_link_targets_are_not_checked(self) -> None:
+        text = "Run `wltest record F3b` from [the oracle guide](../x.md#batch-e3f).\n"
+        self.assertEqual(checker.check_text("doc.md", text), [])
 
 
 class CurrentStateTest(unittest.TestCase):

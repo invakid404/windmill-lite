@@ -26,7 +26,6 @@ gives the reason.
 | host mode | The mode in which a Bun host runs the steps in its own process, and starts `windmill-lite host` as its engine ([ADR 0009](design/0009-host-adapters.md)). | |
 | invocation | One call of one step's script in a harness process, from its arguments to its result. A run of a flow has an invocation each time that it runs a script step. | execution, job |
 | job | Windmill's unit of queued work: Windmill runs each step as a job. windmill-lite has no job queue. It gives each step the job identity that scripts read, such as `WM_JOB_ID`. Use "job" only for Windmill's jobs and for this identity. | |
-| milestone | A unit of work, one pull request in size, in the tables of [ADR 0012](design/0012-layout-and-milestones.md), with an ID such as `A4`. Cite milestone IDs only in ADRs and pull requests. | |
 | oracle | An unmodified Windmill Community Edition image at the pinned version, which public CI runs to record the behaviour that windmill-lite must match ([ADR 0011](design/0011-differential-testing.md)). | |
 | pinned version | Windmill `v1.767.0`: the release that the semantics reference describes and the oracle runs. | |
 | program | The output of the compiler: a sync folder and a host contract, compiled and validated into the form that the engine runs ([internal/ir](../internal/ir/README.md)). | |

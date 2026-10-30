@@ -9,7 +9,7 @@ windmill-lite itself.
 
 | Script | What it does |
 |---|---|
-| `check-docs.py` | Reports the Markdown that breaks the countable rules of the [writing standard](../docs/writing.md#what-ci-checks): a block of prose over 4 sentences or 80 words, a sentence over 40 words, and a README with no `**Current state:**` line. It exits 0 unless you pass `--strict`. |
+| `check-docs.py` | Reports the Markdown that breaks one of the four countable rules of the writing standard, which its section [What CI checks](../docs/writing.md#what-ci-checks) lists. It exits 0 unless you pass `--strict`. |
 | `test_check_docs.py` | Unit tests for `check-docs.py`, run by CI. They also check that the script's limits equal the limits in `docs/writing.md` and `memoria.toml`. |
 
 The `Docs (report only)` job of the [CI workflow](../.github/workflows/ci.yml)

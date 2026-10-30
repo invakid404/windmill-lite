@@ -8,12 +8,16 @@ The rules:
 - sentence-length: a sentence has more than MAX_SENTENCE_WORDS words.
 - current-state: a README.md has no `**Current state:**` line before its
   first `##` heading.
+- work-code: a block or a heading names an internal plan or work code: a
+  milestone ID such as F3b, a plan item such as M3-F5, a wave number, a
+  review or fix round, or a pull request number.
 
 The check is advisory. It prints each finding and exits 0, so CI reports
 findings without failing; --strict exits 1 when there is a finding.
 
-Code blocks, inline code, HTML comments (Memoria markers among them),
-headings and link targets are not prose. Inline code counts as one word.
+Code blocks, inline code, HTML comments (Memoria markers among them) and
+link targets are not prose. Inline code counts as one word. Headings are
+checked for work codes only.
 
 Usage: check-docs.py [--diff-base REV] [--github] [--summary FILE] [--strict] [PATH ...]
 
@@ -65,6 +69,19 @@ SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[A-Z0-9\"“'(\[@*_])")
 ABBREVIATIONS = {"e.g", "i.e", "etc", "vs", "cf", "approx", "no"}
 WORD = re.compile(r"\w")
 
+# Milestone IDs use the prefixes of ADR 0012's tables and of the follow-up,
+# semantics-revision and documentation milestones. Deviations (D9) and hooks
+# (H3) are identifiers that ADRs define, so they are not work codes. A
+# defined name that looks like a milestone ID (a fixture called B2) is still
+# reported; the reviewer decides.
+ORDINAL = r"(?:first|second|third|fourth|fifth|\d+(?:st|nd|rd|th))"
+WORK_CODES = (
+    re.compile(r"(?<![\w-])(?:(?:[ABCEFGKNRW]|PF|FU|SC|DS)[1-9]\d?[a-z]?|NI)\b(?!-\w)"),
+    re.compile(r"\b(?:SR-\d+|M(?:D|\d+)-[A-Z]+\d+)\b"),
+    re.compile(r"(?<![\w&/])#\d{1,5}\b"),
+    re.compile(rf"\bwaves? \d+\b|\b(?:review |fix )?rounds? \d+\b|\b{ORDINAL} (?:review |fix )?round\b", re.IGNORECASE),
+)
+
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
@@ -72,7 +89,7 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 class Block:
     start: int  # first line, 1-based
     end: int  # last line
-    kind: str  # "paragraph", "list item" or "table cell"
+    kind: str  # "paragraph", "list item", "table cell" or "heading"
     text: str
 
 
@@ -139,7 +156,12 @@ def blocks(text: str) -> list[Block]:
         if not stripped:
             flush()
             continue
-        if HEADING.match(line) or THEMATIC_BREAK.match(line) or HTML_BLOCK.match(line):
+        if HEADING.match(line):
+            flush()
+            in_list = False
+            out.append(Block(number, number, "heading", stripped.lstrip("#").strip()))
+            continue
+        if THEMATIC_BREAK.match(line) or HTML_BLOCK.match(line):
             flush()
             in_list = False
             continue
@@ -219,9 +241,26 @@ def has_current_state(text: str) -> bool:
     return False
 
 
+def work_codes(text: str) -> list[str]:
+    found: list[str] = []
+    for pattern in WORK_CODES:
+        for match in pattern.finditer(text):
+            if match.group(0) not in found:
+                found.append(match.group(0))
+    return found
+
+
 def check_block(path: str, block: Block) -> list[Finding]:
     findings: list[Finding] = []
     body = prose(block.text)
+    codes = work_codes(body)
+    if codes:
+        findings.append(Finding(
+            path, block.start, "work-code",
+            f"{block.kind} names {', '.join(codes)}; name the behaviour or the decision instead",
+        ))
+    if block.kind == "heading":
+        return findings
     parts = sentences(body)
     total = words(body)
     if len(parts) > MAX_SENTENCES or total > MAX_WORDS:

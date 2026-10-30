@@ -22,6 +22,47 @@ can scan. Leave out everything else.
 Short text is a result of these rules, not the goal. Add a sentence when the
 reader needs it.
 
+## Self-contained and durable
+
+Every sentence must make sense to a reader who has never seen the project's
+plans. It must also stay true after the work that produced it is forgotten.
+These rules apply to every document type.
+
+- **Self-contained.** Do not use internal plan or work codes, as names or as
+  explanations. These codes include milestone IDs such as `F3b` or `SC5`,
+  wave numbers, plan items, review rounds and pull request numbers. Name the
+  thing itself, such as "host mode", not the work that built it.
+- **Durable.** Record what the system does, why it does it, and its limits.
+  Do not record the history of the work: what a milestone added or fixed,
+  revision notes, or the count of review rounds. Git and pull requests hold
+  that history.
+
+### Identifiers
+
+A document can use an identifier only when both of these conditions are
+true:
+
+- A document in this repository defines the identifier in one place, as the
+  stable name of a behaviour or a decision. A finding such as `WR-2` is
+  defined by its heading in the semantics reference, a deviation such as
+  `D9` by its row in ADR 0001, and an ADR by its file name.
+- The sentence that uses the identifier is clear without it. The sentence
+  states the behaviour or the decision, and the identifier only points to
+  its definition.
+
+Outside the definition, link each use of an identifier to its definition. A
+milestone ID never meets the first condition, because it names work, not
+behaviour.
+
+### Decision records
+
+- An ADR keeps the decision, its context, the alternatives and the
+  consequences.
+- An ADR does not track the status of work, such as which milestones are
+  done.
+- When a decision changes, amend the ADR so that it states the current
+  decision, and keep the replaced option among the alternatives.
+
 ## Structure
 
 Structure is the main rule. Fix the structure of a document before you edit
@@ -91,11 +132,9 @@ These rules adapt principles of ASD-STE100 Simplified Technical English
 ## Document types
 
 Each document type has one reader and one purpose. Write for that reader.
-
-The root README, the package READMEs, the guides and the glossary are
-**user-facing**.
-They carry no milestone IDs, process history or review notes. That history
-belongs in Git, in pull requests and in ADRs.
+Every type follows the rules in
+[Self-contained and durable](#self-contained-and-durable). Review notes
+belong in pull requests.
 
 ### Root README
 
@@ -125,9 +164,10 @@ An ADR (architecture decision record) is a numbered file in `docs/design/`.
   what it is.
 - **Purpose:** record one decision: its context, the options, the decision
   and its consequences.
-- **Contents:** the status and the topic at the top. When code departs from
-  an ADR, amend the ADR in the same pull request.
-- An ADR is a record of history, so it can cite milestone IDs.
+- **Contents:** the status and the topic at the top, then the context, the
+  decision, the alternatives and the consequences
+  ([Decision records](#decision-records)).
+- When code departs from an ADR, amend the ADR in the same pull request.
 
 ### Semantics reference
 
@@ -137,6 +177,8 @@ An ADR (architecture decision record) is a numbered file in `docs/design/`.
 - **Contents:** one rule in each finding, with its ID, scope, confidence,
   status and conformance cases. [docs/semantics/README.md](semantics/README.md)
   gives the format.
+- A finding states Windmill's behaviour at the pinned version. Its history
+  is in Git, not in revision notes.
 - The semantics team writes it, under the clean-room rules in
   [AGENTS.md](../AGENTS.md#clean-room).
 
@@ -154,8 +196,8 @@ An ADR (architecture decision record) is a numbered file in `docs/design/`.
 - **Purpose:** say why the code is as it is, and what the code cannot show.
 - **Contents:** a Go doc comment on each exported name, starting with the
   name. Where code implements a finding, cite the finding's ID.
-- Do not restate what the code says. Cite a finding or an ADR, not a
-  milestone ID.
+- Do not restate what the code says. Do not name the milestone or the pull
+  request that wrote the code.
 
 ### Agent instructions
 
@@ -190,7 +232,9 @@ A guide explains one task or one standard, such as
 - Keep code spans, code blocks, paths, identifiers and quoted errors
   byte-exact.
 
-## Example
+## Examples
+
+### Structure
 
 This paragraph is from the quick start of the root [README](../README.md):
 
@@ -210,7 +254,7 @@ standard:
 > | Variable | Value | Tests that need it |
 > |---|---|---|
 > | `WL_BUN` | The path of a Bun 1.3.10 executable, the Bun of Windmill v1.767.0 | The harness, build, skeleton and host-mode tests |
-> | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.767.0` | The Q-WA-4 test and the facade's attribution test |
+> | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.767.0` | The test of per-invocation isolation on Bun 1.3.10 ([Q-WA-4](semantics/client-api.md#q-wa-4)), and the facade's attribution test |
 >
 > To run these tests:
 >
@@ -228,10 +272,50 @@ What changed:
 - The longest sentence has 10 words instead of 30.
 - How CI fetches the client is gone. A reader who runs the tests does not
   need it, and the CI workflow is its home.
+- The Q-WA-4 test is named by what it tests, and its identifier links to
+  its definition.
+
+### Work codes and history
+
+This sentence is from the current state of the root README, shown here
+without its links:
+
+```text
+F4 gives the `windmill-lite` command its first work, in internal/bundle:
+`build` turns a sync folder and a host contract into a bundle (the compiled
+program, the bundled Bun scripts and the folder's data) with a manifest that
+records the digest of every file and of every input, and whose own digest
+identifies the bundle; `verify` checks a bundle against a release manifest;
+`selfcheck` starts the expression engine.
+```
+
+It names a milestone, and it records history: "its first work". Rewritten
+to this standard:
+
+> The `windmill-lite` command ([cmd/windmill-lite](../cmd/windmill-lite/README.md))
+> has these subcommands, among others:
+>
+> - `build` turns a sync folder and a host contract into a bundle: the
+>   compiled program, the bundled Bun scripts and the sync folder's data. A
+>   manifest records the digest of every file and of every input, and the
+>   bundle's own digest identifies the bundle.
+> - `verify` checks a bundle against a release manifest.
+> - `selfcheck` starts the expression engine.
+
+What changed:
+
+- The milestone ID and the history are gone. The reader learns what the
+  command does today, not which work added it.
+- The three subcommands are a list, with one item for each.
+
+The same README says that `wltest check` also runs each CommonJS codebase
+bundle on Node, `where Windmill runs it (C2b, deviation D13)`. The milestone
+ID goes, and the deviation's identifier stays, as a link to its definition:
+"where Windmill runs it ([deviation D13](design/0001-equivalence-contract.md))".
 
 ## What CI checks
 
-[scripts/check-docs.py](../scripts/check-docs.py) reports three rules. CI
+[scripts/check-docs.py](../scripts/check-docs.py) reports four rules. CI
 runs it on the Markdown that a pull request changes, and reports each
 finding as a warning on the changed block. It never fails CI.
 
@@ -240,6 +324,10 @@ finding as a warning on the changed block. It never fails CI.
 | `paragraph-length` | A block of more than 4 sentences or more than 80 words |
 | `sentence-length` | A sentence of more than 40 words |
 | `current-state` | A README with no `**Current state:**` line before its first `##` heading |
+| `work-code` | A block or a heading that names a milestone ID, a plan item, a wave number, a numbered review round or a pull request number |
+
+The `work-code` rule can also report a defined name that looks like a
+milestone ID, such as a fixture called `B2`. The reviewer decides.
 
 To check your own files, run `python3 scripts/check-docs.py <file>...`.
 Reviewers check the other rules. [memoria.toml](../memoria.toml) lists them
