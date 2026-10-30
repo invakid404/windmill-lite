@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -97,29 +98,41 @@ func ParseCodebaseSettings(raw json.RawMessage) (*CodebaseSettings, error) {
 	return s, nil
 }
 
+// defaultLoaders are esbuild 0.28.0's own loaders by file suffix, which
+// a build's loader map adds to and overrides; "" is a name without a dot.
+var defaultLoaders = map[string]string{
+	"": "js", ".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "jsx",
+	".ts": "ts", ".cts": "ts", ".mts": "ts", ".tsx": "tsx",
+	".css": "css", ".module.css": "local-css", ".json": "json", ".txt": "text",
+}
+
 // loaderFor is the name of the loader esbuild bundles file with under
-// these settings: the entry's loader map's for its extension, or else
-// esbuild's own for the extension, or "" for none (WR-47).
+// these settings, picked as esbuild picks it: the loaders by suffix are
+// esbuild's own with the entry's loader map over them (or the CLI's
+// {".node": "file"}, CLIOptions), and the file's is that of the longest
+// suffix of its name that starts at a dot, so ".module.ts" wins over
+// ".ts" whichever map gives either. A name without a dot takes "". It
+// returns "" when no suffix has a loader, or when the longest one's is
+// "default", which leaves the file with none (WR-47).
 func (s *CodebaseSettings) loaderFor(file string) string {
-	ext := path.Ext(file)
-	if name, ok := s.Loader[ext]; ok {
-		return name
+	bySuffix := maps.Clone(defaultLoaders)
+	if s.Loader != nil {
+		maps.Copy(bySuffix, s.Loader)
+	} else {
+		bySuffix[".node"] = "file"
 	}
-	switch ext {
-	case ".js", ".mjs", ".cjs":
-		return "js"
-	case ".jsx":
-		return "jsx"
-	case ".ts", ".mts", ".cts":
-		return "ts"
-	case ".tsx":
-		return "tsx"
-	case ".json":
-		return "json"
-	case ".css":
-		return "css"
-	case ".txt":
-		return "text"
+	name := path.Base(file)
+	if !strings.Contains(name, ".") {
+		return bySuffix[""]
+	}
+	for i := strings.IndexByte(name, '.'); i >= 0; i = strings.IndexByte(name, '.') {
+		if l, ok := bySuffix[name[i:]]; ok {
+			if l == "default" {
+				return ""
+			}
+			return l
+		}
+		name = name[i+1:]
 	}
 	return ""
 }

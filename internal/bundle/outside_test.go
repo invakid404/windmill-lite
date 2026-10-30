@@ -152,3 +152,43 @@ func TestBuildOutsideHostModuleSources(t *testing.T) {
 		t.Fatal("editing a source of the outside module's copy left the digest alone")
 	}
 }
+
+// loaderFor picks a file's loader as esbuild 0.28.0 does (WR-47): the
+// longest suffix of its name that starts at a dot, over esbuild's own
+// loaders with the entry's loader map on top (milestone F3h, review round
+// 2). The D12 codebase-outside-compound cases check the same picks
+// against esbuild's builds.
+func TestLoaderFor(t *testing.T) {
+	for _, c := range []struct {
+		loader map[string]string
+		file   string
+		want   string
+	}{
+		{nil, "../lib/ctx.ts", "ts"},
+		{nil, "../lib/ctx.tsx", "tsx"},
+		{nil, "../lib/ctx.mts", "ts"},
+		{nil, "../lib/ctx.module.ts", "ts"},
+		{nil, "../lib/style.module.css", "local-css"},
+		{nil, "../lib/notes.txt", "text"},
+		{nil, "../lib/ctx", "js"},
+		{nil, "../lib/addon.node", "file"},
+		{nil, "../lib/ctx.unknown", ""},
+		{map[string]string{".module.ts": "tsx"}, "../lib/ctx.module.ts", "tsx"},
+		{map[string]string{".ts": "ts", ".module.ts": "tsx"}, "../lib/ctx.module.ts", "tsx"},
+		{map[string]string{".ts": "tsx", ".module.ts": "ts"}, "../lib/ctx.module.ts", "ts"},
+		{map[string]string{".source.txt": "ts"}, "../lib/ctx.source.txt", "ts"},
+		{map[string]string{".module.ts": "text"}, "../lib/ctx.module.ts", "text"},
+		{map[string]string{".module.ts": "text"}, "../lib/ctx.ts", "ts"},
+		{map[string]string{".css": "text"}, "../lib/style.module.css", "local-css"},
+		{map[string]string{".js": "jsx"}, "../lib/view.js", "jsx"},
+		{map[string]string{".module.ts": "default"}, "../lib/ctx.module.ts", ""},
+		{map[string]string{".js": "jsx"}, "../lib/addon.node", ""},
+		{map[string]string{".js": "jsx"}, "../lib/ctx", "js"},
+		{nil, "../lib/.hidden.ts", "ts"},
+	} {
+		s := &CodebaseSettings{Loader: c.loader}
+		if got := s.loaderFor(c.file); got != c.want {
+			t.Errorf("loader %v, file %s: %q, want %q", c.loader, c.file, got, c.want)
+		}
+	}
+}

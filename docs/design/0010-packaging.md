@@ -145,9 +145,11 @@ the host was a compiled Bun executable.
    codebase entry whose `relative_path` holds it (the deepest, when several
    do) and the other listed modules resolved to their shims, and its export
    names come from that bundle's metafile. The live-binding check reads its
-   source with the syntax of the loader esbuild bundles it with (its
-   extension's, or the entry's `loader` override), so TSX and JSX modules
-   can be listed. Its files are named by the id
+   source with the syntax of the loader esbuild bundles it with, picked as
+   esbuild picks it: the longest suffix of the file's name that starts at a
+   dot, over esbuild's own loaders with the entry's `loader` map on top (so
+   `.module.ts` wins over `.ts`). TSX and JSX modules can be listed, and a
+   file whose loader is not a JavaScript one is not read as code. Its files are named by the id
    `outside/<n>/` and the rest of its path, where `n` counts the leading
    `../`, and it is registered after the modules inside the folder, which
    cannot import it; the files of the folder its copy reads are sources of

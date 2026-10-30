@@ -340,8 +340,10 @@ identifier is written as a string export name.
 `BuildOutside(ctx, OutsideConfig)` builds the listed modules outside the
 folder (milestone F3h), which only codebase scripts can import. The
 helper's `parse` op reads each source, with the syntax of the loader
-esbuild bundles it with (`loaderFor`: the entry's `loader` override, or
-esbuild's own for the extension, so TSX and JSX parse), for
+esbuild bundles it with (`loaderFor`, which picks it as esbuild 0.28.0
+does: the longest suffix of the name that starts at a dot, over esbuild's
+own loaders with the entry's `loader` map on top; so TSX and JSX parse,
+and a file of another loader is not parsed), for
 `host_module_live_binding` (`export let` or `export var`); a first
 esbuild build of each, with the
 outside modules' shims as CommonJS placeholders that take any import name,
@@ -480,6 +482,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
   directory and the refusals.
+- `TestLoaderFor` checks the loader picks: compound suffixes over shorter
+  ones from either map, `default`, a name without a dot, the CLI's `.node`
+  default; the D12 `codebase-outside-compound-*` cases check them against
+  esbuild's builds.
 - `TestBuildOutsideHostModuleSources` checks that a file of the folder
   that only an outside module's copy reads is a source, and that a
   comment in it, which leaves the copy alone, changes the digest.

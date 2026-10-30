@@ -1078,6 +1078,123 @@
           }
         ]
       }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-compound-tsx",
+      "provenance": "policy",
+      "title": "an outside module whose compound suffix the entry's loader map gives tsx parses as TSX, over the shorter suffix's ts",
+      "note": "The loader of an outside module, whose syntax the live-binding check reads, is picked as esbuild picks it: the longest suffix of the name that starts at a dot, over esbuild's own loaders with the entry's loader map on top (WR-47; milestone F3h, review round 2). ctx.module.ts takes .module.ts's tsx, not .ts's ts.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n    loader:\n      \".ts\": ts\n      \".module.ts\": tsx\n",
+          "f/cb/read.ts": "import { el, loads } from \"../../../lib/ctx.module.ts\";\nexport function main() { return [el, loads()]; }\n"
+        },
+        "outside": {
+          "../lib/ctx.module.ts": "const React = { createElement: (tag: string) => tag };\nglobalThis.wlCompoundLoads = (globalThis.wlCompoundLoads ?? 0) + 1;\nexport const el = <div />;\nexport function loads(): number { return globalThis.wlCompoundLoads; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.module.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "outside/1/lib/ctx.module.ts"
+        ],
+        "entries": {
+          "f/cb/read": {
+            "host_modules": [
+              "../lib/ctx.module.ts"
+            ],
+            "bundle_not_contains": [
+              "wlCompoundLoads"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "outside/1/lib/ctx.module.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/read",
+              "result": [
+                "div",
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-compound-ts-live-binding",
+      "provenance": "policy",
+      "title": "an outside module whose compound suffix the entry's loader map gives ts is checked as TypeScript, over the shorter suffix's text, and its export let is refused",
+      "note": "The loader of an outside module, whose syntax the live-binding check reads, is picked as esbuild picks it: the longest suffix of the name that starts at a dot, over esbuild's own loaders with the entry's loader map on top (WR-47; milestone F3h, review round 2). ctx.source.txt takes .source.txt's ts, not .txt's text, so esbuild compiles it as a module whose count bump() reassigns, which a shim cannot follow.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n    loader:\n      \".txt\": text\n      \".source.txt\": ts\n",
+          "f/cb/read.ts": "import * as ctx from \"../../../lib/ctx.source.txt\";\nexport function main() { ctx.bump(); return ctx.count; }\n"
+        },
+        "outside": {
+          "../lib/ctx.source.txt": "export let count = 0;\nexport function bump() { count++; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.source.txt]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module ../lib/ctx.source.txt",
+            "kind": "host_module_live_binding",
+            "contains": [
+              "../lib/ctx.source.txt",
+              "count"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-compound-text",
+      "provenance": "policy",
+      "title": "an outside module whose compound suffix the entry's loader map gives text is not read as JavaScript: its text is its default export",
+      "note": "The loader of an outside module, whose syntax the live-binding check reads, is picked as esbuild picks it: the longest suffix of the name that starts at a dot, over esbuild's own loaders with the entry's loader map on top (WR-47; milestone F3h, review round 2). ctx.module.ts takes .module.ts's text, so its export let is text, not a binding, and the module is listed, built and shared.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n    loader:\n      \".module.ts\": text\n",
+          "f/cb/read.ts": "import text from \"../../../lib/ctx.module.ts\";\nexport function main() { return text; }\n"
+        },
+        "outside": {
+          "../lib/ctx.module.ts": "export let count = 0;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.module.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/read": {
+            "host_modules": [
+              "../lib/ctx.module.ts"
+            ],
+            "bundle_not_contains": [
+              "export let count"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "outside/1/lib/ctx.module.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/read",
+              "result": "export let count = 0;\n"
+            }
+          ]
+        }
+      }
     }
   ]
 }
