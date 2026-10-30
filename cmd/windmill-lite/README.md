@@ -1,10 +1,11 @@
 # cmd/windmill-lite
 
-**Current state:** milestones F4, F1, F3a and F8b of
+**Current state:** milestones F4, F1 and F3a of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
 covers the `windmill-lite` command in this directory and its `testdata/`.
 The command prints its version, builds a bundle from a Windmill sync
-folder, verifies a bundle, runs a bundle's flow or script through the
+folder (with shared code when asked,
+[ADR 0013](../../docs/design/0013-shared-module-code.md)), verifies a bundle, runs a bundle's flow or script through the
 [wl](../../wl/README.md) library (F1), checks that its expression engine
 starts, and serves host mode on a built bundle through `wl` (F3a). The commands that serve a bundle (`serve`), pack it
 (`pack`, `image`) or generate clients (`gen`) do not exist yet.
@@ -232,7 +233,7 @@ They need the pinned Bun in `WL_BUN` too, and the build helper's
 dependencies.
 
 `memory_test.go` measures what warm step modules cost a host process: the
-evidence of milestone F8a's record and the memory gate of F8b,
+evidence and the memory gate of
 [ADR 0013](../../docs/design/0013-shared-module-code.md).
 `testdata/memhost/host.ts` is a Bun host that embeds the SDK, registers the
 host-provided modules `WL_HOST_MODULES` names, connects the engine, and
@@ -248,12 +249,12 @@ each in three layouts:
 - **shared-instance**: the shared module is host-provided (D12), so the
   host's one instance serves every step;
 - **shared-code**: ADR 0013's decision as the build makes it
-  (`Config.SharedCode`, milestone F8b): one closure per build group,
+  (`Config.SharedCode`): one closure per build group,
   compiled once per process, and an instance of it per step module. A
   build that leaves any script on its per-script bundle
   (`shared_code_fallback`) fails the test.
 
 | Test | What it shows |
 |---|---|
-| `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB (the exit gate of F8b). Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
-| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, 34 CommonJS codebase scripts of about 6.9 MB each that import one module outside the sync folder, over mongoose, `windmill-client`, js-yaml, Babel's parser and types (pinned by `testdata/memory/closure.package.json` and `closure.bun.lock`, which it installs, so it needs the network once) and a generated package shaped like an API client. It reports the resident set with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs; with shared code, F8b's memory gate: at most 16 MiB per further module and a peak within the embedder's budget of 650 MiB after the soak |
+| `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB (ADR 0013's memory gate). Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
+| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, 34 CommonJS codebase scripts of about 6.9 MB each that import one module outside the sync folder, over mongoose, `windmill-client`, js-yaml, Babel's parser and types (pinned by `testdata/memory/closure.package.json` and `closure.bun.lock`, which it installs, so it needs the network once) and a generated package shaped like an API client. It reports the resident set with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs; with shared code, ADR 0013's memory gate: at most 16 MiB per further module and a peak within the embedder's budget of 650 MiB after the soak |

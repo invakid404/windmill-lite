@@ -29,8 +29,8 @@ import (
 //   - shared-instance: that module is a host-provided module (D12), so the
 //     host's one instance serves every step, as ADR 0013's options (a),
 //     (b) and (c1) would;
-//   - shared-code: the same folder built with shared code (ADR 0013,
-//     milestone F8b): the module is in its build group's closure, compiled
+//   - shared-code: the same folder built with shared code (ADR 0013): the
+//     module is in its build group's closure, compiled
 //     once per process, and each step module makes an instance of its own,
 //     so each step keeps module state of its own.
 //

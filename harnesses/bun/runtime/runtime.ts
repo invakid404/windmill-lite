@@ -1450,26 +1450,27 @@ export function sharedClosure(meta: unknown): string | undefined {
 }
 
 /** What a shared-layout module passes for its instance of a closure: its
+ * module and exports (a CommonJS module's; an ES module has neither),
  * require, file names and, for an ES module, import.meta. */
-type ClosureScope = { require?: unknown; filename?: unknown; dirname?: unknown; meta?: unknown };
+type ClosureScope = { module?: unknown; exports?: unknown; require?: unknown; filename?: unknown; dirname?: unknown; meta?: unknown };
 
-/** A closure file's export: a factory of instances, each a table from a
- * dependency module's key to the function that initialises it in that
- * instance and returns its exports. */
-type ClosureFactory = (
-  module: { exports: unknown },
-  exports: unknown,
-  require: unknown,
-  filename: unknown,
-  dirname: unknown,
-  meta: unknown,
-) => Record<string, unknown>;
+/** A closure file's export: a factory that runs the closure with a step
+ * module's scope, whose entry hands over, through CLOSURE_TABLE, a table
+ * from each dependency module's key to the function that initialises it in
+ * that instance and returns its exports. */
+type ClosureFactory = (module: unknown, exports: unknown, require: unknown, filename: unknown, dirname: unknown, meta: unknown) => void;
+
+/** The global property a closure's entry puts its table on while the
+ * closure runs (the build's ClosureTable). */
+const CLOSURE_TABLE = Symbol.for("windmill-lite.closure-table");
 
 /** Installs the process-wide registry of the closures of shared code (ADR
  * 0013), globalThis[Symbol.for("windmill-lite.closures")]: instance(id,
  * scope) loads the bundle's scripts/bun/closures/<id>.cjs once per process
  * and returns an accessor of a fresh instance of it, made with the
- * calling module's scope, so each step module that calls it has module
+ * calling module's scope (its module, exports, require, file names and
+ * import.meta, which the instance's dependency code sees as in the
+ * module's per-script bundle), so each step module that calls it has module
  * state of its own while the closure's code is compiled once. The accessor
  * returns a dependency module's exports by its key, initialising the
  * module in that instance the first time. Loading a closure runs none of
@@ -1489,8 +1490,14 @@ export function installClosures(bundleDir: string): void {
         if (typeof factory !== "function") throw new Error(`windmill-lite: the closure ${id} is not a factory`);
         factories.set(id, factory);
       }
-      const module = { exports: {} as unknown };
-      const table = factory(module, module.exports, scope?.require, scope?.filename, scope?.dirname, scope?.meta);
+      let table: Record<string, unknown>;
+      try {
+        factory(scope?.module, scope?.exports, scope?.require, scope?.filename, scope?.dirname, scope?.meta);
+        table = (globalThis as Record<symbol, unknown>)[CLOSURE_TABLE] as Record<string, unknown>;
+      } finally {
+        delete (globalThis as Record<symbol, unknown>)[CLOSURE_TABLE];
+      }
+      if (table === null || typeof table !== "object") throw new Error(`windmill-lite: the closure ${id} gave no table of modules`);
       return (k: string) => {
         const init = Object.hasOwn(table, k) ? table[k] : undefined;
         if (typeof init !== "function") throw new Error(`windmill-lite: the closure ${id} has no module ${JSON.stringify(k)}`);

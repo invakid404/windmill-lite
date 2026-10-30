@@ -335,14 +335,15 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 	// Bun-built group's modules are ES modules, so its closure is strict
 	// (ADR 0013).
 	for _, id := range res.Closures {
-		if !validClosureID(id) {
-			return nil, fmt.Errorf("bundle: the build helper reported the closure %q", id)
+		meta := resp.ClosureMeta[id]
+		if !validClosureID(id) || !validMetaName(meta) {
+			return nil, fmt.Errorf("bundle: the build helper reported the closure %q with the import.meta parameter %q", id, meta)
 		}
 		text, err := os.ReadFile(filepath.Join(cfg.Work, "closures", id+".cjs"))
 		if err != nil {
 			return nil, err
 		}
-		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(id))), wrapClosure(text, true)); err != nil {
+		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(id))), wrapClosure(text, true, meta)); err != nil {
 			return nil, err
 		}
 	}
@@ -560,6 +561,9 @@ type helperRequest struct {
 	SharedCode bool `json:"shared_code,omitempty"`
 	// Closures are the closure bundles the kept op parses.
 	Closures []helperClosure `json:"closures,omitempty"`
+	// Modules are the module files, by absolute path, the namespaces op
+	// parses.
+	Modules []string `json:"modules,omitempty"`
 }
 
 // helperClosure is a closure bundle the kept op parses, by its id.
@@ -608,11 +612,18 @@ type helperResponse struct {
 	Error       *Problem                    `json:"error"`
 	HostModules map[string]helperHostResult `json:"host_modules"`
 	Entries     map[string]helperEntryRes   `json:"entries"`
-	// Closures are the closures of shared code the build op wrote.
-	Closures []string `json:"closures"`
+	// Closures are the closures of shared code the build op wrote, and
+	// ClosureMeta, by closure, the name of its parameter that dependency
+	// code reads as import.meta, one no input of the closure spells.
+	Closures    []string          `json:"closures"`
+	ClosureMeta map[string]string `json:"closure_meta"`
 	// Kept holds, by closure, the modules the kept op found keeping an
 	// import().
 	Kept map[string][]string `json:"kept"`
+	// Namespaces holds, by module file, the specifiers whose namespace
+	// object the module takes (the namespaces op); null for a module the
+	// helper could not parse.
+	Namespaces map[string][]string `json:"namespaces"`
 }
 
 type helperHostResult struct {

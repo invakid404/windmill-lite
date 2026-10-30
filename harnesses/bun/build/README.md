@@ -12,8 +12,9 @@ their sources (`parse`, below). Milestone C3n added the native form of
 `nativets` and `//native` scripts and the embedded client (below, "Native
 scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
 (below, step 3) and added the parse of host-provided modules outside the
-folder. Milestone F8b added shared code (below, "Shared code") and the
-`kept` request.
+folder. It also builds shared code
+([ADR 0013](../../../docs/design/0013-shared-module-code.md); below,
+"Shared code"), with the `kept` and `namespaces` requests.
 
 ## Running
 
@@ -32,7 +33,7 @@ there.
 `node_modules/` is not committed.
 
 The request and response types are in `protocol.ts`. A request is `scan`,
-`build`, `parse` or `kept`; the Go side sends a scan first when the bundle has
+`build`, `parse`, `kept` or `namespaces`; the Go side sends a scan first when the bundle has
 host-provided modules, writes their shims, then sends the build. `parse`
 (`Builder.parseEntry`) is for codebase scripts: for each entry it reports
 what its source records (annotations and bundler target, workflow-as-code
@@ -179,8 +180,21 @@ D18; `buildShared`). Each script's per-script bundle is built as without it.
 - **The closure** is a CommonJS bundle of an entry that requires the env
   support module first, then maps each module the group's scripts reach, by
   its path in the dependency set's directory, to a function that requires
-  it; `import.meta` reads the instance's. It is written to
-  `<work>/closures/<id>.cjs`, and Go wraps it into its factory.
+  it, and hands that table over through a global property
+  (`CLOSURE_TABLE`), so the instance's `module` stays the step's.
+  `import.meta` reads a parameter of the instance, the first of
+  `__wl_meta`, `__wl_meta_2`, … that no input of the closure spells, so no
+  binding of a dependency captures it; the response gives its name
+  (`closure_meta`). It is written to `<work>/closures/<id>.cjs`, and Go
+  wraps it into its factory.
+- **Namespace objects.** A script whose entry and another module of its
+  bundle both take the namespace object of one ES module dependency, by a
+  namespace import, a namespace re-export or an `import()` of a literal
+  specifier (`namespaceImports`, which parses each module with Babel),
+  keeps its per-script bundle (`namespace_import`): in the shared layout
+  the entry's would be its reference's and the dependency's the closure's.
+  A `namespaces` request runs the same parse on the modules of the Go
+  build's codebase bundles.
 - **Fallbacks.** A module whose closure build fails on top-level await,
   which imports an external module statically (not a module the runtime
   has built in), or whose code keeps an `import()`, found by parsing the
@@ -195,8 +209,8 @@ D18; `buildShared`). Each script's per-script bundle is built as without it.
   returns, never by Bun's resolver. Bun 1.3.10 keeps directory listings
   across builds in one process. On a file system with coarse timestamps, a
   file written in the same tick as an earlier read of its directory leaves
-  that listing unchanged, and a relative import of the file then failed to
-  resolve on Linux CI.
+  that listing unchanged, and a relative import of the file can fail to
+  resolve.
 
 ### Native scripts
 

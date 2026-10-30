@@ -1,14 +1,15 @@
 # wl
 
-**Current state:** milestones F1, F2a, F2b, F3a, F2c and F8b of
+**Current state:** milestones F1, F2a, F2b, F3a and F2c of
 [ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
 [ADR 0009](../docs/design/0009-host-adapters.md), the host hooks of
 [ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
 bundle's mandatory host-provided sites (F2a), its budgets and latches
 (F2b: write-capable steps and the first-write signal, deadlines, the
 latch, fatal error names, the clock and the jitter), host mode (F3a),
-and host plugins in TypeScript over `host_call` (F2c), and the shared code
-of [ADR 0013](../docs/design/0013-shared-module-code.md) (F8b). This README covers `wl`,
+and host plugins in TypeScript over `host_call` (F2c). It runs bundles
+built with the shared code of
+[ADR 0013](../docs/design/0013-shared-module-code.md). This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows

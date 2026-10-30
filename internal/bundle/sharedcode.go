@@ -44,11 +44,16 @@ const (
 	// ClosureRegistry is the process-wide registry of closures the harness
 	// runtime installs: instance(id, scope) loads closure id once per
 	// process and returns an accessor of a fresh instance of it, made with
-	// the step module's scope (its module, require, filename, dirname and,
-	// for an ES module, import.meta).
+	// the step module's scope (its module, exports, require, filename,
+	// dirname and, for an ES module, import.meta).
 	ClosureRegistry = `Symbol.for("windmill-lite.closures")`
-	// closureMeta is the parameter of a closure that an ES module group's
-	// dependency code reads as import.meta.
+	// ClosureTable is the global property through which a closure's entry
+	// hands the registry its table of dependency modules while the closure
+	// runs, so that the instance's module stays the step module's.
+	ClosureTable = `Symbol.for("windmill-lite.closure-table")`
+	// closureMeta is the base of the name of a closure's parameter that an
+	// ES module group's dependency code reads as import.meta; the build
+	// takes the first of closureMeta, closureMeta_2, … that no input spells.
 	closureMeta = "__wl_meta"
 )
 
@@ -59,10 +64,12 @@ type depGuard struct{}
 // closureSupport is the source of a shared-layout module's support module
 // for closure id: dep(key) returns the exports of the dependency module
 // key in the module's own instance of the closure, made at its first call
-// with the module's scope. An ES module reaches its require, file and
-// import.meta through import.meta, as Bun gives them.
+// with the module's scope. A CommonJS module passes its module and exports,
+// which a dependency of its per-script bundle reads (WR-50). An ES module
+// has neither, as Bun runs it; it reaches its require, file and import.meta
+// through import.meta.
 func closureSupport(id string, esm bool) string {
-	scope := "{ require, filename: __filename, dirname: __dirname }"
+	scope := "{ module, exports, require, filename: __filename, dirname: __dirname }"
 	if esm {
 		scope = "{ require: import.meta.require, filename: import.meta.path, dirname: import.meta.dir, meta: import.meta }"
 	}
@@ -111,10 +118,13 @@ const cjsSpecifier = "windmill-lite:dep-cjs/"
 
 // closureEntrySource is the source of a closure's entry: a table from each
 // dependency module's key to a function that requires its file, so each
-// module initialises in an instance when a script first reaches it.
+// module initialises in an instance when a script first reaches it. The
+// entry hands the table over through ClosureTable rather than its
+// module.exports, since the module a closure runs with is the step
+// module's own.
 func closureEntrySource(files map[string]string) string {
 	var b strings.Builder
-	b.WriteString("module.exports = {\n")
+	b.WriteString("globalThis[" + ClosureTable + "] = {\n")
 	keys := make([]string, 0, len(files))
 	for k := range files {
 		keys = append(keys, k)
@@ -131,21 +141,23 @@ func closureEntrySource(files map[string]string) string {
 
 // wrapClosure makes a closure file of a CommonJS bundle of a closure's
 // entry: its module.exports is a factory that runs the bundle once per
-// call, with a module of its own and the step module's require, file
-// names and, for an ES module group, import.meta (closureMeta), and
-// returns the instance's table. A strict group's closure is strict, as its
-// per-script bundles are. A Bun CommonJS bundle is already a function of
-// (exports, require, module, __filename, __dirname), which it calls. The
-// file is in Bun's own form of a CommonJS module that a bundler wrote
-// (the `// @bun @bun-cjs` pragma and a function of the module's
-// variables), which Bun loads without transpiling it again.
-func wrapClosure(text []byte, strict bool) []byte {
+// call with the step module's module, exports, require and file names and,
+// for an ES module group, its import.meta (the parameter meta), so the
+// dependency code of an instance sees the step's as in its per-script
+// bundle. The entry hands the instance's table over through ClosureTable.
+// A strict group's closure is strict, as its per-script bundles are. A Bun
+// CommonJS bundle is already a function of (exports, require, module,
+// __filename, __dirname), which it calls. The file is in Bun's own form of
+// a CommonJS module that a bundler wrote (the `// @bun @bun-cjs` pragma
+// and a function of the module's variables), which Bun loads without
+// transpiling it again.
+func wrapClosure(text []byte, strict bool, meta string) []byte {
 	var b bytes.Buffer
 	b.WriteString("// @bun @bun-cjs\n(function(exports, require, module, __filename, __dirname) {")
 	if strict {
 		b.WriteString("\"use strict\";")
 	}
-	b.WriteString("\nmodule.exports = function windmillLiteClosure(module, exports, require, __filename, __dirname, " + closureMeta + ") {\n")
+	b.WriteString("\nmodule.exports = function windmillLiteClosure(module, exports, require, __filename, __dirname, " + meta + ") {\n")
 	if rest, ok := bytes.CutPrefix(text, []byte("// @bun @bun-cjs\n")); ok {
 		b.Write(bytes.TrimRight(rest, "\n"))
 		b.WriteString("(exports, require, module, __filename, __dirname);\n")
@@ -155,8 +167,23 @@ func wrapClosure(text []byte, strict bool) []byte {
 			b.WriteByte('\n')
 		}
 	}
-	b.WriteString("return module.exports;\n};\n})\n")
+	b.WriteString("};\n})\n")
 	return b.Bytes()
+}
+
+// validMetaName reports whether a name is one of the build's candidates for
+// a closure's import.meta parameter: closureMeta, or it with a numeric
+// suffix.
+func validMetaName(name string) bool {
+	rest, ok := strings.CutPrefix(name, closureMeta)
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	digits, ok := strings.CutPrefix(rest, "_")
+	return ok && digits != "" && strings.Trim(digits, "0123456789") == ""
 }
 
 // closureID names a group's closure by a digest of what makes the group.
@@ -204,6 +231,25 @@ func keptImports(ctx context.Context, bc *BunConfig, files map[string]string) (m
 	return out, nil
 }
 
+// namespaceImportsOf returns, by module file, the specifiers whose
+// namespace object each module takes, as the build helper parses it
+// (namespaces op); a module it could not parse maps to nil.
+func namespaceImportsOf(ctx context.Context, bc *BunConfig, files []string) (map[string][]string, error) {
+	req := helperRequest{
+		Version: 1, Op: "namespaces", Folder: bc.Folder, Work: bc.Work, Out: bc.Out,
+		Scripts: map[string]string{}, Deps: map[string]string{}, Define: map[string]string{},
+		HostModules: []helperHostModule{}, Entries: []helperEntry{}, Modules: files,
+	}
+	if !bc.AllowBunMismatch {
+		req.RequireBun = harness.PinnedBun
+	}
+	resp, err := runHelper(ctx, bc, &req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Namespaces, nil
+}
+
 // metaInputs reads the inputs of a metafile: each input's imports.
 type metaInputs map[string]struct {
 	Format  string `json:"format"`
@@ -211,7 +257,57 @@ type metaInputs map[string]struct {
 		Path     string `json:"path"`
 		Kind     string `json:"kind"`
 		External bool   `json:"external"`
+		Original string `json:"original"`
 	} `json:"imports"`
+}
+
+// fileInput reports whether a metafile input is a file, not a module of a
+// plugin's namespace or a virtual input of esbuild's (<define:NAME>).
+func fileInput(p string) bool {
+	return !strings.HasPrefix(p, "<") && (filepath.IsAbs(p) || !strings.Contains(p, ":"))
+}
+
+// namespaceClash returns the ES module dependency whose namespace object
+// both a script's entry and another module of its per-script bundle take,
+// or "". ns gives, by module file, the specifiers whose namespace object
+// the module takes (nil for one the helper could not parse, read as
+// taking every namespace it imports); each specifier is matched to the
+// file the bundle resolved it to.
+func namespaceClash(inputs metaInputs, entry string, ns func(file string) ([]string, bool)) string {
+	requires := func(kind string) bool { return kind == "require-call" || kind == "require-resolve" }
+	takes := func(file string) map[string]bool {
+		specs, parsed := ns(file)
+		out := map[string]bool{}
+		for _, imp := range inputs[file].Imports {
+			if imp.External || requires(imp.Kind) {
+				continue
+			}
+			if !parsed || slices.Contains(specs, imp.Original) {
+				out[imp.Path] = true
+			}
+		}
+		return out
+	}
+	fromEntry := map[string]bool{}
+	for p := range takes(entry) {
+		if p != entry && inputs[p].Format == "esm" {
+			fromEntry[p] = true
+		}
+	}
+	if len(fromEntry) == 0 {
+		return ""
+	}
+	for _, file := range slices.Sorted(maps.Keys(inputs)) {
+		if file == entry || !fileInput(file) {
+			continue
+		}
+		for _, p := range slices.Sorted(maps.Keys(takes(file))) {
+			if fromEntry[p] {
+				return p
+			}
+		}
+	}
+	return ""
 }
 
 func readMetaInputs(metafile []byte) (metaInputs, error) {
@@ -278,6 +374,33 @@ func objectDefine(v string) bool {
 // group's closure and its scripts' shared-layout modules. It returns the
 // ids of the closures it wrote.
 func (cfg *CodebaseConfig) shareCode(ctx context.Context, bc *BunConfig, built []CodebaseScript, res *CodebaseResult, shims map[string]string) ([]string, error) {
+	// Each script's per-script inputs, and the namespace objects each
+	// module of them takes, parsed by the build helper (namespaceClash).
+	reach := map[string]metaInputs{}
+	files := map[string]bool{}
+	for _, e := range built {
+		meta := res.Scripts[e.ID]
+		if meta.Boundary == "native" || meta.Annotations.Native {
+			continue
+		}
+		inputs, err := readMetaInputs(meta.Metafile)
+		if err != nil {
+			return nil, fmt.Errorf("bundle: script %s: its metafile: %w", e.ID, err)
+		}
+		reach[e.ID] = inputs
+		for p := range inputs {
+			if fileInput(p) {
+				files[cfg.inputFile(p)] = true
+			}
+		}
+	}
+	var ns map[string][]string
+	if len(files) > 0 {
+		var err error
+		if ns, err = namespaceImportsOf(ctx, bc, slices.Sorted(maps.Keys(files))); err != nil {
+			return nil, err
+		}
+	}
 	groups := map[string]*codebaseGroup{}
 	var order []string
 	for _, e := range built {
@@ -302,12 +425,16 @@ func (cfg *CodebaseConfig) shareCode(ctx context.Context, bc *BunConfig, built [
 			fallback(res, e, FallbackDefineObject, "its codebase entry's define gives an object or array value")
 			continue
 		}
-		inputs, err := readMetaInputs(meta.Metafile)
-		if err != nil {
-			return nil, fmt.Errorf("bundle: script %s: its metafile: %w", e.ID, err)
-		}
+		inputs := reach[e.ID]
 		if entryCycle(inputs, e.File) {
 			fallback(res, e, FallbackEntryCycle, "a module it imports imports its own entry file")
+			continue
+		}
+		if m := namespaceClash(inputs, e.File, func(file string) ([]string, bool) {
+			specs := ns[cfg.inputFile(file)]
+			return specs, specs != nil
+		}); m != "" {
+			fallback(res, e, FallbackNamespaceImport, fallbackWhy(FallbackNamespaceImport)+" ("+m+")")
 			continue
 		}
 		text, err := os.ReadFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(e.ID)+formatExt(s.Format)))
@@ -345,6 +472,15 @@ func formatExt(f Format) string {
 		return ".cjs"
 	}
 	return ".mjs"
+}
+
+// inputFile is the absolute path of a metafile input of the folder's
+// bundles.
+func (cfg *CodebaseConfig) inputFile(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(cfg.Folder, filepath.FromSlash(p))
 }
 
 // entryCycle reports whether an input other than the entry imports the
@@ -422,7 +558,7 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 				files[k] = f
 			}
 		}
-		text, inputs, failed, err := cfg.buildClosure(g, files, shims)
+		text, meta, inputs, failed, err := cfg.buildClosure(g, files, shims)
 		if err != nil {
 			return "", err
 		}
@@ -477,7 +613,7 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 			live = kept
 			continue
 		}
-		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(g.id))), wrapClosure(text, g.strict)); err != nil {
+		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(g.id))), wrapClosure(text, g.strict, meta)); err != nil {
 			return "", err
 		}
 		for _, e := range live {
@@ -524,6 +660,8 @@ func fallbackWhy(reason string) string {
 		return "a module it imports imports an external module statically, which the closure would turn into a synchronous require"
 	case FallbackDynamicImport:
 		return "a module it imports keeps an import() that resolves from the file holding it"
+	case FallbackNamespaceImport:
+		return "it and a module it imports both take the namespace object of one ES module, which the shared layout would make two objects"
 	}
 	return reason
 }
@@ -532,21 +670,22 @@ func fallbackWhy(reason string) string {
 // dependency module's file, with the group's settings (the first script's
 // options with the entry, banner and format replaced), the env rewrite
 // when the group has it, the host-provided modules' shims, and, for an ES
-// module group, import.meta read from the instance. It returns the output,
-// its inputs, and the modules whose top-level await failed the build.
-func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]string, shims map[string]string) ([]byte, metaInputs, map[string]bool, error) {
+// module group, import.meta read from the instance's parameter. It returns
+// the output, the name of that parameter, the inputs, and the modules
+// whose top-level await failed the build. A bundler replaces only free
+// references with a define, so a binding of the parameter's name in a
+// dependency, at its top level or in a function, would capture import.meta;
+// as with the env rewrite's binding, the name is one no input spells.
+func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]string, shims map[string]string) ([]byte, string, metaInputs, map[string]bool, error) {
 	o, err := g.settings.CLIOptions(cfg.Folder, g.scripts[0].File)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, "", nil, nil, err
 	}
 	o.EntryPoints = []string{closureEntry}
 	o.Format = api.FormatCommonJS
 	o.Metafile = true
 	if o.Define == nil {
 		o.Define = map[string]string{}
-	}
-	if g.settings.Format != CJS {
-		o.Define["import.meta"] = closureMeta
 	}
 	src := closureEntrySource(files)
 	entry := api.Plugin{Name: "windmill-lite-closure", Setup: func(b api.PluginBuild) {
@@ -562,6 +701,13 @@ func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]strin
 		o := base
 		o.Define = cloneMap(base.Define)
 		o.Inject = slices.Clone(base.Inject)
+		meta := closureMeta
+		if n > 1 {
+			meta = fmt.Sprintf("%s_%d", closureMeta, n)
+		}
+		if g.settings.Format != CJS {
+			o.Define["import.meta"] = meta
+		}
 		support, binding := "", ""
 		if g.env {
 			binding = EnvBinding
@@ -570,7 +716,7 @@ func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]strin
 			}
 			define, sup, err := EnvRewrite(g.settings.Format)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 			for k, v := range define {
 				o.Define[k] = strings.ReplaceAll(v, EnvBinding, binding)
@@ -587,15 +733,15 @@ func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]strin
 			failed := map[string]bool{}
 			for _, e := range r.Errors {
 				if !strings.Contains(strings.ToLower(e.Text), "top-level await") || e.Location == nil {
-					return nil, nil, nil, fmt.Errorf("bundle: the closure %s: %s", g.id, esbuildMessages(r.Errors))
+					return nil, "", nil, nil, fmt.Errorf("bundle: the closure %s: %s", g.id, esbuildMessages(r.Errors))
 				}
 				failed[e.Location.File] = true
 			}
-			return nil, nil, failed, nil
+			return nil, "", nil, failed, nil
 		}
 		inputs, err := readMetaInputs([]byte(r.Metafile))
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, "", nil, nil, err
 		}
 		// The metafile names an import of the plugin's own modules (the env
 		// support module, a listed package's shim) by its path in the
@@ -615,28 +761,26 @@ func (cfg *CodebaseConfig) buildClosure(g *codebaseGroup, files map[string]strin
 			in.Imports = kept
 			inputs[p] = in
 		}
-		if binding != "" {
-			spelled := false
-			for p := range inputs {
-				if strings.HasPrefix(p, pluginNamespace+":") || strings.HasPrefix(p, supportNamespace+":") {
-					continue
-				}
-				full := p
-				if !filepath.IsAbs(full) {
-					full = filepath.Join(cfg.Folder, filepath.FromSlash(p))
-				}
-				if b, err := os.ReadFile(full); err == nil && spells(string(b), binding) {
-					spelled = true
-					break
-				}
-			}
-			if spelled {
+		spelled := false
+		for p := range inputs {
+			if strings.HasPrefix(p, pluginNamespace+":") || strings.HasPrefix(p, supportNamespace+":") || strings.HasPrefix(p, "<") {
 				continue
 			}
+			full := p
+			if !filepath.IsAbs(full) {
+				full = filepath.Join(cfg.Folder, filepath.FromSlash(p))
+			}
+			if b, err := os.ReadFile(full); err == nil && (spells(string(b), meta) || binding != "" && spells(string(b), binding)) {
+				spelled = true
+				break
+			}
 		}
-		return r.OutputFiles[0].Contents, inputs, nil, nil
+		if spelled {
+			continue
+		}
+		return r.OutputFiles[0].Contents, meta, inputs, nil, nil
 	}
-	return nil, nil, nil, fmt.Errorf("bundle: the closure %s: every candidate name for %s occurs in its sources", g.id, EnvBinding)
+	return nil, "", nil, nil, fmt.Errorf("bundle: the closure %s: every candidate name for %s or %s occurs in its sources", g.id, closureMeta, EnvBinding)
 }
 
 // depPlugin is the plugin of a shared-layout module's build: an import by

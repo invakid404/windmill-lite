@@ -96,6 +96,11 @@ const (
 	// FallbackEntryCycle: a dependency module it reaches imports its own
 	// entry file.
 	FallbackEntryCycle = "entry_cycle"
+	// FallbackNamespaceImport: its entry and a dependency module it reaches
+	// both take the namespace object of one ES module dependency, which is
+	// one object in its per-script bundle and would be two in the shared
+	// layout.
+	FallbackNamespaceImport = "namespace_import"
 )
 
 // WarningSharedCodeFallback: under shared code, a script keeps its

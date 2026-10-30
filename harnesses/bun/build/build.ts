@@ -22,7 +22,19 @@ import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
 import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
-import { CJS_SPECIFIER, CLOSURE_META, CLOSURE_SPECIFIER, closureEntry, closureId, closureSupport, depReference, esmReference, keptImports } from "./shared.ts";
+import {
+  CJS_SPECIFIER,
+  CLOSURE_META,
+  CLOSURE_SPECIFIER,
+  closureEntry,
+  closureId,
+  closureSupport,
+  depReference,
+  esmReference,
+  keptImports,
+  namespaceImports,
+  syntaxOf,
+} from "./shared.ts";
 import { importSpecifiers, liveBindings, parseModule, signatures, type Syntax } from "./signature.ts";
 import { detectWorkflowAsCode } from "./wac.ts";
 
@@ -69,13 +81,16 @@ type Bundled = {
   // What the build's plugin resolved each of the entry's imports to, by
   // kind and specifier, relative to the dependency set's directory: the
   // metafile names a specifier the plugin resolved by itself, not by the
-  // file it became.
+  // file it became. resolvedBy holds the same for every importer, by its
+  // path relative to that directory.
   resolved: Map<string, string>;
+  resolvedBy: Map<string, Map<string, string>>;
 };
 
 // What a bundle of the shared layout changes (ADR 0013): the output format,
-// defines on top of the env rewrite's, and a plugin ahead of the build's.
-type BundleOptions = { format?: "esm" | "cjs"; define?: Record<string, string>; plugin?: BunPlugin };
+// defines on top of the env rewrite's, a plugin ahead of the build's, and
+// whether the build returns its inputs' text without the env rewrite.
+type BundleOptions = { format?: "esm" | "cjs"; define?: Record<string, string>; plugin?: BunPlugin; inputs?: boolean };
 
 // A metafile input's imports, as Bun records them.
 type MetaImport = { path: string; kind: string; original?: string; external?: boolean };
@@ -94,6 +109,7 @@ type SharedEntry = {
   binding?: string;
   metafile: Record<string, unknown>;
   resolved: Map<string, string>;
+  resolvedBy: Map<string, Map<string, string>>;
 };
 
 // A script's record under shared code: its group's closure, or the reason
@@ -140,6 +156,8 @@ export class Builder {
   private hostByPath = new Map<string, HostModuleRequest>();
   private client: Promise<NativeModule> | undefined;
   private sharedEntries: SharedEntry[] = [];
+  // namespaceImports by module file, parsed once per build.
+  private namespaces = new Map<string, string[] | null>();
 
   constructor(private readonly req: Request) {
     for (const hm of req.host_modules) {
@@ -257,9 +275,15 @@ export class Builder {
     const closure = new Set<string>();
     const used = new Set<string>();
     const resolved = new Map<string, string>();
-    // Records what the entry's import resolved to.
+    const resolvedBy = new Map<string, Map<string, string>>();
+    // Records what an import resolved to.
     const answer = <R extends { path: string; external?: boolean } | undefined>(args: { importer: string; kind: string; path: string }, r: R): R => {
-      if (r !== undefined && !r.external && args.importer === entry) resolved.set(`${args.kind}\0${args.path}`, relative(dir, r.path));
+      if (r === undefined || r.external) return r;
+      const key = `${args.kind}\0${args.path}`;
+      if (args.importer === entry) resolved.set(key, relative(dir, r.path));
+      const by = relative(dir, args.importer);
+      if (!resolvedBy.has(by)) resolvedBy.set(by, new Map());
+      resolvedBy.get(by)!.set(key, relative(dir, r.path));
       return r;
     };
     const host = (hm: HostModuleRequest) => {
@@ -345,7 +369,7 @@ export class Builder {
       );
     }
     const inputs: string[] = [];
-    if (binding !== undefined) {
+    if (binding !== undefined || opts.inputs) {
       for (const key of Object.keys((metafile.inputs ?? {}) as object)) {
         const abs = join(dir, key);
         if (abs !== envFile) inputs.push(readFileSync(abs, "utf8"));
@@ -359,6 +383,7 @@ export class Builder {
         hostModules: [...used].sort(),
         binding,
         resolved,
+        resolvedBy,
       },
       inputs,
     };
@@ -532,7 +557,7 @@ export class Builder {
       const exports = exportScanner.scan(b.text).exports;
       this.writeOut(join("scripts", "bun", e.id + ".mjs"), b.text);
       if (this.req.shared_code && (target === "bun" || target === "node")) {
-        this.sharedEntries.push({ id: e.id, path: e.path, dir, entry, deps: e.deps, target, binding: b.binding, metafile: b.metafile, resolved: b.resolved });
+        this.sharedEntries.push({ id: e.id, path: e.path, dir, entry, deps: e.deps, target, binding: b.binding, metafile: b.metafile, resolved: b.resolved, resolvedBy: b.resolvedBy });
       }
       Object.assign(meta, {
         exports,
@@ -680,10 +705,14 @@ export class Builder {
   // held by a CommonJS closure (top-level await, a static import of an
   // external module, a kept import()). The closure bundles go to
   // <work>/closures/<id>.cjs, which the Go build wraps into factories.
-  async buildShared(): Promise<{ closures: string[]; shared: Record<string, SharedRecord> }> {
-    const out = { closures: [] as string[], shared: {} as Record<string, SharedRecord> };
+  async buildShared(): Promise<{ closures: string[]; closureMeta: Record<string, string>; shared: Record<string, SharedRecord> }> {
+    const out = { closures: [] as string[], closureMeta: {} as Record<string, string>, shared: {} as Record<string, SharedRecord> };
     const groups = new Map<string, SharedEntry[]>();
     for (const s of this.sharedEntries) {
+      if (this.namespaceClash(s) !== undefined) {
+        out.shared[s.id] = { fallback: "namespace_import" };
+        continue;
+      }
       const key = `${s.target}\0${s.deps ?? ""}`;
       groups.set(key, [...(groups.get(key) ?? []), s]);
     }
@@ -705,9 +734,11 @@ export class Builder {
         for (const s of live) for (const [k, f] of refs.get(s.id)!) files.set(k, f);
         const bad = new Map<string, string>();
         let text: string | undefined;
+        let meta = "";
         try {
           const b = await this.closureBundle(dir, id, files, target);
           text = b.text;
+          meta = b.meta;
           for (const m of keptImports(text)) bad.set(m, "dynamic_import");
           for (const [m, input] of Object.entries((b.metafile.inputs ?? {}) as MetaInputs)) {
             for (const imp of input.imports ?? []) {
@@ -744,10 +775,54 @@ export class Builder {
           out.shared[s.id] = { closure: id };
         }
         out.closures.push(id);
+        out.closureMeta[id] = meta;
         break;
       }
     }
     return out;
+  }
+
+  // The ES module dependency whose namespace object both a script's entry
+  // and another module of its bundle take (namespaceImports), or undefined.
+  private namespaceClash(s: SharedEntry): string | undefined {
+    const inputs = (s.metafile.inputs ?? {}) as MetaInputs;
+    const entry = relative(s.dir, s.entry);
+    const requires = (kind: string) => kind === "require-call" || kind === "require-resolve";
+    // What a module's import of a specifier resolved to: by the build's
+    // plugin, or, as the metafile names it, by Bun.
+    const resolve = (file: string, spec: string | undefined): string[] => {
+      const out: string[] = [];
+      for (const [key, p] of s.resolvedBy.get(file) ?? []) {
+        const [kind, path] = key.split("\0");
+        if (!requires(kind) && (spec === undefined || path === spec)) out.push(p);
+      }
+      for (const imp of inputs[file]?.imports ?? []) {
+        if (!imp.external && !requires(imp.kind) && imp.original !== undefined && (spec === undefined || imp.original === spec)) out.push(imp.path);
+      }
+      return out;
+    };
+    const takes = (file: string): Set<string> => {
+      let specs = this.namespaces.get(join(s.dir, file));
+      if (specs === undefined) {
+        let text: string | undefined;
+        try {
+          text = readFileSync(join(s.dir, file), "utf8");
+        } catch {
+          text = undefined;
+        }
+        specs = text === undefined ? null : namespaceImports(text, syntaxOf(file));
+        this.namespaces.set(join(s.dir, file), specs);
+      }
+      if (specs === null) return new Set(resolve(file, undefined));
+      return new Set(specs.flatMap((spec) => resolve(file, spec)));
+    };
+    const fromEntry = [...takes(entry)].filter((p) => p !== entry && inputs[p]?.format === "esm");
+    if (fromEntry.length === 0) return undefined;
+    for (const file of Object.keys(inputs).sort()) {
+      if (file === entry || file.startsWith("host/") || file.startsWith("wl/")) continue;
+      for (const p of takes(file)) if (fromEntry.includes(p)) return p;
+    }
+    return undefined;
   }
 
   // A script's shared-layout module: the build of its entry with each of
@@ -816,7 +891,9 @@ export class Builder {
   // from the instance, as dependency code of an ES module bundle reads its
   // module's own. Workspace modules among the files resolve their imports
   // from the folder, as in the per-script bundles.
-  private closureBundle(dir: string, id: string, files: Map<string, string>, target: "bun" | "node"): Promise<Bundled> {
+  // The parameter the bundle reads import.meta from, and the env rewrite's
+  // binding, are names that no input of the bundle spells (CLOSURE_META).
+  private async closureBundle(dir: string, id: string, files: Map<string, string>, target: "bun" | "node"): Promise<Bundled & { meta: string }> {
     const env = target === "bun";
     const entry = this.materialise(dir, join("wl", `closure-entry-${id}.cjs`), closureEntry(files, env ? ENV_SPECIFIER : undefined));
     const seeds = new Map<string, string>();
@@ -832,7 +909,18 @@ export class Builder {
         b.onResolve({ filter: /^\// }, (args) => (args.importer === entry && listed.has(args.path) ? { path: args.path } : undefined));
       },
     };
-    return this.bundle(dir, entry, seeds, target, { shims: true }, env, { format: "cjs", define: { "import.meta": CLOSURE_META }, plugin });
+    for (let n = 1; n <= 20; n++) {
+      const meta = n === 1 ? CLOSURE_META : `${CLOSURE_META}_${n}`;
+      const binding = !env ? undefined : n === 1 ? this.req.env_binding : `${this.req.env_binding}_${n}`;
+      const { bundled, inputs } = await this.bundleOnce(dir, entry, seeds, target, { shims: true }, binding, {
+        format: "cjs",
+        define: { "import.meta": meta },
+        plugin,
+        inputs: true,
+      });
+      if (!inputs.some((text) => spells(text, meta) || (binding !== undefined && spells(text, binding)))) return { ...bundled, meta };
+    }
+    throw new BuildProblem("bundle_failed", `the closure ${id}: every candidate name for ${CLOSURE_META} or ${this.req.env_binding} occurs in its sources`);
   }
 
   private writeOut(rel: string, text: string): void {

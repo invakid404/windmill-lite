@@ -1,13 +1,13 @@
 {
   "finding": "D18",
-  "note": "Shared code (ADR 0013, ADR 0001 \u00a75 D18): what a bundle built with it holds. Each case builds a whole sync folder with shared_code and checks each script's record (its group's closure, by a case-local label: one label is one closure, two labels two; a fallback with its reason; or none), what each closure holds, and, for t-closure-membership, that the per-script bundles are the same bytes as without shared code. What a script sees at run time is conformance/steps/bun/d18.yaml's.",
+  "note": "Shared code (ADR 0013, ADR 0001 §5 D18): what a bundle built with it holds. Each case builds a whole sync folder with shared_code and checks each script's record (its group's closure, by a case-local label: one label is one closure, two labels two; a fallback with its reason; or none), what each closure holds, and, for t-closure-membership, that the per-script bundles are the same bytes as without shared code. What a script sees at run time is conformance/steps/bun/d18.yaml's.",
   "cases": [
     {
       "spec": "D18",
       "variant": "t-closure-membership",
       "provenance": "policy",
       "title": "a group's dependency modules are in its closure once, the scripts' own entries and the host-provided modules are not, and the per-script bundles stay the same bytes",
-      "note": "The host-provided module's file loads as its shim, under its own path (milestone F3h), so the closure names the path but holds the shim, which reads the registry, not the module's text. It also holds D18/w and D18/x: the folder is built again without shared code, every per-script module is the same bytes, and the manifest's digest differs; the manifest records shared_code, lists the closure and D18.",
+      "note": "The host-provided module's file loads as its shim, under its own path, so the closure names the path but holds the shim, which reads the registry, not the module's text. It also holds D18/w and D18/x: the folder is built again without shared code, every per-script module is the same bytes, and the manifest's digest differs; the manifest records shared_code, lists the closure and D18.",
       "given": {
         "shared_code": true,
         "folder": {
@@ -45,6 +45,51 @@
             }
           },
           "per_script_identical": true
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "t-import-meta-binding",
+      "provenance": "policy",
+      "title": "a closure reads import.meta from a parameter whose name no input spells, so a dependency's own binding of a candidate name, at its top level or as a function's parameter, does not capture it",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/me/lib/**\ncodebases:\n  - relative_path: f/me\n    includes:\n      - f/me/**\n    format: esm\n",
+          "f/m/lib/meta.ts": "const __wl_meta = { url: \"its own\" };\nexport function check(__wl_meta_2: { url: string }) { return [import.meta.url === __wl_meta.url, import.meta.url === __wl_meta_2.url]; }\n",
+          "f/m/a.ts": "import { check } from \"./lib/meta.ts\";\nexport function main() { return check({ url: \"another\" }); }\n",
+          "f/me/lib/meta.ts": "const __wl_meta = { url: \"its own\" };\nexport function check(__wl_meta_2: { url: string }) { return [import.meta.url === __wl_meta.url, import.meta.url === __wl_meta_2.url]; }\n",
+          "f/me/a.ts": "import { check } from \"./lib/meta\";\nexport function main() { return check({ url: \"another\" }); }\n"
+        },
+        "contract": "roots:\n  - script: f/m/a\n  - script: f/me/a\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/m/a": "closure:M",
+            "f/me/a": "closure:ME"
+          },
+          "closures": {
+            "M": {
+              "once": [
+                "src/f/m/lib/meta.ts"
+              ],
+              "contains": [
+                "__wl_meta_3.url === __wl_meta.url",
+                "windmillLiteClosure(module, exports, require, __filename, __dirname, __wl_meta_3)"
+              ]
+            },
+            "ME": {
+              "once": [
+                "f/me/lib/meta.ts"
+              ],
+              "contains": [
+                "__wl_meta_3.url === __wl_meta.url",
+                "windmillLiteClosure(module, exports, require, __filename, __dirname, __wl_meta_3)"
+              ]
+            }
+          }
         }
       }
     },
@@ -228,6 +273,91 @@
           }
         },
         "warnings": [
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback"
+        ]
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "y-namespace-imports",
+      "provenance": "policy",
+      "title": "a script whose entry and a dependency module both take the namespace object of one ES module dependency keeps its per-script bundle; a script where only one of them takes it is shared",
+      "note": "In a per-script bundle an ES module's namespace object is one object; in the shared layout the entry's would be its reference module's and a dependency's the closure's. A dependency takes it by a namespace import, a namespace re-export (export * as), or an import() of a literal specifier, which the bundler resolves to the namespace object. Shown for Bun-built scripts and for CommonJS and ES module codebase entries.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/nc/lib/**\n  - f/ne/lib/**\ncodebases:\n  - relative_path: f/nc\n    includes:\n      - f/nc/**\n  - relative_path: f/ne\n    includes:\n      - f/ne/**\n    format: esm\n",
+          "f/n/lib/dep.ts": "export const value = 1;\n",
+          "f/n/lib/other.ts": "import * as ns from \"./dep.ts\";\nexport const seen = ns;\n",
+          "f/n/lib/mid.ts": "export * as again from \"./dep.ts\";\n",
+          "f/n/direct.ts": "import * as ns from \"./lib/dep.ts\";\nimport { seen } from \"./lib/other.ts\";\nexport function main() { return ns === seen; }\n",
+          "f/n/through.ts": "import * as ns from \"./lib/dep.ts\";\nimport { again } from \"./lib/mid.ts\";\nexport function main() { return ns === again; }\n",
+          "f/n/named.ts": "import { value } from \"./lib/dep.ts\";\nimport { seen } from \"./lib/other.ts\";\nexport function main() { return seen.value === value; }\n",
+          "f/n/alone.ts": "import * as ns from \"./lib/dep.ts\";\nexport function main() { return ns.value; }\n",
+          "f/nc/lib/dep.ts": "export const value = 1;\n",
+          "f/nc/lib/other.ts": "import * as ns from \"./dep\";\nexport const seen = ns;\n",
+          "f/nc/lib/mid.ts": "export * as again from \"./dep\";\n",
+          "f/nc/direct.ts": "import * as ns from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return ns === seen; }\n",
+          "f/nc/through.ts": "import * as ns from \"./lib/dep\";\nimport { again } from \"./lib/mid\";\nexport function main() { return ns === again; }\n",
+          "f/nc/named.ts": "import { value } from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return seen.value === value; }\n",
+          "f/nc/alone.ts": "import * as ns from \"./lib/dep\";\nexport function main() { return ns.value; }\n",
+          "f/ne/lib/dep.ts": "export const value = 1;\n",
+          "f/ne/lib/other.ts": "import * as ns from \"./dep\";\nexport const seen = ns;\n",
+          "f/ne/lib/mid.ts": "export * as again from \"./dep\";\n",
+          "f/ne/direct.ts": "import * as ns from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return ns === seen; }\n",
+          "f/ne/through.ts": "import * as ns from \"./lib/dep\";\nimport { again } from \"./lib/mid\";\nexport function main() { return ns === again; }\n",
+          "f/ne/named.ts": "import { value } from \"./lib/dep\";\nimport { seen } from \"./lib/other\";\nexport function main() { return seen.value === value; }\n",
+          "f/ne/alone.ts": "import * as ns from \"./lib/dep\";\nexport function main() { return ns.value; }\n",
+          "f/n/lib/lazy.ts": "export function load() { return import(\"./dep.ts\"); }\n",
+          "f/n/dyn.ts": "import * as ns from \"./lib/dep.ts\";\nimport { load } from \"./lib/lazy.ts\";\nexport async function main() { return ns === (await load()); }\n"
+        },
+        "contract": "roots:\n  - script: f/n/direct\n  - script: f/n/through\n  - script: f/n/named\n  - script: f/n/alone\n  - script: f/n/dyn\n  - script: f/nc/direct\n  - script: f/nc/through\n  - script: f/nc/named\n  - script: f/nc/alone\n  - script: f/ne/direct\n  - script: f/ne/through\n  - script: f/ne/named\n  - script: f/ne/alone\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/n/direct": "fallback:namespace_import",
+            "f/n/through": "fallback:namespace_import",
+            "f/n/named": "closure:N",
+            "f/n/alone": "closure:N",
+            "f/n/dyn": "fallback:namespace_import",
+            "f/nc/direct": "fallback:namespace_import",
+            "f/nc/through": "fallback:namespace_import",
+            "f/nc/named": "closure:NC",
+            "f/nc/alone": "closure:NC",
+            "f/ne/direct": "fallback:namespace_import",
+            "f/ne/through": "fallback:namespace_import",
+            "f/ne/named": "closure:NE",
+            "f/ne/alone": "closure:NE"
+          },
+          "closures": {
+            "N": {
+              "once": [
+                "src/f/n/lib/dep.ts",
+                "src/f/n/lib/other.ts"
+              ]
+            },
+            "NC": {
+              "once": [
+                "f/nc/lib/dep.ts",
+                "f/nc/lib/other.ts"
+              ]
+            },
+            "NE": {
+              "once": [
+                "f/ne/lib/dep.ts",
+                "f/ne/lib/other.ts"
+              ]
+            }
+          }
+        },
+        "warnings": [
+          "shared_code_fallback",
           "shared_code_fallback",
           "shared_code_fallback",
           "shared_code_fallback",

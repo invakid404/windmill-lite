@@ -51,8 +51,8 @@ code against; and C2a, the Bun side of the build (the same package and the
 scripts with Windmill's settings and records their signatures, annotations
 and workflow-as-code markers; and C2b, which bundles codebase scripts as
 the `wmill` CLI does, with esbuild through its Go API, and carries their
-assets. With `-shared-code`, F8b's opt-in
-([ADR 0013](docs/design/0013-shared-module-code.md)), it also builds shared
+assets. With `-shared-code`, an opt-in that
+[ADR 0013](docs/design/0013-shared-module-code.md) decides, it also builds shared
 code: a `warm` or host-mode process then compiles each build group's
 dependency code once and gives each step module its own instance of it.
 `selfcheck` runs the QuickJS-ng expression

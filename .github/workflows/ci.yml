@@ -27,10 +27,9 @@ jobs:
     # cmd/wltest's flow suite runs in warm, fresh and host mode (milestone
     # F3b), about 9 minutes under -race on macOS before host mode, about 14
     # with it, and over 20 with recording batch E3f's fixtures, which macOS
-    # runs one at a time (GOMAXPROCS/2 is 1 on its three cores). Milestone
-    # F8b runs it twice more, in warm and host mode from bundles built with
-    # shared code (ADR 0013): about 21 minutes on Linux and an estimated 38
-    # on macOS.
+    # runs one at a time (GOMAXPROCS/2 is 1 on its three cores). It also
+    # runs in warm and host mode from bundles built with shared code (ADR
+    # 0013): about 23 minutes on Linux and 41 on macOS in all.
     timeout-minutes: 50
     steps:
       - name: Check out repository

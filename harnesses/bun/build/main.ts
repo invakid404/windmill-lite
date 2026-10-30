@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { Builder, BuildProblem } from "./build.ts";
 import type { Request, Response } from "./protocol.ts";
-import { keptImports } from "./shared.ts";
+import { keptImports, namespaceImports, syntaxOf } from "./shared.ts";
 
 const [requestPath, responsePath] = process.argv.slice(2);
 if (requestPath === undefined || responsePath === undefined) {
@@ -37,7 +37,7 @@ try {
   response.error = { kind: "invalid_request", message: `cannot read the request: ${(e as Error).message}` };
   finish(2);
 }
-if (req.version !== 1 || (req.op !== "scan" && req.op !== "build" && req.op !== "parse" && req.op !== "native" && req.op !== "kept")) {
+if (req.version !== 1 || (req.op !== "scan" && req.op !== "build" && req.op !== "parse" && req.op !== "native" && req.op !== "kept" && req.op !== "namespaces")) {
   response.error = { kind: "invalid_request", message: `unsupported request version ${req.version} or op ${req.op}` };
   finish(2);
 }
@@ -77,6 +77,21 @@ if (req.op === "kept") {
   finish(0);
 }
 
+// The namespace objects modules of a codebase bundle take (ADR 0013).
+if (req.op === "namespaces") {
+  response.namespaces = {};
+  for (const file of req.modules ?? []) {
+    let text: string | undefined;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      text = undefined;
+    }
+    response.namespaces[file] = text === undefined ? null : namespaceImports(text, syntaxOf(file));
+  }
+  finish(0);
+}
+
 for (const hm of req.op === "native" ? [] : req.host_modules) {
   try {
     if (req.op === "parse") {
@@ -105,6 +120,7 @@ if (req.op === "build" && req.shared_code) {
   try {
     const shared = await builder.buildShared();
     response.closures = shared.closures;
+    response.closure_meta = shared.closureMeta;
     for (const [id, record] of Object.entries(shared.shared)) {
       const r = response.entries[id];
       if (r !== undefined && r.error === undefined) r.meta.shared = record;

@@ -416,19 +416,20 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - a host compiled with `bun build --compile` resolves no package from
     disk at run time, so a listed module that imports packages must be
     compiled into the host.
-- Milestone F8b built it.
-  - **The bundle.** A bundle built with shared code holds
-    `scripts/bun/closures/<id>.cjs` per group and
-    `scripts/bun/<id>.shared.mjs` (or `.shared.cjs`) per script beside its
-    per-script bundle; the manifest records `shared_code` and the
-    closures' ids, and each script's metadata its `shared` record.
+- **Shared code in the bundle** ([0013](0013-shared-module-code.md)).
+  - A bundle built with shared code holds `scripts/bun/closures/<id>.cjs`
+    per group and `scripts/bun/<id>.shared.mjs` (or `.shared.cjs`) per
+    script beside its per-script bundle; the manifest records
+    `shared_code` and the closures' ids, and each script's metadata its
+    `shared` record.
   - **Codebase groups** are built in Go with esbuild.
-  - **Bun-built groups** are built by the helper, whose `kept` op also
-    parses the codebase closures for kept imports.
-  - **A fix for every bundle:** an object or array value in a codebase
-    entry's `define` no longer fails the build. esbuild names it as an
-    input, `<define:NAME>`, which the source inventory and the env
-    rewrite's binding check no longer read as a file.
+  - **Bun-built groups** are built by the helper. Its `kept` and
+    `namespaces` ops also parse the codebase closures for kept imports and
+    the codebase modules for namespace imports.
+- **Virtual inputs.** esbuild names an object or array value of a codebase
+  entry's `define` as an input of its own, `<define:NAME>`. The source
+  inventory and the env rewrite's binding check read only the inputs that
+  are files.
 
 ## Spec IDs relied on
 

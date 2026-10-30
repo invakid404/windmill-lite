@@ -1,6 +1,6 @@
 # internal/bundle
 
-**Current state:** milestones C2a, F4, C2b and F8b of
+**Current state:** milestones C2a, F4 and C2b of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
 covers `internal/bundle` and its `testdata/`. The package builds
 windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
@@ -14,7 +14,9 @@ windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
   the import base of inline scripts), `BuildBun`, which runs the
   [Bun build helper](../../harnesses/bun/build/README.md), and
   `BuildCodebase`, which bundles codebase scripts with esbuild through its
-  Go API, with the same env rewrite and shims, and carries their assets.
+  Go API, with the same env rewrite and shims, and carries their assets;
+- shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md),
+  below), which a build asks for with `Config.SharedCode`.
 
 [wl](../../wl/README.md)`.Open` (F1) opens a bundle to run it: it calls
 `Verify`, or `Extract` for an archive, and `TreeDigest` for the harness
@@ -343,16 +345,23 @@ it:
     its CommonJS output starts with `"use strict"`.
   - **Bun-built groups** are the build helper's, keyed by target and lock.
   - Native scripts are in none (D5).
-- **The closure** of a group is a CommonJS bundle of an entry that requires
-  each dependency module its scripts reach, by its path from the sync root
-  (`closureEntrySource`), built with the group's settings, the env rewrite
-  and the shims, and, for an ES module group, `import.meta` read from the
-  instance (`__wl_meta`).
+- **The closure** of a group is a CommonJS bundle of an entry that maps
+  each dependency module its scripts reach, by its path from the sync root,
+  to a function that requires it (`closureEntrySource`), built with the
+  group's settings, the env rewrite and the shims, and, for an ES module
+  group, `import.meta` read from a parameter of the instance. That
+  parameter is the first of `__wl_meta`, `__wl_meta_2`, … that no input of
+  the closure spells, so no binding of a dependency, at its top level or as
+  a function's parameter, captures it (`buildClosure`, as for the env
+  rewrite's binding).
   - `wrapClosure` wraps it into a factory in Bun's own CommonJS form
     (`// @bun @bun-cjs`, which Bun loads without transpiling it again): each
-    call runs the bundle with a module of its own and the calling module's
-    `require`, file names and `import.meta`, and returns the table of the
-    instance. A strict group's closure is strict.
+    call runs the bundle with the calling module's `module` and `exports`
+    (a CommonJS module's; an ES module passes neither), `require`, file
+    names and `import.meta`, so dependency code sees the step's, as in its
+    per-script bundle. The entry hands the instance's table back through a
+    global property of its own (`ClosureTable`), not `module.exports`,
+    which stays the step's. A strict group's closure is strict.
   - The Bun build helper's closure bundles go through the same wrapper
     (`BuildBun`).
 - **The shared-layout module** of a script is a second build of it in which
@@ -372,6 +381,12 @@ it:
   and the warning `shared_code_fallback`, which names the module) for:
   - a `banner`, or an object or array `define` value, on its entry;
   - a cycle through its own entry;
+  - an ES module dependency whose namespace object both its entry and
+    another module of its bundle take (`namespace_import`,
+    `namespaceClash`): by a namespace import, a namespace re-export or an
+    `import()` of a literal specifier, which the build helper's
+    `namespaces` op finds by parsing each module. In the per-script bundle
+    that is one object; in the shared layout it would be two;
   - and, by module of the closure:
     - top-level await, which fails the CommonJS build;
     - a static import of an external module from an ES module group (a
@@ -509,7 +524,7 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
 - `TestConformanceBuild` runs every case of
   [conformance/build](../../conformance/README.md), D18's shared code among
   them (`given.shared_code`, `expect.shared`: each script's record by a
-  case-local closure label, what each closure names, and, for
+  case-local closure label, what each closure names and contains, and, for
   `t-closure-membership`, that the per-script bundles are the same bytes as
   without shared code): it writes the case's
   folder, builds it and checks what the build recorded or refused. Cases with

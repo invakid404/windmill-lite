@@ -83,13 +83,13 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite is the exit gate of milestones E1, N1a and F1, in host
-// mode part of F3b's, and with shared code part of F8b's: every run the
-// flow suite requires passes in warm and in fresh mode, through wl on the
-// engine and the real Bun harness on the pinned Bun, and in host mode, on a
-// Bun host that embeds the host SDK and runs the steps in its own process
-// (hostmode.go), and again in warm and host mode from bundles built with
-// shared code (ADR 0013), each compared with its expect or recording. Every other fixture under
+// TestFlowSuite is the exit gate of milestones E1, N1a and F1, and in host
+// mode part of F3b's: every run the flow suite requires passes in warm and
+// in fresh mode, through wl on the engine and the real Bun harness on the
+// pinned Bun, and in host mode, on a Bun host that embeds the host SDK and
+// runs the steps in its own process (hostmode.go), and again in warm and
+// host mode from bundles built with shared code (ADR 0013), each compared
+// with its expect or recording. Every other fixture under
 // conformance/flows, and every expression file under conformance/exprs as
 // its generated one-step flow fixture, also runs: each must load, and its
 // runs are reported as passing, failing or unsupported, with the reason.

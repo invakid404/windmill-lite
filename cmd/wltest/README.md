@@ -12,8 +12,8 @@ while loops and branches of N3b, the platform providers of milestone PF2
 dispatcher of milestone PF3, the containers' waits, retries and
 cancellation of milestone NI, the effect sink and stub mode of milestone
 E4b (`effects.go`), and, since milestone F1, through the public
-[wl](../../wl/README.md) library in `warm` and `fresh`, and, since milestone
-F8b, from bundles built with shared code (`-shared-code`). This README covers the `wltest` command in
+[wl](../../wl/README.md) library in `warm` and `fresh`, also from bundles
+built with shared code (`-shared-code`). This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -215,7 +215,7 @@ left running after it settled, which the D9 fence must stop, fails the
 case; in `warm` mode the process is observed for 200 ms more after a last
 run that states its late reports or settlement, before it is drained.
 
-A step file with `shared_code: true` (milestone F8b, `d18.yaml`) is built
+A step file with `shared_code: true` (`d18.yaml`) is built
 with shared code whatever the flag, so its cases compare `warm`, which runs
 the shared-layout modules, with `fresh`, which runs the per-script
 bundles. A case's `scripts` add workspace scripts beside its `files`, each
@@ -512,8 +512,8 @@ Windmill v1.767.0's image).
 
 - `TestStepSuite` is the exit gate of milestones C3a and C3b, and with
   `wr-40.yaml` to `wr-45.yaml` and `d5.yaml` milestone C3n's: every step
-  case passes, in `warm` and in `fresh`, and with `d18.yaml` the step half
-  of milestone F8b's (shared code); with `WL_NODE` it is also
+  case passes, in `warm` and in `fresh`, `d18.yaml`'s from a bundle built
+  with shared code; with `WL_NODE` it is also
   milestone C2b's D13 gate, every CommonJS codebase case holding on Node
   too. `TestStepCheckerReportsDifferences` checks that a wrong expectation
   of each kind fails, in both modes, `TestStepCheckerReportsNodeDifferences`
@@ -538,7 +538,7 @@ Windmill v1.767.0's image).
   N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
   E3f, and the flow-suite half of F3b's: every run the flow suite requires
   passes in `warm` and in `fresh`, and in `host` (F3b), and in `warm` and
-  `host` from bundles built with shared code (F8b),
+  `host` from bundles built with shared code,
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API; F2a, whose
   runs are `host/provided`'s, the run-time half of ADR 0002's provided-site
@@ -685,7 +685,7 @@ fixtures leave no descriptor open, with garbage collection off
   gets (`harness.BaseEnv`), and its working directory is the fixture's.
 
 `TestFlowSuite` runs the suite in `warm`, `fresh` and `host` mode, and in
-`warm` and `host` from bundles built with shared code (F8b); every
+`warm` and `host` from bundles built with shared code; every
 required run must pass in all five.
 
 ## Version

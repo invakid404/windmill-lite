@@ -15,8 +15,9 @@ result behind its own platform call, and fixed the borrowed reading
 methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
 ([WR-55](../../docs/semantics/languages.md#wr-55), below); milestone
-F3a, which completed the host SDK; milestone F2c, host plugins
-answered over `host_call`; and milestone F8b, shared code (below). This
+F3a, which completed the host SDK; and milestone F2c, host plugins
+answered over `host_call` (below). It also runs a bundle's shared code
+(below, [ADR 0013](../../docs/design/0013-shared-module-code.md)). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
@@ -94,8 +95,12 @@ cannot corrupt the protocol.
   `globalThis[Symbol.for("windmill-lite.closures")]`, before any module
   loads (`installClosures`): `instance(id, scope)` loads the closure
   factory `scripts/bun/closures/<id>.cjs` once per process and makes a
-  fresh instance of it with the calling module's `require`, file names and
-  `import.meta`. Each step module that asks has an instance of its own, so
+  fresh instance of it with the calling module's `module` and `exports` (a
+  CommonJS module's; an ES module passes neither), `require`, file names
+  and `import.meta`, which its dependency code sees as in the per-script
+  bundle; the closure hands the instance's table back through
+  `globalThis[Symbol.for("windmill-lite.closure-table")]`, which the
+  registry clears at once. Each step module that asks has an instance of its own, so
   module state stays per script while the dependency code is compiled
   once; a dependency module initialises in an instance on its first
   reference. Loading a closure runs none of its modules.
