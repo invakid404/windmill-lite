@@ -741,10 +741,11 @@ waits on an external gate except R1.
     letters of 0013 are not catalogue cases;
   - the flow suite, whose 669 required runs pass in `warm` and host mode
     with shared code as without;
-  - the memory gate: the real layout holds the synthetic reproduction at
-    0.17 MiB per further module, and the embedder-shaped closure at
-    450 MiB with 34 modules loaded and a 497 MiB peak after 1,000 runs, at
-    10.3 MiB per further module.
+  - the memory gate: in two runs, the real layout holds the synthetic
+    reproduction at 0.17 to 0.21 MiB per further module, and the
+    embedder-shaped closure at 439 to 450 MiB with 34 modules loaded and a
+    492 to 497 MiB peak after 1,000 runs, at 9.9 to 10.3 MiB per further
+    module.
 
   It corrected 0013 on two points: both bundlers keep import order, so
   initialisation order is no difference; and an ES module dependency's

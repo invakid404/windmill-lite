@@ -27,8 +27,11 @@ jobs:
     # cmd/wltest's flow suite runs in warm, fresh and host mode (milestone
     # F3b), about 9 minutes under -race on macOS before host mode, about 14
     # with it, and over 20 with recording batch E3f's fixtures, which macOS
-    # runs one at a time (GOMAXPROCS/2 is 1 on its three cores).
-    timeout-minutes: 35
+    # runs one at a time (GOMAXPROCS/2 is 1 on its three cores). Milestone
+    # F8b runs it twice more, in warm and host mode from bundles built with
+    # shared code (ADR 0013): about 21 minutes on Linux and an estimated 38
+    # on macOS.
+    timeout-minutes: 50
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +115,7 @@ jobs:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
           WL_REQUIRE_BUN: "1"
           WL_REQUIRE_NODE: "1"
-        run: go test -race -timeout 30m ./...
+        run: go test -race -timeout 45m ./...
 
       - name: Build a fixture bundle twice and compare
         # F4's exit gate (ADR 0010, 0012): the same inputs and pins give one

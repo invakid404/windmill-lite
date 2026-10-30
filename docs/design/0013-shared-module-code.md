@@ -572,10 +572,10 @@ instance of every module it imports, as on Windmill.
   C behind `WL_MEMORY_PROBE`, since it needs the network once and about
   2 GiB. Since milestone F8b, both run the real shared layout.
 - **Milestone F8b** implemented the decision and met its gates.
-  - **Memory.** On the real layout, S costs 0.17 MiB per further module.
-    C holds 450 MiB with its 34 modules loaded, 462 MiB with eight
-    concurrent runs and a 497 MiB peak after 1,000 runs, at 10.3 MiB per
-    further module.
+  - **Memory.** On the real layout, in two runs, S costs 0.17 to 0.21 MiB
+    per further module. C holds 439 to 450 MiB with its 34 modules loaded,
+    453 to 462 MiB with eight concurrent runs and a 492 to 497 MiB peak
+    after 1,000 runs, at 9.9 to 10.3 MiB per further module.
   - **Initialisation order is not a difference.** The record expected a
     per-script bundle to run an ES module dependency before a CommonJS one.
     esbuild 0.28.0 and Bun 1.3.10 both keep import order (esbuild splits
