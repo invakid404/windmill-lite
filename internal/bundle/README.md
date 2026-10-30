@@ -582,6 +582,11 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   label, what each closure names and contains, and text of each script's
   shared-layout module. For `t-closure-membership` they also check that
   the per-script bundles are the same bytes as without shared code.
+- `TestBuiltins` checks the build helper's `kept` op: an `import()` of
+  `node:async_hooks` is not kept and one of a variable is. It also checks
+  that the list of built-in modules it returns holds Node's modules, their
+  subpaths and Bun's own, and that `node:` names outside the list are not
+  built in.
 - `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
   flow, an inline step, a path script, a workspace import, a host-provided
   module, a codebase script with a define, an import of its codebase and an
