@@ -396,7 +396,10 @@ instance of every module it imports, as on Windmill.
      instance of the closure with its own `module`, `require`, `__filename`
      and `__dirname`, and, for an ES module group, its own `import.meta`.
      Dependency code that reads them, or that requires a file at run time,
-     sees the step's own, as in its per-script bundle (WR-50).
+     sees the step's own, as in its per-script bundle (WR-50). A dynamic
+     `import()` resolves from the file that holds it, whatever the
+     instance passes, so item 5 keeps such a script on its per-script
+     bundle.
    - **`import.meta.env`.** For an ES module group, the define table's
      rewrite of `import.meta.env` applies to dependency code as it does to
      an ES module bundle.
@@ -458,12 +461,26 @@ instance of every module it imports, as on Windmill.
      dependencies alike; this applies to the whole group.
    - **Top-level `await`** in a dependency module it reaches. A CommonJS
      closure cannot initialise such a module.
-   - **An external import from a dependency module in an ES module group.**
-     In the per-script bundle it stays an `import`, loaded asynchronously
-     and resolved with the `import` conditions. The CommonJS closure would
-     turn it into a synchronous `require`, with the `require` conditions,
-     which cannot load a module with top-level `await`. In a CommonJS group
-     both layouts already `require` it.
+   - **A static external import from a dependency module in an ES module
+     group.** In the per-script bundle it stays an `import`, loaded
+     asynchronously and resolved with the `import` conditions. The CommonJS
+     closure would turn it into a synchronous `require`, with the `require`
+     conditions, which cannot load a module with top-level `await`. In a
+     CommonJS group both layouts already `require` it.
+   - **A dynamic `import()` that the bundler keeps in a dependency module it
+     reaches, in any group.** That is one whose specifier the bundler cannot
+     resolve at build, such as `import(spec)` with a variable, or one that
+     names an external module. esbuild keeps such an expression, even in
+     CommonJS output, and it resolves from the file that holds it.
+     - In the per-script bundle that file is the step's own module, so a
+       step-local asset resolves.
+     - In a closure it would be the closure file, and the instance's
+       `require`, `__filename` and `__dirname` do not change that.
+     - Routing it through the step's `require` instead would lose its
+       asynchronous loading and its `import` conditions.
+
+     A `require` with a variable specifier needs no fallback: it goes
+     through the instance's `require`, which is the step's.
    - **A cycle through its own entry:** a dependency module that imports the
      script's own entry file.
 6. **The bundle.**
@@ -569,7 +586,7 @@ more scripts that share a dependency module:
 | D18/e | Initialisation order: a script importing an ES module dependency and a CommonJS dependency, each with a load effect; the per-script order in `fresh`, the shared layout's import order in `warm` (deviation D18) |
 | D18/f | Whole-module pruning: an unused import of a `sideEffects: false` module that no script of the group reaches runs no load effect in either layout |
 | D18/g | Unused code: an export whose `/* @__PURE__ */` initialiser has an effect after all, and a module that a `sideEffects: false` package re-exports beside one both scripts use, each used by one script and not by another; the other script's per-script bundle runs no effect, its shared instance does (deviation D18) |
-| D18/h | A codebase CommonJS dependency's `__dirname`, `__filename` and run-time `require` of an asset are the step's, in both layouts (WR-50) |
+| D18/h | A codebase CommonJS dependency's `__dirname`, `__filename`, run-time `require` of an asset and `require` with a variable specifier are the step's, in both layouts (WR-50). A dependency's `import(spec)` with a variable specifier loads a step-local ES module asset, one of them with top-level `await`, and gives the per-script bundle's result in every layout, from scripts whose modules sit in two directories (two Bun-built scripts in different folders, and a codebase entry), so that one shared base cannot pass by accident |
 | D18/i | An ES module group's dependency reads the step's `import.meta.url`, and `import.meta.env` gives each of concurrent invocations its own environment, in both layouts |
 | D18/j | Stack text and names: an error thrown in dependency code has the same name and message in both layouts, and its stack names the closure file in `warm`; two dependency modules that each declare a class of one name, and `Function.prototype.toString` of a dependency function, give the per-script bundle's names and text in `fresh` and the closure's in `warm` (deviation D18) |
 | D18/k | A load error: a dependency that throws while the step's module loads fails the step in both layouts; the `ExecutionErr` message's log tail names the closure file in `warm`, also when the tail is truncated (deviation D18) |
@@ -591,7 +608,7 @@ more scripts that share a dependency module:
 | D18/v | Installations: Bun-built scripts installed from identical locks are one group and share their modules; scripts of different locks are two groups, and a workspace file that both import resolves its package through each script's own lock, one version in each |
 | D18/w | The per-script bundles are byte for byte the same with and without shared code |
 | D18/x | The manifest: `shared_code: true`, the closures with their digests, D18 in the deviations, and another bundle digest than without shared code |
-| D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, a script of an ES module group whose dependency imports an external module (an asset with top-level `await`, and a package whose `import` and `require` conditions differ), and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
+| D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, a script of an ES module group whose dependency imports an external module statically (an asset with top-level `await`, and a package whose `import` and `require` conditions differ), a script of a CommonJS group and one of an ES module group whose dependency keeps an `import()` (a variable specifier, and an external one), and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
 | D18/z | Native scripts are in no group and run in a realm of their own, as without shared code (D5) |
 
 **Flow and memory gates.**
