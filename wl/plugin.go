@@ -152,16 +152,26 @@ func newPlugin(decl jsonval.Value, prog *ir.Program, call hostCaller, timeout ti
 // payload, and decodes its answer into out. It waits no longer than the
 // plugin timeout: then it fails with ErrHostCallTimeout. When the run's
 // own context ends first, it returns that context's cause, which the
-// engine does not latch on. A call it stopped waiting for holds the
-// settlement of the run whose context ctx is until the hook has finished
-// (doHeld).
+// engine does not latch on. The call holds the settlement of the run whose
+// context ctx is until the hook has finished (doHeld).
 func (p *plugin) do(ctx context.Context, hook, run string, site *engine.Site, payload map[string]any, out any) error {
 	return p.doHeld(ctx, ctx, hook, run, site, payload, out)
 }
 
+// errRunSettled is the error of a hook that was not called because its run
+// had settled.
+var errRunSettled = errors.New("the run has settled")
+
 // doHeld is do, holding the settlement of the run that held is the
-// context of (engine.HoldSettlement) while a hook the engine stopped
-// waiting for still runs: the run's resources outlive it (ADR 0008 H9).
+// context of (engine.HoldSettlement) from before the host_call is sent
+// until the hook has finished: at its reply, or, when the engine stops
+// waiting first, at its late reply or the harness's exit. A run therefore
+// never settles, and its resources are never released (ADR 0004 §Host
+// plugins, ADR 0008 H9), while one of its hooks runs, whatever ends the
+// wait: the plugin timeout, the run's own end, or a step that settled
+// meanwhile, as one whose job-API read wl.signal() aborted does. A hook of
+// a run that has settled is not called. A context of no run, the
+// settlement callback's own (onRunSettled), holds nothing.
 func (p *plugin) doHeld(ctx, held context.Context, hook, run string, site *engine.Site, payload map[string]any, out any) error {
 	path := ""
 	if site != nil {
@@ -172,19 +182,24 @@ func (p *plugin) doHeld(ctx, held context.Context, hook, run string, site *engin
 	if err != nil {
 		return fmt.Errorf("wl: host_call %s: %w", hook, err)
 	}
+	release, ok := engine.HoldSettlement(held)
+	if !ok {
+		return fmt.Errorf("wl: host_call %s for run %s: %w", hook, run, errRunSettled)
+	}
 	timeout := fmt.Errorf("%w: hook %s at %q got no reply from the host plugin within %s", ErrHostCallTimeout, hook, path, p.timeout)
 	cctx, cancel := context.WithTimeoutCause(ctx, p.timeout, timeout)
 	defer cancel()
 	ans, err := p.call(cctx, hook, run, path, jsonval.FromProducer(b))
+	if late := (*harness.LateHostCallError)(nil); errors.As(err, &late) {
+		// The hook runs on: the hold passes to its end.
+		go func() {
+			<-late.Done
+			release()
+		}()
+	} else {
+		release()
+	}
 	if err != nil {
-		var late *harness.LateHostCallError
-		if errors.As(err, &late) {
-			release := engine.HoldSettlement(held)
-			go func() {
-				<-late.Done
-				release()
-			}()
-		}
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}

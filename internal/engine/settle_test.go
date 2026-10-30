@@ -311,17 +311,20 @@ func TestRunWithNoInvocationsSettlesAtEnd(t *testing.T) {
 	}
 }
 
-// A hold (a host plugin's hook that outlived the engine's wait for it,
-// milestone F2c) keeps an ended run from settling until it is released,
-// once however often; one taken after the run settled holds nothing; and
-// HoldSettlement finds the settlement in a run's context only.
+// A hold (a host plugin's hook, milestone F2c) keeps an ended run from
+// settling until it is released, once however often; one asked for after
+// the run settled holds nothing and says so; and HoldSettlement finds the
+// settlement in a run's context only.
 func TestRunSettlementHolds(t *testing.T) {
 	var fired atomic.Int32
 	run := NewRunSettlement(func() { fired.Add(1) })
 	inv := run.Track(NopReporter{})
-	before := run.Hold()
+	before, ok1 := run.Hold()
 	run.End()
-	after := run.Hold()
+	after, ok2 := run.Hold()
+	if !ok1 || !ok2 {
+		t.Fatal("a hold before settlement was refused")
+	}
 	inv.Settled(SettleCompleted)
 	before()
 	before()
@@ -332,13 +335,18 @@ func TestRunSettlementHolds(t *testing.T) {
 	if fired.Load() != 1 {
 		t.Fatalf("fired %d after the last hold was released", fired.Load())
 	}
-	run.Hold()()
-	if fired.Load() != 1 || run.Open() != 0 {
-		t.Fatalf("a hold after settlement changed the run: fired %d, open %d", fired.Load(), run.Open())
+	late, ok := run.Hold()
+	late()
+	if ok || fired.Load() != 1 || run.Open() != 0 {
+		t.Fatalf("a hold after settlement: ok %v, fired %d, open %d; want it refused and the run unchanged", ok, fired.Load(), run.Open())
 	}
-	HoldSettlement(context.Background())()
+	if none, ok := HoldSettlement(context.Background()); !ok {
+		t.Fatal("a context of no run refused a hold")
+	} else {
+		none()
+	}
 	ctx := context.WithValue(context.Background(), settlementKey{}, NewRunSettlement(func() { fired.Add(1) }))
-	held := HoldSettlement(ctx)
+	held, _ := HoldSettlement(ctx)
 	ctx.Value(settlementKey{}).(*RunSettlement).End()
 	if fired.Load() != 1 {
 		t.Fatal("a run held through its context settled")

@@ -77,6 +77,20 @@ scripts:
       });
       return { api: r.status };
     }
+  f/plugins/getvar_signal.ts: |
+    // Reads the variable u/plugins/v through the job API, its request tied
+    // to the step API's signal (H4): when the run ends, the read aborts and
+    // the step returns at once, while the provider may still run.
+    declare const wl: { signal(): AbortSignal };
+    export async function main() {
+      try {
+        await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables/get_value/u/plugins/v`, {
+          signal: wl.signal(),
+          headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` },
+        });
+      } catch {}
+      return 1;
+    }
   f/plugins/latch.ts: |
     // Latches its run through the step API (H5), then returns a value
     // that the latch outranks.
@@ -491,5 +505,31 @@ cases:
         - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
     plugin: {slow_start_ms: 800}
     run: {deadline_ms: 300}
+    expect: {status: canceled}
+    go: false
+
+  # A provider's call is held from the moment it is sent: a step that ties
+  # its job-API read to wl.signal() settles when the run's deadline aborts
+  # the read, but the run settles only once the provider has finished,
+  # whether it answers before the plugin timeout or after it (H9, H4).
+  - id: h13_provider_cancel_settles
+    spec: [H13, H9, H4]
+    title: a step that settles while its variable provider runs leaves the run unsettled until the provider answers
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/getvar_signal, input_transforms: {}}}
+    plugin: {fail_variables: {u/plugins/v: {delay_ms: 700}}}
+    run: {deadline_ms: 200}
+    expect: {status: canceled}
+    go: false
+
+  - id: h13_provider_cancel_timeout_settles
+    spec: [H13, H9, H4]
+    title: a step that settles while its variable provider runs past the plugin timeout leaves the run unsettled until the provider finishes
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/getvar_signal, input_transforms: {}}}
+    plugin: {fail_variables: {u/plugins/v: {delay_ms: 1500}}}
+    run: {deadline_ms: 200}
     expect: {status: canceled}
     go: false

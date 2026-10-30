@@ -310,11 +310,14 @@ bridge).
    `beforeFirstWrite` (a `host_call`) and fatal error names (H3, H7);
    `mergeHooks` puts them after the run's own. `onRunEnd` reports a run
    whose context ended too: its call has the plugin timeout alone.
-   - **Late hooks hold settlement.** A `host_call` the runtime stopped
-     waiting for (the plugin timeout, the run's end) holds the run's
-     settlement until the hook's late reply comes (`doHeld`,
-     `engine.HoldSettlement`), so `OnRunSettled`, `run_settled` and the
-     release of the run's resources come after every hook of the run.
+   - **Hooks hold settlement.** Every `host_call` of a run holds the run's
+     settlement from before it is sent (`doHeld`,
+     `engine.HoldSettlement`) until its reply, or, when the runtime
+     stopped waiting first (the plugin timeout, the run's end, a step that
+     settled meanwhile), its late reply or the harness's exit, so
+     `OnRunSettled`, `run_settled` and the release of the run's resources
+     come after every hook of the run. A hook of a settled run is not
+     called (`errRunSettled`).
    - **H13 failures latch.** The plugin's `resource` and `variable` reach
      their run through a `runBinding` that `engine.RunRequest.Started`
      fills, since the facade serves job-API calls outside the run's
@@ -436,7 +439,9 @@ declaration has a malformed or ambiguous selector refused with
 toward the contract's (`missing_provider`, a name given twice), the
 declaration's hooks as `host_call`s (an interception by index, a
 decline, `around`'s matches, a timeout latching and a run's own end not),
-and `mergeHooks`'s order. `plugincases_test.go` runs the cases of
+`mergeHooks`'s order, and that a hook's call holds its run's settlement
+while in flight and is not made for a settled run
+(`TestPluginCallsHoldSettlement`). `plugincases_test.go` runs the cases of
 `conformance/plugins/hooks.yaml` on a bundle built from them, through
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
 through Go callbacks built from the same plugins, each case with its

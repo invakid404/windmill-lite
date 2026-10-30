@@ -731,11 +731,14 @@ answered by a `host_reply`.
    many calls ended meanwhile: the engine remembers each such call until
    its reply comes, which the harness sends once the hook has run. One to
    no `host_call`, or a second one to a call, is a protocol error, as is a
-   `host_call` from a harness. A hook the engine stopped waiting for may
-   still run in the run's scope, so the run does not settle, and its
-   resources are not released (`run_settled` in host mode), until that
-   reply has come or the harness has exited; a hook of the settlement
-   itself (`onRunSettled`) holds nothing.
+   `host_call` from a harness. A hook runs in the run's scope from the
+   moment its `host_call` is sent until its reply comes, which may be
+   after the engine stopped waiting for it, or until the harness exits:
+   the run does not settle, and its resources are not released
+   (`run_settled` in host mode), while any of its hooks runs, whatever
+   ended the wait, a step that settled meanwhile included. A hook of a run
+   that has settled is not called; a hook of the settlement itself
+   (`onRunSettled`) holds nothing.
 3. **`around`.** The engine names on each `invoke` the plugin's around
    wrappers whose selectors match the invocation's site; the harness runs
    the step inside them, outermost first. A wrapper that throws, or never

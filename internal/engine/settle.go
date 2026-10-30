@@ -52,21 +52,22 @@ func (s *RunSettlement) End() {
 	}
 }
 
-// Hold counts work of the run's own that is not an invocation and may
-// outlast the engine's wait for it, a host plugin's hook whose host_call
-// timed out (milestone F2c), and returns its release: the run does not
-// settle while it is held. Unlike Track it is allowed after End. A hold
-// taken once the run has settled holds nothing, so the settlement callback
-// never waits on itself. Release may be called more than once.
-func (s *RunSettlement) Hold() (release func()) {
+// Hold counts work of the run's own that is not an invocation, a host
+// plugin's hook from the moment its host_call is sent until it has
+// finished, which may be after the engine stopped waiting for it
+// (milestone F2c), and returns its release: the run does not settle while
+// it is held. Unlike Track it is allowed after End. Once the run has
+// settled it holds nothing and ok is false: the work must not start, as
+// the run's resources may be gone. Release may be called more than once.
+func (s *RunSettlement) Hold() (release func(), ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fired {
-		return func() {}
+		return func() {}, false
 	}
 	s.open++
 	var once sync.Once
-	return func() { once.Do(s.settleOne) }
+	return func() { once.Do(s.settleOne) }, true
 }
 
 // settlementKey is the context key of a run's settlement.
@@ -74,12 +75,15 @@ type settlementKey struct{}
 
 // HoldSettlement holds the settlement of the run whose context ctx is or
 // derives from (RunSettlement.Hold): the engine gives every hook, provider
-// and RunRequest.Started that context. Outside a run it holds nothing.
-func HoldSettlement(ctx context.Context) (release func()) {
-	if s, ok := ctx.Value(settlementKey{}).(*RunSettlement); ok {
+// and RunRequest.Started that context. ok is false when that run has
+// settled. A context of no run, such as the one a settlement callback's
+// own work runs in (OnRunSettled), holds nothing, with ok true, so that
+// work never waits for itself.
+func HoldSettlement(ctx context.Context) (release func(), ok bool) {
+	if s, found := ctx.Value(settlementKey{}).(*RunSettlement); found {
 		return s.Hold()
 	}
-	return func() {}
+	return func() {}, true
 }
 
 // Open returns the number of tracked invocations that have not settled.

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -161,3 +163,58 @@ type runID string
 
 func (r runID) ID() string    { return string(r) }
 func (runID) Latch(err error) {}
+
+// A plugin's hook holds its run's settlement while the host_call is in
+// flight, from before it is sent (F2c review R2-1): the run does not
+// settle while the hook runs; and a hook of a run that has settled is not
+// called at all, its resources being gone.
+func TestPluginCallsHoldSettlement(t *testing.T) {
+	rt := openHooks(t)
+	inCall := make(chan struct{})
+	finish := make(chan struct{})
+	var calls atomic.Int32
+	call := func(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, error) {
+		if calls.Add(1) == 1 {
+			close(inCall)
+			<-finish
+		}
+		return jsonval.FromProducer([]byte(`{}`)), nil
+	}
+	p, err := newPlugin(jsonval.FromProducer([]byte(`{}`)), rt.prog, call, time.Minute, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled := make(chan struct{})
+	var runCtx context.Context
+	hooks := &Hooks{
+		OnModuleStart: func(ctx context.Context, r RunHandle, s Site) error {
+			if s.Module == "a" {
+				runCtx = ctx
+				// Work the run's own hook started, which outlives the run's
+				// outcome: a provider call a step began, say.
+				go p.do(ctx, "variable", r.ID(), nil, map[string]any{"path": "u/x/v"}, nil)
+				<-inCall
+			}
+			return nil
+		},
+		OnRunSettled: func(*Trace) { close(settled) },
+	}
+	res, err := rt.Run(context.Background(), "f/h/main", nil, RunOptions{Hooks: hooks})
+	if err != nil || res.Status != StatusSuccess {
+		t.Fatalf("%v %v", res, err)
+	}
+	select {
+	case <-settled:
+		t.Fatal("the run settled while a hook's host_call was in flight")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(finish)
+	select {
+	case <-settled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the run never settled after the hook answered")
+	}
+	if err := p.do(runCtx, "variable", res.ID, nil, map[string]any{"path": "u/x/v"}, nil); !errors.Is(err, errRunSettled) || calls.Load() != 1 {
+		t.Fatalf("%v, %d calls: a hook of a settled run must not be called", err, calls.Load())
+	}
+}

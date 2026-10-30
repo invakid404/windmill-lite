@@ -197,9 +197,11 @@ Two further rules complete it:
   its `run` frame, and `onRunEnd` runs for a canceled run too, with the
   plugin timeout alone. Review round 1 settled four more points: a
   TypeScript H13 provider's failure or timeout latches the run, through
-  the job API and reference resolution alike; a hook the engine stopped
-  waiting for holds the run's settlement until it has finished, so a
-  run's resources outlive its hooks; an `around` wrapper's `next()` is
+  the job API and reference resolution alike; a hook holds the run's
+  settlement from the moment it is called until it has finished, even
+  after the engine stopped waiting for it, so a run's resources outlive
+  its hooks (review round 2: a provider call a step started, whose step
+  settled first, included); an `around` wrapper's `next()` is
   closed once the wrapper returns; and a TypeScript hook's records and
   traces carry every field a Go hook's do.
 - Milestone K1 added the two rules after the precedence paragraph, and

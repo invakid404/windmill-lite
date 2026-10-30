@@ -191,8 +191,10 @@ An invocation settles when its entrypoint call can run no more code, and
   nothing is unsettled, it calls its callback once; that is where the engine
   calls `OnRunSettled` and releases what step code can reach (ADR 0004 host
   mode item 5). `Hold` counts work that is not an invocation, a host
-  plugin's hook that outlived the engine's wait for it (F2c), even after
-  `End`; one taken once the run has settled holds nothing, so the callback
+  plugin's hook from its call until it has finished, which may outlive the
+  engine's wait for it (F2c), even after `End`; once the run has settled
+  it holds nothing and says so, and the work must not start. A context of
+  no run, the settlement callback's own, holds nothing, so the callback
   never waits on itself. A flow run's context carries its settlement, so
   that whatever serves it holds it with `HoldSettlement(ctx)`, and
   `RunRequest.Started` hands what serves the run outside its hooks (a
