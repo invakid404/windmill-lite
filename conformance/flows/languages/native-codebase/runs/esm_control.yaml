@@ -1,0 +1,8 @@
+# WR-50/c's control: the same entry without the header runs on Bun
+# (WR-47/b).
+spec: [WR-50/c, WR-47/b]
+target: f/wl_ncb/esm_control
+expect:
+  status: success
+  result: [object, string]
+  steps: {"m:s": {status: success, args: {}, result: [object, string]}}

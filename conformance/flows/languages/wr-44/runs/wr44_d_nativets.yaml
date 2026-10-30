@@ -1,0 +1,21 @@
+# WR-44/d (nativets): without a step timeout the instance's
+# job_default_timeout applies: a Bun step sets it to 1 s through the API,
+# the native step times out (continue_on_error, so the flow goes on), and a
+# last Bun step removes the setting again; the request asks to run the case
+# alone and reset the setting.
+spec: [WR-44/d]
+target: f/wl_n44/wr44_d_nativets
+expect:
+  status: success
+  result: 200
+  steps:
+    "m:s": {status: success, args: {value: 1}, result: 200}
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nQuery timeout after (>1s)"
+          name: ExecutionErr
+          step_id: a
+    "m:r": {status: success, args: {value: null}, result: 200}

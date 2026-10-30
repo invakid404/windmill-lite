@@ -76,6 +76,19 @@ func ErrRequiresWorkers(need, have int) *Refusal {
 	return refusal("fixture_requires_workers", "need", strconv.Itoa(need), "have", strconv.Itoa(have))
 }
 
+// ErrRequiresSession is the refusal of a fixture that needs another oracle
+// configuration than the session runs (SessionConfigs): "" is the
+// reference configuration.
+func ErrRequiresSession(need, have string) *Refusal {
+	return refusal("fixture_requires_session", "need", jsonString(need), "have", jsonString(have))
+}
+
+// ErrUnknownSession is the refusal of a session configuration, or of a
+// fixture's, that SessionConfigs does not name.
+func ErrUnknownSession(name string) *Refusal {
+	return refusal("unknown_session", "session", jsonString(name))
+}
+
 // ErrProvidedSites is the reason a fixture with host-provided sites
 // (conformance.Fixture.Provided, milestone F2a) is skipped: windmill-lite
 // replaces those sites with the host's providers, while the oracle would

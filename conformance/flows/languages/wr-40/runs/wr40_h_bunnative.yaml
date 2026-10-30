@@ -1,0 +1,9 @@
+# WR-40/h (bunnative): node:buffer is a browser polyfill, node:fs an empty
+# object, __dirname the build directory's path.
+spec: [WR-40/h]
+target: f/wl_n40/wr40_h_bunnative
+expect:
+  status: success
+  result: ["aGk=", undefined, string]
+  steps:
+    "m:a": {status: success, args: {}, result: ["aGk=", undefined, string]}

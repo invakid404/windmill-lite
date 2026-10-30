@@ -111,6 +111,12 @@ type OracleNeeds struct {
 	// deployment evidence (SY-6, CF-6). It needs Deploy api, so the value
 	// pulled is the one the API created from the tree as written.
 	Pull bool `json:"pull,omitempty"`
+	// Session names the oracle configuration the fixture needs, one of the
+	// oracle harness's session configurations (oracle.SessionConfigs), for
+	// example "native" for a worker that serves the nativets tag; empty is
+	// the reference configuration (OR-4). Only a session of that
+	// configuration records the fixture.
+	Session string `json:"session,omitempty"`
 }
 
 // The deployment methods of OracleNeeds.Deploy.

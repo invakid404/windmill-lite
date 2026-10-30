@@ -1,0 +1,21 @@
+# WR-40/f (nativets): an uncaught failed dynamic import gives the
+# three-field exception shape, a TypeError with the loader's message and its
+# Caused by line, and no failed to load module text.
+spec: [WR-40/f]
+target: f/wl_n40/wr40_f_nativets
+expect:
+  status: failure
+  result:
+    error:
+      message: "Failed to load file:///missing.ts\n  Caused by:\n    No such file or directory (os error 2)"
+      stack: "<stack>"
+      name: TypeError
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "Failed to load file:///missing.ts\n  Caused by:\n    No such file or directory (os error 2)"
+          stack: "<stack>"
+          name: TypeError

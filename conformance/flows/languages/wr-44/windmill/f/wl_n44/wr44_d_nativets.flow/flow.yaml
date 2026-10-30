@@ -1,0 +1,26 @@
+summary: "WR-44/d (nativets)"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms: {value: {type: static, value: 1}}
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: nativets
+        input_transforms: {}
+      continue_on_error: true
+    - id: r
+      value:
+        type: rawscript
+        content: "!inline r.ts"
+        language: bun
+        input_transforms: {value: {type: static, value: null}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

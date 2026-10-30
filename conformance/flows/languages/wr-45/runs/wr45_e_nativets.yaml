@@ -1,0 +1,27 @@
+# WR-45/e (nativets): the absent globals.
+spec: [WR-45/e]
+target: f/wl_n45/wr45_e_nativets
+expect:
+  status: success
+  result:
+    - undefined
+    - undefined
+    - undefined
+    - undefined
+    - undefined
+    - undefined
+    - undefined
+    - undefined
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        - undefined
+        - undefined
+        - undefined
+        - undefined
+        - undefined
+        - undefined
+        - undefined
+        - undefined

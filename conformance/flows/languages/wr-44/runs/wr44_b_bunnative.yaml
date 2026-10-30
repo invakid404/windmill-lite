@@ -1,0 +1,19 @@
+# WR-44/b (bunnative): a stack overflow is an ordinary RangeError.
+spec: [WR-44/b]
+target: f/wl_n44/wr44_b_bunnative
+expect:
+  status: failure
+  result:
+    error:
+      message: "Maximum call stack size exceeded"
+      stack: "<stack>"
+      name: RangeError
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "Maximum call stack size exceeded"
+          stack: "<stack>"
+          name: RangeError

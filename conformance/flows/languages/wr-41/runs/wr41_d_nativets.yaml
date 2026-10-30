@@ -1,0 +1,13 @@
+# WR-41/d (nativets): a nativets preprocessor module's script is run through
+# main, not preprocessor, so the flow sees {v: main}.
+spec: [WR-41/d]
+target: f/wl_n41/wr41_d_nativets
+expect:
+  status: success
+  result: main
+  steps:
+    "m:a": {status: success, args: {x: main}, result: main}
+    "s:preprocessor":
+      status: success
+      args: {reason: PREPROCESSOR_ARGS_ARE_DISCARDED}
+      result: {v: main}

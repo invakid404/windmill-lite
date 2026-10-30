@@ -1,0 +1,20 @@
+summary: "WR-41/d (nativets)"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {x: {type: javascript, expr: flow_input.v}}
+  preprocessor_module:
+    id: preprocessor
+    value:
+      type: rawscript
+      content: "!inline pre.ts"
+      language: nativets
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,0 +1,19 @@
+# WR-42/c (bunnative): a BigInt fails the job with V8's TypeError.
+spec: [WR-42/c]
+target: f/wl_n42/wr42_c_bunnative
+expect:
+  status: failure
+  result:
+    error:
+      message: "Do not know how to serialize a BigInt"
+      stack: "<stack>"
+      name: TypeError
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "Do not know how to serialize a BigInt"
+          stack: "<stack>"
+          name: TypeError

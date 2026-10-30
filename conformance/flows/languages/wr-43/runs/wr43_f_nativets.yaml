@@ -1,0 +1,20 @@
+# WR-43/f (nativets): a syntax error fails at the transpile step; the
+# catalogue gives the message's start only, without failed to load module.
+spec: [WR-43/f]
+target: f/wl_n43/wr43_f_nativets
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nError: …"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nError: …"
+          name: ExecutionErr
+          step_id: a

@@ -68,6 +68,7 @@ func TestComposeFile(t *testing.T) {
 			MemLimit    string            `yaml:"mem_limit"`
 			Profiles    []string          `yaml:"profiles"`
 			ExtraHosts  []string          `yaml:"extra_hosts"`
+			EnvFile     []string          `yaml:"env_file"`
 		} `yaml:"services"`
 		Volumes map[string]any `yaml:"volumes"`
 	}
@@ -101,6 +102,23 @@ func TestComposeFile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(c.Services["worker"].Profiles, []string{"workers2"}) || c.Services["worker"].Environment["MODE"] != "worker" {
 		t.Errorf("worker %+v", c.Services["worker"])
+	}
+	// Both Windmill services read the session's configuration, whose
+	// variables never override what the compose file sets (OR-4, OR-7).
+	for _, name := range []string{"windmill", "worker"} {
+		if !reflect.DeepEqual(c.Services[name].EnvFile, []string{SessionEnvFile}) {
+			t.Errorf("service %s env_file %v", name, c.Services[name].EnvFile)
+		}
+	}
+	if len(SessionConfigs[""]) != 0 {
+		t.Errorf("the reference configuration sets %v", SessionConfigs[""])
+	}
+	for config, vars := range SessionConfigs {
+		for k := range vars {
+			if _, ok := c.Services["windmill"].Environment[k]; ok {
+				t.Errorf("configuration %q sets %s, which the compose file sets", config, k)
+			}
+		}
 	}
 	env := c.Services["windmill"].Environment
 	for k, v := range OracleEnv {

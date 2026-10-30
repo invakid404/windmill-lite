@@ -23,7 +23,9 @@ import (
 // Arrival order is kept per run; with one worker it is execution order.
 //
 // The same server answers stub calls at conformance.ReplayPath when Replay
-// is set (ADR 0011 stub mode).
+// is set (ADR 0011 stub mode), and GET UserAgentPath with the request's
+// User-Agent header as text, for the cases that read the user agent a
+// step's fetch sends (WR-45/g); that request records nothing.
 type Sink struct {
 	// Replay serves POST /replay; nil answers it as an ordinary effect.
 	Replay http.Handler
@@ -45,10 +47,19 @@ type sinkRun struct {
 // maxEffect bounds one effect body.
 const maxEffect = 1 << 20
 
+// UserAgentPath is the sink path that answers a GET with the request's
+// User-Agent header (WR-45/g).
+const UserAgentPath = "/user-agent"
+
 // ServeHTTP implements the sink endpoint.
 func (s *Sink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.Replay != nil && r.URL.Path == conformance.ReplayPath {
 		s.Replay.ServeHTTP(w, r)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == UserAgentPath {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, r.Header.Get("User-Agent"))
 		return
 	}
 	if r.Method != http.MethodPost {

@@ -100,6 +100,8 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	runTimeout := fs.Duration("run-timeout", 5*time.Minute, "timeout of one run; less than 60s is raised to 60s, and a timed-out run is canceled")
 	skipUnmet := fs.Bool("skip-unmet-workers", false, "skip fixtures that need more workers than --workers, reporting their runs as skipped, instead of refusing them")
 	listen := fs.Int("listen-interval", 0, "the oracle's LISTEN_NEW_EVENTS_INTERVAL_SEC (default 1), for the knob comparison of OR-7/a")
+	session := fs.String("session", "", "the oracle configuration to run (native, result_size, flow_script_off, long; default the reference configuration); only the fixtures that need it are recorded")
+	skipSession := fs.Bool("skip-unmet-session", false, "skip fixtures that need another oracle configuration than --session, reporting their runs as skipped, instead of refusing them")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -195,6 +197,8 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Harness:            harnessInfo(),
 		SkipUnmetWorkers:   *skipUnmet,
 		ListenInterval:     *listen,
+		Config:             *session,
+		SkipUnmetSession:   *skipSession,
 	}
 	rep, runErr := s.Run(ctx, fixtures)
 	if *report != "" {

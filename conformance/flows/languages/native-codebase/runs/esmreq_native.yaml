@@ -1,0 +1,14 @@
+# An ESM bundle under //native whose banner makes require from node:module
+# when it can: the native runtime refuses the dynamic import of node:module,
+# the banner's catch makes require undefined, and the bundle loads (WR-50,
+# WR-45).
+spec: [WR-50, WR-40]
+target: f/wl_ncb/esmreq_native
+expect:
+  status: success
+  result: [undefined, undefined, undefined]
+  steps:
+    "m:s":
+      status: success
+      args: {}
+      result: [undefined, undefined, undefined]

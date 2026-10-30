@@ -1,0 +1,20 @@
+# Recording batch E3f (ADR 0012), part 1: the native-step session, on a
+# worker that serves the nativets tag (WORKER_TAGS=nativets, Q-WR-21). The
+# catalogue cases of WR-45/g, each one flow per kind it names: a Bun step
+# whose
+# first line is //native (bunnative) and a nativets step. Each run's expect
+# is the reference's source-derived prediction, written before the oracle
+# ran it. Recorded by the oracle workflow's native session; each run also
+# runs in windmill-lite's native mode (D5). Synthetic, written for this
+# repository from docs/semantics/conformance.md#wr-45. Deployed with
+# oracle.deploy api.
+# The effect sink answers GET /user-agent with the request's User-Agent
+# header, so the fixture declares the sink (oracle.effects).
+id: languages/wr-45-useragent
+spec: [WR-45, WR-45/g]
+scope: core
+provenance: source-derived
+languages: [bun, nativets]
+oracle: {workers: 1, deploy: api, session: native, effects: true}
+compare:
+  mask: ["/steps/m:s/result", "/steps/m:s/carried", "/steps/m:g/args/sink"]

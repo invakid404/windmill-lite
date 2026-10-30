@@ -1,0 +1,8 @@
+# WR-50/c: format esm with a first line //native runs in the native runtime,
+# whose globals have neither Bun nor a process with version.
+spec: [WR-50/c]
+target: f/wl_ncb/esm_native
+expect:
+  status: success
+  result: [undefined, undefined]
+  steps: {"m:s": {status: success, args: {}, result: [undefined, undefined]}}

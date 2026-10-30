@@ -1,0 +1,8 @@
+# WR-40/e (nativets): a failed dynamic import is an ordinary rejection that
+# main catches.
+spec: [WR-40/e]
+target: f/wl_n40/wr40_e_nativets
+expect:
+  status: success
+  result: [true, true]
+  steps: {"m:a": {status: success, args: {}, result: [true, true]}}

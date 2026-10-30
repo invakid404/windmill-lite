@@ -1,0 +1,10 @@
+# WR-45/g (nativets): fetch's default user agent, as the effect sink's
+# /user-agent route answers it; the sink's address comes from a Bun step.
+spec: [WR-45/g]
+target: f/wl_n45g/wr45_g_nativets
+expect:
+  status: success
+  result: windmill/beta
+  steps:
+    "m:s": {status: success, args: {}, result: "<masked>"}
+    "m:g": {status: success, args: {sink: "<masked>"}, result: windmill/beta}

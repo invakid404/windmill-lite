@@ -1,0 +1,20 @@
+# WR-40/h (bunnative): WR-40/h's variant b: a global Buffer without an
+# import stays undefined.
+spec: [WR-40/h]
+target: f/wl_n40/wr40_hglobal_bunnative
+expect:
+  status: failure
+  result:
+    error:
+      message: "Buffer is not defined"
+      stack: "<stack>"
+      name: ReferenceError
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "Buffer is not defined"
+          stack: "<stack>"
+          name: ReferenceError

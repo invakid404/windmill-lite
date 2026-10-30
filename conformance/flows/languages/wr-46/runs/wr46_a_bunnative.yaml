@@ -1,0 +1,8 @@
+# WR-46/a (bunnative): the stream text becomes the raw result: the JSON
+# number 12.
+spec: [WR-46/a]
+target: f/wl_n46/wr46_a_bunnative
+expect:
+  status: success
+  result: 12
+  steps: {"m:a": {status: success, args: {}, result: 12}}

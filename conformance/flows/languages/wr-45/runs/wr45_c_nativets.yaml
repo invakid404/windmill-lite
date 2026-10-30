@@ -1,0 +1,20 @@
+# WR-45/c (nativets): redeclaring a preamble name fails the load; the
+# catalogue gives the message's start.
+spec: [WR-45/c]
+target: f/wl_n45/wr45_c_nativets
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nError: failed to load module…"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nError: failed to load module…"
+          name: ExecutionErr
+          step_id: a

@@ -1,0 +1,19 @@
+summary: "WR-45/g (bunnative)"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms: {}
+    - id: g
+      value:
+        type: rawscript
+        content: "!inline g.ts"
+        language: bun
+        input_transforms: {sink: {type: javascript, expr: results.s}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

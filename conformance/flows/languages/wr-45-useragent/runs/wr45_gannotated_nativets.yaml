@@ -1,0 +1,10 @@
+# WR-45/g (nativets): WR-45/g's variant: the //useragent annotation sets the
+# user agent (for bunnative, on the line after //native).
+spec: [WR-45/g]
+target: f/wl_n45g/wr45_gannotated_nativets
+expect:
+  status: success
+  result: probe/1
+  steps:
+    "m:s": {status: success, args: {}, result: "<masked>"}
+    "m:g": {status: success, args: {sink: "<masked>"}, result: probe/1}

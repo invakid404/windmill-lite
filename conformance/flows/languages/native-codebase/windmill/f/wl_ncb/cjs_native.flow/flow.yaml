@@ -1,0 +1,9 @@
+summary: "WR-50/f: f/wl_ncb/cjs/native"
+value:
+  modules:
+    - id: s
+      value: {type: script, input_transforms: {}, path: f/wl_ncb/cjs/native}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

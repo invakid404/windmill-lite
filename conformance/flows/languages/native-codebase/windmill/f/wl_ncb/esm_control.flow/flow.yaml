@@ -1,0 +1,9 @@
+summary: "WR-50/c: f/wl_ncb/esm/control"
+value:
+  modules:
+    - id: s
+      value: {type: script, input_transforms: {}, path: f/wl_ncb/esm/control}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

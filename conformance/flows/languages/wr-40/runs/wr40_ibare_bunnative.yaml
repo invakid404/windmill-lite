@@ -1,0 +1,21 @@
+# WR-40/i (bunnative): variant d: child_process without node: fails bun
+# build before running, with WR-20's ExecutionErr; the catalogue gives the
+# message's start and parts of its tail.
+spec: [WR-40/i]
+target: f/wl_n40/wr40_ibare_bunnative
+expect:
+  status: failure
+  result:
+    error:
+      message: "exit code for \"bun build\": 1, last log lines:…Browser build cannot import Node.js builtin: \"child_process\"…Failed to build node bundle"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "exit code for \"bun build\": 1, last log lines:…Browser build cannot import Node.js builtin: \"child_process\"…Failed to build node bundle"
+          name: ExecutionErr
+          step_id: a

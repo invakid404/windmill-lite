@@ -1,0 +1,11 @@
+# WR-42/d (nativets): toJSON and the non-finite numbers.
+spec: [WR-42/d]
+target: f/wl_n42/wr42_d_nativets
+expect:
+  status: success
+  result: {d: "2024-01-02T00:00:00.000Z", x: null, m: {}}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result: {d: "2024-01-02T00:00:00.000Z", x: null, m: {}}

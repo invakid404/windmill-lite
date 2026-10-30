@@ -1,0 +1,13 @@
+# WR-43/i (nativets): a non-string stack is dropped: message m and name
+# Error; the stack text, predicted as one source line of main and a newline,
+# is in the recording.
+spec: [WR-43/i]
+target: f/wl_n43/wr43_i_nativets
+expect:
+  status: failure
+  result: {error: {message: m, stack: "<stack>", name: Error}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: m, stack: "<stack>", name: Error}}

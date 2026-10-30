@@ -1,0 +1,12 @@
+# WR-41/a (bunnative): a Date parameter is not hydrated in the native
+# runtime.
+spec: [WR-41/a]
+target: f/wl_n41/wr41_a_bunnative
+expect:
+  status: success
+  result: string
+  steps:
+    "m:a":
+      status: success
+      args: {d: "2024-01-02T03:04:05.000Z"}
+      result: string

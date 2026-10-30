@@ -1,0 +1,11 @@
+# WR-43/d (bunnative): an unhandled rejection fails the job.
+spec: [WR-43/d]
+target: f/wl_n43/wr43_d_bunnative
+expect:
+  status: failure
+  result: {error: {message: late, stack: "<stack>", name: Error}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: late, stack: "<stack>", name: Error}}

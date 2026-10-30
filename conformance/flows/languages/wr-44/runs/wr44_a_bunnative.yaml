@@ -1,0 +1,19 @@
+# WR-44/a (bunnative): the step timeout's message.
+spec: [WR-44/a]
+target: f/wl_n44/wr44_a_bunnative
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nQuery timeout after (>1s)"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nQuery timeout after (>1s)"
+          name: ExecutionErr
+          step_id: a

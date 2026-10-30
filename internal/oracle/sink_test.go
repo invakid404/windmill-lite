@@ -126,6 +126,30 @@ func TestSinkRoutesReplayCalls(t *testing.T) {
 	}
 }
 
+// TestSinkAnswersTheUserAgent answers GET /user-agent with the request's
+// User-Agent header and records nothing (WR-45/g).
+func TestSinkAnswersTheUserAgent(t *testing.T) {
+	// spec: WR-45/g
+	var s Sink
+	srv := httptest.NewServer(&s)
+	defer srv.Close()
+	s.Open("root")
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+UserAgentPath, nil)
+	req.Header.Set("User-Agent", "probe/1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "probe/1" || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
+		t.Fatalf("status %d, body %q, type %q", resp.StatusCode, body, resp.Header.Get("Content-Type"))
+	}
+	if effects, foreign := s.Close("root"); len(effects) != 0 || foreign != 0 {
+		t.Fatalf("effects %s, foreign %d", effects, foreign)
+	}
+}
+
 func TestSinkListen(t *testing.T) {
 	var s Sink
 	port, err := s.Listen("127.0.0.1:0")

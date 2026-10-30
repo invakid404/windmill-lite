@@ -1,0 +1,12 @@
+# WR-43/a (bunnative): an Error gives exactly message, stack and name: no
+# step_id, no extra.
+spec: [WR-43/a]
+target: f/wl_n43/wr43_a_bunnative
+expect:
+  status: failure
+  result: {error: {message: boom, stack: "<stack>", name: TypeError}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: boom, stack: "<stack>", name: TypeError}}
