@@ -155,14 +155,16 @@ measurement that `warm` does not fit its memory budget: record
 synthetic reproduction and on a closure shaped like the embedder's (in host
 mode, or in a loader model where the runtime cannot load a layout yet), and
 adds shared code to `warm` (deviation D18 of
-[0001](0001-equivalence-contract.md)). A bundle opts into it at build
-(`windmill-lite build -shared-code`); with it, the embedder-shaped closure
-peaks at 492 to 497 MiB, within the 650 MiB budget.
+[0001](0001-equivalence-contract.md)), which milestone F8b implements.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
 milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
+
+A bundle opts into shared code at build (`windmill-lite build
+-shared-code`); with it, the embedder-shaped closure peaks at 492 to
+497 MiB, within the 650 MiB budget.
 
 The records are written by the build team under the clean-room rule of
 [AGENTS.md](../../AGENTS.md): from the semantics reference, Windmill's public

@@ -16,8 +16,7 @@ methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
 ([WR-55](../../docs/semantics/languages.md#wr-55), below); milestone
 F3a, which completed the host SDK; and milestone F2c, host plugins
-answered over `host_call` (below). It also runs a bundle's shared code
-(below, [ADR 0013](../../docs/design/0013-shared-module-code.md)). This
+answered over `host_call` (below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
@@ -28,6 +27,9 @@ on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
 ([WR-3](../../docs/semantics/languages.md#wr-3)). The runtime and the host
 SDK have no dependencies and no `package.json`; only the build helper has
 one, its TypeScript parser.
+
+The runtime also runs a bundle's shared code (below,
+[ADR 0013](../../docs/design/0013-shared-module-code.md)).
 
 ## Running
 
@@ -81,10 +83,10 @@ cannot corrupt the protocol.
   in the job directory beside its assets
   ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
   `__filename` and `import.meta`, and the relative paths its own `require`
-  resolves at run time, are the working directory's (`moduleFile`). The
-  runtime keeps only the metadata fields it reads (`runtimeMeta`:
-  `bundler`, `format`, `boundary`, `native`, `signatures`, `shared`), so a
-  process does not hold every script's metafile.
+  resolves at run time, are the working directory's (`moduleFile`).
+- **Metadata.** The runtime keeps only the metadata fields it reads
+  (`runtimeMeta`: `bundler`, `format`, `boundary`, `native`, `signatures`,
+  `shared`), so a process does not hold every script's metafile.
 - **Shared code** ([ADR 0013](../../docs/design/0013-shared-module-code.md),
   D18). For a script whose metadata names a closure (`shared.closure`), in
   warm mode and host mode, the module is its shared-layout module,

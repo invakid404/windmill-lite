@@ -4,11 +4,13 @@
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
 covers the `windmill-lite` command in this directory and its `testdata/`.
 The command prints its version, builds a bundle from a Windmill sync
-folder (with shared code when asked,
-[ADR 0013](../../docs/design/0013-shared-module-code.md)), verifies a bundle, runs a bundle's flow or script through the
+folder, verifies a bundle, runs a bundle's flow or script through the
 [wl](../../wl/README.md) library (F1), checks that its expression engine
 starts, and serves host mode on a built bundle through `wl` (F3a). The commands that serve a bundle (`serve`), pack it
 (`pack`, `image`) or generate clients (`gen`) do not exist yet.
+
+`build -shared-code` builds the bundle with the shared code of
+[ADR 0013](../../docs/design/0013-shared-module-code.md).
 
 ## Usage
 

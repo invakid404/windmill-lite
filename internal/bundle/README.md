@@ -317,9 +317,7 @@ globals, renaming a script's own top-level bindings of those names; nothing
 is inserted into a script's scope. A bundler replaces only free references
 with a define, and the build uses `__windmill_lite_Bun` only when no input
 of the bundle spells it, as written or through Unicode escapes (otherwise
-the name with a suffix; esbuild's virtual inputs, such as the
-`<define:NAME>` module of an object or array define value, are not read),
-so no binding of a script can capture the rewrite. So an alias (`const B = Bun`),
+the name with a suffix), so no binding of a script can capture the rewrite. So an alias (`const B = Bun`),
 destructuring (`const { env } = Bun`) and a dependency's reads all see the
 invocation's environment, and a local binding named `Bun` is left alone. What a define cannot see still reads the real environment:
 imports of the `bun` module (`import { env } from "bun"`), optional chaining
@@ -329,6 +327,10 @@ rewrite to Bun-target bundles only: a `//native` script runs at the native
 boundary (C3n), and a `//nodejs` one, which Windmill runs on Node with Bun's
 environment (WR-50), runs on the Bun harness, whose environment view covers
 it at run time (D13).
+
+The inputs the binding check reads are the bundle's files. esbuild's
+virtual inputs, such as the `<define:NAME>` module it makes of an object or
+array define value, are not files, and the check skips them.
 
 ## Shared code
 

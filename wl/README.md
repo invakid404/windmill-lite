@@ -24,6 +24,7 @@ runtime asks over `host_call`: `Options.Plugin` in `warm`, the host's own
 in host mode. The go-plugin adapter (F5, `wl/plugin`) comes later, as
 fields of `Options` and `RunOptions` and as a runtime over the same
 calls, so a host written against this API keeps compiling.
+
 A runtime runs bundles built with the shared code of
 [ADR 0013](../docs/design/0013-shared-module-code.md) (`BuildInfo` below).
 

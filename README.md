@@ -51,11 +51,7 @@ code against; and C2a, the Bun side of the build (the same package and the
 scripts with Windmill's settings and records their signatures, annotations
 and workflow-as-code markers; and C2b, which bundles codebase scripts as
 the `wmill` CLI does, with esbuild through its Go API, and carries their
-assets. With `-shared-code`, an opt-in that
-[ADR 0013](docs/design/0013-shared-module-code.md) decides, it also builds shared
-code: a `warm` or host-mode process then compiles each build group's
-dependency code once and gives each step module its own instance of it.
-`selfcheck` runs the QuickJS-ng expression
+assets. `selfcheck` runs the QuickJS-ng expression
 engine of [internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
 `host` serves host mode, where a Bun program embeds the host SDK and starts
 `windmill-lite host` as its engine, which opens a built bundle with `wl`
@@ -142,6 +138,12 @@ reference's probe catalogue rebuilt as executable fixtures; and recording
 batch E3f, which recorded native steps on a worker that serves the
 `nativets` tag and what the reference's revisions SC3 and SC4 asked the
 oracle for, each in the oracle configuration it needs.
+
+With `-shared-code`, an opt-in that
+[ADR 0013](docs/design/0013-shared-module-code.md) decides, `build` also
+builds shared code: a `warm` or host-mode process then compiles each build
+group's dependency code once and gives each step module its own instance
+of it.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that

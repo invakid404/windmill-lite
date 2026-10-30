@@ -12,7 +12,9 @@ their sources (`parse`, below). Milestone C3n added the native form of
 `nativets` and `//native` scripts and the embedded client (below, "Native
 scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
 (below, step 3) and added the parse of host-provided modules outside the
-folder. It also builds shared code
+folder.
+
+The helper also builds shared code
 ([ADR 0013](../../../docs/design/0013-shared-module-code.md); below,
 "Shared code"), with the `kept` and `namespaces` requests.
 
@@ -33,7 +35,7 @@ there.
 `node_modules/` is not committed.
 
 The request and response types are in `protocol.ts`. A request is `scan`,
-`build`, `parse`, `kept` or `namespaces`; the Go side sends a scan first when the bundle has
+`build` or `parse`; the Go side sends a scan first when the bundle has
 host-provided modules, writes their shims, then sends the build. `parse`
 (`Builder.parseEntry`) is for codebase scripts: for each entry it reports
 what its source records (annotations and bundler target, workflow-as-code
@@ -51,6 +53,9 @@ bundles and writes nothing. A request it cannot serve
 at all (unreadable, another Bun) exits with code 2 and an `error` in the
 response. A problem with one script or module is reported against it, and
 the rest are still built.
+
+Shared code adds two more requests, `kept` and `namespaces` (below,
+"Shared code").
 
 ## What it does
 

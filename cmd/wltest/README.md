@@ -12,13 +12,15 @@ while loops and branches of N3b, the platform providers of milestone PF2
 dispatcher of milestone PF3, the containers' waits, retries and
 cancellation of milestone NI, the effect sink and stub mode of milestone
 E4b (`effects.go`), and, since milestone F1, through the public
-[wl](../../wl/README.md) library in `warm` and `fresh`, also from bundles
-built with shared code (`-shared-code`). This README covers the `wltest` command in
+[wl](../../wl/README.md) library in `warm` and `fresh`. This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
 running the oracle and windmill-lite live, is in no milestone of ADR 0012
 yet: it prints that it is not implemented and exits 2.
+
+`check` can build every bundle with the shared code of
+[ADR 0013](../../docs/design/0013-shared-module-code.md) (`-shared-code`, below).
 
 `wltest` is windmill-lite's conformance and oracle runner
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
@@ -152,15 +154,16 @@ gets a harness process of its own, as a step case does; in `host` each
 fixture's steps run in a Bun host that embeds the host SDK (host mode,
 below). `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
 `WL_NODE`, and empty skips the Node side of CommonJS codebase cases
-(below); the build refuses any Bun but the pin. `-shared-code` builds
-every bundle with shared code
-([ADR 0013](../../docs/design/0013-shared-module-code.md), D18): `warm`
-and `host` then run the scripts' shared-layout modules, and `fresh` their
-per-script bundles, as a bundle built so runs them. `--repo` defaults to the
+(below); the build refuses any Bun but the pin. `--repo` defaults to the
 nearest directory up from the working directory that holds `harnesses/bun`, whose build helper needs its
 dependencies installed (`bun install --frozen-lockfile` in
 `harnesses/bun/build`). `-v` prints the harness's diagnostics of a failed
 case or run.
+
+`-shared-code` builds every bundle with shared code
+([ADR 0013](../../docs/design/0013-shared-module-code.md), D18): `warm` and `host` then run the scripts'
+shared-layout modules, and `fresh` their per-script bundles, as a bundle
+built so runs them.
 
 ### Step cases
 
@@ -512,8 +515,7 @@ Windmill v1.767.0's image).
 
 - `TestStepSuite` is the exit gate of milestones C3a and C3b, and with
   `wr-40.yaml` to `wr-45.yaml` and `d5.yaml` milestone C3n's: every step
-  case passes, in `warm` and in `fresh`, `d18.yaml`'s from a bundle built
-  with shared code; with `WL_NODE` it is also
+  case passes, in `warm` and in `fresh`; with `WL_NODE` it is also
   milestone C2b's D13 gate, every CommonJS codebase case holding on Node
   too. `TestStepCheckerReportsDifferences` checks that a wrong expectation
   of each kind fails, in both modes, `TestStepCheckerReportsNodeDifferences`
@@ -534,6 +536,9 @@ Windmill v1.767.0's image).
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
+- `TestStepSuite` runs `d18.yaml`'s cases from a bundle built with shared
+  code ([ADR 0013](../../docs/design/0013-shared-module-code.md)): `warm` runs the shared-layout modules and
+  `fresh` the per-script bundles.
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
   N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
   E3f, and the flow-suite half of F3b's: every run the flow suite requires
@@ -557,9 +562,9 @@ Windmill v1.767.0's image).
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log
   gives the counts of passing, failing and unsupported runs, and names the
-  runs that pass without being required. Every required run must also pass
-  in `warm` and `host` from bundles built with shared code
-  ([ADR 0013](../../docs/design/0013-shared-module-code.md)).
+  runs that pass without being required.
+- `TestFlowSuite` also requires every required run to pass in `warm` and
+  `host` from bundles built with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)).
 - `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
   seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
   in `fresh` and in `warm`, since the result cache lives in the engine,
