@@ -46,7 +46,7 @@ import (
 //     resolved_args lists its top-level members in jsonb's key order, as
 //     args does: the order of a step's argument keys is unspecified in
 //     Windmill, the engine shuffles it in each run, and a script binds its
-//     arguments by name (ADR 0001 §2), so the trace's order would make the
+//     arguments by name ([ADR 0001] §2), so the trace's order would make the
 //     observation differ from one run to the next (keyOrdered).
 //     A site with no result shows no carried either: a module that failed
 //     with no job (FX-15 context 2) carries its error to what follows it,
@@ -71,6 +71,8 @@ import (
 // effects are the run's effects in the order the oracle lists them (the
 // sink's, then each answered stub call, ADR 0011), normalised with the
 // same job ids as the rest of the observation.
+//
+// [ADR 0001]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0001-equivalence-contract.md
 func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec, copies []conformance.Copy, effects []json.RawMessage) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	var children []engine.ChildFlow

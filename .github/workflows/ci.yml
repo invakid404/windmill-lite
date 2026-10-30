@@ -23,8 +23,8 @@ jobs:
     #
     # cmd/wltest's flow suite (TestFlowSuite) runs every flow fixture in
     # five modes, each a subtest: warm, fresh and host, and warm and host
-    # from bundles built with shared code (ADR 0013), named warm-shared-code
-    # and host-shared-code. macOS runners have three cores, so the suite
+    # from bundles built with shared code, named warm-shared-code and
+    # host-shared-code. macOS runners have three cores, so the suite
     # runs one fixture at a time there (GOMAXPROCS/2 is 1): in CI it took
     # about 42 of the 45 minutes of one macOS test step, 20 of them in its
     # two host modes. The macOS parts split the tests by complementary -run

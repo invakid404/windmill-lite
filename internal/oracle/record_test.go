@@ -294,6 +294,8 @@ type fakeOracle struct {
 	keepVars, loseVars bool
 	// refuseWait makes run-and-wait answer 400 without creating a job.
 	refuseWait bool
+	// leaked holds the roots of the runs submitted with leak (start).
+	leaked map[string]bool
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
@@ -408,7 +410,13 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		root := o.start(r)
 		j := o.jobs[root]
-		w.Header().Set("Content-Type", "application/json")
+		ct := "application/json"
+		if o.leaked[root] {
+			// A flow's result can set the response's Content-Type,
+			// parameters included.
+			ct += "; tag=" + o.tag + "; auth=" + r.Header.Get("Authorization")
+		}
+		w.Header().Set("Content-Type", ct)
 		code := 200
 		if !j.Success {
 			code = 422
@@ -505,7 +513,8 @@ func (o *fakeOracle) start(r *http.Request) string {
 		Effects bool `json:"effects"`
 		// Leak makes the run hand the session's token back, as Windmill
 		// does with a trigger event's headers: in b's arguments, in b's
-		// result (the flow's) and in a's effect.
+		// result (the flow's), in a's effect and, for run-and-wait, in the
+		// response's Content-Type.
 		Leak bool `json:"leak"`
 	}
 	body, _ := io.ReadAll(r.Body)
@@ -524,6 +533,10 @@ func (o *fakeOracle) start(r *http.Request) string {
 	bRes := fmt.Sprintf(`"%s:%d"`, o.tag, n)
 	aEffect := fmt.Sprintf(`{"root":%q,"job":%q,"step":"a"}`, root, a)
 	if args.Leak {
+		if o.leaked == nil {
+			o.leaked = map[string]bool{}
+		}
+		o.leaked[root] = true
 		auth := r.Header.Get("Authorization")
 		bArgs = fmt.Sprintf(`{"n":%d,"tag":%q,"event":{"headers":{"authorization":%q}}}`, n, o.tag, auth)
 		bRes = fmt.Sprintf(`"%s:%d %s"`, o.tag, n, auth)

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -59,9 +60,11 @@ func TestRedactingWriter(t *testing.T) {
 
 // TestClientHidesItsToken: a server that answers with the client's own
 // token in its body, as a job's arguments do when they hold a trigger
-// event's headers: the body the client returns, the error of an unexpected
-// status, a run-and-wait response and the capture all hold RedactedToken
-// instead. Before login, with no token, a body is returned as it is.
+// event's headers, and in its Content-Type, which a flow's result can set
+// for run-and-wait: the body the client returns, the error of an
+// unexpected status, a run-and-wait response with its Content-Type and the
+// capture all hold RedactedToken instead. Before login, with no token, a
+// body is returned as it is.
 func TestClientHidesItsToken(t *testing.T) {
 	const token = "session-token"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +73,7 @@ func TestClientHidesItsToken(t *testing.T) {
 			return
 		}
 		body := `{"headers":{"authorization":` + jsonString(r.Header.Get("Authorization")) + `}}`
+		w.Header().Set("Content-Type", "application/json; auth="+r.Header.Get("Authorization"))
 		if r.URL.Path == "/api/version" {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
@@ -96,6 +100,9 @@ func TestClientHidesItsToken(t *testing.T) {
 	if err != nil || string(resp.Body) != want {
 		t.Fatalf("run-and-wait body %s, %v; want %s", resp.Body, err, want)
 	}
+	if wantType := "application/json; auth=Bearer " + RedactedToken; resp.ContentType != wantType {
+		t.Fatalf("run-and-wait Content-Type %q, want %q", resp.ContentType, wantType)
+	}
 	captured, err := json.Marshal(c.Capture.Exchanges)
 	if err != nil {
 		t.Fatal(err)
@@ -108,8 +115,9 @@ func TestClientHidesItsToken(t *testing.T) {
 
 // TestSessionNeverWritesTheToken records a run that hands the session's
 // token back in every way a run can: a trigger event's headers in a step's
-// arguments, the flow's result, an effect and the run-and-wait response,
-// with a CLI that prints its arguments, the token among them. A second
+// arguments, the flow's result, an effect, and the run-and-wait response's
+// body and Content-Type, with a CLI that prints its arguments, the token
+// among them. A second
 // session checks the run against a changed oracle, so the report's
 // differences quote the values. No recording, raw capture, report or log
 // line holds the token, and RedactedToken stands where it was.
@@ -144,8 +152,15 @@ func TestSessionNeverWritesTheToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := outcomes(checked)["leak"]; got.Outcome != OutcomeChanged || len(got.Differences) == 0 {
+	got := outcomes(checked)["leak"]
+	if got.Outcome != OutcomeChanged || len(got.Differences) == 0 {
 		t.Fatalf("leak, checked against the changed oracle: %+v", got)
+	}
+	// The Content-Type changed with the tag, so the report quotes it.
+	if !slices.ContainsFunc(got.Differences, func(d string) bool {
+		return strings.HasPrefix(d, "/response/content_type") && strings.Contains(d, "auth=Bearer "+RedactedToken)
+	}) {
+		t.Fatalf("no difference quotes the redacted Content-Type: %q", got.Differences)
 	}
 
 	outputs := map[string][]byte{"the log": log.Bytes(), "the CLI's output": cliOut.Bytes()}

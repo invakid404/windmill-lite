@@ -12,8 +12,8 @@ import (
 // started over HTTP carries the request's headers, Authorization included,
 // in its trigger event, so a preprocessor's arguments hold the token. A
 // session replaces the token where data enters it: in every response body
-// of the API client, in the effects and stub calls that scripts post, and
-// in the CLI's output. So no recording, raw capture, report, log line or
+// and Content-Type header of the API client, in the effects and stub calls
+// that scripts post, and in the CLI's output. So no recording, raw capture, report, log line or
 // error message holds it, whatever a fixture records or masks.
 const RedactedToken = "<redacted-token>"
 

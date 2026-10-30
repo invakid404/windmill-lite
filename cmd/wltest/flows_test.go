@@ -409,7 +409,7 @@ func TestObserveTrace(t *testing.T) {
 	}
 	// Against what a recording holds, which has no carried value, the kept
 	// texts differ only in member order: a loose comparison ignores it and
-	// a strict one does not (OR-13, ADR 0011).
+	// a strict one does not.
 	var expect conformance.Observation
 	if err := json.Unmarshal([]byte(`{"status":"failure","result":`+stored+`,"steps":{"m:a":{"status":"success","args":{"a":"<job:>","zz":1},"result":{"bb":1.0,"job":"<job:m:a>"}},"m:b":{"status":"failure","args":{},"result":`+stored+`},"m:c":{"status":"not_run"}}}`), &expect); err != nil {
 		t.Fatal(err)

@@ -166,8 +166,8 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	// oracle's push nor this build, and both fail alike.
 	tree := f.SyncTree()
 	if f.Stub {
-		// Stub mode (ADR 0011): the runs run the stubbed copy, every script
-		// body replaced by a stub that asks the replay service.
+		// In stub mode the runs run the stubbed copy, every script body
+		// replaced by a stub that asks the replay service.
 		root, err := syncfolder.Find(tree)
 		if err != nil {
 			return failRuns(results, "stub: "+err.Error())
