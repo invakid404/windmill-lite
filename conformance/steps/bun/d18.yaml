@@ -597,7 +597,8 @@ cases:
     title: a CommonJS codebase dependency's import() of a module the runtime has built in, reached by two scripts, gives each the per-script bundle's result, and runs from the closure with shared code
     note: >-
       As h-builtin-import, for a CommonJS codebase group, whose esbuild
-      bundle keeps the node: prefix.
+      bundle keeps the node: prefix. Node runs the per-script bundle, as
+      Windmill does (D13), so there the stack names no closure.
     codebase: {relative_path: f/wl_step, format: cjs}
     files:
       f/wl_step/d18_builtin_cjs.ts: |
@@ -629,11 +630,13 @@ cases:
         by_mode:
           warm: {expect: {status: success, result: {store: 1, forms: [true], closure: true}}}
           fresh: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+        node: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
       - args: '{}'
         script: f/wl_step/d18_h_builtin_cjs_two
         by_mode:
           warm: {expect: {status: success, result: {store: 1, forms: [true], closure: true}}}
           fresh: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+        node: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
   - spec: D18
     variant: h-builtin-import-esm
     provenance: policy
