@@ -232,7 +232,7 @@ reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
 and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race -timeout 20m ./...` (with Bun 1.3.10, the build
+`go vet ./...` and `go test -race -timeout 30m ./...` (with Bun 1.3.10, the build
 helper's parser and `windmill-client@1.767.0` installed, so the harness,
 build and host-mode tests cannot skip, and Node 20, on which the step suite
 runs each CommonJS codebase bundle as Windmill does, deviation D13; the
