@@ -2,11 +2,12 @@
 # catalogue gives the message's start only, without failed to load module.
 spec: [WR-43/f]
 target: f/wl_n43/wr43_f_nativets
+note: "Predicted from the catalogue as a message starting execution error:\\nError:, without failed to load module; recorded in oracle run 40989292429 with the transpiler's whole message, which holds the prediction (its prefix is checked in the batch manifest)."
 expect:
   status: failure
   result:
     error:
-      message: "execution error:\nError: …"
+      message: "execution error:\nError: Unexpected token `<eof>`. Expected identifier, string literal, numeric literal or [ for the computed key at file:///eval.ts:1:24\n\n  export function main( {\n                         ~ @worker.rs:3560:9"
       name: ExecutionErr
       step_id: a
   steps:
@@ -15,6 +16,6 @@ expect:
       args: {}
       result:
         error:
-          message: "execution error:\nError: …"
+          message: "execution error:\nError: Unexpected token `<eof>`. Expected identifier, string literal, numeric literal or [ for the computed key at file:///eval.ts:1:24\n\n  export function main( {\n                         ~ @worker.rs:3560:9"
           name: ExecutionErr
           step_id: a

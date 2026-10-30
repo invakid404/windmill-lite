@@ -1,0 +1,32 @@
+summary: f_control
+value:
+  modules:
+    - id: b
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: r
+            value:
+              type: rawscript
+              content: "!inline r.ts"
+              language: bun
+              input_transforms: {}
+          - id: l
+            value:
+              type: forloopflow
+              iterator: {type: javascript, expr: "({o: 1})"}
+              modules:
+                - id: x
+                  value:
+                    type: rawscript
+                    content: "!inline x.ts"
+                    language: bun
+                    input_transforms: {}
+              parallel: false
+              skip_failures: false
+      retry: {constant: {attempts: 1, seconds: 0}, retry_if: {expr: "false"}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

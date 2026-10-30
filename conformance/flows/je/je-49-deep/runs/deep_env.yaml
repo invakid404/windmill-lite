@@ -1,0 +1,10 @@
+# JE-49/e: a flow whose flow_env member K is 128 levels deep deploys, and a
+# fails at the binding: its message contains recursion limit exceeded at
+# line 1 column 128, counted in the member's own text, and not QuickJS
+# evaluation error.
+spec: [JE-49/e]
+target: f/wl_je49/deep_env
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: failure}}

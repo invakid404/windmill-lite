@@ -1,0 +1,11 @@
+# FX-48/b and FX-50/a: a NUL generated in args at the root's pickup: pushing
+# a's job fails in the database, an Anyhow failure with one Error: prefix
+# and two location suffixes.
+spec: [FX-48/b, FX-50/a]
+target: f/wl_fx51/nul_root
+expect:
+  status: failure
+  result:
+    error:
+      name: Anyhow
+      message: "Error: SqlErr: error returned from database: unsupported Unicode escape sequence<loc><loc>"

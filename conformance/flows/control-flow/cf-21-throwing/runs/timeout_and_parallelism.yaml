@@ -1,0 +1,12 @@
+# CF-21: a container's throwing timeout fails the flow with CF-23's chaining
+# error, whose message names the timeout's expression null.t, not the
+# parallelism's, and no iteration job exists.
+spec: [CF-21]
+target: f/wl_cf21t/timeout_and_parallelism
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Error during evaluation of expression `null.t`…"
+  steps: {"m:a": {status: success, result: 1}, "m:l": {status: not_run}}

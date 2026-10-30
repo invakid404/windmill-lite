@@ -1,0 +1,40 @@
+summary: CF-23/e
+value:
+  modules:
+    - id: b
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: r
+            value:
+              type: rawscript
+              content: "!inline r.ts"
+              language: bun
+              input_transforms: {}
+          - id: l
+            value:
+              type: forloopflow
+              iterator: {type: javascript, expr: "({o: 1})"}
+              modules:
+                - id: x
+                  value:
+                    type: rawscript
+                    content: "!inline x.ts"
+                    language: bun
+                    input_transforms: {}
+              parallel: false
+              skip_failures: false
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: "!inline failure.ts"
+      language: bun
+      input_transforms:
+        p: {type: javascript, expr: previous_result}
+        e: {type: javascript, expr: error}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

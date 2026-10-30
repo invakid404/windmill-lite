@@ -1,0 +1,24 @@
+# FX-38/b's optional variant: canceled about 3 s after the first subflow
+# failed, while the retry's 30 s delay runs, so the second subflow job fails
+# Canceled at pickup with no child.
+spec: [FX-38/b]
+target: f/wl_fx38b/retried
+cancel_after_ms: 4500
+expect:
+  status: canceled
+  result:
+    error:
+      message: "Job canceled: wltest: cancel_after_ms by admin"
+      name: Canceled
+      reason: "wltest: cancel_after_ms"
+      canceler: admin
+  steps:
+    "m:b/r:0": {status: failure}
+    "m:b":
+      status: canceled
+      result:
+        error:
+          message: "Job canceled: wltest: cancel_after_ms by admin"
+          name: Canceled
+          reason: "wltest: cancel_after_ms"
+          canceler: admin

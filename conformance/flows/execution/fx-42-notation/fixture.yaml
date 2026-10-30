@@ -1,0 +1,19 @@
+# Recording batch E3f (ADR 0012): number notation (Q-FX-7, Q-JE-13):
+# FX-42/a,
+# FX-42/b, FX-42/e, FX-42/f, FX-42/i and FX-42/j, a loop aggregate of 1.50
+# that reaches storage without a parse. JE-11/c and JE-11/e are in
+# je/je-11-rewrite. The stored 1.50e3 of Q-FX-7 is recorded through the run
+# API by
+# client-api/raw-requests. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-42 and #je-11. Deployed with
+# oracle.deploy api.
+id: execution/fx-42-notation
+spec: [FX-42/a, FX-42/b, FX-42/e, FX-42/f, FX-42/i, FX-42/j, JE-44]
+scope: later
+provenance: source-derived
+languages: [bun, python3]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

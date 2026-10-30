@@ -1,0 +1,16 @@
+# Recording batch E3f (ADR 0012): CF-22/h, a retried parallel loop with
+# parallelism 1, so iteration 0 fails first and the successful iteration 1
+# completes last in the first attempt. b counts its runs in a /tmp file
+# keyed
+# by WM_ROOT_JOB_ID. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#cf-22. Deployed with oracle.deploy api.
+id: control-flow/cf-22-retried
+spec: [CF-22/h]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

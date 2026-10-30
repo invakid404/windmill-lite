@@ -14,6 +14,7 @@ value:
         language: nativets
         input_transforms: {}
       continue_on_error: true
+      sleep: {type: static, value: 15}
     - id: r
       value:
         type: rawscript

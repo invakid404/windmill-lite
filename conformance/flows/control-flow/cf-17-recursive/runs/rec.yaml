@@ -1,0 +1,14 @@
+# CF-17/j: a flow may call itself by path: the deployment succeeds, and {n:
+# 3} returns 0 through four nested Flow jobs of the same path.
+spec: [CF-17/j]
+target: f/wl_cf17j/rec
+args: {"n": 3}
+expect:
+  status: success
+  result: 0
+  steps:
+    "m:br": {status: success, result: 0}
+    "m:br/b:0/m:r": {status: success, result: 0}
+    "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:default/m:z":
+      status: success
+      result: 0

@@ -1,0 +1,15 @@
+# Recording batch E3f (ADR 0012): CF-23/f, a branchone aborted while
+# chaining, retried by a retry object whose own retry_if sees the carried
+# value; the false-predicate control runs one branch job only. The runs
+# compare exactly, so the control's single attempt is part of the
+# expectation.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#cf-23. Deployed with oracle.deploy api.
+id: control-flow/cf-23-retry
+spec: [CF-23/f]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}

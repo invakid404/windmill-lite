@@ -1,0 +1,26 @@
+summary: "CF-17/j: a flow that calls itself"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: "flow_input.n > 0"
+            modules:
+              - id: r
+                value:
+                  type: flow
+                  path: f/wl_cf17j/rec
+                  input_transforms:
+                    "n": {type: javascript, expr: "flow_input.n - 1"}
+        default:
+          - id: z
+            value:
+              type: rawscript
+              content: "!inline z.ts"
+              language: bun
+              input_transforms: {p: {type: javascript, expr: flow_input.n}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {"n": {type: number}}

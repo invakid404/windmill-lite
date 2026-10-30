@@ -1,0 +1,13 @@
+# Q-JE-13: iterations whose value {"b":1.50,"a":1} reaches storage without a
+# JavaScript or Python parse (the raw run input, through identity bodies):
+# the loop's aggregate, quoted by the timeout's parse error, is
+# [{"a":1,"b":1.5}].
+spec: [JE-44]
+target: f/wl_fx42n/aggregate
+args: {items: [{b: 1.50, a: 1}]}
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [{\"a\":1,\"b\":1.5}]"

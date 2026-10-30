@@ -1,0 +1,14 @@
+# Recording batch E3f (ADR 0012): FX-30/b, a retry that is due at the last
+# module runs before continue_on_error tolerates the failure. The run
+# compares as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-30. Deployed with oracle.deploy api.
+id: execution/fx-30-due
+spec: [FX-30/b]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

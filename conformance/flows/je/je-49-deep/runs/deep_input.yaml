@@ -1,0 +1,13 @@
+# JE-49/d: a run whose flow_input member is 127 levels deep is accepted (a
+# job is created), and a fails at the binding: its message contains
+# recursion limit exceeded at line 1 column 132 and not QuickJS evaluation
+# error (checked in the batch manifest).
+spec: [JE-49/d]
+target: f/wl_je49/deep_input
+args:
+  k:
+    - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - []
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: failure}}

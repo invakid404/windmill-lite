@@ -1,0 +1,8 @@
+# FX-51/b: the same transform on a second step: an InternalError chaining
+# failure, as FX-48/c.
+spec: [FX-51/b]
+target: f/wl_fx51/surrogate_later
+expect:
+  status: failure
+  result: {error: {name: InternalError}}
+  steps: {"m:x": {status: success, result: 1}}

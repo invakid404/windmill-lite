@@ -1,0 +1,8 @@
+# JE-15/j 2: a value that is not a string reads as null; the run does not
+# fail.
+spec: [JE-15/j]
+target: f/wl_je15/j2
+expect:
+  status: success
+  result: null
+  steps: {"m:b": {status: success, args: {x: null}, result: null}}

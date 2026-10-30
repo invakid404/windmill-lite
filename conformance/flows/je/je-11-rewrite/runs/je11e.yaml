@@ -1,0 +1,9 @@
+# JE-11/e: an insertion inside a multi-byte character fails b before it runs
+# with the runtime's panic report, whose task number differs between runs
+# (masked here; the rest is checked in the batch manifest); the flow fails
+# with that value and the worker keeps running.
+spec: [JE-11/e]
+target: f/wl_je11/je11e
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "<masked>"}}

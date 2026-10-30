@@ -1,0 +1,10 @@
+summary: "FX-38/b: a retried subflow"
+value:
+  modules:
+    - id: b
+      value: {type: flow, path: f/wl_fx38b/failing, input_transforms: {}}
+      retry: {constant: {attempts: 1, seconds: 30}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

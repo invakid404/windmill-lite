@@ -1,0 +1,24 @@
+# FX-13/c's variant: b is a step that a true skip_if skips, whose identity
+# job fails the same way.
+spec: [FX-13/c]
+target: f/wl_fx13i/tolerated_skipped
+expect:
+  status: failure
+  result:
+    x: 1
+    error: {name: ManualFailure, message: nope}
+    wm_failure: nope
+  steps:
+    "m:a":
+      status: failure
+      result:
+        x: 1
+        error: {name: ManualFailure, message: nope}
+        wm_failure: nope
+    "m:b":
+      status: failure
+      result:
+        x: 1
+        error: {name: ManualFailure, message: nope}
+        wm_failure: nope
+    "m:c": {status: not_run}

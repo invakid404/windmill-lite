@@ -1,0 +1,16 @@
+# CF-23/d (i): the branch's flow aborts when l starts and its job stores the
+# iterator's InternalError; b's entry fails and the flow fails with the
+# branch's last carried value, 1, with no error member.
+spec: [CF-23/d]
+target: f/wl_cf23b/d_alone
+expect:
+  status: failure
+  result: 1
+  steps:
+    "m:b":
+      status: failure
+      result:
+        error:
+          name: InternalError
+          message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"
+    "m:b/b:default/m:r": {status: success, result: 1}

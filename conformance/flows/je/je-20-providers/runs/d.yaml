@@ -1,0 +1,21 @@
+# JE-20/d: resource() reads without a job id, so the $WM_JOB_ID placeholder
+# stays literal in x and y (an argument without a marker is left alone), z
+# is 42, and the static $res: argument w resolves it to b's own job id
+# (contract (c)).
+spec: [JE-20/d]
+target: f/wl_je20/d
+expect:
+  status: success
+  result:
+    x: {p: s, job: "$WM_JOB_ID"}
+    "y": {p: s, job: "$WM_JOB_ID"}
+    z: 42
+    w: {p: s, job: "<job:m:b>"}
+  steps:
+    "m:b":
+      status: success
+      result:
+        x: {p: s, job: "$WM_JOB_ID"}
+        "y": {p: s, job: "$WM_JOB_ID"}
+        z: 42
+        w: {p: s, job: "<job:m:b>"}

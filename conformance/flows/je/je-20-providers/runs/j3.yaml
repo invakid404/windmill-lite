@@ -1,0 +1,11 @@
+# JE-42/j: the static $encrypted:not!base64 does not decrypt, so b fails
+# before its script runs with CE's cause: Invalid byte 33, offset 3.
+spec: [JE-42/j]
+target: f/wl_je20/j3
+expect:
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nInternal: Invalid byte 33, offset 3.<loc>"
+      step_id: b

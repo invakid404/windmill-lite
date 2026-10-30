@@ -1,0 +1,9 @@
+# CF-7/f: the loop alone fails the same way, with no success with the array.
+spec: [CF-7/f]
+target: f/wl_cf7p/f_alone
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Bad request: Unrecognized module status for ForloopFlow Failure {…"

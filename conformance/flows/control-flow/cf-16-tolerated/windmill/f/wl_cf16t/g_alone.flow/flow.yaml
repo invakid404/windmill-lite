@@ -1,0 +1,22 @@
+summary: "CF-12/g: the loop alone"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+            stop_after_if: {expr: "true", error_message: halt}
+        parallel: false
+        skip_failures: false
+      continue_on_error: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

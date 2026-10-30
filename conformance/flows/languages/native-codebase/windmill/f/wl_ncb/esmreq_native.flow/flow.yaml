@@ -1,4 +1,4 @@
-summary: "WR-50: f/wl_ncb/esmreq/native"
+summary: 'WR-50: f/wl_ncb/esmreq/native'
 value:
   modules:
     - id: s
@@ -7,6 +7,6 @@ value:
         input_transforms: {}
         path: f/wl_ncb/esmreq/native
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}

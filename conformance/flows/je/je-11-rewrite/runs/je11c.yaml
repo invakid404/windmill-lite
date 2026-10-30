@@ -1,0 +1,5 @@
+# JE-11/c: non-ASCII text inside the call moves the inserted ) early by its
+# extra bytes.
+spec: [JE-11/c]
+target: f/wl_je11/je11c
+expect: {status: success, result: "(await variable(é)a)"}

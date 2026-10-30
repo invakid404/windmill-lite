@@ -1,0 +1,9 @@
+# CF-22/h's variant: b always throws for index 0, so l fails for good and
+# lists nothing, and the failure module's entry lists the first attempt's
+# iteration-1 child flow, a successful job.
+spec: [CF-22/h]
+target: f/wl_cf22h/exhausted
+expect:
+  status: failure
+  result: 1
+  steps: {"s:failure": {status: success, result: 1}}

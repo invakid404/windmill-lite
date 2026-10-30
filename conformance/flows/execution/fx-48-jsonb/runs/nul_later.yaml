@@ -1,0 +1,12 @@
+# FX-48/c and FX-50/a: the same transform on a second step: an InternalError
+# chaining failure, with no Error: prefix and one suffix fewer than at
+# pickup.
+spec: [FX-48/c, FX-50/a]
+target: f/wl_fx51/nul_later
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "SqlErr: error returned from database: unsupported Unicode escape sequence<loc>"
+  steps: {"m:x": {status: success, result: 1}}

@@ -1,0 +1,23 @@
+# CF-23/f: the retry's own retry_if sees the carried 1 (and the error
+# derived from it), so b is retried once: a second branch job aborts the
+# same way, and the flow fails with 1.
+spec: [CF-23/f]
+target: f/wl_cf23r/f_retry_if
+expect:
+  status: failure
+  result: 1
+  steps:
+    "m:b":
+      status: failure
+      result:
+        error:
+          name: InternalError
+          message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"
+    "m:b/b:default/m:r": {status: success, args: {}, result: 1}
+    "m:b/b:default/m:l": {status: not_run, ran: false}
+    "m:b/r:0":
+      status: failure
+      result:
+        error:
+          name: InternalError
+          message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"

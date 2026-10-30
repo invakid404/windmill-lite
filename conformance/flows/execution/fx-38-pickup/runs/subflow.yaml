@@ -1,0 +1,25 @@
+# FX-38/b: canceled about 3 s after a completed, while b waits on a's 30 s
+# sleep: the flow ends canceled well before the 30 s, b's flow job completes
+# as a failure with the Canceled value and no child job, and c never runs.
+spec: [FX-38/b]
+target: f/wl_fx38b/subflow
+cancel_after_ms: 4500
+expect:
+  status: canceled
+  result:
+    error:
+      message: "Job canceled: wltest: cancel_after_ms by admin"
+      name: Canceled
+      reason: "wltest: cancel_after_ms"
+      canceler: admin
+  steps:
+    "m:a": {status: success, result: 1}
+    "m:b":
+      status: canceled
+      result:
+        error:
+          message: "Job canceled: wltest: cancel_after_ms by admin"
+          name: Canceled
+          reason: "wltest: cancel_after_ms"
+          canceler: admin
+    "m:b/m:c": {status: not_run}

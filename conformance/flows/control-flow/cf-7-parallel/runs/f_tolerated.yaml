@@ -1,0 +1,12 @@
+# CF-7/f: both iterations fail, and the failed parallel loop under
+# continue_on_error aborts the flow with an InternalError whose message
+# starts with the catalogue's text; n does not run.
+spec: [CF-7/f]
+target: f/wl_cf7p/f_tolerated
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Bad request: Unrecognized module status for ForloopFlow Failure {…"
+  steps: {"m:n": {status: not_run}}

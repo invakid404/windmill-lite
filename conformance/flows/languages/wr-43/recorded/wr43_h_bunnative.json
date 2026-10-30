@@ -1,0 +1,124 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": {
+      "error": {
+        "name": null,
+        "stack": "<stack>",
+        "message": null
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": null,
+            "stack": "<stack>",
+            "message": null
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030020157-b6f274b58ad8",
+      "revision": "b6f274b58ad8be6aa9f573d7581ed0847a46bfee",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40989292429"
+    },
+    "recorded_at": "2026-10-30T02:04:38Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:42359",
+      "WORKER_TAGS": "nativets"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 204,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:04:37.914115Z",
+          "started_at": "2026-10-30T02:04:37.958468Z",
+          "completed_at": "2026-10-30T02:04:37.973968Z",
+          "duration_ms": 16
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:37.959392Z",
+          "started_at": "2026-10-30T02:04:37.960899Z",
+          "completed_at": "2026-10-30T02:04:37.970993Z",
+          "duration_ms": 10
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "//native\nexport function main() { const e = new Error(\"m\"); (e as any).name = 7; throw e; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() { const e = new Error(\"m\"); (e as any).name = 7; throw e; }\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bunnative"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

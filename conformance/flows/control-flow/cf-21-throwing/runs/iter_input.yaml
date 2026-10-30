@@ -1,0 +1,7 @@
+# CF-21/f (1): CF-21/e's collapsed flow run with {iter: {index: 3}}: the
+# container's timeout sees the input's iter, 13, and the flow succeeds with
+# [1].
+spec: [CF-21/f]
+target: f/wl_cf21t/iter_input
+args: {iter: {index: 3}}
+expect: {status: success, result: [1]}

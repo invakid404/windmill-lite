@@ -1,0 +1,13 @@
+summary: slow
+value:
+  modules:
+    - id: x
+      value:
+        type: rawscript
+        content: "!inline x.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

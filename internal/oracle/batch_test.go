@@ -53,6 +53,16 @@ type batch struct {
 		Pointer string `json:"pointer"`
 		Prefix  string `json:"prefix"`
 	} `json:"prefixes"`
+	// Texts are the catalogue's other partial assertions about a recorded
+	// text: substrings it contains, and ones it must not contain (batch
+	// E3f), checked against the recorded observation as Prefixes are.
+	Texts []struct {
+		Case     string   `json:"case"`
+		Run      string   `json:"run"`
+		Pointer  string   `json:"pointer"`
+		Contains []string `json:"contains"`
+		Excludes []string `json:"excludes"`
+	} `json:"texts"`
 	// Contradictions are catalogue claims that the oracle contradicts:
 	// the recorded value at a pointer of a run, which the run's
 	// expectation holds instead of the claim.
@@ -269,6 +279,35 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 		}
 		if !strings.HasPrefix(got, p.Prefix) {
 			t.Errorf("%s: %s at %s is %q, which does not start with %q", p.Case, p.Run, p.Pointer, got, p.Prefix)
+		}
+	}
+
+	for _, x := range b.Texts {
+		if !cases[x.Case] {
+			t.Errorf("text check for %s, which is not a case of the batch", x.Case)
+		}
+		if len(x.Contains)+len(x.Excludes) == 0 {
+			t.Errorf("text check for %s at %s checks nothing", x.Case, x.Pointer)
+		}
+		obs, ok := observations[x.Run]
+		if !ok {
+			t.Errorf("text check for %s: run %s is not a recorded run of the batch", x.Case, x.Run)
+			continue
+		}
+		got, err := pointerString(obs, x.Pointer)
+		if err != nil {
+			t.Errorf("text check for %s: %s %s: %v", x.Case, x.Run, x.Pointer, err)
+			continue
+		}
+		for _, sub := range x.Contains {
+			if !strings.Contains(got, sub) {
+				t.Errorf("%s: %s at %s is %q, which does not contain %q", x.Case, x.Run, x.Pointer, got, sub)
+			}
+		}
+		for _, sub := range x.Excludes {
+			if strings.Contains(got, sub) {
+				t.Errorf("%s: %s at %s is %q, which contains %q", x.Case, x.Run, x.Pointer, got, sub)
+			}
 		}
 	}
 

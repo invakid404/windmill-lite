@@ -1,0 +1,200 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      200,
+      "{\"ok\":true}"
+    ],
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "root": "<job:>",
+          "sink": "<masked>"
+        }
+      },
+      "m:b": {
+        "status": "success",
+        "args": {
+          "root": "<job:>",
+          "sink": "<masked>"
+        },
+        "result": [
+          200,
+          "{\"ok\":true}"
+        ]
+      }
+    },
+    "effects": [
+      {
+        "root": "<job:>",
+        "job": "<job:m:b>",
+        "step": "b",
+        "native": true
+      }
+    ]
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030020157-b6f274b58ad8",
+      "revision": "b6f274b58ad8be6aa9f573d7581ed0847a46bfee",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40989292429"
+    },
+    "recorded_at": "2026-10-30T02:04:04Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:42359",
+      "WORKER_TAGS": "nativets"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:04:04.539601Z",
+          "started_at": "2026-10-30T02:04:04.570187Z",
+          "completed_at": "2026-10-30T02:04:04.670614Z",
+          "duration_ms": 100
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:04.572192Z",
+          "started_at": "2026-10-30T02:04:04.576500Z",
+          "completed_at": "2026-10-30T02:04:04.596182Z",
+          "duration_ms": 17
+        },
+        "m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:04.611920Z",
+          "started_at": "2026-10-30T02:04:04.648768Z",
+          "completed_at": "2026-10-30T02:04:04.666861Z",
+          "duration_ms": 14
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "// A Bun step: the native runtime's process.env holds only the WM_*\n// variables and the base URLs (WR-45), so the effect sink's address\n// and the outer root reach the native step as its arguments.\nexport function main() { return { sink: process.env.WL_EFFECT_SINK, root: process.env.WM_ROOT_JOB_ID }; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "content": "//native\n// fetch reaches any host from the native runtime (WR-45); this one\n// reaches only the loopback effect sink.\nexport async function main(sink: string, root: string) {\n  const res = await fetch(sink, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ root, job: process.env.WM_JOB_ID, step: \"b\", native: typeof (globalThis as any).Bun === \"undefined\" }),\n  });\n  return [res.status, await res.text()];\n}\n",
+              "input_transforms": {
+                "root": {
+                  "expr": "results.a.root",
+                  "type": "javascript"
+                },
+                "sink": {
+                  "expr": "results.a.sink",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// A Bun step: the native runtime's process.env holds only the WM_*\n// variables and the base URLs (WR-45), so the effect sink's address\n// and the outer root reach the native step as its arguments.\nexport function main() { return { sink: process.env.WL_EFFECT_SINK, root: process.env.WM_ROOT_JOB_ID }; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\n// fetch reaches any host from the native runtime (WR-45); this one\n// reaches only the loopback effect sink.\nexport async function main(sink: string, root: string) {\n  const res = await fetch(sink, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ root, job: process.env.WM_JOB_ID, step: \"b\", native: typeof (globalThis as any).Bun === \"undefined\" }),\n  });\n  return [res.status, await res.text()];\n}\n",
+              "language": "bunnative",
+              "input_transforms": {
+                "root": {
+                  "expr": "results.a.root",
+                  "type": "javascript"
+                },
+                "sink": {
+                  "expr": "results.a.sink",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline b.ts",
+              "input_transforms": {
+                "root": {
+                  "type": "javascript",
+                  "expr": "results.a.root"
+                },
+                "sink": {
+                  "type": "javascript",
+                  "expr": "results.a.sink"
+                }
+              },
+              "lock": "!inline b.lock",
+              "language": "bunnative"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

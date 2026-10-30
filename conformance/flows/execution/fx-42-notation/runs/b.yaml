@@ -1,0 +1,4 @@
+# FX-42/b: an engine-built object is stored as an argument in jsonb order.
+spec: [FX-42/b]
+target: f/wl_fx42n/b
+expect: {status: success, result: ["y", zz]}

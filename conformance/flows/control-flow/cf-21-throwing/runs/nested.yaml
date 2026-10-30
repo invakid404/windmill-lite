@@ -1,0 +1,5 @@
+# CF-21/f (2): the inner loop's timeout reads the outer iteration's iter
+# (index 0), so it is 10, and the flow succeeds with [2].
+spec: [CF-21/f]
+target: f/wl_cf21t/nested
+expect: {status: success, result: [2]}

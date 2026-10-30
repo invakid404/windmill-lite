@@ -1,0 +1,28 @@
+summary: "CF-21: both the timeout and the parallelism throw; the timeout's error is the one reported"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              language: bun
+              input_transforms: {}
+        parallel: true
+        skip_failures: false
+        parallelism: {type: javascript, expr: null.p}
+      timeout: {type: javascript, expr: null.t}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,0 +1,11 @@
+# JE-42/j: the static $encrypted:secret does not decrypt, so b fails before
+# its script runs with CE's cause: Invalid padding
+spec: [JE-42/j]
+target: f/wl_je20/j2
+expect:
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nInternal: Invalid padding<loc>"
+      step_id: b

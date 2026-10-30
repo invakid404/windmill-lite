@@ -1,0 +1,17 @@
+# CF-7/f: with a failure module, each iteration's copy runs (the loop's
+# array is [H, H]), the flow's own handler does not, and the flow fails with
+# the same InternalError.
+spec: [CF-7/f]
+target: f/wl_cf7p/f_handler
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Bad request: Unrecognized module status for ForloopFlow Failure {…"
+  steps:
+    "m:l": {status: failure, result: [H, H]}
+    "m:l/i:0/s:failure": {status: success, result: H}
+    "m:l/i:1/s:failure": {status: success, result: H}
+    "s:failure": {status: not_run}
+    "m:n": {status: not_run}

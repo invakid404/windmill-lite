@@ -1,0 +1,28 @@
+summary: "CF-12/g: retry"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+            stop_after_if: {expr: "true", error_message: halt}
+        parallel: false
+        skip_failures: false
+      retry: {constant: {attempts: 1, seconds: 0}}
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

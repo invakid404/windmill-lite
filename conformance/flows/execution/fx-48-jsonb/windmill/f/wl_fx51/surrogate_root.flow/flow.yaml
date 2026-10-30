@@ -1,0 +1,14 @@
+summary: "unpaired surrogate at the root"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          s: {type: javascript, expr: "String.fromCharCode(0xd83d)"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

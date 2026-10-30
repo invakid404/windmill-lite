@@ -1,0 +1,12 @@
+# JE-42/i: a $jsonvar: text serde refuses fails b before its script runs,
+# with serde's message and its line and column counted in bytes: number out
+# of range at line 1 column 12.
+spec: [JE-42/i]
+target: f/wl_je20/i3
+expect:
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12<loc>"
+      step_id: b

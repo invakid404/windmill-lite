@@ -1,0 +1,5 @@
+# FX-42/a: a stored producer value's nested keys reach the next script in
+# jsonb order.
+spec: [FX-42/a]
+target: f/wl_fx42n/a
+expect: {status: success, result: [a, c, bb]}

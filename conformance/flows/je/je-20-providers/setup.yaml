@@ -1,0 +1,17 @@
+resource_types: [{name: wl_obj, schema: {type: object}}]
+variables:
+  - {path: f/wl_je20/v, value: s}
+  - {path: f/wl_je20/i1, value: hello}
+  - {path: f/wl_je20/i2, value: ""}
+  - {path: f/wl_je20/i3, value: "{\"é\": 1e400}"}
+  - {path: f/wl_je20/i4, value: "{\n  \"b\": 1e400\n}"}
+  - {path: f/wl_je20/i5, value: "{\r\n  \"b\": 1e400\r\n}"}
+resources:
+  - path: f/wl_je20/r1
+    resource_type: wl_obj
+    value: {k: "$var:f/wl_je20/missing"}
+  - path: f/wl_je20/r
+    resource_type: wl_obj
+    value: {p: "$var:f/wl_je20/v", job: "$WM_JOB_ID"}
+  - {path: f/wl_je20/alias, resource_type: wl_obj, value: "$res:f/wl_je20/r"}
+  - {path: f/wl_je20/n, resource_type: wl_obj, value: 42}

@@ -1,0 +1,7 @@
+# CF-16/e: without n the flow succeeds with [H].
+spec: [CF-16/e]
+target: f/wl_cf16t/e_alone
+expect:
+  status: success
+  result: [H]
+  steps: {"s:failure": {status: not_run}}
