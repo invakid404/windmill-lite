@@ -1,0 +1,9 @@
+# JE-20/c (2): resource() fails b in JE-20/b's envelope, and its message
+# carries the API's body as the catalogue gives it (checked in the batch
+# manifest): the helper strips no prefix.
+spec: [JE-20/c]
+target: f/wl_je20/c2
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: success, result: 1}}

@@ -1,0 +1,305 @@
+{
+  "observation": {
+    "status": "success",
+    "result": "a:<job:m:s1/m:s>",
+    "steps": {
+      "m:n": {
+        "status": "success",
+        "args": {},
+        "result": "<job:>"
+      },
+      "m:s1": {
+        "status": "success",
+        "args": {
+          "v": "<job:>"
+        },
+        "result": "a:<job:m:s1/m:s>"
+      },
+      "m:s1/m:s": {
+        "status": "success",
+        "args": {
+          "v": "<job:>",
+          "x": "$var:f/wl_fx40c/v"
+        },
+        "result": "a:<job:m:s1/m:s>"
+      },
+      "m:s2": {
+        "status": "success",
+        "args": {
+          "v": "<job:>"
+        },
+        "result": "a:<job:m:s1/m:s>"
+      },
+      "m:s2/m:s": {
+        "status": "success",
+        "args": {
+          "v": "<job:>",
+          "x": "$var:f/wl_fx40c/v"
+        },
+        "result": "a:<job:m:s1/m:s>"
+      },
+      "m:u": {
+        "status": "success",
+        "args": {
+          "v": "<job:>"
+        },
+        "result": 200
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030030051-3c1bb5db00ea",
+      "revision": "3c1bb5db00ea465aea4cbf9145a35e24a05c295b",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40994947681"
+    },
+    "recorded_at": "2026-10-30T03:16:34Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:39551"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 407,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T03:16:34.453001Z",
+          "started_at": "2026-10-30T03:16:34.469897Z",
+          "completed_at": "2026-10-30T03:16:34.742056Z",
+          "duration_ms": 272
+        },
+        "m:n": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T03:16:34.471181Z",
+          "started_at": "2026-10-30T03:16:34.474139Z",
+          "completed_at": "2026-10-30T03:16:34.498185Z",
+          "duration_ms": 21
+        },
+        "m:s1": {
+          "kind": "flow",
+          "created_at": "2026-10-30T03:16:34.502442Z",
+          "started_at": "2026-10-30T03:16:34.552202Z",
+          "completed_at": "2026-10-30T03:16:34.587138Z",
+          "duration_ms": 35
+        },
+        "m:s1/m:s": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T03:16:34.556749Z",
+          "started_at": "2026-10-30T03:16:34.558861Z",
+          "completed_at": "2026-10-30T03:16:34.584094Z",
+          "duration_ms": 22
+        },
+        "m:s2": {
+          "kind": "flow",
+          "created_at": "2026-10-30T03:16:34.677553Z",
+          "started_at": "2026-10-30T03:16:34.726478Z",
+          "completed_at": "2026-10-30T03:16:34.739093Z",
+          "duration_ms": 13
+        },
+        "m:s2/m:s": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T03:16:34.730695Z",
+          "started_at": "2026-10-30T03:16:34.732740Z",
+          "completed_at": "2026-10-30T03:16:34.736126Z",
+          "duration_ms": 3
+        },
+        "m:u": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T03:16:34.591879Z",
+          "started_at": "2026-10-30T03:16:34.634975Z",
+          "completed_at": "2026-10-30T03:16:34.672566Z",
+          "duration_ms": 35
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "n",
+            "value": {
+              "content": "export function main() { return process.env.WM_ROOT_JOB_ID; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "s1",
+            "value": {
+              "input_transforms": {
+                "v": {
+                  "expr": "results.n",
+                  "type": "javascript"
+                }
+              },
+              "path": "f/wl_fx40c/j_child",
+              "type": "flow"
+            }
+          },
+          {
+            "id": "u",
+            "value": {
+              "content": "export async function main(v: string) {\n  const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\n  const res = await fetch(`${base}/api/w/${process.env.WM_WORKSPACE}/variables/update/f/wl_fx40c/v`, {\n    method: \"POST\", headers: { Authorization: `Bearer ${process.env.WM_TOKEN}`, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ value: \"b\" }),\n  });\n  return res.status;\n}\n",
+              "input_transforms": {
+                "v": {
+                  "expr": "results.n",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "s2",
+            "value": {
+              "input_transforms": {
+                "v": {
+                  "expr": "results.n",
+                  "type": "javascript"
+                }
+              },
+              "path": "f/wl_fx40c/j_child",
+              "type": "flow"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "n",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { return process.env.WM_ROOT_JOB_ID; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "s1",
+            "value": {
+              "path": "f/wl_fx40c/j_child",
+              "type": "flow",
+              "input_transforms": {
+                "v": {
+                  "expr": "results.n",
+                  "type": "javascript"
+                }
+              }
+            }
+          },
+          {
+            "id": "u",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export async function main(v: string) {\n  const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\n  const res = await fetch(`${base}/api/w/${process.env.WM_WORKSPACE}/variables/update/f/wl_fx40c/v`, {\n    method: \"POST\", headers: { Authorization: `Bearer ${process.env.WM_TOKEN}`, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ value: \"b\" }),\n  });\n  return res.status;\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "v": {
+                  "expr": "results.n",
+                  "type": "javascript"
+                }
+              }
+            }
+          },
+          {
+            "id": "s2",
+            "value": {
+              "path": "f/wl_fx40c/j_child",
+              "type": "flow",
+              "input_transforms": {
+                "v": {
+                  "expr": "results.n",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "n",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline n.ts",
+              "input_transforms": {},
+              "lock": "!inline n.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "s1",
+            "value": {
+              "type": "flow",
+              "input_transforms": {
+                "v": {
+                  "type": "javascript",
+                  "expr": "results.n"
+                }
+              },
+              "path": "f/wl_fx40c/j_child"
+            }
+          },
+          {
+            "id": "u",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline u.ts",
+              "input_transforms": {
+                "v": {
+                  "type": "javascript",
+                  "expr": "results.n"
+                }
+              },
+              "lock": "!inline u.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "s2",
+            "value": {
+              "type": "flow",
+              "input_transforms": {
+                "v": {
+                  "type": "javascript",
+                  "expr": "results.n"
+                }
+              },
+              "path": "f/wl_fx40c/j_child"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

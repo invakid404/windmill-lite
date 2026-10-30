@@ -1,0 +1,5 @@
+# WR-29/a: the default import base of an inline step at top level:
+# ../shared_lib loads f/wl_ib/shared_lib and ./x loads f/wl_ib/fl/x.
+spec: [WR-29/a]
+target: f/wl_ib/fl
+expect: {status: success, result: [shared_lib, flow]}

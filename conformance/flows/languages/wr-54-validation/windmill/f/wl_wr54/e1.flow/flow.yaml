@@ -1,0 +1,15 @@
+summary: "WR-54/e (1)"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms:
+          xs: {type: static, value: [1, "2"]}
+          o: {type: static, value: {}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

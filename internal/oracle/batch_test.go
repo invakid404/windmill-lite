@@ -3,6 +3,7 @@ package oracle
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,6 +54,16 @@ type batch struct {
 		Pointer string `json:"pointer"`
 		Prefix  string `json:"prefix"`
 	} `json:"prefixes"`
+	// Texts are the catalogue's other partial assertions about a recorded
+	// text: substrings it contains, and ones it must not contain (batch
+	// E3f), checked against the recorded observation as Prefixes are.
+	Texts []struct {
+		Case     string   `json:"case"`
+		Run      string   `json:"run"`
+		Pointer  string   `json:"pointer"`
+		Contains []string `json:"contains"`
+		Excludes []string `json:"excludes"`
+	} `json:"texts"`
 	// Contradictions are catalogue claims that the oracle contradicts:
 	// the recorded value at a pointer of a run, which the run's
 	// expectation holds instead of the claim.
@@ -63,6 +74,17 @@ type batch struct {
 		Pointer   string          `json:"pointer"`
 		Observed  json.RawMessage `json:"observed"`
 	} `json:"contradictions"`
+	// Deployments are the catalogue's claims about a deployed flow value
+	// (batch E3f), checked against a recorded run's deployment evidence
+	// (Provenance.Deployment: the submitted value, the materialized one):
+	// the value at the pointer, or, with absent, no member there.
+	Deployments []struct {
+		Case    string          `json:"case"`
+		Run     string          `json:"run"`
+		Pointer string          `json:"pointer"`
+		Value   json.RawMessage `json:"value"`
+		Absent  bool            `json:"absent"`
+	} `json:"deployments"`
 	// Gates, when the batch has them, name for every run of its fixtures
 	// (<fixture directory>/<run>) the milestone whose exit gate runs it:
 	// the one that implements the last feature the run's flow needs, which
@@ -163,6 +185,7 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 	// The fixtures, their runs and recordings.
 	recordedBy := map[string][]string{}
 	observations := map[string]conformance.Observation{}
+	deployments := map[string]*FlowDeployment{}
 	for _, dir := range b.Fixtures {
 		f, err := conformance.LoadFixture(filepath.Join(root, filepath.FromSlash(dir)))
 		if err != nil {
@@ -201,6 +224,11 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 				t.Errorf("%s: %v", name, err)
 			}
 			observations[name] = r.Recorded.Observation
+			var p Provenance
+			if err := json.Unmarshal(r.Recorded.Provenance, &p); err != nil {
+				t.Errorf("%s: provenance: %v", name, err)
+			}
+			deployments[name] = p.Deployment
 			if r.Expect != nil {
 				opts := f.Compare.Options()
 				opts.WithRecording = true
@@ -272,6 +300,35 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 		}
 	}
 
+	for _, x := range b.Texts {
+		if !cases[x.Case] {
+			t.Errorf("text check for %s, which is not a case of the batch", x.Case)
+		}
+		if len(x.Contains)+len(x.Excludes) == 0 {
+			t.Errorf("text check for %s at %s checks nothing", x.Case, x.Pointer)
+		}
+		obs, ok := observations[x.Run]
+		if !ok {
+			t.Errorf("text check for %s: run %s is not a recorded run of the batch", x.Case, x.Run)
+			continue
+		}
+		got, err := pointerString(obs, x.Pointer)
+		if err != nil {
+			t.Errorf("text check for %s: %s %s: %v", x.Case, x.Run, x.Pointer, err)
+			continue
+		}
+		for _, sub := range x.Contains {
+			if !strings.Contains(got, sub) {
+				t.Errorf("%s: %s at %s is %q, which does not contain %q", x.Case, x.Run, x.Pointer, got, sub)
+			}
+		}
+		for _, sub := range x.Excludes {
+			if strings.Contains(got, sub) {
+				t.Errorf("%s: %s at %s is %q, which contains %q", x.Case, x.Run, x.Pointer, got, sub)
+			}
+		}
+	}
+
 	for _, c := range b.Contradictions {
 		if !cases[c.Case] {
 			t.Errorf("contradiction of %s, which is not a case of the batch", c.Case)
@@ -298,11 +355,54 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 			t.Errorf("contradiction of %s: %s at %s is %v, not the listed %s", c.Case, c.Run, c.Pointer, got, c.Observed)
 		}
 	}
+
+	for _, d := range b.Deployments {
+		if !cases[d.Case] {
+			t.Errorf("deployment check of %s, which is not a case of the batch", d.Case)
+		}
+		dep, ok := deployments[d.Run]
+		if !ok {
+			t.Errorf("deployment check of %s: run %s is not a recorded run of the batch", d.Case, d.Run)
+			continue
+		}
+		if dep == nil {
+			t.Errorf("deployment check of %s: run %s has no deployment evidence (oracle.deploy api)", d.Case, d.Run)
+			continue
+		}
+		got, err := jsonPointer(dep, d.Pointer)
+		if d.Absent {
+			if d.Value != nil {
+				t.Errorf("deployment check of %s at %s has both a value and absent", d.Case, d.Pointer)
+			}
+			if !errors.Is(err, errNoMember) {
+				t.Errorf("%s: %s's deployment at %s is %v (%v), want no member", d.Case, d.Run, d.Pointer, got, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("deployment check of %s: %s %s: %v", d.Case, d.Run, d.Pointer, err)
+			continue
+		}
+		var want any
+		if err := json.Unmarshal(d.Value, &want); err != nil {
+			t.Errorf("deployment check of %s: value: %v", d.Case, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %s's deployment at %s is %v, want %s", d.Case, d.Run, d.Pointer, got, d.Value)
+		}
+	}
 }
 
 // pointerValue resolves an RFC 6901 pointer in an observation's JSON form.
 func pointerValue(o conformance.Observation, pointer string) (any, error) {
-	data, err := json.Marshal(o)
+	return jsonPointer(o, pointer)
+}
+
+// jsonPointer resolves an RFC 6901 pointer in a value's JSON form, through
+// objects and arrays; errNoMember reports a missing object member.
+func jsonPointer(x any, pointer string) (any, error) {
+	data, err := json.Marshal(x)
 	if err != nil {
 		return nil, err
 	}
@@ -315,16 +415,26 @@ func pointerValue(o conformance.Observation, pointer string) (any, error) {
 		return nil, err
 	}
 	for _, tok := range tokens {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%q is not under an object", tok)
-		}
-		if v, ok = m[tok]; !ok {
-			return nil, fmt.Errorf("no member %q", tok)
+		switch c := v.(type) {
+		case map[string]any:
+			var ok bool
+			if v, ok = c[tok]; !ok {
+				return nil, fmt.Errorf("%w %q", errNoMember, tok)
+			}
+		case []any:
+			i, err := strconv.Atoi(tok)
+			if err != nil || i < 0 || i >= len(c) {
+				return nil, fmt.Errorf("no element %q of %d", tok, len(c))
+			}
+			v = c[i]
+		default:
+			return nil, fmt.Errorf("%q is not under an object or an array", tok)
 		}
 	}
 	return v, nil
 }
+
+var errNoMember = errors.New("no member")
 
 // pointerString resolves an RFC 6901 pointer in an observation's JSON form
 // to a string.

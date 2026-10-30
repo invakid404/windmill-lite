@@ -1,0 +1,15 @@
+summary: FX-30/b
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+      continue_on_error: true
+      retry: {constant: {attempts: 2, seconds: 0}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

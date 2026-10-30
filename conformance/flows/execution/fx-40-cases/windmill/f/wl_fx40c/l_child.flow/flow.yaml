@@ -1,0 +1,23 @@
+summary: "FX-40/l: the child"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          "n": {type: static, value: 1}
+          v: {type: javascript, expr: flow_input.v}
+      cache_ttl: 60
+      stop_after_if: {expr: "result.n === 1", skip_if_stopped: false}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}}

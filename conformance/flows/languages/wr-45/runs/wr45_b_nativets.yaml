@@ -1,0 +1,8 @@
+# WR-45/b (nativets): the reserved names are bare identifiers in nativets
+# only.
+spec: [WR-45/b]
+target: f/wl_n45/wr45_b_nativets
+expect:
+  status: success
+  result: string
+  steps: {"m:a": {status: success, args: {}, result: string}}

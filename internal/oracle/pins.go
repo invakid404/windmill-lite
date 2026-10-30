@@ -49,3 +49,27 @@ const (
 	CancelAfterReason   = "wltest: cancel_after_ms"
 	CancelAfterCanceler = "admin"
 )
+
+// SessionConfigs are the oracle configurations a session can run, each
+// with the variables it adds to the oracle's environment (OR-7), which
+// every recording's provenance holds. "" is the reference configuration
+// of OR-4. A fixture names the configuration it needs
+// (conformance.OracleNeeds.Session), and a session runs only the fixtures
+// that name its own, as the recording requests of docs/design/README.md
+// ask for the sessions with a changed configuration:
+//   - native: WORKER_TAGS=nativets, which the standalone container's
+//     default-group worker adds to its group's tags, so that it pulls
+//     native jobs (Q-WR-21; FORCE_WORKER_TAGS would replace the tags);
+//   - result_size: MAX_RESULT_SIZE_MB=3 (OR-7/b, Q-OR-14);
+//   - flow_script_off: DISABLE_FLOW_SCRIPT=true (OF-V5/b, Q-OF-11);
+//   - long: the reference configuration, for the fixtures whose runs wait
+//     a minute or more on the server's own monitors, recorded in a session
+//     of their own with a longer run timeout so that they cannot push the
+//     main session past its time budget.
+var SessionConfigs = map[string]map[string]string{
+	"":                {},
+	"native":          {"WORKER_TAGS": "nativets"},
+	"result_size":     {"MAX_RESULT_SIZE_MB": "3"},
+	"flow_script_off": {"DISABLE_FLOW_SCRIPT": "true"},
+	"long":            {},
+}

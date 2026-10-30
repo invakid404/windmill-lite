@@ -1,0 +1,28 @@
+summary: child_plain
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                v: {type: javascript, expr: flow_input.iter.value}
+        parallel: false
+        skip_failures: false
+        squash: false
+    - id: i
+      value:
+        type: rawscript
+        content: "!inline i.ts"
+        language: bun
+        input_transforms: {ids: {type: javascript, expr: results.l}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

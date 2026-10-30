@@ -1,0 +1,5 @@
+# WR-49/h: the same body in an entry with an asset, uploaded as a tar, keeps
+# LF line breaks.
+spec: [WR-49/h]
+target: f/wl_ib/crlf_tar
+expect: {status: success, result: [false, true]}

@@ -30,6 +30,10 @@ var engineSkipped = map[string]string{
 	// recording holds no evaluator text. TestJE2OnEngine runs the same
 	// expression's three attempts with a short limit.
 	"JE-2/a": "the oracle canceled the run before the evaluator's text surfaced",
+	// The panic report names its task number, which differs between runs,
+	// so the recording masks the message; pipeline case JE-11/e checks the
+	// evaluator's text.
+	"JE-11/e": "the recording masks the panic report's message",
 }
 
 // engineDeviations are the E3a cases whose recorded outcome windmill-lite

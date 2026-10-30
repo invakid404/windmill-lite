@@ -1,0 +1,8 @@
+# JE-15/j 3: the returned promise is adopted before the value is read; the
+# run does not fail.
+spec: [JE-15/j]
+target: f/wl_je15/j3
+expect:
+  status: success
+  result: 7
+  steps: {"m:b": {status: success, args: {x: 7}, result: 7}}

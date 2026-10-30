@@ -1,0 +1,11 @@
+# WR-54/b: with static inputs {"n": "1", "s": "x"}, // schema_validation
+# refuses them with the rule's text.
+spec: [WR-54/b]
+target: f/wl_wr54/b1
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nProblem with arguments: Argument `n` should be a numeric value"
+      name: ExecutionErr
+      step_id: s

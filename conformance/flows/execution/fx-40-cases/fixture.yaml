@@ -1,0 +1,29 @@
+# Recording batch E3f (ADR 0012): the result cache (FX-40/e to FX-40/m;
+# Q-FX-21). As in FX-40/a and FX-40/b, each case runs its cached flow twice
+# within the TTL in one fixture run, as subflow calls that pass the outer
+# run's root job id as a nonce, so that the oracle's repeated runs keep
+# their entries apart; cached steps return their own job id, so a hit shows
+# as a result that names the first call's job. The cache's log line on the
+# hit jobs is not recorded (the walker reads no logs). FX-40/j's variable is
+# reset before every run (oracle.setup each_run). The runs compare as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-40. Deployed with oracle.deploy api.
+id: execution/fx-40-cases
+spec:
+  - FX-40/e
+  - FX-40/f
+  - FX-40/g
+  - FX-40/h
+  - FX-40/i
+  - FX-40/j
+  - FX-40/k
+  - FX-40/l
+  - FX-40/m
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api, setup: each_run}
+compare: {mode: subset}

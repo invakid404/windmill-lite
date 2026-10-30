@@ -1,0 +1,12 @@
+# OF-3/b: a flow whose inline Bun script fails to lock, created through the
+# API on its first deploy: the dependency job fails and the flow keeps its
+# raw value, so the loop still lacks skip_failures and the script has no
+# lock.
+spec: [OF-3/b]
+target: f/wl_ofd/nolock
+expect:
+  status: success
+  result:
+    dependency_success: false
+    loop_keys: [iterator, modules, parallel, type]
+    lock: null

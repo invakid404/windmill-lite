@@ -1,0 +1,5 @@
+# WR-54/a: //schema_validation without the space does not, so the step
+# returns none.
+spec: [WR-54/a]
+target: f/wl_wr54/a_tight
+expect: {status: success, result: none}

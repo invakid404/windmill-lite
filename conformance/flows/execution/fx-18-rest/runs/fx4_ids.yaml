@@ -1,0 +1,6 @@
+# FX-4/a, OF-3/d: run by path after the dependency job succeeded, the status
+# a run starts with lists a and the generated a-v (read at enqueue; the
+# started run is then canceled).
+spec: [FX-4/a, OF-3/d]
+target: f/wl_fx18/fx4_ids
+expect: {status: success, result: [a, a-v]}

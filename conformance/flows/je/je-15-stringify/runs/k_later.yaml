@@ -1,0 +1,12 @@
+# JE-15/k: the result text hello is not JSON, so b's argument text
+# {"x":hello} is refused by jsonb and b's job is never created; after a, the
+# flow fails with the later transition's InternalError.
+spec: [JE-15/k]
+target: f/wl_je15/k_later
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5"
+  steps: {"m:a": {status: success, result: 1}}

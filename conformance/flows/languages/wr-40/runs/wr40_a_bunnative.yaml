@@ -1,0 +1,11 @@
+# WR-40/a (bunnative): the //native header, not the stored language, selects
+# the native runtime: step a (language bun, //native) sees no Bun, step b
+# (language bunnative, no header) runs on Bun.
+spec: [WR-40/a]
+target: f/wl_n40/wr40_a_bunnative
+expect:
+  status: success
+  result: object
+  steps:
+    "m:a": {status: success, args: {}, result: undefined}
+    "m:b": {status: success, args: {}, result: object}

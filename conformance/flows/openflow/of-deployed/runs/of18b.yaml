@@ -1,0 +1,5 @@
+# OF-18/b: the control, with x given.
+spec: [OF-18/b]
+target: f/wl_of/hasx
+args: {x: 1}
+expect: {status: success, result: {hasX: true}}

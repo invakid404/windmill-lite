@@ -1,0 +1,3 @@
+variables:
+  - {path: f/wl_fx51/surrogate, value: "{\"s\": \"\\ud83d\"}"}
+  - {path: f/wl_fx51/range, value: "{\"n\": 1e400}"}

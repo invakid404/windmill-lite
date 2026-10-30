@@ -1,0 +1,10 @@
+# Q-OR-17 (ii): a step whose id is preprocessor, beside a preprocessor
+# module whose id is pre: two records.
+spec: [OR-11]
+target: f/wl_ids/slot_pre
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:preprocessor": {status: success, result: 1}
+    "s:preprocessor": {status: success}

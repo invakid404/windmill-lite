@@ -1,0 +1,17 @@
+# Recording batch E3f (ADR 0012): workspace object storage, session B
+# (WA-16/d;
+# Q-WA-3): the stock windmill-client 1.767.0's writeS3File with no workspace
+# storage configured, the reference configuration. Session A, with a local
+# S3-compatible store beside the oracle (WA-16/c, WA-16/e), is deferred in
+# the batch manifest. The run compares as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#wa-16. Deployed with oracle.deploy api.
+id: client-api/object-storage
+spec: [WA-16/d]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

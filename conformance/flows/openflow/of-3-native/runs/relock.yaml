@@ -1,0 +1,6 @@
+# OF-3/c: a rawscript submitted as bun with lock "" and a //native first
+# line runs on the native worker; the deployed value says bunnative while
+# the submitted one says bun (checked in the batch manifest).
+spec: [OF-3/c]
+target: f/wl_of3n/relock
+expect: {status: success, result: 1}

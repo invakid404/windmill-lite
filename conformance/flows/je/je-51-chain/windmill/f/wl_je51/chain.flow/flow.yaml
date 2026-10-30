@@ -1,0 +1,16 @@
+summary: "Q-JE-12: a job chain that never ends"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          x:
+            type: javascript
+            expr: "(queueMicrotask(function f() { queueMicrotask(f) }), 1)"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

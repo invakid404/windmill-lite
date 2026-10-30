@@ -1,0 +1,13 @@
+# WR-43/c (bunnative): the stack of a's error starts with the failing source
+# line as loaded, then Error: x; a's continue_on_error passes the error on,
+# and b's input takes the stack's first two lines, trimmed, as a value that
+# the stack masking of a's own result does not reach. As bunnative the
+# syntax-minified bundle drops new.
+spec: [WR-43/c]
+target: f/wl_n43s/stack_bunnative
+expect:
+  status: success
+  result: ["throw Error(\"x\");", "Error: x"]
+  steps:
+    "m:a": {status: failure}
+    "m:b": {status: success, result: ["throw Error(\"x\");", "Error: x"]}

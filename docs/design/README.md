@@ -41,7 +41,9 @@ control-flow cases and settled contested rules of
 expression cases and CF-19 and CF-V6, which settled another, recording
 batch E3e the remaining recordings (FX-36's HTTP part, the contested
 `later` rows, the probe catalogue rebuilt as fixtures, codebase scripts),
-and milestone E4a its stub mode. Milestone F4 implements the bundle of
+recording batch E3f native steps and what the reference's revisions SC3
+and SC4 asked the oracle for (below), each in the oracle configuration it
+needs, and milestone E4a its stub mode. Milestone F4 implements the bundle of
 [0010](0010-packaging.md) (the build, the manifest and the bundle digest,
 `verify`) in [internal/bundle](../../internal/bundle/README.md) and
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md), and put the
@@ -205,7 +207,7 @@ flowchart LR
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
 | [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
-| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 55 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
+| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 56 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
 | [0013 Shared module code](0013-shared-module-code.md) | When step modules that share one large dependency closure make a `warm` or host-mode process outgrow its memory, a bundle built with shared code compiles each build group's dependency modules once per process and gives each step module its own instance of them (D18); module state stays per script, so shared chunks, host-provided packages and one instance per package, which share it, are rejected; the per-script bundles stay the CLI's, and `fresh` runs them; a host's budget of 650 MiB with 34 modules loaded is the target. |
 
 ## Measurements behind the decisions
@@ -862,6 +864,13 @@ source-derived prediction; the named case or question holds the exact
 text. Compare location suffixes as `<loc>` and mask job ids
 ([OR-14](../semantics/oracle.md#or-14), [FX-50](../semantics/execution.md#fx-50)).
 Nothing here may commit the oracle's database credentials unmasked.
+
+*Recorded by batch E3f* ([ADR 0012](0012-layout-and-milestones.md)): each
+request below is a fixture of the batch, recorded in the session it names,
+or is deferred with its reason in the batch's manifest,
+[`internal/oracle/testdata/batches/e3f.json`](../../internal/oracle/testdata/batches/e3f.json),
+which also lists every claim the oracle contradicted. Requests the next
+semantics revision makes go in a new section.
 
 **The reference session** (one worker, default worker tags):
 

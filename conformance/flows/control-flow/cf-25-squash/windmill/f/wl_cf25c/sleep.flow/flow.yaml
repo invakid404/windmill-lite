@@ -1,0 +1,24 @@
+summary: "CF-25/c: a sequential loop module with a sleep never starts the runners"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                v: {type: javascript, expr: flow_input.iter.value}
+        parallel: false
+        skip_failures: false
+        squash: true
+      sleep: {type: static, value: 0}
+    - {id: "n", value: {type: identity}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

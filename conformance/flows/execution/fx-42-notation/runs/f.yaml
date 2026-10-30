@@ -1,0 +1,4 @@
+# FX-42/f: Python sees jsonb's rewritten number: 1e21 reaches it as an int.
+spec: [FX-42/f]
+target: f/wl_fx42n/f
+expect: {status: success, result: int}

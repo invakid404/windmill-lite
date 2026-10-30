@@ -1,0 +1,22 @@
+summary: OF-16/c
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[5]"}
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              language: bun
+              input_transforms:
+                x: {type: javascript, expr: flow_input.iter.value}
+        parallel: true
+        skip_failures: false
+  same_worker: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

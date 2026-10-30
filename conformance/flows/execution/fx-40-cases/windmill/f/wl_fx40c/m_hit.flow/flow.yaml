@@ -1,0 +1,31 @@
+summary: "FX-40/m: 60 then 0"
+value:
+  modules:
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+    - id: a
+      value:
+        type: script
+        path: f/wl_fx40c/rnd
+        hash: "0000000000000000"
+        input_transforms:
+          "n": {type: static, value: 1}
+          v: {type: javascript, expr: results.n}
+      cache_ttl: 60
+    - id: b
+      value:
+        type: script
+        path: f/wl_fx40c/rnd
+        hash: "0000000000000000"
+        input_transforms:
+          "n": {type: static, value: 1}
+          v: {type: javascript, expr: results.n}
+      cache_ttl: 0
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

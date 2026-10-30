@@ -1,0 +1,8 @@
+# JE-15/j 5: a string holding an unpaired surrogate does not convert to
+# UTF-8, so null; the run does not fail.
+spec: [JE-15/j]
+target: f/wl_je15/j5
+expect:
+  status: success
+  result: null
+  steps: {"m:b": {status: success, args: {x: null}, result: null}}

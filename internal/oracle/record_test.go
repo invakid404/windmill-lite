@@ -98,6 +98,9 @@ type fakeDocker struct {
 	sinkURL   string
 	up        bool
 	upEnv     []string // the environment of the last compose up
+	// sessionEnv is the session environment file beside the compose file
+	// of the last compose up, or "<missing>".
+	sessionEnv string
 }
 
 func newFakeDocker(t *testing.T) *fakeDocker {
@@ -144,6 +147,14 @@ func (d *fakeDocker) Run(_ context.Context, env []string, args ...string) ([]byt
 		case strings.Contains(line, " up -d"):
 			d.up = true
 			d.upEnv = append([]string(nil), env...)
+			d.sessionEnv = "<missing>"
+			for i, a := range args {
+				if a == "-f" && i+1 < len(args) {
+					if b, err := os.ReadFile(filepath.Join(filepath.Dir(args[i+1]), SessionEnvFile)); err == nil {
+						d.sessionEnv = string(b)
+					}
+				}
+			}
 			for _, e := range env {
 				if v, ok := strings.CutPrefix(e, "WL_EFFECT_SINK="); ok {
 					d.sinkURL = v

@@ -1,0 +1,15 @@
+# OR-V7/c, OF-17/a: a flow whose last step sleeps 1 s, run by path:
+# flows/get defines a only, while the run's raw flow_status lists a and the
+# generated a-v, both Success, a-v an identity job about 1 s after a with
+# a's result.
+spec: [OR-V7/c, OF-17/a]
+target: f/wl_drv/orv7c
+expect:
+  status: success
+  result:
+    defined: [a]
+    status: [[a, Success], [a-v, Success]]
+    v_kind: identity
+    v_result: 7
+    v_about_1s_after_a: true
+    result: 7

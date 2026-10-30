@@ -1,0 +1,11 @@
+# WR-55/b: a timeout kills the job's whole process group after about 2 s,
+# although main had returned.
+spec: [WR-55/b]
+target: f/wl_wr55/timeout
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit"
+      name: ExecutionErr
+      step_id: a

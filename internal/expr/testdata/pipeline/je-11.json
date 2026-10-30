@@ -192,6 +192,27 @@
       "site": "input_transform",
       "text": "\"variable(é\"",
       "expect": {"code": "\"(await variable(é)\""}
+    },
+    {
+      "spec": "JE-11/c",
+      "variant": "end-to-end",
+      "provenance": "oracle-observed",
+      "title": "the early ) on non-ASCII text, as recorded end to end",
+      "recorded": {"fixture": "je/je-11-rewrite", "run": "je11c", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "\"variable(éa)\"",
+      "expect": {"code": "\"(await variable(é)a)\"", "route": "engine"}
+    },
+    {
+      "spec": "JE-11/e",
+      "variant": "end-to-end",
+      "provenance": "oracle-observed",
+      "title": "the panic inside a multi-byte character, as recorded end to end",
+      "note": "the recording masks the panic report, whose task number differs between runs",
+      "recorded": {"fixture": "je/je-11-rewrite", "run": "je11e", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "\"variable(é)\"",
+      "expect": {"rewrite_panic": 11, "route": "engine"}
     }
   ]
 }

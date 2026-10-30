@@ -1,0 +1,29 @@
+summary: "CF-7/a with parallelism 2"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2, 3, 4]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                v: {type: javascript, expr: flow_input.iter.value}
+                fail: {type: static, value: true}
+        parallel: true
+        skip_failures: true
+        parallelism: {type: static, value: 2}
+    - id: i
+      value:
+        type: rawscript
+        content: "!inline i.ts"
+        language: bun
+        input_transforms: {items: {type: javascript, expr: results.l}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

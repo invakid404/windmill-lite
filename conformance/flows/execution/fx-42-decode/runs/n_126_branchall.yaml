@@ -1,0 +1,11 @@
+# FX-42/n on a branchall whose one branch is an identity: with 126 nested
+# arrays the container succeeds and b runs.
+spec: [FX-42/n]
+target: f/wl_fx42d/m_branchall
+args:
+  k:
+    - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - []
+expect:
+  status: success
+  result: 1
+  steps: {"m:b": {status: success, result: 1}}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -251,8 +252,28 @@ type Compose struct {
 	Env []string
 }
 
-// WriteComposeFile writes the compose file into dir and returns its path.
-func WriteComposeFile(dir string) (string, error) {
+// SessionEnvFile is the file beside compose.yaml that the oracle's
+// services read as their env_file: the variables of the session's
+// configuration (SessionConfigs), one KEY=VALUE per line, and empty for
+// the reference configuration, so that it sets nothing at all rather than
+// an empty value.
+const SessionEnvFile = "session.env"
+
+// WriteComposeFile writes the compose file into dir, with the session
+// environment file of env beside it, and returns the compose file's path.
+func WriteComposeFile(dir string, env map[string]string) (string, error) {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + "=" + env[k] + "\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, SessionEnvFile), []byte(b.String()), 0o644); err != nil {
+		return "", err
+	}
 	p := filepath.Join(dir, "compose.yaml")
 	return p, os.WriteFile(p, composeFile, 0o644)
 }

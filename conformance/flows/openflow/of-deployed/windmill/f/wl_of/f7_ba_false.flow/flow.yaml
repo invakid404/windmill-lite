@@ -1,0 +1,28 @@
+summary: "OF-7/d: F7-ba, flag false"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: f
+                value:
+                  type: rawscript
+                  content: "!inline f.ts"
+                  language: bun
+                  input_transforms: {}
+            skip_failure: false
+          - modules:
+              - id: r
+                value:
+                  type: rawscript
+                  content: "!inline r.ts"
+                  language: bun
+                  input_transforms: {}
+            skip_failure: false
+        parallel: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

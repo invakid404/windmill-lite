@@ -1,0 +1,24 @@
+# Recording batch E3f (ADR 0012), part 1: the native-step session.
+# A worker that serves the nativets tag (WORKER_TAGS=nativets, Q-WR-21) runs
+# these one-step native flows, each in both kinds: a Bun step whose first
+# line is //native (bunnative) and a nativets step (WR-40). A pure function
+# returns JSON values (WR-42), one throws (WR-43/a), and one fetches the
+# loopback effect sink only (WR-45, OR-16), with the sink's address passed
+# in by a Bun step, since the native runtime's process.env holds only the
+# WM_* variables and the base URLs. Each run also runs in windmill-lite's
+# native mode (deviation D5). Recorded by the oracle workflow's native
+# session. Synthetic, written for this repository from
+# docs/semantics/conformance.md#wr-40 and docs/design/README.md (Recording
+# requests for batch E3f, native steps). Deployed with oracle.deploy api.
+id: languages/native
+spec: [WR-40, WR-42, WR-43/a, WR-45, OR-16/a]
+scope: core
+provenance: oracle-observed
+languages: [bun, nativets]
+oracle: {workers: 1, deploy: api, session: native, effects: true}
+compare:
+  mask:
+    - "/steps/m:a/result/sink"
+    - "/steps/m:a/carried/sink"
+    - "/steps/m:b/args/sink"
+    - "/steps/m:b/resolved_args/sink"

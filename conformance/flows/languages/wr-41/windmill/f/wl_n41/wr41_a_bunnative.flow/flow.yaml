@@ -1,0 +1,14 @@
+summary: "WR-41/a (bunnative)"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          d: {type: static, value: "2024-01-02T03:04:05.000Z"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

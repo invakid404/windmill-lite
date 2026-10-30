@@ -1,0 +1,9 @@
+# JE-21/b (Q-JE-1): a thrown object shows its debug form in b's message,
+# Object(0x...) with the object's address, which differs between runs, so
+# the fixture masks the message.
+spec: [JE-21/b]
+target: f/wl_jeobj/je21b_obj
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: success, result: 1}}

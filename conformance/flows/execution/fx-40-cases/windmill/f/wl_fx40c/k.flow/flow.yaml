@@ -1,0 +1,34 @@
+summary: FX-40/k
+value:
+  modules:
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+    - id: s1
+      value:
+        type: flow
+        path: f/wl_fx40c/k_child
+        input_transforms:
+          v: {type: javascript, expr: results.n}
+          f: {type: static, value: {s3: t/a.txt}}
+    - id: s2
+      value:
+        type: flow
+        path: f/wl_fx40c/k_child
+        input_transforms:
+          v: {type: javascript, expr: results.n}
+          f: {type: static, value: {s3: t/a.txt}}
+    - id: s3
+      value:
+        type: flow
+        path: f/wl_fx40c/k_child
+        input_transforms:
+          v: {type: javascript, expr: results.n}
+          f: {type: static, value: {s3: t/b.txt}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

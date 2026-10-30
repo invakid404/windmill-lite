@@ -1,0 +1,4 @@
+# WR-54/g: the same union written as anyOf builds, and ["a"] passes.
+spec: [WR-54/g]
+target: f/wl_wr54/g_ok
+expect: {status: success, result: [a]}

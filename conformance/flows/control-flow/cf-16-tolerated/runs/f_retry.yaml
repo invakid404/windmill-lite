@@ -1,0 +1,12 @@
+# CF-16/f: the container's retry runs the loop twice, each iteration child
+# flow running its copy of the handler, then the flow fails with [H]; no
+# handler job runs at the root.
+spec: [CF-16/f]
+target: f/wl_cf16t/f_retry
+expect:
+  status: failure
+  result: [H]
+  steps:
+    "m:l/r:0": {status: failure}
+    "m:l/i:0/s:failure": {status: success, result: H}
+    "s:failure": {status: not_run}

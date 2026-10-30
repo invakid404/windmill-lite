@@ -1,0 +1,7 @@
+# FX-42/i: the arguments file shows where the backend's notation turns to
+# exponent form (FX-42 rule 9).
+spec: [FX-42/i]
+target: f/wl_fx42n/i
+expect:
+  status: success
+  result: "{\"v\":[1e-6,1e+16,1000000000000000.0,1e+20,-0.0,1.8446744073709552e+19,1.234e-6,0.00001,12]}"

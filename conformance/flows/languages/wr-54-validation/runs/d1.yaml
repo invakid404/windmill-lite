@@ -1,0 +1,11 @@
+# WR-54/d: with static inputs {"c": "green"}, // schema_validation refuses
+# them with the rule's text.
+spec: [WR-54/d]
+target: f/wl_wr54/d1
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nProblem with arguments: Enum type argument `c` expected one of `[\"red\", \"blue\"]` but received \"green\""
+      name: ExecutionErr
+      step_id: s

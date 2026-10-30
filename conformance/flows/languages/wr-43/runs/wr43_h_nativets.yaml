@@ -1,0 +1,11 @@
+# WR-43/h (nativets): a non-string name nulls both as well.
+spec: [WR-43/h]
+target: f/wl_n43/wr43_h_nativets
+expect:
+  status: failure
+  result: {error: {message: null, stack: "<stack>", name: null}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: null, stack: "<stack>", name: null}}

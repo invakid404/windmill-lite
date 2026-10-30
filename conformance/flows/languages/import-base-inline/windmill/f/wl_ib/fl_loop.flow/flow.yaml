@@ -1,0 +1,20 @@
+summary: "WR-29/a: inside a loop"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1]"}
+        modules:
+          - id: s
+            value:
+              type: rawscript
+              content: "!inline s.ts"
+              language: bun
+              input_transforms: {}
+        parallel: false
+        skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

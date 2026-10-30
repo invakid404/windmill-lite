@@ -386,15 +386,18 @@ context-free case's recorded argument as its stored form.
   presentation rules on named values.
 - `TestPipelineCasesOnEngine` runs on the real engine every case that
   gives `expect.engine`, in its own context: among them the catalogue
-  cases that no recording holds yet (JE-10/e, JE-11/b–e, JE-15/j,
-  JE-16/c, JE-16/g, JE-16/h, JE-17/d, JE-21/b, JE-50/a, JE-51/a, JE-52/a;
-  `conformance/exprs/deferred.yaml` names them), each held to its exact
-  text or message, a `<n>` in a message standing for a number that
-  differs between runs.
+  cases that no recording holds yet (JE-10/e, JE-11/b, JE-11/d, JE-16/c,
+  JE-16/g, JE-16/h, JE-17/d; `conformance/exprs/deferred.yaml` names
+  them) and those that batch E3f recorded end to end in flow fixtures
+  (JE-11/c, JE-11/e, JE-15/j, JE-21/b, JE-50/a, JE-51/a, JE-52/a), each
+  held to its exact text or message, a `<n>` in a message standing for a
+  number that differs between runs.
 - `TestRecordedCasesThroughPipeline` runs every context-free case and
   every unit case that E3a recorded, of every finding, on the fake engine.
   Wherever a shortcut answers, the answer must be what the oracle recorded.
-  A flow fixture's expressions that no unit case restates are not run.
+  A unit case whose rewrite panics (JE-11/e, recorded by batch E3f) has no
+  shortcut to check. A flow fixture's expressions that no unit case
+  restates are not run.
 - `TestJE8KeyOrderExample` keeps the raw-text assertion of ADR 0003's JE-8
   example (review item cx R16). It also ties the text to the oracle's
   `timeout` errors, which quote the producer's key order from memory and
@@ -435,7 +438,10 @@ end with no leaked heap block.
   in the last place from it, every difference logged (D16; ADR 0001 gives
   what each C library measured), and JE-48/a (D17). JE-2/a is not run: the oracle
   canceled its run before the evaluator's text surfaced; `TestJE2OnEngine`
-  runs the same expression with a short limit.
+  runs the same expression with a short limit. Nor is JE-11/e's unit case
+  (batch E3f): the panic report names a task number that differs between
+  runs, so its recording masks the message; pipeline case JE-11/e holds the
+  evaluator's text.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
   runs with `WL_EXPR_BUDGET=gate` (asserts the bounds, on the benchmark
   machine) or `=report` (prints the table, as CI does on its runners and

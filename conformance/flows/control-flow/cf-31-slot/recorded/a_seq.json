@@ -1,0 +1,236 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": 10,
+    "steps": {
+      "m:a": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "x",
+            "step_id": "a"
+          }
+        }
+      },
+      "s:failure": {
+        "status": "canceled",
+        "module": "in_progress",
+        "result": [
+          10
+        ]
+      },
+      "s:failure/i:0/m:h": {
+        "status": "success",
+        "args": {
+          "x": 1
+        },
+        "result": 10
+      },
+      "s:failure/i:0/s:failure": {
+        "status": "not_run",
+        "ran": false
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030030051-3c1bb5db00ea",
+      "revision": "3c1bb5db00ea465aea4cbf9145a35e24a05c295b",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40994947681"
+    },
+    "recorded_at": "2026-10-30T03:08:21Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:39551"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 211,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T03:08:21.343692Z",
+          "started_at": "2026-10-30T03:08:21.352478Z",
+          "completed_at": "2026-10-30T03:08:21.473195Z",
+          "duration_ms": 121
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T03:08:21.355024Z",
+          "started_at": "2026-10-30T03:08:21.358270Z",
+          "completed_at": "2026-10-30T03:08:21.383189Z",
+          "duration_ms": 25
+        },
+        "s:failure/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T03:08:21.388273Z",
+          "started_at": "2026-10-30T03:08:21.436179Z",
+          "completed_at": "2026-10-30T03:08:21.469207Z",
+          "duration_ms": 33
+        },
+        "s:failure/i:0/m:h": {
+          "kind": "preview",
+          "created_at": "2026-10-30T03:08:21.440828Z",
+          "started_at": "2026-10-30T03:08:21.444071Z",
+          "completed_at": "2026-10-30T03:08:21.465741Z",
+          "duration_ms": 18
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "iterator": {
+              "expr": "[1, 2]",
+              "type": "javascript"
+            },
+            "modules": [
+              {
+                "id": "h",
+                "value": {
+                  "content": "export function main(x: number) { return x * 10; }\n",
+                  "input_transforms": {
+                    "x": {
+                      "expr": "flow_input.iter.value",
+                      "type": "javascript"
+                    }
+                  },
+                  "language": "bun",
+                  "type": "rawscript"
+                }
+              }
+            ],
+            "parallel": false,
+            "skip_failures": false,
+            "type": "forloopflow"
+          }
+        },
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "export function main() { throw new Error(\"x\"); }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { throw new Error(\"x\"); }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ],
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "type": "forloopflow",
+            "modules": [
+              {
+                "id": "h",
+                "value": {
+                  "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                  "type": "rawscript",
+                  "content": "export function main(x: number) { return x * 10; }\n",
+                  "language": "bun",
+                  "input_transforms": {
+                    "x": {
+                      "expr": "flow_input.iter.value",
+                      "type": "javascript"
+                    }
+                  }
+                }
+              }
+            ],
+            "iterator": {
+              "expr": "[1, 2]",
+              "type": "javascript"
+            },
+            "parallel": false,
+            "skip_failures": false
+          }
+        }
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          }
+        ],
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "type": "forloopflow",
+            "modules": [
+              {
+                "id": "h",
+                "value": {
+                  "type": "rawscript",
+                  "content": "!inline h.ts",
+                  "input_transforms": {
+                    "x": {
+                      "type": "javascript",
+                      "expr": "flow_input.iter.value"
+                    }
+                  },
+                  "lock": "!inline h.lock",
+                  "language": "bun"
+                }
+              }
+            ],
+            "iterator": {
+              "type": "javascript",
+              "expr": "[1, 2]"
+            },
+            "parallel": false,
+            "skip_failures": false
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+# FX-30/b: at the last module a due retry runs before the failure is
+# tolerated: a runs three times, the flow succeeds with the wrapped error,
+# and a's two earlier attempts are listed.
+spec: [FX-30/b]
+target: f/wl_fx30d/due_retry
+expect:
+  status: success
+  result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a":
+      status: failure
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:a/r:0":
+      status: failure
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:a/r:1":
+      status: failure
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}

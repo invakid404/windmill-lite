@@ -1,0 +1,15 @@
+# FX-26/c to FX-26/f: the retry delays, read from each retry job's
+# scheduled_for while it is queued, minus the failed attempt's completion,
+# without waiting them out (but FX-26/e's second delay, which follows its
+# first, 300 s, retry): the 16-bit wrap gives 9464 s, the cap 21600 s,
+# saturation 21600 s, and 20 jittered delays all lie in 6 to 14 s.
+spec: [FX-26/c, FX-26/d, FX-26/e, FX-26/f]
+target: f/wl_fx26/delays
+expect:
+  status: success
+  result:
+    created: {d: 201, e: 201}
+    c: 9464
+    d: 21600
+    e_second: 21600
+    f: {count: 20, all_in_6_to_14: true}

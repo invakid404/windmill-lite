@@ -1,0 +1,15 @@
+summary: FX-42/e
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          p: {type: javascript, expr: flow_input.a.b}
+          q: {type: javascript, expr: "flow_input.a.b + 0"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

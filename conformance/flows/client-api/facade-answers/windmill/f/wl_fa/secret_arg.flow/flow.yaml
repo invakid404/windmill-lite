@@ -1,0 +1,19 @@
+summary: "WA-11/c: a static $var: argument"
+value:
+  modules:
+    - id: c
+      value:
+        type: rawscript
+        content: "!inline c.ts"
+        language: bun
+        input_transforms: {}
+    - id: x
+      value:
+        type: rawscript
+        content: "!inline x.ts"
+        language: bun
+        input_transforms: {x: {type: static, value: "$var:f/wl_fa/s2"}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

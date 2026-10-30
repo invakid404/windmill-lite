@@ -1,0 +1,10 @@
+# WR-55/a: a background child in the job's process group holds the job open:
+# the step succeeds, and its job completes only after the sleep exits, at
+# least 5 s after it started. The job's start and completion times are read
+# back by step i through the jobs API.
+spec: [WR-55/a]
+target: f/wl_wr55/held
+expect:
+  status: success
+  result: {success: true, held: true}
+  steps: {"m:a": {status: success, result: "<job:m:a>"}}

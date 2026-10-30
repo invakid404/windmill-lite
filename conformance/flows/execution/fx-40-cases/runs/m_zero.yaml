@@ -1,0 +1,10 @@
+# FX-40/m: two such steps that both have cache_ttl 0 both run, since an
+# entry stored with TTL 0 has already expired.
+spec: [FX-40/m]
+target: f/wl_fx40c/m_zero
+expect:
+  status: success
+  result: "<job:m:d>"
+  steps:
+    "m:c": {status: success, result: "<job:m:c>"}
+    "m:d": {status: success, result: "<job:m:d>"}

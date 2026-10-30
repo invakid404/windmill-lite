@@ -770,6 +770,11 @@ func TestRecordedCasesThroughPipeline(t *testing.T) {
 		e := Compile(c.site, c.text)
 		eng := &fakeEngine{}
 		out, err := NewPipeline(eng).Eval(context.Background(), e, c.scope(t))
+		if e.RewritePanic != 0 && errors.Is(err, ErrRewritePanic) {
+			// The rewrite panics before anything is bound (JE-11/e), so no
+			// shortcut answers.
+			continue
+		}
 		if err != nil {
 			t.Errorf("%s: %v", k, err)
 			continue

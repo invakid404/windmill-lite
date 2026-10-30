@@ -1,0 +1,31 @@
+summary: "CF-23/d (i)"
+value:
+  modules:
+    - id: b
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: r
+            value:
+              type: rawscript
+              content: "!inline r.ts"
+              language: bun
+              input_transforms: {}
+          - id: l
+            value:
+              type: forloopflow
+              iterator: {type: javascript, expr: "({o: 1})"}
+              modules:
+                - id: x
+                  value:
+                    type: rawscript
+                    content: "!inline x.ts"
+                    language: bun
+                    input_transforms: {}
+              parallel: false
+              skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

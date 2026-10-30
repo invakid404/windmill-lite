@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,7 +33,7 @@ func (a *apiRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var s NewScript
 		_ = json.Unmarshal(body, &s)
 		w.WriteHeader(http.StatusCreated)
-		io.WriteString(w, map[string]string{"f/t/s": "00000000000000a1", "f/t/u": "00000000000000b2"}[s.Path])
+		io.WriteString(w, map[string]string{"f/t/s": "00000000000000a1", "f/t/u": "00000000000000b2", "f/t/fl/x": "00000000000000c3"}[s.Path])
 	default:
 		w.WriteHeader(http.StatusCreated)
 		io.WriteString(w, "ok")
@@ -173,7 +174,7 @@ func TestDeployAPIRefusals(t *testing.T) {
 	}{
 		"a Python script":           {edit: map[string]string{"f/t/p.py": "def main(): pass\n"}, contains: "not a Bun script", noRequests: true},
 		"a script outside f/":       {edit: map[string]string{"u/admin/s.ts": "x"}, contains: "not under f/", noRequests: true},
-		"a nested directory":        {edit: map[string]string{"f/t/sub/s.ts": "x"}, contains: "neither a folder nor a flow", noRequests: true},
+		"a Python script nested":    {edit: map[string]string{"f/t/sub/p.py": "def main(): pass\n"}, contains: "not a Bun script", noRequests: true},
 		"unknown script metadata":   {edit: map[string]string{"f/t/s.script.yaml": "summary: s\nlock: x\n"}, contains: "unknown field"},
 		"a pin to an absent script": {edit: map[string]string{"f/t/s.ts": ""}, drop: "f/t/s.ts", contains: "which the tree does not deploy"},
 		"a missing inline file":     {drop: "f/t/x.flow/b.ts", contains: "b.ts"},
@@ -202,6 +203,37 @@ func TestDeployAPIRefusals(t *testing.T) {
 				t.Errorf("%d requests before the refusal", len(rec.reqs))
 			}
 		})
+	}
+}
+
+// TestDeployAPINestedScript: a Bun script under a directory of its folder
+// is created at its nested path, as a flow step's relative import needs
+// (WR-29/a: ./x from flow f/a/fl loads f/a/fl/x).
+func TestDeployAPINestedScript(t *testing.T) {
+	// spec: WR-29/a
+	files := map[string]string{"f/t/fl/x.ts": "export const b = 1;\n"}
+	for k, v := range apiTree {
+		files[k] = v
+	}
+	rec := &apiRecorder{}
+	srv := httptest.NewServer(rec)
+	defer srv.Close()
+	d, err := DeployAPI(context.Background(), &Client{BaseURL: srv.URL}, "ws", writeTree(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created []string
+	for _, r := range rec.reqs {
+		if r.path == "/api/w/ws/scripts/create" {
+			var s NewScript
+			if err := json.Unmarshal(r.body, &s); err != nil {
+				t.Fatal(err)
+			}
+			created = append(created, s.Path)
+		}
+	}
+	if !slices.Contains(created, "f/t/fl/x") || len(d.Folders) != 1 {
+		t.Errorf("scripts created %v, folders %v", created, d.Folders)
 	}
 }
 

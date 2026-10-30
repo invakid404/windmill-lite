@@ -2,8 +2,8 @@
 
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
-E3a added expression files, and E3e `--skip-unmet-workers` and
-`--listen-interval`), `stub` (milestone E4a) and `check`, for step
+E3a added expression files, E3e `--skip-unmet-workers` and
+`--listen-interval`, and E3f `--session` and `--skip-unmet-session`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a), with the for loops of milestone N3a, the
@@ -62,6 +62,8 @@ The oracle runs in public CI; see
 | `--regenerate-metadata` | off | Run `folder add-missing` and `generate-metadata` in each fixture's sync tree, in place, before pushing; CI then diffs the tree ([OR-8](../../docs/semantics/oracle.md#or-8)). A fixture with `oracle: {deploy: api}` is never regenerated: its tree is created through the API as written. A generated tree always gets them. |
 | `--workers N` | 1 | Worker containers, 1 or 2 ([OR-5](../../docs/semantics/oracle.md#or-5)). |
 | `--skip-unmet-workers` | off | Skip a fixture that needs more workers than `--workers`, reporting its runs as `skipped`, instead of refusing it ([OR-5/a](../../docs/semantics/conformance.md#or-5)): the oracle workflow's two-worker session records it. |
+| `--session NAME` | `""` | The oracle configuration of the session, a name of `SessionConfigs` in [internal/oracle](../../internal/oracle/README.md#a-session): `native` (a worker that serves `nativets`), `long`, `result_size` or `flow_script_off`; empty is the reference configuration. A fixture runs only in the session its `oracle.session` names; an unknown name is refused (batch E3f). |
+| `--skip-unmet-session` | off | Skip a fixture that needs another session's configuration, reporting its runs as `skipped`, instead of refusing it; the oracle workflow runs one session per configuration. |
 | `--listen-interval N` | 1 | The oracle's `LISTEN_NEW_EVENTS_INTERVAL_SEC`, for the knob comparison of [OR-7/a](../../docs/semantics/conformance.md#or-7); the value is in every recording's provenance, which is never compared. |
 | `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must report exactly `1.767.0` (a pre-release such as `1.767.0-beta` is refused). |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
@@ -70,7 +72,8 @@ The oracle runs in public CI; see
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
 `expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
-more workers, under `--skip-unmet-workers`, or one with host-provided
+more workers, under `--skip-unmet-workers`, one that needs another
+session's configuration, under `--skip-unmet-session`, or one with host-provided
 sites, which only windmill-lite runs), the fixture and the run, then any
 error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
 actual before expected). It exits 1 when a run failed, was refused, was
@@ -518,9 +521,9 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a and N5, and
-  the flow-suite half of F3b's: every run the flow suite requires passes
-  in `warm` and in `fresh`, and in `host` (F3b),
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
+  E3f, and the flow-suite half of F3b's: every run the flow suite requires
+  passes in `warm` and in `fresh`, and in `host` (F3b),
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API; F2a, whose
   runs are `host/provided`'s, the run-time half of ADR 0002's provided-site
@@ -529,8 +532,9 @@ Windmill v1.767.0's image).
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
-  adds itself there; recording batch E3e listed the runs of its fixtures
-  that windmill-lite already passes, FU5 the `oracle/nul` runs that
+  adds itself there; recording batches E3e and E3f listed the runs of
+  their fixtures that windmill-lite already passes (E3f's native fixtures
+  in its native mode), FU5 the `oracle/nul` runs that
   N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
   made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3

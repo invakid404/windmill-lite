@@ -1,0 +1,5 @@
+# OF-16/d: same_worker with a parallel loop of two children fails (the
+# message's text is checked in the batch manifest).
+spec: [OF-16/d]
+target: f/wl_of/same_two
+expect: {status: failure, result: {error: {}}}

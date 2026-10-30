@@ -1,0 +1,135 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "c": 9464,
+      "d": 21600,
+      "f": {
+        "count": 20,
+        "all_in_6_to_14": true
+      },
+      "created": {
+        "d": 201,
+        "e": 201
+      },
+      "e_second": 21600
+    },
+    "steps": {
+      "m:d": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "c": 9464,
+          "d": 21600,
+          "f": {
+            "count": 20,
+            "all_in_6_to_14": true
+          },
+          "created": {
+            "d": 201,
+            "e": 201
+          },
+          "e_second": 21600
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030051340-7045cddbbb77",
+      "revision": "7045cddbbb77658bdfcd26e20983e4f13d92bdd0",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41007241030"
+    },
+    "recorded_at": "2026-10-30T05:20:56Z",
+    "workers": 2,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:33201"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 302215,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T05:15:54.722233Z",
+          "started_at": "2026-10-30T05:15:54.733897Z",
+          "completed_at": "2026-10-30T05:20:56.808111Z",
+          "duration_ms": 302074
+        },
+        "m:d": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T05:15:54.736803Z",
+          "started_at": "2026-10-30T05:15:54.745957Z",
+          "completed_at": "2026-10-30T05:20:56.799133Z",
+          "duration_ms": 302050
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "d",
+            "value": {
+              "content": "// Talks to the oracle's API with the step's own token (a black-box client,\n// as the harness is), so a recording can hold what only the API shows.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst root = process.env.WM_ROOT_FLOW_JOB_ID!;\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nasync function call(method: string, path: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${path}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: await r.text() };\n}\nasync function json(method: string, path: string, value?: unknown): Promise<any> {\n  const a = await call(method, path, value === undefined ? undefined : JSON.stringify(value));\n  if (a.status >= 300) throw new Error(`${method} ${path}: ${a.status} ${a.body}`);\n  return a.body === \"\" ? null : JSON.parse(a.body);\n}\n// Starts a job and returns its id, failing at once on a refused request.\nasync function start(path: string, body = \"{}\"): Promise<string> {\n  const a = await call(\"POST\", path, body);\n  if (a.status >= 300) throw new Error(`POST ${path}: ${a.status} ${a.body}`);\n  return a.body.replaceAll('\"', \"\");\n}\nasync function done(id: string, secs = 100): Promise<any> {\n  for (let i = 0; i < secs * 4; i++) {\n    const r = await json(\"GET\", `/jobs_u/completed/get_result_maybe/${id}`);\n    if (r.completed) return r;\n    await new Promise((res) => setTimeout(res, 250));\n  }\n  throw new Error(`job ${id} did not complete`);\n}\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// A driver reads the oracle's API: anywhere else (windmill-lite's facade\n// answers only the routes a step's client makes) it fails at once.\nasync function oracleAPI() {\n  const r = await fetch(`${base}/api/version`);\n  const v = r.ok ? await r.text() : \"\";\n  if (!v.startsWith(\"CE v\")) throw new Error(`the driver needs Windmill's API; /api/version answered ${r.status} ${v}`);\n}\nconst tag = () => root.replaceAll(\"-\", \"\").slice(0, 12);\n\n// Starts the flow, waits until the flow's retry state lists `which` failed\n// attempts and the step's status entry names a job that is not one of\n// them, the queued retry, reads that job's scheduled_for, subtracts the\n// last failed attempt's completion, and cancels the flow. (The retry state\n// is flow-wide, flow_status.retry; a module's failed_retries is filled only\n// when it completes, FX-26.)\nasync function delay(path: string, which: number): Promise<number> {\n  const id = await start(`/jobs/run/f/${path}`, \"{}\");\n  for (let i = 0; i < 1600; i++) {\n    const fs = (await json(\"GET\", `/jobs_u/get/${id}`)).flow_status;\n    const m = fs?.modules?.[0];\n    const failed: string[] = fs?.retry?.failed_jobs ?? [];\n    if (failed.length >= which && m?.job && !failed.includes(m.job)) {\n      const retry = await json(\"GET\", `/jobs_u/get/${m.job}`);\n      if (retry.scheduled_for) {\n        const last = await json(\"GET\", `/jobs_u/completed/get/${failed[which - 1]}`);\n        const end = last.completed_at ? Date.parse(last.completed_at) : Date.parse(last.started_at) + last.duration_ms;\n        await call(\"POST\", `/jobs_u/queue/cancel/${id}`, JSON.stringify({ reason: \"wltest: FX-26 delay read\" }));\n        return Math.round((Date.parse(retry.scheduled_for) - end) / 1000);\n      }\n    }\n    await sleep(250);\n  }\n  throw new Error(`no retry job for ${path}`);\n}\nconst CREATED: Record<string, unknown> = {\"d\": {\"modules\": [{\"id\": \"a\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"input_transforms\": {}, \"content\": \"export function main() { throw new Error(\\\"x\\\"); }\\n\"}, \"retry\": {\"exponential\": {\"attempts\": 1, \"multiplier\": 1, \"seconds\": 30000}}}]}, \"e\": {\"modules\": [{\"id\": \"a\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"input_transforms\": {}, \"content\": \"export function main() { throw new Error(\\\"x\\\"); }\\n\"}, \"retry\": {\"exponential\": {\"attempts\": 2, \"multiplier\": 1, \"seconds\": 300}}}]}};\nexport async function main() {\n  const created: Record<string, number> = {};\n  for (const [name, value] of Object.entries(CREATED)) {\n    // A path per run, since the oracle repeats the run in one workspace.\n    const a = await call(\"POST\", \"/flows/create\", JSON.stringify({ path: `f/wl_fx26/retry_${name}_${tag()}`, summary: `FX-26/${name}`, description: \"\", value,\n      schema: { $schema: \"https://json-schema.org/draft/2020-12/schema\", type: \"object\", properties: {} } }));\n    if (a.status >= 300) throw new Error(`flows/create f/wl_fx26/retry_${name}_${tag()}: ${a.status} ${a.body}`);\n    created[name] = a.status;\n  }\n  const f = await Promise.all(Array.from({ length: 20 }, () => delay(\"f/wl_fx26/retry_f\", 1)));\n  return {\n    created,\n    c: await delay(\"f/wl_fx26/retry_c\", 1),\n    d: await delay(`f/wl_fx26/retry_d_${tag()}`, 1),\n    e_second: await delay(`f/wl_fx26/retry_e_${tag()}`, 2),\n    f: { count: f.length, all_in_6_to_14: f.every((d) => d >= 6 && d <= 14) },\n  };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "d",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// Talks to the oracle's API with the step's own token (a black-box client,\n// as the harness is), so a recording can hold what only the API shows.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst root = process.env.WM_ROOT_FLOW_JOB_ID!;\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nasync function call(method: string, path: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${path}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: await r.text() };\n}\nasync function json(method: string, path: string, value?: unknown): Promise<any> {\n  const a = await call(method, path, value === undefined ? undefined : JSON.stringify(value));\n  if (a.status >= 300) throw new Error(`${method} ${path}: ${a.status} ${a.body}`);\n  return a.body === \"\" ? null : JSON.parse(a.body);\n}\n// Starts a job and returns its id, failing at once on a refused request.\nasync function start(path: string, body = \"{}\"): Promise<string> {\n  const a = await call(\"POST\", path, body);\n  if (a.status >= 300) throw new Error(`POST ${path}: ${a.status} ${a.body}`);\n  return a.body.replaceAll('\"', \"\");\n}\nasync function done(id: string, secs = 100): Promise<any> {\n  for (let i = 0; i < secs * 4; i++) {\n    const r = await json(\"GET\", `/jobs_u/completed/get_result_maybe/${id}`);\n    if (r.completed) return r;\n    await new Promise((res) => setTimeout(res, 250));\n  }\n  throw new Error(`job ${id} did not complete`);\n}\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// A driver reads the oracle's API: anywhere else (windmill-lite's facade\n// answers only the routes a step's client makes) it fails at once.\nasync function oracleAPI() {\n  const r = await fetch(`${base}/api/version`);\n  const v = r.ok ? await r.text() : \"\";\n  if (!v.startsWith(\"CE v\")) throw new Error(`the driver needs Windmill's API; /api/version answered ${r.status} ${v}`);\n}\nconst tag = () => root.replaceAll(\"-\", \"\").slice(0, 12);\n\n// Starts the flow, waits until the flow's retry state lists `which` failed\n// attempts and the step's status entry names a job that is not one of\n// them, the queued retry, reads that job's scheduled_for, subtracts the\n// last failed attempt's completion, and cancels the flow. (The retry state\n// is flow-wide, flow_status.retry; a module's failed_retries is filled only\n// when it completes, FX-26.)\nasync function delay(path: string, which: number): Promise<number> {\n  const id = await start(`/jobs/run/f/${path}`, \"{}\");\n  for (let i = 0; i < 1600; i++) {\n    const fs = (await json(\"GET\", `/jobs_u/get/${id}`)).flow_status;\n    const m = fs?.modules?.[0];\n    const failed: string[] = fs?.retry?.failed_jobs ?? [];\n    if (failed.length >= which && m?.job && !failed.includes(m.job)) {\n      const retry = await json(\"GET\", `/jobs_u/get/${m.job}`);\n      if (retry.scheduled_for) {\n        const last = await json(\"GET\", `/jobs_u/completed/get/${failed[which - 1]}`);\n        const end = last.completed_at ? Date.parse(last.completed_at) : Date.parse(last.started_at) + last.duration_ms;\n        await call(\"POST\", `/jobs_u/queue/cancel/${id}`, JSON.stringify({ reason: \"wltest: FX-26 delay read\" }));\n        return Math.round((Date.parse(retry.scheduled_for) - end) / 1000);\n      }\n    }\n    await sleep(250);\n  }\n  throw new Error(`no retry job for ${path}`);\n}\nconst CREATED: Record<string, unknown> = {\"d\": {\"modules\": [{\"id\": \"a\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"input_transforms\": {}, \"content\": \"export function main() { throw new Error(\\\"x\\\"); }\\n\"}, \"retry\": {\"exponential\": {\"attempts\": 1, \"multiplier\": 1, \"seconds\": 30000}}}]}, \"e\": {\"modules\": [{\"id\": \"a\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"input_transforms\": {}, \"content\": \"export function main() { throw new Error(\\\"x\\\"); }\\n\"}, \"retry\": {\"exponential\": {\"attempts\": 2, \"multiplier\": 1, \"seconds\": 300}}}]}};\nexport async function main() {\n  const created: Record<string, number> = {};\n  for (const [name, value] of Object.entries(CREATED)) {\n    // A path per run, since the oracle repeats the run in one workspace.\n    const a = await call(\"POST\", \"/flows/create\", JSON.stringify({ path: `f/wl_fx26/retry_${name}_${tag()}`, summary: `FX-26/${name}`, description: \"\", value,\n      schema: { $schema: \"https://json-schema.org/draft/2020-12/schema\", type: \"object\", properties: {} } }));\n    if (a.status >= 300) throw new Error(`flows/create f/wl_fx26/retry_${name}_${tag()}: ${a.status} ${a.body}`);\n    created[name] = a.status;\n  }\n  const f = await Promise.all(Array.from({ length: 20 }, () => delay(\"f/wl_fx26/retry_f\", 1)));\n  return {\n    created,\n    c: await delay(\"f/wl_fx26/retry_c\", 1),\n    d: await delay(`f/wl_fx26/retry_d_${tag()}`, 1),\n    e_second: await delay(`f/wl_fx26/retry_e_${tag()}`, 2),\n    f: { count: f.length, all_in_6_to_14: f.every((d) => d >= 6 && d <= 14) },\n  };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "d",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline d.ts",
+              "input_transforms": {},
+              "lock": "!inline d.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+# Q-FX-1, CF-27: a timeout of 1 s on a two-branch parallel branchall whose
+# body sleeps 3 s is not enforced: a branch flow and a subflow job are flow
+# jobs, which nothing times, so it succeeds with its body's result.
+spec: [CF-27]
+target: f/wl_qfx1/branchall
+expect: {status: success, result: [3000, 3000]}

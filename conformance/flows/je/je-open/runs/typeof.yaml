@@ -1,0 +1,38 @@
+# Q-JE-2: the typeof of the names JE-1 lists as present (queueMicrotask,
+# performance, DOMException, WeakRef, FinalizationRegistry, Iterator) and
+# absent (structuredClone, navigator).
+spec: [JE-1]
+target: f/wl_jeopen/typeof
+expect:
+  status: success
+  result:
+    - function
+    - object
+    - function
+    - function
+    - function
+    - function
+    - undefined
+    - undefined
+  steps:
+    "m:b":
+      status: success
+      args:
+        x:
+          - function
+          - object
+          - function
+          - function
+          - function
+          - function
+          - undefined
+          - undefined
+      result:
+        - function
+        - object
+        - function
+        - function
+        - function
+        - function
+        - undefined
+        - undefined

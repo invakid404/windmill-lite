@@ -1,0 +1,31 @@
+# WR-42: a pure native function (nativets) returns JSON.stringify(value ??
+# null): an object of every JSON kind, a string, a number, undefined as
+# null, nested arrays and true, each the step's stored result.
+spec: [WR-40, WR-42]
+target: f/wl_nat/values_nativets
+expect:
+  status: success
+  result: true
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        s: text
+        "n": 1.5
+        i: 42
+        neg: -7
+        max: 9007199254740991
+        t: true
+        f: false
+        z: null
+        arr: [1, two, null, {k: []}]
+        obj: {nested: {deep: [1, 2, 3]}}
+        uni: "é→"
+        e: {}
+        ea: []
+    "m:b": {status: success, args: {}, result: text}
+    "m:c": {status: success, args: {}, result: 3.25}
+    "m:d": {status: success, args: {}, result: null}
+    "m:e": {status: success, args: {}, result: [1, [2, [3]], {}]}
+    "m:f": {status: success, args: {}, result: true}

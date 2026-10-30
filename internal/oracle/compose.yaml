@@ -5,7 +5,10 @@
 # The second worker of a two-worker profile (OR-5) is the "workers2" profile.
 # WL_EFFECT_SINK is set by wltest to its effect sink (OR-16), and
 # WL_LISTEN_NEW_EVENTS_INTERVAL_SEC by a session that compares that knob
-# (OR-7/a); it defaults to 1.
+# (OR-7/a); it defaults to 1. session.env, which wltest writes beside this
+# file, holds the variables of the session's configuration (SessionConfigs:
+# WORKER_TAGS=nativets for native steps, for example) and is empty for the
+# reference configuration (OR-4).
 name: wl-oracle
 services:
   db:
@@ -30,6 +33,7 @@ services:
       LISTEN_NEW_EVENTS_INTERVAL_SEC: ${WL_LISTEN_NEW_EVENTS_INTERVAL_SEC:-1}
       WHITELIST_ENVS: WL_EFFECT_SINK
       WL_EFFECT_SINK: ${WL_EFFECT_SINK:?set by wltest}
+    env_file: [session.env]
     ports: ["127.0.0.1:8000:8000"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     mem_limit: 2g
@@ -50,6 +54,7 @@ services:
       BASE_URL: http://localhost:8000
       WHITELIST_ENVS: WL_EFFECT_SINK
       WL_EFFECT_SINK: ${WL_EFFECT_SINK:?set by wltest}
+    env_file: [session.env]
     extra_hosts: ["host.docker.internal:host-gateway"]
     mem_limit: 2g
     depends_on:

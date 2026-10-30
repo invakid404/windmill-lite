@@ -1,0 +1,12 @@
+# JE-42/j: the static $encrypted:abcd does not decrypt, so b fails before
+# its script runs with CE's cause: Could not decrypt value. The value may
+# have been encrypted with a different key. @variables.rs:265:45
+spec: [JE-42/j]
+target: f/wl_je20/j1
+expect:
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nInternal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:265:45"
+      step_id: b

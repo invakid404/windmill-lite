@@ -1,0 +1,6 @@
+# WR-29/b: the inline step's explicit path f/wl_ibe/entry sets the import
+# base only where raw values run: the deployed flow keeps no explicit path,
+# so the step imports f/wl_ib/fp/x.
+spec: [WR-29/b]
+target: f/wl_ib/fp
+expect: {status: success, result: flow}

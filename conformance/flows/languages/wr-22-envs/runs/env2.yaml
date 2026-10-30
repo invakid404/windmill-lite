@@ -1,0 +1,11 @@
+# WR-22/c: a script whose envs entry has no = deploys without complaint, and
+# its step fails before the script starts.
+spec: [WR-22/c]
+target: f/wl_wr22/env2
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nBad request: Invalid env var: NOEQ. Must be in the form of KEY=VALUE"
+      name: ExecutionErr
+      step_id: s

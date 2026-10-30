@@ -1,0 +1,14 @@
+summary: "WR-29/b: an explicit path"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms: {}
+        path: f/wl_ibe/entry
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

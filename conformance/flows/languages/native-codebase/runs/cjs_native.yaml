@@ -1,0 +1,21 @@
+# WR-50/f: the default CommonJS bundle under //native runs in the native
+# runtime and fails at its first use of module, with WR-43's three-field
+# exception error.
+spec: [WR-50/f]
+target: f/wl_ncb/cjs_native
+expect:
+  status: failure
+  result:
+    error:
+      message: "module is not defined"
+      stack: "<stack>"
+      name: ReferenceError
+  steps:
+    "m:s":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "module is not defined"
+          stack: "<stack>"
+          name: ReferenceError

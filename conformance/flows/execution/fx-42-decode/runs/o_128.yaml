@@ -1,0 +1,9 @@
+# FX-42/o: a collapsed body's stored result nested past the backend's limit
+# fails the flow job at once with InternalErr (the SqlErr decoding text,
+# checked in the batch manifest); b does not run.
+spec: [FX-42/o]
+target: f/wl_fx42d/o_128
+expect:
+  status: failure
+  result: {error: {name: InternalErr}}
+  steps: {"m:b": {status: not_run}}

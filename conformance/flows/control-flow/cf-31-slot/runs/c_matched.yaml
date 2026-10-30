@@ -1,0 +1,5 @@
+# CF-31/c: a branchone in the failure slot chooses on the error: a step
+# throwing x gives matched.
+spec: [CF-31/c]
+target: f/wl_cf31/c_matched
+expect: {status: failure, result: matched}

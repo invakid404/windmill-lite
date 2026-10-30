@@ -1,0 +1,8 @@
+# CF-12/g: a forwarded error stop ignores the loop's continue_on_error: the
+# flow fails with the EarlyStopError array and n does not run.
+spec: [CF-12/g]
+target: f/wl_cf16t/g_tolerated
+expect:
+  status: failure
+  result: [{error: {name: EarlyStopError, message: halt}}]
+  steps: {"m:n": {status: not_run}}

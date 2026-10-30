@@ -1,0 +1,24 @@
+# FX-13/c: a's tolerated marker reaches b's identity job as previous_result,
+# which still carries the marker, so b fails and c never runs.
+spec: [FX-13/c]
+target: f/wl_fx13i/tolerated_identity
+expect:
+  status: failure
+  result:
+    x: 1
+    error: {name: ManualFailure, message: nope}
+    wm_failure: nope
+  steps:
+    "m:a":
+      status: failure
+      result:
+        x: 1
+        error: {name: ManualFailure, message: nope}
+        wm_failure: nope
+    "m:b":
+      status: failure
+      result:
+        x: 1
+        error: {name: ManualFailure, message: nope}
+        wm_failure: nope
+    "m:c": {status: not_run}

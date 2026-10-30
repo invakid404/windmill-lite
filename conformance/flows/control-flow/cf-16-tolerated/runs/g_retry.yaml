@@ -1,0 +1,8 @@
+# CF-12/g: with a retry instead, the loop runs twice (two child flows for
+# iteration 0), then the same failure.
+spec: [CF-12/g]
+target: f/wl_cf16t/g_retry
+expect:
+  status: failure
+  result: [{error: {name: EarlyStopError, message: halt}}]
+  steps: {"m:l/r:0": {status: failure}, "m:n": {status: not_run}}

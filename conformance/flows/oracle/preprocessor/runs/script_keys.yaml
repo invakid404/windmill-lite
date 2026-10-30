@@ -1,0 +1,7 @@
+# OR-24/e: a script's own preprocessor builds {bbb, a, cc}, and main reports
+# Object.keys in the preprocessor's insertion order; a run of the script
+# through the run API requests the preprocessor.
+spec: [OR-24/e]
+target: f/wl_pre/keys
+kind: script
+expect: {status: success, result: [bbb, a, cc]}

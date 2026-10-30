@@ -1,0 +1,13 @@
+summary: by_path
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_pre/pre
+        input_transforms: {x: {type: static, value: orig}}
+        apply_preprocessor: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

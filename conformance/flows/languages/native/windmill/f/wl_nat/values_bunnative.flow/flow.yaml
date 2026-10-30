@@ -1,0 +1,43 @@
+summary: "native values (bunnative)"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+    - id: c
+      value:
+        type: rawscript
+        content: "!inline c.ts"
+        language: bun
+        input_transforms: {}
+    - id: d
+      value:
+        type: rawscript
+        content: "!inline d.ts"
+        language: bun
+        input_transforms: {}
+    - id: e
+      value:
+        type: rawscript
+        content: "!inline e.ts"
+        language: bun
+        input_transforms: {}
+    - id: f
+      value:
+        type: rawscript
+        content: "!inline f.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

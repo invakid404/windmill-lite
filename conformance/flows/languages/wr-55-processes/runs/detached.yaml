@@ -1,0 +1,9 @@
+# WR-55/a: a detached child (a new session, so another process group) lets
+# the job complete at once. The job's start and completion times are read
+# back by step i through the jobs API.
+spec: [WR-55/a]
+target: f/wl_wr55/detached
+expect:
+  status: success
+  result: {success: true, held: false}
+  steps: {"m:a": {status: success, result: "<job:m:a>"}}

@@ -1,0 +1,5 @@
+# WR-49/h: a single-file CommonJS bundle, which the CLI's form-data upload
+# sent with CRLF line breaks, runs with them.
+spec: [WR-49/h]
+target: f/wl_ib/crlf_single
+expect: {status: success, result: [true, true]}

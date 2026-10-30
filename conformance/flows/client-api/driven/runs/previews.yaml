@@ -1,0 +1,17 @@
+# Previews (a run of raw code, which the harness's runs of deployed flows
+# cannot make): WR-37/b's rest parameter, WR-51/d's decorator and WR-52/a's
+# angle-bracket assertion fail the parse with ExecutionErr (the messages'
+# starts are checked in the batch manifest); WR-52/a's control with (x as
+# number) gives 2, and WR-52/e's generic arrows give [1, 2, 3]; JE-36/d's
+# simple while loop collapses in a flow preview too, so p is 9.
+spec: [WR-37/b, WR-51/d, WR-52/a, WR-52/e, JE-36/d]
+target: f/wl_drv/previews
+expect:
+  status: success
+  result:
+    wr37b: {success: false, result: {error: {name: ExecutionErr}}}
+    wr51d: {success: false, result: {error: {name: ExecutionErr}}}
+    wr52a: {success: false, result: {error: {name: ExecutionErr}}}
+    wr52a_as: {success: true, result: 2}
+    wr52e: {success: true, result: [1, 2, 3]}
+    je36d: {success: true, result: [9]}

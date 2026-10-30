@@ -1,0 +1,131 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "during": 1,
+      "get_after": {
+        "body": "null",
+        "status": 200
+      },
+      "post_after": {
+        "body": "Not found: Flow job not found",
+        "status": 404
+      }
+    },
+    "steps": {
+      "m:d": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "during": 1,
+          "get_after": {
+            "body": "null",
+            "status": 200
+          },
+          "post_after": {
+            "body": "Not found: Flow job not found",
+            "status": 404
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030035855-de3781654dcb",
+      "revision": "de3781654dcbf73e0546f9c907f9f51253cfa2e7",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41000318656"
+    },
+    "recorded_at": "2026-10-30T04:01:27Z",
+    "workers": 2,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:39413"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 409,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T04:01:27.374916Z",
+          "started_at": "2026-10-30T04:01:27.388999Z",
+          "completed_at": "2026-10-30T04:01:27.688118Z",
+          "duration_ms": 299
+        },
+        "m:d": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:01:27.390375Z",
+          "started_at": "2026-10-30T04:01:27.393195Z",
+          "completed_at": "2026-10-30T04:01:27.683238Z",
+          "duration_ms": 288
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "d",
+            "value": {
+              "content": "// Talks to the oracle's API with the step's own token (a black-box client,\n// as the harness is), so a recording can hold what only the API shows.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst root = process.env.WM_ROOT_FLOW_JOB_ID!;\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nasync function call(method: string, path: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${path}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: await r.text() };\n}\nasync function json(method: string, path: string, value?: unknown): Promise<any> {\n  const a = await call(method, path, value === undefined ? undefined : JSON.stringify(value));\n  if (a.status >= 300) throw new Error(`${method} ${path}: ${a.status} ${a.body}`);\n  return a.body === \"\" ? null : JSON.parse(a.body);\n}\n// Starts a job and returns its id, failing at once on a refused request.\nasync function start(path: string, body = \"{}\"): Promise<string> {\n  const a = await call(\"POST\", path, body);\n  if (a.status >= 300) throw new Error(`POST ${path}: ${a.status} ${a.body}`);\n  return a.body.replaceAll('\"', \"\");\n}\nasync function done(id: string, secs = 100): Promise<any> {\n  for (let i = 0; i < secs * 4; i++) {\n    const r = await json(\"GET\", `/jobs_u/completed/get_result_maybe/${id}`);\n    if (r.completed) return r;\n    await new Promise((res) => setTimeout(res, 250));\n  }\n  throw new Error(`job ${id} did not complete`);\n}\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// A driver reads the oracle's API: anywhere else (windmill-lite's facade\n// answers only the routes a step's client makes) it fails at once.\nasync function oracleAPI() {\n  const r = await fetch(`${base}/api/version`);\n  const v = r.ok ? await r.text() : \"\";\n  if (!v.startsWith(\"CE v\")) throw new Error(`the driver needs Windmill's API; /api/version answered ${r.status} ${v}`);\n}\nconst tag = () => root.replaceAll(\"-\", \"\").slice(0, 12);\n\nexport async function main() {\n  await oracleAPI();\n  const id = await start(\"/jobs/run/f/f/wl_drv/state\", \"{}\");\n  const r = await done(id);\n  const get = await call(\"GET\", `/jobs/flow/user_states/${id}/k`);\n  const post = await call(\"POST\", `/jobs/flow/user_states/${id}/k`, \"1\");\n  return { during: r.result, get_after: { status: get.status, body: get.body }, post_after: { status: post.status, body: post.body } };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "d",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// Talks to the oracle's API with the step's own token (a black-box client,\n// as the harness is), so a recording can hold what only the API shows.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst root = process.env.WM_ROOT_FLOW_JOB_ID!;\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nasync function call(method: string, path: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${path}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: await r.text() };\n}\nasync function json(method: string, path: string, value?: unknown): Promise<any> {\n  const a = await call(method, path, value === undefined ? undefined : JSON.stringify(value));\n  if (a.status >= 300) throw new Error(`${method} ${path}: ${a.status} ${a.body}`);\n  return a.body === \"\" ? null : JSON.parse(a.body);\n}\n// Starts a job and returns its id, failing at once on a refused request.\nasync function start(path: string, body = \"{}\"): Promise<string> {\n  const a = await call(\"POST\", path, body);\n  if (a.status >= 300) throw new Error(`POST ${path}: ${a.status} ${a.body}`);\n  return a.body.replaceAll('\"', \"\");\n}\nasync function done(id: string, secs = 100): Promise<any> {\n  for (let i = 0; i < secs * 4; i++) {\n    const r = await json(\"GET\", `/jobs_u/completed/get_result_maybe/${id}`);\n    if (r.completed) return r;\n    await new Promise((res) => setTimeout(res, 250));\n  }\n  throw new Error(`job ${id} did not complete`);\n}\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// A driver reads the oracle's API: anywhere else (windmill-lite's facade\n// answers only the routes a step's client makes) it fails at once.\nasync function oracleAPI() {\n  const r = await fetch(`${base}/api/version`);\n  const v = r.ok ? await r.text() : \"\";\n  if (!v.startsWith(\"CE v\")) throw new Error(`the driver needs Windmill's API; /api/version answered ${r.status} ${v}`);\n}\nconst tag = () => root.replaceAll(\"-\", \"\").slice(0, 12);\n\nexport async function main() {\n  await oracleAPI();\n  const id = await start(\"/jobs/run/f/f/wl_drv/state\", \"{}\");\n  const r = await done(id);\n  const get = await call(\"GET\", `/jobs/flow/user_states/${id}/k`);\n  const post = await call(\"POST\", `/jobs/flow/user_states/${id}/k`, \"1\");\n  return { during: r.result, get_after: { status: get.status, body: get.body }, post_after: { status: post.status, body: post.body } };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "d",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline d.ts",
+              "input_transforms": {},
+              "lock": "!inline d.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

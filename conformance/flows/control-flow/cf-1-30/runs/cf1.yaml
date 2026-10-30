@@ -1,0 +1,11 @@
+# CF-1/a's deployed half: a body step sees the outer flow_input (b gets 7)
+# beside the iteration's iter (c gets 1).
+spec: [CF-1/a]
+target: f/wl_cf130/cf1
+args: {k: 7}
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:l/i:0/m:b": {status: success, args: {x: 7}, result: 7}
+    "m:l/i:0/m:c": {status: success, args: {x: 1}, result: 1}

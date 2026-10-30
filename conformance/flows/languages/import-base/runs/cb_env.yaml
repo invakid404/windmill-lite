@@ -1,0 +1,5 @@
+# WR-22/b: a CommonJS codebase script, which runs on Node, sees the Bun
+# cache directory set and NODE_PATH unset, as a Bun script does.
+spec: [WR-22/b]
+target: f/wl_ib/cb_env
+expect: {status: success, result: ["/tmp/windmill/cache_nomount/bun", unset]}

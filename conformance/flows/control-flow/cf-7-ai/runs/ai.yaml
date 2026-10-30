@@ -1,0 +1,16 @@
+# CF-7/e: deploy accepts an ai parallelism, and at run time both iteration
+# jobs are created and held, as with parallelism 0: no body script starts.
+# The run is canceled after 30 s.
+spec: [CF-7/e]
+target: f/wl_cf7p/ai
+cancel_after_ms: 30000
+note: "Predicted with both body steps canceled; recorded in oracle run 40994947681 with both not run (the walker's status for a step whose script never started), which is what the catalogue says: no body script starts."
+expect:
+  status: canceled
+  result:
+    error:
+      message: "Job canceled: wltest: cancel_after_ms by admin"
+      name: Canceled
+      reason: "wltest: cancel_after_ms"
+      canceler: admin
+  steps: {"m:l/i:0/m:x": {status: not_run}, "m:l/i:1/m:x": {status: not_run}}

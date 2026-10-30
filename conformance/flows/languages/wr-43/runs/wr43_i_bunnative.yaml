@@ -1,0 +1,13 @@
+# WR-43/i (bunnative): a non-string stack is dropped: message m and name
+# Error, and the stack is not 5.
+spec: [WR-43/i]
+target: f/wl_n43/wr43_i_bunnative
+note: "Predicted from the reference: stack holds one source line of main followed by a newline, with no V8 stack text. Recorded in oracle run 40989292429 in both kinds: stack is null. The catalogue's claims (not 5, no V8 text) hold; the source-derived text does not, which the batch manifest lists as a contradiction for the spec team."
+expect:
+  status: failure
+  result: {error: {message: m, stack: null, name: Error}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: m, stack: null, name: Error}}

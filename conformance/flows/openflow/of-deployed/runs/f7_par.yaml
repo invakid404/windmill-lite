@@ -1,0 +1,5 @@
+# OF-7/b: F7-par deployed: the flag is absent, and deployment materialises
+# it as true (OF-3/a), so the failure is kept as a value.
+spec: [OF-7/b]
+target: f/wl_of/f7_par
+expect: {status: success, result: [{error: {message: boom, name: Error}}, 2]}

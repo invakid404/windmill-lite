@@ -1,0 +1,5 @@
+# FX-51/b: an unpaired surrogate generated in args at the root's pickup: an
+# Anyhow failure of a, as FX-48/b.
+spec: [FX-51/b]
+target: f/wl_fx51/surrogate_root
+expect: {status: failure, result: {error: {name: Anyhow}}}

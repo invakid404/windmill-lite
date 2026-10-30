@@ -1,0 +1,15 @@
+# FX-40/h: a container at the last module stores by its own outcome: with
+# skip_failures false both calls fail with l's array and both run their
+# iterations.
+spec: [FX-40/h]
+target: f/wl_fx40c/h_strict
+expect:
+  status: success
+  result: [{error: {name: Error, message: one}}, "<job:m:s2/m:l/i:1/m:x>"]
+  steps:
+    "m:s1":
+      status: failure
+      result: [{error: {name: Error, message: one}}, "<job:m:s1/m:l/i:1/m:x>"]
+    "m:s2":
+      status: failure
+      result: [{error: {name: Error, message: one}}, "<job:m:s2/m:l/i:1/m:x>"]

@@ -1,0 +1,31 @@
+summary: "FX-42/o: in a branchone's default branch"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: l
+            value:
+              type: forloopflow
+              iterator: {type: javascript, expr: "[1]"}
+              modules:
+                - id: x
+                  value:
+                    type: rawscript
+                    content: "!inline x.ts"
+                    language: bun
+                    input_transforms: {}
+              parallel: false
+              skip_failures: false
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,0 +1,11 @@
+# WR-43/b (bunnative): a thrown string gives three nulls.
+spec: [WR-43/b]
+target: f/wl_n43/wr43_b_bunnative
+expect:
+  status: failure
+  result: {error: {message: null, stack: null, name: null}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: null, stack: null, name: null}}

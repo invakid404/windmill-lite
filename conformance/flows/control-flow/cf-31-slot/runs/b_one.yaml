@@ -1,0 +1,4 @@
+# CF-31/b: a one-item loop in the slot completes with an array.
+spec: [CF-31/b]
+target: f/wl_cf31/b_one
+expect: {status: failure, result: [10]}

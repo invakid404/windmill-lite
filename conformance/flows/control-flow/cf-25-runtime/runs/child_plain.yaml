@@ -1,0 +1,7 @@
+# WR-55 under squash: a loop over [1, 2] whose body starts a background
+# child sleeping 5 s and returns at once; step i reads whether each
+# iteration job completed only after its child. Unsquashed, each iteration
+# completes only after its child (WR-55/a).
+spec: [WR-55/a, CF-25]
+target: f/wl_cf25r/child_plain
+expect: {status: success, result: {held: [true, true]}}

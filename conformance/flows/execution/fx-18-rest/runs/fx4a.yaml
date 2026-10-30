@@ -1,0 +1,9 @@
+# FX-4/a: a sleep on the last step delays completion and keeps a's result as
+# the flow's (the generated a-v step is left out by the walker, OR-V7;
+# fx4_ids reads it).
+spec: [FX-4/a]
+target: f/wl_fx18/fx4
+expect:
+  status: success
+  result: x
+  steps: {"m:a": {status: success, result: x}}

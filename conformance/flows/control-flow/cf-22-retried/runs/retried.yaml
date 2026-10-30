@@ -1,0 +1,12 @@
+# CF-22/h: the retried parallel loop re-enters from the last child to
+# complete, iteration 1's, which succeeded: both re-run iterations see its
+# iter, and l lists no failed attempt.
+spec: [CF-22/h]
+target: f/wl_cf22h/retried
+expect:
+  status: success
+  result: [{index: 1, value: 20}, {index: 1, value: 20}]
+  steps:
+    "m:l":
+      status: success
+      result: [{index: 1, value: 20}, {index: 1, value: 20}]

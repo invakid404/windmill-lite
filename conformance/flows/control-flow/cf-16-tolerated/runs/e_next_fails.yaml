@@ -1,0 +1,8 @@
+# CF-16/e: with n failing, the flow's own handler runs once, for n, and the
+# flow fails with H.
+spec: [CF-16/e]
+target: f/wl_cf16t/e_next_fails
+expect:
+  status: failure
+  result: H
+  steps: {"m:n": {status: failure}, "s:failure": {status: success, result: H}}

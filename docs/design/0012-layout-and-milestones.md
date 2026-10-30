@@ -97,6 +97,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F4 | `internal/bundle`, `windmill-lite build` and `verify`: format, manifest, digest, reproducibility | A5, B1a, C2a | two builds of one fixture give one digest; the static Linux engine starts on an empty base | 4 | yes |
 | N1a | engine core, sequential: transforms, the `results` routes, `skip_if`, stops, identity, mock, the hook seams of K1 | A5, B2b, E1, E3b | the E3b cases that [`internal/oracle/testdata/batches/e3b.json`](../../internal/oracle/testdata/batches/e3b.json) gates on N1a (the others need `continue_on_error`, a failure module, an error shape or chaining error, a retry or a sleep, a branch or a provider, and gate the milestone that implements it, as E3a's do); the sequential, context-free subset of E3a end to end: flow cases whose flows use only plain steps, transforms, `skip_if`, `stop_after_if` and identity, with no failure module, container, wait, retry or platform provider. E3a's other flow cases gate the milestones below that implement their features | 5 | yes |
 | E3e | the remaining recordings, among them the run-and-wait HTTP halves of FX-36 and FX-37, the contested `later` cases and the probe-catalogue reconstruction (Q-OR-16) | E3a, E3b, E3c, E3d, E1 | — | 5 | yes |
+| E3f | recording batch **E3f**: an oracle session whose worker runs native steps, with native fixtures, and the recordings that semantics revisions SC3 and SC4 requested ([README](README.md), Recording requests for batch E3f) | E3e, E4b, N5 | every E3f run that windmill-lite already matches, in the flow suite | 10 | yes |
 | N1b | engine errors: `continue_on_error`, failure module and recovery, error shapes, chaining errors, final result, cancellation outcome | N1a, E3c | the E3c cases whose flows need nothing a later milestone implements (the others gate N3c and NI, below); E3a's failure-module and error-route cases (JE-17/a, JE-35/a–c) and its root-pickup expression cases (JE-24/b, JE-24/d); the E3b cases gated on N1b (FX-6/b, FX-7/d, FX-10/a, FX-19/e–g and /i, FX-21/a and its failure-module variant) | 6 | yes |
 | N2 | engine waits and time: `sleep`, `timeout` and its messages, retry arithmetic, jitter and argument reuse, deadlines, the clock | N1a | FX-23 to FX-29 cases, but FX-24/d–e (a loop's `timeout`, NI's) and FX-24/g (`later`); E3a's wait, timeout and retry cases (JE-2/a, JE-22/a–b, JE-28/a–c, JE-29/a, JE-32/a–b, JE-V2/c); E3b's FX-19/h | 6 | yes |
 | N3a | for loops: sequential, collapsed, parallel, `parallelism` | N1a, E3d | the E3d for-loop cases; E3a's for-loop cases (JE-9/e–f, JE-19/a and /c, JE-26/d, JE-27/a–b on loops, JE-30/a–b, JE-36/a–c and /e, JE-37/a, JE-38/c, JE-39/a, JE-V1/a–e) | 6 | yes |
@@ -459,6 +460,24 @@ waits on an external gate except R1.
   deferred to `none`, with the reason. The oracle workflow runs a second
   session with two workers, for the fixtures that need them and for the
   smoke fixture under another `LISTEN_NEW_EVENTS_INTERVAL_SEC`.
+
+- E3f, a recording batch after E3e, holds what semantics revisions SC3 and
+  SC4 asked the oracle for (the [README](README.md)'s Recording requests
+  for batch E3f) and an oracle session whose worker serves the `nativets`
+  tag, so that `//native` and `nativets` steps record: pure values, a
+  throw, a fetch of the loopback sink, and two codebase scripts under
+  `//native`, the CommonJS one failing at its first use of `module` as
+  WR-50 predicts. A fixture names the oracle configuration it needs
+  (`oracle.session`), the workflow runs one session per configuration
+  (`native`, `long` for runs that wait on the server's monitors,
+  `result_size`, `flow_script_off`), and a session refuses or skips
+  another's fixtures. Its manifest,
+  [`internal/oracle/testdata/batches/e3f.json`](../../internal/oracle/testdata/batches/e3f.json),
+  has no `gates`; the runs windmill-lite already matches join the flow
+  suite, and every mismatch and contradiction is listed for the next
+  semantics revision. Expects stay the reference's predictions; where the
+  oracle disagreed, the expect holds the recording, with a note, and the
+  manifest lists the contradiction.
 
 - N2 gave the engine Windmill's waits and time: `sleep` (FX-23,
   JE-28), the step timeout evaluated for every module with the texts of

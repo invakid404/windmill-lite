@@ -1,0 +1,11 @@
+# JE-15/k: the same transform on a one-step flow fails b at the root's first
+# pickup with an Anyhow error, one Error: prefix and two location suffixes
+# (FX-50/a's shapes).
+spec: [JE-15/k]
+target: f/wl_je15/k_root
+expect:
+  status: failure
+  result:
+    error:
+      name: Anyhow
+      message: "Error: SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5 @worker.rs:3822:13"

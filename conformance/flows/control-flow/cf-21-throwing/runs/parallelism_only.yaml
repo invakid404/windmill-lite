@@ -1,0 +1,7 @@
+# CF-21: with only the parallelism throwing, no iteration job exists either.
+spec: [CF-21]
+target: f/wl_cf21t/parallelism_only
+expect:
+  status: failure
+  result: {error: {name: InternalError}}
+  steps: {"m:a": {status: success, result: 1}, "m:l": {status: not_run}}

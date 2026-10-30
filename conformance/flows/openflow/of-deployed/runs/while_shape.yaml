@@ -1,0 +1,6 @@
+# OF-8/a: the while loop's parallel and parallelism are dropped at deploy
+# (checked in the batch manifest); the loop breaks after its first
+# iteration.
+spec: [OF-8/a]
+target: f/wl_of/while_shape
+expect: {status: success, result: [1]}

@@ -1,0 +1,10 @@
+# WR-41/c (bunnative): every job gets a fresh isolate: two steps of one
+# module-scope counter each return 1.
+spec: [WR-41/c]
+target: f/wl_n41/wr41_c_bunnative
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: success, args: {}, result: 1}

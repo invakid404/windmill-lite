@@ -1,0 +1,16 @@
+summary: "FX-38/b: a subflow step"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+      sleep: {type: static, value: 30}
+    - id: b
+      value: {type: flow, path: f/wl_fx38b/child, input_transforms: {}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
