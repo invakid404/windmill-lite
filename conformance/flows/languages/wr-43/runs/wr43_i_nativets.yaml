@@ -2,7 +2,7 @@
 # Error, and the stack is not 5.
 spec: [WR-43/i]
 target: f/wl_n43/wr43_i_nativets
-note: "Predicted from the reference: stack holds one source line of main followed by a newline, with no V8 stack text. Recorded in oracle run 40989292429 in both kinds: stack is null. The catalogue's claims (not 5, no V8 text) hold; the source-derived text does not, which the batch manifest lists as a contradiction for the spec team."
+note: "Predicted from the reference: stack holds one source line of main followed by a newline, with no V8 stack text. Recorded in oracle run 40989292429 in both kinds: stack is null. The catalogue's claims (not 5, no V8 text) hold; the source-derived text does not, which the batch manifest lists as a contradiction for the spec team. The semantics revision SC5 corrected the catalogue to a null stack (WR-43/i)."
 expect:
   status: failure
   result: {error: {message: m, stack: null, name: Error}}

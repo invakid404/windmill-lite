@@ -14,7 +14,7 @@
 # before the oracle ran it. Synthetic, written for this repository from
 # docs/semantics/control-flow.md#q-cf-19. Deployed with oracle.deploy api.
 id: control-flow/cf-25-runtime
-spec: [CF-25, WR-55/a]
+spec: [CF-25, CF-25/e, WR-55/a]
 scope: core
 provenance: oracle-observed
 languages: [bun, bash]

@@ -56,13 +56,18 @@ validation. Open questions are `Q-OR-n`.
 - **API paths** are relative to the oracle's base URL (`http://localhost:8000`).
   "openapi" means `backend/windmill-api/openapi.yaml` (Apache-2.0); a number
   after it is a line number in that file.
-- **Step paths and placeholders.** The drafted semantic path of a step is its
-  module id (`a`), `id[i]` for loop iteration or branch `i`, `id/child` for a
-  nested step, `id#k` for the k-th failed retry attempt, and `failure` /
-  `preprocessor` for the special slots. Normalisation writes a walked job id as
-  `<job:PATH>`. This path encoding is **disputed** ([OR-V8](#or-v8),
-  [Q-OR-17](#q-or-17)): use it to read the examples, not as a final identity
-  scheme. Other placeholders: `<ws>` (workspace), `<stack>` (masked runtime
+- **Step paths and placeholders.** A step's path is its typed site path
+  (design record 0011, [OR-V8](#or-v8)): `m:<id>` for a module (`m:a~1` for
+  the second of two modules named `a` in one list), `i:<n>` for a loop
+  iteration, `b:<n>` or `b:default` for a branch, `s:failure` and
+  `s:preprocessor` for the special slots, and `r:<k>` for the k-th failed
+  attempt, joined by `/` (`m:l/i:0/m:b`); `%`, `/`, `:` and `~` inside a
+  value are escaped as `%25`, `%2F`, `%3A` and `%7E`. Normalisation writes a
+  walked job id as `<job:PATH>`. Older examples in this area use the drafted
+  paths (`a`, `id[i]`, `id#k`, `failure`), which were replaced on
+  2026-10-30 once the oracle kept every colliding pair apart
+  ([Q-OR-17](#q-or-17), answered); read `a` as `m:a`, `id[i]` as
+  `m:id/i:i`, `id#k` as `m:id/r:k` and `failure` as `s:failure`. Other placeholders: `<ws>` (workspace), `<stack>` (masked runtime
   stack), `<loc>` (in a normalised observation, the masked source location
   of one recognised internal error, [OR-27](#or-27); in an expected message
   text, Windmill's Rust location suffix, [OR-14](#or-14)). In quoted raw values, `<worker>`, `<job>`, `<uuid>` and
@@ -146,9 +151,11 @@ validation. Open questions are `Q-OR-n`.
    paths are not gated. A deployed flow does not even carry a module's
    `delete_after_use`: the deployment re-serialises the flow without it. No
    wider CE/EE claim is made ([OR-21](#or-21)).
-10. **One core item has not converged:** a collision-free identity encoding
-    ([Q-OR-17](#q-or-17)). It qualifies any claim that no open question
-    blocks the design. The probe catalogue's executable reconstruction, the
+10. **The identity encoding has converged:** the typed site paths of
+    design record 0011 keep an ordinary module apart from a special slot and
+    escape their own escape character, and batch E3f recorded the colliding
+    pairs on the oracle ([Q-OR-17](#q-or-17), answered 2026-10-30;
+    [OR-V8](#or-v8)). The probe catalogue's executable reconstruction, the
     other item that had not converged, was recorded by batch E3e
     ([Q-OR-16](#q-or-16), answered). Every other open question names the
     oracle run that settles it. The oracle is a semantic reference, never a
@@ -501,7 +508,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-7"></a>
 ### OR-7 · Environment knobs (env only, image unmodified)
 
-**Scope:** later · **Confidence:** high (names and defaults, source-traced; the listen interval's lack of effect oracle-observed; the refused result's error, source-traced) · **Status:** confirmed; drafted (the refused result's error, added 2026-10-29)
+**Scope:** later · **Confidence:** high (names and defaults, source-traced; the listen interval's lack of effect oracle-observed; the refused result's error, oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill: scheduling and debug knobs, no intended semantic effect:**
@@ -590,6 +597,7 @@ validation. Open questions are `Q-OR-n`.
   unrecorded.
 
 ## B. Loading fixtures and running them
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OR-7/b](conformance.md#or-7) and [OR-7/c](conformance.md#or-7) are recorded as predicted, in a session of their own whose oracle runs with `MAX_RESULT_SIZE_MB=3` (fixture `conformance/flows/oracle/result-size`, runs `big` and `big_manual`, oracle run 40994947681): a result of about 4.5 MiB, with or without `wm_failure`, failed its step with exactly the `ResultTooLarge` error above (`4MB > MAX_RESULT_SIZE_MB=3MB`, no `step_id`, no location), and the flow failed with it while the next step did not run. The log line and the absence of retries are not in the recording. The drafted part leaves the drafted list. For the build team, which has no such setting: unset, `MAX_RESULT_SIZE_MB` is 500, so in the reference configuration a result is refused only above 500 MiB, and nothing below 2 MiB is measured at all.
 
 <a id="or-8"></a>
 ### OR-8 · Pushing a synthetic folder: the pinned CLI is the reference loader
@@ -815,9 +823,9 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-11"></a>
 ### OR-11 · Capturing per-step results: walk `flow_status`
 
-**Scope:** core · **Confidence:** high (shapes, source and oracle); identity encoding disputed · **Status:** DISPUTED
+**Scope:** core · **Confidence:** high (shapes, source and oracle; the identity encoding keeps the colliding pairs apart: oracle-observed) · **Status:** confirmed
 
-- **Rule (as drafted):**
+- **Rule:**
   - **Windmill (shapes):**
     - `GET /api/w/{ws}/jobs_u/get/{id}?no_logs=true&no_code=true` returns a
       `Job` tagged `"type":"CompletedJob"` with `id`, `parent_job`,
@@ -913,9 +921,8 @@ validation. Open questions are `Q-OR-n`.
     - Per-step record: `status`, `args` (as stored on the step's job, after
       input transforms), `result`, `is_skipped`, `branch_chosen`; timings go to
       provenance ([OR-17](#or-17)).
-    - Semantic paths: as in [Conventions](#conventions) (`failure` and
-      `preprocessor` for the special slots).
-- **Correction (validation):** the topology rules are accepted (actual
+    - Site paths: the typed site paths of design record 0011 ([Conventions](#conventions), [OR-V8](#or-v8)): `m:<id>` for a module, with `~<k>` when an id repeats in one list; `i:<n>` for an iteration; `b:<n>` or `b:default` for a branch; `s:failure` and `s:preprocessor` for the special slots; `r:<k>` for the k-th failed attempt; segments joined by `/`; `%`, `/`, `:` and `~` in a value percent-escaped as `%25`, `%2F`, `%3A`, `%7E`.
+- **Correction (validation; adopted 2026-10-30):** the topology rules are accepted (actual
   leaf/flow inspection, ordered `flow_jobs`, nil failures, virtual modules),
   but the semantic-path contract used by this walker merges distinct
   identities. An ordinary module named `failure` and a failure handler named
@@ -952,7 +959,7 @@ validation. Open questions are `Q-OR-n`.
   - Not recorded: a child job still being canceled after its root has
     completed. The harness's walk refuses that state rather than invent a
     site; no recording has produced it.
-- **Open:** [Q-OR-17](#q-or-17). The live confirmations of
+- **Answered:** [Q-OR-17](#q-or-17) (2026-10-30). The live confirmations of
   [Q-OR-7](#q-or-7), [Q-OR-8](#q-or-8), [Q-OR-13](#q-or-13) and
   [Q-OR-15](#q-or-15) are recorded.
 - **Evidence:** `backend/windmill-types/src/flow_status.rs:19-45` (`FlowStatus`),
@@ -988,6 +995,7 @@ validation. Open questions are `Q-OR-n`.
   re-recorded the probes `loop_empty`, `loop_seq_simple`, `while_simple` and
   `retry` (`conformance/flows/oracle/probes`, oracle run 40794872025) with
   the shapes above. The identity encoding is still disputed.
+- **Revision 2026-10-30 (SC5, oracle batch E3f, Q-OR-17):** the dispute is settled for the validation's correction. Batch E3f recorded the colliding pairs [Q-OR-17](#q-or-17) asked for, created through the flows API, which checks no module id (fixture `conformance/flows/oracle/colliding-ids`): an ordinary step `failure` beside a failure module `recover` (run `slot_failure`, oracle run 41000318656), an ordinary step `preprocessor` beside a preprocessor `pre` (run `slot_pre`, oracle run 41007241030), and the ids `a/b` and `a%2Fb` (run `slash`, oracle run 41000318656). Under the typed site paths the harness adopted (design record 0011: `m:<id>`, `s:failure`, `s:preprocessor`, with `%`, `/`, `:` and `~` percent-escaped), each pair stayed two records and two placeholders: `m:failure` and `s:failure`, `m:preprocessor` and `s:preprocessor`, `m:a%2Fb` and `m:a%252Fb`. The drafted encoding (plain ids, the unqualified slot paths `failure` and `preprocessor`, and an escaping that left `%` alone) is withdrawn; the text above now states the typed one. Status `DISPUTED` → `confirmed`.
 
 <a id="or-12"></a>
 ### OR-12 · Failure capture: the stored error envelope
@@ -1076,19 +1084,20 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-14"></a>
 ### OR-14 · Normalisation rules
 
-**Scope:** core · **Confidence:** high (volatile fields); medium (completeness) · **Status:** DISPUTED
+**Scope:** core · **Confidence:** high (volatile fields; the placeholders over the typed paths: oracle-observed); medium (completeness) · **Status:** confirmed
 
-- **Rule (as drafted):** the harness turns raw oracle and windmill-lite
+- **Rule:** the harness turns raw oracle and windmill-lite
   captures into normalised observations before comparing them:
   1. **Job ids.** Build the id → semantic-path map from the walk only
      ([OR-11](#or-11)). Replace those ids anywhere, including inside strings
      (a stack path, a returned `WM_JOB_ID`, an `InternalErr` message), with
      `<job:PATH>`. All other UUIDs and user strings are preserved.
-  2. **Paths.** `id`, `id[i]` (index from `flow_jobs` order), `id/child`,
-     `id#k` (k-th failed attempt in `failed_retries` order), plus `failure` and
-     `preprocessor`. A literal `[`, `]`, `/` or `#` inside a module id is
-     escaped as `%5B`, `%5D`, `%2F`, `%23`. A user string that already looks
-     like `<job:…>` is escaped to `<<job:…>` before replacement.
+  2. **Paths.** The typed site paths of design record 0011: `m:<id>` for a module, with `~<k>` when an id repeats in one list; `i:<n>` for an iteration; `b:<n>` or `b:default` for a branch; `s:failure` and `s:preprocessor` for the special slots; `r:<k>` for the k-th failed attempt; segments joined by `/`; `%`, `/`, `:` and `~` in a value percent-escaped as `%25`, `%2F`, `%3A`, `%7E`; an iteration's index comes from
+     `flow_jobs` order and an attempt's from `failed_retries` order. Inside a
+     placeholder a `>` from a module id is written `%3E`. In user text, a run
+     of `<` before a marker head (`<job:`, `<stack>`, `<loc>`, `<masked>`) is
+     doubled, so a user `<job:m:a>` reads `<<job:m:a>` (design record 0011,
+     "The escape").
   3. **Envelope.** Drop only these envelope fields, never same-named keys
      inside args or results: `logs`, `raw_code`, `raw_flow`, `tag`,
      `priority`, `worker`, `mem_peak`, `email`, `created_by`,
@@ -1150,7 +1159,7 @@ validation. Open questions are `Q-OR-n`.
     non-determinism. Two equal runs are necessary evidence of stability but
     do not prove that normalisation keeps meaningful differences
     ([OR-V3](#or-v3)).
-- **Correction (validation):** the narrow stack masking, preservation of
+- **Correction (validation; adopted 2026-10-30):** the narrow stack masking, preservation of
   handler user data and multiset equality are accepted, but job placeholders
   inherit the path collisions of [OR-V8](#or-v8): the special-slot paths
   `failure` and `preprocessor` collide with ordinary modules of those names,
@@ -1158,7 +1167,7 @@ validation. Open questions are `Q-OR-n`.
   become `a%2Fb`. The propagated-runtime-error case of [OR-V3](#or-v3) (b) is
   an exception to "a handler's own result keeps its user data", not permission
   to mask arbitrary handler objects.
-- **Open:** [Q-OR-17](#q-or-17).
+- **Answered:** [Q-OR-17](#q-or-17) (2026-10-30).
 - **Evidence:** `backend/windmill-worker/src/worker.rs:1923-1924,1975` (job
   directory, `WINDMILL_DIR`); `backend/windmill-common/src/utils.rs:281-287`
   (worker name), `:337-350` (the parenthesised not-found location);
@@ -1175,6 +1184,7 @@ validation. Open questions are `Q-OR-n`.
   suffix forms the recordings hold and the `<loc>` notation the catalogue's
   error texts use for them; the normalisation rules themselves are
   unchanged and still disputed on the identity encoding.
+- **Revision 2026-10-30 (SC5, oracle batch E3f, Q-OR-17):** the dispute is settled for the validation's correction. Batch E3f recorded the colliding pairs [Q-OR-17](#q-or-17) asked for, created through the flows API, which checks no module id (fixture `conformance/flows/oracle/colliding-ids`): an ordinary step `failure` beside a failure module `recover` (run `slot_failure`, oracle run 41000318656), an ordinary step `preprocessor` beside a preprocessor `pre` (run `slot_pre`, oracle run 41007241030), and the ids `a/b` and `a%2Fb` (run `slash`, oracle run 41000318656). Under the typed site paths the harness adopted (design record 0011: `m:<id>`, `s:failure`, `s:preprocessor`, with `%`, `/`, `:` and `~` percent-escaped), each pair stayed two records and two placeholders: `m:failure` and `s:failure`, `m:preprocessor` and `s:preprocessor`, `m:a%2Fb` and `m:a%252Fb`. The drafted encoding (plain ids, the unqualified slot paths `failure` and `preprocessor`, and an escaping that left `%` alone) is withdrawn; item 2 now states the typed one, and job placeholders are `<job:PATH>` over it (a returned job id reads `<job:m:a>`, [OR-14/b](conformance.md#or-14)). Status `DISPUTED` → `confirmed`.
 
 <a id="or-15"></a>
 ### OR-15 · Fixture format (language-neutral, shared by oracle record and windmill-lite replay)
@@ -1464,7 +1474,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-21"></a>
 ### OR-21 · Edition differences that matter to a CE oracle
 
-**Scope:** EE · **Confidence:** medium (narrowed claim source-traced and CE-observed); high (the deployed value drops `delete_after_use`, source-traced) · **Status:** confirmed; drafted (the deployed value drops `delete_after_use`, and the routes that still carry the option, added 2026-10-29)
+**Scope:** EE · **Confidence:** medium (narrowed claim source-traced and CE-observed); high (the deployed value drops `delete_after_use`, source-traced; the routes that still carry the option: oracle-observed) · **Status:** confirmed; drafted (the deployed value drops `delete_after_use`)
 
 - **Rule:**
   - **Windmill:**
@@ -1595,6 +1605,7 @@ validation. Open questions are `Q-OR-n`.
   scripts API stores both fields (`backend/windmill-api-scripts/src/scripts.rs:1568-1569`).
   OR-21/c now names its setup (no `delete_after_secs`); new source-derived
   case OR-21/d covers the positive delay.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OR-21/b–d](conformance.md#or-21) are recorded as predicted, through a driver step on two workers that created the scripts through the scripts API (fixture `conformance/flows/client-api/driven`, run `or21`, oracle run 41000318656): a flow step whose script carries the flag kept its args and result; the run-and-wait script route blanked the job (result `{}`, args `{}`, logs `##DELETED##`); a positive `delete_after_secs` blanked nothing; `0` blanked at once. One text detail differed: the route's response body is the stored result's `jsonb` text, `{"secret": 7}` with a space, as for [OF-V3](openflow.md#of-v3); OR-21/c and OR-21/d are corrected. The routes part leaves the drafted list.
 
 <a id="or-22"></a>
 ### OR-22 · Arguments as stored versus as received
@@ -1677,7 +1688,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-24"></a>
 ### OR-24 · Key order at step boundaries: a provenance model
 
-**Scope:** core · **Confidence:** high (ordinary, integer-key, retry, aggregate and flow-preprocessor paths oracle-observed; a script's own preprocessor source-derived) · **Status:** confirmed; drafted (when a script's own preprocessor runs, corrected 2026-10-29)
+**Scope:** core · **Confidence:** high (ordinary, integer-key, retry, aggregate and flow-preprocessor paths oracle-observed; a script's own preprocessor oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill:**
@@ -1773,6 +1784,7 @@ validation. Open questions are `Q-OR-n`.
   that flag on deploy from a Bun script's exported `preprocessor`
   (`backend/windmill-api-scripts/src/scripts.rs:1194-1235`). OR-24/e can
   therefore be recorded without a trigger. The rule itself is unchanged.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OR-24/e](conformance.md#or-24) is recorded as predicted ([Q-OR-11](#q-or-11) (c)): a run of a Bun script by path through the run API ran its exported `preprocessor`, and `main` saw the keys in the preprocessor's insertion order, `["bbb","a","cc"]` (fixture `conformance/flows/oracle/preprocessor`, run `script_keys`, oracle run 40994947681). The drafted part leaves the drafted list.
 
 <a id="or-25"></a>
 ### OR-25 · An empty chosen `branchone` branch yields the JSON string `"{}"`
@@ -2213,9 +2225,9 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v3"></a>
 ### OR-V3 · Normalisation must preserve negative comparisons
 
-**Scope:** core · **Confidence:** high (counterexamples) · **Status:** DISPUTED
+**Scope:** core · **Confidence:** high (counterexamples; the placeholders keep the colliding pairs apart: oracle-observed) · **Status:** confirmed
 
-- **Rule (as drafted):**
+- **Rule:**
   - **Harness:** replace automatically only established runtime identities
     (walked job ids) and volatile envelope fields. Preserve unknown UUIDs and
     arbitrary user strings; extra masking only through fixture-declared paths.
@@ -2234,22 +2246,24 @@ validation. Open questions are `Q-OR-n`.
   - Never masked: a successful failure handler's own result, and therefore a
     failed root that carries it, keeps its user data.
   - Unordered arrays compare as multisets, never as sets.
-  - Define escaping and collision handling for semantic paths and
-    placeholder-looking user strings ([OR-14](#or-14) item 2).
+  - Escaping and collision handling for site paths and placeholder-looking
+    user strings: [OR-14](#or-14) item 2, over the typed site paths of
+    [OR-V8](#or-v8).
   - **Windmill fact behind it:** Bun results are arbitrary user JSON, and a
     successful handler's result becomes a failed root's result
     ([OR-12](#or-12)).
-- **Correction (validation):** the negative comparisons (unknown UUIDs,
+- **Correction (validation; adopted 2026-10-30):** the negative comparisons (unknown UUIDs,
   handler data, multiplicity) are fixed, but the consolidated identity
   encoding still allows false equivalence: special-slot paths collide with
   ordinary module ids, and percent escaping does not escape `%`
   ([OR-V8](#or-v8)).
-- **Open:** [Q-OR-17](#q-or-17).
+- **Answered:** [Q-OR-17](#q-or-17) (2026-10-30).
 - **Evidence:** `backend/windmill-worker/src/bun_executor.rs:1943-1944` (Bun
   results stay arbitrary user JSON); `backend/windmill-worker/src/worker_flow.rs:2002-2058`.
   This is a harness correctness requirement, not a claim that Windmill
   normalises values.
 - **Conformance:** [OR-V3/a, OR-V3/b, OR-V3/c, OR-V3/d](conformance.md#or-v3)
+- **Revision 2026-10-30 (SC5, oracle batch E3f, Q-OR-17):** the dispute is settled for the validation's correction. Batch E3f recorded the colliding pairs [Q-OR-17](#q-or-17) asked for, created through the flows API, which checks no module id (fixture `conformance/flows/oracle/colliding-ids`): an ordinary step `failure` beside a failure module `recover` (run `slot_failure`, oracle run 41000318656), an ordinary step `preprocessor` beside a preprocessor `pre` (run `slot_pre`, oracle run 41007241030), and the ids `a/b` and `a%2Fb` (run `slash`, oracle run 41000318656). Under the typed site paths the harness adopted (design record 0011: `m:<id>`, `s:failure`, `s:preprocessor`, with `%`, `/`, `:` and `~` percent-escaped), each pair stayed two records and two placeholders: `m:failure` and `s:failure`, `m:preprocessor` and `s:preprocessor`, `m:a%2Fb` and `m:a%252Fb`. The drafted encoding (plain ids, the unqualified slot paths `failure` and `preprocessor`, and an escaping that left `%` alone) is withdrawn; the escaping bullet above now points to the typed one. OR-V3/c is recorded; OR-V3/a, /b and /d are harness checks with no Windmill recording of their own, now `source-derived`. Status `DISPUTED` → `confirmed`.
 
 <a id="or-v4"></a>
 ### OR-V4 · Observe key order before the next job's argument boundary
@@ -2334,7 +2348,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v7"></a>
 ### OR-V7 · Generated virtual steps require an explicit capture policy
 
-**Scope:** core (trailing sleep capture); out (durable suspend) · **Confidence:** high (source-traced; live shape pending) · **Status:** confirmed; drafted (where the generated module shows, added 2026-10-29)
+**Scope:** core (trailing sleep capture); out (durable suspend) · **Confidence:** high (source-traced; the live shape, where the generated module shows: oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill:** if the **last** module of a module list has `sleep` or
@@ -2391,19 +2405,36 @@ validation. Open questions are `Q-OR-n`.
   previous module's sleep (`:3666-3690`), whose result is its
   `previous_result` argument (`backend/windmill-worker/src/worker.rs:4032-4038`).
   New case OR-V7/c gives the predicted deployed value and status entry.
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OR-V7/c](conformance.md#or-v7) is recorded as predicted ([Q-OR-9](#q-or-9)): `flows/get` defined `a` only, while the completed run's raw `flow_status.modules` ended with a `Success` entry `a-v` whose job was an identity job about 1 s after `a`, with `a`'s result `7` (fixture `conformance/flows/client-api/driven`, run `orv7c`, oracle run 40994947681). The drafted part leaves the drafted list.
 
 <a id="or-v8"></a>
 ### OR-V8 · Semantic identities must distinguish special slots and literal module ids
 
-**Scope:** core · **Confidence:** high (specification collision); acceptance of unusual ids not verified · **Status:** DISPUTED
+**Scope:** core · **Confidence:** high (specification collision; the typed encoding keeps the pairs apart, and the flows API admits the ids: oracle-observed) · **Status:** confirmed
 
-- **Rule (as drafted):** the walker, the `<job:PATH>` placeholders and any
-  table keyed by semantic path share the path encoding of [OR-14](#or-14)
-  item 2: ordinary modules use their `id`; the special slots use the
-  unqualified paths `failure` and `preprocessor`; a literal `[`, `]`, `/` or
-  `#` in a module id is percent-escaped (`%5B`, `%5D`, `%2F`, `%23`); a user
-  string that looks like `<job:…>` is escaped to `<<job:…>`.
-- **Correction (validation):** that encoding is not injective, and the
+- **Rule:** the walker, the `<job:PATH>` placeholders and any table keyed by
+  site share one injective encoding, the typed site paths (design record 0011): `m:<id>` for a module, with `~<k>` when an id repeats in one list; `i:<n>` for an iteration; `b:<n>` or `b:default` for a branch; `s:failure` and `s:preprocessor` for the special slots; `r:<k>` for the k-th failed attempt; segments joined by `/`; `%`, `/`, `:` and `~` in a value percent-escaped as `%25`, `%2F`, `%3A`, `%7E`. The kind separates
+  an ordinary module from a slot, the occurrence separates repeated ids, and
+  the escaping covers its own escape character, so `m:failure` and
+  `s:failure`, `m:preprocessor` and `s:preprocessor`, and `m:a%2Fb` (for
+  `a/b`) and `m:a%252Fb` (for `a%2Fb`) are distinct (recorded).
+  - **Windmill facts behind it:** the flows API admits such ids, checking
+    neither their characters nor their uniqueness ([OF-2](openflow.md#of-2));
+    the stored flow status keeps the module list, the failure slot and the
+    preprocessor slot in separate fields. One place in Windmill does key on
+    the id text: when a job whose step id is `preprocessor` succeeds, the
+    result processor replaces that job's stored args with
+    `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}` (meant for the
+    preprocessor slot, whose usual id is `preprocessor`). So an ordinary step
+    named `preprocessor` loses its stored args after it succeeds, while a
+    preprocessor with another id keeps its own (recorded, OR-V8/b). The
+    step's result and the flow are unaffected.
+- **Rule as drafted (withdrawn 2026-10-30):** ordinary modules used their
+  `id`; the special slots used the unqualified paths `failure` and
+  `preprocessor`; a literal `[`, `]`, `/` or `#` in a module id was
+  percent-escaped (`%5B`, `%5D`, `%2F`, `%23`); a user string that looked
+  like `<job:…>` was escaped to `<<job:…>`.
+- **Correction (validation; adopted 2026-10-30):** that encoding is not injective, and the
   identity must be injective:
   - an ordinary module called `failure` and a separate failure handler called
     `recover` both become `failure`; the same holds for an ordinary module
@@ -2423,12 +2454,13 @@ validation. Open questions are `Q-OR-n`.
     encoding must be chosen and documented before the harness is implemented.
     This is a harness design requirement; Windmill's naming rules do not
     change.
-- **Open:** [Q-OR-17](#q-or-17).
+- **Answered:** [Q-OR-17](#q-or-17) (2026-10-30).
 - **Evidence:** `backend/windmill-types/src/flow_status.rs:506-531` (special
   slots kept apart); `backend/windmill-types/src/flows.rs:546`
   (`FlowModule.id` is a string), `:222-265` (flow validation reserves no names);
-  `openflow.openapi.yaml:284-286`.
+  `openflow.openapi.yaml:284-286`; `backend/windmill-api-flows/src/flows.rs:501-513` (no id check at deploy); the discarded args `backend/windmill-worker/src/result_processor.rs:1453-1468` (keyed on the step id `preprocessor`), the step id of every pushed step job is its module id (`backend/windmill-worker/src/worker_flow.rs:4429`).
 - **Conformance:** [OR-V8/a, OR-V8/b, OR-V8/c](conformance.md#or-v8)
+- **Revision 2026-10-30 (SC5, oracle batch E3f, Q-OR-17):** the dispute is settled for the validation's correction. Batch E3f recorded the colliding pairs [Q-OR-17](#q-or-17) asked for, created through the flows API, which checks no module id (fixture `conformance/flows/oracle/colliding-ids`): an ordinary step `failure` beside a failure module `recover` (run `slot_failure`, oracle run 41000318656), an ordinary step `preprocessor` beside a preprocessor `pre` (run `slot_pre`, oracle run 41007241030), and the ids `a/b` and `a%2Fb` (run `slash`, oracle run 41000318656). Under the typed site paths the harness adopted (design record 0011: `m:<id>`, `s:failure`, `s:preprocessor`, with `%`, `/`, `:` and `~` percent-escaped), each pair stayed two records and two placeholders: `m:failure` and `s:failure`, `m:preprocessor` and `s:preprocessor`, `m:a%2Fb` and `m:a%252Fb`. The drafted encoding (plain ids, the unqualified slot paths `failure` and `preprocessor`, and an escaping that left `%` alone) is withdrawn; the text above now states the typed one. Status `DISPUTED` → `confirmed`. The recording of `slot_pre` also showed the Windmill fact added above: `m:preprocessor`'s stored args read `{"reason": "PREPROCESSOR_ARGS_ARE_DISCARDED"}`, while `s:preprocessor` kept the trigger event.
 
 <a id="or-v9"></a>
 ### OR-V9 · A probe recipe must specify the actual transform scope
@@ -2636,6 +2668,11 @@ no ports, and `mem_limit: 2g`.
   differ, because the simple for-loop collapse is disabled for `FlowPreview`.
   *Settled by:* running each fixture through `run/preview_flow` and `run/f` and
   diffing the projections. Optional.
+  *2026-10-30 (SC5):* batch E3f ran previews through the API for a few
+  cases (the skip-flag fixtures of [OF-7](openflow.md#of-7), whose preview
+  and deployed results differ only as the raw and deployed defaults say, and
+  [JE-36/d](conformance.md#je-36), equal to its deployed run); not a
+  comparison of every fixture. Still open and optional.
 
 <a id="q-or-4"></a>
 - **Q-OR-4** · affects [OR-6](#or-6) · Under `NO_AUTH=true`, does a job's
@@ -2729,6 +2766,12 @@ no ports, and `mem_limit: 2g`.
   `Success` entry `a-v` whose job is an identity job scheduled about 1 s
   after `a` completed, with `a`'s result. What remains is the recording,
   requested from batch E3f.
+  **Answered 2026-10-30 (SC5).** Batch E3f recorded
+  [OR-V7/c](conformance.md#or-v7) as predicted (fixture
+  `conformance/flows/client-api/driven`, run `orv7c`, a driver step on two
+  workers, oracle run 40994947681): `flows/get` shows `a` only, and the raw
+  `flow_status` ends with `a-v`, an identity job about 1 s after `a` with
+  `a`'s result. Status: closed.
 
 <a id="q-or-10"></a>
 - **Q-OR-10** · affects [OR-16](#or-16), [OR-V6](#or-v6), [OR-29](#or-29) ·
@@ -2789,6 +2832,11 @@ no ports, and `mem_limit: 2g`.
   `backend/windmill-api-scripts/src/scripts.rs:1194-1235`). So
   [OR-24/e](conformance.md#or-24) can be recorded with the ordinary run
   API; requested from batch E3f.
+  **Answered 2026-10-30 (SC5) for (c).** Batch E3f recorded
+  [OR-24/e](conformance.md#or-24) through the run API (fixture
+  `conformance/flows/oracle/preprocessor`, run `script_keys`, oracle run
+  40994947681): the script's own preprocessor's order, `["bbb","a","cc"]`,
+  reached `main`. Status: closed ((d) stays out of scope).
 
 <a id="q-or-12"></a>
 - **Q-OR-12** · affects [OR-23](#or-23), [OR-24](#or-24) · **Answered
@@ -2824,6 +2872,11 @@ no ports, and `mem_limit: 2g`.
   `Result of job <job id> is too large: <n>MB > MAX_RESULT_SIZE_MB=<m>MB.` plus
   a pointer to object storage, without retries or location suffix. A
   recording in a session of its own remains optional (batch E3f).
+  *2026-10-30 (SC5):* the optional recording is made: in a session with
+  `MAX_RESULT_SIZE_MB=3`, [OR-7/b](conformance.md#or-7) and
+  [OR-7/c](conformance.md#or-7) gave exactly the predicted `ResultTooLarge`
+  error (fixture `conformance/flows/oracle/result-size`, oracle run
+  40994947681). Status: closed.
 
 <a id="q-or-15"></a>
 - **Q-OR-15** · affects [OR-26](#or-26), [OR-11](#or-11) · **Answered
@@ -2863,7 +2916,7 @@ no ports, and `mem_limit: 2g`.
 
 <a id="q-or-17"></a>
 - **Q-OR-17** · affects [OR-V8](#or-v8), [OR-11](#or-11), [OR-14](#or-14),
-  [OR-V3](#or-v3) · **Not converged.** What collision-free identity encoding
+  [OR-V3](#or-v3) · **Answered 2026-10-30 (SC5), see the end of this entry.** Originally not converged: what collision-free identity encoding
   will the walker, the placeholders and any path-keyed table share? The
   drafted special paths `failure` / `preprocessor` collide with ordinary module
   ids, and the percent escaping omits the escape character. *Settled by:*
@@ -2894,6 +2947,22 @@ no ports, and `mem_limit: 2g`.
   ordinary module `failure` and the failure slot are two status entries in
   different places, as the typed site paths `m:failure` and `s:failure`
   assume. Still open for the captures.
+  **Answered 2026-10-30 (SC5).** Batch E3f recorded the colliding pairs,
+  created through the flows API (fixture `conformance/flows/oracle/colliding-ids`):
+  `slot_failure` (an ordinary step `failure` that throws, beside the failure
+  module `recover`; oracle run 41000318656), `slot_pre` (an ordinary step
+  `preprocessor` beside the preprocessor `pre`; oracle run 41007241030) and
+  `slash` (the ids `a/b` and `a%2Fb`; oracle run 41000318656). Under the
+  typed site paths each pair stayed two records and two placeholders:
+  `m:failure` and `s:failure`, `m:preprocessor` and `s:preprocessor`,
+  `m:a%2Fb` and `m:a%252Fb`. So the injective encoding the correction asked
+  for is the one in use, and [OR-11](#or-11), [OR-14](#or-14),
+  [OR-V3](#or-v3) and [OR-V8](#or-v8) are `confirmed` with it; the drafted
+  encoding is withdrawn. The captures also showed one Windmill behaviour of
+  its own: an ordinary step named `preprocessor` has its stored args replaced
+  by `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}` after it succeeds,
+  since Windmill keys that discard on the step id ([OR-V8](#or-v8)). Status:
+  closed.
 
 <a id="q-or-18"></a>
 - **Q-OR-18** · affects [OR-5](#or-5), [OR-7](#or-7), [OR-8](#or-8),

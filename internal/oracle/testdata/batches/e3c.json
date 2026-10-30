@@ -1,5 +1,5 @@
 {
-  "about": "Recording batch E3c of ADR 0012, FX errors: the catalogue cases of FX-12 to FX-15 and FX-30 to FX-38 (FX-36's executor part only) and of FX-V6, with FX-10/a, which also needs a failure module. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. FX-14/c is recorded by milestone N5's fixture flows/control-flow/subflow-retry, outside this batch, and FX-30/b and FX-38/b, which the reference added in its revision SC4, are requested from batch E3f. TestRecordingBatches enforces it.",
+  "about": "Recording batch E3c of ADR 0012, FX errors: the catalogue cases of FX-12 to FX-15 and FX-30 to FX-38 (FX-36's executor part only) and of FX-V6, with FX-10/a, which also needs a failure module. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. FX-14/c is recorded by milestone N5's fixture flows/control-flow/subflow-retry, outside this batch, and FX-30/b and FX-38/b, which the reference added in its revision SC4, were requested from batch E3f, which recorded them. TestRecordingBatches enforces it.",
   "batch": "E3c",
   "findings": ["FX-12", "FX-13", "FX-14", "FX-15", "FX-30", "FX-31", "FX-32", "FX-33", "FX-34", "FX-35", "FX-36", "FX-37", "FX-38", "FX-V6"],
   "cases": ["FX-10/a"],

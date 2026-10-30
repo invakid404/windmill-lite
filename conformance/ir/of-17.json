@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "OF-17/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "The list depends on the form enqueue builds the status from, as the source settles (Q-OF-11, answered 2026-10-29; OF-V5): an initial-lite status, which a run by path after a successful deployment gets in the reference configuration, has a-v, and a full-built one (DISABLE_FLOW_SCRIPT=true at enqueue, OF-V5/b) does not. windmill-lite's reference configuration is the successful lite deployment (0001 §1), so the program always has a-v. The run half, the status ids and the result, is N2's, which implements sleep.",
       "title": "final sleep adds a-v",

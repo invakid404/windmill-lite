@@ -2,15 +2,16 @@ finding: FX-42
 note: >-
   FX-42 says where values cross step boundaries as text. FX-42/a to FX-42/g
   were never contested, and the finding was settled when E3b recorded
-  FX-42/h, so the catalogue carries them with their own provenance (FX-42/c
-  and FX-42/g oracle-observed, the others source-derived) and these entries
+  FX-42/h, so the catalogue carries them with their own provenance (all
+  oracle-observed but FX-42/d, source-derived; batch E3f recorded FX-42/a,
+  FX-42/b, FX-42/e and FX-42/f) and these entries
   encode one expectation each. Every catalogue
   case here is a flow case: the entry checks the texts a Value holds, and
   rest_in names where the route half is checked. FX-42/d, FX-42/e and
   FX-42/h to FX-42/o are in deferred.yaml.
 cases:
   - spec: FX-42/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: nested arg values reach the script in jsonb order
     read: stored
     given: '{"bb":1,"a":2,"c":3}'
@@ -19,7 +20,7 @@ cases:
       stored: '{"a":2,"c":3,"bb":1}'
     rest_in: N1a, which binds previous_result to a's producer text and stores b's argument before b runs (ADR 0005, the argument pipeline)
   - spec: FX-42/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: an engine-built object is stored in jsonb order
     note: 'The given text is what JSON.stringify writes for ({zz: 1, y: 2}).'
     read: stored
@@ -38,7 +39,7 @@ cases:
       stored: '{"a":2,"bb":1}'
     rest_in: N1a and B2a, which bind previous_result to the producer text (ADR 0005, the routing table)
   - spec: FX-42/f
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: Python sees jsonb's rewritten number
     note: The given text is what JSON.stringify writes for 1e21.

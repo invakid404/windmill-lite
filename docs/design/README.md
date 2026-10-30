@@ -260,12 +260,14 @@ each record):
 Twenty-one findings of the reference were not settled when the design was
 written; the reference's revision of 2026-10-28 settled nine of them, its
 revisions of 2026-10-29 eight more (six by batch E3e, and OF-3 and OF-V5
-from the source in SC3), and
-[four remain](../semantics/README.md#not-settled). The design does not pick
-sides silently: [0001](0001-equivalence-contract.md) §6 lists each contested
-rule, its readings, the default and why, and the recording that settles it.
-Recording batches E3a to E3e record them on the oracle (E3e holds the
-contested `later` cases), each before the milestone that implements its
+from the source in SC3), and its revision SC5 of 2026-10-30 the last four
+(the oracle findings OR-11, OR-14, OR-V3 and OR-V8, by batch E3f's
+recordings), so [none remain](../semantics/README.md#not-settled). The
+design does not pick sides silently: [0001](0001-equivalence-contract.md)
+§6 lists each contested rule, its readings, the default and why, and the
+recording that settles it. Recording batches E3a to E3f record them on the
+oracle (E3e holds the contested `later` cases, and E3f recorded the last
+four, Q-OR-17), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
 keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
@@ -293,7 +295,8 @@ request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1, pull
 request #36), 10 and 11 (FU3's readings and the fold-in of batch E3e),
 and request 1's last question, by its revision of 2026-10-29 (SC2, pull
 request #55); 12 and 13 (FU6's questions) by its revision SC4 of the same
-day, 12 for the ordinary execution path only. Each item names the findings
+day, 12 for the ordinary execution path only, and batch E3f's recordings
+confirmed both answers (revision SC5, 2026-10-30). Each item names the findings
 that answer it. Where an answer
 differs from a reading a milestone took, that milestone's code follows the
 answer in a follow-up; the sync-folder loader and the import base already
@@ -799,6 +802,16 @@ harness follow SC2's answers (FU6).
     confirm the per-job rule, and the section below requests WR-55/a–c
     from batch E3f.
 
+    *Update 2026-10-30 (reference revision SC5):* batch E3f recorded
+    WR-55/a–c as stated, so the per-job rule is oracle-observed and
+    Q-WR-28 is closed. It also recorded squashed loops on the CE image
+    ([CF-25/e](../semantics/conformance.md#cf-25)): the runners keep one
+    runtime per body step across a loop's iterations, so module state
+    carries over, and `WM_JOB_ID` reads `NOT_AVAILABLE` inside them. What
+    they do with a child an iteration leaves behind is still open
+    ([Q-CF-19](../semantics/control-flow.md#q-cf-19)), requested in the
+    SC5 section below.
+
 13. **A container child result the backend cannot read back**
     ([FX-42](../semantics/execution.md#fx-42) rule 9,
     [JE-44](../semantics/expressions.md#je-44); milestone FU6), answered by
@@ -843,12 +856,13 @@ harness follow SC2's answers (FU6).
       Windmill's error handler targets the child flow that has already
       completed, so no job is completed with the error. The flow running
       the container stays running until the zombie-flow monitor cancels it
-      after about 60 s (medium).
+      after about 60 s.
     - A child flow that the first route fails leaves its parent waiting the
       same way.
 
-    Both routes are source-derived and still need the recordings the
-    section below requests from batch E3f. windmill-lite's immediate
+    Batch E3f recorded both routes as stated, including the parallel and
+    `branchall` forms, and the reference's revision SC5 (2026-10-30) marks
+    FX-42/m to FX-42/o `oracle-observed`. windmill-lite's immediate
     chaining `InternalError` with the library's bare text, positioned in
     the child's stored text, differs in both routes: in the name, the
     wrapper and the position where Windmill fails the flow, and in the
@@ -873,8 +887,11 @@ Nothing here may commit the oracle's database credentials unmasked.
 request below is a fixture of the batch, recorded in the session it names,
 or is deferred with its reason in the batch's manifest,
 [`internal/oracle/testdata/batches/e3f.json`](../../internal/oracle/testdata/batches/e3f.json),
-which also lists every claim the oracle contradicted. Requests the next
-semantics revision makes go in a new section.
+which also lists every claim the oracle contradicted. Batch E3f (PR #75)
+recorded this section; revision SC5 folded its recordings into the
+reference and corrected the five claims the oracle contradicted (WR-11/c,
+FX-11/b, CF-30/b, WR-43/i and CF-22/h), and its new requests are in the
+next section.
 
 **The reference session** (one worker, default worker tags):
 
@@ -1402,11 +1419,311 @@ colliding pairs have their own request above.
 **From the build team** (milestone FU8, N5's follow-up). N5 left a
 canceled flow step that is scheduled but not launched unrecorded; it is
 now [FX-38/b](../semantics/conformance.md#fx-38)'s subflow variant,
-requested above ("A step canceled while it waits to start"). Its Bun
+requested above ("A step canceled while it waits to start"). Batch E3f
+recorded it as predicted (fixture `conformance/flows/execution/fx-38-pickup`,
+runs `subflow`, `bun` and `retried`, oracle run 40994947681): the subflow's
+`Flow` job fails at pickup with the `Canceled` value and starts nothing, and
+its own flow status still lists the subflow's step with no job, which a
+reader of the run sees as never started (SC5 folded it into FX-38). Its Bun
 variant is recorded already (`conformance/flows/execution/fx-23`, run
 `canceled_sleep`). windmill-lite treats both alike: the cancellation makes
 the queued job due, and it fails without running, with the `Canceled`
 error, before a flow step's subflow starts (internal/engine, FX-38).
+
+## Recording requests for a future batch E3f (SC5)
+
+**From the semantics team** (revision SC5 of 2026-10-30); these are
+requests, not design decisions. Batch E3f's first run (PR #75) recorded
+the section above, and revision SC5 folded its recordings into the
+reference. What only a running Windmill can still show is listed here
+for the next run of batch E3f. Every expectation below is the
+reference's prediction; the named case or question holds the exact text.
+
+**Loops, branches and slots (CF)**, in the reference session (one
+worker, default worker tags) unless a bullet says otherwise:
+
+- **What a squashed loop's runner does, the rest**
+  ([Q-CF-19](../semantics/control-flow.md#q-cf-19),
+  [CF-25/e](../semantics/conformance.md#cf-25),
+  [WR-55](../semantics/languages.md#wr-55)). Batch E3f found the reuse,
+  but its reading step looked the iteration jobs up by `WM_JOB_ID`, which
+  reads `NOT_AVAILABLE` in a squashed runtime, so it read no logs or
+  times. Repeat `control-flow/cf-25-runtime`'s `for_one_squash`,
+  `for_two_squash` and the `child_plain`/`child_squash` pair, deployed and
+  run by path, with the body script also returning `pid`
+  (`process.pid`) and `env`: the values of `WM_JOB_ID`, `WM_FLOW_JOB_ID`,
+  `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`, `WM_USERNAME` and `WM_EMAIL`.
+  The last step finds the iteration jobs through the loop's status
+  instead: `GET /api/w/<ws>/jobs_u/get/<WM_FLOW_JOB_ID of the last step>`,
+  `flow_status.modules[0].flow_jobs` (for the two-step body these are
+  `flownode` child flows: read each one the same way for its steps' job
+  ids); then, for each job, `/jobs_u/get_logs/<id>` and
+  `/jobs_u/completed/get/<id>`. It returns only stable values: the number
+  of distinct `pid`s per step, the `env` values with any UUID replaced by
+  `"<uuid>"`, whether any log line starts `dedicated worker bun:`, and,
+  for the child pair, whether each iteration job's completion came at
+  least 4 s after its start. Predicted: one `pid` per body step across
+  the three iterations; `WM_JOB_ID` `"NOT_AVAILABLE"`, `WM_FLOW_JOB_ID`,
+  `WM_ROOT_FLOW_JOB_ID` and `WM_FLOW_STEP_ID` `""`, `WM_USERNAME`
+  `"dedicated_worker"`, `WM_EMAIL` `"dedicated_worker@windmill.dev"`
+  (from the public start of a dedicated runtime; the CE image's runner
+  module is closed source); unsquashed, every iteration waits for its
+  child (WR-55/a). No prediction for the log line or for whether a
+  squashed iteration waits for its child.
+- **An empty loop in the failure slot**
+  ([CF-31/d](../semantics/conformance.md#cf-31),
+  [Q-CF-17](../semantics/control-flow.md#q-cf-17)). The walker refuses
+  the run (E3f), so read it through the API: in the two-worker session
+  (the driver waits for a job it starts, OR-5/b), a Bun driver step runs
+  CF-31/d's two flows by path (`[a: fail("x"), b: ret(x) x =
+  previous_result]` and `[a: fail("x")]`, each with the failure module a
+  `forloopflow` `failure` over `[]` with the body `[h: ret(1)]`), waits
+  for each, and returns the job's `success` and `result`, and from
+  `GET /api/w/<ws>/jobs_u/get/<id>` each `flow_status.modules` entry's
+  `id` and `type`, and `flow_status.failure_module.type`. Predicted:
+  both succeed with `[]`; the entries are `[{"id": "failure", "type":
+  "Success"}, {"id": "b", "type": "Success"}]` and `[{"id": "failure",
+  "type": "Success"}]`, and `b`'s result is `[]`.
+- **A parallel loop stopped by its own predicate** (optional;
+  [CF-7](../semantics/control-flow.md#cf-7)'s
+  `stop_after_all_iters_if` sentence, drafted;
+  [CF-13](../semantics/control-flow.md#cf-13)). Deployed, run by path:
+  `[l: forloopflow(iterator: [1, 2], parallel: true, skip_failures: true,
+  stop_after_all_iters_if: {expr: "null.x"}, modules: [x: bun: return 1])
+  (continue_on_error: true), n: ret("after")]`, then `l` alone without
+  `continue_on_error`. Predicted for both: status failure, result
+  `{"error": {"name": "EarlyStopError", "message": <starts "Error
+  evaluating stop_after_all_iters_if expression `null.x`: ">}}`, `n` not
+  run, and no `InternalError`.
+- **A preprocessor that is not a script, by the other routes** (optional;
+  [CF-30/b, CF-30/c](../semantics/conformance.md#cf-30)). Extend
+  `control-flow/cf-1-30`'s driver: the same run request for CF-30/c's
+  flow (a sequential `forloopflow` preprocessor; expected the same 500
+  `Internal: Unsupported preprocessor module<loc>`), and both flows with
+  `?skip_preprocessor=true` (expected 201, then each flow succeeds with
+  `{}`, which the driver reads with `GET /jobs_u/completed/get_result_maybe/<id>`
+  in the two-worker session).
+
+**Flow execution** (the reference session unless a bullet says otherwise):
+
+- **What the failure module sees after a tolerated error stop at the last
+  module** ([FX-V4/a](../semantics/conformance.md#fx-v4), [Q-FX-3](../semantics/execution.md#q-fx-3)). `[a: bun:
+  return 3 (continue_on_error: true, stop_after_if: {expr: "true",
+  skip_if_stopped: false, error_message: "E"})]`, no retry, with a failure
+  module `bun(p, r): return {p, r}`, `p = "previous_result"`,
+  `r = "results.a"`. Expected: the handler runs once and the flow fails
+  with `{"p": {"error": {"name": "EarlyStopError", "message": "E"}}, "r":
+  3}` (the handler is entered through the advanced cursor, so it has no
+  preceding id and `results.a` reads the stored `3`). Control: the same
+  flow without `continue_on_error`, where `r` is the `EarlyStopError`
+  (as FX-V2/a recorded).
+- **`timeout: 0`** ([Q-FX-2](../semantics/execution.md#q-fx-2)). `[a: bun: return 1 (timeout:
+  0)]`, run ten times. Record each run's status and `a`'s result. Either
+  the process timer fires first (the [FX-25](../semantics/conformance.md#fx-25) error with
+  "job-specific" wording) or the step returns `1`; no order is promised, so
+  record the outcomes, not one expected value.
+- **A negative timeout at root pickup** ([FX-24/b](../semantics/conformance.md#fx-24),
+  [Q-FX-4](../semantics/execution.md#q-fx-4)). `[a: bun: return 1 (timeout: {type:
+  javascript, expr: "-1"})]`, run by path. Expected: the root fails at
+  pickup with name `Anyhow` and message
+  `Error: Timeout value cannot be negative<loc>` (recorded `<loc>`:
+  `@worker.rs:3822:13` for the collapsed loop of
+  `conformance/flows/control-flow/waits`, run `loop_timeout_negative_root`),
+  and `a` has no job.
+- **Preview against deployed** ([FX-46/a](../semantics/conformance.md#fx-46),
+  [FX-24/d](../semantics/conformance.md#fx-24), [FX-40/c](../semantics/conformance.md#fx-40),
+  [Q-FX-5](../semantics/execution.md#q-fx-5)), two workers (a driver step that waits for the
+  jobs it starts, as batch E3f's `client-api/driven` run `previews` does).
+  The driver runs each flow by path and its value through
+  `POST /api/w/{w}/jobs/run/preview_flow`, waiting for each. FX-46/a's flow:
+  expected deployed failure `[{"error": {…, "step_id": "l"}}]`, preview
+  success `[{"error": {…, "step_id": "x"}}]`. FX-24/d's flow: expected
+  preview success after about 3 s (the loop's `timeout: 1` is not
+  enforced on the uncollapsed body). FX-40/c's rawscript flow previewed
+  twice: expected two different values (a preview does not collapse the
+  loop, so the loop's `cache_ttl` does not reach the body job).
+- **The shared directory** ([FX-41/a–c](../semantics/conformance.md#fx-41),
+  [Q-FX-10](../semantics/execution.md#q-fx-10)), flows with `same_worker: true` on the one
+  Linux worker: (a) `[a: bun: write ./shared/f "x", b: bun: read
+  ./shared/f]`, expected `"x"`; (b) `[a: as (a), br: branchone(default: [c:
+  bun: read ./shared/f])]`, expected `"x"`; (c) (a) with `sleep: {type:
+  static, value: 0}` on `a`, expected `b` to fail with the runtime's
+  file-not-found error (record its text).
+- **S3-aware cache hashing** ([FX-40/k](../semantics/conformance.md#fx-40),
+  [Q-FX-21](../semantics/execution.md#q-fx-21)), `later`, optional: the E3f request "S3-aware
+  cache hashing" above, unchanged. It needs workspace object storage
+  pointed at an S3-compatible store started beside the oracle, which batch
+  E3f's harness did not start (the session of WA-16/c and WA-16/e).
+- **Cases no open question names** ([FX-36/i](../semantics/conformance.md#fx-36),
+  [FX-42/d, FX-42/k, FX-42/l](../semantics/conformance.md#fx-42), [FX-50/b–d](../semantics/conformance.md#fx-50)),
+  optional. FX-42/k and FX-42/l: a variable with the text
+  `[-0, 0, -1e-400, 1e-400]` (and one with `1e400`) passed as
+  `v = "$jsonvar:<path>"` to a Bun step returning its arguments file's
+  text, expected `{"v":[-0.0,0,-0.0,0.0]}` (and, for `1e400`, the step
+  failing with ``execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 5<loc>``).
+  FX-42/d: a transform `Object.keys(flow_input).sort()` with input
+  `{"b": 1, "a": 2}`, expected `["a", "b"]`. FX-50/c and FX-50/d: the two
+  throwing `skip_if` flows as the cases give them, expected the
+  `InternalError` texts there (the user's ` @worker.rs:1:2` and
+  ` (user.rs:123)` kept, one generated `<loc>`); FX-50/b's messages are
+  already in recorded texts and need no run. FX-36/i: a deployed flow run
+  through run-and-wait whose result is each of the four values the case
+  lists, expected HTTP 200 with the whole result as the body.
+- **Rule 9's rounding**, optional ([FX-42](../semantics/execution.md#fx-42) rule 9).
+  FX-42/j's flow with `0.028735999999999998` appended to the body's array;
+  expected the loop's text to print it as `0.028735999999999998`, not
+  `0.028736` (the parse is correctly rounded).
+
+**Languages (WR)** (the reference session unless a bullet names another; `native` is batch E3f's session whose CE worker has `WORKER_TAGS=nativets`):
+
+- **The module-level `apply_preprocessor`** ([WR-11/d](../semantics/conformance.md#wr-11), [WR-11](../semantics/languages.md#wr-11)). Batch E3f's `oracle/preprocessor` wrote the flag inside the step's `value`, where it is ignored. Deploy through the flows API (not the CLI, so the module keeps the field as written) two flows over the WR-11/b script, each with one `script` module carrying `apply_preprocessor: true` beside `id` and `value`: one whose value has `hash` set to the script's deployed hash (as `pinned` substitutes it), one without `hash`. Observe the step's result and stored args. Expected: pinned `"pre"` (stored args `{"x":"pre"}`), by path `"orig"`. Also read the deployed flow back (`flows/get`) to check the module still has the field.
+- **A run after a failed deploy** ([WR-40/i](../semantics/conformance.md#wr-40), [WR-54/f](../semantics/conformance.md#wr-54)). The harness stops a fixture whose dependency job fails, so use a driver step that creates, waits and runs through the API, which needs a second worker (OR-5/b). (a) WR-40/i `d` and `e`, in a two-worker variant of the `native` session (both workers with `WORKER_TAGS=nativets`): create each one-step flow (`//native` with `import { spawn } from "child_process"`; `import { test } from "node:test"`) with `flows/create`, wait for its dependency job, return that job's result (expected: failed, its error containing `Browser build cannot import Node.js builtin: "child_process"`, or `"node:test"`), then run the flow by path with run-and-wait and return its result. Expected: the step fails with `ExecutionErr`, a message starting `exit code for "bun build": 1, last log lines:` and containing the same build error and `Failed to build node bundle`. (b) WR-54/f, in a two-worker reference session: create the script with `scripts/create` exactly as the case gives it, at a path with no earlier version, and keep the hash it answers with; wait for its dependency job (expected: failed with `Error creating schema validator: ` and the load error). Then (1) run it by path with `{"xs":["a"]}` and return the HTTP status and body, and the jobs at the path. Expected: 404, ``Not found: script not found at name <path> (lib.rs:1587)``, and no job besides the dependency job. (2) Run the failed version by hash, `POST /api/w/{w}/jobs/run/h/{hash}` with the same body, and wait for that job. Expected: it fails before the script runs, its message containing ``Couldn't create schema validator for script requiring schema validation: Error: Problem making rule for xs: Error: Array type should have field `items` `` (compare with location suffixes masked). (3) Control: at a second path, create a valid version (the same script without `// schema_validation`), wait for its lock, create the failing version over it, wait for its failed dependency job, and run by path. Expected: the valid version's result, `["a"]`.
+- **The instance's default job timeout** ([WR-44/d](../semantics/conformance.md#wr-44)), in a `native` session of its own, since the setting applies to every job. A worker reloads `job_default_timeout` only when it polls the setting-change notifications (every `LISTEN_NEW_EVENTS_INTERVAL_SEC`, 1 s on the oracle), so: set it to `1` with `POST /api/settings/global/job_default_timeout` (`{"value": 1}`), then poll with a `nativets` probe step that has no `timeout` and waits 3 s until it fails with `Query timeout after (>1s)` (at most about 30 s), then run WR-44/d in both kinds, and reset the setting (`{"value": null}`) and poll the probe until it succeeds before the session ends. Do this once per repeat. Expected: `{"error":{"message":"execution error:\nQuery timeout after (>1s)","name":"ExecutionErr","step_id":"a"}}` in both kinds.
+- **A native stream that is not JSON** ([WR-46/c](../semantics/conformance.md#wr-46), [Q-WR-22](../semantics/languages.md#q-wr-22)), `native` session: a `nativets` step `export async function* main() { yield "a"; yield "b"; }`. Observe the step's status and error; expect it to take about 30 s (the completion insert's ten retries). Expected: `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job id>: error returned from database: invalid input syntax for type json @<loc>"}}`, no `step_id`.
+- **`require` through esbuild's helper** ([WR-50/h](../semantics/conformance.md#wr-50)), `native` session, a codebase entry pushed with the pinned CLI exactly like batch E3f's `esmreq` (format `esm`, the `createRequire` banner), whose `//native` script returns `[e.name, e.message]` from a `try` around `require("node:path").sep`. Expected: `["Error","Dynamic require of \"node:path\" is not supported"]`.
+- **A re-exported module of a `sideEffects: false` package** ([WR-27/b](../semantics/conformance.md#wr-27)), optional, needs the npm registry: a deployed Bun script with a lock that imports a named export which a published package with `"sideEffects": false` re-exports from another of its modules (`export { v } from "./v.js"`), the re-exported module having a load-time effect the export shows; no specifier on the way may end in `.ts`. Pick the package by reading its published files first, and pin its version. Expected: the export's value (no import on that path matches the import plugin's `.ts` filter, so the module is kept).
+- **The same behind a transitive bare import ending in `.ts`** ([WR-27/c](../semantics/conformance.md#wr-27)), optional, in the reference session (and `native` for the `//native` variant). Three synthetic packages, exactly as WR-27/c gives them: `outer` re-exporting `v` from `leaf.ts`, which re-exports it from `./value.js` (adds 1 to `globalThis.loaded`, exports `const v = 42`), both `"sideEffects": false`; the variant `outer` re-exporting from `deep/index.ts`; the controls with the package named `leaf`, and with `leaf`'s re-export from `./value.ts`. They must reach the worker's `bun install`: serve each as a tarball from the harness's sink and name it by URL in the dependencies the lock step installs (the workspace-dependencies route of [WR-26](../semantics/languages.md#wr-26)), or use published packages of exactly that shape, pinned. Deploy one Bun script per tree, `import { v } from "outer"; export function main() { return [v, globalThis.loaded ?? 0]; }`, wait for its lock, and run it by path; repeat the first tree as `//nodejs` and as `//native` (native session). Expected: the two `.ts` trees fail with `{"name": "ReferenceError", "message": "v is not defined", …}` in every mode, and both controls return `[42, 1]`. Also read the script's lock to check that the tarballs were installed.
+- **The lock-generation endpoint, by its effect** ([WR-V9/a](../semantics/conformance.md#wr-v9), [WR-V9](../semantics/languages.md#wr-v9)), optional, needs the npm registry. Batch E3f could not see the request itself. Deploy `f/x/helper`, whose source imports a small published package pinned to an old version (`import x from "<package>@<old version>"`, not the latest), then `f/x/main`, which imports `./helper` and nothing else, and read `f/x/main`'s lock with `GET /api/w/{w}/scripts/get/p/f/x/main`. Expected: its `package.json` part lists `"<package>": "latest"`, because lock generation fetched the helper through `raw_unpinned`, which strips the pin; through `raw` it would list the old version.
+- **WR-29/b's preview half** ([WR-29/b](../semantics/conformance.md#wr-29)): preview the WR-29/b flow value with `POST /jobs/run/preview_flow` from a driver step (two workers). Expected: `"elsewhere"`.
+
+**OpenFlow, the sync folder, expressions and the oracle (OF, SY, JE,
+OR)**, in the reference session unless a bullet says otherwise:
+
+- **An unknown pin, deployed through the API**
+  ([OF-14/f](../semantics/conformance.md#of-14)). Batch E3f deferred it
+  with the sync trees, but it needs no push: deploy a script
+  `f/wl_pin/s` (`export function main() { return 1 }`) and a flow `[a:
+  {type: script, path: f/wl_pin/s, hash: "0123456789abcdef"}]` with
+  `oracle.deploy api`, wait for the flow's dependency job, run by path.
+  Observe the dependency job's success, the flow's status and error, and
+  `a`'s module entry. Predicted: the dependency job succeeds; the run fails
+  before `a` has a job, with an error whose message contains
+  `script not found at name 81985529216486895`.
+- **`$jsonvar:` texts cut short in an object**
+  ([JE-42/k](../semantics/conformance.md#je-42)), in the style of
+  `je/je-20-providers`' `i` runs: variables holding `{"a":1,`, `{"a":1` and
+  `{"a":1,}`, each the static `x = "$jsonvar:<path>"` of a Bun step `b`
+  after `a: bun: return 1`, one run each. Predicted: `b` fails before it
+  runs with `execution error:\nInternal: Failed to parse $jsonvar value as
+  JSON: <m> @common.rs:299:17` and `step_id` `b`, where `<m>` is `EOF while
+  parsing a value at line 1 column 7`, `EOF while parsing an object at
+  line 1 column 6` and `trailing comma at line 1 column 8`.
+- **A deep `flow_env` member, in a session of its own**
+  ([JE-49/e](../semantics/conformance.md#je-49),
+  [Q-JE-15](../semantics/expressions.md#q-je-15)). Deploying it crashed the
+  CE server in batch E3f (oracle run 40990751153) and ended that session,
+  and the source read does not show why (the flows API and the flow decoder
+  keep the member as raw text). Run it last in a session whose job also
+  saves the Windmill container's log (`docker compose logs`) as an
+  artifact, whatever the outcome. Create, through the flows API, three
+  flows `[a: bun(x): return x]` with `x = flow_env.K.length` and `flow_env:
+  {K: nest(n)}` for `n` = 100, 127 and 128 (`nest(n)` = `n` nested arrays
+  around `[]`), in that order; after each create, poll `GET /api/version`
+  until it answers or 60 s pass, wait for the dependency job, and run the
+  flow by path. Observe, for each `n`: the create's status and body, the
+  dependency job's outcome, whether the server still answers, the run's
+  result; and the log's last lines before any restart (a Rust panic or a
+  stack-overflow abort names the thread). Predicted from the source alone:
+  every create and dependency job succeeds; `n` = 100 and 127 succeed with
+  `1` (the member's own text is within the 127-level limit), and `n` = 128
+  fails `a` before it runs with `recursion limit exceeded at line 1 column
+  128` and no `QuickJS evaluation error`
+  ([JE-49](../semantics/expressions.md#je-49)). The point of the run is
+  where, and from which `n`, the crash happens.
+- **Pushing sync trees as runs** ([Q-OF-13](../semantics/openflow.md#q-of-13);
+  SY-4/b, SY-5/c, SY-5/d, SY-7/f, SY-8/c, SY-10/b, SY-11/b, SY-13/b, SY-16/a,
+  SY-17/a–c, SY-18/a, SY-18/b, SY-19/a, SY-19/b, SY-19/e in
+  [conformance.md](../semantics/conformance.md#openflow)). Batch E3f
+  deferred all of them for one reason: the harness pushes a fixture's tree
+  once, before its runs, and fails the fixture when that push fails. They
+  need a harness session in which **a run is a push**: the pinned
+  `windmill-cli@1.767.0` (Node) runs `wmill sync push --yes` from the
+  tree's root into a fresh, empty workspace (one per run), and the run
+  records the exit status, standard output and standard error (with the
+  workspace, URL and token masked), the files the push wrote into the tree,
+  and the read-back of every item the case names (`scripts/get`,
+  `flows/get`, `resources/get`, `variables/get`, and a list of the
+  workspace's scripts and flows, so that an item that was not deployed
+  shows as absent). Per case, the tree is the case's Given and the
+  prediction its Expect:
+  - SY-4/b: the files written back (`x.script.yaml`, an empty
+    `x.script.lock`) and the deployed schema (`n`, `number`, required);
+  - SY-5/c: the deployed lock, the literal ` !inline f/a/x.script.lock`;
+  - SY-5/d: standard output's `Error reading inline path: …, Error: ENOENT:
+    no such file or directory, open 'f/a/x.script.lock'` and the lock `""`;
+  - SY-7/f: the module content, the text of `a.`;
+  - SY-8/c: the codebase the script was bundled from (`../shared`): give
+    the two codebases scripts that differ, and read the deployed bundle
+    back;
+  - SY-10/b and SY-11/b: the push's failure (`reading 'content'`; the
+    server's ``missing field `value` ``) and the item absent;
+  - SY-13/b: no `wmill.yaml`; the warning `No wmill.yaml found. Use 'wmill
+    init' to bootstrap it.` and the three items deployed;
+  - SY-16/a: one push per row of the table, recording which item deploys;
+  - SY-17/a–c, SY-18/a: exactly which items deploy for each `includes`;
+  - SY-18/b: the failure `The item f/a/helper.js has an unrecognized type
+    ending script`;
+  - SY-19/a: the deployed content's first characters (`export`, no
+    U+FEFF); SY-19/b: the failure `… is encoded as UTF-16 LE, which is not
+    supported. Please convert it to UTF-8.`; SY-19/e: standard error's
+    `Lock file a.inline_script.lock not found, treating as empty` and the
+    lock `""`.
+
+Not requested: JE-19/e and JE-19/f, since the CE image has no restart at
+all (the documented route answers 500 before the CE build's stub, which
+itself only answers that restarting is enterprise-only;
+[JE-19](../semantics/expressions.md#je-19)). The optional checks outside
+the oracle above (Q-JE-9, Q-JE-16) still stand, and so does the
+evaluator-level half of [Q-JE-12](../semantics/expressions.md#q-je-12)
+(rquickjs 0.11.0's output for `"\ud83d"`), which needs no Windmill.
+
+**The client API (WA)**, in the reference session unless a bullet says
+otherwise; each request is made by a Bun driver step with `fetch` and its
+own `WM_TOKEN`, recording each answer's status, `Content-Type` and body:
+
+- **A token outside its workspace**
+  ([WA-4/b](../semantics/conformance.md#wa-4),
+  [WA-V2/d](../semantics/conformance.md#wa-v2),
+  [Q-WA-13](../semantics/client-api.md#q-wa-13)). Recordable now, with
+  `<none>` a workspace id that names no workspace (for example `wl-none`)
+  and `<ws>` the fixture's workspace: `GET /api/w/<none>/variables/get_value/<a variable of the fixture>`;
+  `POST /api/w/<none>/jobs/flow/user_states/<WM_ROOT_FLOW_JOB_ID>/k` with
+  the JSON body `1`; `GET /api/w/<none>/jobs_u/get_root_job_id/<WM_JOB_ID>`;
+  `GET /api/w/<none>/jobs_u/completed/get_result_maybe/<id of a completed job of <ws>>`;
+  and `GET /api/w/<ws>/jobs_u/get_root_job_id/<WM_JOB_ID>`. Expected: 401
+  `text/plain` `Not authorized: Unauthorized` for the first two (a job
+  token is refused on another workspace's authenticated routes, existing
+  or not); 400 `text/plain`
+  `SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:<line>:<col>`;
+  200 `{"started":null,"success":null,"completed":false,"result":null}`
+  (the caller is anonymous and the job is not in `<none>`); 200 with the
+  root id as a JSON string. Once the harness can create a second workspace
+  `other` with the admin's session, repeat the four calls against `other`
+  (expected the same), and deploy into `other` a one-step Bun script that,
+  run there with the id `J` of a completed job the admin ran in `<ws>`,
+  calls `GET /api/w/<ws>/jobs_u/completed/get_result_maybe/J` with its own
+  token; expected 400 `text/plain`
+  `Bad request: As a non logged in user, you can only see jobs ran by anonymous users`.
+- **A second user** ([WA-12/h](../semantics/conformance.md#wa-12)'s other
+  half). The harness adds to the workspace a user who is not an instance
+  super admin and runs, as that user, a Bun step returning
+  `await getResource("CUSTOM_INSTANCE_DB/demo").catch(e => e.message)`
+  and the answer of
+  `GET /api/w/<ws>/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo`.
+  Expected: the message
+  `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: This endpoint requires the caller to be a super admin`,
+  and 401 `text/plain` with the text after `visible to you: `.
+- **Object storage, again**
+  ([WA-16/c–e](../semantics/conformance.md#wa-16),
+  [Q-WA-3](../semantics/client-api.md#q-wa-3)). The section above's
+  request stands: session A with workspace storage on an S3-compatible
+  store started beside the oracle (the explicit-key round trip
+  `[{"s3":"t/a.txt"},"hi"]`, `writeS3File(undefined, "x")` for the
+  generated key's form, and `loadS3File({s3:"t/none.txt"})`'s message),
+  session B without storage. In session B, record WA-16/d again with the
+  step returning the caught `ApiError`'s `status`, `statusText` and
+  `body`: batch E3f's step kept only the message, `Internal Server Error`,
+  which fixes the status at 500 but not CE's text.
 
 ## Changing the design
 

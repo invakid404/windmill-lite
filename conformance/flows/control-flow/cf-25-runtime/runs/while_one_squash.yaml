@@ -6,6 +6,6 @@
 # repeated pid), and whether a log line starts dedicated worker bun:. The
 # reference leaves the squashed outcome open, so the expect states the
 # values only and the recording holds the answer.
-spec: [CF-25]
+spec: [CF-25, CF-25/e]
 target: f/wl_cf25r/while_one_squash
 expect: {status: success, result: {values: [0, 1, 2]}}

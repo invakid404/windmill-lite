@@ -35,6 +35,9 @@ deferred:
   - case: JE-19/f
     reason: later; as JE-19/e, a restarted run, outside the contract; the restart route answers 500 on CE v1.767.0 (recording batch E3f, conformance/flows/client-api/driven, run restart)
     checked_in: none
+  - case: JE-42/k
+    reason: serde's texts for a `$jsonvar:` value holding a JSON object cut short (`{"a":1,`, `{"a":1` and `{"a":1,}`), which fail `b` before its script runs as JE-42/i's do; source-derived in the semantics reference's revision SC5 (2026-10-30), and no recording holds it yet; docs/design/README.md requests it from the next run of batch E3f (section "Recording requests for a future batch E3f (SC5)"), in the style of je/je-20-providers' i runs
+    checked_in: PF2's `$jsonvar:` resolution, with the flow fixture je/je-20-providers once batch E3f records the case (its JE-42/i runs, i1 to i5, run on windmill-lite); not encoded yet
   - case: JE-44/f
     reason: after an identity job, `previous_result` is jsonb's printed text, quoted here by a javascript `timeout`'s parse error; the semantics reference added the case on 2026-10-29 and no recording holds it yet
     checked_in: N1b, whose identity job reads its argument back in jsonb's printed form (internal/engine), end to end with N2's javascript timeout; not encoded yet
@@ -47,7 +50,7 @@ deferred:
 partial:
   - case: JE-36/d
     recorded: the deployed run (flows/je/branches, je36-d)
-    remaining: the preview run (Q-JE-5); windmill-lite has no preview mode (ADR 0001 section 1), so recording batch E3e left it outside the contract
+    remaining: the preview run (Q-JE-5); windmill-lite has no preview mode (ADR 0001 section 1), so recording batch E3e left it outside the contract. Batch E3f has since recorded the preview on the oracle (flows/client-api/driven, run previews, its je36d part, oracle run 40994947681), which stays outside the contract
     checked_in: none
   - case: JE-V1/a
     recorded: that the parallelism expression is accepted and every child runs (flows/je/loops, je-v1-a)

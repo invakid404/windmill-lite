@@ -10,7 +10,7 @@ scope: core
 cases:
   - spec: WR-43/a
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: an Error gives exactly three fields; own properties are dropped (nativets)
     language: nativets
     script: |
@@ -20,7 +20,7 @@ cases:
         expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
   - spec: WR-43/a
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: an Error gives exactly three fields; own properties are dropped (bunnative)
     script: |
       //native
@@ -30,7 +30,7 @@ cases:
         expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
   - spec: WR-43/b
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a string, a plain object with message and name, and null each give three nulls (nativets)
     language: nativets
     script: |
@@ -48,7 +48,7 @@ cases:
         expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
   - spec: WR-43/b
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a string, a plain object with message and name, and null each give three nulls (bunnative)
     script: |
       //native
@@ -66,7 +66,7 @@ cases:
         expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
   - spec: WR-43/c
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: the stack starts with the failing source line, as loaded (nativets)
     language: nativets
     compare: {keep_stack: true}
@@ -81,7 +81,7 @@ cases:
           - {at: /result/error/stack, contains: ["throw new Error(\"x\");\nError: x\n"]}
   - spec: WR-43/c
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: the stack starts with the failing source line, as the bundle has it (bunnative)
     note: >-
       A //native script is bundled with Bun's syntax minification (WR-27,
@@ -101,7 +101,7 @@ cases:
           - {at: /result/error/stack, contains: ["throw Error(\"x\");\nError: x\n"]}
   - spec: WR-43/d
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a rejection nobody handles while main is pending fails the job (nativets)
     language: nativets
     script: |
@@ -111,7 +111,7 @@ cases:
         expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
   - spec: WR-43/d
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a rejection nobody handles while main is pending fails the job (bunnative)
     script: |
       //native
@@ -368,7 +368,7 @@ cases:
       - args: '{}'
         expect: {status: failure, result: {error: {message: micro, stack: "<stack>", name: Error}}}
   - spec: WR-43/f
-    provenance: source-derived
+    provenance: oracle-observed
     title: a syntax error fails at the transpile step, before anything loads
     language: nativets
     script: |
@@ -382,7 +382,7 @@ cases:
           - {at: /result/error/step_id, equals: a}
   - spec: WR-43/g
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a non-string message nulls both message and name (nativets)
     language: nativets
     script: |
@@ -392,7 +392,7 @@ cases:
         expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
   - spec: WR-43/g
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a non-string message nulls both message and name (bunnative)
     script: |
       //native
@@ -402,7 +402,7 @@ cases:
         expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
   - spec: WR-43/h
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: a non-string name nulls both as well (nativets)
     language: nativets
     script: |
@@ -412,7 +412,7 @@ cases:
         expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
   - spec: WR-43/h
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: a non-string name nulls both as well (bunnative)
     script: |
       //native
@@ -457,10 +457,11 @@ cases:
     provenance: policy
     title: a stack replaced by a non-string is dropped, and with it every frame
     note: >-
-      WR-43/i, which is deferred: the native runtime keeps the frames apart
-      from the stack property and still writes the source line;
-      JavaScriptCore reads frames only from the stack text, so windmill-lite
-      gives null.
+      WR-43/i, which is deferred: JavaScriptCore reads frames only from the
+      stack text, so windmill-lite gives null. The semantics revision SC5
+      corrected the case to null on Windmill too (batch E3f, oracle run
+      40990751153): the native runtime collects the source line only when
+      it first formats the stack, which a stack assigned first never is.
     language: nativets
     script: |
       export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }

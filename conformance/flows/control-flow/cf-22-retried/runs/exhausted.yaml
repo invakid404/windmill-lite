@@ -1,7 +1,7 @@
 # CF-22/h's variant: b always throws for index 0, so l fails for good.
 spec: [CF-22/h]
 target: f/wl_cf22h/exhausted
-note: "Predicted from the reference: l fails for good and lists nothing, and the flow's failure module, ret(1), runs at the root, with an entry that lists the first attempt's iteration-1 child flow; the flow fails with 1. Recorded in oracle run 40990751153: the flow fails with l's array [1, {\"index\": 1, \"value\": 20}], whose first element is iteration 0's copy of the handler (FX-34, CF-16), and the flow's own handler does not run, as CF-16 item 4 says for a loop's failure. The batch manifest lists the contradiction for the spec team."
+note: "Predicted from the reference: l fails for good and lists nothing, and the flow's failure module, ret(1), runs at the root, with an entry that lists the first attempt's iteration-1 child flow; the flow fails with 1. Recorded in oracle run 40990751153: the flow fails with l's array [1, {\"index\": 1, \"value\": 20}], whose first element is iteration 0's copy of the handler (FX-34, CF-16), and the flow's own handler does not run, as CF-16 item 4 says for a loop's failure. The batch manifest lists the contradiction for the spec team. The semantics revision SC5 corrected the catalogue to this outcome (CF-22/h)."
 expect:
   status: failure
   result: [1, {index: 1, value: 20}]
