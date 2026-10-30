@@ -153,7 +153,8 @@ jobs:
         run: go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr
 
       - name: Test repository scripts
-        # Unit tests for the Renovate auto-ack helpers in scripts/.
+        # Unit tests for the helpers in scripts/: the Renovate auto-ack
+        # checks and the documentation check.
         run: python3 -m unittest discover -s scripts -v
 
   static-linux:
@@ -362,3 +363,28 @@ jobs:
       - name: Test
         working-directory: harnesses/bun
         run: bun test
+
+  docs:
+    # The countable rules of the writing standard (docs/writing.md, "What CI
+    # checks"). On a pull request, scripts/check-docs.py annotates the
+    # Markdown blocks that the pull request changed; on every run it writes
+    # the count of all warnings to the job summary. A warning leaves the exit
+    # status at 0, and this job is not a required check.
+    name: Docs (report only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, which --diff-base compares against.
+          fetch-depth: 2
+
+      - name: Check the changed Markdown
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check-docs.py --github --diff-base HEAD^1
+
+      - name: Summarise all Markdown
+        run: python3 scripts/check-docs.py --summary "$GITHUB_STEP_SUMMARY" > /dev/null
