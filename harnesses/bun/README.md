@@ -55,8 +55,12 @@ cannot corrupt the protocol.
 - **Handshake.** It sends `hello` with `Bun.version`, its pid, the SHA-256
   of the bundle's `manifest.json`, and the `fetch`, `native` and `fresh`
   capabilities (in host mode `host` instead of `fresh`, since host mode
-  always runs warm, and the working directory as `workdir`). It accepts a
-  warm welcome, or a fresh one outside host mode. A welcome that refuses
+  always runs warm, and the working directory as `workdir`). Its harness
+  version is the release it belongs to (`runtime/version.ts`): `dev` in
+  the repository, which a release stamps with `--define WL_RELEASE`
+  (F3b). It accepts a warm welcome, or a fresh one outside host mode; in
+  host mode it refuses a welcome from an engine of another release with
+  `version_mismatch` (`versionsPair`, ADR 0009). A welcome that refuses
   it is reported to `onReject` with its code and message.
 - **Heartbeat.** After the welcome it sends a `ping` every `heartbeat_ms`
   with its health: invocations in flight (those whose outcome is still
@@ -453,9 +457,12 @@ It returns a `Host`:
 
 The connect option `recycle` sets recycle triggers, none by default: `rss`
 trips when the resident set is at least that many bytes on `samples`
-consecutive heartbeats (default 2), and `modules` when more script modules
+consecutive heartbeats (default 2), `modules` when more script modules
 are loaded than that, since a module stays loaded for the life of the
-process (ADR 0006). The runtime checks them at every heartbeat, outside
+process (ADR 0006), and `retired` (F3b) when the host's pooled-connection
+layer counts more entries retired and not released than its `max`: entries
+it superseded whose leases an abandoned invocation may still hold, which
+only the process's exit frees (ADR 0004 host mode item 5). The runtime checks them at every heartbeat, outside
 every invocation (its `onHeartbeat`); the first that trips is reported by
 `health()` and, once, to `onRecycle`. The host decides what to do, usually
 to drain and exit so that its supervisor starts a new generation; the SDK
@@ -768,9 +775,12 @@ and the `unknown_hook` and `plugin_error` refusals, and the runtime
 answering a `host_call` in the run's scope; and `test/host.test.ts` the
 SDK: the shared working-directory cases of
 `conformance/protocol/host/workdir.json` through `checkWorkdir`, the
-refusals before the engine starts, the assets extracted into the
+shared version-pairing cases of `conformance/protocol/host/versions.json`
+through `versionsPair` (F3b), the refusals before the engine starts, the assets extracted into the
 working directory before it does, and a run's `onSettled` running in its
-own submission scope, for concurrent runs, and never for a refused one. `test/build.test.ts` checks the build helper's
+own submission scope, for concurrent runs, and never for a refused one;
+it removes the temporary directories it makes, as `test/fence.test.ts`
+does its own (F3b). `test/build.test.ts` checks the build helper's
 scans and parse. All are developer checks, run by CI's non-required
 `Bun harness checks` job. The merge gate is the Go side:
 [internal/harness](../../internal/harness/README.md) drives this runtime

@@ -548,12 +548,18 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine spawned pid %d", h.PID, p.pid)}
 	case p.host != nil && !h.Caps.Host:
 		reject = &Reject{RejectHarness, "a harness that connects in host mode must offer the host capability"}
+	case p.host != nil && !VersionsPair(h.Harness.Version, p.cfg.EngineVersion):
+		// A host takes the SDK of the engine's release (ADR 0009).
+		reject = &Reject{RejectVersion, fmt.Sprintf("the host's SDK is version %s, the engine %s; a host takes the SDK of its engine's release", h.Harness.Version, p.cfg.EngineVersion)}
 	case p.cfg.ModuleState == engine.ModuleStateFresh && !h.Caps.Fresh:
 		reject = &Reject{RejectHarness, "a harness spawned in fresh mode must offer the fresh capability"}
-	case p.host != nil && h.PID != p.host.getppid():
+	case p.host != nil && p.killAfter > 0 && h.PID != p.host.getppid():
 		// In host mode the engine is the host's child: the process its
 		// watchdog would signal is its parent, and the one that greets it
-		// must be that process (ADR 0004 host mode item 4).
+		// must be that process (ADR 0004 host mode item 4). The check is
+		// the watchdog's: with the watchdog off the engine signals no one,
+		// so a host it is not the child of (wltest's host mode, which
+		// keeps the engine in the checker's process) is served.
 		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine's parent is pid %d", h.PID, p.host.getppid())}
 	case p.host != nil && p.host.workdir != "" && CheckWorkdir(p.host.workdir, h.Workdir) != nil:
 		// The host's working directory is where its steps run and where

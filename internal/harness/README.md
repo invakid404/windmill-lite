@@ -26,7 +26,9 @@ watchdog on Linux. Milestone F2c added host plugins: `host_call` and
 run_done's `latched` (below); and F2b's budgets and latches in the run
 frame (`RunRequest`'s `WriteCapable`, `FatalErrorNames`, `DeadlineMS`,
 `PreWriteDeadlineMS` and `Clock`, which `ClockReal` and `ClockRecord`
-spell) and run_done's `Deviations`.
+spell) and run_done's `Deviations`. Milestone F3b added the SDK–engine
+version pairing (`VersionsPair`, `RejectVersion`) and made the parent
+check the watchdog's only.
 `Pool` and `Process` implement `engine.StepExecutor`; their user is the
 [wl](../../wl/README.md) runtime: its pool of spawned processes, and in
 host mode (`wl.Options.Host`, which `windmill-lite host` in
@@ -355,9 +357,15 @@ before `HostConn`: with no file descriptor 4, the socket's duplicate could
 take that number.
 
 - **Handshake.** As for a spawned harness, plus: the hello must offer the
-  `host` capability (else `harness_mismatch`), and its `pid` must be the
-  engine's parent process, `getppid()` (else `pid_mismatch`), because that
-  is the process the watchdog would signal. With `HostConfig.Workdir`, the
+  `host` capability (else `harness_mismatch`); its harness version, the
+  host SDK's, must pair with the engine's (`VersionsPair`, on the shared
+  cases of `conformance/protocol/host/versions.json`, else
+  `version_mismatch`, `RejectVersion`; ADR 0009, F3b); and, with the
+  watchdog on, its `pid` must be the engine's parent process, `getppid()`
+  (else `pid_mismatch`), because that is the process the watchdog would
+  signal; with the watchdog off nothing is signalled, so the check does
+  not apply (F3b: `wltest check --mode host` keeps the engine out of the
+  host's process tree). With `HostConfig.Workdir`, the
   directory the host passed must be a directory the engine can write
   (else `workdir_not_writable`) and the hello's `workdir` once both are
   resolved without symbolic links (else `workdir_mismatch`): `CheckWorkdir`,

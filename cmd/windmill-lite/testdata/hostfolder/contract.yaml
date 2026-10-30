@@ -17,5 +17,7 @@ roots:
   - flow: f/host/cb_asset
   - flow: f/host/big
   - flow: f/host/outside
+  - flow: f/host/compute
+  - flow: f/host/lease
   - script: f/host/sleep
-host_modules: [f/host/scopes.ts, ../hostlib/tenant.ts]
+host_modules: [f/host/scopes.ts, f/host/pool.ts, ../hostlib/tenant.ts]

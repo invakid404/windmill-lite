@@ -1,0 +1,14 @@
+{
+  "note": "The pairing of a host SDK with its engine (ADR 0009: the SDK's version equals the engine's, and the handshake rejects any other pairing; milestone F3b). The SDK's version is the harness version its hello names; the engine's is the version its welcome names. A version is stamped when a release set it: \"\", \"dev\" and \"(devel)\" are unstamped, the repository's own and a development build's, and pair with anything, since there is no release to compare. Two stamped versions pair when they are equal, a leading \"v\" aside. The engine checks it in a host's handshake (a welcome reject, version_mismatch), and the SDK checks the welcome too, so that it refuses an engine of another release that does not check. pairs is the expected answer.",
+  "design": "docs/design/0009-host-adapters.md",
+  "cases": [
+    {"case": "equal", "title": "equal stamped versions pair", "provenance": "policy", "sdk": "v1.4.0", "engine": "v1.4.0", "pairs": true},
+    {"case": "leading-v", "title": "a leading v is not part of the version", "provenance": "policy", "sdk": "1.4.0", "engine": "v1.4.0", "pairs": true},
+    {"case": "other-release", "title": "another stamped release does not pair", "provenance": "policy", "sdk": "v1.4.0", "engine": "v1.4.1", "pairs": false},
+    {"case": "prerelease", "title": "a prerelease is a release of its own", "provenance": "policy", "sdk": "v1.4.0-rc.1", "engine": "v1.4.0", "pairs": false},
+    {"case": "pseudo", "title": "a Go pseudo-version is stamped: it names one build", "provenance": "policy", "sdk": "v1.4.0", "engine": "v0.0.0-20261030120000-0123456789ab", "pairs": false},
+    {"case": "dev-sdk", "title": "the repository's SDK pairs with any engine", "provenance": "policy", "sdk": "dev", "engine": "v1.4.0", "pairs": true},
+    {"case": "devel-engine", "title": "a development build of the engine pairs with any SDK", "provenance": "policy", "sdk": "v1.4.0", "engine": "(devel)", "pairs": true},
+    {"case": "empty", "title": "an empty version is unstamped", "provenance": "policy", "sdk": "", "engine": "v1.4.0", "pairs": true}
+  ]
+}
