@@ -89,7 +89,13 @@ run's trace:
   and doubles the configurations to test. Its main use case, a host whose
   scripts must share a few singletons with it, is covered by host-provided
   modules. It can come back through its own record, with a memory
-  measurement that shows `warm` does not fit.
+  measurement that shows `warm` does not fit. A host's measurement did,
+  and [0013](0013-shared-module-code.md) is that record: it rejects shared
+  chunks, which would share module state between scripts and turn
+  CommonJS codebase scripts into ES modules, and adds **shared code** to
+  `warm` instead, a build setting under which a process compiles the
+  dependency modules of a group of scripts once and each step module makes
+  its own instance of them (D18).
 - **Conformance.** Flow cases run in `fresh`, in `warm` and in host mode;
   step cases run in `fresh` and `warm` ([0003](0003-semantics-placement.md)).
   Cases WR-1/a and WR-1/b expect `1` and `1` in `fresh`, and `1` then `2` in
@@ -113,7 +119,12 @@ run's trace:
 - Memory grows with the number of distinct scripts in `warm`, because each
   carries its dependencies. A host measures it on its own bundle; a result
   that does not fit is the trigger for a `shared` record, not a silent
-  change of mode.
+  change of mode. Milestone F8a wrote that record,
+  [0013](0013-shared-module-code.md), after a host measured about 59 MiB
+  per loaded module against a 650 MiB budget. With shared code, what a
+  further module costs is the state its dependencies make when they load,
+  not their code; module identity stays per script, as this record
+  decided.
 - First-invocation latency includes module evaluation; eager loading
   ([0004](0004-harness-protocol.md)) moves it to process start.
 - Milestone C3b implemented `fresh` mode. A fresh process offers the
@@ -128,5 +139,5 @@ run's trace:
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-27, WR-41, Q-WR-19, and deviations D1, D2, D5 and D9 to D12
-of 0001.
+WR-1, WR-2, WR-27, WR-41, Q-WR-19, and deviations D1, D2, D5, D9 to D12
+and D18 of 0001.

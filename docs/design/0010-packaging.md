@@ -399,6 +399,23 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   in unbundled code. Step 5 stays: it keeps a bundle's reads on
   `process.env`, the one name the view replaces, so their isolation does
   not depend on the run-time mechanism alone.
+- Milestone F8a's record, [0013](0013-shared-module-code.md), adds
+  **shared code**, a build setting. With it, the bundle carries one closure
+  per build group (the Bun-built scripts, and each codebase entry) and a
+  module per script whose imports of dependency modules resolve to its own
+  instance of that closure. Both are built from the same sources and
+  settings, through a plugin that only maps paths. The per-script bundles
+  stay byte for byte as without it, so the parity check is unchanged.
+  Host-provided packages stay refused: 0013 weighed them and chose not to
+  add them. Its probes found two limits of host-provided modules as they
+  stand:
+  - a listed file inside the folder that imports packages fails to build,
+    since its shared copy is the Bun build's, which resolves no package
+    from the folder's `node_modules`; a file outside the folder, which
+    esbuild builds, does build;
+  - a host compiled with `bun build --compile` resolves no package from
+    disk at run time, so a listed module that imports packages must be
+    compiled into the host.
 
 ## Spec IDs relied on
 

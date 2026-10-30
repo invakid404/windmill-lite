@@ -229,3 +229,28 @@ that only restarts the host when it exits runs it. The tests:
 
 They need the pinned Bun in `WL_BUN` too, and the build helper's
 dependencies.
+
+`memory_test.go` measures what warm step modules cost a host process: the
+evidence of milestone F8a's record,
+[ADR 0013](../../docs/design/0013-shared-module-code.md).
+`testdata/memhost/host.ts` is a Bun host that embeds the SDK, registers the
+host-provided modules `WL_HOST_MODULES` names, connects the engine, and
+answers over HTTP on a Unix socket with its resident set after a full
+garbage collection and its peak (`/rss`), and with the outcome of runs it
+submits, concurrently and repeatedly (`/run`). The tests compile it with
+`bun build --compile` and run it under `host_test.go`'s supervisor, on
+bundles that `bundle.Build` builds from sync folders the tests generate,
+each in three layouts:
+
+- **per-script**: each step's bundle inlines its own copy of the shared
+  module, as the build does today;
+- **shared-instance**: the shared module is host-provided (D12), so the
+  host's one instance serves every step;
+- **shared-code**: the prototype of ADR 0013's decision. A host-provided
+  factory compiles the shared module's CommonJS build (esbuild, WR-47's
+  settings) once per process and instantiates it once per step module.
+
+| Test | What it shows |
+|---|---|
+| `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
+| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, 34 CommonJS codebase scripts of about 6.9 MB each that import one module outside the sync folder, over mongoose, `windmill-client`, js-yaml, Babel's parser and types (pinned by `testdata/memory/closure.package.json` and `closure.bun.lock`, which it installs, so it needs the network once) and a generated package shaped like an API client. It reports the resident set with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs; with shared code, the soak's peak must stay within the embedder's budget of 650 MiB |
