@@ -1,7 +1,7 @@
 # FX-11/b: a flow_env value $var:u/x/missing, read by a's transform.
 spec: [FX-11/b]
 target: f/wl_fx18/fx11b
-note: "Predicted from the catalogue: the failed resolution falls back to the literal $var:u/x/missing and the flow does not fail. Recorded in oracle run 41000318656: a fails before its script runs with the variable's not-found error for x, and so does the flow; windmill-lite gives the same. The batch manifest lists the contradiction for the spec team."
+note: "Predicted from the catalogue: the failed resolution falls back to the literal $var:u/x/missing and the flow does not fail. Recorded in oracle run 41000318656: a fails before its script runs with the variable's not-found error for x, and so does the flow; windmill-lite gives the same. The batch manifest lists the contradiction for the spec team. The semantics revision SC5 corrected the catalogue to this outcome (FX-11/b)."
 expect:
   status: failure
   result:

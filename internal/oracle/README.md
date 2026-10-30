@@ -2,7 +2,7 @@
 
 **Current state:** implemented (milestones E2 and E4a of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), extended by
-the recording batches E3a to E3e). This README
+the recording batches E3a to E3f). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
@@ -492,7 +492,8 @@ Batch E3e's manifest has no `gates`, since only F7b needs E3e merged. It
 defers to `none`, with the reason, what the oracle cannot record or the
 contract leaves out, and to the milestone that checks it what no run of
 the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
-HTTP adapter, WR-28/f to C2a, and WR-50/c and WR-50/f to C3n.
+HTTP adapter, WR-28/f to C2a, WR-50/c, WR-50/f and WR-50/h to C3n, and
+WR-50/g to E3f, whose fixture records it.
 
 Batch E3f's manifest has no `gates` either. Its fixtures name the session
 they need, its deployment checks hold the deploy-shape cases of
@@ -500,7 +501,10 @@ they need, its deployment checks hold the deploy-shape cases of
 `none`, with the reason, what the harness cannot record: a refused push
 and its CLI output ([Q-OF-13](../../docs/semantics/openflow.md#q-of-13)'s
 sync trees), workspace object storage, a second user or workspace, and the
-cases whose deployment the oracle refused or whose run crashed it.
+cases whose deployment the oracle refused or whose run crashed it. The
+reference's revision SC5 re-scoped two of these deferrals: OF-14/f needs
+no push and is requested from the next run of batch E3f, and JE-19/e and
+JE-19/f are enterprise-only, since CE has no restart.
 
 Milestone N5 recorded its own fixture,
 `conformance/flows/control-flow/subflow-retry`, without a manifest, since
@@ -511,7 +515,8 @@ the manifest of each one's batch (`n3c.json`, `ni.json`, `e3c.json`,
 those runs on windmill-lite. The cases SC4 added from the source alone
 are deferred to the milestone that implements them, with the recording
 that [docs/design/README.md](../../docs/design/README.md#recording-requests-for-batch-e3f)
-requests from a future batch E3f.
+requested from batch E3f, which recorded them; each deferral names the
+run.
 
 Batch E3a was built beside these manifests and has none: most of its runs
 state partial `claims` rather than a whole `expect`, and half of its cases

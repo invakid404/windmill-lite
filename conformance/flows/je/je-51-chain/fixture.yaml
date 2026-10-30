@@ -12,7 +12,7 @@
 # before the oracle ran it. Synthetic, written for this repository from
 # docs/semantics/expressions.md#q-je-12. Deployed with oracle.deploy api.
 id: je/je-51-chain
-spec: [JE-51]
+spec: [JE-51, JE-2/b]
 scope: core
 provenance: oracle-observed
 languages: [bun]

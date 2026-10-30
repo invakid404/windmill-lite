@@ -97,12 +97,22 @@
     {
       "case": "WR-50/c",
       "milestone": "C3n",
-      "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no observation exists; windmill-lite follows the reference: C3n's step case (conformance/steps/bun/wr-50.yaml, WR-50/c and its control) and FU5's flow-level check (cmd/wltest TestNativeCodebaseFlowStep) run the //native ESM codebase script in the native runtime"
+      "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no E3e observation exists; windmill-lite follows the reference: C3n's step case (conformance/steps/bun/wr-50.yaml, WR-50/c and its control) and FU5's flow-level check (cmd/wltest TestNativeCodebaseFlowStep) run the //native ESM codebase script in the native runtime. Recorded by batch E3f, in a session whose worker serves the nativets tag (conformance/flows/languages/native-codebase, runs esm_native, esm_control, oracle run 40989292429; internal/oracle/testdata/batches/e3f.json)."
     },
     {
       "case": "WR-50/f",
       "milestone": "C3n",
       "reason": "source-derived in the reference's revision of 2026-10-29 (SC3); no E3e run records it: on the oracle a //native codebase script's job never starts (WR-50/c), so docs/design/README.md requests it from a future batch E3f, in a session whose worker serves the nativets tag; windmill-lite's native boundary mode (C3n) runs the CJS bundle and fails it with a ReferenceError (conformance/steps/bun/wr-50.yaml, variant native-commonjs), whose message is JavaScriptCore's rather than V8's `module is not defined`, a text ADR 0001 D5 lists as one the realm cannot keep. Recorded by batch E3f (conformance/flows/languages/native-codebase, run cjs_native; internal/oracle/testdata/batches/e3f.json)."
+    },
+    {
+      "case": "WR-50/g",
+      "milestone": "E3f",
+      "reason": "oracle-observed in the reference's revision SC5 (2026-10-30), from a fixture outside this batch: batch E3f's flows/languages/native-codebase run esmreq_native (native session, oracle run 40990751153) records it (internal/oracle/testdata/batches/e3f.json); no E3e run records it, since on the oracle a //native codebase script's job never starts (WR-50/c). An ESM codebase entry whose banner makes require with createRequire loads under //native, and typeof require is \"function\": esbuild's __require helper replaced the script's bare require in the bundle, so it does not show that node:module loaded (WR-50/h). Batch E3f's gate runs that run on windmill-lite's native mode (cmd/wltest/testdata/flowsuite.json)"
+    },
+    {
+      "case": "WR-50/h",
+      "milestone": "C3n",
+      "reason": "source-derived in the reference's revision SC5 (2026-10-30), and no run records it: in the WR-50/g bundle a call through require fails with esbuild's helper's Error `Dynamic require of \"node:path\" is not supported`, since the banner's import(\"node:module\") rejects in the native loader and leaves require undefined; docs/design/README.md requests it from the next run of batch E3f (section \"Recording requests for a future batch E3f (SC5)\"), in a session whose worker serves the nativets tag. No step case of windmill-lite's native boundary mode (C3n) encodes it yet"
     },
     {
       "case": "WR-49/c",

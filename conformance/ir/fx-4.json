@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "FX-4/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "The run half, the result \"x\" after at least 1 s, is N2's, which implements sleep.",
       "title": "a sleep on the last step adds a-v",

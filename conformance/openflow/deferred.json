@@ -1,10 +1,10 @@
 {
   "note": "Catalogue OF cases that are not decode cases. Each names why it is not checked here and where it is expected to be checked. The test in internal/openflow fails unless every OF case of docs/semantics/conformance.md is either a decode case in this directory or listed here.",
   "deferred": [
-    {"spec": "OF-3/a", "reason": "the stored full form after a deploy; windmill-lite has no deploy. Its typed defaults are decode cases (OF-6/a, OF-V1/d); the stored form is an oracle recording (Q-OF-1)", "expected_in": "conformance/ir (A5)"},
+    {"spec": "OF-3/a", "reason": "the stored full form after a deploy; windmill-lite has no deploy. Its typed defaults are decode cases (OF-6/a, OF-V1/d); the stored form is recorded by batch E3f (conformance/flows/openflow/of-deployed, run storage, oracle run 41000318656)", "expected_in": "conformance/ir (A5)"},
     {"spec": "OF-3/b", "reason": "a failed first lock keeps the raw value; windmill-lite never runs Windmill's dependency job and always targets the successful deploy (docs/design/0001 §1)", "expected_in": "not applicable"},
     {"spec": "OF-3/c", "reason": "the bun to bunnative switch is applied at normalisation, not at decode (SY-V3)", "expected_in": "conformance/ir (A5)"},
-    {"spec": "OF-3/d", "reason": "source-derived since the reference's revision of 2026-10-29, which settled Q-OF-11 from the source: the status list depends on the form enqueue builds it from (OF-V5); the virtual step is added at normalisation", "expected_in": "conformance/ir (A5)"},
+    {"spec": "OF-3/d", "reason": "the reference's revision of 2026-10-29 settled Q-OF-11 from the source: the status list depends on the form enqueue builds it from (OF-V5); the virtual step is added at normalisation. Oracle-observed since the revision SC5: batch E3f recorded the status ids (conformance/flows/execution/fx-18-rest, run fx4_ids, oracle run 41000318656)", "expected_in": "conformance/ir (A5)"},
     {"spec": "OF-7/a", "reason": "run-time behaviour of the deployed skip-flag default", "expected_in": "N3a"},
     {"spec": "OF-7/b", "reason": "run-time behaviour of the deployed skip-flag default", "expected_in": "N3a"},
     {"spec": "OF-7/c", "reason": "run-time behaviour of the deployed skip-flag default", "expected_in": "N3b"},
@@ -17,7 +17,7 @@
     {"spec": "OF-15/e", "reason": "a failed first lock keeps the raw value; windmill-lite never runs Windmill's dependency job", "expected_in": "not applicable"},
     {"spec": "OF-16/c", "reason": "later: the same_worker child-count rule is run-time behaviour", "expected_in": "a later engine milestone; none in docs/design/0012 yet"},
     {"spec": "OF-16/d", "reason": "later: the same_worker child-count rule is run-time behaviour", "expected_in": "a later engine milestone; none in docs/design/0012 yet"},
-    {"spec": "OF-17/a", "reason": "source-derived since the reference's revision of 2026-10-29, which settled Q-OF-11 from the source: the status list depends on the form enqueue builds it from (OF-V5); the virtual step is added at normalisation", "expected_in": "conformance/ir (A5)"},
+    {"spec": "OF-17/a", "reason": "the reference's revision of 2026-10-29 settled Q-OF-11 from the source: the status list depends on the form enqueue builds it from (OF-V5); the virtual step is added at normalisation. Oracle-observed since the revision SC5: batch E3f recorded both lists (conformance/flows/execution/fx-18-rest, run fx4_ids, oracle run 41000318656; conformance/flows/openflow/flow-script-off, run enqueue, oracle run 40994947681)", "expected_in": "conformance/ir (A5)"},
     {"spec": "OF-18/a", "reason": "run-time: the flow schema fills no defaults", "expected_in": "N1a"},
     {"spec": "OF-18/b", "reason": "run-time control for OF-18/a", "expected_in": "N1a"},
     {"spec": "OF-19/a", "reason": "later: wmill lint's schema validation; windmill-lite implements the server's rules, not lint", "expected_in": "not planned"},
@@ -27,7 +27,7 @@
     {"spec": "OF-V4/a", "reason": "run-time argument building", "expected_in": "N1a"},
     {"spec": "OF-V4/b", "reason": "run-time argument building", "expected_in": "N1a"},
     {"spec": "OF-V5/a", "reason": "source-derived since the reference's revision of 2026-10-29 (Q-OF-11, answered); status-form selection at enqueue, which windmill-lite does not emulate: it always runs the lite form of the reference configuration (docs/design/0001 §1)", "expected_in": "conformance/ir (A5)"},
-    {"spec": "OF-V5/b", "reason": "source-derived since the reference's revision of 2026-10-29 (Q-OF-11, answered); windmill-lite does not emulate DISABLE_FLOW_SCRIPT (docs/design/0001 §1)", "expected_in": "not applicable"},
+    {"spec": "OF-V5/b", "reason": "windmill-lite does not emulate DISABLE_FLOW_SCRIPT (docs/design/0001 §1); the case, settled from the source in the reference's revision of 2026-10-29 (Q-OF-11, answered), is oracle-observed since the revision SC5, recorded by batch E3f (conformance/flows/openflow/flow-script-off, runs enqueue and trailing, oracle run 40994947681)", "expected_in": "not applicable"},
     {"spec": "OF-V6/a", "reason": "Windmill's workspace-dependency lock header; windmill-lite generates no lock text and keeps the supplied text (conformance/ir/of-v6.json)", "expected_in": "not applicable"},
     {"spec": "OF-V6/b", "reason": "Windmill's lock assembly; windmill-lite generates no lock text", "expected_in": "not applicable"},
     {"spec": "OF-V6/c", "reason": "Windmill's PHP lock path; PHP is later and windmill-lite generates no lock text", "expected_in": "not applicable"}

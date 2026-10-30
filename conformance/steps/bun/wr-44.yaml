@@ -7,7 +7,7 @@ scope: core
 cases:
   - spec: WR-44/a
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     title: the timeout message (nativets)
     language: nativets
     timeout: 1
@@ -18,7 +18,7 @@ cases:
         expect: {status: failure, result: {error: {message: "execution error:\nQuery timeout after (>1s)", name: ExecutionErr, step_id: a}}}
   - spec: WR-44/a
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     title: the timeout message (bunnative)
     timeout: 1
     script: |
@@ -39,7 +39,7 @@ cases:
         expect: {status: failure, result: {error: {message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", name: ExecutionErr, step_id: a}}}
   - spec: WR-44/b
     variant: nativets
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: stack overflow is an ordinary RangeError (nativets)
     language: nativets
@@ -50,7 +50,7 @@ cases:
         expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError}}}
   - spec: WR-44/b
     variant: bunnative
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: stack overflow is an ordinary RangeError (bunnative)
     script: |

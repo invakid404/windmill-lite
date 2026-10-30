@@ -2,5 +2,5 @@
 # apply_preprocessor true.
 spec: [WR-11/c]
 target: f/wl_pre/pinned
-note: "Predicted from the catalogue: the preprocessor runs on the step's args, so the step returns pre. Recorded in oracle run 40994947681: orig, and the run's raw flow holds the pinned hash but no apply_preprocessor, which the stored flow had dropped. The batch manifest lists the contradiction for the spec team."
+note: "Predicted from the catalogue: the preprocessor runs on the step's args, so the step returns pre. Recorded in oracle run 40994947681: orig, and the run's raw flow holds the pinned hash but no apply_preprocessor, which the stored flow had dropped. The batch manifest lists the contradiction for the spec team. The semantics revision SC5 corrected the catalogue (WR-11/c): the flag was written inside the step's value, where the script value has no such field, so the preprocessor does not run; the module-level form, beside id and value, is WR-11/d, requested from the next run of batch E3f."
 expect: {status: success, result: orig}
