@@ -1,9 +1,10 @@
 // A Bun host for the host-mode tests (cmd/windmill-lite/host_test.go,
-// milestones W1 and F3a). It embeds the host SDK, registers its instance
-// of the host-provided module f/host/scopes.ts, connects the engine on a
+// milestones W1, F3a and F3h). It embeds the host SDK, registers its
+// instances of the host-provided modules f/host/scopes.ts and
+// ../hostlib/tenant.ts (outside the sync folder), connects the engine on a
 // bundle built from testdata/hostfolder, and serves its callers over HTTP
 // on a Unix socket. Each run is submitted inside the caller's tenant
-// scope. The tests compile it with `bun build --compile` and run it under
+// scope, in both modules. The tests compile it with `bun build --compile` and run it under
 // a supervisor that only restarts it when it exits.
 //
 // Environment: WL_ENGINE (the engine binary), WL_BUNDLE, WL_HOST_SOCKET,
@@ -17,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
 import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
 import * as scopes from "../hostfolder/f/host/scopes.ts";
+import * as outside from "../hostlib/tenant.ts";
 
 const env = process.env;
 let recycled: string | null = null;
@@ -37,7 +39,7 @@ try {
     engine: env.WL_ENGINE!,
     bundle: env.WL_BUNDLE!,
     workdir: env.WL_WORKDIR ?? process.cwd(),
-    hostModules: { "f/host/scopes.ts": scopes },
+    hostModules: { "f/host/scopes.ts": scopes, "../hostlib/tenant.ts": outside },
     watchdog: { killAfter: Number(env.WL_KILL_AFTER_MS ?? "30000") },
     recycle: env.WL_RECYCLE_MODULES ? { modules: Number(env.WL_RECYCLE_MODULES) } : undefined,
     onRecycle: (reason) => (recycled = reason),
@@ -65,7 +67,7 @@ async function submit(b: { path: string; tenant?: string; args?: Record<string, 
   try {
     const { writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
     const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
-    return await scopes.store.run({ tenant: b.tenant ?? "" }, () => host.run(b.path, b.args, opts));
+    return await scopes.store.run({ tenant: b.tenant ?? "" }, () => outside.tenant.run(b.tenant ?? "", () => host.run(b.path, b.args, opts)));
   } catch (e) {
     if (e instanceof HostError) return { refused: e.code };
     throw e;

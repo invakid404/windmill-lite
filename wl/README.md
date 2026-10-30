@@ -392,8 +392,12 @@ and an H12 veto after the approval, which still counts as written; and
 the step API (F2c, `TestStepAPI`): a script's `wl.latch` latches its
 script run in `warm` and `fresh`, so does a failed `around` wrapper, and
 in `warm` a step that waits for `wl.signal()` alone settles once the
-run's deadline has aborted it. It needs
-`WL_BUN` and the build helper's dependencies, and skips without them unless
+run's deadline has aborted it.
+`outside_test.go` builds a bundle whose host contract lists two modules
+outside the sync folder (milestone F3h) and runs it on Bun without a host:
+a codebase script that imports one finds no host scope, and two step
+bundles share the other's one registered copy. Both need
+`WL_BUN` and the build helper's dependencies, and skip without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
 
 `host_test.go` plays a host on a socketpair, so it needs no Bun: `Open`

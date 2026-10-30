@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -83,6 +84,10 @@ type buildCase struct {
 		Folder   map[string]string            `json:"folder"`
 		Contract string                       `json:"contract"`
 		Locks    map[string]map[string]string `json:"locks"`
+		// Outside are files outside the sync root, by path relative to it,
+		// each starting with ../ (a codebase entry's relative_path may lie
+		// outside the root, WR-49).
+		Outside map[string]string `json:"outside"`
 	} `json:"given"`
 	Expect struct {
 		entryExpect
@@ -423,20 +428,29 @@ func checkCalls(t *testing.T, got []callResult, want []callWant) {
 // runFolderCase builds a whole sync folder with Build and checks every
 // problem it reports.
 func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
+	// The sync root is windmill/ in the test's directory, so that the files
+	// outside it stay there too.
 	files := map[string]string{}
 	for p, text := range c.Given.Folder {
-		files[p] = text
+		files["windmill/"+p] = text
+	}
+	for p, text := range c.Given.Outside {
+		q := path.Join("windmill", p)
+		if !strings.HasPrefix(p, "../") || q == ".." || strings.HasPrefix(q, "../") || strings.HasPrefix(q, "windmill/") {
+			t.Fatalf("outside file %q: it must leave the sync root by one level", p)
+		}
+		files[q] = text
 	}
 	var env []string
 	if len(c.Given.Locks) > 0 {
 		reg := newRegistry(t, c.Given.Packages)
 		for file, deps := range c.Given.Locks {
-			files[strings.TrimSuffix(file, ".ts")+".script.lock"] = reg.lock(t, bun, deps)
+			files["windmill/"+strings.TrimSuffix(file, ".ts")+".script.lock"] = reg.lock(t, bun, deps)
 		}
 		env = reg.env
 	}
 	cfg := Config{
-		Folder: writeFolder(t, files), EngineVersion: fixtureEngine,
+		Folder: filepath.Join(writeFolder(t, files), "windmill"), EngineVersion: fixtureEngine,
 		Bun: bun, Helper: helper, HarnessRuntime: repoPath(t, "harnesses/bun/runtime"),
 		Out: filepath.Join(t.TempDir(), "bundle"), Work: t.TempDir(), Env: env,
 	}
@@ -477,6 +491,15 @@ func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
 	}
 	if _, err := Verify(cfg.Out, VerifyOptions{Digest: res.Digest}); err != nil {
 		t.Error(err)
+	}
+	if c.Expect.HostModuleOrder != nil {
+		var ids []string
+		for _, h := range res.Manifest.HostModules {
+			ids = append(ids, h.ID)
+		}
+		if !slices.Equal(nonNil(ids), c.Expect.HostModuleOrder) {
+			t.Errorf("manifest host modules %q, want %q", ids, c.Expect.HostModuleOrder)
+		}
 	}
 	for id, w := range c.Expect.Entries {
 		checkBuiltEntry(t, cfg.Out, id, w)

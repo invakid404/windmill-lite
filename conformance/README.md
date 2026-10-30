@@ -778,19 +778,22 @@ imports a package without a lock
 | Field | Meaning |
 |---|---|
 | `given.folder` | the folder's files by path from the sync root |
+| `given.outside` | files outside the sync root, by path from it, each starting with a single `../`: a codebase entry's `relative_path` may lie there ([WR-49](../docs/semantics/languages.md#wr-49)) |
 | `given.contract` | the host contract's text; without it every flow and script is a root |
 | `given.locks` | by script file, the npm dependencies whose lock the runner makes from `given.packages` and writes as `<path>.script.lock` |
 | `expect.build_problems` | every problem the build reports, each an `item` (the start of the reported item: `script <path>`, or `<flow> step '<id>' (script inline-` for an inline step), a `kind` and message substrings in `contains`; empty for a clean build, which must then verify |
 | `expect.entries` | for a clean build, by script id: what its metadata in the bundle records (`format`, `target`, `exports`, `signatures`, `host_modules`) and text of its module (`bundle_contains`, `bundle_not_contains`, `first_line`) |
 | `expect.assets` | for a clean build, the files under the bundle's `assets/`, by path, with their content |
 | `expect.warnings` | for a clean build, when given, the codes of every warning the build reports, in order |
+| `expect.host_module_order` | for a clean build, the ids of the manifest's `host_modules`, in registration order |
 | `expect.run` | for a clean build, as above: each call's `entry` is a script id, its module the bundle's `.cjs` or `.mjs`; `register` names host-provided modules by id |
 
 The codebase cases are whole-folder cases: `wr-47.json` (how the pinned
 CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
 `customBundler` leaves the bundle to esbuild, WR-48/b), `wr-49.json`
 (assets, WR-49), and the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
-output) and `d12.json` (host-provided modules through their shims).
+output) and `d12.json` (host-provided modules through their shims, those
+outside the folder included).
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails
