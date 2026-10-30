@@ -43,7 +43,7 @@ cases:
       - args: '{"path":"resources/get_value_interpolated/u/t/d49"}'
         expect: {status: success, result: {status: 200, type: application/json, body: '{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}'}}
   - spec: WA-12/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: "depth 50 fails with a 500"
     setup:
       resources:
@@ -62,7 +62,7 @@ cases:
           - {at: /result/type, equals: text/plain}
           - {at: /result/body, prefix: "Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually indicates a circular"}
   - spec: WA-12/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: "$jsonvar: output is terminal"
     setup:
       variables:

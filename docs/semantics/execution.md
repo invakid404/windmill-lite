@@ -1047,12 +1047,19 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   iteration has the prefix `could not transform input using an expr: `
   ([control-flow.md](control-flow.md)).
 
+  On a `flow` step the launched job is the subflow's `Flow` job, with the
+  same empty args and pre-run error. It fails with the same `ExecutionErr`
+  when picked up, before any of its modules starts, so its modules stay
+  waiting ([CF-17](control-flow.md#cf-17)).
+
   This is an ordinary step failure, so `continue_on_error` and the failure
   module apply. **A retry does not re-evaluate the transforms and does not
   copy the pre-run error:** it re-launches the step with the failed attempt's
   args, the empty map, and **the script runs** with no arguments. Whether
   that run fails depends on the script: missing parameters fall back to
-  their defaults or fail ([languages.md](languages.md)).
+  their defaults or fail ([languages.md](languages.md)). A retried `flow`
+  step re-launches the subflow with that empty map, so the subflow runs
+  with an empty `flow_input`.
 - **Evidence:**
   - `backend/windmill-worker/src/worker_flow.rs:2746-2771`, `:3891-3905`,
     `:4267-4281`, `:4404-4429`
@@ -1060,12 +1067,22 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   - `backend/windmill-worker/src/worker.rs:3647-3649`
   - the message: `worker_flow.rs:2761-2767`; the evaluator's prefix
     `backend/windmill-jseval/src/lib.rs:419`, `:941`
-- **Conformance:** [FX-14/a, FX-14/b](conformance.md#fx-14)
+  - a `flow` step: the pre-run error is checked at pickup before the job's
+    kind is looked at (`worker.rs:3647-3649`), so a `Flow` job carrying one
+    never reaches the flow engine; the retry's args are the failed job's
+    stored args (`worker_flow.rs:3793-3795`, `:3891-3905`)
+- **Conformance:** [FX-14/a to FX-14/c](conformance.md#fx-14)
 - **Revision 2026-10-28 (oracle, batch E3c):** recorded as stated, with and
   without a failure module and on retry (fixture
   `conformance/flows/execution/fx-14`, oracle run 40685766017). Added the
   recorded engine text after the prefix, which the finding left open
   ([Q-FX-13](#q-fx-13)).
+- **Revision 2026-10-29 (SC4, recordings of milestone N5):** added the
+  `flow` step. Milestone N5 recorded a retried `flow` step whose transform
+  throws (fixture `control-flow/subflow-retry`, run `pre_run`, oracle run
+  40926159329): the failed attempt is the subflow's `Flow` job with args
+  `{}` and the transform's `ExecutionErr`, none of its modules ran, and the
+  retry ran the subflow with `{}`. New case FX-14/c.
 
 <a id="fx-15"></a>
 ### FX-15 · Chaining errors: three contexts
@@ -1483,7 +1500,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
 <a id="fx-23"></a>
 ### FX-23 · `sleep`
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-23/a–c) · **Status:** confirmed
 
 - **Rule:** `sleep` on module `i` is an input transform (static or
   javascript; scope in [FX-8](#fx-8)). It is evaluated when module `i+1` is
@@ -1510,11 +1527,23 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   `:3753`, `:6187-6194`; `backend/windmill-types/src/flows.rs:561`; Docs:
   https://www.windmill.dev/docs/flows/sleep
 - **Conformance:** [FX-23/a–FX-23/c](conformance.md#fx-23)
+- **Revision 2026-10-29 (SC4, recordings of milestones N2, NI and E1):** the three cases were recorded as stated by milestone N2's fixture
+  `conformance/flows/execution/fx-23` (runs `js_own_result`,
+  `static_fraction` and `string_value`, oracle run 40818457347), which
+  [Q-FX-18](#q-fx-18) still listed as unrecorded.
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** milestone NI's
+  fixture `conformance/flows/control-flow/waits` (oracle run 40852609901)
+  recorded the rule inside containers, with no case of its own: a body
+  step's `sleep` delays the next step of the iteration's child flow (run
+  `body_sleep`), and a loop module's own `sleep`, evaluated with the loop's
+  array as `result`, delays the module after the loop (run
+  `loop_sleep_after`). The `sleep` of the step before a container is
+  [CF-21](control-flow.md#cf-21)'s.
 
 <a id="fx-24"></a>
 ### FX-24 · Per-step `timeout`: value, cap and enforcement by execution path
 
-**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; path 4 rests on an exhaustive search for readers); medium (path 2) · **Status:** confirmed
+**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; path 4 rests on an exhaustive search for readers; oracle-observed: FX-24/a, /c, /e, /f and the deployed half of /d); medium (path 2) · **Status:** confirmed
 
 - **Rule:**
   - **Value.** `timeout` on a module is an input transform (a bare number is
@@ -1583,11 +1612,38 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     setting reloads
   - Docs: https://www.windmill.dev/docs/flows/custom_timeout
 - **Conformance:** [FX-24/a–FX-24/g](conformance.md#fx-24)
+- **Revision 2026-10-29 (SC4, recordings of milestones N2, NI and E1):** FX-24/a, FX-24/c and FX-24/f were recorded as stated
+  by milestone N2 (`conformance/flows/execution/fx-24`, runs
+  `process_timeout`, `negative_later` and `identity_untimed`, oracle run
+  40818457347; FX-24/a also by milestone E1's
+  `conformance/flows/languages/bun-results` run `timeout`, oracle run
+  40771900586), and FX-24/e and the deployed half of FX-24/d by milestone NI
+  (`conformance/flows/control-flow/cf-27`, runs `fx24_e` and `fx24_d`, oracle
+  run 40852609901): a parallel loop's 3 s iteration completed under the
+  loop's `timeout: 1`, and a collapsed body was cut at about 1 s with the
+  loop's id as `step_id`. [Q-FX-18](#q-fx-18) still listed them as
+  unrecorded; FX-24/b is [Q-FX-4](#q-fx-4)'s and FX-24/g is `later`.
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** the same
+  fixture family recorded the negative and javascript timeouts inside
+  containers, with no case of their own (`conformance/flows/control-flow/waits`,
+  oracle run 40852609901): a body step's javascript `timeout` times its job
+  in the iteration's child flow (run `body_timeout_js`); a negative
+  `timeout` on a child flow's second module aborts that child with the
+  `InternalError` `Timeout value cannot be negative`, which the loop takes
+  as its failed iteration's entry (run `body_timeout_negative_later`), and
+  on its first module fails the child at its pickup with
+  `Error: Timeout value cannot be negative<loc>`, name `Anyhow` (run
+  `body_timeout_negative_pickup`); a loop module's negative `timeout` is a
+  chaining `InternalError` at a later transition (run
+  `loop_timeout_negative_later`) and, for a collapsed loop at step 0, an
+  `Anyhow` failure of the loop step at the root's pickup (run
+  `loop_timeout_negative_root`), the route FX-24/b states for a script
+  step ([FX-15](#fx-15) contexts 1 to 3).
 
 <a id="fx-25"></a>
 ### FX-25 · Process timeout: enforcement and error
 
-**Scope:** core · **Confidence:** high (message); medium (that the canceled step status leaves the flow uncanceled) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (message, oracle-observed); medium (that the canceled step status leaves the flow uncanceled) · **Status:** confirmed
 
 - **Rule:** When a step's **process** outlives its timeout, the worker:
   1. marks the job canceled with reason `duration > <secs>` and canceler
@@ -1612,6 +1668,10 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   `:1625-1649`; `backend/windmill-worker/src/worker_flow.rs:1736`;
   `backend/windmill-worker/src/common.rs:1056-1114`
 - **Conformance:** [FX-25/a](conformance.md#fx-25)
+- **Revision 2026-10-29 (SC4, recordings of milestones N2, NI and E1):** FX-25/a was recorded as stated by milestone N2
+  (`conformance/flows/execution/fx-25`, run `tolerated`, oracle run
+  40818457347); run `retried` of the same fixture adds a timed-out step
+  retried with the same args, which timed out again.
 
 <a id="fx-26"></a>
 ### FX-26 · `retry`: the delay schedule and its exact arithmetic
@@ -1706,11 +1766,15 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   case FX-26/f gives one distribution); and that the retry job is queued
   with its `scheduled_for` from the start of the delay, which is where a
   recording reads FX-26/c–e ([Q-FX-18](#q-fx-18)).
+- **Revision 2026-10-29 (SC4, recordings of milestones N2, NI and E1):** FX-26/a and FX-26/b were recorded as stated by
+  milestone N2 (`conformance/flows/execution/fx-26`, runs `phases` and
+  `multiplier`, oracle run 40818457347): delays of at least 1, 1, 8 and 16 s,
+  and one of at least 6 s. FX-26/c to FX-26/f stay unrecorded.
 
 <a id="fx-27"></a>
 ### FX-27 · `retry`: what is retried and how state evolves
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed; drafted (the second `skip_if` evaluation, added 2026-10-29 by SC3)
+**Scope:** core · **Confidence:** high (source-traced; oracle pending); high (oracle-observed: a retried script or `flow` step reuses the failed attempt's args; each child flow keeps its own retry state) · **Status:** confirmed; drafted (the second `skip_if` evaluation, added 2026-10-29 by SC3; a parallel container's empty list, added 2026-10-29 by SC4)
 
 - **Rule:** When a module fails, a retry is scheduled if its `retry` (or,
   while the failure module runs, the failure module's `retry`) still has
@@ -1752,6 +1816,14 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     when the failure module runs after a module that was retried and then
     failed or error-stopped: the failure module's status repeats the failed
     attempts, beside `parent_module` naming the failed module;
+  - **except a parallel container** (drafted): a parallel `forloopflow` or
+    `branchall` completes through its own path, which always writes an
+    empty `failed_retries`. A retried parallel container therefore lists
+    none of its own failed attempts once its retry has started, and one
+    that completes while the list holds an earlier module's attempts does
+    not list them either, although its success still clears the
+    flow-wide list (which attempt a retried parallel container records,
+    and from which child it re-enters, is [CF-22](control-flow.md#cf-22)'s);
   - when a module succeeds, the retry state is cleared after its status is
     written, so the next module starts with an empty list;
   - retry is evaluated before `continue_on_error`: a tolerated step is first
@@ -1766,7 +1838,9 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   flow-wide list), `:3752-3766` (each retry appends to the flow-wide list
   and copies it to the retried module's status); `:3842-3870` (`skip_if`
   evaluated on every entry, an error logged to the root job at
-  `:3857-3867`)
+  `:3857-3867`); `:766-773`, `:1037-1061` (a parallel container's
+  completed entry with an empty `failed_retries`), `:4763-4779` (re-entry
+  replaces the module's entry with an `InProgress` one, which has no list)
 - **Conformance:** [FX-27/a](conformance.md#fx-27)
 - **Revision 2026-10-28 (oracle, batch E3b):** the finding said only that a
   module's `Success` status lists its `failed_retries` once it succeeds. Run
@@ -1784,11 +1858,30 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   [OR-24/c](conformance.md#or-24) recorded the second evaluation. FX-27/a's
   expectation now says how to observe it; the args reuse is still
   unrecorded ([Q-FX-18](#q-fx-18)).
+- **Revision 2026-10-29 (SC4, source re-check and recordings of
+  milestones N5 and NI):** a retried `flow` step re-ran with the failed
+  attempt's stored args, `{}` after a throwing transform (milestone N5,
+  fixture `control-flow/subflow-retry`, run `pre_run`, oracle run
+  40926159329; [FX-14/c](conformance.md#fx-14)), and a retried collapsed
+  loop pushed its first body job from the failed job's stored args
+  (milestone NI, [CF-22/c](conformance.md#cf-22)). FX-27/a's own flow,
+  a script step, was recorded as stated by milestone N2
+  (`conformance/flows/execution/fx-27`, run `reuses_args`, oracle run
+  40818457347): the retry's args equalled the first attempt's, with one
+  failed retry listed. Milestone NI's `conformance/flows/control-flow/waits`
+  (runs `body_retry_seq`, `body_retry_par` and `branch_retry`, oracle run
+  40852609901) recorded a body step retried inside each iteration's or
+  branch's child flow with the same args, each child flow listing only its
+  own failed attempt. From the source (drafted): the State bullet about
+  copying the flow-wide list did not hold for a parallel container, whose
+  completed entry always has an empty list; milestone NI's retried
+  parallel `branchall` showed no listed attempt
+  ([CF-22/e](conformance.md#cf-22)).
 
 <a id="fx-28"></a>
 ### FX-28 · `retry_if`
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-28/a–c) · **Status:** confirmed
 
 - **Rule:** `retry.retry_if.expr` is a boolean predicate (scope in
   [FX-8](#fx-8): `result` and `previous_result` are the failed step's wrapped
@@ -1802,17 +1895,34 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   point:
   - **during completion:** the update is re-processed as an unrecoverable
     failure with a **string** error, as in [FX-21](#fx-21): no retry, no
-    tolerance, and the failure module runs if there is one;
+    tolerance, and the failure module runs if there is one. The string is
+    FX-21's wrapped once more: the retry decision that evaluates the
+    predicate converts its error a second time, so the string starts
+    `Error: Error: QuickJS evaluation error: ` and ends in two location
+    suffixes, the evaluation's and the retry decision's
+    (`@worker_flow.rs:2451:11 @worker_flow.rs:1710:32` at the pin);
   - **on re-entry:** a chaining error ([FX-15](#fx-15)).
 - **Evidence:** `backend/windmill-types/src/flows.rs:428-442`;
   `backend/windmill-worker/src/worker_flow.rs:2390-2425`, `:1306-1327`,
-  `:1701-1751`, `:223-251`, `:3723-3736`
+  `:1701-1751`, `:223-251`, `:3723-3736`; the second wrap: `:2397` (the
+  retry evaluation returns an untyped error, so the predicate's located
+  error is wrapped), `:1710-1718` (converted back into a located error in
+  the completion's retry decision), `backend/windmill-common/src/error.rs:73-74`
 - **Conformance:** [FX-28/a–FX-28/c](conformance.md#fx-28)
+- **Revision 2026-10-29 (SC4, recordings of milestone N2):** the three
+  cases were recorded (`conformance/flows/execution/fx-28`, runs
+  `false_prevents`, `throw_handler` and `throw_no_handler`, oracle runs
+  40818457347 and 40819992740). FX-28/a held as stated. FX-28/b and FX-28/c
+  showed the throwing predicate's string with two leading `Error: ` and two
+  location suffixes, where the rule said only "as in FX-21", whose string
+  has one of each; milestone N2 noted the difference in its fixture. The
+  rule now gives the second wrap and its source; the cases carry a
+  correction.
 
 <a id="fx-29"></a>
 ### FX-29 · Quirk: the retry counter carries over after a tolerated failure
 
-**Scope:** core · **Confidence:** medium (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: the counter and the carried-over list) · **Status:** confirmed; drafted (a parallel container lists nothing, added 2026-10-29 by SC4)
 
 - **Rule:** The retry counter is flow-wide and is cleared only when a module
   **succeeds**. If module `k` exhausts its retries and is then tolerated by
@@ -1822,11 +1932,14 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   module in between clears the counter. The list of failed attempt ids is
   carried over with the counter: the next module to complete, whether it
   succeeds or fails, lists `k`'s failed attempts in its own
-  `failed_retries` ([FX-27](#fx-27)).
+  `failed_retries` ([FX-27](#fx-27)). The exception is a parallel loop or
+  `branchall`, whose completed entry lists nothing (drafted): if it is the
+  next module and succeeds, `k`'s attempts end up listed nowhere, since
+  the success clears the list.
 - **Evidence:** `backend/windmill-worker/src/worker_flow.rs:1491-1503`
   (cleared only on `Success`), `:1306-1327`, `:2390-2425`, `:3723-3769`,
   `:1295`, `:1341`
-- **Conformance:** [FX-29/a, FX-29/b](conformance.md#fx-29)
+- **Conformance:** [FX-29/a to FX-29/c](conformance.md#fx-29)
 - **Design note (not Windmill behaviour):** windmill-lite must reproduce this
   to be exact.
 - **Revision 2026-10-28 (oracle, batch E3b):** added the carried-over
@@ -1836,11 +1949,26 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   40686049913), where the failure module repeats a failed module's attempt
   ([FX-27](#fx-27)); the tolerated-failure cases FX-29/a and FX-29/b are not
   recorded yet.
+- **Revision 2026-10-29 (SC4, recordings of milestone N5):** the carried-over
+  list is now recorded after a tolerated failure. In run
+  `exhausted_continue` of fixture `control-flow/subflow-retry` (oracle run
+  40915682847) a retried `flow` step ran out of attempts under
+  `continue_on_error`, and the next step's `Success` entry listed the
+  step's failed first attempt (new case FX-29/c). From the source
+  (drafted): a parallel container lists nothing ([FX-27](#fx-27)).
+- **Revision 2026-10-29 (SC4, recordings of milestone N2):** the revision
+  just above said that the counter itself was unrecorded. Milestone N2
+  had recorded it: fixture `execution/fx-29` (oracle run 40818457347), run
+  `carries_over`, where `b` ran once after `a` was tolerated and `b`'s
+  `Failure` entry listed `a`'s two failed attempts, and run
+  `reset_by_success`, where `b` ran three times after `s`'s `Success`
+  entry listed `a`'s two attempts. FX-29/a and FX-29/b are now
+  `oracle-observed`, as stated.
 
 <a id="fx-30"></a>
 ### FX-30 · `continue_on_error`
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed); high (source-traced: a due retry at the last module, the exclusions added 2026-10-29) · **Status:** confirmed; drafted (a due retry at the last module, and the parallel-container, forwarded-stop and handled-failure sentences, added 2026-10-29 by SC4)
 
 - **Rule:** When a module with `continue_on_error: true` fails (after
   retries are exhausted, [FX-27](#fx-27)):
@@ -1850,13 +1978,28 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   - at the last module, the flow completes **successfully**, with that
     wrapped error as its result.
 
+  **A due retry comes first, at the last module too.** While a retry is
+  still due the cursor does not advance, so the module is not yet treated as
+  the last one: the continue decision re-enters it and the retry runs. Only
+  the attempt after which no retry is due advances the cursor, and only then
+  does a last module end the flow successfully. A module with
+  `continue_on_error` and `retry: {constant: {attempts: 2}}` that always
+  fails therefore runs three times, as at any other position.
+
   It also applies to error-stops ([FX-19](#fx-19)): the cursor advances, and a
   last-step error-stop without a failure module ends successfully.
 
   It does not apply to unrecoverable failures ([FX-44](#fx-44)); to the
-  failure module and the preprocessor, whose own flag is ignored; or to
+  failure module and the preprocessor, whose own flag is ignored; to
   collapsed loop bodies, where the body step's flag is ignored and the loop
-  module's flag counts ([FX-46](#fx-46)).
+  module's flag counts ([FX-46](#fx-46)); to a failed parallel loop or
+  parallel `branchall`, which aborts the flow with an `InternalError`
+  instead ([CF-7](control-flow.md#cf-7), drafted); or to a container failure
+  that carries a stop forwarded from a child flow
+  ([CF-12](control-flow.md#cf-12) point 4, drafted). A sequential
+  container's failure that a child flow's copy of the failure module
+  handled is tolerated like any other ([CF-16](control-flow.md#cf-16)
+  point 8); a parallel one is not, as just said.
 
   **The failure module does not run for a tolerated failure**, with exactly
   two exceptions, both error-stops:
@@ -1869,14 +2012,30 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   successfully with the wrapped error, and no failure module runs; the
   error-stop continue rule is the one that checks for a failure module first.
 - **Evidence:** `backend/windmill-worker/src/worker_flow.rs:678-679`, `:742`,
-  `:1302-1346`, `:1724-1764`, `:5657-5697`
-- **Conformance:** [FX-30/a](conformance.md#fx-30); also
+  `:1302-1346`, `:1724-1764`, `:5657-5697`; a due retry at the last module:
+  `:1306-1327` (the cursor advances only when no retry is due),
+  `:1369-1397` (the last-module test reads the advanced cursor),
+  `:1729-1745` (continue while the module is not the last; the last-module
+  success needs the last-module test), `:3723-3760` (the retry runs on
+  re-entry)
+- **Conformance:** [FX-30/a, FX-30/b](conformance.md#fx-30); also
   [FX-19/e–FX-19/g, FX-19/i](conformance.md#fx-19).
 - **Revision 2026-10-28 (oracle, batch E3c):** recorded as stated: a
   tolerated middle step's `Failure` status with the next step seeing its
   wrapped error as `previous_result` and `results.a`, and a tolerated last
   step ending the flow successfully without the failure module (fixture
   `conformance/flows/execution/fx-30`, oracle run 40685766017).
+- **Revision 2026-10-29 (SC4, source re-check):** a reading circulated
+  that at the last module `continue_on_error` ends the flow at once even
+  when a retry is due. It does not: the last-module test reads the cursor
+  after the advance, and the cursor does not advance while a retry is due,
+  so the retry runs first, as the rule's "after retries are exhausted"
+  says. Stated explicitly, with new source-derived case FX-30/b; no
+  recording has `continue_on_error` and a due retry on a last module that
+  fails ordinarily (`je/errors`' runs `je26-b` and `je26-c` combine them
+  with a throwing `stop_after_if`, which is unrecoverable,
+  [FX-21](#fx-21)). Added the exclusions for a failed parallel container
+  and a forwarded stop, and the handled case.
 
 <a id="fx-31"></a>
 ### FX-31 · `failure_module`: when it runs
@@ -2313,7 +2472,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
 <a id="fx-38"></a>
 ### FX-38 · Cancellation
 
-**Scope:** core (host-initiated cancel with the same result shape) · **Confidence:** high (steady state, oracle-observed); low (race) · **Status:** confirmed
+**Scope:** core (host-initiated cancel with the same result shape) · **Confidence:** high (steady state, oracle-observed); low (race); high (source-traced: a step waiting to start) · **Status:** confirmed; drafted (a step waiting to start, added 2026-10-29 by SC4)
 
 - **Rule:** Canceling a flow sets its cancel flag and the flag of every
   queued descendant job, up to depth 500. Queued children are made due
@@ -2341,6 +2500,23 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   the failure module. A job pushed after the cancel cascade is not flagged
   and may run; the flow then ends `Canceled` on the next completion. **No
   ordering is promised for that race.**
+
+  **A step waiting to start** (drafted). A step is pushed as soon as the
+  module before it completes, even when it must wait: the `sleep` of the
+  module before it and a retry delay queue its job with a later
+  `scheduled_for` ([FX-23](#fx-23), [FX-26](#fx-26)), and a `parallelism`
+  hold queues held iterations ([CF-7](control-flow.md#cf-7)). So when the
+  flow is canceled during the wait, the cascade finds that job, flags it and
+  makes it due at once. At pickup it completes without running: its stored
+  status is `failure` (not `canceled`: that path records no canceler) and
+  its result is the `Canceled` value of the cascade's reason and canceler.
+  For a `flow` step the subflow's `Flow` job therefore exists and ends that
+  way with its own flow status still at step 0: none of its modules starts
+  and it creates no job. The caller's module records `Failure` naming that
+  job, and the flow ends `Canceled` as above. The flow's own flag is read
+  before the next step is pushed, so a cancel that lands before the module
+  before it completes means the step is never pushed; one that lands
+  between the cascade's search and the push's commit is the race above.
 - **Evidence:**
   - `backend/windmill-queue/src/jobs.rs:201-262`, `:264-395`, `:6896-6903`
   - `backend/windmill-worker/src/worker.rs:3644-3646`
@@ -2348,13 +2524,30 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   - `backend/windmill-worker/src/result_processor.rs:622-627`
   - `backend/windmill-worker/src/worker_flow.rs:1734-1736`, `:1805-1806`,
     `:1972-1988`
-- **Conformance:** [FX-38/a](conformance.md#fx-38); the race has no fixture.
+  - a step waiting to start: `worker_flow.rs:3667-3720` (a `sleep` sets the
+    pushed job's `scheduled_for`), `:3753` (a retry delay), `:4403-4417`
+    (the job is pushed with it), `:1505-1507`, `:1736` (the flow's flag is
+    read before a push); `backend/windmill-queue/src/jobs.rs:250-258`,
+    `:330-347`, `:366-381` (flagged, made due, held iterations released);
+    `backend/windmill-worker/src/worker.rs:3644-3646` (completed at pickup
+    before any flow or script code), `:1706-1735` (that path passes no
+    canceler); `backend/windmill-worker/src/result_processor.rs:1910-1972`
+    (the job's completion and the caller's update);
+    `backend/windmill-queue/src/jobs.rs:1094-1122` (the stored status is
+    `canceled` only with a canceler), `:6896-6903` (the value)
+- **Conformance:** [FX-38/a, FX-38/b](conformance.md#fx-38); the race has no fixture.
 - **Revision 2026-10-28 (oracle, batch E3c):** the steady state was recorded
   as stated: a flow canceled while its step slept ended `canceled` with the
   `Canceled` result, its failure module did not run, and the killed step's
   own result was the `ExecutionErr` text above with status `canceled`
   (fixture `conformance/flows/execution/fx-38`, run `cancel`, oracle run
   40685766017). The ordering rules and the race were not recorded.
+- **Revision 2026-10-29 (SC4, source re-check, milestone N5):** N5 noted
+  that no case records whether Windmill launches a flow job for a step
+  canceled before its launch. It does: the job was already pushed during
+  the wait, and the cancel makes it fail at pickup without running. Added
+  as "A step waiting to start", with new source-derived case FX-38/b;
+  [CF-28](control-flow.md#cf-28) point 2 cross-references it.
 
 <a id="fx-39"></a>
 ### FX-39 · `suspend` / approval: behaviour when a flow meets it
@@ -2393,29 +2586,154 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
 <a id="fx-40"></a>
 ### FX-40 · `cache_ttl` (step and flow)
 
-**Scope:** later · **Confidence:** high (oracle-observed: hits, failed-flow caching, the TTL matrix's loop rows, sharing between collapsed iterations); medium (S3-aware hashing; raw-submission bodies) · **Status:** confirmed
+**Scope:** later (the entry store and its permissions: out) · **Confidence:** high (oracle-observed: hits, failed-flow caching, the TTL matrix's loop rows, sharing between collapsed iterations); high (source-traced: where the lookup sits, what a hit skips, the store conditions); medium (S3-aware hashing, whose storage client is closed source on CE; raw-submission bodies; who can read an entry) · **Status:** confirmed; drafted (where the lookup sits, argument equality, what a hit skips and what still applies, the store conditions beyond FX-40/b, S3-aware hashing, where entries live)
 
 - **Rule:**
   - **Lookup.** Before any job with a `cache_ttl` (seconds) runs, including
     a whole flow job with a flow-level `cache_ttl`, the worker looks up a
     cache entry. The key is a SHA-256 over, in order: the job kind; then
-    either the job's runnable id, when it has one (a script hash, or for a
-    `flowscript` job the id of the stored flow node holding its code), or
-    else the job's path followed by its raw code or raw flow; then each
-    argument, in sorted key order, as its name and its raw JSON text. **The
-    path enters the key only for a job without a runnable id.** S3-aware
-    argument hashing includes the object's ETag and can leave out its path
-    (`cache_ignore_s3_path`).
-  - **Hit.** The job completes successfully at once with the cached result,
-    logging `Job skipped because args & path found in cache and not
-    expired`. For a flow, no step runs.
-  - **Store.** A result is stored with expiry now plus the TTL when the job
-    succeeded. **Failed flows can be cached:** a flow stores its final result
-    when the last processed job succeeded, and that check comes **before**
-    the `recover` check. So a flow whose failure module ran successfully
-    without `recover: true` fails but caches the failure module's result, and
-    a later identical run completes **successfully** from the cache with that
-    value.
+    either the job's runnable id, when it has one (a script hash; for a
+    `flowscript` job the id of the stored flow node holding its code; for a
+    deployed flow, run by path or as a subflow, its flow version id, so each
+    new deployment starts with no entries), or else the job's path followed
+    by its raw code or raw flow; then each argument, in sorted key order, as
+    its name and its raw JSON text. **The path enters the key only for a job
+    without a runnable id.** S3-aware hashing can add an object's ETag and
+    leave out its path (below).
+  - **Argument equality.** The argument text in the key is the job's stored
+    arguments as the queue hands them back: the `jsonb` text of each
+    top-level value ([FX-42](#fx-42)). Two calls share an entry when their
+    arguments are equal as `jsonb` values: member order and whitespace do
+    not matter, number spelling does where `jsonb` keeps it (`1` and `1.0`
+    are different keys; `1e3` and `1000` are the same). The key covers the
+    arguments **as stored, before** the worker resolves `$var:`,
+    `$jsonvar:`, `$res:` or `$encrypted:` strings
+    ([WR-5](languages.md#wr-5)): the literal reference string is hashed,
+    never the value it names.
+  - **Where the lookup sits.** At pickup, after the cancellation check (a
+    job whose cancel flag is set when it is picked up fails at once with
+    the `Canceled` value, stored as `failure`, never from the cache;
+    [FX-38](#fx-38)) and after a pre-run error (a step whose input
+    transforms threw fails as [FX-14](#fx-14) says, never from the cache),
+    and before anything else: before argument resolution, and for a flow
+    before any step is evaluated. Jobs without `cache_ttl` skip it.
+    Identity jobs never carry one, so a mocked module ([FX-18](#fx-18)), a
+    skipped one ([FX-17](#fx-17)), an `identity` step and the virtual
+    `<id>-v` step neither read nor fill the cache, whatever `cache_ttl` the
+    module has. Previews are not exempt: a flow preview with a flow-level
+    `cache_ttl`, and a preview's inline steps with one, look up and store
+    like any job, keyed by path and code.
+  - **Hit.** The queued job itself completes at once, successfully, with
+    the cached result. It keeps its own job id; its status is `success`
+    (never `skipped`, even when the run that stored the value had stopped
+    with `skip_if_stopped`); its log is `Job skipped because args & path
+    found in cache and not expired`. For a flow, no step runs and its flow
+    status does not advance. Nothing is resolved or executed: `$var:`,
+    `$res:` and `$encrypted:` arguments are not read (no variable read, no
+    secret audit event), so a hit returns the value computed with whatever
+    the variable held when the entry was stored. The completion then takes
+    the ordinary success path: [FX-13](#fx-13)'s marker check applies to the
+    cached value, and in a flow the step's completion phase applies as for
+    any successful job ([FX-2](#fx-2)): `stop_after_if` is evaluated on the
+    cached result, and retry and `continue_on_error` have nothing to act on.
+    A run-and-wait call of a flow with `early_return` ([FX-37](#fx-37)) that
+    the cache serves answers with the cached final result, because the early
+    step never ran (medium).
+  - **Store.** A failed job never stores.
+    - **Script-kind jobs** store their result under the key computed at
+      pickup when they succeed after [FX-13](#fx-13)'s check (a `wm_failure`
+      result is a failure, so it is not stored). The entry is written before
+      the job is recorded as complete, so the next collapsed iteration
+      already sees it ([FX-40/d](conformance.md#fx-40)).
+    - **Flow jobs** decide once, when the flow completes through the
+      completion of a module: its last module, a stop, or its failure
+      module. The flow stores its final result when that completion counts
+      as a success **before** the `recover` rule ([FX-33](#fx-33)) is
+      applied. A flow that ends canceled ([FX-38](#fx-38)), or that a
+      chaining or start error ends without a failure module
+      ([FX-15](#fx-15)), stores nothing.
+
+      | How the flow ends | Stored | Stored value |
+      |---|---|---|
+      | Its last module succeeds, including a skipped step's identity, the virtual `<id>-v` step, and a flow with no modules ([FX-3](#fx-3)) | yes | the final result |
+      | A clean stop ([FX-19](#fx-19)), with or without `skip_if_stopped` | yes | the stopping module's result |
+      | A failure tolerated at the last module: its `continue_on_error`, a loop's `skip_failures`, a sequential `branchall` branch's `skip_failure` ([FX-30](#fx-30)) | yes | the wrapped error, or the container's array |
+      | An error stop tolerated by `continue_on_error` at the last module, with no failure module | yes | `{"error": {"name": "EarlyStopError", …}}` |
+      | Any other error stop without a failure module | no | |
+      | The last module fails, untolerated, with no failure module | no | |
+      | The failure module ran and succeeded, with or without `recover: true` | yes | the failure module's result |
+      | The failure module failed | no | |
+
+      So a flow that failed only because its successful failure module did
+      not return `recover: true` is stored, and a later identical run
+      completes **successfully** with that value
+      ([FX-40/b](conformance.md#fx-40)).
+    - **A container as the last module.** The decision uses the container's
+      own outcome, as the flow counts it ([control-flow.md](control-flow.md#cf-5),
+      [CF-V1](control-flow.md#cf-v1)), and the stored value is the
+      container's array; which child job finished last does not matter. A
+      parallel loop in which one iteration failed, without `skip_failures`,
+      is not stored, even when the iteration that finished last succeeded.
+    - **The flow's key at store time** is computed again at completion,
+      over the flow job's arguments as they are then. Those are the run's
+      input, except when a preprocessor ran ([FX-35](#fx-35)): its output
+      replaced the arguments, and the flow job, queued again after it, looks
+      the cache up a second time with them (medium).
+    - **Expiry.** An entry expires at its store time in whole Unix seconds
+      plus the TTL of the job that stored it, and it is valid while the
+      current second is earlier. The lookup runs for any job that has a
+      `cache_ttl`, `0` included, and tests only the stored entry's own
+      expiry, not the looking-up job's TTL, which is not part of the key.
+      So a `cache_ttl` of `0` stores an entry that has already expired, and
+      a job with `0` never hits **its own** entries, but it does hit a
+      valid entry another job with a positive TTL stored under the same key
+      (two steps pinned to the same script hash with equal arguments, for
+      example, [FX-40/m](conformance.md#fx-40)).
+    - **A failed store** is logged by the worker, not in the job's logs, and
+      changes nothing for the job; the worker's in-memory copy (below) is
+      still written.
+  - **S3-aware hashing** (medium; CE builds include it). For each argument
+    whose whole value decodes as Windmill's S3 object record (a JSON object
+    with a string `s3` member and optional `storage`, `filename` and
+    `presigned` members; other members are ignored; values nested inside an
+    argument are not examined), the worker tries to get the object's ETag:
+    1. it reads the workspace's storage setting: the secondary storage that
+       `storage` names, or else the primary storage;
+    2. a filesystem storage is opened directly. For the S3, Azure Blob,
+       Google Cloud Storage and identity-federated kinds, the storage
+       resource is read through the API with the job's token (interpolated)
+       and turned into a client by a helper that the public source only
+       stubs: the CE image compiles a closed-source module for it
+       ([OR-3](oracle.md#or-3)). The instance's bucket and account
+       restrictions are checked next;
+    3. it asks the store for the metadata of the object at the `s3` key and
+       takes its ETag.
+
+    When an ETag is found, it is hashed after the argument's name, and the
+    argument's text follows unless `cache_ignore_s3_path` is true. So the
+    same path with new content misses, and with the flag two paths whose
+    objects have the same ETag share an entry. **Any failure along the way
+    gives no ETag: the argument is hashed as plain JSON, and
+    `cache_ignore_s3_path` then has no effect.** That covers no storage
+    configured, an unreadable setting or resource, a refused bucket, a
+    missing object and an object without an ETag. A workspace without object
+    storage therefore hashes S3 objects exactly like any other argument.
+    `cache_ignore_s3_path` is a boolean beside `cache_ttl`: on a flow (for
+    the flow job), on a flow module (for its inline, `flowscript` and
+    hash-pinned script jobs), and in a script's settings (for a by-path
+    script job, which drops the module's flag as it drops the module's
+    TTL). A flow's ETags are fetched again at completion for its store key.
+  - **Where entries live** (`out`). An entry is a workspace resource of
+    type `cache` at `g/results/<the key's 64 hex digits>`, holding
+    `{"expire": <Unix seconds>, "value": <result>}`; a later store under the
+    same key overwrites it. Each worker process also keeps up to 1000
+    entries in memory, keyed by that path, and checks them first (expiry
+    included). A database read goes through the API with the job's own
+    token, so row-level permissions apply: a `g/results/…` row is visible to
+    admins and to members of a group named `results`, and for any other job
+    owner only the worker's in-memory copy can hit (medium). The server's
+    periodic cleanup deletes expired entries, and a workspace export leaves
+    them out.
   - **Which TTL applies to a step:**
 
     | Step kind | TTL source |
@@ -2467,7 +2785,44 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   - `backend/windmill-common/src/jobs.rs:80-160` (by path: the latest
     deployed hash)
   - Docs: https://www.windmill.dev/docs/flows/cache
-- **Conformance:** [FX-40/a–FX-40/d](conformance.md#fx-40)
+  - Where the lookup sits and the hit: `backend/windmill-worker/src/worker.rs:3644-3649`
+    (cancellation and pre-run error first), `:3753-3810` (key, lookup and
+    hit completion; the log at `:3776`);
+    `backend/windmill-worker/src/result_processor.rs:117-131` (the marker
+    check, which every completion passes through, `:394`),
+    `backend/windmill-api-jobs/src/execution.rs:290-322` (`early_return`
+    falls back to the completed result); `worker_flow.rs:5106-5137` (mocked
+    and skipped modules become identity jobs);
+    `backend/windmill-queue/src/jobs.rs:6090-6092` (identity jobs carry no
+    cache settings), `:5654-5661` (a flow preview's settings), `:5932-5933`,
+    `:5967-5973` (a deployed flow job's runnable id is its version id)
+  - Arguments: `common.rs:1497-1542` (hashing; each top-level value's stored
+    text); the queue returns `jsonb` text ([FX-42](#fx-42))
+  - The store: `result_processor.rs:1442-1446` (script jobs, on success);
+    `worker_flow.rs:1972-2006` (canceled flows skip it; the store comes before
+    the `recover` check at `:2006`), `:1272-1347`, `:1350-1367` (error stops),
+    `:1027-1060`, `:1478-1489` (a container's outcome and array), `:1724-1764`
+    (a tolerated failure at the last module counts as a success),
+    `:1660-1673` (a preprocessor's output replaces the flow's arguments);
+    `common.rs:1689-1741` (entry shape, the in-memory copy of 1000, expiry),
+    `:1743-1774` (the store; a failure is only logged, `:1769`; the memory
+    copy, `:1773`)
+  - S3-aware hashing: `common.rs:1511-1539`, `:1578-1687` (the storage
+    setting, the resource read, the restrictions);
+    `backend/windmill-types/src/s3.rs:264-273` (the S3 object record);
+    `backend/windmill-object-store/src/lib.rs:58-59`,
+    `backend/windmill-object-store/src/job_s3_helpers_oss.rs:1-3` (the client
+    helper is the closed-source module when `private` is set),
+    `backend/windmill-object-store/src/lib.rs:1039-1056` (the ETag from a
+    metadata request); `backend/Cargo.toml:182-189`, `:199` (`parquet` and
+    `private` are in the CE build); `backend/windmill-common/src/jobs.rs:115-160`
+    and `worker_flow.rs:6119-6121` (which flag a script job takes)
+  - Where entries live: `backend/windmill-store/src/resources.rs:564-591`
+    (read with the caller's permissions);
+    `backend/migrations/20240216100535_improve_policies.up.sql:137-139`
+    (group rows); `backend/src/monitor.rs:1313-1326` (cleanup);
+    `backend/windmill-api/src/workspaces_export.rs:794` (export)
+- **Conformance:** [FX-40/a–FX-40/m](conformance.md#fx-40)
 - **Revision 2026-10-28 (oracle, batch E3d):** the finding was `DISPUTED`
   ([Q-FX-17](#q-fx-17)). As drafted, iterations within one run never shared
   entries, because each collapsed iteration's path ends in `/loop-<index>`;
@@ -2485,6 +2840,34 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   own `cache_ttl` is dropped, so with no loop TTL nothing is cached. FX-40/a
   to FX-40/c are recorded as stated (oracle runs 40685057858 and
   40686532046), FX-40/b answering [Q-FX-6](#q-fx-6).
+- **Revision 2026-10-29 (SC4, source re-check, milestone N4):** milestone N4
+  read the store rule literally (store when the job that ended the flow
+  succeeded) and asked about the cases no recording covers. The rule now
+  states them. Two of N4's readings differ from Windmill: a plain error
+  stop is **not** stored (only an error stop tolerated at the last module
+  without a failure module is, because that flow succeeds), and a failure
+  tolerated at the last module **is** stored, since that flow succeeds too.
+  A failed failure module stores nothing, as N4 read it. Also added: where
+  the lookup sits at pickup (after cancellation and a pre-run error, before
+  argument resolution), that identity jobs (mock, `skip_if`) never touch
+  the cache, what a hit skips (no `$var:`/`$res:` resolution) and what
+  still applies (`stop_after_if`, FX-13's marker check), argument equality
+  under `jsonb`, the version id in a flow's key, the expiry arithmetic, a
+  failed store, where entries live, and S3-aware hashing in full: with no
+  workspace object storage it hashes S3 objects as plain JSON and
+  `cache_ignore_s3_path` has no effect. New source-derived cases FX-40/e to
+  FX-40/l, tracked by the new [Q-FX-21](#q-fx-21).
+- **Revision 2026-10-29 (SC4 validation round 1, finding 4):** the Expiry
+  bullet said that a `cache_ttl` of `0` never hits. A zero TTL only makes
+  the entry its job stores expire at once: the lookup runs whenever a TTL
+  is present (`backend/windmill-worker/src/worker.rs:3753-3810`) and tests
+  the stored entry's expiry, not the requester's TTL, which the key leaves
+  out (`backend/windmill-worker/src/common.rs:1544-1575`, `:1706-1740`), so
+  a zero-TTL job hits a valid entry another job stored under the same key.
+  New source-derived case FX-40/m. The lookup bullet's "a job canceled
+  before it starts completes as canceled" now matches FX-38: a job whose
+  cancel flag is set at pickup fails with the `Canceled` value and is
+  stored as `failure`.
 
 <a id="fx-41"></a>
 ### FX-41 · `priority`, `same_worker`, deletion, squash and scheduling settings
@@ -2552,7 +2935,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
 <a id="fx-42"></a>
 ### FX-42 · Where JSON serialisation happens between steps
 
-**Scope:** core (boundary ordering, in-memory handoff, `flow_input` shortcut); later (number rewriting for non-JavaScript consumers); resolver behaviour per the expressions and client-API areas · **Confidence:** high (map types, source-traced); high (oracle-observed: the in-memory handoff's key order, a static object's jsonb order, `$jsonvar:` key order and spelling); medium (jsonb number rewriting, which is PostgreSQL behaviour; `$res:` ordering); high (source-traced: rule 9's number notation) · **Status:** confirmed; drafted (rule 9, the number notation)
+**Scope:** core (boundary ordering, in-memory handoff, `flow_input` shortcut); later (number rewriting for non-JavaScript consumers); resolver behaviour per the expressions and client-API areas · **Confidence:** high (map types, source-traced); high (oracle-observed: the in-memory handoff's key order, a static object's jsonb order, `$jsonvar:` key order and spelling); medium (jsonb number rewriting, which is PostgreSQL behaviour; `$res:` ordering); high (source-traced: rule 9's number notation and its tie rule); high (source-traced: a child result the read cannot decode, root flow); medium (the same in a child flow, whose parent the zombie-flow monitor ends; not traced end to end) · **Status:** confirmed; drafted (rule 9, the number notation, its tie rule, and a child result the read cannot decode)
 
 - **Rule:** Values cross step boundaries as JSON text, and most
   of it passes through PostgreSQL `jsonb`: flow and step args
@@ -2638,7 +3021,16 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
        reference fails its step ([FX-51](#fx-51) rule 5) instead of
        producing a value.
      - **Digits.** A double is written with the shortest digits that parse
-       back to it. Zero is `0.0`, negative zero `-0.0`.
+       back to it. Zero is `0.0`, negative zero `-0.0`. When two digit
+       strings of that shortest length are equally near the double, the
+       one ending in an even digit is written. Such ties exist:
+       `562949953421312.25` (2⁴⁹ + 0.25, a double whose neighbours are 0.125
+       away) lies exactly halfway between `562949953421312.2` and
+       `562949953421312.3`, both of which parse back to it, and is written
+       `562949953421312.2`; `562949953421312.75` is written
+       `562949953421312.8`. Go's shortest formatting and JavaScript's
+       number-to-string make the same choice, so the digits agree with
+       both; only the notation differs.
      - **Notation.** Let E be the exponent of the first significant digit
        (the double is d.ddd × 10^E). If −5 ≤ E ≤ 15 the double is written
        in plain decimal: when every digit is before the point, the digits,
@@ -2685,6 +3077,81 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
      the 64-bit limits; beyond them (10²⁰, 2⁶⁴) they turn into exponent
      form. A number JavaScript wrote as `1e+21` or `1.5e-7` comes back the
      same; `0.000001` comes back as `1e-6`.
+
+     **A child result the read cannot decode** (drafted). The read of a
+     container's children covers `forloopflow` (sequential or parallel,
+     collapsed or not), `whileloopflow` and `branchall` (sequential or
+     parallel), not `branchone`, whose result travels in memory. It
+     decodes each child's stored `jsonb` into a value, and two stored
+     values cannot be decoded: a number whose double would be infinite (a
+     `1e400`, which `jsonb` keeps, [FX-51](#fx-51), and prints as `1`
+     followed by 400 zeros) and nesting deeper than the library's limit
+     (an array or object opened at depth 128). A JavaScript step cannot
+     return the number, but an identity child can carry either from a flow
+     input, and a Bun child can return the nesting. The read runs when the
+     container ends; a `stop_after_all_iters_if`, or a loop's
+     `stop_after_if` that mentions `all_iters`, reads the children earlier,
+     and the flow then ends the same way, at the latest when the container
+     ends. When the read fails:
+     1. The container step gets no result and no final status: the
+        transition that would record them is rolled back, so the module's
+        status stays in progress. The worker tries the same transition once
+        more as an unrecoverable failure of the child, and that read fails
+        the same way. The child that completed keeps its own stored result.
+     2. **Which job then fails depends on where the chain of transitions
+        started.** The error returns to the completion of the leaf job
+        whose completion started it (a script, identity or other non-flow
+        job), and Windmill's error handler then targets **that job's
+        parent flow**, not the flow whose read failed. So:
+        - **The children are the flow's own leaf jobs:** a sequential
+          `forloopflow` or a `whileloopflow` whose body collapses
+          ([CF-8](control-flow.md#cf-8)), whose iterations are script jobs
+          of the flow running the loop. That flow is the leaf's parent and
+          is completed **failed, directly**, with
+          `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: <library text> @<loc>"}}`.
+          `<library text>` is `number out of range at line <l> column <c>`
+          or `recursion limit exceeded at line <l> column <c>`, positioned
+          in PostgreSQL's printed form of that child's stored result
+          (spaces after `:` and `,`, keys in `jsonb` order): for the
+          number, the column of its last digit; for the nesting, the
+          column of the bracket that opens depth 128. `<loc>` is the
+          backend's location (`worker_flow.rs:<line>:<col>`). The name is
+          `InternalErr`, not the chaining `InternalError` of
+          [FX-15](#fx-15); the message has no `Error: ` prefix and one
+          location suffix. The flow's log gains
+          `Unexpected error during flow job error handling:` and the same
+          text. No retry, no `continue_on_error`, no failure module and no
+          later step runs. When that flow is itself a child flow (a branch,
+          a loop body, a subflow), this completion skips the transition
+          that would tell its parent, so the parent keeps waiting
+          (point 3).
+        - **The children are child flows:** any loop whose body does not
+          collapse (a parallel loop, a body that is not simple, any body in
+          a flow with a failure module) and every `branchall`. The leaf ran
+          inside a child flow, and that child flow's own completion was
+          committed before the transition of the flow running the
+          container read the children. The error handler's target is that
+          already-completed child flow: its completion cannot be written
+          again (a completion is inserted from the job's queue row, which
+          is gone) and its status can no longer advance anything. So **no
+          job is completed with the error text**: the flow running the
+          container stays running with the container in progress, and none
+          of its retry, `continue_on_error`, failure module or later steps
+          runs (point 3). The child flow's log may gain the
+          `Unexpected error during flow job error handling:` line (medium).
+     3. **A flow left waiting** (the flow running the container in the
+        second case, the parent of the failed child flow in the first) is
+        ended by Windmill's zombie-flow monitor, which cancels a running
+        flow job whose last progress is older than
+        `FLOW_ZOMBIE_TRANSITION_TIMEOUT` seconds (60 by default), with a
+        force cancel ([CF-28](control-flow.md#cf-28) point 5) whose reason
+        starts `Flow <id> (<url>) was cancelled because it was hanging in between 2 steps.`
+        (`Flow was cancelled because subflow <id> (<url>) was hanging …`
+        when the waiting flow is itself a flow step). The monitor restarts
+        instead of canceling only a flow whose first module has not
+        started, which cannot be the case here. This point is medium: read,
+        not traced end to end, and the time until the monitor runs is not
+        fixed.
 - **Open:** [Q-FX-7](#q-fx-7) (the cases not yet recorded: nested key order
   of a stored producer value, numbers for non-JavaScript consumers, scale).
 - **Evidence:**
@@ -2736,9 +3203,56 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     printed shortest, read back and written again unchanged.
   - PostgreSQL's plain-decimal printing of exponent input is checked
     against the oracle's PostgreSQL image by `conformance/jsonb/je-44.yaml`.
+  - Rule 9's tie rule: `zmij` `1.0.23` `src/lib.rs:1477-1503` (the scale
+    leaves at most one shorter candidate in the rounding interval; the
+    extra digit is the nearest one, an exact half rounding to the even
+    digit: `2.5` to `2` at `:1495-1497`, `7.5` to `8` through the bias of
+    `:823`). A probe of the pinned crate wrote the even digit for each of
+    50,000 such ties above 2⁴⁹, and its digits matched Go's
+    `strconv.FormatFloat(v, 'e', -1, 64)` for 2.66 million doubles (600
+    consecutive and 600 random doubles of every binade, and 200,000
+    consecutive doubles above 2⁴⁹). JavaScript's rule: ECMA-262,
+    Number::toString ("If there are two such possible values of n, choose
+    the one that is even").
+  - A child result the read cannot decode: the read
+    `backend/windmill-worker/src/worker_flow.rs:2299-2324` decodes the
+    `jsonb` column as a nullable JSON value (`backend/.sqlx/query-b1c96c527c4b263b5155d689eb88894ea93f0eaba37874f828a733062af17640.json`:
+    `Jsonb`, nullable); it runs at the container's end `:1480-1488`, for
+    `stop_after_all_iters_if` `:369-372` (whose error becomes an error
+    stop, `:1004-1016`, `:1234-1245`), and for a loop `stop_after_if`
+    naming `all_iters` `:690-696`; `branchone` keeps no child list
+    `:4703-4717`. The decode: `sqlx-postgres` `0.8.6` `src/types/json.rs:84-97`
+    (the version byte, then the library's parse of the text),
+    `sqlx-core` `0.8.6` `src/row.rs:151-162` and `src/error.rs:78-85`
+    (`error occurred while decoding column <index>: <source>`, the index
+    being the column's position, `sqlx-macros-core` `0.8.6`
+    `src/query/output.rs:147`); `serde_json` `1.0.151` `src/de.rs:63`,
+    `:1372-1386` (the depth limit, reported at the opening bracket),
+    `:677-716` (an integer beyond a double), `:1102-1150` (a raw value is
+    skipped without either check, which is why the result could be
+    stored and passed on). The wrapper: `backend/windmill-common/src/error.rs:51-52`,
+    `:153-158` (`SqlErr: <error> @<location>`). The retried transition
+    `worker_flow.rs:197-251`; a child flow's completion is committed
+    before its parent's transition (`:1508`, `:2135-2153`); the error
+    reaches `backend/windmill-worker/src/result_processor.rs:1520-1543`,
+    `:1622-1648`, and `:686-736`, which keeps the leaf job it started
+    with and hands that job to `handle_job_error` `:1910-2016`; the
+    handler's target is that job's parent (`:1941-1952`), whose
+    transition it tries again before completing it with name
+    `InternalErr` (`:1980-2005`); `backend/windmill-queue/src/jobs.rs:883-914`,
+    `:1094-1153` (a completion is inserted from the job's queue row, so a
+    completed job is not overwritten),
+    `:1239-1258` (a completion only refreshes the parent's progress
+    time). The monitor: `backend/src/monitor.rs:174-177`, `:4867-4893`
+    (running flow jobs whose progress time is older than the timeout),
+    `:4900-4943` (restart only when the first module is still waiting),
+    `:5118-5136`, `:5174-5197`. Checked with the pinned crates: the
+    stored `{"n": 1e400, "iter": {"index": 0, "value": 1}}`, printed
+    with 400 zeros, fails at column 407; an object holding 127 nested
+    arrays fails at column 133.
   - PostgreSQL: https://www.postgresql.org/docs/current/datatype-json.html,
     https://www.postgresql.org/docs/current/datatype-numeric.html
-- **Conformance:** [FX-42/a–FX-42/l](conformance.md#fx-42); also
+- **Conformance:** [FX-42/a–FX-42/o](conformance.md#fx-42); also
   [FX-V2/a](conformance.md#fx-v2), [FX-V5/a](conformance.md#fx-v5).
 - **Design note (not Windmill behaviour):** an earlier proposal that a
   key-sorting walk is enough for parity is withdrawn. Exact parity needs
@@ -2800,6 +3314,31 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   oracle run 40686049913), and the loop site of
   [FX-42/j](conformance.md#fx-42) uses the same writer. Rule 9 is unchanged;
   FX-42/j itself stays unrecorded ([Q-FX-7](#q-fx-7)).
+- **Revision 2026-10-29 (SC4, source re-check, design request 13 and
+  milestone FU6):** rule 9 said that the read of a loop's or `branchall`'s
+  children fails on a number beyond a double, but not what Windmill then
+  does. Added it: the flow job running the container completes failed at
+  once with name `InternalErr` and the message
+  `SqlErr: error occurred while decoding column 0: <library text> @<loc>`,
+  without its failure module, and a child flow's parent is left to the
+  zombie-flow monitor. Milestone FU6 fails such a flow with a chaining
+  `InternalError` whose message is the library's text alone; Windmill's
+  name, wrapper and outcome differ. Nesting past the library's limit
+  fails the same way. Also added the tie rule for the shortest digits
+  (FU6 asked how two equally near candidates are broken): the even last
+  digit, as in Go and JavaScript. New source-derived cases
+  [FX-42/m](conformance.md#fx-42) and [FX-42/n](conformance.md#fx-42).
+- **Revision 2026-10-29 (SC4 validation round 1, finding 1):** the
+  revision just above said that the flow job running the container is
+  always completed with `InternalErr`. Windmill's error handler targets
+  the parent of the leaf job whose completion started the transitions, so
+  that holds only when the container's children are that flow's own leaf
+  jobs (a collapsed loop body). When the children are child flows, the
+  target is a child flow that already completed, nothing is completed with
+  the error, and the flow running the container waits until the zombie-flow
+  monitor cancels it (medium). Rule 9 now separates the two, FX-42/m and
+  FX-42/n are re-expected for child flows, and new case
+  [FX-42/o](conformance.md#fx-42) gives the collapsed route.
 
 <a id="fx-43"></a>
 ### FX-43 · Result size limits
@@ -2850,7 +3389,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: `WM_FLOW_STEP_ID`) · **Status:** confirmed
 
 - **Rule:** Each step's job carries the module id as its flow step id.
   Wrappers expose it as `WM_FLOW_STEP_ID`, and it ends up in error objects as
@@ -2873,11 +3412,15 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   `:5076-5086`, `:5199`, `:5657-5697`, `:5670`;
   `backend/windmill-worker/src/bun_executor.rs:1887-1890`, `:1952-1955`
 - **Conformance:** [FX-45/a](conformance.md#fx-45)
+- **Revision 2026-10-29 (SC4, recordings of milestone E1):** FX-45/a was
+  recorded as stated: two steps read their own module ids from
+  `WM_FLOW_STEP_ID` (`conformance/flows/client-api/job-env`, run `envs`,
+  oracle run 40771900586).
 
 <a id="fx-47"></a>
 ### FX-47 · Thrown non-Error values in Bun
 
-**Scope:** core (strings and objects); later (`null`/`undefined`) · **Confidence:** medium (plain object, string); low (`null`/`undefined`) · **Status:** confirmed
+**Scope:** core (strings and objects); later (`null`/`undefined`) · **Confidence:** high (string, oracle-observed); medium (plain object); low (`null`/`undefined`) · **Status:** confirmed
 
 - **Rule:** The Bun wrapper builds the error from whatever was thrown
   ([FX-12](#fx-12)).
@@ -2894,6 +3437,11 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
 - **Evidence:** `backend/windmill-worker/src/bun_executor.rs:1948-1970`;
   `backend/windmill-worker/src/result_processor.rs:587-614`, `:2029-2044`
 - **Conformance:** [FX-47/a, FX-47/b](conformance.md#fx-47)
+- **Revision 2026-10-29 (SC4, recordings of milestone E1):** FX-47/a was
+  recorded as stated: a thrown `"ab"` gave
+  `{"error":{"step_id":"a","extra":{"0":"a","1":"b","length":2}}}`
+  (`conformance/flows/languages/bun-results`, run `thrown_string`, oracle run
+  40771900586). FX-47/b stays unrecorded ([Q-FX-9](#q-fx-9)).
 
 <a id="fx-48"></a>
 ### FX-48 · NUL characters at storage boundaries
@@ -3423,6 +3971,17 @@ against Windmill CE `v1.767.0`.
   *Settled by:* oracle runs of [FX-24/d and FX-24/e](conformance.md#fx-24), a
   branch with `timeout: 1` around a 3 s body, and a `flow` module with
   `timeout: 1` around a 3 s subflow; the source predicts no timeout in each.
+  **Re-scoped 2026-10-29 (SC4).** The loop half is recorded: milestone NI's
+  fixture `conformance/flows/control-flow/cf-27` (oracle run 40852609901)
+  ran a parallel loop's 3 s iteration to completion under `timeout: 1`
+  (run `fx24_e`, [FX-24/e](conformance.md#fx-24)), the iterations of a
+  sequential loop with a two-step body likewise (run `c`,
+  [CF-27/c](conformance.md#cf-27)), and cut a collapsed body job at the
+  loop's 1 s (run `fx24_d`, the deployed half of FX-24/d). What remains is
+  the branch and the `flow` module: a `branchone` or `branchall` with
+  `timeout: 1` around a 3 s body, and a `flow` step with `timeout: 1`
+  calling a 3 s subflow; the source predicts no timeout in either. Still
+  open.
 
 <a id="q-fx-2"></a>
 - **Q-FX-2** · affects [FX-24](#fx-24) · `timeout: 0` on process and
@@ -3440,6 +3999,10 @@ against Windmill CE `v1.767.0`.
   What remains is what that failure module sees: `previous_result` the
   `EarlyStopError` and `results.<stopped id>` the stored success value.
   *Settled by:* an oracle run of [FX-V4/a](conformance.md#fx-v4).
+  *2026-10-29 (SC4):* the new source-derived case
+  [FX-30/b](conformance.md#fx-30) (a due retry before the last-module
+  tolerance) joins it; both are requested for batch E3f
+  ([docs/design/README.md](../design/README.md)). Still open.
 
 <a id="q-fx-4"></a>
 - **Q-FX-4** · affects [FX-15](#fx-15), [FX-24](#fx-24) ·
@@ -3589,6 +4152,15 @@ against Windmill CE `v1.767.0`.
   retry-skip fixtures are fully traced in source but not recorded.
   *Settled by:* oracle runs of [FX-29/a, FX-29/b](conformance.md#fx-29),
   [FX-17/b](conformance.md#fx-17) and [FX-32/b](conformance.md#fx-32).
+  *2026-10-29 (SC4):* the carried-over list of failed attempts is recorded
+  after a tolerated failure: milestone N5's run `exhausted_continue`
+  (fixture `conformance/flows/control-flow/subflow-retry`, oracle run
+  40915682847) is the new [FX-29/c](conformance.md#fx-29).
+  **Answered 2026-10-29 (SC4).** FX-29/a and FX-29/b were recorded by
+  milestone N2 (fixture `conformance/flows/execution/fx-29`, runs
+  `carries_over` and `reset_by_success`, oracle run 40818457347), as
+  predicted, so every case this question listed is recorded
+  ([FX-29](#fx-29)). Status: closed.
 
 <a id="q-fx-15"></a>
 - **Q-FX-15** · affects [FX-10](#fx-10), [FX-V6](#fx-v6) · **Answered
@@ -3689,6 +4261,25 @@ against Windmill CE `v1.767.0`.
   recorded one, so what FX-27/a still needs is its args-reuse half
   ([FX-27](#fx-27)). The recordings are requested for batch E3f
   ([docs/design/README.md](../design/README.md)).
+  **Re-scoped 2026-10-29 (SC4).** Much of this list was recorded by the
+  engine milestones and never folded in; the cases are now
+  `oracle-observed`, each with its recording: FX-23/a–c, FX-24/a, /c, /f,
+  FX-25/a, FX-26/a, /b, FX-27/a (its args-reuse half, which is all it still
+  needed) and FX-28/a–c by milestone N2 (fixtures
+  `conformance/flows/execution/fx-23` to `fx-28`, oracle runs 40818457347
+  and 40819992740); FX-24/e and the deployed half of FX-24/d by milestone NI
+  (`conformance/flows/control-flow/cf-27`, oracle run 40852609901); FX-45/a
+  and FX-47/a by milestone E1 (`conformance/flows/client-api/job-env` and
+  `conformance/flows/languages/bun-results`, oracle run 40771900586). They
+  agree with the catalogue, except that FX-28/b and FX-28/c recorded a
+  string with two `Error: ` prefixes and two location suffixes, which
+  [FX-28](#fx-28) now explains. Still to record: FX-1/a, FX-4/a (its `a-v`
+  status entry is [Q-OR-9](oracle.md#q-or-9)'s), FX-5/a, FX-11/a, FX-11/b,
+  FX-24/g, FX-26/c–f, FX-47/b, FX-V1/a, FX-V1/b and FX-V2/a; the preview
+  half of FX-24/d is outside the reference configuration. Still open.
+  *2026-10-29 (SC4, milestone N5):* the new source-derived case
+  [FX-38/b](conformance.md#fx-38) ([FX-38](#fx-38): a step canceled while
+  it waits to start) joins this list; requested for batch E3f.
 <a id="q-fx-19"></a>
 - **Q-FX-19** · affects [FX-33](#fx-33) · **Answered 2026-10-28.** The
   correction holds: a successful failure module returning `[true]` makes
@@ -3734,3 +4325,22 @@ against Windmill CE `v1.767.0`.
   ([FX-51](#fx-51) rules 3 and 4, [FX-51/d](conformance.md#fx-51)). What
   remains is to record PostgreSQL's messages through Windmill and the
   insert retries' duration (FX-51/a–d); requested for batch E3f.
+
+<a id="q-fx-21"></a>
+- **Q-FX-21** · affects [FX-40](#fx-40) · open (oracle, `later`) · The
+  cache rules milestone N4 asked about are traced in the source but not
+  recorded: the store conditions (a failure tolerated at the last module
+  is stored, an error stop is not, a container at the last module stores by
+  its own outcome, a hit of a stopped run is not `skipped`), argument
+  equality under `jsonb`, a hit that does not resolve `$var:`, S3-aware
+  hashing without workspace object storage, and `stop_after_if` on a hit.
+  With workspace object storage, S3-aware hashing also goes through a
+  storage client that is closed source on CE, so only a recording can show
+  it. Added 2026-10-29 (SC4). *Settled by:* oracle runs of
+  [FX-40/e to FX-40/l](conformance.md#fx-40) in the reference session,
+  checking each run's flow and step results, the step jobs created and the
+  cache log line; and, in a session with workspace object storage on a
+  local S3-compatible store, a step with `cache_ttl` and
+  `cache_ignore_s3_path` whose argument is an S3 object, recording a hit,
+  a miss after the object's content changes, and a hit for a second key
+  holding a copy of the same content (requested for batch E3f).

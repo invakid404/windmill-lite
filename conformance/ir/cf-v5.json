@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "CF-V5/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "The run half, [101,103,106], is N3a's. CF-V5/b, a raw preview, is not applicable (deferred.json).",
       "title": "deployed by path: the loop collapses",

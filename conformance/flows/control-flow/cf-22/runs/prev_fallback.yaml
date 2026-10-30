@@ -1,6 +1,6 @@
-# CF-22 rule 2: on a retry, previous_result is restored from storage; the
+# CF-22/b (CF-22 rule 2): on a retry, previous_result is restored from storage; the
 # step before the loop failed (tolerated), so it is the JSON string "{}".
-spec: [CF-22, FX-6]
+spec: [CF-22/b, FX-6]
 target: f/cf22/prev_fallback
 expect:
   status: success

@@ -1,7 +1,9 @@
-# The text a value comes back as: the reference says only that the state
-# lives in the root's flow status (WA-14), so no expect is written and the
-# recording is the reference for the key order and the number spelling.
-spec: [WA-14/a]
+# The text a value comes back as: when the run was written the reference
+# said only that the state lives in the root's flow status (WA-14), so no
+# expect is written and the recording is the reference for the key order
+# and the number spelling, which its revision SC4 states from this
+# recording as WA-14/e.
+spec: [WA-14/a, WA-14/e]
 target: f/wl_pf3_us/order
 claims:
   - at: /result/set

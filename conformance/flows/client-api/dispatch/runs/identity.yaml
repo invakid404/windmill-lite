@@ -1,13 +1,14 @@
 # The job identity of the runs a step dispatches, a script tracked in its
 # parent and a flow tracked and untracked, and the shape of a dispatched
-# failure's error: the reference does not say them (WA-V1 leaves
-# dispatched jobs out), so no expect is written and the recording is the
-# reference. It settled windmill-lite's rule (ADR 0007): a job dispatched
+# failure's error: the reference did not say them when the run was
+# written (WA-V1 left dispatched jobs out), so no expect is written and the
+# recording is the reference; its revision SC4 states the identity from
+# this recording as WA-V1/b. It settled windmill-lite's rule (ADR 0007): a job dispatched
 # with parent_job and root_job, as runScriptByPath and runFlow send them,
 # has the dispatching job for its parent if it is a script, or the
 # dispatched flow for its steps' parent if it is a flow; root_job is its
 # innermost scope and its effective root; a script's flow path is the
 # dispatching job's runnable path; a flow dispatched without them is a
 # separate run, its own root.
-spec: [WA-15/a, WA-V1]
+spec: [WA-15/a, WA-V1/b]
 target: f/wl_pf3_disp/identity

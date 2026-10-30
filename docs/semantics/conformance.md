@@ -5,8 +5,9 @@ this reference, grouped by area. The executable fixtures that encode these
 cases live under [`conformance/`](../../conformance) at the repository root,
 in the format the design chose; [OR-15](oracle.md#or-15) describes the
 language-neutral format first proposed for oracle recordings. Recording
-batches E3a to E3e (design record 0012) recorded many cases on the oracle,
-and the cases they recorded name their recording.
+batches E3a to E3e (design record 0012) and the fixtures the build
+milestones committed with their own recordings recorded many cases on the
+oracle, and the cases they recorded name their recording.
 
 ## How to read a case
 
@@ -47,14 +48,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 1 | 0 | 0 |
-| [Flow execution](#execution) | 145 | 102 | 42 | 1 | 0 | 81 | 0 | 1 |
-| [Loops, branches and subflows](#control-flow) | 93 | 71 | 18 | 0 | 4 | 45 | 0 | 0 |
+| [Flow execution](#execution) | 161 | 106 | 54 | 1 | 0 | 102 | 0 | 1 |
+| [Loops, branches and subflows](#control-flow) | 123 | 84 | 35 | 0 | 4 | 94 | 0 | 0 |
 | [Expressions](#expressions) | 193 | 130 | 63 | 0 | 0 | 167 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 203 | 127 | 76 | 0 | 0 | 27 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 105 | 55 | 45 | 5 | 0 | 0 | 0 | 6 |
+| [Languages and script wrappers](#languages) | 206 | 127 | 79 | 0 | 0 | 31 | 0 | 0 |
+| [The wmill client API and the platform interface](#client-api) | 108 | 57 | 46 | 5 | 0 | 20 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 53 | 11 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 979 | 694 | 270 | 8 | 7 | 374 | 11 | 7 |
+| **Total** | 1031 | 713 | 303 | 8 | 7 | 468 | 11 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -1369,6 +1370,19 @@ Findings: [execution.md](execution.md).
     attempt 2 runs with `{}`.
   - **Recorded:** [`flows/execution/fx-14`](../../conformance/flows/execution/fx-14)
     run `retry_empty`, oracle run 40685766017.
+- **FX-14/c** · oracle-observed · On a `flow` step, the subflow job fails
+  without running, and the retry runs the subflow with `{}`.
+  - **Given:** the child flow of [CF-17/b](#cf-17); `[a: flow f/t/child
+    (fails = 0, tag = "pre_run", v = flow_input.missing.x; retry:
+    {constant: {attempts: 1, seconds: 0}}), b: ret(x) x = results.a]`,
+    input `{}`.
+  - **Expect:** success. `a`'s first attempt is a `Flow` job with args
+    `{}`, failed with the transform's `ExecutionErr` (as in FX-14/a, no
+    `step_id`), whose step `x` never started; the second `Flow` job ran
+    with args `{}`, so `x` received `null` inputs, and the result is `{"tag":
+    null, "attempt": 0, "v": null}` (the same run as
+    [CF-17/f](#cf-17)).
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `pre_run`, oracle run 40926159329.
 
 <a id="fx-15"></a>
 ### FX-15 · Chaining errors: three contexts
@@ -1573,47 +1587,60 @@ present, is `bun: return "H"`.
 
 **Scope:** core · **Finding:** [FX-23](execution.md#fx-23)
 
-- **FX-23/a** · source-derived · A JavaScript sleep of the step's own result.
+- **FX-23/a** · oracle-observed · A JavaScript sleep of the step's own result.
   - **Given:** `[a: bun: return 2 (sleep: {type: javascript, expr:
     "result"}), b: bun: return Date.now()]`.
   - **Expect:** `b` starts at least 2 s after `a` ends.
-- **FX-23/b** · source-derived · A fractional static sleep.
+  - **Recorded:** [`flows/execution/fx-23`](../../conformance/flows/execution/fx-23) run `js_own_result`, oracle run 40818457347: `b` started at least 2 s after `a` ended.
+- **FX-23/b** · oracle-observed · A fractional static sleep.
   - **Given:** `sleep: {type: static, value: 0.25}` on a step.
   - **Expect:** a delay of at least 250 ms before the next step.
-- **FX-23/c** · source-derived · A string sleep value is a chaining error.
+  - **Recorded:** [`flows/execution/fx-23`](../../conformance/flows/execution/fx-23) run `static_fraction`, oracle run 40818457347: at least 250 ms between the steps.
+- **FX-23/c** · oracle-observed · A string sleep value is a chaining error.
   - **Given:** `sleep: {type: static, value: "1"}` on a step.
   - **Expect:** the flow fails with `{"error": {"name": "InternalError",
     "message": "Expected an integer, found: String(\"1\")"}}`.
+  - **Recorded:** [`flows/execution/fx-23`](../../conformance/flows/execution/fx-23) run `string_value`, oracle run 40818457347, the sleep on the first of two steps; the second never got a job.
 
 <a id="fx-24"></a>
 ### FX-24 · Per-step `timeout`: value, cap and enforcement by execution path
 
 **Scope:** core · **Finding:** [FX-24](execution.md#fx-24)
 
-- **FX-24/a** · source-derived · A process timeout.
+- **FX-24/a** · oracle-observed · A process timeout.
   - **Given:** `[a: bun: await sleep(3000) (timeout: 1)]`.
   - **Expect:** the [FX-25](execution.md#fx-25) error, with "job-specific".
+  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `process_timeout`, oracle run 40818457347, and [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout`, oracle run 40771900586.
 - **FX-24/b** · source-derived · A negative timeout at root pickup.
   - **Given:** `[a: bun: return 1 (timeout: {type: javascript, expr: "-1"})]`.
   - **Expect:** an `Anyhow` failure of `a` (as in FX-15/b).
-- **FX-24/c** · source-derived · A negative timeout at a later transition.
+  - **Note:** not recorded as written; the same route is recorded for a
+    collapsed loop at step 0 whose `timeout` is negative
+    ([`flows/control-flow/waits`](../../conformance/flows/control-flow/waits)
+    run `loop_timeout_negative_root`, oracle run 40852609901: the loop step
+    failed with `{"error":{"name":"Anyhow","message":"Error: Timeout value cannot be negative @worker.rs:3822:13"}}`).
+- **FX-24/c** · oracle-observed · A negative timeout at a later transition.
   - **Given:** `[x: bun: return 1, a: bun: return 1 (timeout: {type:
     javascript, expr: "-1"})]`.
   - **Expect:** the `InternalError` `"Timeout value cannot be negative"`.
-- **FX-24/d** · source-derived · A collapsed loop applies the loop's timeout
+  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_later`, oracle run 40818457347; `a` never got a job.
+- **FX-24/d** · oracle-observed · A collapsed loop applies the loop's timeout
   per iteration; a preview does not collapse.
   - **Given:** deployed `[l: forloopflow(iterator: [1], parallel: false,
     timeout: 1, modules: [x: bun: await sleep(3000) (timeout: 10)])]`; then
     the same flow as a preview.
   - **Expect:** deployed, the iteration times out after about 1 s. As a
     preview, the outer timeout is not enforced and the iteration runs 3 s.
-- **FX-24/e** · source-derived · A parallel loop's timeout is not enforced.
+  - **Recorded:** the deployed half, [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `fx24_d`, oracle run 40852609901: the body job failed after about 1 s with the timeout error, its `step_id` the loop's id `l`, and the loop failed with that error in its array. The preview half is outside the reference configuration and is not recorded.
+- **FX-24/e** · oracle-observed · A parallel loop's timeout is not enforced.
   - **Given:** `[l: forloopflow(iterator: [1], parallel: true, timeout: 1,
     modules: [x: bun: await sleep(3000)])]`.
   - **Expect:** completes after about 3 s without a timeout.
-- **FX-24/f** · source-derived · Identity jobs are untimed.
+  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `fx24_e`, oracle run 40852609901: the iteration, a `flowpreview` child, completed after about 3 s with `[3000]`.
+- **FX-24/f** · oracle-observed · Identity jobs are untimed.
   - **Given:** `[a: identity (timeout: 0)]`, input `{"x": 1}`.
   - **Expect:** `{success: true, result: {"x": 1}}`.
+  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `identity_untimed`, oracle run 40818457347.
 - **FX-24/g** · source-derived · later · An in-process executor timeout.
   - **Given:** an in-process step with `timeout: 1` that runs for 3 s.
   - **Expect:** `{"error": {"name": "ExecutionErr", "message": "execution
@@ -1624,7 +1651,7 @@ present, is `bun: return "H"`.
 
 **Scope:** core · **Finding:** [FX-25](execution.md#fx-25)
 
-- **FX-25/a** · source-derived · A timed-out step is an ordinary, tolerable
+- **FX-25/a** · oracle-observed · A timed-out step is an ordinary, tolerable
   failure.
   - **Given:** `[a: bun: await new Promise(r => setTimeout(r, 5000))
     (timeout: 1, continue_on_error: true), b: bun(p): return p]` with
@@ -1632,20 +1659,23 @@ present, is `bun: return "H"`.
   - **Expect:** `{success: true, result: {"error": {"name": "ExecutionErr",
     "message": "execution error:\njob process terminated due to timeout
     after exceeding job-specific duration limit", "step_id": "a"}}}`.
+  - **Recorded:** [`flows/execution/fx-25`](../../conformance/flows/execution/fx-25) run `tolerated`, oracle run 40818457347; run `retried` also shows a timed-out step retried with the same args, timing out again.
 
 <a id="fx-26"></a>
 ### FX-26 · `retry`: the delay schedule and its exact arithmetic
 
 **Scope:** core · **Finding:** [FX-26](execution.md#fx-26)
 
-- **FX-26/a** · source-derived · Constant then exponential phases.
+- **FX-26/a** · oracle-observed · Constant then exponential phases.
   - **Given:** `retry: {constant: {attempts: 2, seconds: 1}, exponential:
     {attempts: 2, multiplier: 1, seconds: 2}}` on a step that always throws.
   - **Expect:** 5 runs in total, with delays of 1, 1, 8 (2³) and 16 (2⁴)
     seconds; the final result is the 5th failure's wrapped error.
-- **FX-26/b** · source-derived · A multiplier.
+  - **Recorded:** [`flows/execution/fx-26`](../../conformance/flows/execution/fx-26) run `phases`, oracle run 40818457347: five attempts, at least 1, 1, 8 and 16 s apart.
+- **FX-26/b** · oracle-observed · A multiplier.
   - **Given:** `exponential: {attempts: 1, multiplier: 3, seconds: 2}`.
   - **Expect:** a single delay of 6 s.
+  - **Recorded:** [`flows/execution/fx-26`](../../conformance/flows/execution/fx-26) run `multiplier`, oracle run 40818457347: one retry at least 6 s after the failure.
 - **FX-26/c** · source-derived · 16-bit wrap.
   - **Given:** `exponential: {attempts: 1, multiplier: 250, seconds: 300}`.
   - **Expect:** a first delay of `(250 × 300) mod 65536 = 9464` s, observed
@@ -1673,7 +1703,7 @@ present, is `bun: return "H"`.
 
 **Scope:** core · **Finding:** [FX-27](execution.md#fx-27)
 
-- **FX-27/a** · source-derived · A retry reuses the failed attempt's args.
+- **FX-27/a** · oracle-observed · A retry reuses the failed attempt's args.
   - **Given:** step `a: bun(x): if (await counter() === 0) throw …; return x`
     with `x = "flow_input.n"` and `retry: {constant: {attempts: 1, seconds:
     0}}`; it fails once, then succeeds.
@@ -1687,42 +1717,62 @@ present, is `bun: return "H"`.
     case checks the args reuse and the failed retry; it needs a step whose
     first attempt fails and whose retry succeeds, for example one that
     flips a workspace variable as [FX-49/a](#fx-49) does.
+  - **Recorded:** [`flows/execution/fx-27`](../../conformance/flows/execution/fx-27) run `reuses_args`, oracle run 40818457347, with a step that throws on its first attempt and returns whether its `x` equals the first attempt's: one failed retry listed, the retry's args equal to the first attempt's, and the result `true`. The `skip_if` half is [OR-24/c](#or-24)'s.
 
 <a id="fx-28"></a>
 ### FX-28 · `retry_if`
 
 **Scope:** core · **Finding:** [FX-28](execution.md#fx-28)
 
-- **FX-28/a** · source-derived · A false `retry_if` prevents the retry.
+- **FX-28/a** · oracle-observed · A false `retry_if` prevents the retry.
   - **Given:** `retry: {constant: {attempts: 3, seconds: 0}, retry_if: {expr:
     "error.message === 'transient'"}}` on a step that throws
     `new Error("fatal")`.
   - **Expect:** exactly 1 run; the flow fails with that error.
-- **FX-28/b** · source-derived · A throwing `retry_if` during completion, with
+  - **Recorded:** [`flows/execution/fx-28`](../../conformance/flows/execution/fx-28) run `false_prevents`, oracle run 40818457347.
+- **FX-28/b** · oracle-observed · A throwing `retry_if` during completion, with
   a handler.
   - **Given:** `retry: {constant: {attempts: 1, seconds: 0}, retry_if: {expr:
     "null.x"}}` on a step that throws, with a handler.
   - **Expect:** the handler runs and sees `{"error": <string>}`.
-- **FX-28/c** · source-derived · The same without a handler.
+  - **Recorded:** [`flows/execution/fx-28`](../../conformance/flows/execution/fx-28) run `throw_handler`, oracle run 40818457347: the handler received a string and the flow failed with its result.
+  - **Correction 2026-10-29 (SC4):** the recorded string is FX-21's converted twice: `Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n <loc> <loc>`, two leading `Error: ` and two location suffixes, where FX-21 has one of each ([FX-28](execution.md#fx-28)).
+- **FX-28/c** · oracle-observed · The same without a handler.
   - **Given:** FX-28/b without a handler.
   - **Expect:** the flow fails with `{"error": <string>}`.
+  - **Recorded:** [`flows/execution/fx-28`](../../conformance/flows/execution/fx-28) run `throw_no_handler`, oracle run 40819992740: the flow failed with `{"error": "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}`.
+  - **Correction 2026-10-29 (SC4):** as FX-28/b, the string has two leading `Error: ` and two location suffixes ([FX-28](execution.md#fx-28)).
 
 <a id="fx-29"></a>
 ### FX-29 · Quirk: the retry counter carries over after a tolerated failure
 
 **Scope:** core · **Finding:** [FX-29](execution.md#fx-29)
 
-- **FX-29/a** · source-derived · The counter carries over.
+- **FX-29/a** · oracle-observed · The counter carries over.
   - **Given:** `[a: bun: throw (retry: {constant: {attempts: 2, seconds: 0}},
     continue_on_error: true), b: bun: throw (retry: {constant: {attempts: 2,
     seconds: 0}})]`.
   - **Expect:** `a` runs 3 times and `b` **once**; the flow fails with `b`'s
     error.
-- **FX-29/b** · source-derived · A successful step in between resets it.
+  - **Recorded:** [`flows/execution/fx-29`](../../conformance/flows/execution/fx-29)
+    run `carries_over`, oracle run 40818457347: `b`'s `Failure` entry also
+    lists `a`'s two failed attempts.
+- **FX-29/b** · oracle-observed · A successful step in between resets it.
   - **Given:** `[a: (as in FX-29/a), s: bun: return 0, b: (as in FX-29/a)]`.
   - **Expect:** `b` runs 3 times; the flow still fails. `s`'s `Success`
     status lists `a`'s two failed attempts in `failed_retries`, carried over
     with the counter ([FX-27](execution.md#fx-27)).
+  - **Recorded:** [`flows/execution/fx-29`](../../conformance/flows/execution/fx-29)
+    run `reset_by_success`, oracle run 40818457347.
+- **FX-29/c** · oracle-observed · The next step lists a tolerated step's
+  failed attempts.
+  - **Given:** [CF-17/d](#cf-17): `a` is a `flow` step with `retry:
+    {constant: {attempts: 1, seconds: 0}}` and `continue_on_error: true`
+    whose subflow fails on both attempts; `b: ret(x) x = results.a`.
+  - **Expect:** success; `a`'s `Failure` entry lists its first attempt,
+    and `b`'s `Success` entry lists the same job in its own
+    `failed_retries`.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `exhausted_continue`, oracle run 40915682847.
 
 <a id="fx-30"></a>
 ### FX-30 · `continue_on_error`
@@ -1738,6 +1788,13 @@ present, is `bun: return "H"`.
     handler never runs. Contrast FX-19/i.
   - **Recorded:** [`flows/execution/fx-30`](../../conformance/flows/execution/fx-30)
     run `tolerated_last`, oracle run 40685766017.
+- **FX-30/b** · source-derived · At the last module a due retry runs before the failure is tolerated.
+  - **Given:** `[a: bun: throw new Error("x") (continue_on_error: true,
+    retry: {constant: {attempts: 2, seconds: 0}})]`.
+  - **Expect:** `a` runs three times; then `{success: true, status:
+    "success", result: {"error": {"message": "x", "name": "Error", "stack":
+    <any>, "step_id": "a"}}}`; `a`'s `Failure` status lists the two earlier
+    attempts in `failed_retries`.
 
 <a id="fx-31"></a>
 ### FX-31 · `failure_module`: when it runs
@@ -1997,6 +2054,19 @@ each `:` and `,`, keys shorter first, then by bytes.
     5 s by `admin` with reason `wltest: cancel_after_ms`: the result has
     those values in the same shape, and `a` itself ended `canceled` with
     `execution error:\njob process terminated due to cancelled by admin (reason: wltest: cancel_after_ms)`.
+- **FX-38/b** · source-derived · A subflow step waiting on a `sleep` is canceled at pickup.
+  - **Given:** `[a: bun: return 1 (sleep: {type: static, value: 30}), b:
+    flow f/demo/child]` with `f/demo/child` = `[c: bun: return 2]`;
+    canceled 3 s after `a` completed, with reason `r` by `u`. Then the same
+    with `b` an ordinary Bun step.
+  - **Expect:** `{status: "canceled", success: false, result: {"error":
+    {"message": "Job canceled: r by u", "name": "Canceled", "reason": "r",
+    "canceler": "u"}}}` well before the 30 s; `a` succeeded. `b`'s job
+    exists (kind `flow`), completed with status `failure` and result
+    `{"error": {"message": "Job canceled: r by u", "name": "Canceled",
+    "reason": "r", "canceler": "u"}}`, and has no child job: `c` never runs.
+    `b`'s module status is `Failure`. With `b` a Bun step: its `script` job
+    ends the same way without running.
 
 <a id="fx-39"></a>
 ### FX-39 · `suspend` / approval
@@ -2054,6 +2124,89 @@ each `:` and `,`, keys shorter first, then by bytes.
     rawscript without a path not to. The rawscript shares too: on a deployed
     flow it runs as `flowscript` jobs that carry one flow-node id, and the
     cache key uses that id instead of the path ([FX-40](execution.md#fx-40)).
+- **FX-40/e** · source-derived · A failure tolerated at the last module is
+  stored.
+  - **Given:** a flow with `cache_ttl: 60` and `[a: bun: throw new
+    Error("x") (continue_on_error: true)]`, run twice with the same input
+    within 60 s.
+  - **Expect:** run 1 gives `{success: true, result: {"error": {"name":
+    "Error", "message": "x", "stack": <any>, "step_id": "a"}}}`; run 2 gives
+    the same result from the cache: its job logs `Job skipped because args &
+    path found in cache and not expired` and `a` does not run.
+- **FX-40/f** · source-derived · An error stop is not stored; with a failure
+  module, the module's result is.
+  - **Given:** a flow with `cache_ttl: 60` and `[a: bun: return 1
+    (stop_after_if: {expr: "true", error_message: "halt"})]`, run twice with
+    the same input; then the same flow with a failure module returning
+    `"H"`, run twice.
+  - **Expect:** without the handler, both runs give `{success: false,
+    result: {"error": {"name": "EarlyStopError", "message": "halt"}}}` and
+    `a` runs both times. With the handler, run 1 gives `{success: false,
+    result: "H"}` and run 2 `{success: true, result: "H"}`, with neither
+    `a` nor the handler running.
+- **FX-40/g** · source-derived · A clean stop is stored; the hit is not
+  `skipped`.
+  - **Given:** a flow with `cache_ttl: 60` and `[a: bun: return
+    Math.random() (stop_after_if: {expr: "true", skip_if_stopped: true}), b:
+    bun: return 2]`, run twice with the same input.
+  - **Expect:** run 1 completes with status `skipped` and result `r` (`a`'s
+    value); run 2 completes with status `success` (not `skipped`) and
+    result `r`, and no step runs.
+- **FX-40/h** · source-derived · A container at the last module stores by
+  its own outcome.
+  - **Given:** a deployed flow with `cache_ttl: 60` and
+    `[l: forloopflow(iterator: {type: javascript, expr: "[1, 2]"}, parallel:
+    true, skip_failures: false, modules: [x: bun(v): if (v === 1) throw new
+    Error("one"); return Math.random()])]` with `v =
+    "flow_input.iter.value"`, run twice by path; then the same with
+    `skip_failures: true` on `l` (or the flag left out, which deployment
+    stores as `true`, [CF-6](control-flow.md#cf-6)), run twice.
+  - **Expect:** with `skip_failures: false` both runs fail with `l`'s array
+    and both run their iterations. With `true`, run 2's result equals run
+    1's (`[{"error": {…"message": "one"…}}, r]`) and no iteration runs.
+  - **Correction 2026-10-29 (SC4 validation round 2):** the first variant
+    was described as "without `skip_failures`"; on a deployed flow an
+    omitted flag is stored as `true`, so that variant succeeds and is
+    cached like the second. It now says `skip_failures: false`.
+- **FX-40/i** · source-derived · Arguments match as `jsonb` values.
+  - **Given:** a deployed flow with `cache_ttl: 60` and `[a: bun: return
+    Math.random()]`, run with input `{"o": {"b": 1, "a": 2}}`, then with
+    `{"o": {"a": 2, "b": 1}}`; then with `{"n": 1}` and with `{"n": 1.0}`.
+  - **Expect:** the second run returns the first run's result (a hit). The
+    `{"n": 1.0}` run is a miss: its result differs from the `{"n": 1}` run's.
+- **FX-40/j** · source-derived · A hit does not resolve `$var:`.
+  - **Given:** a variable `u/test/v` holding `"a"`, and a flow `[s: bun(x):
+    return x + ":" + Math.random() (cache_ttl: 60)]` with the static input
+    `x = "$var:u/test/v"`. Run it; set `u/test/v` to `"b"`; run it again
+    within 60 s.
+  - **Expect:** both runs return the same value, which starts `a:`. `s`'s
+    second job logs the cache line and does not read the variable.
+- **FX-40/k** · source-derived · Without workspace object storage, an S3
+  object hashes as plain JSON and `cache_ignore_s3_path` does nothing.
+  - **Given:** a workspace with no object storage (the reference
+    configuration), a flow `[a: bun(f): return Math.random() (cache_ttl: 60,
+    cache_ignore_s3_path: true)]` with `f = "flow_input.f"`, run with
+    `{"f": {"s3": "t/a.txt"}}` twice, then with `{"f": {"s3": "t/b.txt"}}`.
+  - **Expect:** the second run returns the first run's value; the
+    `t/b.txt` run is a miss and returns a different value.
+- **FX-40/l** · source-derived · `stop_after_if` applies to a hit.
+  - **Given:** a flow `[a: bun(n): return n (cache_ttl: 60, stop_after_if:
+    {expr: "result === 1"}), b: bun: return 2]` with `n = "flow_input.n"`,
+    run twice with `{"n": 1}`.
+  - **Expect:** both runs complete with result `1` and `b` never runs; in
+    run 2, `a`'s job (a new job id) logs the cache line instead of running.
+- **FX-40/m** · source-derived · A `cache_ttl` of `0` hits an entry a positive TTL stored.
+  - **Given:** a deployed script `f/demo/rnd` (`main(n)` returns
+    `Math.random()`), and a flow `[a: script f/demo/rnd pinned to its hash
+    (cache_ttl: 60), b: script f/demo/rnd pinned to the same hash
+    (cache_ttl: 0)]` with `n = 1` on both, run once, on one worker; then a
+    flow `[c: the same step with cache_ttl: 0, d: the same with
+    cache_ttl: 0]`, run on its own.
+  - **Expect:** in the first flow, `b`'s job hits `a`'s entry (same kind,
+    hash and arguments; the step paths are not in the key): `b` returns
+    `a`'s value and logs the cache line. In the second flow (run when no
+    positive-TTL entry for that key is valid) both `c` and `d` run, since
+    an entry stored with TTL `0` has already expired.
 
 <a id="fx-41"></a>
 ### FX-41 · `priority`, `same_worker`, deletion, squash and scheduling settings
@@ -2177,15 +2330,63 @@ contested and now carry their own provenance.
     `{"error": {"name": "ExecutionErr", "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 5<loc>", "step_id": "a"}}`
     ([FX-42](execution.md#fx-42) rule 9; the envelope as in
     [FX-51/c](#fx-51), which gives the same error for `{"n": 1e400}`).
+- **FX-42/m** · source-derived · later · A child flow whose stored result
+  holds a number beyond a double leaves the flow waiting.
+  - **Given:** deployed `[l: forloopflow(iterator: {type: javascript, expr:
+    "[1]"}, modules: [x: identity]), b: bun: return 1]` with a failure
+    module returning `"H"` (so the body does not collapse), run by path
+    with the input `{"n": 1e400}`. The iteration's child flow returns its
+    own input (CF-9), stored as
+    `{"n": 1e400, "iter": {"index": 0, "value": 1}}`.
+  - **Expect:** the iteration's child flow completes successfully with
+    that value; the read of `l`'s children then fails
+    (`number out of range at line 1 column 407`), but no job is completed
+    with that text: the flow stays running with `l` in progress, and
+    neither `b` nor the failure module runs. It ends when the zombie-flow
+    monitor cancels it, some 60 s or more later: status `canceled`, a
+    `Canceled` result whose reason starts
+    `Flow <id> (<url>) was cancelled because it was hanging in between 2 steps.`
+    (medium). The same holds with `parallel: true` and for a `branchall`
+    whose one branch is `[x: identity]` (its child's stored result is the
+    flow input, `{"n": 1e400}`).
+  - **Correction 2026-10-29 (SC4 validation round 1):** expected the flow
+    to fail at once with `InternalErr`; that route needs the children to
+    be the flow's own leaf jobs ([FX-42/o](#fx-42)).
+- **FX-42/n** · source-derived · later · Nesting past the library's limit
+  in a child flow's result leaves the flow waiting the same way.
+  - **Given:** the flow of FX-42/m, run with the input `{"k": <127 nested
+    arrays>}` (`[[…[]…]]`).
+  - **Expect:** as FX-42/m: the read fails with
+    `recursion limit exceeded at line 1 column 133` (the 127th `[` opens
+    depth 128 inside the stored object), no job carries that text, and the
+    monitor eventually cancels the flow (medium); with 126 nested arrays
+    the loop succeeds.
+  - **Correction 2026-10-29 (SC4 validation round 1):** as FX-42/m.
+- **FX-42/o** · source-derived · later · A collapsed body's result fails
+  the flow job directly.
+  - **Given:** deployed `[l: forloopflow(iterator: {type: javascript, expr:
+    "[1]"}, modules: [x: rawscript bun: let v = 1; for (let i = 0; i <
+    128; i++) v = [v]; return v;]), b: bun: return 1]` with no failure
+    module, so the body collapses and the iteration is a script job of
+    the flow ([CF-8](control-flow.md#cf-8)); run by path.
+  - **Expect:** the flow fails at once with
+    `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column 128 @<loc>"}}`
+    (the 128th `[` of the stored `[[…[1]…]]` opens depth 128); `b` does
+    not run; `l`'s status entry stays in progress; `x`'s job keeps its own
+    result. With 127 wrappings the loop succeeds. The same loop as the
+    `default` branch of a `branchone` at step 0: the branch's child flow
+    is completed failed with that error, and the root stays running until
+    the monitor cancels it, as in FX-42/m (medium).
 
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
 
 **Scope:** core · **Finding:** [FX-45](execution.md#fx-45)
 
-- **FX-45/a** · source-derived · `WM_FLOW_STEP_ID` is the module id.
+- **FX-45/a** · oracle-observed · `WM_FLOW_STEP_ID` is the module id.
   - **Given:** `[my_step: bun: return process.env.WM_FLOW_STEP_ID]`.
   - **Expect:** `"my_step"`.
+  - **Recorded:** [`flows/client-api/job-env`](../../conformance/flows/client-api/job-env) run `envs`, oracle run 40771900586, for steps `a` and `b`.
 
 <a id="fx-46"></a>
 ### FX-46 · Collapsed single-step loops change which settings apply
@@ -2206,10 +2407,11 @@ contested and now carry their own provenance.
 
 **Scope:** core · **Finding:** [FX-47](execution.md#fx-47)
 
-- **FX-47/a** · source-derived · A thrown string.
+- **FX-47/a** · oracle-observed · A thrown string.
   - **Given:** `[a: bun: throw "ab"]`.
   - **Expect:** `{"error": {"step_id": "a", "extra": {"0": "a", "1": "b",
     "length": 2}}}`.
+  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `thrown_string`, oracle run 40771900586.
 - **FX-47/b** · source-derived · later · A thrown `null`.
   - **Given:** `[a: bun: throw null]`.
   - **Expect:** `{"error": {"name": "ExecutionErr", "exit_code": 1,
@@ -2702,6 +2904,21 @@ Findings: [control-flow.md](control-flow.md).
     the loop stays in progress (until the 14-day hold, out of scope). A
     recording observes that no iteration has started after a while, then
     cancels the flow.
+- **CF-7/f** · source-derived · A failed parallel loop under `continue_on_error` aborts the flow.
+  - **Given:** deployed, run by path: `[l: forloopflow(iterator: [1, 2],
+    parallel: true, skip_failures: false, modules: [x: fail("e")])
+    (continue_on_error: true), n: ret("after")]`; then the flow with `l`
+    alone; then the first flow with a flow `failure_module` = `ret("H")`.
+  - **Correction 2026-10-29 (SC4 validation round 2):** the Given left
+    `skip_failures` out; on a deployed flow an omitted flag is stored as
+    `true` ([CF-6](control-flow.md#cf-6)), which makes the loop succeed.
+    It is now explicit.
+  - **Expect:** both iterations run and fail; then status failure, result
+    `{"error": {"name": "InternalError", "message": <starts "Bad request: Unrecognized module status for ForloopFlow Failure {">}}`,
+    and `n` does not run. The same for `l` alone (no success with the
+    array). With the `failure_module`: each iteration's copy runs (so the
+    loop's array is `["H","H"]`), the flow's own handler does not, and the
+    flow fails with the same `InternalError`.
 
 <a id="cf-8"></a>
 ### CF-8 · The simple-loop-body fast path; eligibility follows the executing job's kind
@@ -2853,6 +3070,16 @@ Findings: [control-flow.md](control-flow.md).
     ([Q-CF-14](control-flow.md#q-cf-14)) and also stated the draft's
     expectation: the flow continues after the loop and `n` runs. The oracle
     recorded the correction ([CF-12](control-flow.md#cf-12)).
+- **CF-12/g** · source-derived · A forwarded error stop ignores the loop's `continue_on_error`.
+  - **Given:** as CF-12/f (no `failure_module`, `skip_failures: false`),
+    with `continue_on_error: true` on the loop. Then the flow with the loop
+    alone. Then, instead of `continue_on_error`, `retry: {constant:
+    {attempts: 1, seconds: 0}}` on the loop.
+  - **Expect:** status failure, result
+    `[{"error":{"name":"EarlyStopError","message":"halt"}}]`, and `n` does
+    not run; the loop alone: status failure, same result. With the `retry`:
+    the loop runs twice (two child flows for iteration 0), then the same
+    failure.
 
 <a id="cf-13"></a>
 ### CF-13 · `stop_after_all_iters_if` (loops and branchall)
@@ -2940,41 +3167,158 @@ Findings: [control-flow.md](control-flow.md).
 
 **Scope:** core · **Finding:** [CF-16](control-flow.md#cf-16)
 
-- **CF-16/a** · source-derived · The copied handler runs once per failed iteration.
+- **CF-16/a** · oracle-observed · The copied handler runs once per failed iteration.
   - **Given:** flow `failure_module` = `ret({"handled": x}) x = flow_input.iter.value`;
     forloop over `[1,2]`, `skip_failures: true`, body `[fail("e")]`.
   - **Expect:** status success, result `[{"handled":1},{"handled":2}]`; the
     handler ran twice (two child handler jobs).
-- **CF-16/b** · source-derived · Without `skip_failures` the loop stops after the first handled failure.
+  - **Recorded:** [`flows/control-flow/cf-16`](../../conformance/flows/control-flow/cf-16) run `a`, oracle run 40858228112: each iteration's child flow ran its copy of the handler with `x` = its `iter.value`, and the flow's own handler did not run.
+- **CF-16/b** · oracle-observed · Without `skip_failures` the loop stops after the first handled failure.
   - **Given:** as CF-16/a with `skip_failures: false`.
   - **Expect:** status failure, result `[{"handled":1}]`; the handler ran
     once.
-- **CF-16/c** · source-derived · Recovery counting.
+  - **Recorded:** [`flows/control-flow/cf-16`](../../conformance/flows/control-flow/cf-16) run `b`, oracle run 40858228112: one handler job, in iteration 0's child flow; the loop failed with `[{"handled":1}]` and the flow's own handler did not run.
+- **CF-16/c** · oracle-observed · Recovery counting.
   - **Given / Expect:** as [CF-V1/a to CF-V1/c](#cf-v1).
-- **CF-16/d** · source-derived · Handler id per representation.
+  - **Recorded:** as CF-V1/a to CF-V1/c (fixture [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1)).
+- **CF-16/d** · oracle-observed · Handler id per representation.
   - **Given / Expect:** as [CF-V4/a and CF-V4/b](#cf-v4).
+  - **Recorded:** the stored-node half, as CF-V4/a ([`flows/control-flow/cf-v4`](../../conformance/flows/control-flow/cf-v4) run `a`, oracle run 40858228112). The inline half, CF-V4/b, needs an inline child payload, which is outside the reference configuration, and is not recorded.
+- **CF-16/e** · source-derived · A sequential container's `continue_on_error` tolerates a handled failure at any position.
+  - **Given:** flow `failure_module` = `ret("H")`; `[l: forloop over [1],
+    skip_failures: false, body [x: fail("e")] (continue_on_error: true),
+    n: ret(p) p = previous_result]`. Then the same without `n`. Then with
+    `n` = `fail("z")`.
+  - **Expect:** status success, result `["H"]`; `l`'s status is `Failure`
+    and the only handler job runs inside `l`'s child flow. Without `n`:
+    status success, result `["H"]`. With `n` = `fail("z")`: the flow's own
+    handler runs once, for `n`; status failure, result `"H"`.
+- **CF-16/f** · source-derived · A container's `retry` re-runs a handled failure; the flow's handler stays out.
+  - **Given:** as CF-16/e without `n` and without `continue_on_error`, with
+    `retry: {constant: {attempts: 1, seconds: 0}}` on `l`.
+  - **Expect:** `l` runs twice (two iteration child flows, each running its
+    copy of the handler), then status failure, result `["H"]`; no handler
+    job runs at the root.
 
 <a id="cf-17"></a>
 ### CF-17 · Subflows (`type: flow`, by path)
 
 **Scope:** core · **Finding:** [CF-17](control-flow.md#cf-17)
 
-- **CF-17/a** · source-derived · A subflow has its own inputs and results scope.
+- **CF-17/a** · oracle-observed · A subflow has its own inputs and results scope.
   - **Given:** deploy `f/t/child` = `[s: ret(x*2) x = flow_input.v]`. Parent:
     `c` = `{type: flow, path: f/t/child, input_transforms: {v: {type: javascript, expr: "flow_input.n"}}}`,
     then `d: ret(x) x = [previous_result, results.s ?? "hidden"]`. Parent
     input `{"n": 4}`.
   - **Expect:** result `[8, "hidden"]`.
+  - **Recorded:** [`flows/control-flow/cf-17`](../../conformance/flows/control-flow/cf-17) run `a`, oracle run 40858228112: the subflow job got `{"v": 4}` as its input, its step `s` returned `8`, and `d` gave `[8, "hidden"]`.
+
+Cases CF-17/b to CF-17/i share one child flow and are recorded by
+milestone N5's fixture [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry). Deploy `f/t/child` = `[x: bun(tag,
+fails, v)]` with each input passed from `flow_input`, where `x` throws
+`attempt <n> of <tag>` while `n < fails` and otherwise returns `{"tag":
+<tag>, "attempt": <n>, "v": <v>}`; `n` counts the earlier runs of `x` for
+`tag` in the same outer run (a file keyed by `WM_ROOT_JOB_ID`, which every
+attempt shares). Unless a case says otherwise the step under test is `a:
+flow f/t/child` with `fails`, `tag` and `v = flow_input.v` and `retry:
+{constant: {attempts: 1, seconds: 0}}`, followed by `b: ret(x) x =
+results.a`, run with input `{"v": 7}`. "Lists" refers to a status entry's
+`failed_retries`; error objects also carry `stack`.
+
+- **CF-17/b** · oracle-observed · A retried subflow step queues a new
+  subflow job; the step's value is the last attempt's.
+  - **Given:** `fails = 1`, `tag = "once"`.
+  - **Expect:** success with result `{"tag": "once", "attempt": 1, "v":
+    7}` (`b` echoes `results.a`). `a`'s entry is `Success`; its `job` is
+    the second `Flow` job and it lists the first, a `Flow` job with args
+    `{"fails": 1, "tag": "once", "v": 7}` whose step `x` failed with
+    `{"error": {"name": "Error", "message": "attempt 0 of once", "step_id":
+    "x"}}`. The second job ran with the same args.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `once`, oracle run 40915682847 (the
+    result also carries the second subflow's job id as both
+    `WM_FLOW_JOB_ID` and `WM_ROOT_FLOW_JOB_ID`).
+- **CF-17/c** · oracle-observed · Exhausted: the step fails with the last
+  attempt's error.
+  - **Given:** `fails = 5`, `tag = "exhausted"`.
+  - **Expect:** failure with result `{"error": {"name": "Error", "message":
+    "attempt 1 of exhausted", "step_id": "x"}}`; `a` is `Failure` and lists
+    the first attempt (failed with `attempt 0 of exhausted`); `b` does not
+    run.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `exhausted`, oracle run 40915682847.
+- **CF-17/d** · oracle-observed · Exhausted and tolerated: the next step
+  reads the last attempt and lists the first.
+  - **Given:** as CF-17/c with `continue_on_error: true` on `a` and `tag =
+    "exhausted_continue"`.
+  - **Expect:** success; `b`'s argument and result, and so the flow's
+    result, are `{"error": {"name": "Error", "message": "attempt 1 of
+    exhausted_continue", "step_id": "x"}}`. `a` is `Failure` listing the
+    first attempt, and `b`'s `Success` entry lists the same job
+    ([FX-29](execution.md#fx-29)).
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `exhausted_continue`, oracle run 40915682847.
+- **CF-17/e** · oracle-observed · Exhausted with a failure module: the
+  handler sees the last attempt and lists the first.
+  - **Given:** as CF-17/c with `tag = "exhausted_failure"` and a failure
+    module `ret(x) x = error`.
+  - **Expect:** failure with result `{"name": "Error", "message": "attempt
+    1 of exhausted_failure", "step_id": "x"}` (the handler's output); the
+    failure module's `Success` entry lists the first attempt; `b` does not
+    run.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `exhausted_failure`, oracle run 40915682847.
+- **CF-17/f** · oracle-observed · A throwing transform on a `flow` step:
+  the subflow job fails without running, and the retry runs it with `{}`.
+  - **Given:** `fails = 0`, `tag = "pre_run"`, `v = flow_input.missing.x`,
+    input `{}`.
+  - **Expect:** success with result `{"tag": null, "attempt": 0, "v":
+    null}`. The listed first attempt is a `Flow` job with args `{}` that
+    failed with
+    `` {"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `flow_input.missing.x`:\n…"}} ``
+    (no `step_id`; the text as in [FX-14/a](#fx-14)), and its step `x`
+    never started. The second `Flow` job has args `{}`, so `x` receives
+    `null` for each input.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `pre_run`, oracle run 40926159329.
+- **CF-17/g** · oracle-observed · The subflow keeps its own retry state.
+  - **Given:** `fails = 2`, `tag = "nested"`, and in the child `x` has its
+    own `retry: {constant: {attempts: 1, seconds: 0}}`.
+  - **Expect:** success with `attempt` 2. In the first attempt's subflow,
+    `x` failed with `attempt 1 of nested` and lists its own first attempt
+    (`attempt 0 of nested`); the second subflow's `x` succeeded at once,
+    with no attempt listed.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `nested`, oracle run 40915682847.
+- **CF-17/h** · oracle-observed · Inside a loop, each iteration retries its
+  own subflow step.
+  - **Given:** `[l: forloopflow(iterator: flow_input.items, modules: [a:
+    flow f/t/child (fails = 1, tag = "seq-" + flow_input.iter.value, v =
+    flow_input.iter.value)])]` with `a`'s retry, input `{"items": ["p",
+    "q"]}`; and the same with `parallel: true` and tag prefix `par-`.
+  - **Expect:** success with `[{"tag": "seq-p", "attempt": 1, "v": "p"},
+    {"tag": "seq-q", "attempt": 1, "v": "q"}]` (and the `par-` tags); each
+    iteration's child flow holds its own `a` entry, which lists that
+    iteration's failed first attempt.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) runs `loop_seq` and `loop_par`, oracle run 40915682847.
+- **CF-17/i** · oracle-observed · The retry's delay separates the subflow
+  jobs.
+  - **Given:** `fails = 1`, `tag = "delay"`, `retry: {constant: {attempts:
+    1, seconds: 2}}`.
+  - **Expect:** as CF-17/b; the second `Flow` job is queued as soon as the
+    first fails and starts at least 2 s after it ended.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `delay`, oracle run 40915682847 (2.05 s).
+- **CF-17/j** · source-derived · A flow may call itself by path.
+  - **Given:** deploy `f/t/rec` = `[br: branchone(branches: [{expr:
+    "flow_input.n > 0", modules: [r: flow f/t/rec (n = flow_input.n -
+    1)]}], default: [z: ret(x) x = flow_input.n])]`, run with `{"n": 3}`.
+  - **Expect:** the deployment succeeds and the run succeeds with result
+    `0`, through four nested `Flow` jobs of `f/t/rec` (`n` = 3, 2, 1, 0).
 
 <a id="cf-18"></a>
 ### CF-18 · `identity`, skipped containers, mocked containers
 
 **Scope:** core · **Finding:** [CF-18](control-flow.md#cf-18)
 
-- **CF-18/a** · source-derived · A skipped container passes `previous_result` through.
+- **CF-18/a** · oracle-observed · A skipped container passes `previous_result` through.
   - **Given:** `a: ret(42)`; forloop `l` over `[1,2]` with
     `skip_if: {expr: "true"}`; then `n: ret(x) x = previous_result`.
   - **Expect:** result `42`.
+  - **Recorded:** [`flows/control-flow/cf-18`](../../conformance/flows/control-flow/cf-18) run `a`, oracle run 40858228112: `l` ran as an identity job with the argument `{"previous_result": 42}` and no iteration, and returned `42`.
 
 <a id="cf-19"></a>
 ### CF-19 · How `results.<id>` resolves across container boundaries
@@ -3015,54 +3359,208 @@ Findings: [control-flow.md](control-flow.md).
 
 **Scope:** core · **Finding:** [CF-20](control-flow.md#cf-20)
 
-- **CF-20/a** · source-derived · Sibling branches mutate independent copies.
+- **CF-20/a** · oracle-observed · Sibling branches mutate independent copies.
   - **Given:** `a: ret({"v": [1]})`; a branchall with two branches, each
     `[ret((x.v.push(9), x)) x = results.a]`.
   - **Expect:** `[{"v":[1,9]},{"v":[1,9]}]`; neither entry is `[1,9,9]`.
+  - **Recorded:** [`flows/control-flow/cf-20`](../../conformance/flows/control-flow/cf-20) run `a`, oracle run 40858228112: each branch received `{"v": [1]}`.
 
 <a id="cf-21"></a>
 ### CF-21 · Evaluation timing of container-level fields
 
 **Scope:** later · **Finding:** [CF-21](control-flow.md#cf-21)
 
-- **CF-21/a** · source-derived · A loop's `skip_if` is re-evaluated mid-loop ([Q-CF-6](control-flow.md#q-cf-6)).
+- **CF-21/a** · oracle-observed · A loop's `skip_if` is re-evaluated mid-loop ([Q-CF-6](control-flow.md#q-cf-6)).
   - **Given:** by path, top level (root `flow`, so the loop collapses).
     `a: ret(0)`; forloop over `[1,2,3]` with
     `skip_if: {expr: "previous_result == 2"}` and body
     `[ret(x) x = flow_input.iter.value]`.
-  - **Expect (predicted):** iteration 0 runs (previous 0), iteration 1 runs
+  - **Expect:** iteration 0 runs (previous 0), iteration 1 runs
     (previous 1), then the skip check sees previous 2 and skips: the loop
     step's result is `2`.
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) run `skip_mid`, oracle run 40852609901: the loop step ended as an identity job with the argument `{"previous_result": 2}` and result `2`; the partial array is not kept.
+- **CF-21/b** · oracle-observed · Child-flow iterations and a while loop re-evaluate it too.
+  - **Given:** as CF-21/a with the two-step body `[b: ret(x) x =
+    flow_input.iter.value, c: ret(x) x = results.b]` (each iteration a child
+    flow); and `a: ret(0)` then `l: whileloopflow(modules: [b: ret(x) x =
+    flow_input.iter.index + 1])` with the same `skip_if` and
+    `stop_after_if: {expr: "result >= 5"}`.
+  - **Expect:** both give `2`: before iteration 2 the `skip_if` sees the
+    previous iteration's result (the child flow's final result, `2`; the
+    while loop's `2`), and the loop step ends as a skipped identity; the
+    while loop's `stop_after_if` never fires.
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `skip_mid_flows` and `skip_mid_while`, oracle run 40852609901.
+- **CF-21/c** · oracle-observed · A parallel loop evaluates its `skip_if` once.
+  - **Given:** `a: ret(0)`; a parallel forloop over `[1,2,3]` with
+    `skip_if: {expr: "previous_result != 0"}` and body `[b: ret(x) x =
+    flow_input.iter.value]`.
+  - **Expect:** `[1, 2, 3]`: the predicate is evaluated at the start only,
+    where `previous_result` is `0`.
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) run `skip_parallel`, oracle run 40852609901.
+- **CF-21/d** · oracle-observed · The preceding step's `sleep` delays the children queued at the container's start.
+  - **Given:** `a: ret(0) (sleep: {type: static, value: 2})`, then a loop
+    over `[1,2]` that is in turn collapsed (one-step body), sequential with
+    a two-step body, and parallel with a two-step body; and `a` with the
+    same sleep followed by a `branchone` whose default branch is `[b:
+    ret(1)]`.
+  - **Expect:** results `[1, 2]`, `[1, 2]`, `[1, 2]` and `1`. Collapsed and
+    sequential: iteration 0's first job starts at least 2 s after `a`'s job
+    ended and iteration 1 follows without that delay. Parallel: both
+    iterations' first jobs start at least 2 s after `a` ended. Branchone:
+    the branch's first job starts at least 2 s after `a` ended.
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `sleep_before_collapsed`, `sleep_before_seq` and `sleep_before_par`, oracle run 40852609901; [`flows/control-flow/waits`](../../conformance/flows/control-flow/waits) run `sleep_before_branch`, oracle run 40857510216; the delays are read from the jobs' start and end times in the provenance.
+- **CF-21/e** · oracle-observed · A container's `timeout` is evaluated in the container step's own scope, without the iteration being created.
+  - **Given:** `a: ret(0)`, then a sequential forloop over `[1]` with
+    `timeout: {type: javascript, expr: "flow_input.iter.index + 10"}` and the
+    one-step body `[b: ret(x) x = flow_input.iter.value]` (collapsed); and
+    `a: ret(0)`, then a parallel forloop over `[1]` with `timeout: {type:
+    javascript, expr: "flow_input.iter.index"}` and the two-step body `[b:
+    ret(1), c: ret(2)]` with static inputs (child flows).
+  - **Correction 2026-10-29 (SC4):** the second flow was first described as
+    the same sequential loop with a two-step body; the recorded run's loop
+    is parallel with static step inputs. The outcome is the same.
+  - **Expect:** both fail with the chaining `InternalError` of a later
+    transition ([FX-15](execution.md#fx-15) context 1), message
+    ``Error during evaluation of expression `<expr>`:\nQuickJS evaluation error: Error: cannot read property 'index' of undefined\n…``;
+    no iteration job is created and `l` stays not run. A collapsed loop's
+    timeout, evaluated again for each body job, sees the same scope.
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `timeout_scope_collapsed` and `timeout_scope_flows`, oracle run 40857510216.
+- **CF-21/f** · source-derived · A container's `timeout` sees an `iter` the enclosing flow's input has.
+  - **Given:** (1) CF-21/e's first flow, run with the input `{"iter":
+    {"index": 3}}`. (2) A deployed flow `[o: forloopflow(iterator: [5],
+    modules: [i: forloopflow(iterator: [1], timeout: {type: javascript,
+    expr: "flow_input.iter.index + 10"}, modules: [b: ret(x) x =
+    flow_input.iter.value]), c: ret(2)])]`, whose two-step outer body
+    runs as a child flow.
+  - **Expect:** (1) the timeout is `13` and the flow succeeds with `[1]`
+    (the body's transform sees the iteration's own `iter`). (2) The inner
+    timeout reads the outer iteration's `iter` (`index` `0`), so it is
+    `10`, and the flow succeeds with `[2]`. Neither run fails with
+    CF-21/e's error.
 
 <a id="cf-22"></a>
 ### CF-22 · `retry` on a container module
 
 **Scope:** later · **Finding:** [CF-22](control-flow.md#cf-22)
 
-- **CF-22/a** · source-derived · A retried non-collapsed iteration sees `iter_parent` ([Q-CF-7](control-flow.md#q-cf-7)).
+- **CF-22/a** · oracle-observed · A retried non-collapsed iteration sees `iter_parent` ([Q-CF-7](control-flow.md#q-cf-7)).
   - **Given:** forloop over `[1]` with explicit `skip_failures: false` and
     `retry: {constant: {attempts: 1, seconds: 0}}`; two-module body `[b, c]`:
     `b` uses an independent attempt counter (for example a variable read and
     written through the client), fails on the first attempt and on the
     second returns `flow_input.iter_parent ?? null`; `c: ret(x) x = results.b`.
   - **Expect:** status success, result `[{"index":0,"value":1}]`.
+  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `iter_parent`, oracle run 40857510216
+    (`b` counts its attempts in a file keyed by `WM_ROOT_FLOW_JOB_ID`). The
+    loop's entry lists the failed iteration's child flow, with args
+    `{"iter": {"index": 0, "value": 1}}`; its `b` failed and its `c` never
+    ran.
+
+Cases CF-22/b to CF-22/g are recorded by fixtures of milestones NI and N5.
+In them a "flaky" step throws on its first run within the run and succeeds
+afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
+`{constant: {attempts: 1, seconds: 0}}` on the container.
+
+- **CF-22/b** · oracle-observed · The restored `previous_result` is `"{}"`
+  after a tolerated failure.
+  - **Given:** `[a: bun: throw new Error("a fails") (continue_on_error:
+    true), l: forloopflow(iterator: [1], skip_failures: false, modules: [b:
+    flaky(v) v = previous_result])]` with the retry on `l`; `b` returns `v`
+    when it succeeds (the fixture sets `skip_failures: false`, as written
+    here since SC4 validation round 2).
+  - **Expect:** success with result `["{}"]`. The failed attempt is `b`'s
+    collapsed job, run with `v` = `a`'s error object; the retry's
+    iteration ran with `v = "{}"`.
+  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `prev_fallback`, oracle run 40852609901.
+- **CF-22/c** · oracle-observed · A retried collapsed loop: only the first
+  push takes the failed job's arguments.
+  - **Given:** `[l: forloopflow(iterator: [1, 2], skip_failures: false,
+    modules: [b: flaky(x, y) x = flow_input.iter.value, y = flow_input.z ??
+    "none"])]` with the retry on `l`, input `{"z": "Z"}`; `b` returns `{x,
+    y}` when it succeeds (the fixture's `skip_failures: false`, written out
+    since SC4 validation round 2).
+  - **Expect:** success with result `[{"x": 1, "y": "none"}, {"x": 2, "y":
+    "Z"}]`. The failed attempt is iteration 0's job, with args `{"x": 1,
+    "y": "Z"}`; the retry's first iteration evaluated `b`'s transforms over
+    those args (no `z`), the second over the flow's input.
+  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `collapsed_input`, oracle run 40857510216.
+- **CF-22/d** · oracle-observed · A retried loop whose retry is spent fails
+  with the second attempt's array.
+  - **Given:** `[l: forloopflow(iterator: [1], skip_failures: false,
+    modules: [b: bun: throw new Error("no"), c: ret(1)])]` with the retry
+    on `l` (the fixture's `skip_failures: false`, written out since SC4
+    validation round 2).
+  - **Expect:** failure with result `[{"error": {"name": "Error", "message":
+    "no", "step_id": "b"}}]`; `l` lists the first attempt's iteration child
+    flow (its `b` failed, its `c` never ran).
+  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `exhausted`, oracle run 40857510216.
+- **CF-22/e** · oracle-observed · A retried parallel `branchall` runs every
+  branch again and lists no attempt.
+  - **Given:** `[ba: branchall(parallel: true, branches: [[b0: flaky(v) v =
+    0], [b1: ret(1)]])]` with the retry on `ba`.
+  - **Expect:** success with result `[0, 1]`; both branches ran again; the
+    module's entry lists no failed attempt
+    ([CF-22](control-flow.md#cf-22) rule 5).
+  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `branchall`, oracle run 40857510216.
+- **CF-22/f** · oracle-observed · A retried while loop.
+  - **Given:** `[w: whileloopflow(stop_after_if: {expr: "true"}, modules:
+    [x: flaky(v) v = flow_input.iter.index])]` with the retry on `w`.
+  - **Expect:** success with a one-element array holding `x`'s result for
+    `v = 0`. The body collapses: the failed attempt is `x`'s script job,
+    whose error carries `step_id: "w"`; the retry's iteration ran with the
+    same arguments.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `while_retry`, oracle run 40915682847.
+- **CF-22/g** · oracle-observed · A retried `branchone`.
+  - **Given:** `[br: branchone(branches: [{expr: "true", modules: [x:
+    flaky(v) v = 1]}], default: [])]` with the retry on `br`, input `{}`.
+  - **Expect:** success with `x`'s result for `v = 1`. The failed attempt
+    is the branch's child flow (kind `flowpreview`), with args `{}` (the
+    flow's input), whose `x` failed; the retry ran the branch again.
+  - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `branchone_retry`, oracle run 40915682847.
+- **CF-22/h** · source-derived · A retried parallel loop re-enters from the
+  last child to complete, even one that succeeded.
+  - **Given:** deployed, run by path: `[l: forloopflow(iterator: [10, 20],
+    parallel: true, parallelism: 1, skip_failures: false, modules: [b:
+    bun(i, p)])]` with the retry on `l`, `i =
+    flow_input.iter.index`, `p = flow_input.iter_parent ?? null`. On its
+    first run in the outer run `b` throws for `i = 0` and returns `p` for
+    `i = 1`; on later runs it returns `p`. With `parallelism: 1`,
+    iteration 1 is held until iteration 0 has completed ([CF-7](control-flow.md#cf-7)),
+    so in the first attempt iteration 0 fails first and the successful
+    iteration 1 completes last, whatever the number of workers.
+  - **Expect:** success with result `[{"index": 1, "value": 20}, {"index":
+    1, "value": 20}]`: both re-run iterations see the `iter` of iteration
+    1's child flow, which completed last although it succeeded. `l`'s entry
+    lists no failed attempt. (A reading in which the base is the last
+    child to fail predicts `{"index": 0, "value": 10}` in both.)
+  - **Correction 2026-10-29 (SC4 validation round 1):** the first attempt's
+    order relied on iteration 1 sleeping on one worker, which the
+    scheduler does not promise (the start order of eligible iterations is
+    open, [CF-7](control-flow.md#cf-7)); `parallelism: 1` fixes it.
+  - **Correction 2026-10-29 (SC4 validation round 2):** the Given left
+    `skip_failures` out; on a deployed flow an omitted flag is stored as
+    `true` ([CF-6](control-flow.md#cf-6)), which makes the first attempt succeed, so nothing is retried.
+    It is now explicit.
 
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container
 
 **Scope:** core · **Finding:** [CF-23](control-flow.md#cf-23)
 
-- **CF-23/a** · source-derived · Root flow at pickup: a step failure, handled normally.
+- **CF-23/a** · oracle-observed · Root flow at pickup: a step failure, handled normally.
   - **Given:** step 0 = forloop over `flow_input` (an object); flow handler
     `ret("handled")`.
   - **Expect:** status failure, result `"handled"`.
-- **CF-23/b** · source-derived · During chaining: the flow aborts with `InternalError`.
+  - **Recorded:** [`flows/control-flow/cf-23`](../../conformance/flows/control-flow/cf-23) run `root_pickup`, oracle run 40852609901: `l` failed and the failure module ran with `"handled"`, which does not recover.
+- **CF-23/b** · oracle-observed · During chaining: the flow aborts with `InternalError`.
   - **Given:** the same loop after `a: ret(1)`.
   - **Expect:** status failure, `error.name == "InternalError"`, message
     containing `Expected an array value in the iterator expression`; the
     handler did not run.
-- **CF-23/c** · source-derived · Child flow at pickup.
+  - **Recorded:** [`flows/control-flow/cf-23`](../../conformance/flows/control-flow/cf-23) run `chaining`, oracle run 40852609901: the message was `Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0`, `l` got no job and the failure module did not run.
+- **CF-23/c** · oracle-observed · Child flow at pickup.
   - **Given / Expect:** as [CF-V3/a](#cf-v3).
+  - **Recorded:** as CF-V3/a ([`flows/control-flow/cf-v3`](../../conformance/flows/control-flow/cf-v3) run `a`, oracle run 40858228112).
 - **CF-23/d** · source-derived · During chaining inside a `branchone`: the
   parent gets the carried value, storage holds the error.
   - **Given:** `b: branchone(branches: [], default: [r: bun: return 1, l:
@@ -3110,27 +3608,31 @@ Findings: [control-flow.md](control-flow.md).
 
 **Scope:** later · **Finding:** [CF-24](control-flow.md#cf-24)
 
-- **CF-24/a** · source-derived · Synthesized path of an inline body step.
+- **CF-24/a** · oracle-observed · Synthesized path of an inline body step.
   - **Given:** deployed flow `f/t/x`, run by path. Forloop `l` over `[1]`
     with body `[b: rawscript returning its job-path environment value, c: ret(x) x = results.b]`
     (environment values per [languages.md](languages.md)).
   - **Expect:** `results.l = ["f/t/x/loop-0/b"]`.
-- **CF-24/b** · source-derived · The lite form drops an explicit inline path.
+  - **Recorded:** [`flows/control-flow/cf-24`](../../conformance/flows/control-flow/cf-24) run `x`, oracle run 40852609901, with the flow at `f/cf24/x`: `["f/cf24/x/loop-0/b"]`.
+- **CF-24/b** · oracle-observed · The lite form drops an explicit inline path.
   - **Given:** as CF-24/a with `path: f/t/custom` on `b`; deployed run with
     the lite form recorded as selected.
   - **Expect:** `["f/t/x/loop-0/b"]`.
+  - **Recorded:** [`flows/control-flow/cf-24`](../../conformance/flows/control-flow/cf-24) run `x_custom`, oracle run 40852609901, with the flow at `f/cf24/x_custom`: `["f/cf24/x_custom/loop-0/b"]`.
 - **CF-24/c** · source-derived · A raw run keeps the explicit path.
   - **Given:** CF-24/b's flow as a raw flow payload.
   - **Expect:** `["f/t/custom"]`.
-- **CF-24/d** · source-derived · A by-path `script` body keeps its own path.
+- **CF-24/d** · oracle-observed · A by-path `script` body keeps its own path.
   - **Given:** deployed flow `f/t/x`, run by path; a sequential forloop over
     `[1]` whose single body module is `type: script, path: f/t/body`; script
     `f/t/body` returns its job-path environment value.
   - **Expect:** `["f/t/body"]`.
-- **CF-24/e** · source-derived · A collapsed inline body gets the iteration path.
+  - **Recorded:** [`flows/control-flow/cf-24`](../../conformance/flows/control-flow/cf-24) run `d`, oracle run 40852609901, with the script at `f/cf24/body`: `["f/cf24/body"]`.
+- **CF-24/e** · oracle-observed · A collapsed inline body gets the iteration path.
   - **Given:** as CF-24/d with an inline single-module body returning its job
     path.
   - **Expect:** `["f/t/x/loop-0"]`.
+  - **Recorded:** [`flows/control-flow/cf-24`](../../conformance/flows/control-flow/cf-24) run `e`, oracle run 40852609901, with the flow at `f/cf24/e`: `["f/cf24/e/loop-0"]`.
 
 <a id="cf-25"></a>
 ### CF-25 · `squash`
@@ -3209,10 +3711,11 @@ Findings: [control-flow.md](control-flow.md).
 
 **Scope:** core · **Finding:** [CF-26](control-flow.md#cf-26)
 
-- **CF-26/a** · source-derived · The virtual identity step keeps the body result.
+- **CF-26/a** · oracle-observed · The virtual identity step keeps the body result.
   - **Given:** a loop body whose last step has
     `sleep: {type: static, value: 0}`.
   - **Expect:** the iteration result equals that step's result.
+  - **Recorded:** [`flows/control-flow/cf-26`](../../conformance/flows/control-flow/cf-26) run `a`, oracle run 40852609901: a loop over `[10, 20]` gave `[10, 20]`, each entry the result of the body's last step `b`.
   - Stored-node effects: see [CF-V4](#cf-v4), [CF-24](#cf-24) and
     [CF-8/b](#cf-8).
 
@@ -3228,18 +3731,21 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
 `{"error":{"name":"ExecutionErr","message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","step_id":"l"}}`
 (the one-second timeout must be below the instance maximum).
 
-- **CF-27/a** · source-derived · Collapsed body jobs are timed; no skip.
+- **CF-27/a** · oracle-observed · Collapsed body jobs are timed; no skip.
   - **Given:** the common setup with `skip_failures: false`.
   - **Expect:** status failure, result `[T]`; the second iteration never
     starts.
-- **CF-27/b** · source-derived · Collapsed body jobs are timed; skip.
+  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `a`, oracle run 40852609901.
+- **CF-27/b** · oracle-observed · Collapsed body jobs are timed; skip.
   - **Given:** the common setup with `skip_failures: true`.
   - **Expect:** status success, result `[T, T]`.
-- **CF-27/c** · source-derived · Child flows are not timed.
+  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `b`, oracle run 40852609901.
+- **CF-27/c** · oracle-observed · Child flows are not timed.
   - **Given:** the common setup with a two-step body (not collapsed); the
     inner steps have no timeouts and step 1 waits 3 s. The inner steps'
     effective default or instance deadlines must exceed 3 s.
   - **Expect:** status success with normal results.
+  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `c`, oracle run 40852609901: `[3000, 3000]`, each iteration's 3 s step completing under the loop's `timeout: 1`.
 - **CF-27/d** · source-derived · A raw submission does not collapse, so it is not timed.
   - **Given:** the single-step flow of the common setup as a raw submission
     ([CF-V5](control-flow.md#cf-v5)).
@@ -3250,7 +3756,7 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
 
 **Scope:** later · **Finding:** [CF-28](control-flow.md#cf-28)
 
-- **CF-28/a** · source-derived · Cancelling the root reaches held iterations.
+- **CF-28/a** · oracle-observed · Cancelling the root reaches held iterations.
   - **Given:** a deployed flow, run by path. Parallel forloop over `[1,2,3]`
     with `parallelism: 1`; body = one module that sleeps 30 s plus a second
     step, so iterations are child flows. Wait until iteration 0's body job is
@@ -3259,20 +3765,26 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
   - **Expect:** the root eventually completes with
     `{"error":{"name":"Canceled","message":"Job canceled: test by tester","reason":"test","canceler":"tester"}}`.
     Iterations 1 and 2 complete as cancelled and run no body code (no body
-    logs). Assert neither iteration 0's final status nor any kill latency.
+    logs). The loop's status entry is `Failure`, and its result is an array
+    of three entries, each that `Canceled` object (iteration 0's too: its
+    child flow completes `Canceled` whatever its killed step reported).
+    Assert neither iteration 0's body job's final status nor any kill
+    latency.
+  - **Recorded:** [`flows/control-flow/cf-28`](../../conformance/flows/control-flow/cf-28) run `held`, oracle run 40852609901, canceled 8 s after submission by `admin` with reason `wltest: cancel_after_ms`: the root's result and each of the loop's three entries is `{"error":{"name":"Canceled","message":"Job canceled: wltest: cancel_after_ms by admin","reason":"wltest: cancel_after_ms","canceler":"admin"}}`; iteration 0's body job ended `canceled` with the killed process's `ExecutionErr`, and no body job of iterations 1 and 2 ran.
 
 <a id="cf-29"></a>
 ### CF-29 · An empty container's own `stop_after_if` stops the flow
 
 **Scope:** core · **Finding:** [CF-29](control-flow.md#cf-29)
 
-- **CF-29/a** · source-derived · An error stop on an empty loop fails the flow.
+- **CF-29/a** · oracle-observed · An error stop on an empty loop fails the flow.
   - **Given:** forloop over `[]` with
     `stop_after_if: {expr: "true", error_message: "empty"}`, then
     `n: ret("after")`.
   - **Expect:** status failure,
     `{"error": {"name": "EarlyStopError", "message": "empty"}}`; `n` does not
     run.
+  - **Recorded:** [`flows/control-flow/cf-29`](../../conformance/flows/control-flow/cf-29) run `a`, oracle run 40858228112; the loop's own module ended `failure` with result `[]`.
 
 <a id="cf-30"></a>
 ### CF-30 · The failure and preprocessor modules are slots, not list members
@@ -3311,24 +3823,71 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
     flow and not a `flowscript` job. Only the dispatch is asserted, not the
     preprocessor's result or the flow's.
 
+<a id="cf-31"></a>
+### CF-31 · A container as the `failure_module`
+
+**Scope:** later · **Finding:** [CF-31](control-flow.md#cf-31)
+
+- **CF-31/a** · source-derived · A sequential loop in the failure slot runs only its first iteration.
+  - **Given:** `[a: fail("x")]`; flow `failure_module` = forloop `failure`
+    over `[1,2]` with the body `[h: ret(x*10) x = flow_input.iter.value]`.
+  - **Expect:** status failure, result `10` (not an array). One child flow
+    of kind `flowpreview` runs for the slot, with `h` as a `preview` job; no
+    second child is created; the flow status's `failure_module` entry stays
+    `InProgress`. The flow log ends with
+    `It completed with success, and with recover: false`. With the body
+    `[h: ret({"recover": true, "i": x}) x = flow_input.iter.value]`: status
+    success, result `{"recover":true,"i":1}`.
+- **CF-31/b** · source-derived · A one-item loop in the slot completes with an array.
+  - **Given:** as CF-31/a with the iterator `[1]`; then with the body
+    `[h: ret(true)]`.
+  - **Expect:** status failure, result `[10]`; with `ret(true)`: status
+    success, result `[true]`.
+- **CF-31/c** · source-derived · A `branchone` slot chooses on the error.
+  - **Given:** `[a: fail("x")]`; flow `failure_module` = branchone
+    `failure` with one branch `{expr: "error.message == 'x'", modules: [h1:
+    ret("matched")]}` and default `[h2: ret("default")]`.
+  - **Expect:** status failure, result `"matched"`; `h1` runs in a
+    `flowpreview` child and `h2` does not. With `fail("y")`: result
+    `"default"`.
+- **CF-31/d** · source-derived · An empty-iterator loop in the slot makes the failed step succeed.
+  - **Given:** `[a: fail("x"), b: ret(x) x = previous_result]`; flow
+    `failure_module` = forloop `failure` over `[]` with the body
+    `[h: ret(1)]`. Then the flow `[a: fail("x")]` with the same slot.
+  - **Expect:** status success, result `[]`: `b` runs and returns `[]`. The
+    module-status entry at `a`'s position is a `Success` entry with id
+    `failure`. For the one-step flow: status success, result `[]`.
+- **CF-31/e** · source-derived · A parallel loop in the slot never completes on its own.
+  - **Given:** `[a: fail("x")]`; flow `failure_module` = forloop `failure`
+    over `[1,2]` with `parallel: true` and the body `[h: ret(x) x =
+    flow_input.iter.value]`.
+  - **Expect:** both children complete, but the flow does not: about 60 s
+    later (the monitor's default timeout) it ends with status canceled and
+    a `Canceled` error whose `canceler` is `monitor`. Only that the flow
+    has not completed within 30 s of its children is asserted firmly; the
+    later cancellation depends on the server's monitor.
+
 <a id="cf-v1"></a>
 ### CF-V1 · Recovery success differs between sequential propagation and parallel aggregation
 
 **Scope:** core · **Finding:** [CF-V1](control-flow.md#cf-v1)
 
-- **CF-V1/a** · source-derived · A sequential loop counts a recovered child as failed.
+- **CF-V1/a** · oracle-observed · A sequential loop counts a recovered child as failed.
   - **Given:** the flow handler returns exactly `{"recover":true}`; a
     sequential loop over `[1,2]` whose body always fails, explicit
     `skip_failures: false`.
   - **Expect:** status failure, result `[{"recover":true}]`.
-- **CF-V1/b** · source-derived · A parallel loop counts recovered children as succeeded.
+  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) run `a`, oracle run 40858228112; the handler ran in the first iteration only, and the root's own handler did not run.
+- **CF-V1/b** · oracle-observed · A parallel loop counts recovered children as succeeded.
   - **Given:** as CF-V1/a with `parallel: true`.
   - **Expect:** status success, result `[{"recover":true},{"recover":true}]`.
-- **CF-V1/c** · source-derived · The same split for `branchall`.
+  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) run `b`, oracle run 40858228112.
+- **CF-V1/c** · oracle-observed · The same split for `branchall`.
   - **Given:** repeat CF-V1/a and CF-V1/b with a sequential and a parallel
     branchall whose branches always fail and explicitly set
     `skip_failure: false`.
   - **Expect:** as CF-V1/a and CF-V1/b respectively.
+  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) runs `c-seq` and `c-par`, oracle run 40858228112.
 
 <a id="cf-v2"></a>
 ### CF-V2 · Optimized empty containers bypass the all-iterations stop predicate
@@ -3340,21 +3899,23 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
     `stop_after_all_iters_if: {expr: "true"}`, followed by a step returning
     `"after"`.
   - **Expect:** status success, result `"after"`.
-  - **Recorded:** [`flows/control-flow/cf-13`](../../conformance/flows/control-flow/cf-13) run `c`, oracle run 40685057858 (also CF-13/c).
-- **CF-V2/b** · source-derived · The container's own `stop_after_if` stops the flow.
+  - **Recorded:** [`flows/control-flow/cf-13`](../../conformance/flows/control-flow/cf-13) run `c`, oracle run 40685057858 (also CF-13/c); again by [`flows/control-flow/cf-v2`](../../conformance/flows/control-flow/cf-v2) run `a`, oracle run 40858228112.
+- **CF-V2/b** · oracle-observed · The container's own `stop_after_if` stops the flow.
   - **Given:** as CF-V2/a with `stop_after_if: {expr: "true"}` instead.
   - **Expect:** status success, result `[]`; the later step does not run.
-- **CF-V2/c** · source-derived · Same for a zero-branch `branchall`.
+  - **Recorded:** [`flows/control-flow/cf-v2`](../../conformance/flows/control-flow/cf-v2) run `b`, oracle run 40858228112.
+- **CF-V2/c** · oracle-observed · Same for a zero-branch `branchall`.
   - **Given:** repeat CF-V2/a and CF-V2/b with a branchall with
     `branches: []`.
   - **Expect:** as CF-V2/a and CF-V2/b respectively.
+  - **Recorded:** [`flows/control-flow/cf-v2`](../../conformance/flows/control-flow/cf-v2) runs `c-all` and `c-stop`, oracle run 40858228112.
 
 <a id="cf-v3"></a>
 ### CF-V3 · Child-flow startup errors bypass that child's failure module
 
 **Scope:** core · **Finding:** [CF-V3](control-flow.md#cf-v3)
 
-- **CF-V3/a** · source-derived · The child's handler is bypassed; the parent's runs.
+- **CF-V3/a** · oracle-observed · The child's handler is bypassed; the parent's runs.
   - **Given:** deploy child `f/t/start_error`, whose first module is a
     forloop with static iterator `{}` and whose own handler returns
     `"child-handled"`. A parent calls it and has a handler returning
@@ -3363,10 +3924,16 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
     result is an error object with `error.name = "Anyhow"` and a message
     containing `Expected an array value in the iterator expression`, not
     `"child-handled"`.
-- **CF-V3/b** · source-derived · Without the call boundary the root handler applies.
+  - **Recorded:** [`flows/control-flow/cf-v3`](../../conformance/flows/control-flow/cf-v3) run `a`, oracle run 40858228112: the child's result was `{"error":{"name":"Anyhow","message":"Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"}}`, its handler and its loop never ran, and the parent's handler gave `"parent-handled"`.
+- **CF-V3/b** · oracle-observed · Without the call boundary the root handler applies.
   - **Given:** run `f/t/start_error` directly as the root flow.
-  - **Expect:** its own handler may run (route 1 of
-    [CF-23](control-flow.md#cf-23)).
+  - **Expect:** its own handler runs (route 1 of
+    [CF-23](control-flow.md#cf-23)): status failure, result
+    `"child-handled"`.
+  - **Recorded:** [`flows/control-flow/cf-v3`](../../conformance/flows/control-flow/cf-v3) run `b`, oracle run 40858228112.
+  - **Correction 2026-10-29 (SC4):** the case said only that the handler
+    "may run"; the recording shows it runs, as route 1 states, so the
+    expectation now gives the outcome.
 
 <a id="cf-v4"></a>
 ### CF-V4 · Stored child nodes do not receive runtime handler-id suffixes
@@ -3378,11 +3945,11 @@ Common setup: parent handler id `h`; a sequential loop at position zero over
 its flow-step-id environment value. Record the selected representation as
 part of the setup.
 
-- **CF-V4/a** · source-derived · Stored-node body: the original handler id.
+- **CF-V4/a** · oracle-observed · Stored-node body: the original handler id.
   - **Given:** the common setup using the successfully built lite version
     (body in a flow node).
   - **Expect:** status success, result `["h"]`.
-  - **Note:** not recorded with this setup, but the same rule is recorded
+  - **Recorded:** [`flows/control-flow/cf-v4`](../../conformance/flows/control-flow/cf-v4) run `a`, oracle run 40858228112: the iteration's copy of the handler ran with step id `h`. The same rule is also recorded
     by [`flows/execution/fx-34`](../../conformance/flows/execution/fx-34) run
     `step_id` (handler id `failure`, loop at cursor 1, two failing
     iterations, result `["failure", "failure"]`), oracle run 40689442792.
@@ -3401,9 +3968,10 @@ Common setup: CF-8/a's flow: `a: ret(100)`, then a sequential forloop over
 `previous_result`, or plus `-1000` when `previous_result` is not a number.
 Record the actual job kinds rather than labelling a run "raw" or "editor".
 
-- **CF-V5/a** · source-derived · Deployed by path: the loop collapses.
+- **CF-V5/a** · oracle-observed · Deployed by path: the loop collapses.
   - **Given:** run by path after a successful dependency job.
   - **Expect:** status success, `[101,103,106]`.
+  - **Recorded:** [`flows/control-flow/cf-v5`](../../conformance/flows/control-flow/cf-v5) run `a`, oracle run 40858228112: each iteration ran as a script job of the flow, with the previous iteration's result as its `previous_result` (`p` = 100, 101, 103).
 - **CF-V5/b** · source-derived · Raw-flow preview request: the loop does not collapse.
   - **Given:** submit the same flow value as a raw-flow preview request.
   - **Expect:** status success, `[-999,-998,-997]` (each iteration is a
@@ -4659,21 +5227,25 @@ Findings: [languages.md](languages.md).
 
 **Scope:** core · **Finding:** [WR-5](languages.md#wr-5)
 
-- **WR-5/a** · source-derived · a `$res:` reference resolves to the resource value
+- **WR-5/a** · oracle-observed · a `$res:` reference resolves to the resource value
   - **Given:** resource `u/a/pg` = `{"host":"h"}`; args `{"db":"$res:u/a/pg","n":1}`.
   - **Expect:** the entrypoint receives `db = {"host":"h"}` and `n = 1`.
-- **WR-5/b** · source-derived · a one-segment resource path is rejected
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438: with args `{"db":"$res:f/wl_pf2_prov/db","n":1,…}` the entrypoint received the resource's value and `n = 1`. That resource also held a secret `$var:` and a nested `$res:`, both resolved (the nested one with the step's job id, [WA-V3](client-api.md#wa-v3)).
+- **WR-5/b** · oracle-observed · a one-segment resource path is rejected
   - **Given:** args `{"x":"$res:pg"}`.
   - **Expect:** the job fails. `error.message` begins `` execution error:\nInternal: Argument `x` is an invalid resource path: pg ``, followed by an internal-location suffix.
-- **WR-5/c** · source-derived · an arg with no trigger pattern is not resolved
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `invalid_path`, oracle run 40826651517: ``execution error:\nInternal: Argument `x` is an invalid resource path: pg @common.rs:306:28``, `ExecutionErr`, `step_id` `a`.
+- **WR-5/c** · oracle-observed · an arg with no trigger pattern is not resolved
   - **Given:** args `{"a":"$WM_WORKSPACE","b":"$var:u/a/v"}`.
   - **Expect:** `a` stays the literal `"$WM_WORKSPACE"`, because arg `a` itself contains no trigger pattern.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438: the argument `plain = "$WM_WORKSPACE"` arrived unchanged beside resolved arguments.
 - **WR-5/d** · source-derived · later · reserved-variable substitution inside a qualifying arg
   - **Given:** args `{"a":["$WM_WORKSPACE","$var:u/a/v"]}`.
   - **Expect:** `a = ["<workspace id>", "<value of v>"]`.
-- **WR-5/e** · source-derived · a missing resource
+- **WR-5/e** · oracle-observed · a missing resource
   - **Given:** args `{"a":"$res:u/a/missing"}`, no such resource.
   - **Expect:** ``{"error":{"message":"execution error:\nNot found: Resource u/a/missing not found for `a`: …","name":"ExecutionErr","step_id":…}}``. Match on the message prefix.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `missing_resource`, oracle run 40824738438: the whole message is ``execution error:\nNot found: Resource f/wl_pf2_prov/missing not found for `x`: Not found: Resource f/wl_pf2_prov/missing not found``, `ExecutionErr`, `step_id` `a`; the job failed before the script ran.
 
 <a id="wr-6"></a>
 ### WR-6 · How args bind to the entrypoint
@@ -5232,7 +5804,7 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
   - **Expect:** `"function"`.
 - **WR-40/c** · source-derived · a static import of a missing host file fails the load (`nativets`)
   - **Given:** a `nativets` step `a`: `import { x } from "./helper.ts"; export function main() { return x; }`. No file `/helper.ts` exists on the worker host. Whether a workspace script exists at a matching path makes no difference.
-  - **Expect:** `{"error":{"message":"execution error:\nError: failed to load module…","name":"ExecutionErr","step_id":"a"}}`; match on the prefix.
+  - **Expect:** `{"error":{"message":"execution error:\nError: failed to load module…","name":"ExecutionErr","step_id":"a"}}`; match on the prefix. *(medium)* The whole message is `execution error:\nError: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2)<loc>` ([WR-40](languages.md#wr-40), revision of 2026-10-29 by SC4).
 - **WR-40/d** · source-derived · every spelling that resolves to the client's URL reaches it (`nativets`)
   - **Given:** the WR-40/b script, with the import specifier spelled `/windmill.ts` in one variant and `file:///windmill.ts` in another.
   - **Expect:** `"function"` both times.
@@ -5247,10 +5819,24 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
   - **Expect:** `[true,true]`.
 - **WR-40/f** · source-derived · an uncaught failed dynamic import gives the exception shape, not a load failure (`nativets`; medium)
   - **Given:** no file `/missing.ts` on the worker host; step `a`: `export async function main() { await import("./missing.ts"); return 1; }`
-  - **Expect:** `{"error":{"message":"Failed to load file:///missing.ts…","stack":<stack>,"name":…}}`: exactly the three keys, `message` matched on the prefix, and `name` not `ExecutionErr` (its value is [Q-WR-21](languages.md#q-wr-21)). No `failed to load module` text.
+  - **Expect:** `{"error":{"message":"Failed to load file:///missing.ts\n  Caused by:\n    No such file or directory (os error 2)","stack":<stack>,"name":"TypeError"}}`: exactly the three keys. No `failed to load module` text.
+  - **Correction 2026-10-29 (SC4):** the case matched `message` on its prefix and left `name` to [Q-WR-21](languages.md#q-wr-21). deno_core 0.352.1 rejects a dynamic import whose load fails with a `TypeError` carrying the loader's message and a `Caused by:` line ([WR-40](languages.md#wr-40)), so both are now exact (medium).
 - **WR-40/g** · source-derived · later · the module-level `this` (both kinds, different values)
   - **Given:** step `a`, on a worker that serves the `nativets` tag: `const t = this; export function main() { return [t === null, t === undefined]; }`.
   - **Expect:** `[true,false]` as `bunnative`, because Bun's bundler writes the top-level `this` as `null` (on Bun `1.3.10`, run outside Windmill with Windmill's build options); `[false,true]` as `nativets`, whose transpiled ES module keeps `undefined`.
+- **WR-40/h** · source-derived · later · Node built-ins in a `bunnative` bundle (medium)
+  - **Given:** on a worker that serves the `nativets` tag, an inline Bun step `a` whose first line is `//native`:
+    ```ts
+    //native
+    import { Buffer } from "node:buffer";
+    import { readFileSync } from "node:fs";
+    export async function main() { return [Buffer.from("hi").toString("base64"), typeof readFileSync, typeof __dirname]; }
+    ```
+    and a variant `b` that uses a global `Buffer` without importing it: `//native` then `export async function main() { return Buffer.from("hi").length; }`.
+  - **Expect:** the bundle builds for both. `a` returns `["aGk=","undefined","string"]`: `node:buffer` is inlined as a browser polyfill, `node:fs` is an empty object, and `__dirname` was replaced by the build directory's path. `b` fails with [WR-43](languages.md#wr-43)'s exception shape, `name` `ReferenceError`, `message` `Buffer is not defined`. The bundling half was checked on Bun `1.3.10` outside Windmill with Windmill's build options; that the polyfill runs in the native runtime is not traced.
+- **WR-40/i** · source-derived · later · A Node built-in whose spelling decides the build (medium)
+  - **Given:** on a worker that serves the `nativets` tag, three inline `//native` steps: `c` with `import { spawn } from "node:child_process"; export async function main() { return typeof spawn; }`; `d`, the same with `"child_process"`; `e` with `import { test } from "node:test"; export async function main() { return typeof test; }`.
+  - **Expect:** `c` builds and returns `"undefined"` (an empty object). `d` and `e` fail before running with [WR-20](languages.md#wr-20)'s `ExecutionErr` for the program `bun build`: a message starting `exit code for "bun build": 1, last log lines:` whose tail contains `Browser build cannot import Node.js builtin: "child_process"` (for `e`: `"node:test"`) and `Failed to build node bundle`. The build outcomes were checked on Bun `1.3.10` outside Windmill with Windmill's build options; the step's error text is read from the source, not run.
 
 <a id="wr-41"></a>
 ### WR-41 · A fresh isolate per job; how arguments bind
@@ -5659,6 +6245,10 @@ Both cases run on the reference configuration, where the worker is PID 1 of its 
 - **WR-55/b** · source-derived · a timeout kills the job's whole process group, even after the script returned
   - **Given:** the WR-55/a script with `sleep 30`, and the step's `timeout: {"type":"static","value":2}`.
   - **Expect:** `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}` after about 2 s, although `main` had returned, and the `sleep` process is gone ([WR-37](languages.md#wr-37)).
+- **WR-55/c** · source-derived · no process serves two ordinary script jobs on CE
+  - **Given:** a deployed Bun script `f/demo/counter` that keeps a counter at module scope and returns `{"pid": process.pid, "n": <the counter after adding 1>}`; a flow `[a: script f/demo/counter, b: script f/demo/counter]` with no loop, run twice by path on the default worker tags.
+  - **Expect:** all four step results have `n: 1`, and no `pid` repeats across steps or runs (each ordinary job has its own process; the CE image starts no dedicated worker). The `pid` values themselves are not compared. A squashed loop is not covered: its runners are closed source ([Q-CF-19](control-flow.md#q-cf-19)).
+  - **Correction 2026-10-29 (SC4 validation round 1):** the title said that no process serves two jobs on CE at all; the `squash` runners are an open CE route.
 
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values
@@ -5791,9 +6381,16 @@ Findings: [client-api.md](client-api.md).
 - Cases that run on the oracle assume its default configuration unless they say
   otherwise: no sandboxing (nsjail), no workspace custom env vars or worker
   `env_vars` overriding the names under test, and an empty `WHITELIST_ENVS`.
-- Every case below is source-derived; none has been recorded on the v1.767.0 CE
-  oracle yet ([Q-WA-13](client-api.md#q-wa-13); the S3 server cases are
-  [Q-WA-3](client-api.md#q-wa-3)).
+- Cases are source-derived unless they say otherwise. Milestones E1 and PF1
+  to PF3 recorded some on the v1.767.0 CE oracle with the fixtures under
+  [`conformance/flows/client-api/`](../../conformance/flows/client-api);
+  those cases are `oracle-observed` with a **Recorded** line. Those fixtures
+  make, with `fetch` and the step's own token, the requests the stock clients
+  make, so a Recorded line names any part the client adds on its own (a
+  prefix it strips, its wrapping text, a default it returns on a failure)
+  that the recording did not run. The rest are tracked by
+  [Q-WA-13](client-api.md#q-wa-13); the S3 server cases by
+  [Q-WA-3](client-api.md#q-wa-3).
 
 <a id="wa-1"></a>
 ### WA-1 · The TS client is a thin HTTP layer configured from env vars; token and base URL are captured at import
@@ -5820,10 +6417,11 @@ Findings: [client-api.md](client-api.md).
 
 **Scope:** core · **Finding:** [WA-2](client-api.md#wa-2)
 
-- **WA-2/a** · source-derived · a Bun job sees `BASE_URL` but not `BASE_INTERNAL_URL`
+- **WA-2/a** · oracle-observed · a Bun job sees `BASE_URL` but not `BASE_INTERNAL_URL`
   - **Given:** oracle in the default configuration; a Bun step returning
     `[process.env.BASE_INTERNAL_URL ?? null, typeof process.env.BASE_URL]`.
   - **Expect:** `[null,"string"]`.
+  - **Recorded:** [`flows/client-api/identity`](../../conformance/flows/client-api/identity) run `identity`, oracle run 40805963567: step `a` (inline Bun) returned `[null,"string"]`.
 - **WA-2/b** · source-derived · later · an ordinary Python job sees `BASE_INTERNAL_URL` but not `BASE_URL`
   - **Given:** oracle in the default configuration; a Python step returning
     `[os.environ.get("BASE_INTERNAL_URL") is not None, os.environ.get("BASE_URL")]`.
@@ -5845,13 +6443,14 @@ Findings: [client-api.md](client-api.md).
 
 **Scope:** core · **Finding:** [WA-4](client-api.md#wa-4)
 
-- **WA-4/a** · source-derived · flow-step context variables
+- **WA-4/a** · oracle-observed · flow-step context variables
   - **Given:** a two-step flow `f/t/envs` with Bun rawscripts `a` and `b`. Step
     `b` returns
     `{flow_step: WM_FLOW_STEP_ID, flow_path: WM_FLOW_PATH, job_path: WM_JOB_PATH, flow_job_is_parent: WM_FLOW_JOB_ID !== ""}`
     (each read from `process.env`).
   - **Expect:** `{"flow_step":"b","flow_path":"f/t/envs","job_path":"f/t/envs/b","flow_job_is_parent":true}`
     after normalising UUIDs and timestamps.
+  - **Recorded:** [`flows/client-api/job-env`](../../conformance/flows/client-api/job-env) run `envs`, oracle run 40771900586: step `b` of `f/wl_e1_env/envs` returned `flow_step` `b`, `flow_path` `f/wl_e1_env/envs`, `job_path` `f/wl_e1_env/envs/b` and `flow_job_is_parent` `true`; a step by path (`c`) saw its script's own path as `WM_JOB_PATH`.
 - **WA-4/b** · source-derived · later · `WM_TOKEN` is accepted only for its own workspace
   - **Given:** a Bun step in workspace `demo` (a second workspace `other`
     exists) whose script calls, with its own `WM_TOKEN`:
@@ -5871,9 +6470,10 @@ Findings: [client-api.md](client-api.md).
 
 **Scope:** core · **Finding:** [WA-5](client-api.md#wa-5)
 
-- **WA-5/a** · source-derived · flow step, manual trigger
+- **WA-5/a** · oracle-observed · flow step, manual trigger
   - **Given:** step `a` of flow `f/t/state`, run manually.
   - **Expect:** `WM_STATE_PATH == "f/t/state/a_user"`.
+  - **Recorded:** [`flows/client-api/identity`](../../conformance/flows/client-api/identity) run `identity`, oracle run 40805963567: inline step `a` of `f/wl_pf1_id/identity`, run by path through the API, saw `f/wl_pf1_id/identity/a_user`; step `b`, a script by path, saw its flow step's `f/wl_pf1_id/identity/b_user`.
 - **WA-5/b** · source-derived · flow step, schedule trigger
   - **Given:** the same flow run by schedule `f/t/sched`, created by `alice`.
   - **Expect:** `WM_STATE_PATH == "f/t/state/a_alice"`.
@@ -5889,21 +6489,25 @@ Findings: [client-api.md](client-api.md).
 All four cases use flow `f/t/loop`, all Bun, where each body step returns
 `process.env.WM_FLOW_PATH`.
 
-- **WA-6/a** · source-derived · later · a simple sequential body runs directly under the flow
+- **WA-6/a** · oracle-observed · later · a simple sequential body runs directly under the flow
   - **Given:** a sequential loop over `[1,2]` whose single body step has no
     options.
   - **Expect:** `["f/t/loop","f/t/loop"]`.
-- **WA-6/b** · source-derived · later · a body step with `retry` makes the body non-simple
+  - **Recorded:** [`flows/client-api/flow-path`](../../conformance/flows/client-api/flow-path) run `seq`, oracle run 40839879047: both iterations saw `f/wl_pf3_fp/seq` (with `WM_JOB_PATH` `f/wl_pf3_fp/seq/loop-<i>` and `WM_STATE_PATH` `f/wl_pf3_fp/seq/l_user`).
+- **WA-6/b** · oracle-observed · later · a body step with `retry` makes the body non-simple
   - **Given:** the same body step with `retry: {constant: {attempts: 1, seconds: 1}}`.
   - **Expect:** `["f/t/loop/loop-0","f/t/loop/loop-1"]`.
-- **WA-6/c** · source-derived · later · a parallel loop always creates body sub-flows
+  - **Recorded:** [`flows/client-api/flow-path`](../../conformance/flows/client-api/flow-path) run `retry`, oracle run 40839879047: `f/wl_pf3_fp/retry/loop-0`, `f/wl_pf3_fp/retry/loop-1`.
+- **WA-6/c** · oracle-observed · later · a parallel loop always creates body sub-flows
   - **Given:** a parallel loop over `[1,2]` with a single, option-free body step.
   - **Expect:** `["f/t/loop/forloop-0","f/t/loop/forloop-1"]`.
-- **WA-6/d** · source-derived · later · `branchone` sub-flow numbering
+  - **Recorded:** [`flows/client-api/flow-path`](../../conformance/flows/client-api/flow-path) run `par`, oracle run 40839879047: `f/wl_pf3_fp/par/forloop-0`, `f/wl_pf3_fp/par/forloop-1`.
+- **WA-6/d** · oracle-observed · later · `branchone` sub-flow numbering
   - **Given:** a `branchone` that takes `branches[1]`; separately, one that takes
     its default branch.
   - **Expect:** `"f/t/loop/branchone-2"`; for the default branch,
     `"f/t/loop/branchone-0"`.
+  - **Recorded:** [`flows/client-api/flow-path`](../../conformance/flows/client-api/flow-path) runs `branch` (`branches[1]`: `f/wl_pf3_fp/branch/branchone-2`) and `branch_default` (`f/wl_pf3_fp/branch/branchone-0`), oracle run 40839879047.
 
 <a id="wa-8"></a>
 ### WA-8 · Catalogue of client functions → endpoints → platform service
@@ -5948,7 +6552,7 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
 
 **Scope:** core · **Finding:** [WA-10](client-api.md#wa-10)
 
-- **WA-10/a** · source-derived · missing resource through each client
+- **WA-10/a** · oracle-observed · missing resource through each client
   - **Given:** no resource at `u/x/none`.
   - **Expect:**
     - TS `getResource("$res:u/x/none")` throws an `Error` with message
@@ -5956,17 +6560,19 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     - TS `getResource("u/x/none", true)` returns `undefined`;
     - Python `get_resource("res://u/x/none", none_if_undefined=True)` returns
       `None`.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438, records the server's answer that all three calls receive: the interpolated read of a missing resource gives 404, `text/plain`, `Not found: Resource f/wl_pf2_prov/none not found` ([WA-42/b](#wa-42)). The clients' own parts (the `$res:` and `res://` prefixes they strip, the TS wrapping text, `undefined` and `None` on a failure) were not run.
 
 <a id="wa-11"></a>
 ### WA-11 · Variables: `getVariable` / `setVariable`
 
 **Scope:** core · **Finding:** [WA-11](client-api.md#wa-11)
 
-- **WA-11/a** · source-derived · `var://` is stripped, `$var:` is not
+- **WA-11/a** · oracle-observed · `var://` is stripped, `$var:` is not
   - **Given:** variable `u/x/v = "hello"`.
   - **Expect:** `getVariable("var://u/x/v")` returns `"hello"`;
     `getVariable("$var:u/x/v")` throws a message starting
     `Variable not found at $var:u/x/v or not visible to you: Not found:`.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438, records the two requests `getVariable` makes: `GET …/variables/get_value/f/wl_pf2_prov/v` answered 200 with the value, and `GET …/variables/get_value/$var:f/wl_pf2_prov/v` answered 404, `text/plain`, `Not found: Variable $var:f/wl_pf2_prov/v not found`. The client's stripping of `var://` and its wrapping text were not run.
 - **WA-11/b** · source-derived · later · TS `setVariable` request bodies
   - **Given:** no variable at `u/x/new`; `setVariable("u/x/new", "v", true, "d")`,
     then `setVariable("u/x/new", "w")`.
@@ -6014,6 +6620,21 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     The third is accepted. On CE its read then fails with HTTP 500
     `Internal: Error decrypting variable u/x/p: Internal: Invalid byte 36, offset 0.<loc><loc>`:
     the CE read always decrypts, and `$` is not a base64 byte.
+- **WA-11/e** · source-derived · later · the answers to a create and an update
+  - **Given:** no variable at `u/x/w`; then, with a token of the
+    workspace: `POST …/variables/create` with
+    `{"path":"u/x/w","value":"a","is_secret":false,"description":""}`,
+    the same create again, `POST …/variables/update/u/x/w` with
+    `{"value":"b"}`, and `POST …/variables/update/u/x/none` with
+    `{"value":"b"}`. Also a Bun step returning
+    `await setVariable("u/x/w", "c")`.
+  - **Expect:** HTTP 201 `variable u/x/w created`; HTTP 400
+    `Bad request: Variable u/x/w already exists`; HTTP 200
+    `variable u/x/w updated (npath: "u/x/w")`; HTTP 404
+    `Not found: Variable not found at name u/x/none (variables.rs:1275)`
+    (the location compared as `<loc>`); each body `text/plain`. The step
+    returns `null` (the client resolves to `undefined`) and the variable
+    then reads `"c"`.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
@@ -6032,15 +6653,17 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
 - **WA-12/b** · source-derived · depth 49 is allowed
   - **Given:** resource `u/t/d49 = nest(49)`; `getResource("u/t/d49")`.
   - **Expect:** `nest(49)` unchanged.
-- **WA-12/c** · source-derived · depth 50 fails
+- **WA-12/c** · oracle-observed · depth 50 fails
   - **Given:** resource `u/t/d50 = nest(50)`.
   - **Expect:** the endpoint returns HTTP 500; TS `getResource("u/t/d50")` throws
     a message starting
     `Resource not found at u/t/d50 or not visible to you: Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually indicates a circular`.
-- **WA-12/d** · source-derived · `$jsonvar:` output is terminal
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438: the interpolated read of a 50-level resource answered 500, `text/plain`, with a body starting `Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually indicates a circular`. The TS wrapping text was not run.
+- **WA-12/d** · oracle-observed · `$jsonvar:` output is terminal
   - **Given:** variable `u/t/j` = the text `{"x":"$var:u/t/v"}`; a resource
     `{"f":"$jsonvar:u/t/j"}`.
   - **Expect:** it resolves to `{"f":{"x":"$var:u/t/v"}}`.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438: a resource `{"f":"$jsonvar:f/wl_pf2_prov/j"}` over the variable text `{"x": "$var:f/wl_pf2_prov/v", "n": 1e3}` read back as `{"f":{"x":"$var:f/wl_pf2_prov/v","n":1000}}` (the number seen after a JavaScript parse).
 - **WA-12/e** · source-derived · invalid `$res:` path
   - **Given:** a resource `{"x":"$res:single"}`.
   - **Expect:** HTTP 500 whose body starts `Internal: Invalid resource path: single`.
@@ -6124,6 +6747,29 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     415 with body ``Expected request with `Content-Type: application/json` ``.
     Each with `Content-Type: text/plain; charset=utf-8`; the stored state is
     unchanged.
+- **WA-14/e** · oracle-observed · the stored form, a job that is not a flow, and parallel iterations
+  - **Given:** a flow `[a, l, b]` whose steps look up their root with
+    `GET …/jobs_u/get_root_job_id/<WM_JOB_ID>` and use the user-state routes
+    at it, with their own token: `a` POSTs `k = {"n":1}`, reads it back, reads
+    a key never set, and calls `POST` and `GET …/jobs/flow/user_states/<its own job id>/k`
+    (a script job); `l` is a parallel loop over `[1, 2]` whose iteration `v`
+    POSTs `p<v> = v` and reads `k`; `b` reads `p1` with
+    `flow_user_state("p1")` ([JE-20](expressions.md#je-20)) and `p2` with the
+    route. Separately, a step POSTs the raw body
+    `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"\u0041"],"x":null}}` at its root
+    and reads the key back as text.
+  - **Expect:** a write answers 200, `text/plain`, `Flow job state updated`;
+    the read gives `{"n":1}` and the missing key `null` (200,
+    `application/json`). At the script job's own id the POST answers 404,
+    `text/plain`, `Not found: Flow job not found`, and the GET 200 `null`.
+    Each iteration finds the same root, although its `WM_ROOT_FLOW_JOB_ID`
+    differs ([WA-V1](client-api.md#wa-v1)); its write succeeds and it reads
+    `{"n":1}`; `b` gets `1` and `2`. The raw body reads back as
+    `{"a":1.0,"b":1,"c":{"x":null,"y":[1.5,"A"]},"ab":1000.0}`: keys in
+    `jsonb` order, and numbers and escapes as the backend's JSON parse leaves
+    them (`1e3` becomes `1000.0`, `1.50` becomes `1.5`, `1.0` stays a double).
+  - **Recorded:** [`flows/client-api/user-state`](../../conformance/flows/client-api/user-state)
+    runs `basic` and `order`, oracle run 40839879047.
 
 <a id="wa-15"></a>
 ### WA-15 · Dispatch: `run*Async`, `run*`, `waitJob`
@@ -6134,9 +6780,20 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Given:** child script `u/x/fail` that throws `new Error("boom")`; a Bun
     step doing
     `try { await runScriptByPath("u/x/fail", {}) } catch (e) { return e.message }`.
-  - **Expect:** a string starting `Job ` and continuing
-    `was not successful: {"name":"Error","message":"boom",` … (the rest of the
-    error shape is per [languages.md](languages.md)).
+  - **Expect:** `Job <id> was not successful: {"name":"Error","stack":<the stack text>,"message":"boom"}`,
+    with exactly those three keys in that order: the polled error is the
+    stored `jsonb` value, whose keys come shortest first
+    ([FX-42](execution.md#fx-42)); `<id>` is the child's job id.
+  - **Correction 2026-10-29 (SC4):** the case expected `message` right after
+    `name` (`{"name":"Error","message":"boom",` …). The serialised value is
+    the polled body's `result.error`, read back from `jsonb`, so `stack`
+    sits between them ([WA-15](client-api.md#wa-15)). Fixture
+    [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch)
+    (runs `wait` and `identity`, oracle runs 40839879047 and 40842413751)
+    recorded the polled answer of such a child, made with the requests
+    `runScriptByPath` and `waitJob` make: `success: false`, `name` `Error`,
+    `message` `boom` and the key set `message`, `name`, `stack`; it did not
+    capture the key order, so the case stays source-derived.
 - **WA-15/b** · source-derived · Python module vs instance null-result defaults
   - **Given:** script `u/t/null` that returns `null`.
   - **Expect:** Python `wmill.run_script_by_path("u/t/null")` raises
@@ -6223,9 +6880,10 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
 
 **Scope:** core · **Finding:** [WA-19](client-api.md#wa-19)
 
-- **WA-19/a** · source-derived · root id of a top-level flow step
+- **WA-19/a** · oracle-observed · root id of a top-level flow step
   - **Given:** `getRootJobId()` in step `b` of a top-level flow.
   - **Expect:** the flow's job id (`<flow>` after normalisation).
+  - **Recorded:** [`flows/client-api/identity`](../../conformance/flows/client-api/identity) run `identity`, oracle run 40805963567: the root lookup `getRootJobId()` makes (`GET …/jobs_u/get_root_job_id/<WM_JOB_ID>`, the step's own token) answered 200 with the flow's job id from an inline step and from a step by path, equal to `WM_ROOT_JOB_ID`.
 - **WA-19/b** · source-derived · the root lookup of an unknown id
   - **Given:** `GET …/jobs_u/get_root_job_id/00000000-0000-0000-0000-000000000001`
     (no such job); and a Bun step returning
@@ -6388,12 +7046,13 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
   - **Expect:** that row's status and body prefix; in particular `AIError("x")`
     gives 400 with body `x`, and `MetricNotFound("m")` gives 500 with body
     `Metric not found: m`.
-- **WA-42/b** · source-derived · direct missing resource
+- **WA-42/b** · oracle-observed · direct missing resource
   - **Given:** no resource at `u/x/none`;
     `GET …/resources/get_value_interpolated/u/x/none`.
   - **Expect:** 404, `Content-Type: text/plain`, body
     `Not found: Resource u/x/none not found`.
-- **WA-42/c** · source-derived · nested missing `$res:` gives the located form
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438: 404, `text/plain`, `Not found: Resource f/wl_pf2_prov/none not found`.
+- **WA-42/c** · oracle-observed · nested missing `$res:` gives the located form
   - **Given:** resource `u/t/outer = {"x":"$res:u/t/missing"}` and no
     `u/t/missing`; `GET …/resources/get_value_interpolated/u/t/outer`; TS
     `getResource("u/t/outer")`.
@@ -6401,6 +7060,7 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
     `Not found: Resource not found at name u/t/missing (`; TS throws
     `Resource not found at u/t/outer or not visible to you: Not found: Resource not found at name u/t/missing (<location>)`.
     Compare up to and including the `(`.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438: 404, `text/plain`, a body starting `Not found: Resource not found at name f/wl_pf2_prov/missing`; the fixture kept only that check, so the ` (` and the location after it were not captured, and the TS wrapping text was not run.
 
 <a id="wa-50"></a>
 ### WA-50 · Delegation endpoints and their semantics
@@ -6451,20 +7111,43 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
     `{"root":"F","inner":"S","parent":"S"}`; the direct step returns
     `{"root":"F","inner":"F","parent":"F"}`; the later step of F sees the value
     stored by T.
+- **WA-V1/b** · oracle-observed · the identity of jobs a step dispatches
+  - **Given:** a direct Bun step `a` of a top-level flow F dispatches, with its
+    own token, and waits for: (1) a script `P` by
+    `POST …/jobs/run/p/<path>?parent_job=<WM_JOB_ID>&root_job=<WM_ROOT_FLOW_JOB_ID>`
+    (the request `runScriptByPath` makes); (2) a flow D whose one step `p` is
+    `P` by path, by `POST …/jobs/run/f/<path>` with the same query (as
+    `runFlow`); (3) the same flow with no query (as `runFlowAsync` by
+    default). `P` reports `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`,
+    `WM_ROOT_JOB_ID`, the root lookup of its own job, `WM_FLOW_PATH`,
+    `WM_JOB_PATH`, `WM_FLOW_STEP_ID` and `WM_STATE_PATH`.
+  - **Expect:** (1) `WM_FLOW_JOB_ID` is `a`'s job; `WM_ROOT_FLOW_JOB_ID`,
+    `WM_ROOT_JOB_ID` and the lookup are F; `WM_FLOW_PATH` is `a`'s runnable
+    path (`<F's path>/a`), `WM_JOB_PATH` is `P`'s path, `WM_FLOW_STEP_ID` is
+    `""` and `WM_STATE_PATH` is `<F's path>/a/nostep_user`. (2) In `p`:
+    `WM_FLOW_JOB_ID` is D; `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID` and the
+    lookup are F; `WM_FLOW_PATH` is D's path and `WM_STATE_PATH`
+    `<D's path>/p_user`. (3) In `p`: `WM_FLOW_JOB_ID`,
+    `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID` and the lookup are all D.
+  - **Recorded:** [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch)
+    run `identity`, oracle run 40842413751 (two workers; the step returned
+    how each id compares, not the ids).
 
 <a id="wa-v2"></a>
 ### WA-V2 · Unfinished and unknown-job polling responses carry explicit nulls
 
 **Scope:** core · **Finding:** [WA-V2](client-api.md#wa-v2)
 
-- **WA-V2/a** · source-derived · unknown job, default query
+- **WA-V2/a** · oracle-observed · unknown job, default query
   - **Given:** `GET …/jobs_u/completed/get_result_maybe/<valid UUID with no job>`.
   - **Expect:** HTTP 200, JSON
     `{"started":null,"success":null,"completed":false,"result":null}`.
-- **WA-V2/b** · source-derived · unknown job, `get_started=true`
+  - **Recorded:** [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch) run `wait`, oracle run 40839879047, polling `00000000-0000-4000-8000-000000000000`: the body `{"started":null,"success":null,"completed":false,"result":null}`. The status was not captured; the route's rejections answer `text/plain`, not this JSON.
+- **WA-V2/b** · oracle-observed · unknown job, `get_started=true`
   - **Given:** the same request with `get_started=true`.
   - **Expect:** HTTP 200, JSON
     `{"started":false,"success":null,"completed":false,"result":null}`.
+  - **Recorded:** [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch) run `wait`, oracle run 40839879047: the body `{"started":false,"success":null,"completed":false,"result":null}` (the status not captured, as in WA-V2/a).
 - **WA-V2/c** · source-derived · an id that is not a UUID
   - **Given:** `GET …/jobs_u/completed/get_result_maybe/abc`.
   - **Expect:** HTTP 400, `Content-Type: text/plain; charset=utf-8`, body
@@ -6485,17 +7168,19 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
 
 **Scope:** core · **Finding:** [WA-V3](client-api.md#wa-v3)
 
-- **WA-V3/a** · source-derived · `$WM_ROOT_JOB_ID` differs between contexts
+- **WA-V3/a** · oracle-observed · `$WM_ROOT_JOB_ID` differs between contexts
   - **Given:** resource `u/test/context = {"root":"$WM_ROOT_JOB_ID"}`; in a
     direct Bun step of top-level flow F, with no env overrides and the ordinary
     null stored root, an argument loaded via `$res:u/test/context`, and a call
     to `getResource("u/test/context")`.
   - **Expect:** the hydrated argument is `{"root":""}`; the process
     `WM_ROOT_JOB_ID` is F; `getResource` returns `{"root":"$WM_ROOT_JOB_ID"}`.
-- **WA-V3/b** · source-derived · `$jsonvar:` output is not substituted again
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438, with `f/wl_pf2_prov/context = {"root":"$WM_ROOT_JOB_ID"}` in a direct step of a top-level flow: the argument arrived as `{"root":""}`, `WM_ROOT_JOB_ID` was the flow's job, and the interpolated read (the request `getResource` makes) gave `{"root":"$WM_ROOT_JOB_ID"}`.
+- **WA-V3/b** · oracle-observed · `$jsonvar:` output is not substituted again
   - **Given:** variable `u/test/j` whose value is the JSON text
     `{"x":"$var:u/test/v"}`; a resource field `"$jsonvar:u/test/j"`.
   - **Expect:** the field becomes exactly `{"x":"$var:u/test/v"}`.
+  - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `services`, oracle run 40824738438 (as [WA-12/d](#wa-12)): the `$jsonvar:` output kept its `$var:` string.
 
 <a id="wa-v4"></a>
 ### WA-V4 · TS default and named export surfaces are not interchangeable

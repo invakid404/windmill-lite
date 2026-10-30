@@ -7,7 +7,7 @@ note: >-
   (conformance/flows/client-api/dispatch).
 cases:
   - spec: WA-V2/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: an unknown job, default query, answers the four fields with explicit nulls
     script: |
       export async function main() {
@@ -20,7 +20,7 @@ cases:
         expect: {status: success, result: [200, {started: null, success: null, completed: false, result: null}]}
         calls: ["200 GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}"]
   - spec: WA-V2/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: an unknown job with get_started=true answers started false
     script: |
       export async function main() {

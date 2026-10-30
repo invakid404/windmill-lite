@@ -5,7 +5,7 @@ note: >-
   reads (ADR 0007). Each script reads the platform as the stock client does, by fetch at BASE_URL with its token, so the cases need no client: the same reads go through the intercepted fetch (warm) and over loopback TCP (fresh), and the case's setup is what the facade serves. The stock client's own handling of the answers (its prefixes and error wrapping) is checked with windmill-client@1.767.0 by internal/platform/facade's TestProvidersOnTheClient, and the walker's rules at unit level by internal/platform/testdata/interpolation.json.
 cases:
   - spec: WA-42/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: "a missing resource read directly is a 404, text/plain, with the permission path's body"
     script: |
       export async function main(path: string) {
@@ -17,7 +17,7 @@ cases:
       - args: '{"path":"resources/get_value_interpolated/u/x/none"}'
         expect: {status: success, result: {status: 404, type: text/plain, body: "Not found: Resource u/x/none not found"}}
   - spec: WA-42/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: "a missing nested $res: gives the located not-found, without Windmill's Rust location (D14), so the claim states it up to the name"
     setup:
       resources:

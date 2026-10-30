@@ -258,16 +258,17 @@ FX-49, WR-16, WR-28, OR-15 and OR-V9 are confirmed from E3e.
 
 Questions reach the semantics team as requests for the reference to cover a
 behaviour ([AGENTS.md](../../AGENTS.md)). The design depended on these, and
-all but the last two are answered: 1 to 3 by the semantics requests S1 to S3
-(pull request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1,
-pull request #36), 10 and 11 (FU3's readings and the fold-in of batch
-E3e), and request 1's last question, by its revision of 2026-10-29 (SC2,
-pull request #55). Requests 12 and 13 are open. Each item names the
-findings that answer it. Where an answer differs from a reading a
-milestone took, that milestone's code follows the answer in a follow-up;
-the sync-folder loader and the import base already do (FU4), and
-`internal/expr`, the engine, the comparison rule and the Bun harness
-follow SC2's answers (FU6).
+all are answered: 1 to 3 by the semantics requests S1 to S3 (pull
+request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1, pull
+request #36), 10 and 11 (FU3's readings and the fold-in of batch E3e),
+and request 1's last question, by its revision of 2026-10-29 (SC2, pull
+request #55); 12 and 13 (FU6's questions) by its revision SC4 of the same
+day, 12 for the ordinary execution path only. Each item names the findings
+that answer it. Where an answer
+differs from a reading a milestone took, that milestone's code follows the
+answer in a follow-up; the sync-folder loader and the import base already
+do (FU4), and `internal/expr`, the engine, the comparison rule and the Bun
+harness follow SC2's answers (FU6).
 
 1. **Native boundary rules** for `bunnative` and `nativets` steps: how a
    result is serialised (in particular object properties holding
@@ -698,7 +699,9 @@ follow SC2's answers (FU6).
     process group), followed by the Bun harness (FU6, request 12 below).
 
 12. **A child process left behind in a warm process**
-    ([WR-55](../semantics/languages.md#wr-55), milestone FU6), open.
+    ([WR-55](../semantics/languages.md#wr-55), milestone FU6), answered for
+    the ordinary execution path by the reference's revision SC4
+    (2026-10-29) in WR-55.
     Windmill starts each job's process as the leader of its own process
     group; a timeout or a cancellation kills the whole group, and when the
     job's process exits by itself nothing is killed, but the job completes
@@ -738,27 +741,97 @@ follow SC2's answers (FU6).
     its group is flagged by the `left_behind` warning in both modes, and
     one that must let its children finish runs `fresh`.
 
+    **Answered** for the ordinary execution path.
+    [WR-55](../semantics/languages.md#wr-55)'s drafted part, "Long-lived
+    processes", and case [WR-55/c](../semantics/conformance.md#wr-55) say
+    that an ordinary script job on CE, one that no `squash` runner serves,
+    gets a process of its own: Windmill's dedicated workers, which keep one
+    process warm across jobs, exist only in its enterprise build (`EE`),
+    and the CE image never starts one. WR-55/c expects a script that two
+    steps of a flow without a loop call, the flow run twice, to report four
+    processes and a counter of 1 every time. The CE image does have a
+    second route that keeps a process across jobs: the closed-source
+    runners that `squash` starts for a sequential loop
+    ([CF-25](../semantics/control-flow.md#cf-25)). Whether they reuse one
+    process across a loop's iterations, when they mark an iteration's job
+    complete and what they do with a child an iteration leaves behind are
+    open ([Q-CF-19](../semantics/control-flow.md#q-cf-19)), and a CE
+    recording can test them (WR-55; the section below requests it). So for
+    ordinary jobs Windmill's behaviour is the per-job rule: a job completes
+    once its process has exited and its process group is empty, and a
+    timeout or a cancellation kills the group, which `fresh` mode
+    reproduces. What a `warm` or host process does with the children an
+    invocation leaves behind is, for that path, windmill-lite's own policy,
+    for the design to decide; the question above is therefore the
+    design's, not the reference's. For a squashed loop on CE, Windmill's
+    behaviour is not known yet.
+    [Q-WR-28](../semantics/languages.md#q-wr-28) still asks the oracle to
+    confirm the per-job rule, and the section below requests WR-55/a–c
+    from batch E3f.
+
 13. **A container child result the backend cannot read back**
     ([FX-42](../semantics/execution.md#fx-42) rule 9,
-    [JE-44](../semantics/expressions.md#je-44); milestone FU6), open. A
-    loop's or `branchall`'s result is its children's stored results read
-    back into the backend's JSON values. A number beyond a double's range,
-    or nesting past the library's recursion limit, is refused by that
-    read, and an identity child can carry either from a flow input that
-    `jsonb` holds as it was written. FX-42 says the parse fails; it does
-    not say what Windmill then does at the container's completion, nor
-    with which error. windmill-lite fails the flow at once with a chaining
-    error named `InternalError` (FX-15 context 1) whose message is the
-    library's text, `number out of range at line <l> column <c>` or
+    [JE-44](../semantics/expressions.md#je-44); milestone FU6), answered by
+    the reference's revision SC4 (2026-10-29) in FX-42 and JE-44, corrected
+    in its validation round 1. A loop's or `branchall`'s result is its
+    children's stored results read back into the backend's JSON values. A
+    number beyond a double's range, or nesting past the library's recursion
+    limit, is refused by that read, and an identity child can carry either
+    from a flow input that `jsonb` holds as it was written. FX-42 says the
+    parse fails; it does not say what Windmill then does at the container's
+    completion, nor with which error. windmill-lite fails the flow at once
+    with a chaining error named `InternalError` (FX-15 context 1) whose
+    message is the library's text,
+    `number out of range at line <l> column <c>` or
     `recursion limit exceeded at line <l> column <c>`, the position in the
     child's stored text, and the container fails with no result. Which
     error, wrapper and position does Windmill give?
 
+    **Answered.** [FX-42](../semantics/execution.md#fx-42) rule 9's drafted
+    part, "A child result the read cannot decode", as corrected in the
+    reference's validation round 1 of SC4, the loop and `branchall` row of
+    [JE-44](../semantics/expressions.md#je-44)'s table and cases
+    [FX-42/m to FX-42/o](../semantics/conformance.md#fx-42) give Windmill's
+    outcome, which depends on where the chain of transitions started. The
+    read covers the children of a `forloopflow`, a `whileloopflow` and a
+    `branchall`, not a `branchone`'s, whose result travels in memory. It
+    refuses a number beyond a double and nesting past the library's depth
+    limit, positioned in PostgreSQL's printed form of the child's stored
+    result (spaces after `:` and `,`, keys in `jsonb` order), and the
+    container's status entry stays in progress either way.
+    - **The children are the flow's own leaf jobs** (a sequential
+      `forloopflow` or a `whileloopflow` whose body collapses, FX-42/o):
+      that flow fails at once with
+      `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: <library text> @<loc>"}}`,
+      the library text being `number out of range at line <l> column <c>`
+      or `recursion limit exceeded at line <l> column <c>`. The name is
+      `InternalErr`, not the chaining `InternalError` of FX-15, and the
+      message has no `Error: ` prefix. No retry, `continue_on_error`,
+      failure module or later step runs.
+    - **The children are child flows** (any loop whose body does not
+      collapse, a parallel loop, a `branchall`; FX-42/m and FX-42/n):
+      Windmill's error handler targets the child flow that has already
+      completed, so no job is completed with the error. The flow running
+      the container stays running until the zombie-flow monitor cancels it
+      after about 60 s (medium).
+    - A child flow that the first route fails leaves its parent waiting the
+      same way.
+
+    Both routes are source-derived and still need the recordings the
+    section below requests from batch E3f. windmill-lite's immediate
+    chaining `InternalError` with the library's bare text, positioned in
+    the child's stored text, differs in both routes: in the name, the
+    wrapper and the position where Windmill fails the flow, and in the
+    outcome where Windmill leaves it waiting. Aligning it is a follow-up for
+    the engine.
+
 ## Recording requests for batch E3f
 
-**From the semantics team** (revision SC3 of 2026-10-29); these are
-requests, not design decisions. The reference's revision answered from the
-pinned source what the source settles. What only a running Windmill can
+**From the semantics team** (revisions SC3 and SC4 of 2026-10-29); these
+are requests, not design decisions. The reference's revisions answered from
+the pinned source what the source settles, and SC4 folded in the
+recordings that milestones N2, N3c, NI and N5 had already committed, so
+the requests those recordings answered are gone from this list. What only a running Windmill can
 show is listed here for a future recording batch E3f, grouped by the
 oracle session each needs. Every expectation below is the reference's
 source-derived prediction; the named case or question holds the exact
@@ -781,12 +854,6 @@ Nothing here may commit the oracle's database credentials unmasked.
   multiplier: 1, seconds: 10, random_factor: 50}` about 20 times; every
   delay a whole number of seconds from 6 to 14 (only the range is fixed,
   not the values).
-- **Retry argument reuse** ([FX-27/a](../semantics/conformance.md#fx-27)).
-  `a: bun(x)` with `x = "flow_input.n"` and `retry: {constant: {attempts:
-  1, seconds: 0}}`; the first attempt flips a workspace variable and
-  throws, the retry returns `x`. Observe the result, one `failed_retries`
-  entry and both attempts' args. (The second `skip_if` evaluation is
-  already recorded by OR-24/c.)
 - **`wm_failure` on identity jobs**
   ([FX-13/b, FX-13/c](../semantics/conformance.md#fx-13)). (b) `[a: bun:
   return 1 (mock: {enabled: true, return_value: {wm_failure: "m", x: 1}}),
@@ -830,7 +897,19 @@ Nothing here may commit the oracle's database credentials unmasked.
   counter at module scope and returns its process id, the counter after
   adding 1, and its input `v` (the iteration's value or index). Observe
   each iteration's process id and counter: a counter above 1 or a process
-  id repeated across iterations means a reused runtime. Also CF-25/c's two flows (the flag
+  id repeated across iterations means a reused runtime. Also read each
+  iteration job's logs for a line starting `dedicated worker bun:` (what
+  Windmill's own runner tests look for in a build with the `enterprise`
+  feature), and add a control whose body is a Bash step `echo $v` with
+  `squash: true`, which those runners do not serve. The run mode need not
+  vary: nothing in the source ties the runner request to a job kind
+  ([CF-25](../semantics/control-flow.md#cf-25)). For what the runners do
+  with a child an iteration leaves behind
+  ([WR-55](../semantics/languages.md#wr-55)): a squashed one-step loop over
+  `[1, 2]` whose body starts a background child sleeping 5 s and returns
+  at once, next to the same loop without `squash`; record each iteration
+  job's start and completion times (unsquashed, each iteration should
+  complete only after its child, WR-55/a). Also CF-25/c's two flows (the flag
   on a loop module with `sleep: {type: static, value: 0}` followed by an
   identity step, and on a parallel loop as the first step; both expected
   to give `[1, 2]`), and CF-7/e: a parallel loop over `[1, 2]` with
@@ -842,7 +921,12 @@ Nothing here may commit the oracle's database credentials unmasked.
   iterations return `{"b":1.50,"a":1}` (expected `[{"a":1,"b":1.5}]`; a
   Bun or Python iteration cannot produce `1.50`, so the value must reach
   storage without a JavaScript or Python parse); JE-11/c and JE-11/e end
-  to end.
+  to end. For the stored `1.50e3`: start a deployed one-step flow with the
+  run body `{"n": 1.50e3, "m": 1.50, "k": 1.50e1}` and read the job's
+  stored args through the jobs API; expected `{"k": 15.0, "m": 1.50, "n":
+  1500}`, since PostgreSQL's numeric input keeps the fraction digits
+  minus the exponent as the display scale, never below 0 (a prediction
+  from PostgreSQL, not from the Windmill source).
 - **Push failures and the jsonb boundary**
   ([FX-48/b, FX-48/c](../semantics/conformance.md#fx-48),
   [FX-50/a](../semantics/conformance.md#fx-50),
@@ -940,11 +1024,16 @@ Nothing here may commit the oracle's database credentials unmasked.
   script and of an angle-bracket assertion script (each expected to fail
   with `Error while parsing code, it is invalid TypeScript: …` and one
   location suffix), and of the generic-arrow script (expected `[1,2,3]`).
-- **Leftover processes** ([WR-55/a, WR-55/b](../semantics/conformance.md#wr-55),
+- **Leftover processes and process reuse** ([WR-55/a–c](../semantics/conformance.md#wr-55),
   [Q-WR-28](../semantics/languages.md#q-wr-28)). A step that starts a
   background child sleeping 5 s and returns at once, and a detached
   variant; the same child under a 1 s step timeout with a 10 s body.
-  Record each job's start and completion times and outcome.
+  Record each job's start and completion times and outcome. WR-55/c: a
+  deployed Bun script `f/demo/counter` that keeps a module-scope counter
+  and returns `{"pid": process.pid, "n": <the counter after adding 1>}`,
+  called by two steps of one flow, the flow run twice by path. Expected:
+  `n` is `1` in all four results and no `pid` repeats (the CE image starts
+  no dedicated worker).
 - **The trailing virtual step** ([OR-V7/c](../semantics/conformance.md#or-v7),
   [OF-17/a](../semantics/conformance.md#of-17),
   [Q-OR-9](../semantics/oracle.md#q-or-9)). Deploy `[a]`, `a` a Bun step
@@ -988,6 +1077,191 @@ Nothing here may commit the oracle's database credentials unmasked.
   inline lock starting with the bytes `FF FE` (expected `Lock file
   a.inline_script.lock not found, treating as empty`, and the lock `""`).
 
+- **The result cache** ([FX-40/e–FX-40/m](../semantics/conformance.md#fx-40),
+  [Q-FX-21](../semantics/execution.md#q-fx-21)). Each case runs its flow
+  twice (or as listed) within the TTL, in one fixture run, as FX-40/a and
+  FX-40/b do. Observe each call's flow status and result, which step jobs
+  were created, and the log line `Job skipped because args & path found in
+  cache and not expired` on the hit jobs. Expected: FX-40/e (a failure
+  tolerated at the last module) is a hit on the second call; FX-40/f (an
+  error stop) runs `a` both times, and with a failure module returning
+  `"H"` the second call succeeds with `"H"` from the cache; FX-40/g (a
+  `skip_if_stopped` stop) completes `skipped` first and `success` on the
+  hit; FX-40/h (a parallel loop with `skip_failures: false` and one
+  failing iteration at the last module) runs both times, and with
+  `skip_failures: true` hits; FX-40/i
+  (inputs `{"o": {"b": 1, "a": 2}}` then `{"o": {"a": 2, "b": 1}}`) hits,
+  and `{"n": 1}` then `{"n": 1.0}` misses; FX-40/j (a static
+  `"$var:u/test/v"` input, the variable changed between the calls) returns
+  the first value; FX-40/k (an S3 object input with
+  `cache_ignore_s3_path: true` and no workspace storage) hits for the same
+  key and misses for another key; FX-40/l (`stop_after_if` on a cached
+  step) stops after `a` both times, the second time from the cache;
+  FX-40/m (two steps pinned to the same script hash with equal arguments,
+  `cache_ttl: 60` then `cache_ttl: 0`, on one worker): the second step
+  hits the first's entry, while a flow whose two such steps both have
+  `cache_ttl: 0` runs both.
+- **A container as the failure module** ([CF-31/a–e](../semantics/conformance.md#cf-31),
+  [Q-CF-17](../semantics/control-flow.md#q-cf-17)). Deployed flows, by
+  path, each with `[a: bun: throw new Error("x")]` and a `failure_module`
+  with id `failure`: (a) a sequential `forloopflow` over `[1, 2]` whose
+  body is `[h: bun(x): return x * 10]` with `x = "flow_input.iter.value"`
+  (expected: status failure, result `10`, one `flowpreview` child for the
+  slot, the raw `flow_status.failure_module` still `in_progress`), and the
+  same body returning `{recover: true, i: x}` (expected success,
+  `{"recover":true,"i":1}`); (b) the iterator `[1]` (expected failure
+  `[10]`) and a body returning `true` (expected success `[true]`); (c) a
+  `branchone` slot with one branch `{expr: "error.message == 'x'",
+  modules: [h1: return "matched"]}` and default `[h2: return "default"]`
+  (expected failure `"matched"`), and with the step throwing `y` (expected
+  `"default"`); (d) a slot over `[]` with a second step `b: bun(p): return
+  p` (`p = "previous_result"`) after `a` (expected success, result `[]`,
+  and the raw status's entry at `a`'s position a `Success` with id
+  `failure`), and the one-step flow (expected success `[]`); (e) a slot
+  with `parallel: true` over `[1, 2]`: record that both children complete
+  and that the flow has not completed 30 s later, then let it run to about
+  90 s and record whether the server cancels it (canceler `monitor`);
+  cancel it if not. Record every job's kind, status and result.
+- **A container's own settings on handled failures and forwarded stops**
+  ([CF-16/e, CF-16/f](../semantics/conformance.md#cf-16),
+  [CF-12/g](../semantics/conformance.md#cf-12),
+  [CF-7/f](../semantics/conformance.md#cf-7),
+  [FX-30/b](../semantics/conformance.md#fx-30),
+  [Q-FX-3](../semantics/execution.md#q-fx-3)). (1) A flow with a
+  `failure_module` returning `"H"` and `[l: forloopflow over [1],
+  skip_failures: false, body [x: bun: throw new Error("e")],
+  continue_on_error: true, n: bun(p): return p]` (expected success
+  `["H"]`, no handler job at the root), the same without `n` (expected
+  success `["H"]`), and with `n` throwing (expected failure `"H"`, one root
+  handler job). (2) The same `l` alone with `retry: {constant: {attempts:
+  1, seconds: 0}}` and no `continue_on_error` (expected two iteration child
+  flows, failure `["H"]`, no root handler job). (3) CF-12/f's flow with
+  `continue_on_error: true` on the loop (expected failure with
+  `[{"error":{"name":"EarlyStopError","message":"halt"}}]`, `n` not run),
+  the loop alone (same), and with `retry` instead (expected two child flows
+  for iteration 0, same failure). (4) `[l: forloopflow over [1, 2],
+  parallel: true, skip_failures: false, body [x: bun: throw new
+  Error("e")], continue_on_error:
+  true, n: bun: return "after"]` (expected an `InternalError` whose message
+  starts `Bad request: Unrecognized module status for ForloopFlow Failure
+  {`, `n` not run), `l` alone (same), and with a `failure_module` returning
+  `"H"` (same error; the root handler does not run). (5) `[a: bun: throw
+  new Error("x"), continue_on_error: true, retry: {constant: {attempts: 2,
+  seconds: 0}}]` (expected three `a` jobs, success with the wrapped error,
+  and two failed attempts listed).
+- **A step canceled while it waits to start** ([FX-38/b](../semantics/conformance.md#fx-38)).
+  Deploy `f/demo/child` = `[c: bun: return 2]` and `[a: bun: return 1,
+  sleep: {type: static, value: 30}, b: flow f/demo/child]`; run by path
+  and cancel 3 s after `a` completes. Expected: the flow ends `canceled`
+  with the `Canceled` result well before 30 s; `b`'s job exists with kind
+  `flow` and completed `failure` with the `Canceled` value, with no child
+  job (`c` never runs); `b`'s module is `Failure`. Variant with `b` a Bun
+  step (its `script` job ends the same way without running). Optional
+  variant: `b: flow f/demo/failing` (a child that throws) with `retry:
+  {constant: {attempts: 1, seconds: 30}}`, canceled 3 s after the first
+  subflow failed: expected a second subflow job that fails `Canceled` at
+  pickup with no child.
+- **A retried parallel container** ([CF-22/h](../semantics/conformance.md#cf-22),
+  [CF-22](../semantics/control-flow.md#cf-22) rule 5). `[l:
+  forloopflow(iterator: [10, 20], parallel: true, parallelism: 1,
+  skip_failures: false, modules: [b: bun(i, p)], retry: {constant:
+  {attempts: 1, seconds: 0}})]`, deployed and run by path,
+  with `i = flow_input.iter.index` and `p = flow_input.iter_parent ??
+  null`. On its first run in the outer run (a `/tmp` file keyed by
+  `WM_ROOT_JOB_ID` and `i`) `b` throws for `i = 0` and returns `p` for `i
+  = 1`; on later runs it returns `p`. `parallelism: 1` holds iteration 1
+  until iteration 0 has completed, so the successful iteration completes
+  last in the first attempt. Observe the result, `l`'s status entry
+  (`job`, `failed_retries`), each iteration child's args and the first
+  attempt's completion order.
+  Expected `[{"index":1,"value":20}, {"index":1,"value":20}]` (the base is
+  iteration 1's child, which completed last although it succeeded) and no
+  failed attempt listed on `l`; a last-to-fail reading predicts
+  `{"index":0,"value":10}`. Variant: `b` always throws for `i = 0` and the
+  flow has a failure module `ret(1)`: expected `l` fails for good, lists
+  nothing, and the failure module's entry lists the first attempt's
+  iteration-1 child flow (a successful job).
+- **A flow that calls itself by path** ([CF-17/j](../semantics/conformance.md#cf-17)).
+  Deploy `f/t/rec` as the case says and run it with `{"n": 3}`. Expected:
+  the deploy succeeds and the run returns `0` through four nested `Flow`
+  jobs of `f/t/rec`.
+- **A container's throwing `timeout` and `parallelism`**
+  ([CF-21](../semantics/control-flow.md#cf-21)). `[a: ret(1), l:
+  forloopflow(iterator: [1, 2], parallel: true, timeout: {type:
+  javascript, expr: "null.t"}, parallelism: {type: javascript, expr:
+  "null.p"}, modules: [b: ret(1)])]`. Expected: the flow fails with
+  [CF-23](../semantics/control-flow.md#cf-23)'s chaining error whose
+  message contains ``Error during evaluation of expression `null.t` ``
+  (the timeout's, not the parallelism's), and no iteration job exists;
+  the same with only `parallelism` throwing: no iteration job either.
+  Also [CF-21/f](../semantics/conformance.md#cf-21): CF-21/e's collapsed
+  flow run with the input `{"iter": {"index": 3}}` (expected success with
+  `[1]`, the timeout `13`), and the nested flow of CF-21/f, whose inner
+  loop's timeout reads the outer iteration's `iter` (expected success with
+  `[2]`).
+- **A container child result the backend cannot decode**
+  ([FX-42/m–FX-42/o](../semantics/conformance.md#fx-42)). Allow every run
+  of this bullet at least 150 s, and record job ids masked, each job's
+  status, result and log, and `l`'s raw status entry. (1) FX-42/o, the
+  collapsed route: deploy `[l: forloopflow(iterator: {type: javascript,
+  expr: "[1]"}, modules: [x: rawscript bun: let v = 1; for (let i = 0; i
+  < 128; i++) v = [v]; return v;]), b: bun: return 1]` with no failure
+  module and run it by path. Expected: the flow fails at once with
+  `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred
+  while decoding column 0: recursion limit exceeded at line 1 column 128
+  @<loc>"}}`, `b` never runs, `l`'s entry stays in progress; with 127
+  wrappings, success. (2) The same loop as the `default` branch of a
+  `branchone` at step 0: expected the branch's child flow fails as in (1)
+  and the root stays running until it ends `canceled` about 60 s or more
+  later, reason starting `Flow <id> (` and containing `was hanging in
+  between 2 steps` (URLs masked). (3) FX-42/m and FX-42/n, the child-flow
+  route: deploy `[l: forloopflow(iterator: {type: javascript, expr:
+  "[1]"}, modules: [x: identity]), b: bun: return 1]` with a failure
+  module returning `"H"`; run it by path with the input `{"n": 1e400}`
+  sent as raw JSON text (the run API keeps it; `jsonb` stores it), and
+  with `{"k": <127 nested arrays>}` next to `{"k": <126 nested arrays>}`
+  (expected success). Expected for the first two: the iteration's child
+  flow succeeds, no job carries the decode error, neither `b` nor the
+  failure module runs, and the root stays running until the monitor
+  cancels it as in (2). Repeat (3) with `parallel: true` and with a
+  `branchall` whose one branch is `[x: identity]`.
+- **The answers to variable writes** ([WA-11/e](../semantics/conformance.md#wa-11)).
+  With a token of the workspace (harness side, or a Bun step using `fetch`
+  and its own token, as in the facade's error-answers request): create
+  `u/x/w`, create it again, update its value, update `u/x/none`; record
+  each status, content type and body. Expected 201 `variable u/x/w
+  created`, 400 `Bad request: Variable u/x/w already exists`, 200 `variable
+  u/x/w updated (npath: "u/x/w")`, 404 `Not found: Variable not found at
+  name u/x/none <loc>`. Also a Bun step returning `await
+  setVariable("u/x/w", "c")` (expected `null`) and a later read (expected
+  `"c"`).
+- **A job chain that never ends** ([Q-JE-12](../semantics/expressions.md#q-je-12)).
+  A one-step flow whose module-0 transform is `x =
+  (queueMicrotask(function f() { queueMicrotask(f) }), 1)`. Expected: the
+  evaluation never finishes ([JE-51](../semantics/expressions.md#je-51)),
+  and the flow ends canceled by the zombie-flow monitor after about 60 s,
+  as [JE-2/a](../semantics/conformance.md#je-2) recorded for a CPU loop at
+  the same site, not with JE-2's timeout text. Allow at least 75 s.
+- **Colliding step identities** ([Q-OR-17](../semantics/oracle.md#q-or-17)).
+  Deploy through the flows API, not the CLI, whose file names derive from
+  module ids: (i) `[failure: bun: throw new Error("x")]` with a failure
+  module `recover` returning `1`; (ii) `[preprocessor: bun: return 1]` with
+  a preprocessor module `pre` returning `{}`; (iii) `[a/b: bun: return 1,
+  a%2Fb: bun: return 2]`. Record the raw `flow_status` and the walker's
+  site paths; each pair must stay two distinct records and placeholders.
+  Expected: all three deploy (the API checks no module id), and the slot's
+  entry sits in `failure_module` or `preprocessor_module`, apart from
+  `modules`.
+- **Timeouts on branches and subflow steps** ([Q-FX-1](../semantics/execution.md#q-fx-1),
+  [CF-27](../semantics/control-flow.md#cf-27)). `[b: branchone(branches:
+  [], default: [x: bun: await sleep(3000); return 3000]) (timeout: 1)]`,
+  the same as a two-branch parallel `branchall` with that body in each
+  branch, and `[c: flow f/demo/slow (timeout: 1)]` where `f/demo/slow` =
+  `[x: bun: await sleep(3000); return 3000]`. Expected: all three succeed
+  after about 3 s with `3000`, `[3000, 3000]` and `3000`, with no timeout
+  error: a branch flow and a subflow job are flow jobs, which nothing
+  times.
+
 **The two-worker session:**
 
 - **Released iterations** ([Q-CF-18](../semantics/control-flow.md#q-cf-18)).
@@ -1011,7 +1285,21 @@ them run there):
   line `//native`; expected `["undefined","undefined"]`) and WR-50/f (the
   same with the default `cjs` format; expected a `ReferenceError` with
   `module is not defined`), with full results and error objects including
-  `stack`.
+  `stack`. Also [WR-40/h](../semantics/conformance.md#wr-40): a
+  `//native` step importing `node:buffer` and `node:fs` and returning
+  `[Buffer.from("hi").toString("base64"), typeof readFileSync, typeof
+  __dirname]` (expected `["aGk=","undefined","string"]`), and a variant
+  using a global `Buffer` without an import (expected a `ReferenceError`,
+  `Buffer is not defined`); [WR-40/i](../semantics/conformance.md#wr-40):
+  `//native` steps importing `spawn` from `node:child_process` (expected
+  `"undefined"`), from `child_process` and `test` from `node:test` (both
+  expected to fail with `bun build`'s exit-code error whose log tail holds
+  `Browser build cannot import Node.js builtin:`); and record WR-40/f's `name` and `message`
+  (expected `TypeError` and `Failed to load file:///missing.ts\n  Caused
+  by:\n    No such file or directory (os error 2)`) and WR-40/c's whole
+  message (expected `execution error:\nError: failed to load module:
+  Failed to load file:///helper.ts: No such file or directory (os error
+  2)<loc>`).
 - **The result-size limit** ([OR-7/b](../semantics/conformance.md#or-7),
   [Q-OR-14](../semantics/oracle.md#q-or-14) is answered from the source;
   this confirms it). `MAX_RESULT_SIZE_MB=3` and a Bun step returning about
@@ -1035,6 +1323,18 @@ them run there):
   (the generated key's form), and `loadS3File({s3:"t/none.txt"})` (the
   status and body inside `Failed to load S3 file: …`). Session B has no
   storage and runs the first call only (WA-16/d).
+- **S3-aware cache hashing** ([FX-40](../semantics/execution.md#fx-40),
+  [FX-40/k](../semantics/conformance.md#fx-40),
+  [Q-FX-21](../semantics/execution.md#q-fx-21)), optional, `later`, in
+  session A. A step `a: bun(f): return Math.random()` with `cache_ttl: 60`
+  and `f = "flow_input.f"`: write `t/c.txt` with `"one"`, run with `{"f":
+  {"s3": "t/c.txt"}}` twice (expected: a hit), overwrite `t/c.txt` with
+  `"two"` and run again (expected: a miss, since the ETag changed); then
+  with `cache_ignore_s3_path: true`, copy `t/c.txt` to `t/d.txt`, run with
+  `t/c.txt` and then with `t/d.txt` (expected: a hit, when the store gives
+  both copies one ETag), and run with `{"f": {"s3": "t/none.txt"}}` twice
+  (expected: a hit keyed by the plain JSON, since a missing object gives
+  no ETag).
 
 **Outside the oracle, or outside the equivalence contract** (optional):
 
@@ -1053,11 +1353,14 @@ them run there):
 [Q-JE-1](../semantics/expressions.md#q-je-1) (JE-21/b's thrown values),
 [Q-JE-2](../semantics/expressions.md#q-je-2) (the `typeof` list),
 [Q-JE-12](../semantics/expressions.md#q-je-12) (JE-50/a, JE-51/a, JE-52/a),
-[Q-FX-18](../semantics/execution.md#q-fx-18)'s remaining cases,
-[Q-CF-1](../semantics/control-flow.md#q-cf-1) (CF-V1/a–c, CF-V2/b–c,
-CF-29/a), [Q-OF-1](../semantics/openflow.md#q-of-1)'s fixtures,
-[Q-OF-13](../semantics/openflow.md#q-of-13)'s sync trees, and
-[Q-OR-17](../semantics/oracle.md#q-or-17)'s colliding identity pairs.
+[Q-FX-18](../semantics/execution.md#q-fx-18)'s remaining cases (FX-1/a,
+FX-4/a, FX-5/a, FX-11/a, FX-11/b, FX-24/g, FX-47/b, FX-V1/a, FX-V1/b and
+FX-V2/a; FX-26/c–f have their own request above),
+[Q-CF-17](../semantics/control-flow.md#q-cf-17)'s remaining cases,
+[Q-OF-1](../semantics/openflow.md#q-of-1)'s fixtures and
+[Q-OF-13](../semantics/openflow.md#q-of-13)'s sync trees. Q-CF-1 is
+answered by recordings milestone N3c had already made, and Q-OR-17's
+colliding pairs have their own request above.
 
 ## Changing the design
 
