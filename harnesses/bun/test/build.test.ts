@@ -3,8 +3,10 @@
 // conformance/build through the whole helper on the pinned Bun (ADR 0003).
 
 import { describe, expect, test } from "bun:test";
+import { isBuiltin } from "node:module";
 import { parseAnnotations, targetFor } from "../build/annotations.ts";
 import { packageName, rewriteRelativeImports, removePinnedImports, unpinned, workspacePath } from "../build/imports.ts";
+import { BUILTIN_MODULES, builtinModule, keptImports } from "../build/shared.ts";
 import { liveBindings, parseModule, signatures, snakeCase } from "../build/signature.ts";
 import { detectWorkflowAsCode, wrapperScan } from "../build/wac.ts";
 import { rustTrim } from "../build/text.ts";
@@ -104,5 +106,37 @@ describe("import transforms (WR-26, WR-28)", () => {
     expect(packageName("@s/p/sub")).toBe("@s/p");
     expect(packageName("node:fs")).toBeUndefined();
     expect(packageName("fs/promises")).toBeUndefined();
+  });
+});
+
+describe("shared code: built-in modules and kept imports (ADR 0013)", () => {
+  test("the runtime's list names Node's modules, their subpaths and Bun's own", () => {
+    for (const m of ["async_hooks", "fs", "fs/promises", "stream/web", "bun", "bun:sqlite"]) expect(BUILTIN_MODULES).toContain(m);
+    // Every name the list gives is one the runtime itself calls built in.
+    for (const m of BUILTIN_MODULES) expect(isBuiltin(m)).toBe(true);
+  });
+  test("a built-in is a listed name, alone or after node:", () => {
+    for (const m of ["async_hooks", "node:async_hooks", "fs/promises", "node:fs/promises", "bun", "bun:sqlite"]) expect(builtinModule(m)).toBe(true);
+    for (const m of ["node:nope", "bun:nope", "left-pad", "./async_hooks", "/abs/fs", "async_hooks/nope"]) expect(builtinModule(m)).toBe(false);
+  });
+  test("an import() of a literal built-in is not kept; a variable, an external package or a non-listed node: name is", () => {
+    const text = [
+      "// a.js",
+      'var a = () => import("node:async_hooks");',
+      "// b.js",
+      "var b = (spec) => import(spec);",
+      "// c.js",
+      'var c = () => import("left-pad");',
+      "// d.js",
+      "var d = () => [import(`fs/promises`), import(\"bun:sqlite\"), import(\"async_hooks\")];",
+      "// e.js",
+      'var e = () => "import(spec)"; // import(spec)',
+      "// f.js",
+      'var f = () => import("node:nope");',
+      "// g.js",
+      "var g = (x) => import(`node:${x}`);",
+      "",
+    ].join("\n");
+    expect([...keptImports(text)].sort()).toEqual(["b.js", "c.js", "f.js", "g.js"]);
   });
 });

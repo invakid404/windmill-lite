@@ -121,6 +121,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/languages/wr-28` | Batch E3e: [WR-28](../docs/semantics/languages.md#wr-28) ([Q-WR-16](../docs/semantics/languages.md#q-wr-16)): static and dynamic imports of workspace scripts, WR-28/a–c and e, each a flow running the importing script by path; WR-28/d's script, whose only import is a dynamic extensionless path, cannot be deployed, so the batch defers it, and WR-28/f–g (source-derived) have no run. Created through the API in path order (`oracle: {deploy: api}`), so each imported script exists before the script that imports it. |
 | `flows/languages/codebase-cases` | Batch E3e: codebase scripts in the shape of `flows/languages/codebase`, one `wmill.yaml` entry per case: CommonJS on Node and ESM on Bun ([WR-47](../docs/semantics/languages.md#wr-47)/a–b), esbuild's `define`, `inject`, `loader` and `banner` (WR-47/c–f), assets and a multi-file output ([WR-49](../docs/semantics/languages.md#wr-49)/a–b), the runtime `//native` and `//nodejs` select and the Node version ([WR-50](../docs/semantics/languages.md#wr-50)/b–e), and in both formats a relative import and the step's environment. The runs that report Node are deviation D13 on windmill-lite. |
 | `flows/languages/codebase-outside` | A codebase entry that reaches outside the sync tree: its `relative_path` is `../shared`, its script imports from `../shared/lib` and its asset comes from `../shared/lib/assets/note.txt` ([WR-47](../docs/semantics/languages.md#wr-47), [WR-49](../docs/semantics/languages.md#wr-49)/a). `wltest record` pushes a copy that carries `shared/` beside the copied tree (milestone E4c); `wltest check` builds the original. |
+| `flows/languages/builtin-imports` | A policy case of shared code, windmill-lite only ([ADR 0013](../docs/design/0013-shared-module-code.md), decision item 5). Four Bun scripts reach dependencies that import `node:async_hooks`, two by `import()` and two statically. Each step returns its `AsyncLocalStorage`'s store inside `run`: 1 in every mode, with and without shared code. The oracle has no shared code, so the run holds an expect written from the ADR. |
 | `flows/oracle/probes` | Batch E3e: the [probe catalogue](../docs/semantics/oracle.md#probe-catalogue) rebuilt as executable fixtures with every binding written out ([Q-OR-16](../docs/semantics/oracle.md#q-or-16), [OR-V9](../docs/semantics/oracle.md#or-v9)/a–d), and its OR cases (key order, loops, branches, retries, failure modules, stops, `skip_if`, `$var:`, effects, `delete_after_use`, a subflow's `delete_after_use`, `sleep`, response metadata asynchronously and through run-and-wait, the environment). |
 | `flows/oracle/big-payload`, `nul`, `seeded`, `key-order` | Batch E3e: the probes `big_payload` ([OR-V1](../docs/semantics/oracle.md#or-v1)) and `nul` with the other NUL positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)); a variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31)/a, OR-12/d; `oracle.setup: before_push`); the key-order cases of [OR-24](../docs/semantics/oracle.md#or-24) that E3a left (OR-24/b, OR-24/c) and OR-24/f, an object a flow's preprocessor built. |
 | `flows/oracle/workers2` | Batch E3e: the two-worker profile ([OR-5](../docs/semantics/oracle.md#or-5)/b): a step that waits for a script it starts, and parallel bodies whose index 0 is slow ([Q-OR-7](../docs/semantics/oracle.md#q-or-7), [Q-OR-15](../docs/semantics/oracle.md#q-or-15)). Recorded by the oracle workflow's two-worker session. |
@@ -708,10 +709,16 @@ its group's closure, and `fresh` runs the per-script bundles.
 Most of its cases give two or more scripts that share a dependency module
 and invoke them in turn in one process (`runs[].script`). They show that
 each step module keeps module state of its own. They also show what a step
-sees of its dependencies: namespace objects and their shape, the step's
-`module` and `exports`, and the closure's `import.meta` parameter. Others
-cover stack text, load errors, host-provided modules, strictness, interop,
-cycles, inject files and the settle-time fence.
+sees of its dependencies:
+
+- namespace objects and their shape;
+- the step's `module` and `exports`;
+- the closure's `import.meta` parameter;
+- an `import()` of a module the runtime has built in, which runs from the
+  closure.
+
+Others cover stack text, load errors, host-provided modules, strictness,
+interop, cycles, inject files and the settle-time fence.
 
 Host mode runs the flow suite with shared code instead, since a step case
 runs on a spawned harness.
@@ -854,7 +861,8 @@ outside the folder included).
 `d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
 membership and the `import.meta` parameter, build groups, installations
 and targets, fallbacks (namespace objects and export names among them),
-and native scripts.
+and native scripts. Its `y-builtin-imports` case shows that an import of a
+module the runtime has built in causes no fallback.
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails

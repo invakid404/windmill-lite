@@ -16,13 +16,13 @@
 
 import type { BunPlugin } from "bun";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
 import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
 import {
+  builtinModule,
   CJS_SPECIFIER,
   CLOSURE_META,
   CLOSURE_SPECIFIER,
@@ -707,9 +707,10 @@ export class Builder {
   // dependency set, the build groups of the Bun build, and for each builds
   // its scripts' shared-layout modules and its closure, which a script
   // keeps its per-script bundle without when a module it reaches cannot be
-  // held by a CommonJS closure (top-level await, a static import of an
-  // external module, a kept import()). The closure bundles go to
-  // <work>/closures/<id>.cjs, which the Go build wraps into factories.
+  // held by a CommonJS closure (top-level await, or a static import or a
+  // kept import() of an external module that the runtime has not built
+  // in). The closure bundles go to <work>/closures/<id>.cjs, which the Go
+  // build wraps into factories.
   async buildShared(): Promise<{ closures: string[]; closureMeta: Record<string, string>; shared: Record<string, SharedRecord> }> {
     const out = { closures: [] as string[], closureMeta: {} as Record<string, string>, shared: {} as Record<string, SharedRecord> };
     const groups = new Map<string, SharedEntry[]>();
@@ -1026,14 +1027,6 @@ function transformSource(source: string, path: string): string {
   } catch (e) {
     throw new BuildProblem("bundle_failed", `${path}: ${buildMessage(e)}`);
   }
-}
-
-// The npm packages a module imports by name, for the shared-dependency
-// warning of ADR 0010.
-// Whether an import names a module the runtime has built in, Node's or
-// Bun's own, which a require loads as an import does.
-function builtinModule(spec: string): boolean {
-  return spec.startsWith("node:") || spec === "bun" || spec.startsWith("bun:") || builtinModules.includes(spec);
 }
 
 // Whether a module's own source has a default export, by Bun's scan.

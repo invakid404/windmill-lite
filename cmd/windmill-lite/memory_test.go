@@ -316,7 +316,10 @@ func TestModuleMemory(t *testing.T) {
 // windmill-client, js-yaml and Babel's parser and types (pinned by
 // testdata/memory/closure.bun.lock) and a generated package shaped like a
 // generated API client, so that each step's bundle is about 6.9 MB, as the
-// embedder's are on average. It reports the host's resident set with one
+// embedder's are on average. As published packages do, the shared module
+// imports node:async_hooks by import() and the generated package imports
+// node:fs/promises by import(), both kept in the closure, so a step whose
+// closure holds a lazily imported built-in must keep its shared layout. It reports the host's resident set with one
 // module, with all 34, with eight concurrent runs of them, and after a
 // soak of 1,000 runs, as the embedder soaked its host. With shared code,
 // ADR 0013's memory gate holds: each further module costs at most 16 MiB
@@ -362,7 +365,7 @@ func TestModuleMemoryClosure(t *testing.T) {
 				"f/flows/e1.flow/flow.yaml":  memFlow("one step", "cb", "s%02d", []int{1}),
 				"f/flows/all.flow/flow.yaml": memFlow("every step", "cb", "s%02d", all),
 			}
-			imports := `import { client, describe, model } from "../../../lib/shared";`
+			imports := `import { client, describe, model, storage } from "../../../lib/shared";`
 			contract := "roots:\n  - flow: f/flows/e1\n  - flow: f/flows/all\n"
 			host := memHost(t, bun)
 			hostModules := map[string]string{}
@@ -382,7 +385,7 @@ func TestModuleMemoryClosure(t *testing.T) {
 				}
 			}
 			for n := 1; n <= steps; n++ {
-				files[fmt.Sprintf("f/cb/s%02d.ts", n)] = fmt.Sprintf("%s\n\nexport async function main(i: number = 0) {\n  const own = Array.from({ length: %d }, (_, k) => k * i);\n  return { step: %d, d: describe(i), m: model.modelName, calls: client.calls, own: own.length };\n}\n", imports, n, n)
+				files[fmt.Sprintf("f/cb/s%02d.ts", n)] = fmt.Sprintf("%s\n\nexport async function main(i: number = 0) {\n  const own = Array.from({ length: %d }, (_, k) => k * i);\n  const s = await storage();\n  return { step: %d, d: describe(i), m: model.modelName, calls: client.calls, own: own.length, store: s.run(%d, () => s.getStore()), read: typeof client.readFile };\n}\n", imports, n, n, n)
 			}
 			writeFiles(t, folder, files)
 			out := filepath.Join(dir, layout+".bundle")
@@ -432,11 +435,17 @@ export function describe(x: unknown) {
   const ast = parse(` + "`const v = ${JSON.stringify(x)};`" + `);
   return { yaml: yaml.dump({ x }), client: typeof wmill.getVariable, schema: Object.keys(Thing.paths).length, decl: t.isVariableDeclaration(ast.program.body[0]), services: sdk.services.length };
 }
+export async function storage() {
+  const { AsyncLocalStorage } = await import("node:async_hooks");
+  return new AsyncLocalStorage<number>();
+}
 `
 
 // synthSDK generates a CommonJS package shaped like a generated API client:
 // modules services of a class with methods methods each, and a table of
-// request schemas per module, all of which run when the package loads.
+// request schemas per module, all of which run when the package loads. Its
+// base class reads files through node:fs/promises, which it imports by
+// import() at its first read.
 func synthSDK(modules, methods int) map[string]string {
 	r := rand.New(rand.NewPCG(13, 8))
 	word := func() string {
@@ -453,6 +462,7 @@ func synthSDK(modules, methods int) map[string]string {
 class Base {
   constructor(opts) { this.opts = Object.assign({ retries: 3, timeout: 30000 }, opts); this.calls = 0; }
   request(method, path, params, schema) { this.calls++; return { method, path, params, schema, opts: this.opts }; }
+  async readFile(path) { const fs = await import("node:fs/promises"); return fs.readFile(path, "utf8"); }
 }
 exports.Base = Base;
 `,
