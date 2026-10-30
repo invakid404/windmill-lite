@@ -304,7 +304,8 @@ decision below, which describes it in full.
     after 1,000 runs, with 10.6 to 11.1 MiB per further module.
   - All 53 of the prototype's modules: 631 MiB.
 - **Deviation:** none in module state. It changes only three things (D18):
-  - where dependency code is, as stack text and in a load error's message;
+  - where dependency code is, as stack text and in a load error's message,
+    and the names and source text that bundling gives it;
   - when an ES module dependency initialises relative to a CommonJS one;
   - whether code, or a whole module, that a per-script bundle removed as
     unused can run.
@@ -421,6 +422,12 @@ instance of every module it imports, as on Windmill.
      log tail that an error at module load leaves in the step's
      `ExecutionErr` message, where it can also move what the tail's
      truncation keeps.
+   - **Names and source text.** A closure bundles another set of modules
+     together than each per-script bundle, so the bundler can rename
+     another set of colliding top-level names. The CLI's settings leave
+     esbuild's `keepNames` off (WR-47), so a renamed function or class has
+     another `.name`, and `Function.prototype.toString` of dependency code
+     returns the closure's text.
    - **Initialisation order.** A per-script bundle hoists an ES module
      dependency and initialises it before the step first requires a
      CommonJS dependency. In the shared layout, every dependency initialises
@@ -451,6 +458,12 @@ instance of every module it imports, as on Windmill.
      dependencies alike; this applies to the whole group.
    - **Top-level `await`** in a dependency module it reaches. A CommonJS
      closure cannot initialise such a module.
+   - **An external import from a dependency module in an ES module group.**
+     In the per-script bundle it stays an `import`, loaded asynchronously
+     and resolved with the `import` conditions. The CommonJS closure would
+     turn it into a synchronous `require`, with the `require` conditions,
+     which cannot load a module with top-level `await`. In a CommonJS group
+     both layouts already `require` it.
    - **A cycle through its own entry:** a dependency module that imports the
      script's own entry file.
 6. **The bundle.**
@@ -558,7 +571,7 @@ more scripts that share a dependency module:
 | D18/g | Unused code: an export whose `/* @__PURE__ */` initialiser has an effect after all, and a module that a `sideEffects: false` package re-exports beside one both scripts use, each used by one script and not by another; the other script's per-script bundle runs no effect, its shared instance does (deviation D18) |
 | D18/h | A codebase CommonJS dependency's `__dirname`, `__filename` and run-time `require` of an asset are the step's, in both layouts (WR-50) |
 | D18/i | An ES module group's dependency reads the step's `import.meta.url`, and `import.meta.env` gives each of concurrent invocations its own environment, in both layouts |
-| D18/j | Stack text: an error thrown in dependency code has the same name and message in both layouts; its stack names the closure file in `warm` (deviation D18) |
+| D18/j | Stack text and names: an error thrown in dependency code has the same name and message in both layouts, and its stack names the closure file in `warm`; two dependency modules that each declare a class of one name, and `Function.prototype.toString` of a dependency function, give the per-script bundle's names and text in `fresh` and the closure's in `warm` (deviation D18) |
 | D18/k | A load error: a dependency that throws while the step's module loads fails the step in both layouts; the `ExecutionErr` message's log tail names the closure file in `warm`, also when the tail is truncated (deviation D18) |
 | D18/l | Host-provided modules: a listed module that two scripts and a dependency of each import is the registered instance (D12), while the dependency is per script; the build still warns `host_module_shared_dependency` |
 | D18/m | Strictness: a sloppy CommonJS dependency imported by a script whose entry starts with `"use strict"` and by one whose entry does not reads an unbound `this` and assigns an undeclared variable as in each script's per-script bundle; a dependency of an ES module group runs strict, as in its ES module bundle |
@@ -578,7 +591,7 @@ more scripts that share a dependency module:
 | D18/v | Installations: Bun-built scripts installed from identical locks are one group and share their modules; scripts of different locks are two groups, and a workspace file that both import resolves its package through each script's own lock, one version in each |
 | D18/w | The per-script bundles are byte for byte the same with and without shared code |
 | D18/x | The manifest: `shared_code: true`, the closures with their digests, D18 in the deviations, and another bundle digest than without shared code |
-| D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
+| D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, a script of an ES module group whose dependency imports an external module (an asset with top-level `await`, and a package whose `import` and `require` conditions differ), and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
 | D18/z | Native scripts are in no group and run in a realm of their own, as without shared code (D5) |
 
 **Flow and memory gates.**
