@@ -1090,11 +1090,13 @@ an engine with none keeps one of its own, per process, D4)
 
 `Config.ModuleState` is the module-state mode every invocation runs in
 (ADR 0006), warm by default, which the trace records; `wltest check` runs
-the FX-40 fixtures in both. `Config.SharedCode` says that the bundle's
-steps run their shared-layout modules
-([ADR 0013](../../docs/design/0013-shared-module-code.md)); it is valid in
-`warm` only (`New` refuses it in another mode), and the trace records it
-(`Trace.SharedCode`) with D18 first among the run's deviations.
+the FX-40 fixtures in both.
+
+`Config.SharedCode` says that the bundle's steps run their shared-layout
+modules ([ADR 0013](../../docs/design/0013-shared-module-code.md)). It is
+valid in `warm` only: `New` refuses it in another mode. The trace records
+it (`Trace.SharedCode`), with [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations), the differences of shared code,
+first among the run's deviations.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered

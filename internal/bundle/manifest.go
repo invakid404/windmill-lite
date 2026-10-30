@@ -183,8 +183,8 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 }
 
 // manifestDeviations are the deviations a bundle lists: the program's,
-// those of its module-state mode, D18 with shared code (ADR 0013), and
-// those of every bundle.
+// those of its module-state mode, the deviation of shared code (ADR 0013)
+// when the bundle has it, and those of every bundle.
 func manifestDeviations(prog []string, mode engine.ModuleState, shared bool) []string {
 	// Every bundle: windmill-lite job ids (D3), the interrupted expression
 	// attempt (D8), no Rust location suffix in generated messages (D14), and
@@ -225,8 +225,8 @@ var warmDeviations = []string{"D1", "D2", "D9", "D10", "D11"}
 // module-state mode in place of the other mode's (ADR 0006), sorted by
 // number and each once: what a runtime that overrides a bundle's mode has
 // in effect, the bundle's other deviations kept. A bundle with shared
-// code has D18 in warm mode only, since fresh runs the per-script bundles
-// (ADR 0013).
+// code has the deviation of shared code in warm mode only, since fresh
+// runs the per-script bundles (ADR 0013).
 func ModeDeviations(listed []string, mode engine.ModuleState, shared bool) []string {
 	set := map[string]bool{}
 	for _, d := range listed {

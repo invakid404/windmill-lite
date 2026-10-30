@@ -110,7 +110,7 @@ type StepCase struct {
 	// Files are other files of the folder, by path from the sync root,
 	// that a codebase build reads: modules the script imports, inject
 	// files, asset sources. A Bun script's are workspace scripts it imports
-	// (f/<folder>/<name>.ts, WR-28).
+	// by the `.ts` paths of Windmill's import rewrite (f/<folder>/<name>.ts).
 	Files map[string]string `json:"files,omitempty"`
 	// Scripts are other entry scripts of the case, by Windmill path, built
 	// as its script is (a Bun script, or a codebase script with its

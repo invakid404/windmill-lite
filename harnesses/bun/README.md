@@ -87,27 +87,30 @@ cannot corrupt the protocol.
 - **Metadata.** The runtime keeps only the metadata fields it reads
   (`runtimeMeta`: `bundler`, `format`, `boundary`, `native`, `signatures`,
   `shared`), so a process does not hold every script's metafile.
-- **Shared code** ([ADR 0013](../../docs/design/0013-shared-module-code.md),
-  D18). For a script whose metadata names a closure (`shared.closure`), in
-  warm mode and host mode, the module is its shared-layout module,
-  `<id>.shared.mjs` or `<id>.shared.cjs`, from the same working-directory
-  copy for a codebase script; fresh mode, and a script that keeps its
-  per-script bundle (`shared.fallback`), load the per-script one. The
-  runtime installs a process-wide registry,
-  `globalThis[Symbol.for("windmill-lite.closures")]`, before any module
-  loads (`installClosures`): `instance(id, scope)` loads the closure
-  factory `scripts/bun/closures/<id>.cjs` (or the ES module `<id>.mjs` of
-  an ES module codebase group, whose factory takes no `module` or
-  `exports`) once per process and makes a
-  fresh instance of it with the calling module's `module` and `exports` (a
-  CommonJS module's; an ES module passes neither), `require`, file names
-  and `import.meta`, which its dependency code sees as in the per-script
-  bundle; the closure hands the instance's table back through
+- **Shared code** ([ADR 0013](../../docs/design/0013-shared-module-code.md);
+  its differences from a per-script bundle are deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations)). In warm
+  mode and host mode, a script whose metadata names a closure
+  (`shared.closure`) loads its shared-layout module, `<id>.shared.mjs` or
+  `<id>.shared.cjs`. A codebase script loads it from the same
+  working-directory copy. Fresh mode, and a script that keeps its
+  per-script bundle (`shared.fallback`), load the per-script one.
+- **The closure registry.** Before any module loads, the runtime installs
+  a process-wide registry, `globalThis[Symbol.for("windmill-lite.closures")]`
+  (`installClosures`). Its `instance(id, scope)` loads the closure factory
+  `scripts/bun/closures/<id>.cjs` once per process, or the ES module
+  `<id>.mjs` of an ES module codebase group, whose factory takes no
+  `module` or `exports`.
+- **An instance per step module.** Each call makes a fresh instance with
+  the calling module's `module` and `exports` (a CommonJS module's; an ES
+  module passes neither), `require`, file names and `import.meta`, which
+  its dependency code sees as in the per-script bundle. The closure hands
+  the instance's table back through
   `globalThis[Symbol.for("windmill-lite.closure-table")]`, which the
-  registry clears at once. Each step module that asks has an instance of its own, so
-  module state stays per script while the dependency code is compiled
-  once; a dependency module initialises in an instance on its first
-  reference. Loading a closure runs none of its modules.
+  registry clears at once.
+- **What it costs.** Each step module has an instance of its own, so module
+  state stays per script while the dependency code is compiled once. A
+  dependency module initialises in an instance on its first reference.
+  Loading a closure runs none of its modules.
 - **Codebase assets.** A harness the engine spawned copies the bundle's
   `assets/` into its working directory, at their paths there, before any
   module loads (`extractAssets`; [ADR 0002](../../docs/design/0002-ir-and-loader.md),

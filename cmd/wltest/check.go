@@ -358,7 +358,7 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 				return "", "", nil, err
 			}
 			// A Bun script's workspace import resolves to a script of the
-			// folder (WR-28).
+			// folder, by its `.ts` path.
 			if c.Codebase == nil {
 				scripts[strings.TrimSuffix(p, ".ts")] = p
 			}

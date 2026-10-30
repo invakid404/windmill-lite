@@ -20,7 +20,7 @@ type Trace struct {
 	// RunID is the run's id; Bundle is the digest of the bundle it ran
 	// (ADR 0010); ModuleState is the mode it ran in (ADR 0006); SharedCode
 	// is set when its steps ran their shared-layout modules (ADR 0013),
-	// which also puts D18 among its Deviations.
+	// which also puts the deviation of shared code among its Deviations.
 	RunID       string
 	Bundle      string
 	ModuleState ModuleState
@@ -60,8 +60,9 @@ type Trace struct {
 	// those that hooks appended (H9).
 	Warnings []Warning
 	// Deviations lists the deviations that depend on a run-time setting the
-	// host chose, by id (D2's watchdog, D15's cap, the H7 rule, and D18,
-	// shared code in warm mode), as ADR 0001 §5 requires.
+	// host chose, by id (D2's watchdog, D15's cap, the H7 rule), as ADR 0001
+	// §5 requires. With shared code in warm mode it also lists the
+	// deviation of shared code (ADR 0013).
 	Deviations []string
 	// Spans are the run's timings (ADR 0011, run spans).
 	Spans []Span

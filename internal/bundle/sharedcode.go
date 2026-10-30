@@ -65,7 +65,8 @@ type depGuard struct{}
 // for closure id: dep(key) returns the exports of the dependency module
 // key in the module's own instance of the closure, made at its first call
 // with the module's scope. A CommonJS module passes its module and exports,
-// which a dependency of its per-script bundle reads (WR-50). An ES module
+// which a dependency of its per-script bundle reads, a codebase bundle
+// running as the job's own module. An ES module
 // has neither, as Bun runs it; it reaches its require, file and import.meta
 // through import.meta.
 func closureSupport(id string, esm bool) string {
@@ -485,7 +486,7 @@ func (cfg *CodebaseConfig) shareCode(ctx context.Context, bc *BunConfig, built [
 	for _, e := range built {
 		meta := res.Scripts[e.ID]
 		if meta.Boundary == "native" || meta.Annotations.Native {
-			// A native script runs in a realm of its own (D5).
+			// A native script runs in a realm of its own.
 			continue
 		}
 		s, err := ParseCodebaseSettings(e.Settings)

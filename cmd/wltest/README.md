@@ -161,7 +161,7 @@ dependencies installed (`bun install --frozen-lockfile` in
 case or run.
 
 `-shared-code` builds every bundle with shared code
-([ADR 0013](../../docs/design/0013-shared-module-code.md), D18): `warm` and `host` then run the scripts'
+([ADR 0013](../../docs/design/0013-shared-module-code.md); deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations)): `warm` and `host` then run the scripts'
 shared-layout modules, and `fresh` their per-script bundles, as a bundle
 built so runs them.
 

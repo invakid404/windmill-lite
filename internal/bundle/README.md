@@ -14,9 +14,10 @@ windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
   the import base of inline scripts), `BuildBun`, which runs the
   [Bun build helper](../../harnesses/bun/build/README.md), and
   `BuildCodebase`, which bundles codebase scripts with esbuild through its
-  Go API, with the same env rewrite and shims, and carries their assets;
-- shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md),
-  below), which a build asks for with `Config.SharedCode`.
+  Go API, with the same env rewrite and shims, and carries their assets.
+
+A build asks for shared code with `Config.SharedCode`
+([ADR 0013](../../docs/design/0013-shared-module-code.md), below).
 
 [wl](../../wl/README.md)`.Open` (F1) opens a bundle to run it: it calls
 `Verify`, or `Extract` for an archive, and `TreeDigest` for the harness
@@ -71,8 +72,8 @@ supplies secrets (PF2).
 | `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
-| `shared_code`, `closures` | set for a bundle built with shared code, and the ids of its closures ([ADR 0013](../../docs/design/0013-shared-module-code.md)) |
-| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has, and D18 with shared code in `warm` mode. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's (D18 among them, for a bundle with shared code) and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
+| `shared_code`, `closures` | set for a bundle built with shared code, and the ids of its closures ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Such a bundle in `warm` mode also lists [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations), the differences of shared code, among its `deviations`, and `ModeDeviations` swaps it as it swaps the mode's other deviations |
+| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
 | `contract` | the host contract compiled against; with none, every flow and script of the folder is a root |
 | `host_modules` | the host-provided modules (D12), `key` and `id`, in registration order: a module after the modules it imports |
 | `harness_runtimes` | by harness class, the `TreeDigest` of the harness runtime the bundle was built for |
@@ -335,80 +336,93 @@ array define value, are not files, and the check skips them.
 ## Shared code
 
 `Config.SharedCode` (`windmill-lite build -shared-code`) builds the bundle
-with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md),
-deviation D18). Every script keeps its per-script bundle, byte for byte as
-without it, which `fresh` runs and the CLI parity check compares. Besides
-it:
+with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Its differences from a per-script bundle are
+deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations). Every script keeps its per-script bundle, byte for byte as
+without shared code: `fresh` runs it, and the CLI parity check compares it.
 
-- **Build groups.** The scripts one bundler builds with one set of
-  effective settings, in one installation and one strictness form a group.
-  - **Codebase groups** (`shareCode`, here) are keyed by the entry's
-    settings text, its format, whether the env rewrite applies, and whether
-    its CommonJS output starts with `"use strict"`.
-  - **Bun-built groups** are the build helper's, keyed by target and lock.
-  - Native scripts are in none (D5).
-- **The closure** of a group is a CommonJS bundle of an entry that maps
-  each dependency module its scripts reach, by its path from the sync root,
-  to a function that requires it (`closureEntrySource`), built with the
-  group's settings, the env rewrite and the shims, and, for an ES module
-  group, `import.meta` read from a parameter of the instance. That
-  parameter is the first of `__wl_meta`, `__wl_meta_2`, … that no input of
-  the closure spells, so no binding of a dependency, at its top level or as
-  a function's parameter, captures it (`buildClosure`, as for the env
-  rewrite's binding).
-  - `wrapClosure` wraps it into a factory in Bun's own CommonJS form
-    (`// @bun @bun-cjs`, which Bun loads without transpiling it again): each
-    call runs the bundle with the calling module's `module` and `exports`
-    (a CommonJS module's; an ES module passes neither), `require`, file
-    names and `import.meta`, so dependency code sees the step's, as in its
-    per-script bundle. The entry hands the instance's table back through a
-    global property of its own (`ClosureTable`), not `module.exports`,
-    which stays the step's. A strict group's closure is strict. An ES
-    module codebase group's closure is an ES module instead
-    (`ClosureModuleFile`, `// @bun`), whose factory takes no `module` or
-    `exports`: an ES module binds neither, so dependency code that reads
-    one finds no binding, as in its ES module per-script bundle.
-  - The Bun build helper's closure bundles go through the same wrapper
-    (`BuildBun`).
-- **The shared-layout module** of a script is a second build of it in which
-  the dependency plugin (`depPlugin`) resolves each of the entry's imports
-  of a module of its own build to a reference to that module in the
-  script's instance (`depReference`; `esmReference` for an ES module, whose
-  named exports stay live and whose default is read once), keeping the
-  package's `sideEffects`. An ES module reference lists the module's export
-  names (`moduleExports`, from a bundle of the module alone), so its
-  namespace object has the module's names and not the CommonJS interop
-  marker of the reference it reads them from. A module's key is its path
-  from the folder's real path, as esbuild resolves files. The env support module, host-provided modules'
-  shims, external modules and the entry itself stay as the per-script
-  bundle has them.
-  - Each inject file is replaced by a proxy that re-exports its names from
-    the instance (`injectProxies`), so the script's own code and its
-    dependencies reach one instance of it.
-  - The support module (`closureSupport`) makes the instance at the first
-    reference, through the harness runtime's registry (`ClosureRegistry`).
-- **Fallbacks.** A script keeps its per-script bundle (`SharedMeta.Fallback`,
-  and the warning `shared_code_fallback`, which names the module) for:
-  - a `banner`, or an object or array `define` value, on its entry;
-  - a cycle through its own entry;
-  - an ES module dependency whose namespace object both its entry and
-    another module of its bundle take (`namespace_import`,
-    `namespaceClash`): by a namespace import, a namespace re-export or an
-    `import()` of a literal specifier, which the build helper's
-    `namespaces` op finds by parsing each module. In the per-script bundle
-    that is one object; in the shared layout it would be two;
-  - an ES module dependency of its entry whose namespace a reference
-    cannot reproduce (`export_names`, `exportNamesClash`): the entry takes
-    its namespace object while a star re-export of an external module
-    leaves its names unknown, or the module exports `__esModule`;
-  - and, by module of the closure:
-    - top-level await, which fails the CommonJS build;
-    - a static import of an external module from an ES module group (a
-      module the runtime has built in is not one);
-    - a kept `import()`, which the build helper's `kept` op finds by
-      parsing the closure bundle.
-- **Recorded:** the manifest's `shared_code` and `closures`, D18, and each
-  script's `shared` record (its closure or its fallback).
+**Build groups.** The scripts that one bundler builds with one set of
+effective settings, in one installation and one strictness, form a group:
+
+- Codebase groups (`shareCode`, here) are keyed by the entry's settings
+  text, its format, whether the env rewrite applies, and whether its
+  CommonJS output starts with `"use strict"`.
+- Bun-built groups are the build helper's, keyed by target and lock.
+- Native scripts are in none, since each of their invocations runs in a
+  realm of its own.
+
+**The closure** of a group is a CommonJS bundle of an entry that maps each
+dependency module that its scripts reach, by its path from the sync root,
+to a function that requires it (`closureEntrySource`):
+
+- It is built with the group's settings, the env rewrite and the shims.
+- For an ES module group, dependency code reads `import.meta` from a
+  parameter of the instance. That parameter is the first of `__wl_meta`,
+  `__wl_meta_2`, … that no input of the closure spells, so no binding of a
+  dependency captures it (`buildClosure`, as for the env rewrite's
+  binding).
+- The entry hands the instance's table back through a global property of
+  its own (`ClosureTable`), not `module.exports`, which stays the step's.
+
+**The closure file** (`wrapClosure`) is in Bun's own form of a module that a
+bundler wrote, which Bun loads without transpiling it again:
+
+- A CommonJS group's closure is a CommonJS file (`// @bun @bun-cjs`). Its
+  factory runs the bundle with the calling module's `module`, `exports`,
+  `require`, file names and `import.meta`, so dependency code sees the
+  step's, as in its per-script bundle. A strict group's closure is strict.
+- An ES module codebase group's closure is an ES module
+  (`ClosureModuleFile`, `// @bun`), whose factory takes no `module` or
+  `exports`. Dependency code that reads one finds no binding, as in its ES
+  module per-script bundle.
+- The Bun build helper's closure bundles go through the same wrapper
+  (`BuildBun`), as CommonJS files.
+
+**The shared-layout module** of a script is a second build of it with the
+dependency plugin (`depPlugin`):
+
+- Each of the entry's imports of a module of its own build resolves to a
+  reference to that module in the script's instance, keeping the package's
+  `sideEffects`. A module's key is its path from the folder's real path, as
+  esbuild resolves files.
+- A CommonJS module gets a CommonJS reference (`depReference`). An ES
+  module gets an ES module reference (`esmReference`), whose named exports
+  stay live and whose default is read once.
+- An ES module reference lists the module's export names (`moduleExports`,
+  from a bundle of the module alone). Its namespace object then has the
+  module's names, and not the CommonJS interop marker of the reference that
+  it reads them from.
+- The env support module, host-provided modules' shims, external modules
+  and the entry itself stay as the per-script bundle has them.
+- Each inject file is replaced by a proxy that re-exports its names from
+  the instance (`injectProxies`). The script's own code and its
+  dependencies then reach one instance of it.
+- The support module (`closureSupport`) makes the instance at the first
+  reference, through the harness runtime's registry (`ClosureRegistry`).
+
+**Fallbacks.** A script keeps its per-script bundle (`SharedMeta.Fallback`,
+and the warning `shared_code_fallback`, which names the module) for:
+
+- a `banner`, or an object or array `define` value, on its entry;
+- a cycle through its own entry;
+- `namespace_import` (`namespaceClash`): its entry and another module of
+  its bundle both take the namespace object of one ES module dependency, by
+  a namespace import, a namespace re-export or an `import()` of a literal
+  specifier. The per-script bundle has one such object; the shared layout
+  would have two.
+- `export_names` (`exportNamesClash`): its entry takes the namespace
+  object of an ES module whose names are not all known (a star re-export of
+  an external module), or imports a module that exports `__esModule`;
+- by module of the closure: top-level await, which fails the CommonJS
+  build; a static import of an external module from an ES module group (a
+  module the runtime has built in is not one); and a kept `import()`.
+
+The build helper finds namespace imports and kept imports by parsing with
+Babel: its `namespaces` op parses each module, and its `kept` op parses the
+closure bundle.
+
+**Recorded:** the manifest's `shared_code` and `closures`, [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations) among its
+deviations, and each script's `shared` record (its closure or its
+fallback).
 
 ## Host-provided modules
 
@@ -536,11 +550,7 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
 ```
 
 - `TestConformanceBuild` runs every case of
-  [conformance/build](../../conformance/README.md), D18's shared code among
-  them (`given.shared_code`, `expect.shared`: each script's record by a
-  case-local closure label, what each closure names and contains, and, for
-  `t-closure-membership`, that the per-script bundles are the same bytes as
-  without shared code): it writes the case's
+  [conformance/build](../../conformance/README.md): it writes the case's
   folder, builds it and checks what the build recorded or refused. Cases with
   a `run` import the built modules on the pinned Bun, with `process.env`
   replaced as a harness's view does and host-provided copies registered, and
@@ -557,6 +567,11 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   listed codebase script that is itself a root, and modules outside the
   folder, TSX and JSX among them, whose files a case gives in
   `given.outside`).
+- The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
+  check `expect.shared`: each script's record by a case-local closure
+  label, what each closure names and contains, and text of each script's
+  shared-layout module. For `t-closure-membership` they also check that
+  the per-script bundles are the same bytes as without shared code.
 - `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
   flow, an inline step, a path script, a workspace import, a host-provided
   module, a codebase script with a define, an import of its codebase and an

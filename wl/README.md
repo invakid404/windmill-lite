@@ -348,15 +348,19 @@ bridge).
 
 `BuildInfo()` reports the bundle digest, the engine version, the Bun and
 esbuild versions, the harness runtime digests, the module state in effect,
-whether steps run shared code (`SharedCode`: the bundle was built with it
-and steps run warm, as in host mode; ADR 0013), the host contract, the deviations in effect and whether the bundle was
+the host contract, the deviations in effect and whether the bundle was
 built on another Bun (`nonconformant_runtime`). The deviations are the
 manifest's, with those of the module state in effect in place of the
 manifest's mode's when `Options.ModuleState` overrode it (D1, D2, D9, D10
-and D11 are warm mode's, ADR 0006, as D18 is for a bundle with shared code;
-`bundle.ModeDeviations`, the rule the build lists them by). A run's trace
-records shared code too (`Trace.SharedCode`, and `shared_code` in the
-trace a host plugin reads), with D18 among its deviations.
+and D11 are warm mode's, ADR 0006; `bundle.ModeDeviations`, the rule the
+build lists them by).
+
+For a bundle built with the shared code of [ADR 0013](../docs/design/0013-shared-module-code.md),
+`BuildInfo().SharedCode` says whether steps run it: they do when the
+bundle has it and steps run warm, as in host mode. [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations), the
+differences of shared code, is then among the deviations, as warm mode's
+are. A run's trace records shared code too (`Trace.SharedCode`, and
+`shared_code` in the trace that a host plugin reads).
 
 `Close()` stops admitting runs, cancels the runs in flight and the
 dispatcher's and waits for them, then drains the harness pool (in host

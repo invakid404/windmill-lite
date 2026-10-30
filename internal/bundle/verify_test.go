@@ -66,7 +66,7 @@ func TestManifestDeviations(t *testing.T) {
 	if got, want := ModeDeviations([]string{"D14", "D3", "D3"}, engine.ModuleStateWarm, false), []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}; !slices.Equal(got, want) {
 		t.Errorf("fresh to warm: %q, want %q", got, want)
 	}
-	// Shared code lists D18 (ADR 0013), which fresh mode removes, since it
+	// Shared code lists its deviation (ADR 0013), which fresh mode removes, since it
 	// runs the per-script bundles, and warm mode keeps only when listed.
 	shared := manifestDeviations(nil, engine.ModuleStateWarm, true)
 	if !slices.Contains(shared, "D18") || slices.Contains(ModeDeviations(shared, engine.ModuleStateFresh, true), "D18") {

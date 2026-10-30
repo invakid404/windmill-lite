@@ -165,64 +165,79 @@ so the paths a bundle's comments name are the same on every machine:
 
 ### Shared code
 
-A `build` request with `shared_code` also builds shared code for its
-`bun` and `node` target scripts ([ADR 0013](../../../docs/design/0013-shared-module-code.md),
-D18; `buildShared`). Each script's per-script bundle is built as without it.
+A `build` request with `shared_code` also builds shared code for its `bun`
+and `node` target scripts (`buildShared`). Shared code is the decision of
+[ADR 0013](../../../docs/design/0013-shared-module-code.md); its
+differences from a per-script bundle are deviation [D18](../../../docs/design/0001-equivalence-contract.md#5-named-deviations). Each script's
+per-script bundle is built as without shared code.
 
-- **Groups.** The scripts with one target and one lock, that is one
-  dependency set, form a group; `//native` ones form none. Its closure id is
-  `bun-` and twelve hex digits of the SHA-256 of what makes it.
-- **The shared-layout module** of a script is a second bundle of its entry
-  in which each import the entry's own bundle resolved to a module of the
-  dependency set (a workspace script under `src/`, a package under
-  `node_modules/`) becomes a reference to that module in the script's
-  instance of the closure: a CommonJS reference, or for an ES module an
-  ES module one whose named exports stay live and whose default, when it
-  has one, is read once. An ES module reference lists the module's export
-  names, from the exports of a bundle of the module alone
-  (`exportNamesOf`), so its namespace object has the module's names and
-  not the CommonJS interop marker of the reference it reads them from. The env support module and the shims of
-  host-provided modules stay as the per-script bundle has them. An import
-  the per-script bundle dropped (a module it pruned) becomes an empty
-  module. It is written to `scripts/bun/<id>.shared.mjs`.
-- **The closure** is a CommonJS bundle of an entry that requires the env
-  support module first, then maps each module the group's scripts reach, by
-  its path in the dependency set's directory, to a function that requires
-  it, and hands that table over through a global property
+**Groups.** The scripts with one target and one lock, that is one
+dependency set, form a group. `//native` scripts form none. A group's
+closure id is `bun-` and twelve hex digits of the SHA-256 of what makes the
+group.
+
+**The shared-layout module** of a script is a second bundle of its entry,
+written to `scripts/bun/<id>.shared.mjs`:
+
+- Each import that the entry's own bundle resolved to a module of the
+  dependency set becomes a reference to that module in the script's
+  instance of the closure. Such a module is a workspace script under `src/`
+  or a package under `node_modules/`.
+- A CommonJS module gets a CommonJS reference. An ES module gets an ES
+  module reference, whose named exports stay live and whose default, when
+  it has one, is read once.
+- An ES module reference lists the module's export names for the script's
+  target (`exportNamesOf`, from a bundle of the module alone). Its
+  namespace object then has the module's names, and not the CommonJS
+  interop marker of the reference that it reads them from.
+- The env support module and the shims of host-provided modules stay as
+  the per-script bundle has them. An import that the per-script bundle
+  dropped (a module it pruned) becomes an empty module.
+
+**The closure** is a CommonJS bundle, written to
+`<work>/closures/<id>.cjs`, which Go wraps into its factory:
+
+- Its entry requires the env support module first. It then maps each
+  module that the group's scripts reach, by its path in the dependency
+  set's directory, to a function that requires the module.
+- The entry hands that table over through a global property
   (`CLOSURE_TABLE`), so the instance's `module` stays the step's.
-  `import.meta` reads a parameter of the instance, the first of
+- `import.meta` reads a parameter of the instance: the first of
   `__wl_meta`, `__wl_meta_2`, … that no input of the closure spells, so no
-  binding of a dependency captures it; the response gives its name
-  (`closure_meta`). It is written to `<work>/closures/<id>.cjs`, and Go
-  wraps it into its factory.
-- **Namespace objects.** A script whose entry and another module of its
-  bundle both take the namespace object of one ES module dependency, by a
-  namespace import, a namespace re-export or an `import()` of a literal
-  specifier (`namespaceImports`, which parses each module with Babel),
-  keeps its per-script bundle (`namespace_import`): in the shared layout
-  the entry's would be its reference's and the dependency's the closure's.
-  A `namespaces` request runs the same parse on the modules of the Go
-  build's codebase bundles. A script whose entry imports an ES module whose
-  namespace a reference cannot reproduce keeps its per-script bundle too
-  (`export_names`): the entry takes its namespace object while a star
-  re-export of an external module leaves its names unknown, or the module
-  exports `__esModule`.
-- **Fallbacks.** A module whose closure build fails on top-level await,
-  which imports an external module statically (not a module the runtime
-  has built in), or whose code keeps an `import()`, found by parsing the
-  closure bundle with Babel (`keptImports`), keeps the scripts that reach
-  it on their per-script bundle, and the closure is built again without
-  them; the response records each script's closure or reason. A `kept`
-  request runs the same parse on the closure bundles the Go build made for
-  codebase groups and returns, for each, the modules that keep an
-  `import()`.
-- **Resolution.** Every file the shared build writes, and every file a
-  closure's entry requires, is reached by the absolute path a plugin
-  returns, never by Bun's resolver. Bun 1.3.10 keeps directory listings
-  across builds in one process. On a file system with coarse timestamps, a
-  file written in the same tick as an earlier read of its directory leaves
-  that listing unchanged, and a relative import of the file can fail to
-  resolve.
+  binding of a dependency captures it. The response gives the name
+  (`closure_meta`).
+
+**Fallbacks.** In these cases a script keeps its per-script bundle, and the
+response records the reason instead of a closure:
+
+- `namespace_import`: the script's entry and another module of its bundle
+  both take the namespace object of one ES module dependency. In the shared
+  layout the entry's object would be its reference's and the dependency's
+  the closure's.
+- `export_names`: the entry takes the namespace object of an ES module
+  whose names are not all known (a star re-export of an external module),
+  or imports a module that exports `__esModule`.
+- `top_level_await`, `external_import` (a static import of an external
+  module, not one the runtime has built in) and `dynamic_import` (a kept
+  `import()`): a module that the script reaches cannot be held by the
+  CommonJS closure. The closure is then built again without those scripts.
+
+**Parsing.** The build finds namespace objects (`namespaceImports`) and
+kept imports (`keptImports`) by parsing with Babel, so text that only looks
+like an import does not count. Two requests run the same parses for the Go
+build's codebase groups:
+
+- `namespaces` parses the modules of their bundles.
+- `kept` parses their closure bundles and returns, for each, the modules
+  that keep an `import()`.
+
+**Resolution.** Every file that the shared build writes, and every file
+that a closure's entry requires, is reached by the absolute path that a
+plugin returns, never by Bun's resolver. Bun 1.3.10 keeps directory
+listings across builds in one process. On a file system with coarse
+timestamps, a file written in the same tick as an earlier read of its
+directory can be missing from that listing, so a relative import of it can
+fail to resolve.
 
 ### Native scripts
 

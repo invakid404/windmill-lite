@@ -108,7 +108,7 @@ type Config struct {
 	// SharedCode says that its invocations run the shared-layout modules of
 	// a bundle built with shared code (ADR 0013): only in warm mode, since
 	// fresh runs the per-script bundles. Each run's trace records it and
-	// lists D18.
+	// lists the deviation of shared code.
 	SharedCode bool
 	// Provide answers the program's named host-provided sites (ADR 0002,
 	// ADR 0008): called at a provided site's launch, in place of the job

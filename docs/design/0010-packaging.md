@@ -417,12 +417,12 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     disk at run time, so a listed module that imports packages must be
     compiled into the host.
 - **Shared code in the bundle** ([0013](0013-shared-module-code.md)).
-  - A bundle built with shared code holds `scripts/bun/closures/<id>.cjs`
-    per group (`<id>.mjs` for an ES module codebase group) and
-    `scripts/bun/<id>.shared.mjs` (or `.shared.cjs`) per script beside its
-    per-script bundle; the manifest records
-    `shared_code` and the closures' ids, and each script's metadata its
-    `shared` record.
+  - A bundle built with shared code holds one closure per group,
+    `scripts/bun/closures/<id>.cjs` (`<id>.mjs` for an ES module codebase
+    group). Beside each script's per-script bundle it holds the script's
+    shared-layout module, `scripts/bun/<id>.shared.mjs` (or `.shared.cjs`).
+  - The manifest records `shared_code` and the closures' ids, and each
+    script's metadata its `shared` record.
   - **Codebase groups** are built in Go with esbuild.
   - **Bun-built groups** are built by the helper. Its `kept` and
     `namespaces` ops also parse the codebase closures for kept imports and

@@ -41,7 +41,7 @@ type Config struct {
 	// SharedCode builds the bundle with shared code (ADR 0013): besides
 	// each script's per-script bundle, one closure per build group and a
 	// shared-layout module per script, which warm and host-mode processes
-	// load. The manifest records it and lists D18.
+	// load. The manifest records it and lists the deviation of shared code.
 	SharedCode bool
 
 	// Bun, Helper, AllowBunMismatch, Env, Diagnostics and Timeout are those
