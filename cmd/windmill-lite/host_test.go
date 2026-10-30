@@ -1132,8 +1132,10 @@ func TestHostPluginCases(t *testing.T) {
 	if err := os.WriteFile(casesFile, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := supervise(t, 30000, "WL_BUNDLE="+bundleDir, "WL_PLUGIN_CASES="+casesFile,
+	report := filepath.Join(t.TempDir(), "settled.jsonl")
+	s := supervise(t, 30000, "WL_BUNDLE="+bundleDir, "WL_PLUGIN_CASES="+casesFile, "WL_PLUGIN_REPORT="+report,
 		fmt.Sprintf("WL_ENGINE_FLAGS=-plugin-timeout %dms", f.TimeoutMS))
+	var runs []string
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			tenant := "tenant-" + c.ID
@@ -1141,6 +1143,7 @@ func TestHostPluginCases(t *testing.T) {
 			if err != nil || r.Refused != "" {
 				t.Fatalf("%+v, %v", r, err)
 			}
+			runs = append(runs, r.ID)
 			o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
 			scope := ""
 			for _, w := range r.Warnings {
@@ -1157,27 +1160,26 @@ func TestHostPluginCases(t *testing.T) {
 			}
 		})
 	}
-	// H9's onRunSettled through the host's plugin: a later run reports the
-	// earlier one among those that settled (plugin_settled).
-	first, err := s.run(f.Cases[0].FlowPath(), "t", map[string]any{}, nil)
-	if err != nil || first.ID == "" {
-		t.Fatalf("%+v, %v", first, err)
-	}
-	heard := false
-	for deadline := time.Now().Add(5 * time.Second); !heard && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		r, err := s.run(f.Cases[0].FlowPath(), "t", map[string]any{}, nil)
-		if err != nil {
+	// H9's onRunSettled through the host's plugin: every case's run
+	// settles, and none while one of its hooks still ran in the host, a
+	// hook the engine stopped waiting for included: run_settled, and the
+	// host's release of the run's resources, wait for it.
+	var settled, early []string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if settled, early, err = conformance.ReadSettlement(report); err != nil {
 			t.Fatal(err)
 		}
-		for _, w := range r.Warnings {
-			var settled []string
-			if w.Code == "plugin_settled" && json.Unmarshal([]byte(w.Message), &settled) == nil && slices.Contains(settled, first.ID) {
-				heard = true
-			}
+		if !slices.ContainsFunc(runs, func(r string) bool { return !slices.Contains(settled, r) }) {
+			break
 		}
 	}
-	if !heard {
-		t.Fatalf("the host plugin's onRunSettled never heard of run %s", first.ID)
+	for _, r := range runs {
+		if !slices.Contains(settled, r) {
+			t.Errorf("the host plugin's onRunSettled never heard of run %s", r)
+		}
+	}
+	if len(early) > 0 {
+		t.Errorf("runs %q settled while one of their hooks still ran in the host", early)
 	}
 	// The step API's signal in host mode: run_deadline's step waits for
 	// wl.signal() alone, so its run settles only once the deadline the run

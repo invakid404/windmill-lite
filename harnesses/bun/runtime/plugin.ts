@@ -41,10 +41,18 @@ export type StepOutcome = { outcome: "ok" | "error" | "escaped" | "empty"; resul
  * arguments and environment. */
 export type AroundCall = { run: string; site: string; script: string; args: Record<string, unknown>; env: Record<string, string> };
 
-/** A site's record in the trace (H9), as the hooks see it. */
+/** A site's record in the trace (H6, H9), as the hooks see it: every
+ * field of the engine's record, as a Go hook sees it, in snake_case.
+ * Arguments and results are in stored form; `args` are the arguments as
+ * stored, after H2, and `resolved_args` the same after `$var:`/`$res:`
+ * resolution, as the step received them (JE-V3); `args_before_rewrite`
+ * are those H2 replaced. `carried` is what the module carries on, which
+ * differs from `result` after an error stop. `start` is RFC 3339 and
+ * `duration_ms` times the site's job. */
 export type StepRecord = {
   site: string;
   attempt: number;
+  failed_retries: string[];
   job?: string;
   status: string;
   module?: string;
@@ -53,19 +61,57 @@ export type StepRecord = {
   abandoned: boolean;
   cached: boolean;
   hooks: string[];
+  args_before_rewrite?: unknown;
   args?: unknown;
+  resolved_args?: unknown;
   result?: unknown;
+  carried?: unknown;
+  result_origin?: string;
+  carried_origin?: string;
+  result_nested?: string[];
+  carried_nested?: string[];
+  branch_chosen?: { type: string; branch?: number };
+  start?: string;
+  duration_ms: number;
+  /** What the invocation produced after it settled or was abandoned (D9). */
+  late: { kind: string; body?: unknown; final: boolean }[];
 };
 
-/** A run's trace (H9), as onRunEnd and onRunSettled see it. */
+/** A platform call a step of the run made (ADR 0007), as the facade
+ * recorded it. */
+export type PlatformCall = {
+  site: string;
+  job: string;
+  method: string;
+  path: string;
+  query: string;
+  route: string;
+  status: number;
+  unsupported: boolean;
+  message?: string;
+};
+
+/** A run's trace (H9), as onRunEnd and onRunSettled see it: every field of
+ * the engine's trace, as a Go hook sees it, in snake_case. */
 export type Trace = {
   run: string;
+  bundle: string;
+  module_state: string;
   status: string;
   result?: unknown;
+  result_origin?: string;
+  result_nested?: string[];
   may_have_mutated: boolean;
+  cached: boolean;
   latched?: string;
   steps: StepRecord[];
+  children: { site: string; id: string; modules: string[]; virtual: boolean[]; failure: boolean }[];
   warnings: Warning[];
+  /** The deviations that depend on a run-time setting (H7, H10, D2, D15). */
+  deviations: string[];
+  /** The run's timings (ADR 0011). */
+  spans: { site: string; kind: string; start: string; duration_ms: number }[];
+  platform_calls: PlatformCall[];
 };
 
 export type Warning = { code: string; message: string };

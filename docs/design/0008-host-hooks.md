@@ -195,7 +195,13 @@ Two further rules complete it:
   invocation, and the run's end only stops the engine waiting for it. A
   host-mode run carries F2b's budgets and latches (H3, H4, H7, H10) in
   its `run` frame, and `onRunEnd` runs for a canceled run too, with the
-  plugin timeout alone.
+  plugin timeout alone. Review round 1 settled four more points: a
+  TypeScript H13 provider's failure or timeout latches the run, through
+  the job API and reference resolution alike; a hook the engine stopped
+  waiting for holds the run's settlement until it has finished, so a
+  run's resources outlive its hooks; an `around` wrapper's `next()` is
+  closed once the wrapper returns; and a TypeScript hook's records and
+  traces carry every field a Go hook's do.
 - Milestone K1 added the two rules after the precedence paragraph, and
   widened H4's FX-38 exception from "the failure module" to whatever the
   continue decision asks for, which FX-19 shows can be a retry or the next

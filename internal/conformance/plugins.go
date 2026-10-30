@@ -78,7 +78,13 @@ type PluginSpec struct {
 	Observe   bool              `json:"observe"`
 	Env       map[string]string `json:"env"`
 	Variables map[string]string `json:"variables"`
-	Providers map[string]struct {
+	// FailVariables and FailResources make H13's provider fail for a path:
+	// throw, or answer after DelayMS, beyond the plugin timeout. SlowStartMS
+	// delays each onModuleStart.
+	FailVariables map[string]PluginFailure `json:"fail_variables"`
+	FailResources map[string]PluginFailure `json:"fail_resources"`
+	SlowStartMS   int                      `json:"slow_start_ms"`
+	Providers     map[string]struct {
 		Result  json.RawMessage `json:"result"`
 		Failed  json.RawMessage `json:"failed"`
 		Decline bool            `json:"decline"`
@@ -89,6 +95,12 @@ type PluginSpec struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"warnings"`
+}
+
+// PluginFailure is how an H13 provider of a case plugin fails for a path.
+type PluginFailure struct {
+	Throw   string `json:"throw"`
+	DelayMS int    `json:"delay_ms"`
 }
 
 // PluginRun is a case run's budgets and latches (the file's header says
@@ -116,6 +128,36 @@ type PluginExpect struct {
 // PluginLog is the code of the warning in which a case plugin's onRunEnd
 // reports its log of the run, as a JSON array of strings.
 const PluginLog = "plugin_log"
+
+// ReadSettlement reads a case plugin's report file: the runs its
+// onRunSettled heard of, and those of them that settled while one of their
+// hooks still ran (early). A missing file reports none.
+func ReadSettlement(path string) (settled, early []string, err error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var r struct {
+			Run   string `json:"run"`
+			Early bool   `json:"early"`
+		}
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+		settled = append(settled, r.Run)
+		if r.Early {
+			early = append(early, r.Run)
+		}
+	}
+	return settled, early, nil
+}
 
 // LoadPluginFile reads and checks a plugin case file.
 func LoadPluginFile(path string) (*PluginFile, error) {
@@ -150,6 +192,10 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 		}
 		if r := c.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || r.DeadlineMS < 0 || r.PreWriteDeadlineMS < 0 {
 			return nil, fmt.Errorf("%s: case %s: run: a clock that is real or record, and deadlines that are not negative", path, c.ID)
+		}
+		// Go callbacks cannot fail as a plugin's host_call does.
+		if h := c.Hooks; (len(h.FailVariables) > 0 || len(h.FailResources) > 0 || h.SlowStartMS > 0) && c.RunsGo() {
+			return nil, fmt.Errorf("%s: case %s: a plugin that fails or is slow runs only through TypeScript (go: false)", path, c.ID)
 		}
 	}
 	if len(f.Cases) == 0 {

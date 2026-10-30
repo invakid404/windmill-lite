@@ -138,7 +138,11 @@ decrypts Windmill ciphertext; it hands that to the resolver
   cacheable for the run to avoid repeating them. Milestone F2c built this
   bridge as the plugin's `resource(path)` and `variable(path)`, asked
   after the run's own providers and before the runtime's, for the job API
-  and for argument resolution alike; cacheable answers are not built yet. Answering `platform` frames
+  and for argument resolution alike; cacheable answers are not built yet.
+  A TypeScript provider that throws or times out latches the run, as any
+  plugin hook does ([0008](0008-host-hooks.md) H5): the router still
+  answers the call with its error, but neither the step that tolerates
+  that answer nor `continue_on_error` keeps the run going. Answering `platform` frames
   directly in TypeScript was rejected because it would copy the router's
   rules into a second language.
 - **Unsupported routes** answer `501` with `text/plain` body

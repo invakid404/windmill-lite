@@ -3,12 +3,20 @@
 // each for the sites of its own flow, which the Go tests load in warm
 // harness processes (wl, wl.Options.Plugin) and in a compiled host
 // (cmd/windmill-lite, the host SDK's plugin option). It keeps a log of
-// each run, which onRunEnd reports in the warning plugin_log, and the runs
-// that settled so far, in plugin_settled.
+// each run, which onRunEnd reports in the warning plugin_log. Its
+// onRunSettled appends a line to the report file, when it has one: the
+// run's id, and whether one of the run's hooks still ran then, which must
+// never be so (ADR 0008 H9: a run's resources outlive its hooks). A file,
+// because each warm harness process loads a copy of the plugin of its own.
 
+import { appendFileSync } from "node:fs";
 import type { Plugin, Selector } from "../runtime/plugin.ts";
 
 type Answer = { result?: unknown; failed?: unknown; decline?: boolean; throw?: string; delay_ms?: number; static?: unknown };
+
+/** How an H13 provider fails for a path: it throws, or answers after
+ * delay_ms, beyond the plugin timeout, with nothing. */
+type Failing = { throw?: string; delay_ms?: number };
 
 export type CaseSpec = {
   intercept?: ({ module: string } & Answer)[];
@@ -22,15 +30,36 @@ export type CaseSpec = {
   observe?: boolean;
   env?: Record<string, string>;
   variables?: Record<string, string>;
+  fail_variables?: Record<string, Failing>;
+  fail_resources?: Record<string, Failing>;
+  slow_start_ms?: number;
   providers?: Record<string, Answer>;
   warnings?: { code: string; message: string }[];
 };
 
-/** cases: each case's flow path and declarative plugin. */
-export function casePlugin(cases: { flow: string; plugin: CaseSpec }[]): Plugin {
+/** cases: each case's flow path and declarative plugin; report: the file
+ * onRunSettled appends `{"run", "early"}` lines to. */
+export function casePlugin(cases: { flow: string; plugin: CaseSpec }[], report?: string): Plugin {
   const logs = new Map<string, string[]>();
   const runFlow = new Map<string, string>();
-  const settled: string[] = [];
+  // The hooks of each run still running, which its settlement must wait for.
+  const active = new Map<string, number>();
+  const busy = async <T>(run: string, f: () => T | Promise<T>): Promise<T> => {
+    active.set(run, (active.get(run) ?? 0) + 1);
+    try {
+      return await f();
+    } finally {
+      const n = active.get(run)! - 1;
+      if (n > 0) active.set(run, n);
+      else active.delete(run);
+    }
+  };
+  const fail = async (f: Failing | undefined) => {
+    if (!f) return false;
+    if (f.delay_ms) await Bun.sleep(f.delay_ms);
+    if (f.throw !== undefined) throw new Error(f.throw);
+    return true;
+  };
   const byFlow = new Map(cases.map((c) => [c.flow, c.plugin]));
   const log = (run: string, entry: string) => {
     let l = logs.get(run);
@@ -86,10 +115,13 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[]): Plugin 
       const w = byFlow.get(site.flow)?.first_write ?? "approve";
       if (w.startsWith("veto: ")) throw new Error(w.slice("veto: ".length));
     },
-    onModuleStart: ({ run, site }) => {
-      runFlow.set(run, site.flow);
-      if (byFlow.get(site.flow)?.observe) log(run, `start:${site.path}`);
-    },
+    onModuleStart: ({ run, site }) =>
+      busy(run, async () => {
+        runFlow.set(run, site.flow);
+        const s = byFlow.get(site.flow);
+        if (s?.observe) log(run, `start:${site.path}`);
+        if (s?.slow_start_ms) await Bun.sleep(s.slow_start_ms);
+      }),
     onModuleEnd: ({ run, site, record }) => {
       if (byFlow.get(site.flow)?.observe) log(run, `end:${site.path}:${record.status}`);
     },
@@ -99,18 +131,25 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[]): Plugin 
     onRunEnd: (t) => {
       const ws = [
         { code: "plugin_log", message: JSON.stringify(logs.get(t.run) ?? []) },
-        { code: "plugin_settled", message: JSON.stringify(settled) },
         ...(byFlow.get(runFlow.get(t.run) ?? "")?.warnings ?? []),
       ];
       logs.delete(t.run);
       return ws;
     },
     onRunSettled: (t) => {
-      settled.push(t.run);
+      if (report) appendFileSync(report, JSON.stringify({ run: t.run, early: active.has(t.run) }) + "\n");
     },
-    variable: (path, { run }) => {
-      const v = byFlow.get(runFlow.get(run) ?? "")?.variables?.[path];
-      return v === undefined ? undefined : { value: v };
-    },
+    variable: (path, { run }) =>
+      busy(run, async () => {
+        const s = byFlow.get(runFlow.get(run) ?? "");
+        if (await fail(s?.fail_variables?.[path])) return undefined;
+        const v = s?.variables?.[path];
+        return v === undefined ? undefined : { value: v };
+      }),
+    resource: (path, { run }) =>
+      busy(run, async () => {
+        await fail(byFlow.get(runFlow.get(run) ?? "")?.fail_resources?.[path]);
+        return undefined;
+      }),
   };
 }

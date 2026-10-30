@@ -12,7 +12,8 @@
 // directory it passes; its own by default), WL_RECYCLE_MODULES (the
 // modules recycle trigger, unset by default), WL_PLUGIN_CASES (a JSON file
 // of plugin cases, whose case plugin the host connects with, milestone
-// F2c) and WL_ENGINE_FLAGS (flags for the engine, space-separated).
+// F2c), WL_PLUGIN_REPORT (the file that plugin's onRunSettled reports to)
+// and WL_ENGINE_FLAGS (flags for the engine, space-separated).
 
 import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
@@ -26,7 +27,7 @@ let recycled: string | null = null;
 // (H11: a plugin call re-enters the run's scope).
 let plugin: Plugin | undefined;
 if (env.WL_PLUGIN_CASES) {
-  const p = casePlugin(JSON.parse(readFileSync(env.WL_PLUGIN_CASES, "utf8")));
+  const p = casePlugin(JSON.parse(readFileSync(env.WL_PLUGIN_CASES, "utf8")), env.WL_PLUGIN_REPORT);
   const end = p.onRunEnd!;
   plugin = {
     ...p,

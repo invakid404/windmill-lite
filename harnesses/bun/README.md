@@ -502,7 +502,14 @@ contract's form; the engine matches them.
   (`{outcome, result}`), which stays the step's own. A wrapper that throws
   or never calls `next()` is reported in a `plugin_error` warning before
   the invocation's result, which latches the run; a step that never ran
-  then fails with an error the harness generated.
+  then fails with an error the harness generated. A wrapper's `next()` is
+  closed once the wrapper returns or the invocation is no longer running:
+  a first call then rejects and starts nothing, so a continuation the
+  wrapper left behind never runs the step after its invocation settled.
+- **Payloads.** A hook's `StepRecord` and `Trace` carry every field a Go
+  hook gets (`plugin.ts`): the arguments before H2, as stored and as
+  resolved, the carried value, timings, late output, child flows, spans,
+  deviations and `PlatformCall`s.
 - **F2b's hooks.** A plugin may declare `writeCapable` selectors,
   `beforeFirstWrite` (a throw vetoes the write) and `fatalErrorNames`.
 - **The step API** (`installStepAPI`, `context.ts`). `wl` on `globalThis`
@@ -513,7 +520,8 @@ contract's form; the engine matches them.
   by throwing); a step cannot replace `wl`; a native step's realm has
   none.
 
-`test/caseplugin.ts` is the plugin of the cases of
+`test/caseplugin.ts` (with a report file its `onRunSettled` writes, of
+each run and whether one of its hooks still ran) is the plugin of the cases of
 `conformance/plugins/hooks.yaml`, which the Go tests load in `warm`
 processes and in a compiled host.
 

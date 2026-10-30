@@ -310,6 +310,22 @@ bridge).
    `beforeFirstWrite` (a `host_call`) and fatal error names (H3, H7);
    `mergeHooks` puts them after the run's own. `onRunEnd` reports a run
    whose context ended too: its call has the plugin timeout alone.
+   - **Late hooks hold settlement.** A `host_call` the runtime stopped
+     waiting for (the plugin timeout, the run's end) holds the run's
+     settlement until the hook's late reply comes (`doHeld`,
+     `engine.HoldSettlement`), so `OnRunSettled`, `run_settled` and the
+     release of the run's resources come after every hook of the run.
+   - **H13 failures latch.** The plugin's `resource` and `variable` reach
+     their run through a `runBinding` that `engine.RunRequest.Started`
+     fills, since the facade serves job-API calls outside the run's
+     context: a failure or timeout latches the run, unless the call ended
+     with its context or the run's outcome was decided, and the router
+     still answers the call with the error.
+   - **The trace.** A hook's record and trace (`recordJSON`, `traceJSON`)
+     carry every field of the Go `StepRecord` and `Trace` in snake_case:
+     the arguments before H2, as stored and as resolved, the carried value,
+     timings, late output, child flows, spans, deviations and platform
+     calls.
 7. **The step API.** Steps call `wl.latch(error)` and `wl.signal()` on
    `globalThis` (ADR 0004 §Host plugins): a latch latches the run, a
    script run's too (`StatusLatched`, with `*engine.StepLatch` in
@@ -392,7 +408,11 @@ and an H12 veto after the approval, which still counts as written; and
 the step API (F2c, `TestStepAPI`): a script's `wl.latch` latches its
 script run in `warm` and `fresh`, so does a failed `around` wrapper, and
 in `warm` a step that waits for `wl.signal()` alone settles once the
-run's deadline has aborted it.
+run's deadline has aborted it; that a TypeScript plugin's `onRunEnd` and
+`onModuleEnd` get, on one run, the trace and records a Go hook gets, with
+a job-API read and update, a rewrite and a `$var` resolution
+(`TestPluginTraceParity`); and that an `around` wrapper's late `next()`
+runs no step (`TestAroundLateNextStartsNothing`).
 `outside_test.go` builds a bundle whose host contract lists two modules
 outside the sync folder (milestone F3h) and runs it on Bun without a host:
 a codebase script that imports one finds no host scope, and two step
@@ -421,5 +441,7 @@ and `mergeHooks`'s order. `plugincases_test.go` runs the cases of
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
 through Go callbacks built from the same plugins, each case with its
 run's budgets and latches in `RunOptions` (`caseRun`), and checks that
-every run's `onRunEnd` reported it, a canceled run's too, and the
-plugin's `onRunSettled`; it needs Bun like `bun_test.go`.
+every run's `onRunEnd` reported it, a canceled run's too, and, from the
+plugin's report file, that every case's run settled and none while one
+of its hooks still ran (`checkSettlement`); it needs Bun like
+`bun_test.go`.

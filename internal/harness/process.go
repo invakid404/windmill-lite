@@ -255,10 +255,10 @@ type Process struct {
 
 	// hostCalls are the host_calls waiting for their replies, by id, under
 	// mu (milestone F2c); lateHostCalls those the engine stopped waiting
-	// for.
+	// for, until their replies come, each with what closes then.
 	hostCalls     map[string]chan HostReply
 	hostCallSeq   uint64
-	lateHostCalls lateCalls
+	lateHostCalls map[string]chan struct{}
 }
 
 type procState int

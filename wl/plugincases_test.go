@@ -57,8 +57,9 @@ func buildPluginBundle(t *testing.T, bun string, f *conformance.PluginFile) (out
 }
 
 // writeCasePlugin writes the plugin module a warm harness loads: the case
-// plugin of harnesses/bun/test, over every case's declarative plugin.
-func writeCasePlugin(t *testing.T, f *conformance.PluginFile) string {
+// plugin of harnesses/bun/test, over every case's declarative plugin, and
+// returns it with the file its onRunSettled reports to.
+func writeCasePlugin(t *testing.T, f *conformance.PluginFile) (plugin, report string) {
 	t.Helper()
 	repo, err := filepath.Abs("..")
 	if err != nil {
@@ -68,12 +69,14 @@ func writeCasePlugin(t *testing.T, f *conformance.PluginFile) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := fmt.Sprintf("import { casePlugin } from %q;\nexport default casePlugin(%s);\n", filepath.Join(repo, "harnesses", "bun", "test", "caseplugin.ts"), cases)
-	path := filepath.Join(t.TempDir(), "plugin.ts")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+	dir := t.TempDir()
+	report = filepath.Join(dir, "settled.jsonl")
+	src := fmt.Sprintf("import { casePlugin } from %q;\nexport default casePlugin(%s, %q);\n", filepath.Join(repo, "harnesses", "bun", "test", "caseplugin.ts"), cases, report)
+	plugin = filepath.Join(dir, "plugin.ts")
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return plugin, report
 }
 
 // casePluginInput is what the TypeScript case plugin takes.
@@ -142,11 +145,13 @@ func TestPluginCases(t *testing.T) {
 	timeout := time.Duration(f.TimeoutMS) * time.Millisecond
 
 	t.Run("typescript, warm", func(t *testing.T) {
-		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: writeCasePlugin(t, f), PluginTimeout: timeout})
+		plugin, report := writeCasePlugin(t, f)
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: timeout})
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer rt.Close()
+		var runs []string
 		for _, c := range f.Cases {
 			t.Run(c.ID, func(t *testing.T) {
 				ctx, cancel, opts := caseRun(c, RunOptions{})
@@ -155,6 +160,7 @@ func TestPluginCases(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				runs = append(runs, res.ID)
 				if d := c.Check(pluginOutcome(res)); len(d) > 0 {
 					t.Fatalf("%s:\n  %s", c.Title, strings.Join(d, "\n  "))
 				}
@@ -164,21 +170,10 @@ func TestPluginCases(t *testing.T) {
 				}
 			})
 		}
-		// H9's onRunSettled: a run that settled is in the list the plugin
-		// keeps, which a later run's onRunEnd reports (plugin_settled).
-		first, err := rt.Run(context.Background(), f.Cases[0].FlowPath(), json.RawMessage(`{}`), RunOptions{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !settledBy(t, func() []Warning {
-			res, err := rt.Run(context.Background(), f.Cases[0].FlowPath(), json.RawMessage(`{}`), RunOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			return res.Warnings
-		}, first.ID) {
-			t.Fatalf("the plugin's onRunSettled never heard of run %s", first.ID)
-		}
+		// H9's onRunSettled: every case's run settles, and none while one
+		// of its hooks still ran, a hook the engine stopped waiting for
+		// included.
+		checkSettlement(t, runs, report)
 	})
 
 	t.Run("go callbacks", func(t *testing.T) {
@@ -314,17 +309,27 @@ func newGoCasePlugin(f *conformance.PluginFile) *goCasePlugin {
 	return g
 }
 
-// settledBy reports whether the plugin's onRunSettled heard of run, as the
-// warnings of the runs next gives report it, trying for a few seconds.
-func settledBy(t *testing.T, next func() []Warning, run string) bool {
+// checkSettlement checks, from the case plugin's report file, that its
+// onRunSettled heard of every one of runs, trying for a few seconds, and
+// that none of them settled while one of its hooks still ran.
+func checkSettlement(t *testing.T, runs []string, report string) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		for _, w := range next() {
-			var settled []string
-			if w.Code == "plugin_settled" && json.Unmarshal([]byte(w.Message), &settled) == nil && slices.Contains(settled, run) {
-				return true
-			}
+	var settled, early []string
+	var err error
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if settled, early, err = conformance.ReadSettlement(report); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(runs, func(r string) bool { return !slices.Contains(settled, r) }) {
+			break
 		}
 	}
-	return false
+	for _, r := range runs {
+		if !slices.Contains(settled, r) {
+			t.Errorf("the plugin's onRunSettled never heard of run %s", r)
+		}
+	}
+	if len(early) > 0 {
+		t.Errorf("runs %q settled while one of their hooks still ran", early)
+	}
 }

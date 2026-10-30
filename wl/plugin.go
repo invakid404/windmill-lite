@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -150,8 +152,17 @@ func newPlugin(decl jsonval.Value, prog *ir.Program, call hostCaller, timeout ti
 // payload, and decodes its answer into out. It waits no longer than the
 // plugin timeout: then it fails with ErrHostCallTimeout. When the run's
 // own context ends first, it returns that context's cause, which the
-// engine does not latch on.
+// engine does not latch on. A call it stopped waiting for holds the
+// settlement of the run whose context ctx is until the hook has finished
+// (doHeld).
 func (p *plugin) do(ctx context.Context, hook, run string, site *engine.Site, payload map[string]any, out any) error {
+	return p.doHeld(ctx, ctx, hook, run, site, payload, out)
+}
+
+// doHeld is do, holding the settlement of the run that held is the
+// context of (engine.HoldSettlement) while a hook the engine stopped
+// waiting for still runs: the run's resources outlive it (ADR 0008 H9).
+func (p *plugin) doHeld(ctx, held context.Context, hook, run string, site *engine.Site, payload map[string]any, out any) error {
 	path := ""
 	if site != nil {
 		path = site.Path.String()
@@ -166,6 +177,14 @@ func (p *plugin) do(ctx context.Context, hook, run string, site *engine.Site, pa
 	defer cancel()
 	ans, err := p.call(cctx, hook, run, path, jsonval.FromProducer(b))
 	if err != nil {
+		var late *harness.LateHostCallError
+		if errors.As(err, &late) {
+			release := engine.HoldSettlement(held)
+			go func() {
+				<-late.Done
+				release()
+			}()
+		}
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
@@ -321,21 +340,62 @@ func (p *plugin) around(s engine.Site) []int {
 // platform are the plugin's resources and variables for one run (H13, the
 // provider bridge of ADR 0007), or nil when it declares neither: raw
 // values the engine's router interpolates, resolves and answers with.
-func (p *plugin) platform(run string) (platform.Resources, platform.Variables) {
+// Their calls come from the run's argument resolution and expressions,
+// and from its steps' job-API requests, which the facade serves outside
+// the run's context, so b, bound when the run starts, is how they reach
+// the run.
+func (p *plugin) platform(b *runBinding) (platform.Resources, platform.Variables) {
 	var res platform.Resources
 	var vars platform.Variables
 	if p.decl.Resource {
-		res = pluginResources{p, run}
+		res = pluginResources{p, b}
 	}
 	if p.decl.Variable {
-		vars = pluginVariables{p, run}
+		vars = pluginVariables{p, b}
 	}
 	return res, vars
 }
 
+// runBinding is a run as what serves it outside its hooks knows it, once
+// the engine has started it (engine.RunRequest.Started): its context,
+// which holds its settlement and ends when its outcome is decided, and its
+// handle, which latches it.
+type runBinding struct {
+	id  string
+	mu  sync.Mutex
+	ctx context.Context
+	run engine.Run
+}
+
+func (b *runBinding) started(ctx context.Context, r engine.Run) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ctx, b.run = ctx, r
+}
+
+// call is the plugin's host_call for the run, holding its settlement while
+// a hook the engine stopped waiting for runs on. Its error latches the run,
+// as a hook's does (H5, ADR 0004 §Host plugins): a provider's failure or
+// timeout is never an error the run's steps or its continue_on_error can
+// tolerate. A call that ended with ctx, or once the run's outcome was
+// decided, latches nothing.
+func (b *runBinding) call(ctx context.Context, p *plugin, hook, path string, out any) error {
+	b.mu.Lock()
+	held, run := b.ctx, b.run
+	b.mu.Unlock()
+	if held == nil {
+		held = ctx
+	}
+	err := p.doHeld(ctx, held, hook, b.id, nil, map[string]any{"path": path}, out)
+	if err != nil && run != nil && held.Err() == nil && engine.HookLatchError(ctx, err) != nil {
+		run.Latch(err)
+	}
+	return err
+}
+
 type pluginResources struct {
-	p   *plugin
-	run string
+	p *plugin
+	b *runBinding
 }
 
 func (r pluginResources) Resource(ctx context.Context, path string) (platform.Resource, bool, error) {
@@ -344,15 +404,15 @@ func (r pluginResources) Resource(ctx context.Context, path string) (platform.Re
 		Type  string          `json:"type"`
 		Value json.RawMessage `json:"value"`
 	}
-	if err := r.p.do(ctx, "resource", r.run, nil, map[string]any{"path": path}, &a); err != nil || !a.Found {
+	if err := r.b.call(ctx, r.p, "resource", path, &a); err != nil || !a.Found {
 		return platform.Resource{}, false, err
 	}
 	return platform.Resource{Type: a.Type, Value: a.Value}, true, nil
 }
 
 type pluginVariables struct {
-	p   *plugin
-	run string
+	p *plugin
+	b *runBinding
 }
 
 func (v pluginVariables) Variable(ctx context.Context, path string) (platform.Variable, bool, error) {
@@ -361,34 +421,61 @@ func (v pluginVariables) Variable(ctx context.Context, path string) (platform.Va
 		Value  string `json:"value"`
 		Secret bool   `json:"secret"`
 	}
-	if err := v.p.do(ctx, "variable", v.run, nil, map[string]any{"path": path}, &a); err != nil || !a.Found {
+	if err := v.b.call(ctx, v.p, "variable", path, &a); err != nil || !a.Found {
 		return platform.Variable{}, false, err
 	}
 	return platform.Variable{Value: a.Value, IsSecret: a.Secret}, true, nil
 }
 
-// recordJSON is a site's record as the plugin's hooks see it (H9).
+// recordJSON is a site's record as the plugin's hooks see it (H6, H9):
+// every field of the Go StepRecord, in snake_case, so that a TypeScript
+// hook has the evidence a Go hook has. Arguments and results are in stored
+// form; Start is RFC 3339 and Duration is in milliseconds.
 func recordJSON(rec StepRecord) map[string]any {
 	m := map[string]any{
 		"site": rec.Site.String(), "attempt": rec.Attempt, "status": rec.Status, "ran": rec.Ran, "skipped": rec.Skipped,
 		"abandoned": rec.Abandoned, "cached": rec.Cached, "hooks": append([]string{}, rec.Hooks...),
+		"failed_retries": sitesJSON(rec.FailedRetries), "duration_ms": msJSON(rec.Duration),
 	}
-	if rec.Job != "" {
-		m["job"] = rec.Job
+	for k, v := range map[string]string{"job": rec.Job, "module": string(rec.Module), "result_origin": string(rec.ResultOrigin), "carried_origin": string(rec.CarriedOrigin)} {
+		if v != "" {
+			m[k] = v
+		}
 	}
-	if rec.Module != "" {
-		m["module"] = rec.Module
+	for k, v := range map[string]jsonval.Value{"args_before_rewrite": rec.ArgsBeforeRewrite, "args": rec.RecordedArgs, "resolved_args": rec.ResolvedArgs, "result": rec.Result, "carried": rec.Carried} {
+		if t := storedText(v); t != nil {
+			m[k] = t
+		}
 	}
-	if t := storedText(rec.RecordedArgs); t != nil {
-		m["args"] = t
+	if len(rec.ResultNested) > 0 {
+		m["result_nested"] = rec.ResultNested
 	}
-	if t := storedText(rec.Result); t != nil {
-		m["result"] = t
+	if len(rec.CarriedNested) > 0 {
+		m["carried_nested"] = rec.CarriedNested
 	}
+	if rec.BranchChosen != nil {
+		m["branch_chosen"] = rec.BranchChosen
+	}
+	if !rec.Start.IsZero() {
+		m["start"] = rec.Start.UTC().Format(time.RFC3339Nano)
+	}
+	late := []any{}
+	for _, l := range rec.Late {
+		e := map[string]any{"kind": l.Kind, "final": l.Final}
+		if t := storedText(l.Body); t != nil {
+			e["body"] = t
+		}
+		late = append(late, e)
+	}
+	m["late"] = late
 	return m
 }
 
-// traceJSON is a run's trace as onRunEnd and onRunSettled see it (H9).
+// traceJSON is a run's trace as onRunEnd and onRunSettled see it (H9):
+// every field of the Go Trace, in snake_case, with its records
+// (recordJSON), the child flows, timings, deviations and the platform
+// calls its steps made (ADR 0007). Superseded records and child flows are
+// left out, as Trace.Step leaves them out.
 func traceJSON(t *Trace) map[string]any {
 	steps := []any{}
 	for _, s := range t.Steps {
@@ -400,15 +487,54 @@ func traceJSON(t *Trace) map[string]any {
 	for _, w := range t.Warnings {
 		ws = append(ws, map[string]string{"code": w.Code, "message": w.Message})
 	}
-	m := map[string]any{"run": t.RunID, "status": t.Status, "may_have_mutated": t.MayHaveMutated, "steps": steps, "warnings": ws}
+	children := []any{}
+	for _, c := range t.Children {
+		if !c.Superseded {
+			children = append(children, map[string]any{"site": c.Site.String(), "id": c.ID, "modules": append([]string{}, c.Modules...), "virtual": append([]bool{}, c.Virtual...), "failure": c.Failure})
+		}
+	}
+	spans := []any{}
+	for _, sp := range t.Spans {
+		spans = append(spans, map[string]any{"site": sp.Site.String(), "kind": sp.Kind, "start": sp.Start.UTC().Format(time.RFC3339Nano), "duration_ms": msJSON(sp.Duration)})
+	}
+	calls := []any{}
+	for _, c := range t.PlatformCalls {
+		e := map[string]any{"site": c.Site.String(), "job": c.Job, "method": c.Method, "path": c.Path, "query": c.Query, "route": c.Route, "status": c.Status, "unsupported": c.Unsupported}
+		if c.Message != "" {
+			e["message"] = c.Message
+		}
+		calls = append(calls, e)
+	}
+	m := map[string]any{
+		"run": t.RunID, "bundle": t.Bundle, "module_state": t.ModuleState, "status": t.Status, "may_have_mutated": t.MayHaveMutated, "cached": t.Cached,
+		"steps": steps, "children": children, "warnings": ws, "deviations": append([]string{}, t.Deviations...), "spans": spans, "platform_calls": calls,
+	}
 	if r := storedText(t.Result); r != nil {
 		m["result"] = r
+	}
+	if t.ResultOrigin != "" {
+		m["result_origin"] = t.ResultOrigin
+	}
+	if len(t.ResultNested) > 0 {
+		m["result_nested"] = t.ResultNested
 	}
 	if t.Latched != nil {
 		m["latched"] = t.Latched.Error()
 	}
 	return m
 }
+
+// sitesJSON is a list of site paths as text.
+func sitesJSON(ps []conformance.SitePath) []string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.String()
+	}
+	return out
+}
+
+// msJSON is a duration in milliseconds.
+func msJSON(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
 // withPlugin are the hooks of a run: the run's own, and the plugin's after
 // them, or either alone (mergeHooks).
@@ -506,7 +632,7 @@ func both(a, b func(context.Context, RunHandle, Site) error) func(context.Contex
 // or variables (H13): the run's own providers first (RunOptions.Platform),
 // then the plugin's, then the runtime's. own is the run's own store, or
 // nil.
-func (rt *Runtime) pluginServices(run string, own *platform.Store, resolvers []platform.ValueResolver) *platform.Services {
+func (rt *Runtime) pluginServices(run *runBinding, own *platform.Store, resolvers []platform.ValueResolver) *platform.Services {
 	p := rt.plugin.Load()
 	var res platform.ResourceChain
 	var vars platform.VariableChain

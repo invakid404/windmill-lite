@@ -727,18 +727,32 @@ answered by a `host_reply`.
    timeout (60 s by default; the runtime's option): then the hook fails
    with `host_call_timeout`, which latches the run. When the run's own
    context ends first, the hook returns that cause, which latches nothing.
-   A reply that comes after the engine stopped waiting is dropped; one to
-   no `host_call` is a protocol error, as is a `host_call` from a harness.
+   A reply that comes after the engine stopped waiting is dropped, however
+   many calls ended meanwhile: the engine remembers each such call until
+   its reply comes, which the harness sends once the hook has run. One to
+   no `host_call`, or a second one to a call, is a protocol error, as is a
+   `host_call` from a harness. A hook the engine stopped waiting for may
+   still run in the run's scope, so the run does not settle, and its
+   resources are not released (`run_settled` in host mode), until that
+   reply has come or the harness has exited; a hook of the settlement
+   itself (`onRunSettled`) holds nothing.
 3. **`around`.** The engine names on each `invoke` the plugin's around
    wrappers whose selectors match the invocation's site; the harness runs
    the step inside them, outermost first. A wrapper that throws, or never
    runs the step, is reported in a `warning` with code `plugin_error`,
    ahead of the frame that settles the invocation, and the engine latches
-   the run on it. An invocation with around wrappers never reaches a
-   harness without a plugin.
+   the run on it. A wrapper's `next()` runs the step only while the
+   wrapper runs and the engine waits for the invocation: a first call
+   after the wrapper has returned, or after the invocation was abandoned,
+   starts nothing and rejects. An invocation with around wrappers never
+   reaches a harness without a plugin.
 4. **Where.** Every hook call goes to the run's process in a `warm` pool
    (or the least loaded), and to the host in host mode. A `fresh` runtime
-   takes no plugin: its processes live for one step.
+   takes no plugin: its processes live for one step. A hook's payload
+   carries what a Go hook gets: a record (H6) or trace (H9) has every
+   field of the engine's, the arguments before and after H2 and after
+   resolution, the carried value, timings, deviations and the platform
+   calls of the run's steps included.
 5. **The step API.** Step code reaches its run's latch and signal through
    `wl` on `globalThis` (H4, H5), which needs no import, so a script that
    guards it (`globalThis.wl?.latch(e)`) still runs on Windmill.

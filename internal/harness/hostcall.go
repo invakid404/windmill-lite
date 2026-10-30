@@ -27,11 +27,27 @@ func (e *HostCallError) Error() string {
 // host plugin: the engine asks a plugin only for what it declared.
 var ErrNoPlugin = errors.New("harness: the harness loaded no host plugin")
 
+// LateHostCallError is the error of a host_call that the engine stopped
+// waiting for when ctx ended, before its reply came; Err is ctx's cause.
+// The hook may still be running in the harness, in the run's scope: Done
+// closes once it has finished, when its reply comes (which is dropped), or
+// once the harness has exited, so that the run settles only after it
+// (ADR 0004 §Host plugins, ADR 0008 H9).
+type LateHostCallError struct {
+	Err  error
+	Done <-chan struct{}
+}
+
+func (e *LateHostCallError) Error() string { return e.Err.Error() }
+
+func (e *LateHostCallError) Unwrap() error { return e.Err }
+
 // HostCall asks the harness's host plugin to answer hook for run at site
 // with payload, a JSON object, and returns its answer, a JSON object
 // (ADR 0008, milestone F2c). It waits until the harness replies, ctx ends
-// (it then returns ctx's cause, and a reply that comes later is dropped),
-// or the connection does. A plugin's error reply is a *HostCallError.
+// (it then returns a *LateHostCallError with ctx's cause, and the reply
+// that comes later is dropped), or the connection does. A plugin's error
+// reply is a *HostCallError.
 func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, error) {
 	if p.Hello().Plugin.IsZero() {
 		return jsonval.Value{}, ErrNoPlugin
@@ -51,11 +67,7 @@ func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload 
 	p.mu.Unlock()
 	forget := func() {
 		p.mu.Lock()
-		if _, ok := p.hostCalls[id]; ok {
-			delete(p.hostCalls, id)
-			// Its reply, if it still comes, is dropped.
-			p.lateHostCalls.add(id)
-		}
+		delete(p.hostCalls, id)
 		p.mu.Unlock()
 	}
 	if err := p.conn.send(HostCall{ID: id, Hook: hook, Run: run, Site: site, Payload: payload}); err != nil {
@@ -69,8 +81,31 @@ func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload 
 		}
 		return r.Payload, nil
 	case <-ctx.Done():
-		forget()
-		return jsonval.Value{}, context.Cause(ctx)
+		// The call is remembered until its reply comes, however many
+		// others ended meanwhile, so that the reply is told apart from one
+		// to no call; the harness always replies once the hook has run.
+		replied := make(chan struct{})
+		p.mu.Lock()
+		if _, ok := p.hostCalls[id]; !ok {
+			// The reply crossed ctx's end: the hook has finished.
+			close(replied)
+		} else {
+			delete(p.hostCalls, id)
+			if p.lateHostCalls == nil {
+				p.lateHostCalls = map[string]chan struct{}{}
+			}
+			p.lateHostCalls[id] = replied
+		}
+		p.mu.Unlock()
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-replied:
+			case <-p.exited:
+			}
+			close(done)
+		}()
+		return jsonval.Value{}, &LateHostCallError{Err: context.Cause(ctx), Done: done}
 	case <-p.exited:
 		forget()
 		if p.host != nil {
@@ -89,37 +124,12 @@ func (p *Process) onHostReply(r HostReply) error {
 		ch <- r
 		return nil
 	}
-	if p.lateHostCalls.has(r.ID) {
+	if done, ok := p.lateHostCalls[r.ID]; ok {
+		delete(p.lateHostCalls, r.ID)
+		close(done)
 		return nil
 	}
 	return protoErr(CodeUnexpected, "host_reply %q answers no host_call", r.ID)
-}
-
-// lateCalls remembers the most recent host_calls the engine stopped
-// waiting for, whose replies are dropped, up to a bound.
-type lateCalls struct {
-	ids   map[string]struct{}
-	order []string
-}
-
-// lateCallsKept bounds lateCalls.
-const lateCallsKept = 256
-
-func (l *lateCalls) add(id string) {
-	if l.ids == nil {
-		l.ids = map[string]struct{}{}
-	}
-	l.ids[id] = struct{}{}
-	l.order = append(l.order, id)
-	if len(l.order) > lateCallsKept {
-		delete(l.ids, l.order[0])
-		l.order = l.order[1:]
-	}
-}
-
-func (l *lateCalls) has(id string) bool {
-	_, ok := l.ids[id]
-	return ok
 }
 
 // HostCall asks the host plugin of one of the pool's processes, the run's

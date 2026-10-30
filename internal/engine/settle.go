@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 )
@@ -49,6 +50,36 @@ func (s *RunSettlement) End() {
 	if fire {
 		s.onSettled()
 	}
+}
+
+// Hold counts work of the run's own that is not an invocation and may
+// outlast the engine's wait for it, a host plugin's hook whose host_call
+// timed out (milestone F2c), and returns its release: the run does not
+// settle while it is held. Unlike Track it is allowed after End. A hold
+// taken once the run has settled holds nothing, so the settlement callback
+// never waits on itself. Release may be called more than once.
+func (s *RunSettlement) Hold() (release func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fired {
+		return func() {}
+	}
+	s.open++
+	var once sync.Once
+	return func() { once.Do(s.settleOne) }
+}
+
+// settlementKey is the context key of a run's settlement.
+type settlementKey struct{}
+
+// HoldSettlement holds the settlement of the run whose context ctx is or
+// derives from (RunSettlement.Hold): the engine gives every hook, provider
+// and RunRequest.Started that context. Outside a run it holds nothing.
+func HoldSettlement(ctx context.Context) (release func()) {
+	if s, ok := ctx.Value(settlementKey{}).(*RunSettlement); ok {
+		return s.Hold()
+	}
+	return func() {}
 }
 
 // Open returns the number of tracked invocations that have not settled.

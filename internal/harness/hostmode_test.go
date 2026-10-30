@@ -518,6 +518,62 @@ func TestHostCallLateAndStrayReplies(t *testing.T) {
 	}
 }
 
+// Every host_call the engine stopped waiting for is remembered until its
+// reply comes, however many others ended meanwhile (F2c review R1-4): a
+// late reply is dropped and closes its call's Done, which tells a run's
+// settlement that the hook has finished (R1-2); a second reply to it
+// answers no call; and the harness's exit closes the Done of every call
+// still unanswered.
+func TestHostCallManyLateReplies(t *testing.T) {
+	h, p, err := attach(t, HostConfig{Run: echoRun}, pluginHello())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	const n = 300
+	ids := make([]string, n)
+	late := make([]*LateHostCallError, n)
+	for i := range n {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.HostCall(ctx, "on_module_start", "r", "", jsonval.FromProducer([]byte(`{}`)))
+			done <- err
+		}()
+		ids[i] = h.expect(TypeHostCall).(HostCall).ID
+		cancel()
+		if !errors.As(<-done, &late[i]) || !errors.Is(late[i], context.Canceled) {
+			t.Fatalf("call %d: want a *LateHostCallError with the context's cause", i)
+		}
+	}
+	select {
+	case <-late[0].Done:
+		t.Fatal("Done closed before the hook's reply came")
+	default:
+	}
+	h.send(HostReply{ID: ids[0], Payload: jsonval.FromProducer([]byte(`{}`))})
+	select {
+	case <-late[0].Done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first call's late reply did not close its Done")
+	}
+	h.send(HostReply{ID: ids[n-1], Error: &HostError{Code: HostErrorPlugin, Message: "late"}})
+	<-late[n-1].Done
+	h.send(Ping{ID: "after-late"})
+	if m := h.expect(TypePong).(Pong); m.ID != "after-late" {
+		t.Fatalf("pong %+v: a late reply ended the connection", m)
+	}
+	h.send(HostReply{ID: ids[0], Payload: jsonval.FromProducer([]byte(`{}`))})
+	if !h.closed(2 * time.Second) {
+		t.Fatal("a second reply to a call did not end the connection")
+	}
+	select {
+	case <-late[1].Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the harness's exit did not close an unanswered call's Done")
+	}
+}
+
 // A harness that declared no plugin is asked nothing, and gets no step to
 // run inside around wrappers; a host_call from a harness is a protocol
 // error (it goes from the engine to the harness only).

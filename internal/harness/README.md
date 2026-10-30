@@ -418,12 +418,15 @@ hooks.
 - **Calls.** `Process.HostCall(ctx, hook, run, site, payload)` sends a
   `host_call` (`id` `hc<n>`, `hook`, `run`, `site`, raw `payload`) and
   waits for its `host_reply`: its raw `payload`, or its `error` as a
-  `*HostCallError` (`plugin_error`, `unknown_hook`). It returns ctx's cause
-  when ctx ends first, `ErrHostLost` (host mode) or an exit error when the
-  connection ends, `ErrNoPlugin` for a harness without a plugin. A reply
-  that comes after the call stopped waiting is dropped (the last 256 such
-  ids are remembered); one to no call, and a `host_call` from a harness,
-  are protocol errors. `Pool.HostCall` asks the run's process, or the
+  `*HostCallError` (`plugin_error`, `unknown_hook`). When ctx ends first
+  it returns a `*LateHostCallError`, which unwraps to ctx's cause and
+  whose `Done` closes once the hook's reply has come (and been dropped) or
+  the harness has exited, so that the run's settlement can wait for the
+  hook; `ErrHostLost` (host mode) or an exit error when the connection
+  ends; `ErrNoPlugin` for a harness without a plugin. Every call the engine
+  stopped waiting for is remembered until its reply comes, with no bound;
+  a reply to no call, a second reply to a call, and a `host_call` from a
+  harness are protocol errors. `Pool.HostCall` asks the run's process, or the
   least loaded, starting one when none serves; a `fresh` pool refuses.
   `Pool.Plugin` returns the declaration of the pool's first process,
   starting it.

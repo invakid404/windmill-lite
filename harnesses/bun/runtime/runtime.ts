@@ -560,12 +560,25 @@ export class Runtime {
         return;
       }
       let inner: Promise<StepOutcome> | undefined;
-      const next = () => (inner ??= at(k + 1).then(() => stepView(result!)));
+      // next() runs the step once, while the wrapper runs and the engine
+      // still waits for the invocation: once the wrapper has returned, or
+      // the invocation was abandoned, a first call starts nothing (H5), so
+      // a continuation the wrapper left behind cannot run the step after
+      // its failure settled the invocation.
+      let closed = false;
+      const next = () => {
+        if (inner) return inner;
+        if (closed || inv.state !== "running") {
+          return Promise.reject(new TypeError(`windmill-lite: around[${indices[k]}] at ${m.site} called next() after it returned or its invocation ended`));
+        }
+        return (inner = at(k + 1).then(() => stepView(result!)));
+      };
       try {
         await wrappers[k]!.fn(call, next);
       } catch (e) {
         failed(indices[k], `it threw ${describe(e)}`);
       }
+      closed = true;
       if (inner === undefined) failed(indices[k], "it never called next()");
       else await inner.catch(() => {});
     };

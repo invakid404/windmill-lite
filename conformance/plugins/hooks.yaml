@@ -31,10 +31,16 @@
 #   observe: true: logs start:<site> and end:<site>:<status> (H6)
 #   env: {name: value}: H12 sets them in each invocation's environment
 #   variables: {path: value}: H13's provider bridge answers them
+#   fail_variables / fail_resources: {path: {throw | delay_ms}}: H13's
+#     provider throws for the path, or answers after delay_ms, beyond the
+#     plugin timeout; either latches the run (TypeScript only)
+#   slow_start_ms: each onModuleStart takes this long (TypeScript only)
 #   providers: {name: result | failed | decline | throw | delay_ms}
 #   warnings: [{code, message}]: what onRunEnd adds, besides the log
 # Every plugin also answers onRunEnd (H9) with the warning plugin_log,
-# whose message is its log of the run, as JSON.
+# whose message is its log of the run, as JSON, and the runs that settled
+# so far (plugin_settled) and settled while one of their hooks still ran
+# (plugin_settled_early): every case's run must settle, none early.
 # provided: the case's host-provided sites: [{module, provider}].
 # run: the run's own budgets and latches, which a Go host gives in
 #   RunOptions and a TypeScript host in its run frame:
@@ -61,6 +67,15 @@ scripts:
         headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` },
       });
       return { api: r.status === 200 ? await r.json() : r.status, arg: v };
+    }
+  f/plugins/getres.ts: |
+    // Reads the resource u/plugins/r through the job API at BASE_URL, and
+    // returns its answer's status: it tolerates an error.
+    export async function main() {
+      const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/resources/get_value_interpolated/u/plugins/r`, {
+        headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` },
+      });
+      return { api: r.status };
     }
   f/plugins/latch.ts: |
     // Latches its run through the step API (H5), then returns a value
@@ -372,3 +387,109 @@ cases:
     plugin: {}
     run: {deadline_ms: 300}
     expect: {status: canceled, not_ran: ["m:b"]}
+
+  # A provider of H13's bridge that fails or times out latches the run, as
+  # any plugin hook does (ADR 0004 §Host plugins, H5): the step that reads
+  # through the job API tolerates the error it gets, and the module has
+  # continue_on_error, but neither swallows the latch.
+  - id: h13_variable_throw_api
+    spec: [H13, H5, FX-30]
+    title: a variable provider that throws latches the run though its job-API read is tolerated
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/getvar, input_transforms: {v: {type: static, value: plain}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_variables: {u/plugins/v: {throw: the variable provider exploded}}}
+    expect: {status: latched, latched: the variable provider exploded, not_ran: ["m:b"]}
+    go: false
+
+  - id: h13_variable_throw_arg
+    spec: [H13, H5, FX-30]
+    title: a variable provider that throws latches the run though the module tolerates its failed $var reference
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: "$var:u/plugins/v"}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_variables: {u/plugins/v: {throw: the variable provider exploded}}}
+    expect: {status: latched, latched: the variable provider exploded, not_ran: ["m:b"]}
+    go: false
+
+  - id: h13_variable_timeout_api
+    spec: [H13, H5]
+    title: a variable provider that times out latches the run though its job-API read is tolerated
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/getvar, input_transforms: {v: {type: static, value: plain}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_variables: {u/plugins/v: {delay_ms: 1500}}}
+    expect: {status: latched, latched: host_call_timeout, not_ran: ["m:b"]}
+    go: false
+
+  - id: h13_variable_timeout_arg
+    spec: [H13, H5]
+    title: a variable provider that times out latches the run though the module tolerates its failed $var reference
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: "$var:u/plugins/v"}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_variables: {u/plugins/v: {delay_ms: 1500}}}
+    expect: {status: latched, latched: host_call_timeout, not_ran: ["m:b"]}
+    go: false
+
+  - id: h13_resource_throw_api
+    spec: [H13, H5, FX-30]
+    title: a resource provider that throws latches the run though its job-API read is tolerated
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/getres, input_transforms: {}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_resources: {u/plugins/r: {throw: the resource provider exploded}}}
+    expect: {status: latched, latched: the resource provider exploded, not_ran: ["m:b"]}
+    go: false
+
+  - id: h13_resource_throw_arg
+    spec: [H13, H5, FX-30]
+    title: a resource provider that throws latches the run though the module tolerates its failed $res reference
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: "$res:u/plugins/r"}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_resources: {u/plugins/r: {throw: the resource provider exploded}}}
+    expect: {status: latched, latched: the resource provider exploded, not_ran: ["m:b"]}
+    go: false
+
+  - id: h13_resource_timeout_api
+    spec: [H13, H5]
+    title: a resource provider that times out latches the run though its job-API read is tolerated
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/getres, input_transforms: {}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {fail_resources: {u/plugins/r: {delay_ms: 1500}}}
+    expect: {status: latched, latched: host_call_timeout, not_ran: ["m:b"]}
+    go: false
+
+  # A hook the engine stopped waiting for, past the plugin timeout or the
+  # run's own end, still runs in the run's scope: the run settles, and its
+  # resources are released, only once it has finished (H9; every runner
+  # checks plugin_settled_early).
+  - id: hook_timeout_settles
+    spec: [H9, H5]
+    title: an onModuleStart past the plugin timeout latches the run, which settles only once the hook has finished
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {slow_start_ms: 1500}
+    expect: {status: latched, latched: host_call_timeout, not_ran: ["m:a"]}
+    go: false
+
+  - id: hook_cancel_settles
+    spec: [H9, H4]
+    title: a run whose deadline passes during onModuleStart ends canceled and settles only once the hook has finished
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {slow_start_ms: 800}
+    run: {deadline_ms: 300}
+    expect: {status: canceled}
+    go: false

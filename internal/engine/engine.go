@@ -476,6 +476,13 @@ type RunRequest struct {
 	// harness runs the step inside them. It is called once per
 	// invocation, from the goroutine that launches it.
 	Around func(Site) []int
+	// Started, when not nil, is called once the run exists, before it
+	// starts anything, with the run's context and handle (milestone F2c):
+	// what serves the run outside its hooks, such as its own platform
+	// providers, latches it through the handle (H5) and holds its
+	// settlement through the context (HoldSettlement). The context ends
+	// when the run's outcome is decided.
+	Started func(ctx context.Context, r Run)
 }
 
 // ErrPreWriteDeadline is the cause of a run's context when its pre-write
@@ -541,6 +548,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
+	ctx = context.WithValue(ctx, settlementKey{}, r.settle)
 	r.around = req.Around
 	if req.Platform != nil {
 		r.platform, r.own = req.Platform, true
@@ -573,6 +581,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// effective root's tree, so that its steps' root lookups, reads with
 	// a job id and flow user state find it (ADR 0007, D3, WA-14); its user
 	// state is discarded when its tree is.
+	if req.Started != nil {
+		req.Started(ctx, r)
+	}
 	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path})
 	r.run(ctx)
 	endJob()
