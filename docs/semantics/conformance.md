@@ -2154,14 +2154,20 @@ each `:` and `,`, keys shorter first, then by bytes.
     result `r`, and no step runs.
 - **FX-40/h** · source-derived · A container at the last module stores by
   its own outcome.
-  - **Given:** a flow with `cache_ttl: 60` and `[l: forloopflow(iterator:
-    {type: javascript, expr: "[1, 2]"}, parallel: true, modules: [x: bun(v):
-    if (v === 1) throw new Error("one"); return Math.random()])]` with `v =
-    "flow_input.iter.value"`, run twice; then the same with `skip_failures:
-    true` on `l`, run twice.
-  - **Expect:** without `skip_failures` both runs fail with `l`'s array and
-    both run their iterations. With it, run 2's result equals run 1's
-    (`[{"error": {…"message": "one"…}}, r]`) and no iteration runs.
+  - **Given:** a deployed flow with `cache_ttl: 60` and
+    `[l: forloopflow(iterator: {type: javascript, expr: "[1, 2]"}, parallel:
+    true, skip_failures: false, modules: [x: bun(v): if (v === 1) throw new
+    Error("one"); return Math.random()])]` with `v =
+    "flow_input.iter.value"`, run twice by path; then the same with
+    `skip_failures: true` on `l` (or the flag left out, which deployment
+    stores as `true`, [CF-6](control-flow.md#cf-6)), run twice.
+  - **Expect:** with `skip_failures: false` both runs fail with `l`'s array
+    and both run their iterations. With `true`, run 2's result equals run
+    1's (`[{"error": {…"message": "one"…}}, r]`) and no iteration runs.
+  - **Correction 2026-10-29 (SC4 validation round 2):** the first variant
+    was described as "without `skip_failures`"; on a deployed flow an
+    omitted flag is stored as `true`, so that variant succeeds and is
+    cached like the second. It now says `skip_failures: false`.
 - **FX-40/i** · source-derived · Arguments match as `jsonb` values.
   - **Given:** a deployed flow with `cache_ttl: 60` and `[a: bun: return
     Math.random()]`, run with input `{"o": {"b": 1, "a": 2}}`, then with
@@ -2899,10 +2905,14 @@ Findings: [control-flow.md](control-flow.md).
     recording observes that no iteration has started after a while, then
     cancels the flow.
 - **CF-7/f** · source-derived · A failed parallel loop under `continue_on_error` aborts the flow.
-  - **Given:** `[l: forloopflow(iterator: [1, 2], parallel: true,
-    modules: [x: fail("e")]) (continue_on_error: true), n: ret("after")]`;
-    then the flow with `l` alone; then the first flow with a flow
-    `failure_module` = `ret("H")`.
+  - **Given:** deployed, run by path: `[l: forloopflow(iterator: [1, 2],
+    parallel: true, skip_failures: false, modules: [x: fail("e")])
+    (continue_on_error: true), n: ret("after")]`; then the flow with `l`
+    alone; then the first flow with a flow `failure_module` = `ret("H")`.
+  - **Correction 2026-10-29 (SC4 validation round 2):** the Given left
+    `skip_failures` out; on a deployed flow an omitted flag is stored as
+    `true` ([CF-6](control-flow.md#cf-6)), which makes the loop succeed.
+    It is now explicit.
   - **Expect:** both iterations run and fail; then status failure, result
     `{"error": {"name": "InternalError", "message": <starts "Bad request: Unrecognized module status for ForloopFlow Failure {">}}`,
     and `n` does not run. The same for `l` alone (no success with the
@@ -3454,19 +3464,21 @@ afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
 - **CF-22/b** · oracle-observed · The restored `previous_result` is `"{}"`
   after a tolerated failure.
   - **Given:** `[a: bun: throw new Error("a fails") (continue_on_error:
-    true), l: forloopflow(iterator: [1], modules: [b: flaky(v) v =
-    previous_result])]` with the retry on `l`; `b` returns `v` when it
-    succeeds.
+    true), l: forloopflow(iterator: [1], skip_failures: false, modules: [b:
+    flaky(v) v = previous_result])]` with the retry on `l`; `b` returns `v`
+    when it succeeds (the fixture sets `skip_failures: false`, as written
+    here since SC4 validation round 2).
   - **Expect:** success with result `["{}"]`. The failed attempt is `b`'s
     collapsed job, run with `v` = `a`'s error object; the retry's
     iteration ran with `v = "{}"`.
   - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `prev_fallback`, oracle run 40852609901.
 - **CF-22/c** · oracle-observed · A retried collapsed loop: only the first
   push takes the failed job's arguments.
-  - **Given:** `[l: forloopflow(iterator: [1, 2], modules: [b: flaky(x, y)
-    x = flow_input.iter.value, y = flow_input.z ?? "none"])]` with the
-    retry on `l`, input `{"z": "Z"}`; `b` returns `{x, y}` when it
-    succeeds.
+  - **Given:** `[l: forloopflow(iterator: [1, 2], skip_failures: false,
+    modules: [b: flaky(x, y) x = flow_input.iter.value, y = flow_input.z ??
+    "none"])]` with the retry on `l`, input `{"z": "Z"}`; `b` returns `{x,
+    y}` when it succeeds (the fixture's `skip_failures: false`, written out
+    since SC4 validation round 2).
   - **Expect:** success with result `[{"x": 1, "y": "none"}, {"x": 2, "y":
     "Z"}]`. The failed attempt is iteration 0's job, with args `{"x": 1,
     "y": "Z"}`; the retry's first iteration evaluated `b`'s transforms over
@@ -3474,8 +3486,10 @@ afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
   - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `collapsed_input`, oracle run 40857510216.
 - **CF-22/d** · oracle-observed · A retried loop whose retry is spent fails
   with the second attempt's array.
-  - **Given:** `[l: forloopflow(iterator: [1], modules: [b: bun: throw new
-    Error("no"), c: ret(1)])]` with the retry on `l`.
+  - **Given:** `[l: forloopflow(iterator: [1], skip_failures: false,
+    modules: [b: bun: throw new Error("no"), c: ret(1)])]` with the retry
+    on `l` (the fixture's `skip_failures: false`, written out since SC4
+    validation round 2).
   - **Expect:** failure with result `[{"error": {"name": "Error", "message":
     "no", "step_id": "b"}}]`; `l` lists the first attempt's iteration child
     flow (its `b` failed, its `c` never ran).
@@ -3505,8 +3519,9 @@ afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
   - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `branchone_retry`, oracle run 40915682847.
 - **CF-22/h** · source-derived · A retried parallel loop re-enters from the
   last child to complete, even one that succeeded.
-  - **Given:** `[l: forloopflow(iterator: [10, 20], parallel: true,
-    parallelism: 1, modules: [b: bun(i, p)])]` with the retry on `l`, `i =
+  - **Given:** deployed, run by path: `[l: forloopflow(iterator: [10, 20],
+    parallel: true, parallelism: 1, skip_failures: false, modules: [b:
+    bun(i, p)])]` with the retry on `l`, `i =
     flow_input.iter.index`, `p = flow_input.iter_parent ?? null`. On its
     first run in the outer run `b` throws for `i = 0` and returns `p` for
     `i = 1`; on later runs it returns `p`. With `parallelism: 1`,
@@ -3522,6 +3537,10 @@ afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
     order relied on iteration 1 sleeping on one worker, which the
     scheduler does not promise (the start order of eligible iterations is
     open, [CF-7](control-flow.md#cf-7)); `parallelism: 1` fixes it.
+  - **Correction 2026-10-29 (SC4 validation round 2):** the Given left
+    `skip_failures` out; on a deployed flow an omitted flag is stored as
+    `true` ([CF-6](control-flow.md#cf-6)), which makes the first attempt succeed, so nothing is retried.
+    It is now explicit.
 
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container

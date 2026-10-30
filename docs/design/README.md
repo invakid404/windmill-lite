@@ -1080,8 +1080,9 @@ Nothing here may commit the oracle's database credentials unmasked.
   error stop) runs `a` both times, and with a failure module returning
   `"H"` the second call succeeds with `"H"` from the cache; FX-40/g (a
   `skip_if_stopped` stop) completes `skipped` first and `success` on the
-  hit; FX-40/h (a parallel loop with one failing iteration at the last
-  module) runs both times, and with `skip_failures: true` hits; FX-40/i
+  hit; FX-40/h (a parallel loop with `skip_failures: false` and one
+  failing iteration at the last module) runs both times, and with
+  `skip_failures: true` hits; FX-40/i
   (inputs `{"o": {"b": 1, "a": 2}}` then `{"o": {"a": 2, "b": 1}}`) hits,
   and `{"n": 1}` then `{"n": 1.0}` misses; FX-40/j (a static
   `"$var:u/test/v"` input, the variable changed between the calls) returns
@@ -1132,7 +1133,8 @@ Nothing here may commit the oracle's database credentials unmasked.
   `[{"error":{"name":"EarlyStopError","message":"halt"}}]`, `n` not run),
   the loop alone (same), and with `retry` instead (expected two child flows
   for iteration 0, same failure). (4) `[l: forloopflow over [1, 2],
-  parallel: true, body [x: bun: throw new Error("e")], continue_on_error:
+  parallel: true, skip_failures: false, body [x: bun: throw new
+  Error("e")], continue_on_error:
   true, n: bun: return "after"]` (expected an `InternalError` whose message
   starts `Bad request: Unrecognized module status for ForloopFlow Failure
   {`, `n` not run), `l` alone (same), and with a `failure_module` returning
@@ -1155,7 +1157,8 @@ Nothing here may commit the oracle's database credentials unmasked.
 - **A retried parallel container** ([CF-22/h](../semantics/conformance.md#cf-22),
   [CF-22](../semantics/control-flow.md#cf-22) rule 5). `[l:
   forloopflow(iterator: [10, 20], parallel: true, parallelism: 1,
-  modules: [b: bun(i, p)], retry: {constant: {attempts: 1, seconds: 0}})]`
+  skip_failures: false, modules: [b: bun(i, p)], retry: {constant:
+  {attempts: 1, seconds: 0}})]`, deployed and run by path,
   with `i = flow_input.iter.index` and `p = flow_input.iter_parent ??
   null`. On its first run in the outer run (a `/tmp` file keyed by
   `WM_ROOT_JOB_ID` and `i`) `b` throws for `i = 0` and returns `p` for `i

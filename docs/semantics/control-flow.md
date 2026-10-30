@@ -477,7 +477,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     if `skip_failures` is true or every child counts as success; otherwise
     it fails with the full array as its result.
   - **A failed parallel loop under `continue_on_error`** (drafted; the same
-    for a parallel `branchall`, [CF-15](#cf-15)). The parallel completion
+    for a parallel `branchall`, [CF-15](#cf-15)). A parallel loop fails
+    only with `skip_failures: false`, which a deployed flow must state: an
+    omitted flag is stored as `true` ([CF-6](#cf-6)). The parallel completion
     path has no tolerance step: it does not advance the cursor, and the
     continue decision, which then still sees the loop as a step before the
     last, continues into it. A `retry` that is due runs first and re-runs
