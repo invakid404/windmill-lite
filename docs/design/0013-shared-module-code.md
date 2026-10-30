@@ -118,6 +118,7 @@ yet. For C, each row has 34 modules unless it says otherwise:
 | one bundle compiled once, 12 instances (`bun`) | 261 MiB | 13.7 MiB |
 | shared chunks: esbuild code splitting, ES modules (option a) | 120 MiB (`bun`), 129 MiB (compiled) | 0.15 MiB |
 | packages external, one instance each per process (option c1, `bun`) | 132 MiB | 0.6 MiB |
+| packages as host-provided modules: each package specifier resolved to a registry shim, one instance of each registered first (option b) | 127 MiB (`bun` and compiled; 99 MiB once registered) | 0.66–0.68 MiB |
 
 For S, with six modules, each script was built alone and then all six were
 built together with code splitting (`Bun.build`):
@@ -179,14 +180,13 @@ that was swapping.
 
 Each figure says how it was measured: **host** is host mode in the compiled
 host; **model** is the loader model, for a layout the runtime cannot load
-yet; **proxy** is a layout with the same structure, named in the option's
-section.
+yet.
 
 | Option | S, per further module | C, 34 modules | Module state between scripts | CommonJS codebase scripts |
 |---|---|---|---|---|
 | per-script (today, 0006) | 6.3–6.7 MiB (host) | 1,911 MiB with 8 concurrent runs (host) | separate | the CLI's format |
 | (a) shared chunks (0006 option 4) | 0.5–0.6 MiB (model) | 120–129 MiB (model) | shared | become ES modules |
-| (b) host-provided packages | 0.1 MiB (proxy: a listed file) | 132 MiB (proxy: the model's packages-external layout); 130 MiB with 8 concurrent runs (proxy: a listed module, host) | shared, with the host too | unchanged |
+| (b) host-provided packages | none: S's module is a file, not a package (listing it as a file, D12 today: 0.11 MiB, host) | 127 MiB (model) | shared, with the host too | unchanged |
 | (c1) one instance per package | none: S's module is a file, not a package | 132 MiB (model) | shared for packages | unchanged |
 | (c2) shared code, instance per script | 0.15–0.17 MiB (host, prototype) | 475–492 MiB with 8 concurrent runs (host, prototype) | separate | unchanged |
 
@@ -231,14 +231,18 @@ The host contract lists packages, such as `mongoose`, as host-provided
 modules. Imports of them resolve to shims, and one instance per process
 serves every script: the host's own in host mode.
 
-- **Memory:** the build cannot list packages yet, so two proxies stand in.
-  - **Today's D12 for files** is the same mechanism, and S's shared module is
-    a file. Listing it costs 0.11 MiB per further module (host).
-  - **For C's packages,** the model's packages-external layout has the
-    structure that listing them would have: each package once, each
-    script's own code per script. It holds 132 MiB with 34 modules.
-    Listing C's shared module itself, which also shares the code around the
-    packages, holds 130 MiB with eight concurrent runs (host).
+- **Memory:** the build cannot list packages yet, so the loader model
+  measures the mechanism.
+  - **C.** Each step bundle resolves the six packages to shims that take a
+    registered instance from the registry, and one instance of each is
+    registered first, as a host registers its own. That holds 99 MiB once
+    registered and 127 MiB with 34 modules, 0.66 to 0.68 MiB per further
+    module: each script keeps its own code and the state it makes around
+    the packages.
+  - **S** has no package, so packages listed would share nothing. Listing
+    its shared file, D12's route today, costs 0.11 MiB per further module
+    (host). Listing C's shared module the same way holds 130 MiB with eight
+    concurrent runs (host).
   - Only what is listed is shared, so the host must list nearly its whole
     closure, and memory grows again with every package it misses.
 - **Deviation:** D12 widened. A listed package is one instance shared by
@@ -302,7 +306,8 @@ decision below, which describes it in full.
 - **Deviation:** none in module state. It changes only three things (D18):
   - where dependency code is, as stack text and in a load error's message;
   - when an ES module dependency initialises relative to a CommonJS one;
-  - whether code that a per-script bundle removed as unused can run.
+  - whether code, or a whole module, that a per-script bundle removed as
+    unused can run.
 - **The other aspects:** below, under the decision.
 
 ### (d) Other routes
@@ -329,9 +334,21 @@ not change what a script sees of its dependencies: each step keeps its own
 instance of every module it imports, as on Windmill.
 
 1. **Build groups.**
-   - The scripts that one bundler builds with one set of settings form a
-     group: all the Bun-built scripts of the bundle are one group, and each
-     codebase entry's scripts are another (WR-47).
+   - Scripts form a group exactly when their per-script bundles agree on
+     four things:
+     - **one bundler with the same effective settings:** target, format,
+       `define`, `inject`, `loader`, and the transforms of 0010 that apply
+       to them;
+     - **one installation:** the folder's files for a codebase entry, and
+       one lock's install for Bun-built scripts;
+     - **one strictness:** they start in the same strictness.
+   - So these fall in different groups:
+     - ordinary Bun scripts and `//nodejs` scripts, which are built for
+       other targets;
+     - Bun-built scripts of different locks;
+     - codebase entries with different settings (WR-47);
+     - CommonJS entries with and without a leading `"use strict"`, which
+       makes their bundled dependencies strict too.
    - Native scripts (`nativets`, `//native`) are in no group: each of their
      invocations runs in a realm of its own (D5).
    - A script's **dependency modules** are the modules its per-script bundle
@@ -350,19 +367,20 @@ instance of every module it imports, as on Windmill.
      behind the bundler's lazy wrapper.
    - It exports a function that makes a fresh instance: a table from each
      module's key to its initialiser.
-   - **A module is its resolved file,** as in the bundler's module graph.
-     Its key is its path from the sync root for the folder's and the
-     codebase's files. For a package's file, the key is its path in the
-     installation it was resolved in: the folder's `node_modules` for a
-     codebase entry, or the install of one lock for Bun-built scripts.
+   - **A module is its resolved file,** as in the bundler's module graph. A
+     group resolves in one installation, so a module's key is its path:
+     from the sync root for the folder's and the codebase's files, and in
+     the group's installation for a package's.
    - **Physical copies stay separate.** Each physical copy of a package
      keeps a module of its own, with the dependencies its own location
-     resolves. So does a copy that another installation resolves, even at
-     the same version.
+     resolves.
    - **What two scripts share.** Two scripts share a module's code exactly
-     when they resolve the same file of the same installation. Bun-built
-     scripts installed from identical locks share their packages; scripts
-     with different locks share none.
+     when they are in one group and resolve the same file. A workspace file
+     that scripts of two locks import is a module in each lock's group,
+     resolving its packages through that lock.
+   - **Strictness.** A closure is strict exactly when its group's
+     per-script bundles are. An ES module group's closure starts with
+     `"use strict"`, as every module of an ES module bundle is strict.
    - **Settings.** The closure is built with the group's settings: the
      entry's `define`, `inject` and `loader`, and the define table and env
      rewrite of 0010, applied as for the group's own output format.
@@ -392,7 +410,8 @@ instance of every module it imports, as on Windmill.
      bindings still hold.
    - **Pruning.** An import that the per-script bundle drops whole, such as
      a `sideEffects: false` module whose exports are unused, is dropped in
-     the shared layout too.
+     the shared layout too, unless another script of the group reaches the
+     module (D18, unused code).
    - **The cost.** The closure's code is read and compiled once per process.
      What a further step module costs is the state its dependencies make
      when they load.
@@ -408,11 +427,16 @@ instance of every module it imports, as on Windmill.
      when the step first reaches it, in import order, so the two can run
      their load effects in another order.
    - **Unused code.** A closure is the union of its group's scripts. Code
-     that a per-script bundle removed as unused and free of effects, such as
-     a `/* @__PURE__ */` initialiser of an export only another script uses,
-     can run in the shared layout. That shows only where the code had
-     effects after all, an annotation that does not hold, and as time and
-     memory.
+     that a per-script bundle removed as unused and free of effects can run
+     in the shared layout when another script of the group uses it. That
+     covers two kinds:
+     - a `/* @__PURE__ */` initialiser of an export only another script
+       uses;
+     - a whole module: the sibling that a `sideEffects: false` package
+       re-exports beside one the step uses.
+
+     That shows only where the code had effects after all (an annotation
+     that does not hold), and as time and memory.
    - Nothing else differs, and `fresh` removes D18.
 5. **Where a script keeps its per-script bundle.** In some cases one shared
    closure cannot reproduce the per-script bundle. There, `warm` and host
@@ -422,6 +446,9 @@ instance of every module it imports, as on Windmill.
    - **A `banner`** on its group's entry. A banner runs at the top of each
      output and declares bindings that both the entry's code and its
      dependencies' may read; this applies to the whole group.
+   - **An object or array value in its entry's `define`.** esbuild makes one
+     object per bundle, shared by the script's own code and its
+     dependencies alike; this applies to the whole group.
    - **Top-level `await`** in a dependency module it reaches. A CommonJS
      closure cannot initialise such a module.
    - **A cycle through its own entry:** a dependency module that imports the
@@ -522,19 +549,19 @@ more scripts that share a dependency module:
 
 | Case | What it holds |
 |---|---|
-| D18/a | Module state per script: two scripts that count in a shared dependency's state each count their own calls (1 and 1, then 2 and 2 in `warm`; 1 and 1 in `fresh`) |
+| D18/a | Module state per script: two scripts that count in a shared dependency's state each count their own calls (1 and 1, then 2 and 2 in `warm`; 1 and 1 in `fresh`); a script's own state, WR-1/a and WR-1/b, gives in shared code what it gives in `warm` |
 | D18/b | Identity per script: an object and a class a dependency exports are different for two scripts (`instanceof` across them is false) |
 | D18/c | A registry per script: two scripts that each register the same name in a dependency's registry, which refuses a second registration, both succeed (the `Order` probe, synthetic) |
 | D18/d | Lazy initialisation: a dependency a script never reaches runs no load effect in its instance; one required inside a function initialises at its first call, and its log line belongs to that invocation |
 | D18/e | Initialisation order: a script importing an ES module dependency and a CommonJS dependency, each with a load effect; the per-script order in `fresh`, the shared layout's import order in `warm` (deviation D18) |
-| D18/f | Whole-module pruning: an unused import of a `sideEffects: false` module runs no load effect in either layout |
-| D18/g | Unused code: an export whose `/* @__PURE__ */` initialiser has an effect after all, used by one script and not by another; the other script's per-script bundle runs no effect, its shared instance does (deviation D18) |
+| D18/f | Whole-module pruning: an unused import of a `sideEffects: false` module that no script of the group reaches runs no load effect in either layout |
+| D18/g | Unused code: an export whose `/* @__PURE__ */` initialiser has an effect after all, and a module that a `sideEffects: false` package re-exports beside one both scripts use, each used by one script and not by another; the other script's per-script bundle runs no effect, its shared instance does (deviation D18) |
 | D18/h | A codebase CommonJS dependency's `__dirname`, `__filename` and run-time `require` of an asset are the step's, in both layouts (WR-50) |
 | D18/i | An ES module group's dependency reads the step's `import.meta.url`, and `import.meta.env` gives each of concurrent invocations its own environment, in both layouts |
 | D18/j | Stack text: an error thrown in dependency code has the same name and message in both layouts; its stack names the closure file in `warm` (deviation D18) |
 | D18/k | A load error: a dependency that throws while the step's module loads fails the step in both layouts; the `ExecutionErr` message's log tail names the closure file in `warm`, also when the tail is truncated (deviation D18) |
 | D18/l | Host-provided modules: a listed module that two scripts and a dependency of each import is the registered instance (D12), while the dependency is per script; the build still warns `host_module_shared_dependency` |
-| D18/m | The script's own state: WR-1/a and WR-1/b give in shared code what they give in `warm` |
+| D18/m | Strictness: a sloppy CommonJS dependency imported by a script whose entry starts with `"use strict"` and by one whose entry does not reads an unbound `this` and assigns an undeclared variable as in each script's per-script bundle; a dependency of an ES module group runs strict, as in its ES module bundle |
 | D18/n | Interop: a Bun-built script and a `format: esm` codebase script read a dependency's live binding (`export let`, changed by a call) after the change; default and namespace imports of a CommonJS package, with and without `__esModule`, agree with the per-script bundle |
 | D18/o | Cycles: two dependency modules that import each other see each other's partial exports during initialisation, as in the per-script bundle |
 | D18/p | Physical copies: two copies of one package version that one script resolves from two places keep independent state, as in its per-script bundle |
@@ -547,11 +574,11 @@ more scripts that share a dependency module:
 | Case | What it holds |
 |---|---|
 | D18/t | Closure membership: a group's dependency modules are in its closure, a script's own entry is not in its own role, the host-provided modules are not, and a module that two scripts resolve to one file is in it once |
-| D18/u | Two codebase entries with different settings get two closures; a package file that both reach is in each |
-| D18/v | Bun-built scripts installed from identical locks share their package modules; scripts with different locks share none, even at one version |
+| D18/u | Groups: two codebase entries with different settings, an ordinary Bun script and a `//nodejs` one, and CommonJS entries with and without a leading `"use strict"` each get closures of their own; a module that two groups reach is in each |
+| D18/v | Installations: Bun-built scripts installed from identical locks are one group and share their modules; scripts of different locks are two groups, and a workspace file that both import resolves its package through each script's own lock, one version in each |
 | D18/w | The per-script bundles are byte for byte the same with and without shared code |
 | D18/x | The manifest: `shared_code: true`, the closures with their digests, D18 in the deviations, and another bundle digest than without shared code |
-| D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner`, a script that reaches a dependency with top-level `await`, and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
+| D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
 | D18/z | Native scripts are in no group and run in a realm of their own, as without shared code (D5) |
 
 **Flow and memory gates.**

@@ -151,7 +151,7 @@ Milestone F8a, a design milestone added after F3b, answers an embedder's
 measurement that `warm` does not fit its memory budget: record
 [0013](0013-shared-module-code.md) measures the options on a public
 synthetic reproduction and on a closure shaped like the embedder's (in host
-mode, in a loader model, or by a labelled proxy), and
+mode, or in a loader model where the runtime cannot load a layout yet), and
 adds shared code to `warm` (deviation D18 of
 [0001](0001-equivalence-contract.md)), which milestone F8b implements.
 This README covers `docs/design/`: this index and the decision records it
@@ -247,7 +247,7 @@ each record):
 | The host-mode watchdog (milestone W1), `killAfter` 1 s, a step that spins forever | the host was killed 1.00 s after the step's run was sent; the restarted host served the next run | 0004 |
 | Per-step latency of the walking skeleton (milestone W1), a one-step flow with one javascript transform, 300 sequential runs on Bun 1.3.10, engine built without the race detector | spawned warm harness: 56 µs p50, 120 µs p95 per run (invoke to result 31 µs p50); host mode in a compiled host, timed around `run`: 78 µs p50, 126 µs p95 | 0003, 0004 |
 | A compiled Bun 1.3.10 host in host mode, resident set after a full collection (milestone F8a): the synthetic reproduction (six Bun scripts importing one 4.36 MB module of 40,000 strings) and a closure shaped like an embedder's (34 CommonJS codebase scripts of 6.89 MB importing one module over mongoose, the stock client, js-yaml, Babel and a generated client package) | per script: 6.3 to 6.7 MiB and 53 MiB per further module, 1,911 MiB with eight concurrent runs, a 2,015 to 2,042 MiB peak after 1,000 runs; one shared instance: 0.1 and 0.2 MiB per module, a 185 to 194 MiB peak; shared code with an instance per script (prototype): 0.2 and 11 MiB per module, a 519 to 530 MiB peak | 0013 |
-| Shared chunks and one instance per package in a loader model, Bun 1.3.10 (milestone F8a), and their semantics | 120 to 129 MiB and 132 MiB for the closure's 34 modules, against 1,497 MiB per script, and 0.5 to 0.6 MiB per further module for chunks of the synthetic reproduction, against 6.8 to 7.8 MiB; both make the second of two scripts that register a Mongoose model of one name fail, as one shared instance does; chunks also run a CommonJS script as a strict ES module, where an assignment to an undeclared variable throws | 0013 |
+| Shared chunks, one instance per package, and packages as host-provided modules (registry shims) in a loader model, Bun 1.3.10 (milestone F8a), and their semantics | 120 to 129 MiB, 132 MiB and 127 MiB for the closure's 34 modules, against 1,497 MiB per script, and 0.5 to 0.6 MiB per further module for chunks of the synthetic reproduction, against 6.8 to 7.8 MiB; chunks and one instance per package make the second of two scripts that register a Mongoose model of one name fail, as any shared instance does; chunks also run a CommonJS script as a strict ES module, where an assignment to an undeclared variable throws | 0013 |
 
 ## Unsettled findings
 
