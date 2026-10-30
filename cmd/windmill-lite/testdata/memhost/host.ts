@@ -54,13 +54,17 @@ Bun.serve({
       case "/rss":
         return Response.json(memory());
       case "/run": {
-        // concurrent runs of the flow at once, reps times over; the
-        // outcomes of the last round, and how long all rounds took.
+        // concurrent runs of the flow at once, reps times over: how many
+        // ran and how many succeeded over all rounds, the first that did
+        // not, the outcomes of the last round, and how long all rounds took.
         const b = await req.json();
         const concurrent = Number(url.searchParams.get("concurrent") ?? "1");
         const reps = Number(url.searchParams.get("reps") ?? "1");
         const start = performance.now();
-        let runs: unknown[] = [];
+        let runs: { status: string; result: unknown }[] = [];
+        let total = 0;
+        let succeeded = 0;
+        let firstFailure: unknown = null;
         for (let r = 0; r < reps; r++) {
           runs = await Promise.all(
             Array.from({ length: concurrent }, async (_, k) => {
@@ -68,8 +72,13 @@ Bun.serve({
               return { status: o.status, result: o.result };
             }),
           );
+          for (const o of runs) {
+            total++;
+            if (o.status === "success") succeeded++;
+            else firstFailure ??= o;
+          }
         }
-        return Response.json({ ms: performance.now() - start, runs });
+        return Response.json({ ms: performance.now() - start, total, succeeded, firstFailure, runs });
       }
     }
     return new Response("not found", { status: 404 });

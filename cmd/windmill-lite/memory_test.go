@@ -55,10 +55,15 @@ type memSample struct {
 
 func (m memSample) mib() float64 { return float64(m.RSS) / (1 << 20) }
 
-// memRuns is the host's answer to /run.
+// memRuns is the host's answer to /run: the runs and successes over all
+// rounds, the first run that did not succeed, and the last round's
+// outcomes.
 type memRuns struct {
-	MS   float64 `json:"ms"`
-	Runs []struct {
+	MS           float64         `json:"ms"`
+	Total        int             `json:"total"`
+	Succeeded    int             `json:"succeeded"`
+	FirstFailure json.RawMessage `json:"firstFailure"`
+	Runs         []struct {
 		Status string          `json:"status"`
 		Result json.RawMessage `json:"result"`
 	} `json:"runs"`
@@ -223,14 +228,15 @@ func (h memHarness) run(path string, concurrent, reps int) memRuns {
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	if resp.StatusCode != 200 {
+		h.t.Fatalf("run %s: the host answered %d: %s", path, resp.StatusCode, b)
+	}
 	var r memRuns
 	if err := json.Unmarshal(b, &r); err != nil {
 		h.t.Fatalf("run %s: %v: %s", path, err, b)
 	}
-	for _, o := range r.Runs {
-		if o.Status != "success" {
-			h.t.Fatalf("run %s: %s %s", path, o.Status, o.Result)
-		}
+	if want := concurrent * reps; r.Total != want || r.Succeeded != want || len(r.Runs) != concurrent {
+		h.t.Fatalf("run %s: %d of %d runs succeeded, %d wanted, %d outcomes in the last round; first failure: %s", path, r.Succeeded, r.Total, want, len(r.Runs), r.FirstFailure)
 	}
 	return r
 }
