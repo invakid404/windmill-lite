@@ -194,6 +194,10 @@ type Deployment struct {
 	// that the pushed copy carried for the tree's codebase entries
 	// (Layout).
 	Outside []string `json:"outside,omitempty"`
+	// Regenerated lists the scripts of a stub fixture whose committed
+	// schema differs from the one the pinned CLI writes for their sources
+	// (RegeneratedSchemas). Their stubs were checked against the CLI's.
+	Regenerated []string `json:"regenerated_schemas,omitempty"`
 }
 
 // Gate waits for the deployment of everything the push created (OR-9). For

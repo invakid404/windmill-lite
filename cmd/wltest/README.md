@@ -89,9 +89,15 @@ standard output. A run's `claims`, `delays` and `unit` cases are not checked
 here: `go test ./internal/oracle` checks them against the committed
 recordings, so a contradicted claim still leaves a recording to inspect.
 
+`record` replaces the oracle session's bearer token with
+`<redacted-token>` wherever it reads data from the oracle, so no
+recording, raw capture, report or log line holds it
+([internal/oracle](../../internal/oracle/README.md#the-session-token)).
+
 Fixtures in stub mode (`stub: true`) are pushed stubbed: `record` writes
 the stubbed copy of the sync tree, runs the CLI's `generate-metadata` in
-it, requires every script's schema to equal the original's, and answers
+it, requires every script's schema to equal the one the same CLI
+generates for the original source, and answers
 each run's stubs from its `replay` table through the replay service at
 `$WL_EFFECT_SINK/replay`. A run also fails when a stub's call has no
 outcome in the table, when a call disagrees with the walk, or when a
@@ -257,8 +263,15 @@ For each fixture (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
 loaded by [internal/conformance](../../internal/conformance/README.md#fixtures)),
 a few at a time (`flows.go`):
 
-1. **Build.** It reads the sync tree (in stub mode its stubbed copy, see
-   Effects and stub mode below) with
+1. **Build.** It copies the sync tree as `record` pushes it
+   (`oracle.CopyLayout`, or in stub mode `oracle.StubTree`, see Effects and
+   stub mode below) into the fixture's work directory, and reads the copy,
+   never the tree in place. The copy carries what the tree's codebase
+   entries name outside it and nothing else. So a file around the tree,
+   such as a `tsconfig.json` above it whose path aliases esbuild would
+   read, reaches neither this build nor the oracle
+   ([ADR 0011](../../docs/design/0011-differential-testing.md)). It reads
+   the copy with
    [internal/syncfolder](../../internal/syncfolder/README.md) and compiles
    each run's target flow with [internal/ir](../../internal/ir/README.md),
    the target as the only root, and opens its program on the engine, to
@@ -355,7 +368,12 @@ a few at a time (`flows.go`):
    returns them ([ADR 0005](../../docs/design/0005-json-step-boundaries.md));
    `carried` and `resolved_args` keep the trace's texts, the value carried
    on in memory and the arguments the script received, and are written only
-   where their text differs, and a site with no result has no `carried`
+   where their text differs. The top-level members of `resolved_args`
+   come in jsonb's key order, as those of `args` do, so the observation is
+   the same in every run. The engine shuffles the order of a step's
+   argument keys in each run, because Windmill leaves it unspecified
+   ([ADR 0001](../../docs/design/0001-equivalence-contract.md) §2). A site
+   with no result has no `carried`
    (a module that failed at the root's pickup with no job carries its
    error to the flow's result). The values are then normalised by
    [OR-14](../../docs/semantics/oracle.md#or-14)'s rules: job ids become the
@@ -448,8 +466,7 @@ of a group stay apart, and refuses any other root with 409 (OR-16/c).
 In stub mode the runs run the stubbed copy of the sync tree that `record`
 pushes (`oracle.StubTree`, written to the fixture's work directory and
 built instead of the tree, with the paths outside the tree that its
-codebase entries name carried beside it, so that the build reads the same
-assets as from the original), and each run's `replay` table answers its
+codebase entries name carried beside it, as every copy is), and each run's `replay` table answers its
 stubs. The service locates a stub's job at the site the hook recorded:
 the module's site, never an attempt, since the service counts attempts
 itself (ADR 0011). After the run, `conformance.CheckReplay`, the check
@@ -578,7 +595,12 @@ Windmill v1.767.0's image).
   same for codebase scripts: one that does not bundle and one whose asset
   collides fail their own flows, while a flow whose codebase script reads
   its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
-  same isolation for codebase step cases. `TestObserveTrace`,
+  same isolation for codebase step cases. `TestCheckBuildsTheTreeRecordPushes`
+  checks that `check` builds the copy `record` pushes, with the synthetic
+  fixture `testdata/path-alias`, whose codebase script imports through a
+  `tsconfig.json` path alias. The run fails its build when the
+  `tsconfig.json` lies beside the sync tree, which the copy leaves out, and
+  passes when it lies in the tree. `TestObserveTrace`,
   `TestObserveChildFlows`, `TestObserveNestedGenerated`,
   `TestObserveIncludedResult` (an error stop's included array, end to end
   on the engine), `TestCompareRun`,
@@ -586,7 +608,9 @@ Windmill v1.767.0's image).
   no Bun: they check the observation of a trace (stored forms, `not_run`
   sites, the failure module's site, a child flow's sites and id,
   placeholders, stack masking, the kept `carried` and `resolved_args`, the
-  generated values) and which reference
+  generated values; `TestResolvedArgsKeyOrder` and `TestKeyOrdered`, that
+  every order of a step's argument keys observes the same `resolved_args`
+  text) and which reference
   a run is compared with, including the location rule's positive and
   negative cases for a result, for a carried value in either member order,
   and for a carried value with its own origin, and a declared not-found

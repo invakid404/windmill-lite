@@ -60,19 +60,32 @@ func (c CLI) args(t Target, command ...string) []string {
 	return append(a, command...)
 }
 
-func (c CLI) run(ctx context.Context, dir string, args []string) error {
+// run runs a CLI command on t in dir. The CLI holds t's token, so the
+// token is replaced by RedactedToken in its output and in the error.
+func (c CLI) run(ctx context.Context, dir string, t Target, command ...string) error {
 	if len(c.Command) == 0 {
 		return fmt.Errorf("oracle: no CLI command")
 	}
+	args := c.args(t, command...)
 	cmd := exec.CommandContext(ctx, c.Command[0], args...)
 	ownProcessGroup(cmd)
 	cmd.Dir = dir
 	cmd.Env = c.env()
+	var stdout *redactingWriter
+	if c.Stdout != nil {
+		stdout = &redactingWriter{w: c.Stdout, token: t.Token}
+		cmd.Stdout = stdout
+	}
 	var stderr bytes.Buffer
-	cmd.Stdout = c.Stdout
-	cmd.Stderr = io.MultiWriter(&stderr, orDiscard(c.Stderr))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("oracle: %s %s: %w: %s", c.Command[0], strings.Join(redact(args), " "), err, strings.TrimSpace(stderr.String()))
+	errOut := &redactingWriter{w: orDiscard(c.Stderr), token: t.Token}
+	cmd.Stderr = io.MultiWriter(&stderr, errOut)
+	err := cmd.Run()
+	if stdout != nil {
+		_ = stdout.Flush()
+	}
+	_ = errOut.Flush()
+	if err != nil {
+		return fmt.Errorf("oracle: %s %s: %w: %s", c.Command[0], strings.Join(redact(args), " "), err, redactTokenString(strings.TrimSpace(stderr.String()), t.Token))
 	}
 	return nil
 }
@@ -139,27 +152,27 @@ func reportedVersion(out string) string {
 // AddMissingFolders runs `folder add-missing --yes` in a sync tree. It
 // writes folder.meta.yaml for folders that lack it (OR-8).
 func (c CLI) AddMissingFolders(ctx context.Context, tree string, t Target) error {
-	return c.run(ctx, tree, c.args(t, "folder", "add-missing", "--yes"))
+	return c.run(ctx, tree, t, "folder", "add-missing", "--yes")
 }
 
 // GenerateMetadata runs `generate-metadata --yes` in a sync tree against
 // the oracle, writing script metadata, locks and wmill-lock.yaml (OR-8).
 func (c CLI) GenerateMetadata(ctx context.Context, tree string, t Target) error {
-	return c.run(ctx, tree, c.args(t, "generate-metadata", "--yes"))
+	return c.run(ctx, tree, t, "generate-metadata", "--yes")
 }
 
 // Push runs `sync push --yes` in a sync tree. Push is destructive: it
 // removes selected remote items absent from the tree, so the harness only
 // pushes into a workspace it created for the run (OR-31).
 func (c CLI) Push(ctx context.Context, tree string, t Target) error {
-	return c.run(ctx, tree, c.args(t, "sync", "push", "--yes"))
+	return c.run(ctx, tree, t, "sync", "push", "--yes")
 }
 
 // Pull runs `sync pull --yes` in dir, which holds only a wmill.yaml: the
 // CLI writes the workspace's items there as a sync tree, the round trip of
 // SY-6 and CF-6 (oracle.pull).
 func (c CLI) Pull(ctx context.Context, dir string, t Target) error {
-	return c.run(ctx, dir, c.args(t, "sync", "pull", "--yes"))
+	return c.run(ctx, dir, t, "sync", "pull", "--yes")
 }
 
 // CopyTree copies the regular files and directories below src into dst,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/yamlx"
 )
 
 // The session tests record the OR-20 smoke fixture against a fake oracle:
@@ -26,10 +28,62 @@ import (
 
 const fakeCLIFlag = "--wltest-fake-cli"
 
+// Modes of the fake CLI, in place of its hang marker: fakeCLIEcho prints
+// its arguments; fakeCLIRegenerate and fakeCLIResign make generate-metadata
+// rewrite the metadata, without and with a changed stub signature.
+const (
+	fakeCLIEcho       = "echo"
+	fakeCLIRegenerate = "regenerate"
+	fakeCLIResign     = "resign"
+)
+
+// fakeGenerateMetadata rewrites the schema of every script below the
+// working directory as the pinned CLI writes it: each property gains an
+// empty description and a null default. With resign, the schema of a
+// stubbed script (StubSource) also loses its properties, as if the CLI had
+// read another signature from the stub than from the original.
+func fakeGenerateMetadata(resign bool) error {
+	return filepath.WalkDir(".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".script.yaml") {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		j, err := yamlx.ToJSON(data)
+		if err != nil {
+			return err
+		}
+		var meta map[string]any
+		if err := json.Unmarshal(j, &meta); err != nil {
+			return err
+		}
+		schema, _ := meta["schema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		for _, v := range props {
+			if prop, ok := v.(map[string]any); ok {
+				prop["description"], prop["default"] = "", nil
+			}
+		}
+		if src, err := os.ReadFile(strings.TrimSuffix(p, ".script.yaml") + ".ts"); resign && err == nil && strings.HasPrefix(string(src), stubHeader) {
+			schema["properties"], schema["required"] = map[string]any{}, []any{}
+		}
+		out, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(p, out, 0o644)
+	})
+}
+
 // TestFakeCLI is the fake wmill CLI. It does nothing unless re-executed
 // with fakeCLIFlag, a log file and a hang marker ("-" for none): then it
 // logs its arguments, prints a version for --version, and, with a marker,
-// creates the marker and hangs on sync push. Like the real push, sync push
+// creates the marker and hangs on sync push. In place of the marker,
+// fakeCLIEcho makes it print its arguments to stdout and stderr, and
+// fakeCLIRegenerate and fakeCLIResign make its generate-metadata rewrite
+// the tree's script metadata (fakeGenerateMetadata). Like the real push, sync push
 // removes the workspace's variables, which it asks the fake oracle to do
 // (fakePushPath); sync pull writes the smoke flow, as the fake oracle
 // holds it, into its working directory.
@@ -48,13 +102,24 @@ func TestFakeCLI(t *testing.T) {
 		if strings.Contains(cli, "--version") {
 			fmt.Println("CLI version: " + CLIVersion)
 		}
+		if args[i+2] == fakeCLIEcho {
+			fmt.Println("fake CLI:", cli)
+			fmt.Fprintln(os.Stderr, "fake CLI:", cli)
+		}
 		if strings.Contains(cli, "sync push") || strings.Contains(cli, "generate-metadata") {
 			if err := codebasePathsResolve(); err != nil {
 				fmt.Fprintln(os.Stderr, "fake CLI:", err)
 				os.Exit(1)
 			}
 		}
-		if marker := args[i+2]; marker != "-" && strings.Contains(cli, "sync push") {
+		mode := args[i+2]
+		if strings.Contains(cli, "generate-metadata") && (mode == fakeCLIRegenerate || mode == fakeCLIResign) {
+			if err := fakeGenerateMetadata(mode == fakeCLIResign); err != nil {
+				fmt.Fprintln(os.Stderr, "fake CLI:", err)
+				os.Exit(1)
+			}
+		}
+		if marker := mode; marker != "-" && marker != fakeCLIEcho && marker != fakeCLIRegenerate && marker != fakeCLIResign && strings.Contains(cli, "sync push") {
 			_ = os.WriteFile(marker, nil, 0o644)
 			time.Sleep(time.Minute)
 		}
@@ -229,6 +294,8 @@ type fakeOracle struct {
 	keepVars, loseVars bool
 	// refuseWait makes run-and-wait answer 400 without creating a job.
 	refuseWait bool
+	// leaked holds the roots of the runs submitted with leak (start).
+	leaked map[string]bool
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
@@ -343,7 +410,13 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		root := o.start(r)
 		j := o.jobs[root]
-		w.Header().Set("Content-Type", "application/json")
+		ct := "application/json"
+		if o.leaked[root] {
+			// A flow's result can set the response's Content-Type,
+			// parameters included.
+			ct += "; tag=" + o.tag + "; auth=" + r.Header.Get("Authorization")
+		}
+		w.Header().Set("Content-Type", ct)
 		code := 200
 		if !j.Success {
 			code = 422
@@ -438,6 +511,11 @@ func (o *fakeOracle) start(r *http.Request) string {
 	var args struct {
 		X       int  `json:"x"`
 		Effects bool `json:"effects"`
+		// Leak makes the run hand the session's token back, as Windmill
+		// does with a trigger event's headers: in b's arguments, in b's
+		// result (the flow's), in a's effect and, for run-and-wait, in the
+		// response's Content-Type.
+		Leak bool `json:"leak"`
 	}
 	body, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(body, &args)
@@ -453,6 +531,17 @@ func (o *fakeOracle) start(r *http.Request) string {
 	bArgs := fmt.Sprintf(`{"n":%d,"tag":%q}`, n, o.tag)
 	success := n <= 100
 	bRes := fmt.Sprintf(`"%s:%d"`, o.tag, n)
+	aEffect := fmt.Sprintf(`{"root":%q,"job":%q,"step":"a"}`, root, a)
+	if args.Leak {
+		if o.leaked == nil {
+			o.leaked = map[string]bool{}
+		}
+		o.leaked[root] = true
+		auth := r.Header.Get("Authorization")
+		bArgs = fmt.Sprintf(`{"n":%d,"tag":%q,"event":{"headers":{"authorization":%q}}}`, n, o.tag, auth)
+		bRes = fmt.Sprintf(`"%s:%d %s"`, o.tag, n, auth)
+		aEffect = fmt.Sprintf(`{"root":%q,"job":%q,"step":"a","seen":%q}`, root, a, auth)
+	}
 	bType := "Success"
 	if !success {
 		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b"}}`, n, n, b)
@@ -469,7 +558,7 @@ func (o *fakeOracle) start(r *http.Request) string {
 		}
 		sink := "http://127.0.0.1:" + u.Port()
 		for _, e := range []string{
-			fmt.Sprintf(`{"root":%q,"job":%q,"step":"a"}`, root, a),
+			aEffect,
 			`{"root":"99999999-9999-4999-8999-999999999999","job":"x","step":"t"}`,
 		} {
 			resp, err := http.Post(sink, "application/json", strings.NewReader(e))

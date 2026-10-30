@@ -391,11 +391,14 @@ func TestObserveTrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Stored values come in jsonb's member order, shorter keys first.
+	// Stored values come in jsonb's member order, shorter keys first, and
+	// so do the top-level members of the resolved arguments, whose order
+	// the engine shuffles: m:a's then have the text of its arguments, so
+	// the observation leaves them out.
 	masked := `{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"b"}}`
 	stored := `{"error":{"name":"Error","stack":"<stack>","message":"no","step_id":"b"}}`
 	want, err := conformance.IndentJSON([]byte(`{"status":"failure","result":` + stored + `,"steps":{` +
-		`"m:a":{"status":"success","args":{"a":"<job:>","zz":1},"resolved_args":{"zz":1,"a":"<job:>"},"result":{"bb":1.0,"job":"<job:m:a>"},"carried":{"job":"<job:m:a>","bb":1.0}},` +
+		`"m:a":{"status":"success","args":{"a":"<job:>","zz":1},"result":{"bb":1.0,"job":"<job:m:a>"},"carried":{"job":"<job:m:a>","bb":1.0}},` +
 		`"m:b":{"status":"failure","args":{},"result":` + stored + `,"carried":` + masked + `},` +
 		`"m:c":{"status":"not_run","ran":false}}}`))
 	if err != nil {
@@ -404,9 +407,9 @@ func TestObserveTrace(t *testing.T) {
 	if !bytes.Equal(g, want) {
 		t.Fatalf("got\n%s\nwant\n%s", g, want)
 	}
-	// Against what a recording holds, which has no carried or resolved
-	// arguments, the kept texts differ only in member order: a loose
-	// comparison ignores it and a strict one does not (OR-13, ADR 0011).
+	// Against what a recording holds, which has no carried value, the kept
+	// texts differ only in member order: a loose comparison ignores it and
+	// a strict one does not.
 	var expect conformance.Observation
 	if err := json.Unmarshal([]byte(`{"status":"failure","result":`+stored+`,"steps":{"m:a":{"status":"success","args":{"a":"<job:>","zz":1},"result":{"bb":1.0,"job":"<job:m:a>"}},"m:b":{"status":"failure","args":{},"result":`+stored+`},"m:c":{"status":"not_run"}}}`), &expect); err != nil {
 		t.Fatal(err)
@@ -422,7 +425,7 @@ func TestObserveTrace(t *testing.T) {
 	for _, x := range d {
 		ptrs = append(ptrs, x.Pointer)
 	}
-	if !slices.Equal(ptrs, []string{"/steps/m:a/carried", "/steps/m:a/resolved_args", "/steps/m:b/carried/error"}) {
+	if !slices.Equal(ptrs, []string{"/steps/m:a/carried", "/steps/m:b/carried/error"}) {
 		t.Fatalf("strict: %v", d)
 	}
 

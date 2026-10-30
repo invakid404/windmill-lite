@@ -170,6 +170,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
 | `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
+| `redact.go` | Keeps the session's bearer token out of everything the session writes ([The session token](#the-session-token)). |
 | `layout.go` | Copies of a sync tree (milestone E4c): `PlanLayout` finds the paths outside the tree that its codebase entries name, `CopyLayout` copies the tree with them beside it ([Copies of a sync tree](#copies-of-a-sync-tree)). |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml` (`ApplySetup`, `CheckSetup`, `ResetSetup`), the deployment gate and the deployed-module check. |
@@ -195,6 +196,35 @@ runs, capture) goes through the Apache-2.0 API surface.
 `TestClientUsesTheOpenAPISurface` calls every `Client` method and requires
 each request's method, path and JSON body properties to be in the vendored
 schema.
+
+## The session token
+
+A session logs in as the oracle's seeded superadmin and sends the token
+the login returns with every request and CLI command. The token belongs to
+a throwaway Windmill in the session's own CI job, but no file that can be
+committed may hold it. Windmill hands the token on: a flow started over
+HTTP carries the request's headers, `Authorization` included, in its
+trigger event, so a preprocessor's arguments hold it.
+
+The session therefore replaces the token with `<redacted-token>`
+(`RedactedToken`) where data enters it:
+
+- `Client` replaces it in every response body and `Content-Type` header
+  that it returns or captures, so walks, run-and-wait responses, errors and
+  raw captures never hold it. A flow's result can set the run-and-wait
+  response's `Content-Type`, parameters included
+  ([FX-36](../../docs/semantics/execution.md#fx-36)). `Login` never
+  captures its exchange, whose body is the token.
+- The session replaces it in the effects and stub calls that scripts post
+  to the effect sink, which bypass the client.
+- `CLI` replaces it in the CLI's output and in the error of a failed
+  command; the command line already shows `<token>` in its place.
+
+Recordings, raw captures, the session report and log lines derive from
+those sources, so none holds the token, whatever a fixture records or
+masks. A script that encodes the token, for example in base64, gets past
+the replacement; the CI secret scan (`.gitleaks.toml`) has a rule for
+bearer tokens in recorded headers.
 
 ## Sites
 
@@ -329,11 +359,18 @@ the output, links resolved), so a symbolic link, another letter case on a
 case-insensitive file system or any other alias of the tree counts; a copy
 that fails removes the output and any parent directory it made. The CLI then runs
 `generate-metadata` in the stubbed tree,
-since its locks and `wmill-lock.yaml` still describe the originals, and
+since its locks and `wmill-lock.yaml` still describe the originals.
 `CheckStubSignatures` requires every path script's generated schema to
-equal the original's (`stub_signature_changed` otherwise): the CLI derives
-the schema from `main`'s signature, so equal schemas show the stub kept
-what Windmill's parser reads. Inline scripts have no schema; for them the
+equal the schema the same CLI generates for the original source
+(`stub_signature_changed` otherwise). The CLI derives the schema from
+`main`'s signature, so equal schemas show the stub kept what Windmill's
+parser reads. Committed metadata may come from another CLI version, so
+unless the session has just regenerated it in place (`--regenerate-metadata`),
+the CLI also runs `generate-metadata` in another copy of the original, and
+the stub is compared with that copy. `RegeneratedSchemas` lists the
+scripts whose committed schema differs from the generated one; the
+deployment report gives them as `regenerated_schemas`, and they are not
+refused. Inline scripts have no schema; for them the
 scanner's cases and the arguments each recorded call shows are the
 evidence. The deployment report lists the stubbed files and the carried
 paths.
@@ -558,6 +595,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
 | `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionDeploysThroughTheAPI`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
+| `TestRedactingWriter`, `TestClientHidesItsToken`, `TestCLIOutputHidesTheToken`, `TestSessionNeverWritesTheToken` | where the session token is replaced: in output split across writes; in the client's bodies, `Content-Type` headers, errors, run-and-wait responses and captures, with the login not captured; and in the CLI's output and error. A whole session whose run hands the token back in a trigger event's headers, a result, an effect and the run-and-wait response's body and `Content-Type`, with a CLI that prints it, writes no recording, raw capture, report or log that holds it | the smoke fixture |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language, as the sync folder reads it) | `conformance/flows` |
@@ -582,6 +620,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestExportListsOnBun` | the scanner accepts a script exactly when importing it on the pinned Bun gives a callable `main` (export lists, type-only entries, aliases), and every accepted script's stub exports one too | — |
 | `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, a retried named subflow (its current attempt's steps at the step's site, without `r:`; milestone N5), an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
 | `TestCheckReplay`, `TestCheckOverlap` | each failure of `checkReplay`; a group's root jobs in flight together | — |
+| `TestSessionStubSignatures` | the stub's schemas against those the CLI generates for the original. Committed metadata that the CLI writes otherwise records, listed in `regenerated_schemas`; a stub whose signature the CLI reads otherwise is refused with `stub_signature_changed`; metadata regenerated in place is compared as it is | `conformance/flows/stub/collapsed` |
 | `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes E4a's four stub fixtures (`collapsed`, `nested`, `retry_loop`, `scopes`) and E4c's `outside` job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; `outside`'s push carries `../shared`, without which the fake CLI fails; runs `r` and `t` run together and keep apart (the fake starts a group's runs once all of them are submitted, as the oracle's runs outlast the gap between submissions, so a slow machine cannot finish one first; a session that submits them one after the other still gets `group_not_concurrent`); `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |

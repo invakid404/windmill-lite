@@ -284,9 +284,14 @@ climbs as spelled, with any directory a spelling passes through on the
 way made too: `wmill.yaml` stays as written, because the CLI digests the
 entry's settings as text ([WR-49](../semantics/languages.md#wr-49)).
 Because the copy's metadata still describes the originals, `record` runs
-the CLI's `generate-metadata` in it and requires every path script's
-generated schema to equal the original's: the CLI derives the schema from
-the signature, so this checks on the oracle that the stub kept it.
+the CLI's `generate-metadata` in it. It then requires every path script's
+generated schema to equal the schema the same CLI generates for the
+original source. The CLI derives the schema from the signature, so this
+checks on the oracle that the stub kept it. Committed metadata may come
+from another CLI version, so unless the session has just regenerated it
+in place, the CLI generates the original's in another copy. The deployment
+report lists the scripts whose committed schema differs from the
+generated one, and `record` does not refuse them.
 Inline scripts have no schema; for them the scanner's cases, and the
 arguments each recorded call shows, are the evidence.
 
@@ -423,7 +428,10 @@ their root jobs were not in flight together.
   run's trace into the walker's records: a module the trace has no record
   of is `not_run`; stored values (the root's result, each site's arguments
   and result) are in their stored form, and `carried` and `resolved_args`
-  are the texts the trace holds. It normalises them by OR-14, with the run's
+  are the texts the trace holds. The top-level members of `resolved_args`
+  come in jsonb's key order, as those of `args` do, because the engine
+  shuffles the order of a step's argument keys in each run
+  ([0001](0001-equivalence-contract.md) §2). The runner normalises the records by OR-14, with the run's
   id as the root's job id and each invocation's id as its site's, and
   compares them with `expect`, or with `recorded` where there is none. The
   location rule above is `conformance.StripLocations`, applied on the
@@ -520,8 +528,8 @@ their root jobs were not in flight together.
   child's `i:` or `b:` segment (CF-22).
 
 - E4b's follow-up E4c makes every copy of a sync tree (`wltest stub`'s,
-  the stubbed copy `wltest check` builds, and the copies `wltest record`
-  pushes, stubbed or not) carry what the tree's codebase entries name
+  and those that `wltest check` builds and `wltest record` pushes, stubbed
+  or not) carry what the tree's codebase entries name
   outside it, at the same places relative to the copied tree, without
   rewriting `wmill.yaml` (`oracle.CopyLayout`). Before it, an entry whose
   `relative_path` or asset lay outside the tree built and checked on the
@@ -531,6 +539,13 @@ their root jobs were not in flight together.
   (a `relative_path` of `../shared`, an asset and an import below it) are
   recorded on the oracle through those copies and match windmill-lite's
   runs.
+- `wltest check` builds such a copy, never the tree in place, so a file
+  around the tree reaches neither side. In place, esbuild would resolve the
+  path aliases of a `tsconfig.json` above the tree, which the pushed copy
+  lacks (`cmd/wltest/testdata/path-alias`). Carrying those files into the
+  pushed copy instead would need esbuild's lookup reproduced: every
+  directory up to the file system root, `extends`, and alias targets
+  outside the tree.
 
 ## Spec IDs relied on
 

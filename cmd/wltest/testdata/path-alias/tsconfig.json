@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "baseUrl": "windmill",
+    "paths": {
+      "@wl_alias/*": ["shared/wl_alias/*"]
+    }
+  }
+}

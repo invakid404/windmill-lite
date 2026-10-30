@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 
 	"github.com/invakid404/windmill-lite/internal/openflow"
@@ -248,33 +249,68 @@ func stubbable(lang openflow.Language, content string) string {
 
 // CheckStubSignatures compares the schema of every script of the sync
 // tree orig with the same script's in stubbed, after generate-metadata ran
-// on stubbed: the CLI derives a schema from main's signature, so equal
-// schemas confirm that the stub kept what Windmill's parser reads.
+// on both: the CLI derives a schema from main's signature, so equal schemas
+// confirm that the stub kept what Windmill's parser reads. orig must hold
+// the metadata the same CLI writes for the original sources, not metadata
+// committed by another CLI or edited by hand (RegeneratedSchemas).
 func CheckStubSignatures(orig, stubbed string) error {
-	a, err := syncfolder.Open(orig)
-	if err != nil {
+	d, err := schemaDifferences(orig, stubbed)
+	if err != nil || len(d) == 0 {
 		return err
 	}
-	defer a.Close()
-	b, err := syncfolder.Open(stubbed)
-	if err != nil {
-		return err
+	return refusal("stub_signature_changed", "script", jsonString(d[0].script), "original", compactOrNull(d[0].a), "stub", compactOrNull(d[0].b))
+}
+
+// RegeneratedSchemas returns the scripts of the sync tree committed whose
+// schema differs from the same script's in generated, a copy of committed
+// after generate-metadata ran on it, in path order: the scripts whose
+// committed metadata is not what the CLI writes for their sources.
+func RegeneratedSchemas(committed, generated string) ([]string, error) {
+	d, err := schemaDifferences(committed, generated)
+	var scripts []string
+	for _, x := range d {
+		scripts = append(scripts, x.script)
 	}
-	defer b.Close()
-	for _, p := range a.Paths(syncfolder.KindScript) {
-		sa, err := a.Script(p)
+	return scripts, err
+}
+
+// schemaDifference is a script whose schema differs between two trees.
+type schemaDifference struct {
+	script string
+	a, b   json.RawMessage
+}
+
+// schemaDifferences compares the schema of every script of the sync tree a
+// with the same script's in b, member order aside, and returns the scripts
+// whose schemas differ, in path order.
+func schemaDifferences(a, b string) ([]schemaDifference, error) {
+	ta, err := syncfolder.Open(a)
+	if err != nil {
+		return nil, err
+	}
+	defer ta.Close()
+	tb, err := syncfolder.Open(b)
+	if err != nil {
+		return nil, err
+	}
+	defer tb.Close()
+	paths := ta.Paths(syncfolder.KindScript)
+	slices.Sort(paths)
+	var out []schemaDifference
+	for _, p := range paths {
+		sa, err := ta.Script(p)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		sb, err := b.Script(p)
+		sb, err := tb.Script(p)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !sameJSON(sa.Metadata.Schema, sb.Metadata.Schema) {
-			return refusal("stub_signature_changed", "script", jsonString(p), "original", compactOrNull(sa.Metadata.Schema), "stub", compactOrNull(sb.Metadata.Schema))
+			out = append(out, schemaDifference{script: p, a: sa.Metadata.Schema, b: sb.Metadata.Schema})
 		}
 	}
-	return nil
+	return out, nil
 }
 
 // sameJSON reports whether two JSON texts hold equal values, member order

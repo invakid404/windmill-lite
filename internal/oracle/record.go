@@ -548,7 +548,8 @@ func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance
 
 // deployCLI is deploy through the CLI. A stub fixture's copy is its
 // stubbed tree (StubTree), whose metadata the CLI regenerates before the
-// push; the stub must keep every path script's schema (CheckStubSignatures).
+// push; the stub must keep every path script's schema (CheckStubSignatures),
+// compared with the schema the CLI writes for the original source.
 func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
@@ -580,7 +581,28 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 		if err := cli.GenerateMetadata(ctx, pushDir, t); err != nil {
 			return nil, dep, err
 		}
-		if err := CheckStubSignatures(f.SyncTree(), pushDir); err != nil {
+		// Committed metadata may differ from what this CLI writes, for
+		// example when another CLI version wrote it. Unless the session has
+		// just regenerated it in place, the CLI writes the original's
+		// metadata into another copy, so a difference in the comparison
+		// comes from the stub alone; the scripts whose committed schema
+		// differs are reported, not refused.
+		ref := f.SyncTree()
+		if !s.RegenerateMetadata && !f.Generated {
+			refDir := filepath.Join(tmp, "signatures", ws)
+			l, err := CopyLayout(f.SyncTree(), refDir)
+			if err != nil {
+				return nil, dep, err
+			}
+			ref = filepath.Join(refDir, filepath.FromSlash(l.Root))
+			if err := cli.GenerateMetadata(ctx, ref, t); err != nil {
+				return nil, dep, err
+			}
+			if dep.Regenerated, err = RegeneratedSchemas(f.SyncTree(), ref); err != nil {
+				return nil, dep, err
+			}
+		}
+		if err := CheckStubSignatures(ref, pushDir); err != nil {
 			return nil, dep, err
 		}
 	} else {
@@ -616,11 +638,11 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 	if err := CheckSetup(ctx, c, ws, f.Setup, !before); err != nil {
 		return nil, dep, err
 	}
-	stubbed, outside := dep.Stubbed, dep.Outside
+	stubbed, outside, regenerated := dep.Stubbed, dep.Outside, dep.Regenerated
 	if dep, err = Gate(ctx, c, ws, s.pollInterval, 2*time.Minute); err != nil {
 		return nil, dep, err
 	}
-	dep.Stubbed, dep.Outside = stubbed, outside
+	dep.Stubbed, dep.Outside, dep.Regenerated = stubbed, outside, regenerated
 	return tree, dep, CheckDeployedModules(tree, dep)
 }
 
@@ -1011,6 +1033,15 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	var calls []conformance.ReplayCall
 	if f.Stub {
 		calls = replay.Close(root)
+	}
+	// Scripts post effects and stub calls straight to the harness, past
+	// the client, so the token is replaced in them here (RedactedToken).
+	for i := range effects {
+		effects[i] = redactToken(effects[i], c.Token)
+	}
+	for i := range calls {
+		calls[i].Effect = redactToken(calls[i].Effect, c.Token)
+		calls[i].Err = redactTokenString(calls[i].Err, c.Token)
 	}
 
 	capture := &Capture{}
