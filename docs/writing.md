@@ -94,7 +94,9 @@ medium renders as a link:
   comment gives the definition's address on GitHub
   ([Go doc comments](https://go.dev/doc/comment#links));
 - in another comment, the link is the form that its documentation tool
-  renders, such as `{@link <address> | <ID>}` in a TSDoc comment.
+  renders, such as `{@link <address> | <ID>}` in a
+  [TSDoc](https://tsdoc.org/pages/tags/link/) comment, the format for
+  TypeScript documentation comments.
 
 Where a comment cannot hold such a link, leave the ID out of the comment,
 and keep it in the test or the case data. A milestone ID is not an
