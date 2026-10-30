@@ -1,0 +1,9 @@
+# The step's result comes from the module the alias names.
+spec: [WR-47]
+target: f/wl_alias/main
+args: {}
+expect:
+  status: success
+  result: {greeting: "hello from the aliased module"}
+  steps:
+    "m:a": {status: success, args: {}, result: {greeting: "hello from the aliased module"}}

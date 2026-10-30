@@ -25,7 +25,9 @@ import (
 type Client struct {
 	// BaseURL is the oracle's base URL, without /api.
 	BaseURL string
-	// Token is the bearer token; empty before login.
+	// Token is the bearer token; empty before login. No body that the
+	// client returns or captures holds it: each occurrence is replaced by
+	// RedactedToken.
 	Token string
 	// HTTP is the HTTP client; nil means http.DefaultClient.
 	HTTP *http.Client
@@ -185,6 +187,7 @@ func (c *Client) sendRedirects(ctx context.Context, method, path string, query u
 	if err != nil {
 		return HTTPResponse{}, err
 	}
+	data = redactToken(data, c.Token)
 	out := HTTPResponse{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: data}
 	if c.Capture != nil {
 		b, enc := exchangeBody(data)
@@ -242,8 +245,11 @@ func (c *Client) Health(ctx context.Context) (Health, error) {
 }
 
 // Login returns the plain-text session token of POST /auth/login (OR-6).
+// The exchange is never captured: its body is the token.
 func (c *Client) Login(ctx context.Context, email, password string) (string, error) {
-	data, err := c.do(ctx, http.MethodPost, "/auth/login", nil, map[string]string{"email": email, "password": password}, http.StatusOK)
+	lc := *c
+	lc.Capture = nil
+	data, err := lc.do(ctx, http.MethodPost, "/auth/login", nil, map[string]string{"email": email, "password": password}, http.StatusOK)
 	return strings.TrimSpace(string(data)), err
 }
 

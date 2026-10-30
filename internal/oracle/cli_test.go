@@ -3,6 +3,7 @@
 package oracle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -62,7 +63,7 @@ func TestCLICancelKillsTheGroup(t *testing.T) {
 		if version {
 			_, err = cli.Version(ctx)
 		} else {
-			err = cli.run(ctx, dir, cli.Command[1:])
+			err = cli.run(ctx, dir, Target{})
 		}
 		cancel()
 		if elapsed := time.Since(start); elapsed > 3*time.Second || err == nil {
@@ -87,3 +88,31 @@ func TestCLICancelKillsTheGroup(t *testing.T) {
 }
 
 func processAlive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
+// TestCLIOutputHidesTheToken: the CLI holds the session's token in its
+// arguments. A CLI that prints them to stdout and stderr, the last line
+// unfinished, and fails: its output reaches Stdout and Stderr, and its
+// stderr the error, with RedactedToken in place of the token.
+func TestCLIOutputHidesTheToken(t *testing.T) {
+	const token = "session-token"
+	dir := t.TempDir()
+	script := `printf 'out %s\n' "$*"; printf 'err %s\n' "$*" >&2; printf 'last %s' "$*" >&2; exit 3`
+	var stdout, stderr bytes.Buffer
+	cli := CLI{Command: []string{"/bin/sh", "-c", script, "wmill"}, Home: dir, Stdout: &stdout, Stderr: &stderr}
+	err := cli.Push(context.Background(), dir, Target{BaseURL: "http://oracle", Token: token, Workspace: "ws"})
+	if err == nil {
+		t.Fatal("a failing CLI command returned no error")
+	}
+	flags := "--token " + RedactedToken + " --workspace ws"
+	for name, text := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String(), "the error": err.Error()} {
+		if strings.Contains(text, token) {
+			t.Errorf("%s holds the token: %s", name, text)
+		}
+		if name != "the error" && !strings.Contains(text, flags) {
+			t.Errorf("%s does not hold %q: %s", name, flags, text)
+		}
+	}
+	if !strings.Contains(stderr.String(), "last ") || !strings.Contains(err.Error(), "last ") {
+		t.Errorf("the unfinished last line is missing: stderr %q, error %q", stderr.String(), err)
+	}
+}

@@ -1,0 +1,13 @@
+summary: a codebase step that imports through a path alias
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_alias/cb/greet
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

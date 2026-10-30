@@ -1,0 +1,6 @@
+defaultTs: bun
+includes: ["f/**"]
+codebases:
+  - relative_path: f/wl_alias/cb
+    includes: ["f/wl_alias/cb/**"]
+    format: esm

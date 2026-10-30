@@ -276,3 +276,12 @@ one session for each other oracle configuration a fixture names
 [Memoria gate](.github/workflows/memoria.yml) fails while any README has an
 unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
+
+On macOS, the Go tests run as three parallel jobs, split by complementary
+`-run` and `-skip` patterns: the packages without the flow suite, the flow
+suite's warm and fresh modes, and its host modes. The required check
+`Go (macos-latest)` passes only when all three pass. The `Secret scan` job
+scans each commit of a pull request with
+[gitleaks](https://github.com/gitleaks/gitleaks) (MIT licence), using its
+default rules and [.gitleaks.toml](.gitleaks.toml); it is not a required
+check.

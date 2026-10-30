@@ -1,0 +1,45 @@
+# The secret scan of CI's secrets job: gitleaks (MIT licence,
+# https://github.com/gitleaks/gitleaks) scans each commit of a pull request
+# with its default rules and the rule below. gitleaks reads this file when it
+# runs at the repository root.
+#
+# Every allowlist below names one kind of value that the repository's
+# synthetic fixtures hold on purpose, matched by its path and its exact
+# form, so that the scan fails only on a real finding.
+
+[extend]
+useDefault = true
+
+# The default rules miss a bearer token in a JSON string, such as the
+# Authorization header in a recorded trigger event. wltest record replaces
+# the oracle session's token with "<redacted-token>" wherever it reads data
+# from the oracle, and this rule catches a token that gets past it.
+[[rules]]
+id = "http-bearer-token"
+description = "A bearer token in an HTTP Authorization value"
+regex = '''(?i)\bbearer[ \t]+([A-Za-z0-9._~+/-]{20,}=*)'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["bearer"]
+
+# windmill-cli writes the SHA-256 digest of each script and flow into a sync
+# tree's wmill-lock.yaml, under the item's path. A path with "key" in it,
+# such as f/wl_je_shortcuts/keys10, makes the generic rule read the digest
+# as an API key.
+[[allowlists]]
+description = "SHA-256 digests in a windmill-cli lock file"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)wmill-lock\.yaml$''']
+regexTarget = "secret"
+regexes = ['''^[0-9a-f]{64}$''']
+
+# A step case sends a token that names no invocation and expects the
+# facade to refuse it.
+[[allowlists]]
+description = "The made-up bearer token of a step case"
+targetRules = ["http-bearer-token"]
+condition = "AND"
+paths = ['''^conformance/steps/bun/wa-31\.yaml$''']
+regexTarget = "secret"
+regexes = ['''^wl_not_this_invocations$''']

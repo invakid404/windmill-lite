@@ -157,14 +157,17 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	defer os.RemoveAll(work)
 
+	// The build reads the copy of the tree that wltest record pushes to the
+	// oracle, never the tree in place. The copy carries what the codebase
+	// entries name outside the tree beside it, as the original has it
+	// (oracle.Layout), and nothing else around the tree. So a file that
+	// esbuild would find above the tree in place, such as a tsconfig.json
+	// whose path aliases a codebase script imports, reaches neither the
+	// oracle's push nor this build, and both fail alike.
 	tree := f.SyncTree()
 	if f.Stub {
-		// Stub mode (ADR 0011, milestone E4b): the runs run the stubbed
-		// copy of the tree that wltest record pushes to the oracle, every
-		// script body replaced by a stub that asks the replay service. The
-		// copy carries what the codebase entries name outside the tree
-		// beside it, as the original has it (oracle.Layout), so its
-		// unchanged wmill.yaml reaches the same files.
+		// Stub mode (ADR 0011): the runs run the stubbed copy, every script
+		// body replaced by a stub that asks the replay service.
 		root, err := syncfolder.Find(tree)
 		if err != nil {
 			return failRuns(results, "stub: "+err.Error())
@@ -174,6 +177,12 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			return failRuns(results, "stub: "+err.Error())
 		}
 		tree = filepath.Join(work, "stubbed", filepath.FromSlash(rep.Root))
+	} else {
+		l, err := oracle.CopyLayout(tree, filepath.Join(work, "tree"))
+		if err != nil {
+			return failRuns(results, "copy: "+err.Error())
+		}
+		tree = filepath.Join(work, "tree", filepath.FromSlash(l.Root))
 	}
 	b, err := fc.build(ctx, f, tree, work)
 	if err != nil {

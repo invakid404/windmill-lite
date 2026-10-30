@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,11 @@ import (
 //     their stored form, as the job API returns them (ADR 0005), while
 //     carried and resolved_args keep the texts the trace holds: the value
 //     carried on in memory, and the arguments as the script received them.
+//     resolved_args lists its top-level members in jsonb's key order, as
+//     args does: the order of a step's argument keys is unspecified in
+//     Windmill, the engine shuffles it in each run, and a script binds its
+//     arguments by name (ADR 0001 §2), so the trace's order would make the
+//     observation differ from one run to the next (keyOrdered).
 //     A site with no result shows no carried either: a module that failed
 //     with no job (FX-15 context 2) carries its error to what follows it,
 //     where the observation shows it;
@@ -188,7 +194,7 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		if rec.Skipped {
 			st.Skipped = boolPtr(true)
 		}
-		st.Args, st.ResolvedArgs = value(rec.RecordedArgs, true), value(rec.ResolvedArgs, false)
+		st.Args, st.ResolvedArgs = value(rec.RecordedArgs, true), keyOrdered(value(rec.ResolvedArgs, false))
 		st.Result, st.Carried = value(rec.Result, true), value(rec.Carried, false)
 		if st.Result != nil && rec.ResultOrigin.Generated() {
 			sources[rec.Site] = append(sources[rec.Site], st.Result)
@@ -402,3 +408,56 @@ func declaredCopies(o conformance.Observation, sources map[conformance.SitePath]
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// keyOrdered returns the text of a JSON object with its top-level members
+// in jsonb's key order: by the decoded key's byte length, then bytewise.
+// Each member keeps its key's and its value's text, so nested objects keep
+// their order and numbers their spelling. Text that is not one JSON object
+// is returned as it is.
+func keyOrdered(text json.RawMessage) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(text))
+	dec.UseNumber()
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return text
+	}
+	type member struct {
+		key  string
+		text []byte // the member's text: its key, the colon and its value
+	}
+	var ms []member
+	for dec.More() {
+		start := dec.InputOffset()
+		t, err := dec.Token()
+		key, ok := t.(string)
+		if err != nil || !ok {
+			return text
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return text
+		}
+		// The text from the end of the previous token holds the comma
+		// between members and any white space.
+		ms = append(ms, member{key, bytes.TrimLeft(text[start:dec.InputOffset()], ", \t\r\n")})
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return text
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return text
+	}
+	slices.SortStableFunc(ms, func(a, b member) int {
+		if len(a.key) != len(b.key) {
+			return len(a.key) - len(b.key)
+		}
+		return strings.Compare(a.key, b.key)
+	})
+	out := []byte{'{'}
+	for i, m := range ms {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, m.text...)
+	}
+	return append(out, '}')
+}

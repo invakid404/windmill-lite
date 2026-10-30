@@ -1,0 +1,15 @@
+# A codebase script that imports a module through a tsconfig.json path
+# alias, with the tsconfig.json beside the sync tree, not in it. In place,
+# esbuild finds that tsconfig.json above the script and resolves the
+# alias. The pinned CLI bundles the copy of the tree that wltest record
+# pushes, where nothing above the tree exists, so the alias does not
+# resolve and the push fails. wltest check builds the same copy and fails
+# the run's build alike. Synthetic, written for this repository; it
+# is test data of cmd/wltest, outside conformance/, so no oracle session
+# records it.
+id: wltest/path-alias
+spec: [WR-47]
+scope: core
+provenance: policy
+languages: [bun]
+oracle: {workers: 1}

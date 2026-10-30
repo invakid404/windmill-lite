@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -108,7 +109,9 @@ func TestSessionRecordsTheStubFixtures(t *testing.T) {
 				t.Fatalf("the deployment carried %q, want %q", dep.Outside, want)
 			}
 			log, _ := os.ReadFile(rig.cliLog)
-			if strings.Count(string(log), " generate-metadata --yes") != 1 || strings.Count(string(log), " sync push --yes") != 1 {
+			// generate-metadata runs on the stubbed copy and on a copy of the
+			// original, whose schemas the stub's must equal.
+			if strings.Count(string(log), " generate-metadata --yes") != 2 || strings.Count(string(log), " sync push --yes") != 1 {
 				t.Fatalf("CLI calls:\n%s", log)
 			}
 			s := rig.session()
@@ -121,6 +124,85 @@ func TestSessionRecordsTheStubFixtures(t *testing.T) {
 				if r.Outcome != OutcomeUnchanged {
 					t.Fatalf("check of run %s: %s %s\n%s", r.Run, r.Outcome, r.Error, strings.Join(r.Differences, "\n"))
 				}
+			}
+		})
+	}
+}
+
+// TestSessionStubSignatures: record compares the schema the CLI writes for
+// each stubbed script with the one the same CLI writes for the original
+// source, not with the committed metadata. A fixture whose committed
+// metadata differs from what the CLI writes records, and the deployment
+// lists its scripts as regenerated; a stub whose signature the CLI reads
+// differently is refused with stub_signature_changed. When the session
+// regenerates the metadata in place, the comparison uses it as it is.
+func TestSessionStubSignatures(t *testing.T) {
+	for _, c := range []struct {
+		name, mode string
+		// stale drops from the committed metadata the members the CLI
+		// writes for each property, as another CLI version might.
+		stale       bool
+		inPlace     bool
+		refused     bool
+		regenerated bool
+	}{
+		{name: "committed metadata as the CLI writes it", mode: fakeCLIRegenerate},
+		{name: "committed metadata the CLI writes otherwise", mode: fakeCLIRegenerate, stale: true, regenerated: true},
+		{name: "a stub signature the CLI reads otherwise", mode: fakeCLIResign, refused: true},
+		{name: "metadata regenerated in place", mode: fakeCLIRegenerate, stale: true, inPlace: true},
+		{name: "metadata regenerated in place, a stub signature the CLI reads otherwise", mode: fakeCLIResign, stale: true, inPlace: true, refused: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rig := newStubRig(t, "collapsed")
+			if c.stale {
+				meta := filepath.Join(rig.fixture, "windmill", "f", "wl_stub", "total.script.yaml")
+				data, err := os.ReadFile(meta)
+				if err != nil {
+					t.Fatal(err)
+				}
+				stale := strings.NewReplacer("      description: ''\n", "", "      default: null\n", "").Replace(string(data))
+				if stale == string(data) {
+					t.Fatal("the fixture's metadata changed; update the test")
+				}
+				if err := os.WriteFile(meta, []byte(stale), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := rig.session()
+			s.CLI.Command[len(s.CLI.Command)-1] = c.mode
+			s.RegenerateMetadata = c.inPlace
+			rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rep.Runs) == 0 {
+				t.Fatal("no runs")
+			}
+			for _, r := range rep.Runs {
+				switch {
+				case c.refused && (r.Outcome != OutcomeFailed || !strings.Contains(r.Error, `"error":"stub_signature_changed"`)):
+					t.Fatalf("run %s: %s %s, want stub_signature_changed", r.Run, r.Outcome, r.Error)
+				case !c.refused && r.Outcome != OutcomeNew:
+					t.Fatalf("run %s: %s %s\n%s", r.Run, r.Outcome, r.Error, strings.Join(r.Differences, "\n"))
+				}
+			}
+			if c.refused {
+				return
+			}
+			// The fixture's one path script is listed when its committed
+			// schema is not what the CLI writes; an inline script has none.
+			var want []string
+			if c.regenerated {
+				want = []string{"f/wl_stub/total"}
+			}
+			if got := rep.Session.Deployments[rig.fixture].Regenerated; !slices.Equal(got, want) {
+				t.Fatalf("regenerated schemas %q, want %q", got, want)
+			}
+			// In place, generate-metadata runs on the original itself, not
+			// on a copy of it.
+			log, _ := os.ReadFile(rig.cliLog)
+			if n := strings.Count(string(log), " generate-metadata --yes"); n != 2 {
+				t.Fatalf("%d generate-metadata calls, want 2:\n%s", n, log)
 			}
 		})
 	}

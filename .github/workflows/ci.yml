@@ -22,14 +22,16 @@ jobs:
     # the same change in the protection settings or in go-macos.
     #
     # cmd/wltest's flow suite (TestFlowSuite) runs every flow fixture in
-    # five modes: warm, fresh and host, and warm and host from bundles built
-    # with shared code (ADR 0013). macOS runners have three cores, so the
-    # suite runs one fixture at a time there (GOMAXPROCS/2 is 1), and in one
-    # job the macOS tests took about 43 minutes. The macOS parts split the
-    # tests by complementary -run and -skip patterns, so together they run
-    # every test that one `go test ./...` runs: the packages without
-    # TestFlowSuite, TestFlowSuite's modes without shared code, and its
-    # modes with shared code. TestFlowSuite is defined only in cmd/wltest.
+    # five modes, each a subtest: warm, fresh and host, and warm and host
+    # from bundles built with shared code (ADR 0013), named warm-shared-code
+    # and host-shared-code. macOS runners have three cores, so the suite
+    # runs one fixture at a time there (GOMAXPROCS/2 is 1): in CI it took
+    # about 42 of the 45 minutes of one macOS test step, 20 of them in its
+    # two host modes. The macOS parts split the tests by complementary -run
+    # and -skip patterns, so together they run every test that one
+    # `go test ./...` runs: the packages without TestFlowSuite, the suite's
+    # modes whose names do not start with "host", and those that do.
+    # TestFlowSuite is defined only in cmd/wltest.
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -42,15 +44,15 @@ jobs:
             os: macos-latest
             checks: true
             skip: ^TestFlowSuite$
-          - name: Go (macos-latest, flow suite)
+          - name: Go (macos-latest, flow suite in warm and fresh mode)
             os: macos-latest
             packages: ./cmd/wltest
             run: ^TestFlowSuite$
-            skip: ^TestFlowSuite$/-shared-code$
-          - name: Go (macos-latest, flow suite with shared code)
+            skip: ^TestFlowSuite$/^host
+          - name: Go (macos-latest, flow suite in host mode)
             os: macos-latest
             packages: ./cmd/wltest
-            run: ^TestFlowSuite$/-shared-code$
+            run: ^TestFlowSuite$/^host
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     steps:
@@ -485,3 +487,62 @@ jobs:
 
       - name: Summarise all Markdown
         run: python3 scripts/check-docs.py --summary "$GITHUB_STEP_SUMMARY" > /dev/null
+
+  secrets:
+    # Scans each commit of a pull request for secrets with gitleaks (MIT
+    # licence), using its default rules and the rule and allowlists in
+    # .gitleaks.toml. Scanning each commit, not only the pull request's net
+    # change, also catches a secret that one commit adds and a later commit
+    # removes: a squash merge keeps it out of main, but the pull request's
+    # branch keeps it readable. Output is redacted, so a finding is not
+    # published in the log. Branch protection does not require this job.
+    name: Secret scan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The scan reads the commits between the base and the head.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        # The release archive is checked against the SHA-256 that the
+        # release's checksums file lists.
+        env:
+          VERSION: 8.30.1
+          SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "$SHA256  $archive" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/gitleaks"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+
+      - name: Check the rules
+        # The scan must find a bearer token in a recorded header, the leak
+        # that wltest record's redaction guards against, and must find
+        # nothing in the checked-out tree, whose synthetic values the
+        # allowlists name. gitleaks exits with --exit-code on a finding and
+        # with 1 on an error, so the first scan must exit with 3.
+        run: |
+          sample="$RUNNER_TEMP/sample"
+          mkdir "$sample"
+          token=$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+          printf '{"headers":{"authorization":"Bearer %s"}}\n' "$token" > "$sample/recorded.json"
+          status=0
+          gitleaks dir --no-banner --redact --exit-code 3 --config .gitleaks.toml "$sample" || status=$?
+          if [ "$status" -ne 3 ]; then
+            echo "gitleaks did not report the bearer token in the sample (exit status $status)" >&2
+            exit 1
+          fi
+          gitleaks dir --no-banner --redact .
+
+      - name: Scan the pull request's commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: gitleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
