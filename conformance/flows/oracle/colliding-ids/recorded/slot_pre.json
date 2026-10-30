@@ -19,14 +19,7 @@
             "query": {
               "job_id": "<job:>"
             },
-            "headers": {
-              "host": "localhost:8000",
-              "user-agent": "Go-http-client/1.1",
-              "content-type": "application/json",
-              "authorization": "Bearer LAv5uPoZf6NigSyRCol4tIhmedtCqiSP",
-              "content-length": "2",
-              "accept-encoding": "gzip"
-            },
+            "headers": "<masked>",
             "raw_string": null
           },
           "_ENTRYPOINT_OVERRIDE": "preprocessor"
@@ -48,8 +41,8 @@
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261030043807-a1897c43f789",
-      "revision": "a1897c43f789d0c1642995e6fe35f3830c28b94b",
+      "version": "v0.0.0-20261030051340-7045cddbbb77",
+      "revision": "7045cddbbb77658bdfcd26e20983e4f13d92bdd0",
       "go": "go1.27.3"
     },
     "host": {
@@ -57,16 +50,16 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41003988171"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41007241030"
     },
-    "recorded_at": "2026-10-30T05:01:28Z",
+    "recorded_at": "2026-10-30T05:36:03Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:35835"
+      "WL_EFFECT_SINK": "http://host.docker.internal:38009"
     },
     "repeats": 2,
     "timings": {
@@ -74,24 +67,24 @@
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-30T05:01:28.465519Z",
-          "started_at": "2026-10-30T05:01:28.506175Z",
-          "completed_at": "2026-10-30T05:01:28.613036Z",
-          "duration_ms": 107
+          "created_at": "2026-10-30T05:36:02.909523Z",
+          "started_at": "2026-10-30T05:36:02.941022Z",
+          "completed_at": "2026-10-30T05:36:03.043714Z",
+          "duration_ms": 103
         },
         "m:preprocessor": {
           "kind": "flowscript",
-          "created_at": "2026-10-30T05:01:28.585302Z",
-          "started_at": "2026-10-30T05:01:28.587768Z",
-          "completed_at": "2026-10-30T05:01:28.610376Z",
-          "duration_ms": 20
+          "created_at": "2026-10-30T05:36:03.019676Z",
+          "started_at": "2026-10-30T05:36:03.021928Z",
+          "completed_at": "2026-10-30T05:36:03.041044Z",
+          "duration_ms": 17
         },
         "s:preprocessor": {
           "kind": "preview",
-          "created_at": "2026-10-30T05:01:28.507552Z",
-          "started_at": "2026-10-30T05:01:28.510635Z",
-          "completed_at": "2026-10-30T05:01:28.531215Z",
-          "duration_ms": 17
+          "created_at": "2026-10-30T05:36:02.943332Z",
+          "started_at": "2026-10-30T05:36:02.945547Z",
+          "completed_at": "2026-10-30T05:36:02.964336Z",
+          "duration_ms": 15
         }
       }
     },

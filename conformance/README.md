@@ -257,15 +257,15 @@ only in part, each with the reason and where it is checked.
 The cases the semantics reference added on 2026-10-28 are checked at
 evaluator level in the meantime, by the pipeline cases of
 [internal/expr](../internal/expr/README.md) that run on the engine; those
-it added on 2026-10-29 that no recording holds are checked there too
-(JE-11/b–e, JE-16/h), or at engine level in
-[internal/engine](../internal/engine/README.md) (JE-18/e, and JE-11/e as an
-input transform's failure), since milestone FU6; JE-44/f is not encoded
-yet, nor are revision SC3's JE-15/k, JE-20/c–d, JE-42/i–j and JE-49/d–e,
-whose recordings
-[docs/design/README.md](../docs/design/README.md#recording-requests-for-batch-e3f)
-requests from batch E3f; JE-19/f, like JE-19/e, needs a restarted run and
-is outside the contract.
+it added on 2026-10-29 are checked there too (JE-11/b–e, JE-16/h), or at
+engine level in [internal/engine](../internal/engine/README.md) (JE-18/e,
+and JE-11/e as an input transform's failure), since milestone FU6. Batch
+E3f recorded JE-11/c and /e, JE-15/j and /k, JE-20/c and /d, JE-21/b,
+JE-42/i and /j, JE-49/d and JE-50/a to JE-52/a end to end in the flow
+fixtures under `flows/je`; JE-49/e crashed the
+oracle's server and stays deferred, JE-44/f is not encoded yet, and
+JE-19/e and /f need a restarted run, which is outside the contract and
+whose route answers 500 on the oracle.
 
 ## Claims and unit cases
 

@@ -41,7 +41,9 @@ control-flow cases and settled contested rules of
 expression cases and CF-19 and CF-V6, which settled another, recording
 batch E3e the remaining recordings (FX-36's HTTP part, the contested
 `later` rows, the probe catalogue rebuilt as fixtures, codebase scripts),
-and milestone E4a its stub mode. Milestone F4 implements the bundle of
+recording batch E3f native steps and what the reference's revisions SC3
+and SC4 asked the oracle for (below), each in the oracle configuration it
+needs, and milestone E4a its stub mode. Milestone F4 implements the bundle of
 [0010](0010-packaging.md) (the build, the manifest and the bundle digest,
 `verify`) in [internal/bundle](../../internal/bundle/README.md) and
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md), and put the

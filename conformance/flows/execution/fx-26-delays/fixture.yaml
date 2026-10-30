@@ -18,7 +18,7 @@
 id: execution/fx-26-delays
 spec: [FX-26/c, FX-26/d, FX-26/e, FX-26/f]
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 2, deploy: api, concurrency: true, session: long}
 compare: {mode: subset}

@@ -114,7 +114,7 @@ dispatches them and refuses any other target. Its expressions run on the express
 shortcuts (B2a), which the compiler now runs for every expression, run on
 QuickJS-ng with Windmill's program around each expression, its
 serialisation and its error texts (B2b), held to every expression that
-batch E3a recorded. The last seven are the oracle's: E2, the oracle
+batch E3a recorded. The last eight are the oracle's: E2, the oracle
 harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
 which records synthetic flow fixtures on an unmodified Windmill CE image in
 public CI; recording batch E3c, which recorded the reference's
@@ -131,10 +131,13 @@ milestone E4b runs on windmill-lite too, matching the oracle's; and
 recording batch E3a, which
 recorded the expression cases of the reference's JE findings and the
 `results` lookup cases CF-19 and CF-V6
-([conformance](conformance/README.md)) and settled another; and recording
+([conformance](conformance/README.md)) and settled another; recording
 batch E3e, which recorded what the others left: FX-36's HTTP responses,
 the contested `later` cases, codebase scripts in CommonJS and ESM, and the
-reference's probe catalogue rebuilt as executable fixtures.
+reference's probe catalogue rebuilt as executable fixtures; and recording
+batch E3f, which recorded native steps on a worker that serves the
+`nativets` tag and what the reference's revisions SC3 and SC4 asked the
+oracle for, each in the oracle configuration it needs.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
@@ -229,7 +232,7 @@ reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
 and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race ./...` (with Bun 1.3.10, the build
+`go vet ./...` and `go test -race -timeout 20m ./...` (with Bun 1.3.10, the build
 helper's parser and `windmill-client@1.767.0` installed, so the harness,
 build and host-mode tests cannot skip, and Node 20, on which the step suite
 runs each CommonJS codebase bundle as Windmill does, deviation D13; the
@@ -254,8 +257,11 @@ check, and its fallback, the settings comparison, runs in the Go jobs.
 The [oracle workflow](.github/workflows/oracle.yml) records the flow
 fixtures and the expression cases on the Windmill CE oracle nightly, on
 demand, and on pull requests that change the cases or the harness or carry
-the `oracle` label, in two sessions: one worker for every fixture, and two
-workers for the fixtures that need them. The
+the `oracle` label, in sessions: one worker for every fixture of the
+reference configuration, two workers for the fixtures that need them, and
+one session for each other oracle configuration a fixture names
+(`oracle.session`: a worker that serves `nativets`, a longer run timeout,
+`MAX_RESULT_SIZE_MB=3`, `DISABLE_FLOW_SCRIPT=true`). The
 [Memoria gate](.github/workflows/memoria.yml) fails while any README has an
 unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
