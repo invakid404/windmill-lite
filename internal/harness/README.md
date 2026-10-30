@@ -297,7 +297,11 @@ neither is a failed connection, and the exit status says whether the
 process failed (milestone FU8: taking `ECONNRESET` for a failure discarded a
 fresh job's held result as killed by `SIGKILL`). Every kill but the
 watchdog's, which reports its own, is named in the diagnostics
-(`killing the harness: <reason>`). The engine reads its stdout
+(`killing the harness: <reason>`), after the signal and on a goroutine of
+its own, at most one line per process: the diagnostics writer can block, a
+full stderr pipe or a host's logger, and neither a kill nor a fresh
+invocation's cancellation, which kills its process, waits for it. The
+engine reads its stdout
 and stderr for one more second (`exitReadGrace`), then closes its ends of
 them, so a child that inherited them cannot keep the engine's descriptors
 or goroutines; `Done` closes after that. The watchdog kills a process
@@ -572,7 +576,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   with a pong still unread (`TestFreshExitWithAnUnreadPong`, which fails on
   Linux when `ECONNRESET` is taken for a failed connection). It checks that
   the pool hears of an abandonment and of a death before any Reporter does,
-  and that a kill is named (`TestKillIsNamed`).
+  and that a kill is named (`TestKillIsNamed`) without waiting for a
+  blocked diagnostics writer, by `Kill` (`TestKillWithBlockedDiagnostics`)
+  or by a fresh invocation's cancellation, whose call (mode `fresh-hang`)
+  runs until its process is killed (`TestFreshCancelWithBlockedDiagnostics`).
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher.
 - `args_test.go` checks `scriptArgs`: the two internal keys dropped, a key

@@ -1757,12 +1757,19 @@ func (p *Process) kill(reason string) {
 		p.killReason = reason
 	}
 	p.mu.Unlock()
-	if first && reason != "watchdog" {
-		// The watchdog says why on its own; every other kill is named
-		// here, so that a step that ends as killed by SIGKILL says by what
-		// (FU8: the fresh-mode flake's diagnostics were empty).
-		p.diag.printf("killing the harness: %s", reason)
-	}
+	defer func() {
+		if first && reason != "watchdog" {
+			// The watchdog says why on its own; every other kill is named,
+			// so that a step that ends as killed by SIGKILL says by what
+			// (FU8: the fresh-mode flake's diagnostics were empty). The
+			// line is written after the signal, and on a goroutine of its
+			// own, at most one per process: the diagnostics writer can
+			// block (a full stderr pipe, a host's logger), and a kill,
+			// which a fresh invocation's cancellation waits for, must
+			// never wait for it.
+			go p.diag.printf("killing the harness: %s", reason)
+		}
+	}()
 	if p.host != nil {
 		p.conn.close()
 		return

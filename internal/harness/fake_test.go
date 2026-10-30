@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,7 +86,7 @@ func fakeHarness(mode string) int {
 		time.Sleep(time.Second)
 	}
 	hello := Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid}
-	if mode == "fresh-unread-pong" {
+	if mode == "fresh-unread-pong" || mode == "fresh-hang" {
 		hello.Caps.Fresh = true
 	}
 	send(hello)
@@ -147,8 +148,8 @@ func fakeHarness(mode string) int {
 		}
 		body := jsonval.FromProducer([]byte(`"done"`))
 		switch mode {
-		case "settle-on-cancel":
-			// The call runs until it is canceled.
+		case "settle-on-cancel", "fresh-hang":
+			// The call runs until it is canceled, or its process killed.
 		case "exit-leaving-stdout":
 			// Exits with the invocation in flight, while a child keeps
 			// stdout (but not the socket) open, so the engine sees the end of
@@ -218,8 +219,11 @@ func TestFreshExitWithAnUnreadPong(t *testing.T) {
 		t.Fatalf("settled %s; calls %s", k, rec.log())
 	}
 	<-p.Done()
-	if d := diag.String(); strings.Contains(d, "killing the harness") {
-		t.Fatalf("the process was killed: %q", d)
+	p.mu.Lock()
+	reason := p.killReason
+	p.mu.Unlock()
+	if reason != "" {
+		t.Fatalf("the process was killed: %s; diagnostics %q", reason, diag.String())
 	}
 }
 
@@ -230,8 +234,91 @@ func TestKillIsNamed(t *testing.T) {
 	p := spawn(t, cfg)
 	p.Kill()
 	<-p.Done()
-	if d := diag.String(); !strings.Contains(d, "killing the harness: killed by the engine") {
-		t.Fatalf("diagnostics %q", d)
+	waitFor(t, "the kill's diagnostic line", func() bool {
+		return strings.Contains(diag.String(), "killing the harness: killed by the engine")
+	})
+}
+
+// blockedWriter is a diagnostics writer whose writes block until it is
+// opened, as a full stderr pipe or a stalled host logger does.
+type blockedWriter struct {
+	writes atomic.Int32
+	opened chan struct{}
+	once   sync.Once
+}
+
+func newBlockedWriter() *blockedWriter { return &blockedWriter{opened: make(chan struct{})} }
+
+func (w *blockedWriter) Write(b []byte) (int, error) {
+	w.writes.Add(1)
+	<-w.opened
+	return len(b), nil
+}
+
+func (w *blockedWriter) open() { w.once.Do(func() { close(w.opened) }) }
+
+// Naming a kill never holds it up (FU8 review): with the diagnostics writer
+// blocked, Kill returns and the process ends, its line still waiting for
+// the writer.
+func TestKillWithBlockedDiagnostics(t *testing.T) {
+	cfg, _ := fakeConfig(t, "ok")
+	w := newBlockedWriter()
+	cfg.Diagnostics = w
+	p := spawn(t, cfg)
+	t.Cleanup(w.open)
+	killed := make(chan struct{})
+	go func() {
+		p.Kill()
+		close(killed)
+	}()
+	select {
+	case <-killed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Kill waited for the blocked diagnostics writer")
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the process did not end while the diagnostics writer was blocked")
+	}
+	waitFor(t, "the kill's line to reach the writer", func() bool { return w.writes.Load() > 0 })
+}
+
+// A fresh invocation's cancellation kills its process, whose kill is named,
+// and returns at once, never waiting for the diagnostics writer (FU8
+// review; WR-37: Windmill kills a job's process at once on a timeout or a
+// cancellation).
+func TestFreshCancelWithBlockedDiagnostics(t *testing.T) {
+	cfg, _ := fakeConfig(t, "fresh-hang")
+	cfg.ModuleState = engine.ModuleStateFresh
+	w := newBlockedWriter()
+	cfg.Diagnostics = w
+	p := spawn(t, cfg)
+	t.Cleanup(w.open)
+	returned := make(chan error, 1)
+	go func() {
+		_, err := execute(t, p, freshInvocation("x", `{}`, newRecorder()), time.Second)
+		returned <- err
+	}()
+	select {
+	case err := <-returned:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Execute returned %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the canceled invocation waited for the blocked diagnostics writer")
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the process did not end while the diagnostics writer was blocked")
+	}
+	waitFor(t, "the kill's line to reach the writer", func() bool { return w.writes.Load() > 0 })
+	p.mu.Lock()
+	reason := p.killReason
+	p.mu.Unlock()
+	if !strings.HasPrefix(reason, "invocation ") {
+		t.Fatalf("kill reason %q", reason)
 	}
 }
 

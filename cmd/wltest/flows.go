@@ -65,8 +65,8 @@ type runResult struct {
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
 // fails. The slowest runs wait for real: a transition the monitor of
 // flows that hang between steps cancels at 60 s (JE-2/a), and retry delays
-// that add up to 26 s (FX-26/a).
-const flowRunTimeout = 150 * time.Second
+// that add up to 26 s (FX-26/a). Tests replace it.
+var flowRunTimeout = 150 * time.Second
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
 // its runs' results.
@@ -693,11 +693,13 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if err != nil {
 		return []string{"run: " + err.Error()}
 	}
+	// A canceled run has its trace too, so a run that timed out leaves no
+	// counter files either.
+	tr := res.Trace
+	defer removeCounters(tr)
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	tr := res.Trace
-	defer removeCounters(tr)
 	// A run whose calls disagree with its trace fails, and its observation
 	// is still compared, so that what made its steps fail is shown too.
 	var problems []string
