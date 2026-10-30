@@ -1,7 +1,7 @@
 # Glossary
 
 These are the terms that windmill-lite's documentation uses for its own
-concepts and for Windmill's. When you write about one of these concepts,
+concepts and for those of [Windmill](#windmill). When you write about one of these concepts,
 use its term in the meaning given here, and do not use the words on its
 **Not** line for it. The [writing standard](writing.md#words) gives the
 reason.
@@ -35,7 +35,7 @@ read Windmill's AGPL or proprietary source
 
 ### Bun
 
-The JavaScript runtime that runs Windmill's TypeScript scripts.
+The JavaScript runtime on which Windmill runs ordinary TypeScript scripts.
 windmill-lite pins Bun 1.3.10, the version that the
 [pinned version](#pinned-version) of Windmill ships
 ([WR-3](semantics/languages.md#wr-3)).
@@ -65,8 +65,9 @@ and its conformance case in
 
 ### engine
 
-The Go flow interpreter in [internal/engine](../internal/engine/README.md).
-It runs the flows of a compiled [program](#program), and sends each
+The Go interpreter of [flows](#flow), in
+[internal/engine](../internal/engine/README.md). It runs the flows of a
+compiled [program](#program), and sends each
 [step](#step)'s [script](#script) to a [harness](#harness).
 
 **Not:** runtime.
@@ -87,16 +88,24 @@ Never copy a fixture from a real Windmill workspace
 
 ### flow
 
-A Windmill workflow: [steps](#step) in sequence, with loops, branches, and a
-failure module that runs when a step fails. Its format is OpenFlow, whose
-schema windmill-lite vendors ([internal/openflow](../internal/openflow/README.md)).
+A Windmill workflow: [steps](#step) in sequence, with loops, branches, and an
+optional failure module, a step that runs when a failed step is neither
+retried nor allowed to continue ([FX-2](semantics/execution.md#fx-2)). Its
+format is OpenFlow, whose schema windmill-lite vendors
+([internal/openflow](../internal/openflow/README.md)).
 
 **Not:** workflow.
+
+### expression
+
+A JavaScript expression in a [flow](#flow), such as a step's input
+transform, which the [engine](#engine) evaluates
+([internal/expr](../internal/expr/README.md)).
 
 ### `fresh`
 
 The mode that runs each [invocation](#invocation) in a harness process of
-its own, as Windmill runs each ordinary Bun job in a new process
+its own, as Windmill runs each ordinary Bun [job](#job) in a new process
 ([WR-1](semantics/languages.md#wr-1), [ADR 0006](design/0006-module-state.md#decision)).
 
 ### harness
@@ -111,8 +120,8 @@ engine and the harness talk over the harness protocol
 ### host
 
 A program that embeds windmill-lite and runs the flows of a
-[bundle](#bundle), through the [`wl`](#wl) package or through the host SDK,
-a TypeScript library for Bun hosts ([ADR 0009](design/0009-host-adapters.md)).
+[bundle](#bundle), through the [`wl`](#wl) package or through the host
+software development kit (SDK), a TypeScript library for Bun hosts ([ADR 0009](design/0009-host-adapters.md)).
 
 **Not:** embedder.
 
@@ -234,22 +243,25 @@ platform calls, but sockets that the script opened and CPU work run on
 
 One entry in a [flow](#flow), such as a script, a subflow (a flow that the
 step runs), a loop or a branch. OpenFlow calls it a module: say "step",
-except in Windmill's own names such as "failure module".
+except in Windmill's own names such as "failure module"
+([internal/openflow](../internal/openflow/README.md)).
 
 **Not:** module.
 
 ### sync folder
 
-The folder that `wmill sync`, Windmill's command-line tool, writes, with
-scripts, flows, resources and variables. It is the first input of the build
+The folder that `wmill sync`, the sync command of Windmill's command-line
+tool, writes, with scripts, flows, resources and variables. It is the first input of the build
 ([internal/syncfolder](../internal/syncfolder/README.md)).
 
 ### `warm`
 
 The default mode, in which one harness process runs many
 [invocations](#invocation), and the values that a script's top-level code
-creates survive between its invocations. Native steps are the exception: they
-run fresh in every mode ([ADR 0006](design/0006-module-state.md#decision)).
+creates survive between its invocations. Native steps, `nativets` and
+`//native` scripts, are the exception: each of their invocations runs in a
+realm of its own, as Windmill gives each native job a new isolate
+([WR-41](semantics/languages.md#wr-41), [ADR 0006](design/0006-module-state.md#decision)).
 
 ### Windmill
 

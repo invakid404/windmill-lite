@@ -21,11 +21,12 @@ Go is the primary language.
 - Write a language [harness](docs/glossary.md#harness) in the language that
   it runs, because the harness loads that language's scripts in-process. For
   example, the [Bun](docs/glossary.md#bun) harness is TypeScript.
-- A harness only runs steps. Keep in it only the rules that make sense in
-  its language alone, such as parsing a TypeScript signature. Flows,
-  expressions and every other rule live in Go
-  ([ADR 0003](docs/design/0003-semantics-placement.md#decision)).
-- Define each Windmill rule once. When Go and a harness both need a rule,
+- A harness only runs [steps](docs/glossary.md#step). Keep in it only the
+  rules that make sense in its language alone, such as parsing a TypeScript
+  signature. [Flows](docs/glossary.md#flow),
+  [expressions](docs/glossary.md#expression) and every other rule live in
+  Go ([ADR 0003](docs/design/0003-semantics-placement.md#decision)).
+- Define each [Windmill](docs/glossary.md#windmill) rule once. When Go and a harness both need a rule,
   write it as a shared, language-neutral
   [conformance case](docs/glossary.md#conformance-case) that both sides
   run. Do not write two implementations that happen to agree.
@@ -43,8 +44,8 @@ three licences, and only its Apache-2.0 parts can enter this repository:
 | The `enterprise` and `private` features, and `*_ee*` files | Proprietary | Never, copied or translated |
 | `openflow.openapi.yaml` and the other OpenAPI files, `python-client/`, `deno-client/`, `go-client/`, `powershell-client/` and `typescript-client/` | Apache-2.0 | As a dependency, or copied with its licence notices kept. Never relabel it as Unlicense. |
 
-Every contributor works in one of two roles: the build team or the
-semantics team. Pick one. If you have read Windmill's AGPL or proprietary
+Every contributor works in one of two roles: the [build team](#build-team)
+or the [semantics team](#semantics-team). Pick one. If you have read Windmill's AGPL or proprietary
 source, you are on the semantics team.
 
 ### Build team
@@ -56,7 +57,8 @@ requests, and the implementers of Go code, harnesses, tests and tooling.
 - Never open Windmill's AGPL or proprietary source, for any area, at any
   time. The separation works only if nothing from that source reaches a
   design before an implementer reads it.
-- Work from these sources: the semantics reference (`docs/semantics/`), the
+- Work from these sources: the
+  [semantics reference](docs/glossary.md#semantics-reference), the
   public documentation at <https://www.windmill.dev/docs>, the Apache-2.0
   parts in the table above, and the black-box behaviour of a running
   Windmill.
@@ -104,8 +106,10 @@ The semantics team writes and validates the semantics reference
 - Keep documentation self-contained and durable: no milestone IDs or other
   work codes, and no history of the work
   ([Self-contained and durable](docs/writing.md#self-contained-and-durable)).
-- Give every module directory a `README.md`, and index it from the root
-  [README](README.md).
+- Give a `README.md` to every directory that the package layout
+  ([ADR 0012](docs/design/0012-layout-and-milestones.md#layout)) lists, once
+  it exists, and to `scripts/` and each document set under `docs/`. Index
+  each README from the root [README](README.md).
 - After your last edit, follow the per-session flow in
   [docs/memoria.md](docs/memoria.md) until `memoria check` passes.
   [Memoria](docs/glossary.md#memoria) fails CI while a README has an

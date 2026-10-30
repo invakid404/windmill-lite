@@ -336,6 +336,19 @@ class StandardTest(unittest.TestCase):
         self.assertIn(rule.format(", such as a finding ID,"), writing.replace("Outside the document", "outside the document"))
         self.assertIn(rule.format(" (such as a finding ID)"), guidance)
 
+    def test_both_apply_the_identifier_rule_to_code_comments(self) -> None:
+        # The rule has no exception for prose in comments: the link takes the
+        # comment's form, and the plain statement shares its sentence.
+        form = (
+            "in a code comment, the link is the repository path of the defining file with its anchor, "
+            "right after the ID, in the sentence that states the rule"
+        )
+        for name in ("docs/writing.md", "memoria.toml"):
+            text = " ".join((REPO / name).read_text().split())
+            with self.subTest(name):
+                self.assertIn(form, text)
+                self.assertNotIn("same comment", text)
+
     def test_memoria_guidance_states_the_limits(self) -> None:
         text = " ".join((REPO / "memoria.toml").read_text().split())
         self.assertRegex(

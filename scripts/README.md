@@ -1,9 +1,9 @@
 # scripts
 
 **Current state:** the documentation check runs in CI and reports warnings
-only. The Renovate auto-ack scripts are installed, awaiting activation. This
-README covers the scripts in this directory, and none of them is part of
-windmill-lite itself.
+only. The [Renovate auto-ack](#renovate-auto-ack) scripts are installed,
+awaiting activation. This README covers the scripts in this directory, and
+none of them is part of windmill-lite itself.
 
 ## Documentation check
 

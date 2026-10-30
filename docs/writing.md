@@ -29,7 +29,7 @@ reader needs it.
 | Document | A statement is true when it matches |
 |---|---|
 | A README, a guide or a code comment | The code and the tests in the repository today |
-| The [semantics reference](glossary.md#semantics-reference) | Windmill's behaviour at the [pinned version](glossary.md#pinned-version) |
+| The [semantics reference](glossary.md#semantics-reference) | The behaviour of [Windmill](glossary.md#windmill) at the [pinned version](glossary.md#pinned-version) |
 | An [ADR](glossary.md#adr) | The accepted decision. Mark what the code does not do yet as planned. |
 | A [conformance case](glossary.md#conformance-case) | The [oracle](glossary.md#oracle)'s [recording](glossary.md#recording), or the [finding](glossary.md#finding) that the case names |
 
@@ -85,12 +85,20 @@ The rule covers the prose of documents. It does not cover:
 - code identifiers, file names and wire-format names, which stay byte-exact
   in code spans.
 
-A code comment cannot hold a link, so it writes the ID with the path of the
-file that defines it, and states the rule in the same comment. A milestone
-ID is not an identifier in this sense: it names work, so the self-contained
-rule forbids it.
+The rule applies to code comments too. The link takes the form that its
+medium can show:
 
-This sentence is from the README of `internal/platform`:
+- in a Markdown document, the link is a Markdown link;
+- in a code comment, the link is the repository path of the defining file
+  with its anchor, right after the ID, in the sentence that states the rule.
+
+Where a code comment has no room for such a link, leave the ID out of the
+comment, and keep it in the test or the case data. A milestone ID is not an
+identifier in this sense: it names work, so the self-contained rule forbids
+it.
+
+This sentence is from the README of `internal/platform`. It follows a list
+of the default values of a step's job identity:
 
 > The others are windmill-lite's placeholders, not Windmill's, so a
 > comparison with the oracle masks them, as OR-29 has the harness do.
@@ -98,10 +106,20 @@ This sentence is from the README of `internal/platform`:
 The finding's ID is the only explanation of why the comparison masks them.
 Rewritten to this rule:
 
-> The others are windmill-lite's placeholders, not Windmill's. A comparison
-> with the oracle masks them, as the oracle harness masks values that depend
-> on how the oracle runs, such as `WM_USERNAME`
+> The default workspace, username, email and `WM_PERMISSIONED_AS` are
+> windmill-lite's placeholders, not Windmill's values. A comparison with
+> the [oracle](glossary.md#oracle) masks them, as it masks values that depend
+> on how a run was submitted, such as `WM_USERNAME`
 > ([OR-29](semantics/oracle.md#or-29)).
+
+The same rule in a code comment, before and after:
+
+```go
+// Preserve isolation. See WR-41.
+
+// Each invocation runs in a realm of its own, as Windmill gives each native
+// job a new isolate (WR-41, docs/semantics/languages.md#wr-41).
+```
 
 ### Work status in ADRs
 
@@ -118,7 +136,7 @@ Fix the structure of a document first, then edit its sentences. Structure
 never overrides precision.
 
 - **Headings that a reader can scan.** A heading identifies its section
-  without the body, such as "Run a flow" or "Environment variables".
+  without the body, such as "Run the tests" or "Environment variables".
 - **One topic in each section.** The direct body of a section covers one
   topic. A parent section can group related subsections, as
   [Document types](#document-types) does.
@@ -155,12 +173,11 @@ These rules adapt principles of ASD-STE100 Simplified Technical English
   of more than 40 words.
 - **One action in each instruction.** Write instructions in the imperative:
   "Run `memoria check`." When a step has two actions, make two steps.
-- **Active voice.** Name the actor: "the engine retries the step", not "the
-  step is retried".
+- **Active voice.** Name the actor: "Git rejects the push", not "the push
+  is rejected".
 - **Present tense** for what the system does. Use the future tense only for
   planned work, and say that it is planned.
-- **Keep the articles** (a, an, the): "start the harness", not "start
-  harness".
+- **Keep the articles** (a, an, the): "run the test", not "run test".
 - **No long noun clusters.** Break a cluster of more than three nouns with a
   preposition or a verb: "the timeout of each retry of a step", not "the
   step retry timeout value".
@@ -257,8 +274,9 @@ and review notes belong in pull requests.
   such as a compatibility constraint, an invariant, or the reason for a
   surprising choice.
 - **Contents:** a Go doc comment on each exported name, starting with the
-  name. Where code implements a finding, write its ID with the path of the
-  file that defines it ([Identifiers](#identifiers)).
+  name. Where code implements a finding, state its rule in plain words, and
+  link the finding in the same sentence, in the form that
+  [Identifiers](#identifiers) gives.
 - Do not restate what the code says. Do not name the milestone or the pull
   request that wrote the code.
 
@@ -317,8 +335,9 @@ It puts a procedure and reference data in one block, and it names tests by
 internal labels. Rewritten to this standard:
 
 > Some tests need Bun 1.3.10, the Bun of Windmill v1.767.0, and the
-> unmodified Windmill client library. Each of these tests skips when the
-> variable that it needs is not set.
+> unmodified Windmill client library. When a variable below is not set, each
+> test that needs it skips. With `WL_REQUIRE_BUN` set, as in CI, the test
+> fails instead.
 >
 > | Variable | Value | Tests that need it |
 > |---|---|---|
@@ -339,8 +358,8 @@ What changed:
   skip.
 - The two variables are reference data, so they are a table.
 - The procedure is numbered steps, with one action in each step.
-- Each test is named by what it checks. The one finding ID is a link to its
-  definition, next to the plain statement.
+- The tests that need the client are named by what they check. The one
+  finding ID is a link to its definition, next to the plain statement.
 - No sentence outside the table has more than 16 words. Before, the longest
   sentence had 30.
 - How CI fetches the client is gone. A reader who runs the tests does not
@@ -371,8 +390,9 @@ to this standard:
 >   [bundle](glossary.md#bundle). The bundle's manifest records the digest,
 >   a hash, of every file and of every input, and the bundle's own digest
 >   identifies it.
-> - `verify` recomputes those digests, and checks them against the bundle's
->   manifest or against a release manifest that you give with `-manifest`.
+> - `verify` recomputes the digests of the bundle's files, and checks them
+>   against the bundle's manifest or against a release manifest that you give
+>   with `-manifest`.
 > - `selfcheck` starts the expression engine, the JavaScript engine that
 >   evaluates flow expressions.
 
