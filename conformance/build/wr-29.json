@@ -4,7 +4,7 @@
   "cases": [
     {
       "spec": "WR-29/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "the default import base of an inline step",
       "note": "windmill-lite's import base does not depend on nesting: a step inside a for-loop has the same one (TestImportBase).",
       "given": {
@@ -16,7 +16,7 @@
     },
     {
       "spec": "WR-29/b",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "an explicit path in a module list leaves the default base",
       "part": "build",
       "rest_in": "internal/ir's WR-29/b: a deploy drops the explicit path f/elsewhere/entry of a module-list step, so the compiler gives the build the default base; the preview's \"elsewhere\" is out of scope (0001 §1)",

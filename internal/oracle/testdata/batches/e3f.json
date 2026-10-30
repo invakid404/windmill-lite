@@ -14,6 +14,7 @@
     "CF-23/e",
     "CF-23/f",
     "CF-25/c",
+    "CF-25/e",
     "CF-30/a",
     "CF-30/b",
     "CF-31/a",
@@ -76,6 +77,7 @@
     "JE-15/k",
     "JE-19/e",
     "JE-19/f",
+    "JE-2/b",
     "JE-20/c",
     "JE-20/d",
     "JE-21/b",
@@ -197,6 +199,7 @@
     "WR-49/h",
     "WR-50/c",
     "WR-50/f",
+    "WR-50/g",
     "WR-51/d",
     "WR-52/a",
     "WR-52/e",
@@ -282,7 +285,7 @@
     {
       "case": "CF-31/d",
       "milestone": "none",
-      "reason": "the empty-iterator slot leaves a Success entry with id failure at a's position, as the case says, and the harness's walker refuses a root status whose module ids differ from the flow's (oracle run 40994947681: \"the root flow has modules [failure], but the fixture's module 0 is a\"), so no observation is recorded; the refusal itself confirms the status entry"
+      "reason": "the empty-iterator slot leaves an entry with id failure at a's position, and the harness's walker refuses a root status whose module ids differ from the flow's (oracle run 40994947681: \"the root flow has modules [failure], but the fixture's module 0 is a\"), so no observation is recorded; the refusal confirms the entry's id, not its Success status or the flow's result [], which docs/design/README.md requests through the jobs API from the next run of batch E3f (SC5)"
     },
     {
       "case": "JE-49/e",
@@ -297,7 +300,7 @@
     {
       "case": "WR-54/f",
       "milestone": "none",
-      "reason": "the script whose stored schema has a type array naming array fails its lock job at deploy (oracle run 40994947681: \"Error creating schema validator: ... Problem making rule for xs: Error: Array type should have field `items`\"), before any run, which fails the fixture's deployment gate; the case expects the failure at run time"
+      "reason": "the script whose stored schema has a type array naming array fails its lock job at deploy (oracle run 40994947681: \"Error creating schema validator: ... Problem making rule for xs: Error: Array type should have field `items`\"), before any run, as the case expects since the semantics revision SC5 corrected it, and the harness stops a fixture whose dependency job fails, so no fixture commits it; the run after the failed deploy needs a driver, which docs/design/README.md requests from the next run of batch E3f (SC5)"
     },
     {
       "case": "WR-V9/a",
@@ -327,12 +330,12 @@
     {
       "case": "JE-19/e",
       "milestone": "none",
-      "reason": "outside the equivalence contract (windmill-lite has no restart, ADR 0001 section 1); the driver of client-api/driven, run restart, found that the restart route the vendored OpenAPI documents, POST /jobs/restart/f/{id} with {step_id}, answers 500 (Wrong number of path arguments for `Path`. Expected 4 but got 2) on CE v1.767.0, so no restarted run exists to record"
+      "reason": "re-scoped to EE by the semantics revision SC5: restarting a flow is enterprise-only at the pin, and Windmill CE has no restart; the driver of client-api/driven, run restart (oracle run 41003988171), found that the restart route the vendored OpenAPI documents, POST /jobs/restart/f/{id} with {step_id}, answers 500 (Wrong number of path arguments for `Path`. Expected 4 but got 2) on CE v1.767.0, so no CE recording can be made; it is also outside windmill-lite's equivalence contract (no restart, ADR 0001 section 1)"
     },
     {
       "case": "JE-19/f",
       "milestone": "none",
-      "reason": "as JE-19/e: the restart route answers 500 on CE v1.767.0 (client-api/driven, run restart)"
+      "reason": "as JE-19/e: re-scoped to EE by the semantics revision SC5, since Windmill CE has no restart (the restart route answers 500 on CE v1.767.0; client-api/driven, run restart)"
     },
     {
       "case": "SY-4/b",
@@ -422,7 +425,7 @@
     {
       "case": "OF-14/f",
       "milestone": "none",
-      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+      "reason": "deferred with Q-OF-13's sync trees, which this batch did not build a harness session for; the semantics revision SC5 re-scoped it: it needs no push of a tree, since the flows API accepts any well-formed pin (OF-14), so a fixture deployed through the API (oracle.deploy api) in the reference session records it, and docs/design/README.md requests it from the next run of batch E3f (SC5)"
     }
   ],
   "parts": [

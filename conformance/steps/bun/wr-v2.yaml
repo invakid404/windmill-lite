@@ -4,7 +4,7 @@ scope: core
 cases:
   - spec: WR-V2/a
     variant: flow-step
-    provenance: source-derived
+    provenance: oracle-observed
     title: process.exit(0) without a result, as a flow step, has no step_id
     note: Windmill's message ends in a Rust location, which windmill-lite does not write (D14).
     script: |
@@ -14,7 +14,7 @@ cases:
         expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
   - spec: WR-V2/a
     variant: script-job
-    provenance: source-derived
+    provenance: oracle-observed
     title: process.exit(0) without a result, as a script job
     step_id: ""
     script: |

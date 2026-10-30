@@ -3,9 +3,9 @@
   "cases": [
     {
       "spec": "OF-3/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
-      "note": "The catalogue case reads the stored full form with flows/get after a deploy, an oracle recording (Q-OF-1). The compiled program shows what that form runs as: the loop's materialised defaults, the identity's unknown key ignored, and the script with no inputs.",
+      "note": "The catalogue case reads the stored full form with flows/get after a deploy, which batch E3f recorded (conformance/flows/openflow/of-deployed, run storage, oracle run 41000318656). The compiled program shows what that form runs as: the loop's materialised defaults, the identity's unknown key ignored, and the script with no inputs.",
       "title": "kept values and materialised container defaults",
       "given": {
         "files": {
@@ -39,9 +39,9 @@
     },
     {
       "spec": "OF-3/c",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
-      "note": "The full and lite values are Windmill's stored forms, an oracle recording (Q-OF-1); the folder keeps saying bun, as the raw form does. The program records the language a successful deploy gives (SY-V3).",
+      "note": "The full and lite values are Windmill's stored forms, which batch E3f recorded for the full value only (conformance/flows/openflow/of-3-native, run relock, oracle run 41000318656); the folder keeps saying bun, as the raw form does. The program records the language a successful deploy gives (SY-V3).",
       "title": "native switch on deploy",
       "given": {
         "files": {
@@ -69,7 +69,7 @@
     },
     {
       "spec": "OF-3/d",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "The list depends on the form enqueue builds the status from, as the source settles (Q-OF-11, answered 2026-10-29; OF-V5): an initial-lite status, which a run by path after a successful deployment gets in the reference configuration, has a-v, and a full-built one (DISABLE_FLOW_SCRIPT=true at enqueue, OF-V5/b) does not. windmill-lite's reference configuration is the successful lite deployment (0001 §1), so the program always has a-v. The run half, the status ids and the result, is N2's, which implements sleep.",
       "title": "virtual step after deploy",

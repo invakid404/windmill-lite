@@ -2,6 +2,6 @@
 # evaluating (JE-51), and the flow ends canceled by the zombie-flow monitor
 # after about 60 s, as JE-2/a recorded for a CPU loop at the same site, not
 # with JE-2's timeout text.
-spec: [JE-51]
+spec: [JE-51, JE-2/b]
 target: f/wl_je51/chain
 expect: {status: canceled, result: {error: {name: Canceled}}}

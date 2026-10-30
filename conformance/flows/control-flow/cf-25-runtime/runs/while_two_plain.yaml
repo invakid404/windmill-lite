@@ -5,7 +5,7 @@
 # the logs name and how many are distinct (a runtime reused shows as a
 # counter above 1 or a repeated pid), and whether a log line starts
 # dedicated worker bun:. Unsquashed, every iteration has its own process.
-spec: [CF-25]
+spec: [CF-25, CF-25/e]
 target: f/wl_cf25r/while_two_plain
 expect:
   status: success

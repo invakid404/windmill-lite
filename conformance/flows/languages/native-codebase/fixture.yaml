@@ -9,7 +9,7 @@
 # the oracle workflow's native session. Synthetic, written for this
 # repository from docs/semantics/conformance.md#wr-50.
 id: languages/native-codebase
-spec: [WR-47/b, WR-50, WR-50/c, WR-50/f]
+spec: [WR-47/b, WR-50, WR-50/c, WR-50/f, WR-50/g]
 scope: core
 provenance: oracle-observed
 languages: [bun]

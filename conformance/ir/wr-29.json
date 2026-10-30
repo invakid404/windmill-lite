@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "WR-29/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "Read as a file, either base resolves ./x to f/a/fl/x and ../shared_lib to f/a/shared_lib. Resolving and bundling the imports is the build's (C2a, F4).",
       "title": "the default import base, at top level and inside a loop",
@@ -35,7 +35,7 @@
     },
     {
       "spec": "WR-29/b",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "A deploy reduces the module lists to stored nodes and drops an inline script's explicit path there, at top level and in container bodies, so the step runs from the default base: read as a file, ./x resolves to f/x/main/x. The dependency job's base <path>/flow does not apply: windmill-lite generates no locks. Resolving the imports is the build's (C2a, F4).",
       "title": "an explicit path in a module list is dropped on deploy",
