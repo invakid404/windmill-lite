@@ -1,0 +1,11 @@
+# Q-OR-17 (i): a step whose id is failure, beside a failure module whose id
+# is recover: the flows API checks no module id, and the walker keeps the
+# step and the slot apart (m:failure, and the slot at s:failure).
+spec: [OR-11]
+target: f/wl_ids/slot_failure
+expect:
+  status: failure
+  result: 1
+  steps:
+    "m:failure": {status: failure}
+    "s:failure": {status: success, result: 1}

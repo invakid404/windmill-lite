@@ -1,0 +1,26 @@
+summary: "OF-7/c: F7-ba"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: f
+                value:
+                  type: rawscript
+                  content: "!inline f.ts"
+                  language: bun
+                  input_transforms: {}
+          - modules:
+              - id: r
+                value:
+                  type: rawscript
+                  content: "!inline r.ts"
+                  language: bun
+                  input_transforms: {}
+        parallel: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

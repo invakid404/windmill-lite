@@ -1,0 +1,10 @@
+# WR-V2/a: the same script as a plain job.
+spec: [WR-V2/a]
+target: f/wl_wrv2/exit0
+kind: script
+expect:
+  status: failure
+  result:
+    error:
+      message: "Internal: Result of job is invalid json (empty) @jobs.rs:956:20"
+      name: InternalErr

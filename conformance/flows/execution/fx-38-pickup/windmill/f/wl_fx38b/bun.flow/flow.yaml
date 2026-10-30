@@ -1,0 +1,20 @@
+summary: "FX-38/b: a Bun step"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+      sleep: {type: static, value: 30}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

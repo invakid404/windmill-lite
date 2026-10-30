@@ -1,0 +1,12 @@
+# WR-43/g (bunnative): a non-string message nulls both message and name, and
+# the stack stays a string.
+spec: [WR-43/g]
+target: f/wl_n43/wr43_g_bunnative
+expect:
+  status: failure
+  result: {error: {message: null, stack: "<stack>", name: null}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: null, stack: "<stack>", name: null}}

@@ -1,0 +1,16 @@
+# Recording batch E3f (ADR 0012), optional: DISABLE_FLOW_SCRIPT=true
+# (OF-V5/b; Q-OF-11 is answered from the source), in the oracle workflow's
+# flow_script_off session (oracle.session flow_script_off). A Bun step reads
+# the status of a run it starts, at enqueue, through the API with its own
+# token. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#of-v5. Deployed with oracle.deploy api.
+id: openflow/flow-script-off
+spec: [OF-V5/b, OF-17/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api, session: flow_script_off}
+compare: {mode: subset}

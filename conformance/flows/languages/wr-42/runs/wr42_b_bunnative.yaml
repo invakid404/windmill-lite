@@ -1,0 +1,7 @@
+# WR-42/b (bunnative): a top-level function becomes null.
+spec: [WR-42/b]
+target: f/wl_n42/wr42_b_bunnative
+expect:
+  status: success
+  result: null
+  steps: {"m:a": {status: success, args: {}, result: null}}

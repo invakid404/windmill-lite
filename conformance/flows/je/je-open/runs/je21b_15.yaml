@@ -1,0 +1,8 @@
+# JE-21/b (Q-JE-1): a thrown 1.5 shows its debug form in b's message
+# (checked in the batch manifest), not its string form.
+spec: [JE-21/b]
+target: f/wl_jeopen/je21b_15
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: success, result: 1}}

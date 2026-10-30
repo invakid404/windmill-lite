@@ -1,0 +1,14 @@
+summary: FX-51/c
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          x: {type: static, value: "$jsonvar:f/wl_fx51/surrogate"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

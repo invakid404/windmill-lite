@@ -1,0 +1,19 @@
+# FX-V2/a: the error handler sees the stop's error as previous_result and as
+# results.a, while results.a.x reads the stored success; a's job succeeded
+# with {x: 1} while its module status is a failure.
+spec: [FX-V2/a]
+target: f/wl_fx18/fxv2
+expect:
+  status: failure
+  result:
+    p: {error: {name: EarlyStopError, message: E}}
+    r: {error: {name: EarlyStopError, message: E}}
+    x: 1
+  steps:
+    "m:a": {status: success, module: failure, result: {x: 1}}
+    "s:failure":
+      status: success
+      result:
+        p: {error: {name: EarlyStopError, message: E}}
+        r: {error: {name: EarlyStopError, message: E}}
+        x: 1

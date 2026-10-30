@@ -1,0 +1,17 @@
+# Recording batch E3f (ADR 0012), the two-worker session: released
+# iterations (Q-CF-18). CF-7/a and CF-7/b with parallelism 2 over four
+# iterations whose bodies sleep different times, on two workers, so that
+# two iterations run at once; a last step reads each body job's start and
+# end through the jobs API with its own token. Recorded by the workflow's
+# two-worker session. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/control-flow.md#q-cf-18. Deployed with oracle.deploy api.
+id: control-flow/cf-7-release
+spec: [CF-7, CF-7/a, CF-7/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2, deploy: api, concurrency: true}
+compare: {mode: subset}

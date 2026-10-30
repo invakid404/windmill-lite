@@ -1,0 +1,8 @@
+# WR-46/b (bunnative): a non-string chunk ends the stream without failing:
+# the result is 1.
+spec: [WR-46/b]
+target: f/wl_n46/wr46_b_bunnative
+expect:
+  status: success
+  result: 1
+  steps: {"m:a": {status: success, args: {}, result: 1}}

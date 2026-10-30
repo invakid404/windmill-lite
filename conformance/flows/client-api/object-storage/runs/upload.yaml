@@ -1,0 +1,7 @@
+# WA-16/d: writeS3File on the CE oracle with no workspace storage
+# configured: neither the source nor the docs specify the answer, so the
+# expect states only that the step completes, and the recording holds what
+# came back.
+spec: [WA-16/d]
+target: f/wl_s3/upload
+expect: {status: success, result: {}}

@@ -1,0 +1,6 @@
+# FX-V1/a: a sequential loop whose stop_after_all_iters_if expression throws
+# fails the flow with an EarlyStopError object, no result field (the
+# message's start is checked in the batch manifest).
+spec: [FX-V1/a]
+target: f/wl_fx18/fxv1a
+expect: {status: failure, result: {error: {name: EarlyStopError}}}

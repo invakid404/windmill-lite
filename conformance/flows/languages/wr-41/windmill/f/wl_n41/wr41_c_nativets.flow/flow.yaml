@@ -1,0 +1,19 @@
+summary: "WR-41/c (nativets)"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: nativets
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: nativets
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

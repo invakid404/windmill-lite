@@ -1,0 +1,5 @@
+# WR-54/c: with static inputs {"a": 1, "b": null}, // schema_validation
+# passes them.
+spec: [WR-54/c]
+target: f/wl_wr54/c2
+expect: {status: success, result: [1, none]}

@@ -39,36 +39,6 @@
       "case": "OR-2/b",
       "milestone": "E1",
       "reason": "a provenance check of windmill-lite's own Bun harness, which wltest check owns"
-    },
-    {
-      "case": "OR-7/b",
-      "milestone": "none",
-      "reason": "optional (Q-OR-14): the knob MAX_RESULT_SIZE_MB would change every observation of the session it is set for, and no milestone of ADR 0012 implements the result-size limit's error"
-    },
-    {
-      "case": "OR-7/c",
-      "milestone": "none",
-      "reason": "optional, as OR-7/b: source-derived in the reference's revision SC3 (2026-10-29); docs/design/README.md requests the recording from batch E3f in a session with MAX_RESULT_SIZE_MB=3 (the result-size limit). An oversized result carrying wm_failure fails with ResultTooLarge, not ManualFailure; no milestone of ADR 0012 implements the result-size limit's error"
-    },
-    {
-      "case": "OR-21/b",
-      "milestone": "none",
-      "reason": "source-derived in the reference's revision of 2026-10-29 (SC3); awaits an oracle recording (batch E3f, docs/design/README.md: delete_after_use that survives deploy), which creates the script through the scripts API, since the CLI never sends the flag. windmill-lite gives delete_after_use no effect, as on CE (docs/design/0001, section 3), which is what the case expects of a flow step on CE, and a pushed sync folder cannot set the flag on a script, so no milestone of ADR 0012 has anything to implement"
-    },
-    {
-      "case": "OR-21/c",
-      "milestone": "none",
-      "reason": "out; source-derived in the reference's revision of 2026-10-29 (SC3); awaits an oracle recording (batch E3f, docs/design/README.md: delete_after_use that survives deploy). On CE the run-and-wait script route blanks the job's stored args, result and logs after it answers; windmill-lite gives delete_after_use no effect (docs/design/0001, section 3) and keeps them, a difference the case's out scope leaves outside the equivalence contract, so no milestone of ADR 0012 implements it"
-    },
-    {
-      "case": "OR-21/d",
-      "milestone": "none",
-      "reason": "out; source-derived in the reference's revision SC3 (2026-10-29); docs/design/README.md requests the recording from batch E3f (delete_after_use that survives deploy). On CE a positive delete_after_secs only schedules the deletion, which CE never processes, so the job keeps its args, result and logs, while delete_after_secs 0 blanks the job at once on the run-and-wait script route as in OR-21/c; windmill-lite gives delete_after_use and delete_after_secs no effect (docs/design/0001, section 3), which matches the first and keeps the job in the second, outside the equivalence contract, so no milestone of ADR 0012 implements it"
-    },
-    {
-      "case": "OR-V7/c",
-      "milestone": "none",
-      "reason": "source-derived in the reference's revision of 2026-10-29 (SC3, Q-OR-9); awaits an oracle recording (batch E3f, docs/design/README.md: the trailing virtual step) of Windmill's raw shapes: flows/get without a-v, and the run's flow_status with a-v as an identity job about 1 s after a. Nothing is left to implement: the walker leaves a generated a-v out (OR-V7/a, testdata/walk/cases.json), and windmill-lite's program has the virtual step (OF-17/a, conformance/ir/of-17.json)"
     }
   ]
 }

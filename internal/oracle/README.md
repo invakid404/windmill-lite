@@ -25,8 +25,11 @@ E3a, which
 ([conformance](../../conformance/README.md#expression-cases)). E3c extended
 the session and the walker (below), E3b the walker and the batch test, E3d
 the walker and added the API deployment (below), E3a the session and
-its own batch tests, and E3e the run-and-wait submission, the setup
-policies, the pull read-back and the two-worker session (below). `wltest
+its own batch tests, E3e the run-and-wait submission, the setup
+policies, the pull read-back and the two-worker session, and E3f the
+sessions that run the oracle in another configuration, the sink's
+user-agent route, nested script paths in the API deployment and the batch
+manifest's text and deployment checks (below). `wltest
 check` compares windmill-lite's flow runs with each run's `expect` or
 recording (milestone E1, [cmd/wltest](../../cmd/wltest/README.md)), and
 since milestone E4b runs stub fixtures there with this package's stub
@@ -126,13 +129,33 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
 A session's `ListenInterval` (`--listen-interval`) sets the oracle's
 `LISTEN_NEW_EVENTS_INTERVAL_SEC` through compose's
 `WL_LISTEN_NEW_EVENTS_INTERVAL_SEC`, in place of 1; it is in the
-provenance's environment. The oracle workflow runs two sessions, as a job
-matrix: one worker for every fixture, skipping those that need two, and
-two workers with `--listen-interval 10` for the fixtures that need two
+provenance's environment.
+
+A session's `Config` (`--session`) names an oracle configuration of
+`SessionConfigs`: the environment the server and the worker containers
+get, written to `session.env` beside `compose.yaml` and recorded in the
+provenance's environment. `""` is the reference configuration; `native`
+sets `WORKER_TAGS=nativets`, so the worker runs `//native` and `nativets`
+steps ([Q-WR-21](../../docs/semantics/languages.md#q-wr-21)); `long` is
+the reference configuration for runs that wait a minute or more on the
+server's monitors, which the workflow gives a longer run timeout;
+`result_size` sets `MAX_RESULT_SIZE_MB=3`
+([OR-7/b](../../docs/semantics/conformance.md#or-7)); `flow_script_off`
+sets `DISABLE_FLOW_SCRIPT=true`
+([OF-V5/b](../../docs/semantics/conformance.md#of-v5)). An unknown name is
+refused (`unknown_session`). A fixture names the configuration it needs in
+`oracle.session`, and a session refuses one that needs another
+(`fixture_requires_session`) or, with `SkipUnmetSession`
+(`--skip-unmet-session`), reports its runs as `skipped`.
+
+The oracle workflow runs its sessions as a job matrix: one worker for
+every fixture of the reference configuration, skipping those that need
+two; two workers with `--listen-interval 10` for the fixtures that need two
 ([conformance/flows/oracle/workers2](../../conformance/flows/oracle/workers2),
 [OR-5/b](../../docs/semantics/conformance.md#or-5)) and the smoke fixture,
 whose recordings, made at 1 s with one worker, must hold unchanged
-([OR-7/a](../../docs/semantics/conformance.md#or-7)).
+([OR-7/a](../../docs/semantics/conformance.md#or-7)); and one session for
+each other configuration, with one or two workers as its fixtures need.
 
 Every refusal is a `*Refusal` whose text is the JSON the reference gives it,
 for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
@@ -151,7 +174,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml` (`ApplySetup`, `CheckSetup`, `ResetSetup`), the deployment gate and the deployed-module check. |
 | `apideploy.go` | The API deployment of a fixture with `oracle: {deploy: api}` (see below). |
-| `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root of a run that is open (several can be, for concurrent outer runs), and answers anything else with `{"error":"foreign_effect"}`. It also serves the replay service at `/replay`. |
+| `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root of a run that is open (several can be, for concurrent outer runs), and answers anything else with `{"error":"foreign_effect"}`. It also serves the replay service at `/replay`, and answers `GET /user-agent` with the request's `User-Agent` and records nothing, so a step can report the header its `fetch` sent (WR-45, batch E3f). |
 | `stub.go`, `stubts.go` | Stub mode's generator: `StubTree` writes a stubbed copy of a sync tree, `StubSource` the stub of one Bun script, `CheckStubSignatures` compares schemas after `generate-metadata`. |
 | `locate.go` | The oracle's `Locator` for the replay service: the site of a stub's job in a run that is still in progress. |
 | `replay.go` | `checkReplay`, which holds a stub run's answered calls against its walk with `conformance.CheckReplay`. |
@@ -415,8 +438,12 @@ a narrow tree and refuses anything else:
 
 - `wmill.yaml` and `folder.meta.yaml`, which are not sent; a folder is
   created for every `f/<folder>/`;
-- Bun scripts `f/<folder>/<name>.ts`, with an optional
-  `<name>.script.yaml` of `summary`, `description` and `cache_ttl`;
+- Bun scripts `f/<folder>/<name>.ts`, also under a directory of the
+  folder (`f/<folder>/<dir>/<name>.ts`, as a flow step's relative import
+  of `./x` from flow `f/<folder>/<flow>` needs), with an optional
+  `<name>.script.yaml` of `summary`, `description`, `cache_ttl` and, for
+  the cases the CLI's metadata cannot give (batch E3f), `envs`, `schema`
+  and `delete_after_secs`;
 - flows `f/<folder>/<name>.flow/flow.yaml`, whose rawscript `content` and
   `lock` may be `!inline <file>` in the flow's directory, and whose by-path
   `script` modules may pin the hash `0000000000000000`
@@ -441,7 +468,7 @@ run's provenance holds its target flow's, as `deployment`.
 
 ## Recording batches
 
-A recording batch is one of milestones E3a to E3e of
+A recording batch is one of milestones E3a to E3f of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), or an engine
 milestone that records its own fixtures, as N2 records FX-23 to FX-29
 (`n2.json`), N3c records CF-16 to CF-18, CF-20, CF-29 and CF-V1 to
@@ -456,6 +483,8 @@ CF-V5 (`n3c.json`), and NI records CF-21 to CF-28 with FX-24/d and /e
 | `fixtures` | the batch's fixture directories, from the repository root; each run's own `spec` says which cases it records |
 | `deferred`, `parts` | cases, or halves of recorded cases, left to a later milestone, each with the milestone and a reason |
 | `prefixes` | the catalogue's prefix-only assertions, checked on a run's recorded text |
+| `texts` | the catalogue's other partial assertions about a recorded text: substrings it contains, and ones it must not contain |
+| `deployments` | the catalogue's claims about a deployed flow value, checked on a run's deployment evidence (its `submitted` or `materialized` value) at a pointer: a value, or no member there |
 | `contradictions` | catalogue claims the oracle contradicted, with the run, pointer and recorded value the run's `expect` holds instead |
 | `gates` | optional: for every run, `<fixture directory>/<run>`, the milestone whose exit gate runs it, which must need the batch merged; E3b's gates N1a, N1b, N2, NI, N3b, PF2 or F1 by the features each flow needs |
 
@@ -464,6 +493,14 @@ defers to `none`, with the reason, what the oracle cannot record or the
 contract leaves out, and to the milestone that checks it what no run of
 the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
 HTTP adapter, WR-28/f to C2a, and WR-50/c and WR-50/f to C3n.
+
+Batch E3f's manifest has no `gates` either. Its fixtures name the session
+they need, its deployment checks hold the deploy-shape cases of
+[Q-OF-1](../../docs/semantics/openflow.md#q-of-1), and it defers to
+`none`, with the reason, what the harness cannot record: a refused push
+and its CLI output ([Q-OF-13](../../docs/semantics/openflow.md#q-of-13)'s
+sync trees), workspace object storage, a second user or workspace, and the
+cases whose deployment the oracle refused or whose run crashed it.
 
 Milestone N5 recorded its own fixture,
 `conformance/flows/control-flow/subflow-retry`, without a manifest, since
@@ -521,14 +558,15 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language, as the sync folder reads it) | `conformance/flows` |
 | `TestTreeScriptsAreSources` | only a script's source file makes a script there: a flow directory, a resource, a variable or a script's metadata of the same name does not (E3a review R1-2) | a synthetic tree |
 | `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |
-| `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
+| `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules`, `TestDeployAPINestedScript` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), a script under a directory of its folder created at its nested path, and the narrow tree's refusals | — |
 | `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; the pulled flow keeps an identity module's extra field and fills the loop's `skip_failures` (CF-6/b, SY-6/c); FX-40/d's body carries the deployed script's hash | `conformance/flows` |
 | `TestRecordedEarlyReturn`, `TestRecordedBigPayload`, `TestRecordedOutOfOrderCompletion` | E3e's recordings: run-and-wait answered `early_return`'s value at least a second before the flow completed (FX-37/a); the big payload is whole in a's result and b's arguments (OR-V1/a); on two workers the slow index-0 body completed after the next one, while results stay in index order (Q-OR-7, Q-OR-15) | `conformance/flows` |
 | `TestSessionRecordsRunAndWait`, `TestSessionRunAndWaitRefused`, `TestRunWaitKeepsARedirect`, `TestObserveKeepsTheResponse`, `TestSessionSetupPolicies`, `TestSessionSkipsUnmetWorkers`, `TestSessionSkipsProvidedSites`, `TestSessionListenInterval`, `TestSessionPullsTheDeployedTree` | E3e's session options against the fake Windmill: a run-and-wait run's response (200 and 422, the failed step's stack masked inside the body) beside its walk, a refused submission failing at once, a redirect kept and not followed, the Content-Type kept with its parameters and a body that is not UTF-8 kept as base64 through observations, raw captures and their replay; `setup.yaml` after the push, before it (read back before and after the push) and before every run, with `setup_not_applied` and `seed_survived_push`; a fixture that needs two workers skipped, and one with host-provided sites; the listen-interval knob in compose's environment and the provenance; the pulled flow in the deployment evidence | the smoke fixture |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
-| `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
+| `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract (the session's `env_file`), image identity | — |
+| `TestSessionConfiguration` | a session's configuration reaches `session.env` and the provenance, an unknown one is refused, and a fixture that needs another is refused or, with `SkipUnmetSession`, skipped | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |
-| `TestSinkGroupsByOuterRoot`, `TestSinkKeepsConcurrentRunsApart`, `TestSinkRoutesReplayCalls` | OR-16/c; two open runs each keep their own effects (OR-V6/a); `/replay` goes to the replay service | — |
+| `TestSinkGroupsByOuterRoot`, `TestSinkKeepsConcurrentRunsApart`, `TestSinkRoutesReplayCalls`, `TestSinkAnswersTheUserAgent` | OR-16/c; two open runs each keep their own effects (OR-V6/a); `/replay` goes to the replay service; `GET /user-agent` answers the header and records nothing | — |
 | `TestStubSourceCases`, `TestStubSourceGolden` | the stub of each source keeps `main`'s parameter list and the type declarations verbatim and drops the rest, and stubbing is idempotent; or the source is refused with its reason; one whole stub pinned | `testdata/stub/sources.json`, `testdata/stub/book.stub.ts` |
 | `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`, the hash-pinned script step and the `flowscript` step among them; the schema check | `conformance/flows/stub` |
 | `TestPlanLayout`, `TestCopyLayout`, `TestCopiesResolveTheSpellings`, `TestCopyLayoutRefuses`, `TestStubTreeCarriesTheOutsidePaths` | the layout of a copy: spellings that come back into the tree through its own or its parents' names set `Root`, and existing directories a spelling detours through are made, a nested one too and one beside a carried path below the same directory; every configured path read from both copies, `CopyLayout`'s and `StubTree`'s, walked on disk as spelled and joined with `.` and `..` applied, reaches what it reaches from the original, for plain, come-back, detour and nested-detour spellings of `relative_path`, `inject` and assets; which codebase paths are carried (outside the tree after `.` and `..` are applied, existing and not reached through a file, not absolute, not below another carried path, where `../../x` is not below `..`; a value of the wrong type is skipped; `..` climbs from the tree a symbolic link names) and the copied tree's place below its parents' names; a copy's `wmill.yaml` is unchanged and each path it names reaches the same bytes from the copied tree, with nothing else from outside; `relative_path: ..` holds the tree; an output that exists or lies inside a carried directory is refused, and a failed copy removes what it made; the stub of `stub/outside` carries `../shared` beside the stubbed tree | `conformance/flows/stub/outside` |

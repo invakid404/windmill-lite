@@ -1,0 +1,21 @@
+# WR-43/e (bunnative): a promise that never settles with nothing pending
+# fails at once. The step's timeout of 10 s changes nothing on the oracle,
+# which fails at once; it bounds a runtime that waits instead.
+spec: [WR-43/e]
+target: f/wl_n43/wr43_e_bunnative
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nPromise resolution is still pending but the event loop has already resolved"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nPromise resolution is still pending but the event loop has already resolved"
+          name: ExecutionErr
+          step_id: a

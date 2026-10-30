@@ -1,0 +1,108 @@
+# The facade's error answers and the variable and resource routes, each
+# status, content type and body, from one Bun step that calls the API with
+# its own token: WA-19/b and /c, WA-V2/c, WA-14/d, WA-11/e, WA-11/c (the
+# first candidate ciphertext whose read fails with the padding cause),
+# WA-11/d, WA-12/g (job ids in bodies written <random>, <completed> and
+# <self>) and WA-12/h's superadmin half (the connection fields masked by the
+# step).
+spec:
+  - WA-19/b
+  - WA-19/c
+  - WA-V2/c
+  - WA-14/d
+  - WA-11/e
+  - WA-11/c
+  - WA-11/d
+  - WA-12/g
+  - WA-12/h
+target: f/wl_fa/answers
+note: "Predicted from the reference with locations written <loc> and every error answer of the variable and resource routes typed text/plain; charset=utf-8. Recorded in oracle run 40994947681: the locations as given, some written (file.rs:line) in parentheses, and the 400, 404 and 500 answers of those routes (and the 404 of the resource route) typed text/plain without a charset, while the 2xx answers keep the charset. The <masked> the step writes is escaped as <<masked> by the normaliser."
+expect:
+  status: success
+  result:
+    wa19b:
+      status: 400
+      type: text/plain
+      body: "SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:498:20"
+    wa19c:
+      status: 400
+      type: "text/plain; charset=utf-8"
+      body: "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3"
+    wav2c:
+      status: 400
+      type: "text/plain; charset=utf-8"
+      body: "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3"
+    wa14d:
+      - status: 400
+        type: "text/plain; charset=utf-8"
+        body: "Invalid URL: Cannot parse `job_id` with value `abc`: UUID parsing failed: invalid length: found 3"
+      - status: 400
+        type: "text/plain; charset=utf-8"
+        body: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+      - status: 415
+        type: "text/plain; charset=utf-8"
+        body: "Expected request with `Content-Type: application/json`"
+    wa11e:
+      - status: 201
+        type: "text/plain; charset=utf-8"
+        body: "variable f/wl_fa/w created"
+      - status: 400
+        type: text/plain
+        body: "Bad request: Variable f/wl_fa/w already exists"
+      - status: 200
+        type: "text/plain; charset=utf-8"
+        body: "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")"
+      - status: 404
+        type: text/plain
+        body: "Not found: Variable not found at name f/wl_fa/none (variables.rs:1275)"
+      - status: 200
+        type: "text/plain; charset=utf-8"
+        body: "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")"
+      - {status: 200, body: "\"c\""}
+    wa11c:
+      kept: 0
+      read:
+        status: 500
+        type: text/plain
+        body: "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:265:45 @resolver.rs:262:17"
+    wa11d:
+      - status: 400
+        type: text/plain
+        body: "Bad request: Variable f/wl_fa/p was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted."
+      - status: 400
+        type: text/plain
+        body: "Bad request: Variable f/wl_fa/p was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted."
+      - {status: 201}
+      - status: 500
+        type: text/plain
+        body: "Internal: Error decrypting variable f/wl_fa/p: Internal: Invalid byte 36, offset 0. @variables.rs:269:14 @resolver.rs:262:17"
+    wa12g:
+      plain:
+        - {status: 200, body: "{\"a\":1}"}
+        - {status: 200, body: "{\"a\":1}"}
+        - {status: 200, body: "{\"a\":1}"}
+      ctx:
+        - status: 404
+          body: "Not found: Job not found at name <random> (resources.rs:899)"
+        - status: 404
+          body: "Not found: Job not found at name <completed> (resources.rs:899)"
+        - {status: 200, body: "{\"j\":\"<self>\"}"}
+      nope: [400, 400]
+    wa12h:
+      interpolated:
+        status: 200
+        value:
+          host: "<<masked>"
+          user: "<<masked>"
+          password: "<<masked>"
+          port: "<<masked>"
+          sslmode: "<<masked>"
+          dbname: demo
+          root_certificate_pem: null
+          accept_invalid_certs: null
+          use_iam_auth: null
+          region: null
+      raw:
+        status: 404
+        type: text/plain
+        body: "Not found: Resource CUSTOM_INSTANCE_DB/demo not found"

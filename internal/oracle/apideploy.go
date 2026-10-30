@@ -52,6 +52,12 @@ type scriptMeta struct {
 	Summary     string `json:"summary"`
 	Description string `json:"description"`
 	CacheTTL    *int   `json:"cache_ttl"`
+	// Envs, Schema and DeleteAfterSecs are sent as written: a script's
+	// envs (WR-22), the stored schema validation builds from (WR-54), and
+	// delete_after_secs (OR-21), which the CLI's metadata cannot give.
+	Envs            []string        `json:"envs"`
+	Schema          json.RawMessage `json:"schema"`
+	DeleteAfterSecs *int            `json:"delete_after_secs"`
 }
 
 // DeployAPI creates the folders, scripts and flows of the sync tree dir
@@ -60,7 +66,8 @@ type scriptMeta struct {
 // server absent. It reads a narrow tree:
 //
 //   - wmill.yaml, and folder.meta.yaml files, which are not sent;
-//   - Bun scripts f/<folder>/<name>.ts, each with an optional
+//   - Bun scripts f/<folder>/<name>.ts, also under subdirectories of the
+//     folder (f/<folder>/<dir>/<name>.ts), each with an optional
 //     <name>.script.yaml giving summary, description and cache_ttl;
 //   - flows f/<folder>/<name>.flow/flow.yaml, whose rawscript content and
 //     lock may be "!inline <file>" in the flow's directory, as the CLI
@@ -100,13 +107,11 @@ func DeployAPI(ctx context.Context, c *Client, workspace, dir string) (*APIDeplo
 			flows = append(flows, strings.TrimSuffix(rel, ".flow"))
 			return filepath.SkipDir
 		case e.IsDir():
-			if len(parts) > 2 {
-				return fmt.Errorf("oracle: api deploy: directory %s is neither a folder nor a flow", rel)
-			}
+			// A folder, or a directory of scripts under it.
 			return nil
 		case rel == "wmill.yaml", e.Name() == "folder.meta.yaml", strings.HasSuffix(e.Name(), ".script.yaml"):
 			return nil
-		case strings.HasSuffix(e.Name(), ".ts") && strings.Count(e.Name(), ".") == 1 && len(parts) == 3:
+		case strings.HasSuffix(e.Name(), ".ts") && strings.Count(e.Name(), ".") == 1 && len(parts) >= 3:
 			scripts = append(scripts, strings.TrimSuffix(rel, ".ts"))
 			return nil
 		}
@@ -179,6 +184,7 @@ func readScript(dir, path string) (NewScript, error) {
 		return s, fmt.Errorf("oracle: api deploy: %s: %w", metaPath, err)
 	}
 	s.Summary, s.Description, s.CacheTTL = m.Summary, m.Description, m.CacheTTL
+	s.Envs, s.Schema, s.DeleteAfterSecs = m.Envs, m.Schema, m.DeleteAfterSecs
 	return s, nil
 }
 

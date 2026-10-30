@@ -1,0 +1,10 @@
+# WR-54/g: [1] fails with the anyOf rule's list of possible errors.
+spec: [WR-54/g]
+target: f/wl_wr54/g_bad
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nProblem with arguments: Argument `xs` is not valid, failed matching to one of the expected types. Here is a list of possible errors:\n- Problem with arguments: Argument `xs[0]` should be a string\n- Problem with arguments: Argument `xs` should be null\n"
+      name: ExecutionErr
+      step_id: s

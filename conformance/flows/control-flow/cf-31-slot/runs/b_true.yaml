@@ -1,0 +1,4 @@
+# CF-31/b: with a body returning true, the flow succeeds with [true].
+spec: [CF-31/b]
+target: f/wl_cf31/b_true
+expect: {status: success, result: [true]}

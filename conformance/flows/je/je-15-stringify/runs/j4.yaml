@@ -1,0 +1,9 @@
+# JE-15/j 4: a rejected promise from the replacement fails b as an uncaught
+# throw does (JE-21): its message carries QuickJS evaluation error: Error:
+# serializer failed (checked in the batch manifest).
+spec: [JE-15/j]
+target: f/wl_je15/j4
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: success, result: 1}}

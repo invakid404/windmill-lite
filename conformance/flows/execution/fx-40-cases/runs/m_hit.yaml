@@ -1,0 +1,11 @@
+# FX-40/m: two steps pinned to the same script hash with equal arguments,
+# cache_ttl 60 then 0, on one worker: the second step hits the first's entry
+# (the step paths are not in the key).
+spec: [FX-40/m]
+target: f/wl_fx40c/m_hit
+expect:
+  status: success
+  result: "<job:m:a>"
+  steps:
+    "m:a": {status: success, result: "<job:m:a>"}
+    "m:b": {status: success, result: "<job:m:a>"}

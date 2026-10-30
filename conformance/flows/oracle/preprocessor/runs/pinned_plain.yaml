@@ -1,0 +1,4 @@
+# WR-11/c: pinned, with apply_preprocessor absent, the step returns orig.
+spec: [WR-11/c]
+target: f/wl_pre/pinned_plain
+expect: {status: success, result: orig}

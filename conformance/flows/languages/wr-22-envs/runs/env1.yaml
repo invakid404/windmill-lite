@@ -1,0 +1,5 @@
+# WR-22/c: an envs entry is split at its first =, so A is b=c and B is
+# empty.
+spec: [WR-22/c]
+target: f/wl_wr22/env1
+expect: {status: success, result: ["b=c", ""]}

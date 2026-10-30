@@ -1,0 +1,19 @@
+# Recording batch E3f (ADR 0012): FX-47/b, a thrown null (Q-FX-18). The
+# step's message quotes the wrapper's crash report at a path under the
+# worker's directory, which differs between oracle sessions (oracle runs
+# 41000318656 and 41003988171), so the fixture masks it; it starts with the
+# catalogue's exit code for in the raw captures. The run compares as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-47. Deployed with oracle.deploy api.
+id: execution/fx-47-null
+spec: [FX-47/b]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare:
+  mode: subset
+  mask: ["/result/error/message", "/steps/m:a/result/error/message"]

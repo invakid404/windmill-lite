@@ -1,0 +1,7 @@
+# WR-40/d (nativets): WR-40/d, the client's URL spelled file:///windmill.ts.
+spec: [WR-40/d]
+target: f/wl_n40/wr40_durl_nativets
+expect:
+  status: success
+  result: function
+  steps: {"m:a": {status: success, args: {}, result: function}}

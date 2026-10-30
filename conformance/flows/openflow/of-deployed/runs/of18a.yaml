@@ -1,0 +1,6 @@
+# OF-18/a: the flow schema's default is not applied to a run by path with
+# body {}.
+spec: [OF-18/a]
+target: f/wl_of/hasx
+args: {}
+expect: {status: success, result: {hasX: false}}

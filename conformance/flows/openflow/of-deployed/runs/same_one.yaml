@@ -1,0 +1,4 @@
+# OF-16/c: same_worker with a parallel loop of one child succeeds.
+spec: [OF-16/c]
+target: f/wl_of/same_one
+expect: {status: success, result: [5]}

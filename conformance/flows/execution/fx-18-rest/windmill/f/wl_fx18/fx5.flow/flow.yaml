@@ -1,0 +1,12 @@
+summary: FX-5/a
+value:
+  modules:
+    - id: c
+      value:
+        type: flow
+        path: f/wl_fx18/fx5_child
+        input_transforms: {x: {type: static, value: 5}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

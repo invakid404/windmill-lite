@@ -1,0 +1,25 @@
+# CF-23/d (ii): with continue_on_error, c's previous_result is the carried
+# 1, and d reads b from storage, the stored InternalError, which is the
+# flow's successful result.
+spec: [CF-23/d]
+target: f/wl_cf23b/d_tolerated
+expect:
+  status: success
+  result:
+    error:
+      name: InternalError
+      message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"
+  steps:
+    "m:b":
+      status: failure
+      result:
+        error:
+          name: InternalError
+          message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"
+    "m:c": {status: success, result: 1}
+    "m:d":
+      status: success
+      result:
+        error:
+          name: InternalError
+          message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"

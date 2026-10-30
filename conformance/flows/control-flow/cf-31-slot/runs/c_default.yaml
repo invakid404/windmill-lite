@@ -1,0 +1,5 @@
+# CF-31/c: a branchone in the failure slot chooses on the error: a step
+# throwing y gives default.
+spec: [CF-31/c]
+target: f/wl_cf31/c_default
+expect: {status: failure, result: default}

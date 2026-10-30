@@ -1,0 +1,13 @@
+# FX-51/a: an unpaired surrogate in a's result fails the completion insert;
+# after its retries (up to 10 times 3 s), a and the flow fail with an
+# InternalErr whose message starts Internal: Could not add completed job,
+# contains the database's invalid input syntax for type json and has no
+# step_id (checked in the batch manifest); b never runs.
+spec: [FX-51/a]
+target: f/wl_fx51/result_high
+expect:
+  status: failure
+  result: {error: {name: InternalErr}}
+  steps:
+    "m:a": {status: failure, result: {error: {name: InternalErr}}}
+    "m:b": {status: not_run}

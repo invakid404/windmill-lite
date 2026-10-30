@@ -1,0 +1,12 @@
+# FX-42/j: the loop's result text re-prints its children's numbers in the
+# backend's notation, as the timeout's i32 parse error quotes it; q never
+# runs.
+spec: [FX-42/j]
+target: f/wl_fx42n/j
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [[1e+20,1e-6,1.5e-7,0.1,1e+21,9223372036854776000,1.8446744073709552e+19,0,1.5,0.00001]]"
+  steps: {"m:q": {status: not_run}}

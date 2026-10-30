@@ -1,0 +1,22 @@
+summary: je51a
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          x:
+            type: javascript
+            expr: "((q) => (q(() => { throw new Error(\"job\") }), 1))(queueMicrotask)"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

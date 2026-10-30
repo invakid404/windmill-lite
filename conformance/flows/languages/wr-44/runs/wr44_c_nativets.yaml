@@ -1,0 +1,20 @@
+# WR-44/c (nativets): the heap cap, with the script waiting between
+# allocations.
+spec: [WR-44/c]
+target: f/wl_n44/wr44_c_nativets
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nMemory limit reached, killing isolate"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nMemory limit reached, killing isolate"
+          name: ExecutionErr
+          step_id: a

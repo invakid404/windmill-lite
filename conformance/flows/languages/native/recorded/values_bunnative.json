@@ -1,0 +1,355 @@
+{
+  "observation": {
+    "status": "success",
+    "result": true,
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "e": {},
+          "f": false,
+          "i": 42,
+          "n": 1.5,
+          "s": "text",
+          "t": true,
+          "z": null,
+          "ea": [],
+          "arr": [
+            1,
+            "two",
+            null,
+            {
+              "k": []
+            }
+          ],
+          "max": 9007199254740991,
+          "neg": -7,
+          "obj": {
+            "nested": {
+              "deep": [
+                1,
+                2,
+                3
+              ]
+            }
+          },
+          "uni": "é→"
+        }
+      },
+      "m:b": {
+        "status": "success",
+        "args": {},
+        "result": "text"
+      },
+      "m:c": {
+        "status": "success",
+        "args": {},
+        "result": 3.25
+      },
+      "m:d": {
+        "status": "success",
+        "args": {},
+        "result": null
+      },
+      "m:e": {
+        "status": "success",
+        "args": {},
+        "result": [
+          1,
+          [
+            2,
+            [
+              3
+            ]
+          ],
+          {}
+        ]
+      },
+      "m:f": {
+        "status": "success",
+        "args": {},
+        "result": true
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030020157-b6f274b58ad8",
+      "revision": "b6f274b58ad8be6aa9f573d7581ed0847a46bfee",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40989292429"
+    },
+    "recorded_at": "2026-10-30T02:04:06Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:42359",
+      "WORKER_TAGS": "nativets"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 407,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:04:06.267545Z",
+          "started_at": "2026-10-30T02:04:06.305928Z",
+          "completed_at": "2026-10-30T02:04:06.642121Z",
+          "duration_ms": 336
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:06.307780Z",
+          "started_at": "2026-10-30T02:04:06.309876Z",
+          "completed_at": "2026-10-30T02:04:06.320627Z",
+          "duration_ms": 9
+        },
+        "m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:06.323770Z",
+          "started_at": "2026-10-30T02:04:06.372114Z",
+          "completed_at": "2026-10-30T02:04:06.382184Z",
+          "duration_ms": 8
+        },
+        "m:c": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:06.385169Z",
+          "started_at": "2026-10-30T02:04:06.432906Z",
+          "completed_at": "2026-10-30T02:04:06.444637Z",
+          "duration_ms": 9
+        },
+        "m:d": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:06.448622Z",
+          "started_at": "2026-10-30T02:04:06.496017Z",
+          "completed_at": "2026-10-30T02:04:06.508054Z",
+          "duration_ms": 9
+        },
+        "m:e": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:06.511654Z",
+          "started_at": "2026-10-30T02:04:06.559002Z",
+          "completed_at": "2026-10-30T02:04:06.571266Z",
+          "duration_ms": 9
+        },
+        "m:f": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:04:06.574669Z",
+          "started_at": "2026-10-30T02:04:06.624698Z",
+          "completed_at": "2026-10-30T02:04:06.636374Z",
+          "duration_ms": 9
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "//native\nexport function main() {\n  return { s: \"text\", n: 1.5, i: 42, neg: -7, max: 9007199254740991, t: true, f: false, z: null,\n    arr: [1, \"two\", null, { k: [] }], obj: { nested: { deep: [1, 2, 3] } }, uni: \"\\u00e9\\u2192\", e: {}, ea: [] };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "content": "//native\nexport function main() { return \"text\"; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "c",
+            "value": {
+              "content": "//native\nexport function main() { return 3.25; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "d",
+            "value": {
+              "content": "//native\nexport function main() { return undefined; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "e",
+            "value": {
+              "content": "//native\nexport function main() { return [1, [2, [3]], {}]; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "f",
+            "value": {
+              "content": "//native\nexport function main() { return true; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() {\n  return { s: \"text\", n: 1.5, i: 42, neg: -7, max: 9007199254740991, t: true, f: false, z: null,\n    arr: [1, \"two\", null, { k: [] }], obj: { nested: { deep: [1, 2, 3] } }, uni: \"\\u00e9\\u2192\", e: {}, ea: [] };\n}\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() { return \"text\"; }\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "c",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() { return 3.25; }\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "d",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() { return undefined; }\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "e",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() { return [1, [2, [3]], {}]; }\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "f",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() { return true; }\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bunnative"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline b.ts",
+              "input_transforms": {},
+              "lock": "!inline b.lock",
+              "language": "bunnative"
+            }
+          },
+          {
+            "id": "c",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline c.ts",
+              "input_transforms": {},
+              "lock": "!inline c.lock",
+              "language": "bunnative"
+            }
+          },
+          {
+            "id": "d",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline d.ts",
+              "input_transforms": {},
+              "lock": "!inline d.lock",
+              "language": "bunnative"
+            }
+          },
+          {
+            "id": "e",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline e.ts",
+              "input_transforms": {},
+              "lock": "!inline e.lock",
+              "language": "bunnative"
+            }
+          },
+          {
+            "id": "f",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline f.ts",
+              "input_transforms": {},
+              "lock": "!inline f.lock",
+              "language": "bunnative"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

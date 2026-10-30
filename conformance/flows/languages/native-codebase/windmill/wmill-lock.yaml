@@ -1,0 +1,10 @@
+version: v2
+locks:
+  f/wl_ncb/cjs_native.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_ncb/cjs/native: efe835d4421fca8144374eb515c0b0daf41d090b1fc57bd6c06f7a99435d8adf
+  f/wl_ncb/esm_control.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_ncb/esm_native.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_ncb/esm/control: 2928149f0e5439da4309acfbcd537b4b1742395906e200cd21f56ac8d26c63d4
+  f/wl_ncb/esm/native: efe835d4421fca8144374eb515c0b0daf41d090b1fc57bd6c06f7a99435d8adf
+  f/wl_ncb/esmreq_native.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_ncb/esmreq/native: 759a21904da49df02baef6fc97e9718f0b3a508695c3b675a1761f0a0ce986d9

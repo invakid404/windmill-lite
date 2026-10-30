@@ -1,0 +1,11 @@
+# CF-25/c: CE ignores squash where it starts no runners: a parallel loop
+# never starts the runners, so the flag has no effect and the flow gives [1,
+# 2].
+spec: [CF-25/c]
+target: f/wl_cf25c/parallel
+expect:
+  status: success
+  result: [1, 2]
+  steps:
+    "m:l": {status: success, result: [1, 2]}
+    "m:n": {status: success, result: [1, 2]}

@@ -1,0 +1,14 @@
+summary: "OF-6/a: branchall shape"
+value:
+  modules:
+    - {id: ba, value: {type: branchall, branches: [{modules: []}]}}
+    - id: z
+      value:
+        type: rawscript
+        content: "!inline z.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

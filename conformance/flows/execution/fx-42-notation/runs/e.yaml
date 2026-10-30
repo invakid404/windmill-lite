@@ -1,0 +1,6 @@
+# FX-42/e: the flow_input shortcut reads the whole-suffix key a.b (7), while
+# flow_input.a.b + 0 is evaluated (9).
+spec: [FX-42/e]
+target: f/wl_fx42n/e
+args: {a.b: 7, a: {b: 9}}
+expect: {status: success, result: [7, 9]}

@@ -1,0 +1,8 @@
+# WR-41/b (nativets): a missing argument takes its default, null stays null,
+# and an extra key is ignored.
+spec: [WR-41/b]
+target: f/wl_n41/wr41_b_nativets
+expect:
+  status: success
+  result: [3, null]
+  steps: {"m:a": {status: success, args: {b: null, z: 1}, result: [3, null]}}

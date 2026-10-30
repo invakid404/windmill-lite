@@ -1,0 +1,4 @@
+resource_types: [{name: wl_obj, schema: {type: object}}]
+resources:
+  - {path: f/wl_fa/plain, resource_type: wl_obj, value: {a: 1}}
+  - {path: f/wl_fa/ctx, resource_type: wl_obj, value: {j: "$WM_JOB_ID"}}

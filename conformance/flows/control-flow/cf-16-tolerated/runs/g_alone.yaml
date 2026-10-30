@@ -1,0 +1,6 @@
+# CF-12/g: the loop alone fails with the same result.
+spec: [CF-12/g]
+target: f/wl_cf16t/g_alone
+expect:
+  status: failure
+  result: [{error: {name: EarlyStopError, message: halt}}]

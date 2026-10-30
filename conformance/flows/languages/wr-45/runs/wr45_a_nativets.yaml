@@ -1,0 +1,12 @@
+# WR-45/a (nativets): process.env holds the WM_* variables and the base
+# URLs, nothing else, and process has no exit.
+spec: [WR-45/a]
+target: f/wl_n45/wr45_a_nativets
+expect:
+  status: success
+  result: [string, a, true, undefined, undefined]
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result: [string, a, true, undefined, undefined]

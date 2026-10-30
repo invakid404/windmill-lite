@@ -1,0 +1,14 @@
+# WR-43/c (bunnative): the stack starts with the failing source line as
+# loaded, then Error: x (nativets keeps throw new Error, bunnative's
+# minified bundle writes throw Error); the stack is masked here and its
+# first lines are in the recording.
+spec: [WR-43/c]
+target: f/wl_n43/wr43_c_bunnative
+expect:
+  status: failure
+  result: {error: {message: x, stack: "<stack>", name: Error}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, stack: "<stack>", name: Error}}

@@ -1,0 +1,7 @@
+# WR-40/b (nativets): nativets imports the embedded client as ./windmill.ts.
+spec: [WR-40/b]
+target: f/wl_n40/wr40_b_nativets
+expect:
+  status: success
+  result: function
+  steps: {"m:a": {status: success, args: {}, result: function}}

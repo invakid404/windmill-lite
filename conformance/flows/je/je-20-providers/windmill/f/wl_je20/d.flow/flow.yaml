@@ -1,0 +1,23 @@
+summary: JE-20/d
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: "resource(\"f/wl_je20/r\")"}
+          "y": {type: javascript, expr: "resource(\"f/wl_je20/alias\")"}
+          z: {type: javascript, expr: "resource(\"f/wl_je20/n\")"}
+          w: {type: static, value: "$res:f/wl_je20/r"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

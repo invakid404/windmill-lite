@@ -1,0 +1,19 @@
+# OR-7/b: with MAX_RESULT_SIZE_MB=3 a step returning about 4.5 MiB fails at
+# once (no insert retries) with ResultTooLarge, no step_id and no location
+# suffix, and the flow fails as for any failed step.
+spec: [OR-7/b]
+target: f/wl_size/big
+expect:
+  status: failure
+  result:
+    error:
+      message: "Result of job <job:m:a> is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+      name: ResultTooLarge
+  steps:
+    "m:a":
+      status: failure
+      result:
+        error:
+          message: "Result of job <job:m:a> is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+          name: ResultTooLarge
+    "m:b": {status: not_run}

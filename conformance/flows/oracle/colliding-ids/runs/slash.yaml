@@ -1,0 +1,10 @@
+# Q-OR-17 (iii): module ids a/b and a%2Fb stay two records and two
+# placeholders.
+spec: [OR-11]
+target: f/wl_ids/slash
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a%2Fb": {status: success, result: 1}
+    "m:a%252Fb": {status: success, result: 2}

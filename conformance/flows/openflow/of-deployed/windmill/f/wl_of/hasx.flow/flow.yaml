@@ -1,0 +1,11 @@
+summary: "OF-18: hasX"
+value:
+  modules:
+    - id: p
+      value:
+        type: rawscript
+        content: "!inline p.ts"
+        language: bun
+        input_transforms:
+          hasX: {type: javascript, expr: "flow_input.x !== undefined"}
+schema: {type: object, properties: {x: {type: number, default: 5}}}

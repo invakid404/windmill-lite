@@ -1,0 +1,14 @@
+# FX-40/l: stop_after_if applies to a hit: both calls end after a, b never
+# runs, and the second's a gives the first call's stored value (a result
+# that also names the job, so the hit shows).
+spec: [FX-40/l]
+target: f/wl_fx40c/l
+expect:
+  status: success
+  result: {"n": 1, job: "<job:m:s1/m:a>"}
+  steps:
+    "m:s1": {status: success, result: {"n": 1, job: "<job:m:s1/m:a>"}}
+    "m:s1/m:b": {status: not_run}
+    "m:s2": {status: success, result: {"n": 1, job: "<job:m:s1/m:a>"}}
+    "m:s2/m:a": {status: success, result: {"n": 1, job: "<job:m:s1/m:a>"}}
+    "m:s2/m:b": {status: not_run}

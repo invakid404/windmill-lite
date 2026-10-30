@@ -1,0 +1,19 @@
+# WR-45/f (nativets): //proxy is refused on CE.
+spec: [WR-45/f]
+target: f/wl_n45/wr45_f_nativets
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nProxy is an EE feature"
+      name: ExecutionErr
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          message: "execution error:\nProxy is an EE feature"
+          name: ExecutionErr
+          step_id: a

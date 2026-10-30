@@ -1,0 +1,483 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "wa11c": {
+        "kept": 0,
+        "read": {
+          "body": "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:265:45 @resolver.rs:262:17",
+          "type": "text/plain",
+          "status": 500
+        }
+      },
+      "wa11d": [
+        {
+          "body": "Bad request: Variable f/wl_fa/p was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.",
+          "type": "text/plain",
+          "status": 400
+        },
+        {
+          "body": "Bad request: Variable f/wl_fa/p was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.",
+          "type": "text/plain",
+          "status": 400
+        },
+        {
+          "body": "variable f/wl_fa/p created",
+          "type": "text/plain; charset=utf-8",
+          "status": 201
+        },
+        {
+          "body": "Internal: Error decrypting variable f/wl_fa/p: Internal: Invalid byte 36, offset 0. @variables.rs:269:14 @resolver.rs:262:17",
+          "type": "text/plain",
+          "status": 500
+        }
+      ],
+      "wa11e": [
+        {
+          "body": "variable f/wl_fa/w created",
+          "type": "text/plain; charset=utf-8",
+          "status": 201
+        },
+        {
+          "body": "Bad request: Variable f/wl_fa/w already exists",
+          "type": "text/plain",
+          "status": 400
+        },
+        {
+          "body": "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")",
+          "type": "text/plain; charset=utf-8",
+          "status": 200
+        },
+        {
+          "body": "Not found: Variable not found at name f/wl_fa/none (variables.rs:1275)",
+          "type": "text/plain",
+          "status": 404
+        },
+        {
+          "body": "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")",
+          "type": "text/plain; charset=utf-8",
+          "status": 200
+        },
+        {
+          "body": "\"c\"",
+          "type": "application/json",
+          "status": 200
+        }
+      ],
+      "wa12g": {
+        "ctx": [
+          {
+            "body": "Not found: Job not found at name <random> (resources.rs:899)",
+            "type": "text/plain",
+            "status": 404
+          },
+          {
+            "body": "Not found: Job not found at name <completed> (resources.rs:899)",
+            "type": "text/plain",
+            "status": 404
+          },
+          {
+            "body": "{\"j\":\"<self>\"}",
+            "type": "application/json",
+            "status": 200
+          }
+        ],
+        "nope": [
+          400,
+          400
+        ],
+        "plain": [
+          {
+            "body": "{\"a\":1}",
+            "type": "application/json",
+            "status": 200
+          },
+          {
+            "body": "{\"a\":1}",
+            "type": "application/json",
+            "status": 200
+          },
+          {
+            "body": "{\"a\":1}",
+            "type": "application/json",
+            "status": 200
+          }
+        ]
+      },
+      "wa12h": {
+        "raw": {
+          "body": "Not found: Resource CUSTOM_INSTANCE_DB/demo not found",
+          "type": "text/plain",
+          "status": 404
+        },
+        "interpolated": {
+          "value": {
+            "host": "<<masked>",
+            "port": "<<masked>",
+            "user": "<<masked>",
+            "dbname": "demo",
+            "region": null,
+            "sslmode": "<<masked>",
+            "password": "<<masked>",
+            "use_iam_auth": null,
+            "accept_invalid_certs": null,
+            "root_certificate_pem": null
+          },
+          "status": 200
+        }
+      },
+      "wa14d": [
+        {
+          "body": "Invalid URL: Cannot parse `job_id` with value `abc`: UUID parsing failed: invalid length: found 3",
+          "type": "text/plain; charset=utf-8",
+          "status": 400
+        },
+        {
+          "body": "Failed to parse the request body as JSON: expected value at line 1 column 1",
+          "type": "text/plain; charset=utf-8",
+          "status": 400
+        },
+        {
+          "body": "Expected request with `Content-Type: application/json`",
+          "type": "text/plain; charset=utf-8",
+          "status": 415
+        }
+      ],
+      "wa19b": {
+        "body": "SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:498:20",
+        "type": "text/plain",
+        "status": 400
+      },
+      "wa19c": {
+        "body": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+        "type": "text/plain; charset=utf-8",
+        "status": 400
+      },
+      "wav2c": {
+        "body": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+        "type": "text/plain; charset=utf-8",
+        "status": 400
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {
+          "completed": "<job:m:p>"
+        },
+        "result": {
+          "wa11c": {
+            "kept": 0,
+            "read": {
+              "body": "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:265:45 @resolver.rs:262:17",
+              "type": "text/plain",
+              "status": 500
+            }
+          },
+          "wa11d": [
+            {
+              "body": "Bad request: Variable f/wl_fa/p was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.",
+              "type": "text/plain",
+              "status": 400
+            },
+            {
+              "body": "Bad request: Variable f/wl_fa/p was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.",
+              "type": "text/plain",
+              "status": 400
+            },
+            {
+              "body": "variable f/wl_fa/p created",
+              "type": "text/plain; charset=utf-8",
+              "status": 201
+            },
+            {
+              "body": "Internal: Error decrypting variable f/wl_fa/p: Internal: Invalid byte 36, offset 0. @variables.rs:269:14 @resolver.rs:262:17",
+              "type": "text/plain",
+              "status": 500
+            }
+          ],
+          "wa11e": [
+            {
+              "body": "variable f/wl_fa/w created",
+              "type": "text/plain; charset=utf-8",
+              "status": 201
+            },
+            {
+              "body": "Bad request: Variable f/wl_fa/w already exists",
+              "type": "text/plain",
+              "status": 400
+            },
+            {
+              "body": "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")",
+              "type": "text/plain; charset=utf-8",
+              "status": 200
+            },
+            {
+              "body": "Not found: Variable not found at name f/wl_fa/none (variables.rs:1275)",
+              "type": "text/plain",
+              "status": 404
+            },
+            {
+              "body": "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")",
+              "type": "text/plain; charset=utf-8",
+              "status": 200
+            },
+            {
+              "body": "\"c\"",
+              "type": "application/json",
+              "status": 200
+            }
+          ],
+          "wa12g": {
+            "ctx": [
+              {
+                "body": "Not found: Job not found at name <random> (resources.rs:899)",
+                "type": "text/plain",
+                "status": 404
+              },
+              {
+                "body": "Not found: Job not found at name <completed> (resources.rs:899)",
+                "type": "text/plain",
+                "status": 404
+              },
+              {
+                "body": "{\"j\":\"<self>\"}",
+                "type": "application/json",
+                "status": 200
+              }
+            ],
+            "nope": [
+              400,
+              400
+            ],
+            "plain": [
+              {
+                "body": "{\"a\":1}",
+                "type": "application/json",
+                "status": 200
+              },
+              {
+                "body": "{\"a\":1}",
+                "type": "application/json",
+                "status": 200
+              },
+              {
+                "body": "{\"a\":1}",
+                "type": "application/json",
+                "status": 200
+              }
+            ]
+          },
+          "wa12h": {
+            "raw": {
+              "body": "Not found: Resource CUSTOM_INSTANCE_DB/demo not found",
+              "type": "text/plain",
+              "status": 404
+            },
+            "interpolated": {
+              "value": {
+                "host": "<<masked>",
+                "port": "<<masked>",
+                "user": "<<masked>",
+                "dbname": "demo",
+                "region": null,
+                "sslmode": "<<masked>",
+                "password": "<<masked>",
+                "use_iam_auth": null,
+                "accept_invalid_certs": null,
+                "root_certificate_pem": null
+              },
+              "status": 200
+            }
+          },
+          "wa14d": [
+            {
+              "body": "Invalid URL: Cannot parse `job_id` with value `abc`: UUID parsing failed: invalid length: found 3",
+              "type": "text/plain; charset=utf-8",
+              "status": 400
+            },
+            {
+              "body": "Failed to parse the request body as JSON: expected value at line 1 column 1",
+              "type": "text/plain; charset=utf-8",
+              "status": 400
+            },
+            {
+              "body": "Expected request with `Content-Type: application/json`",
+              "type": "text/plain; charset=utf-8",
+              "status": 415
+            }
+          ],
+          "wa19b": {
+            "body": "SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:498:20",
+            "type": "text/plain",
+            "status": 400
+          },
+          "wa19c": {
+            "body": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+            "type": "text/plain; charset=utf-8",
+            "status": 400
+          },
+          "wav2c": {
+            "body": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+            "type": "text/plain; charset=utf-8",
+            "status": 400
+          }
+        }
+      },
+      "m:p": {
+        "status": "success",
+        "args": {},
+        "result": "<job:m:p>"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030035855-de3781654dcb",
+      "revision": "de3781654dcbf73e0546f9c907f9f51253cfa2e7",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41000318656"
+    },
+    "recorded_at": "2026-10-30T04:01:05Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:36143"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 410,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T04:01:05.309490Z",
+          "started_at": "2026-10-30T04:01:05.320564Z",
+          "completed_at": "2026-10-30T04:01:05.533469Z",
+          "duration_ms": 213
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:01:05.354278Z",
+          "started_at": "2026-10-30T04:01:05.402417Z",
+          "completed_at": "2026-10-30T04:01:05.529409Z",
+          "duration_ms": 124
+        },
+        "m:p": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:01:05.321786Z",
+          "started_at": "2026-10-30T04:01:05.324400Z",
+          "completed_at": "2026-10-30T04:01:05.350457Z",
+          "duration_ms": 22
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "p",
+            "value": {
+              "content": "export function main() { return process.env.WM_JOB_ID; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "a",
+            "value": {
+              "content": "// Talks to the oracle's API with the step's own token (a black-box client,\n// as the harness is), so a recording can hold what only the API shows.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst root = process.env.WM_ROOT_FLOW_JOB_ID!;\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nasync function call(method: string, path: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${path}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: await r.text() };\n}\nasync function json(method: string, path: string, value?: unknown): Promise<any> {\n  const a = await call(method, path, value === undefined ? undefined : JSON.stringify(value));\n  if (a.status >= 300) throw new Error(`${method} ${path}: ${a.status} ${a.body}`);\n  return a.body === \"\" ? null : JSON.parse(a.body);\n}\n// Starts a job and returns its id, failing at once on a refused request.\nasync function start(path: string, body = \"{}\"): Promise<string> {\n  const a = await call(\"POST\", path, body);\n  if (a.status >= 300) throw new Error(`POST ${path}: ${a.status} ${a.body}`);\n  return a.body.replaceAll('\"', \"\");\n}\nasync function done(id: string, secs = 100): Promise<any> {\n  for (let i = 0; i < secs * 4; i++) {\n    const r = await json(\"GET\", `/jobs_u/completed/get_result_maybe/${id}`);\n    if (r.completed) return r;\n    await new Promise((res) => setTimeout(res, 250));\n  }\n  throw new Error(`job ${id} did not complete`);\n}\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// A driver reads the oracle's API: anywhere else (windmill-lite's facade\n// answers only the routes a step's client makes) it fails at once.\nasync function oracleAPI() {\n  const r = await fetch(`${base}/api/version`);\n  const v = r.ok ? await r.text() : \"\";\n  if (!v.startsWith(\"CE v\")) throw new Error(`the driver needs Windmill's API; /api/version answered ${r.status} ${v}`);\n}\nconst tag = () => root.replaceAll(\"-\", \"\").slice(0, 12);\n\nexport async function main(completed: string) {\n  await oracleAPI();\n  const self = process.env.WM_JOB_ID!;\n  const scrub = (a: Answer) => ({ ...a, body: a.body.replaceAll(completed, \"<completed>\").replaceAll(self, \"<self>\").replaceAll(root, \"<root>\") });\n  const out: Record<string, unknown> = {};\n  out.wa19b = await call(\"GET\", \"/jobs_u/get_root_job_id/00000000-0000-0000-0000-000000000001\");\n  out.wa19c = await call(\"GET\", \"/jobs_u/get_root_job_id/abc\");\n  out.wav2c = await call(\"GET\", \"/jobs_u/completed/get_result_maybe/abc\");\n  out.wa14d = [\n    await call(\"GET\", \"/jobs/flow/user_states/abc/k\"),\n    await call(\"POST\", `/jobs/flow/user_states/${root}/k`, \"hello\", \"application/json\"),\n    await call(\"POST\", `/jobs/flow/user_states/${root}/k`, \"hello\", null),\n  ].map(scrub);\n  // WA-11/e: a variable's create and update answers, then the write a\n  // setVariable makes and a read of it.\n  await call(\"DELETE\", \"/variables/delete/f/wl_fa/w\");\n  const w = (value: string) => JSON.stringify({ path: \"f/wl_fa/w\", value, is_secret: false, description: \"\" });\n  out.wa11e = [\n    await call(\"POST\", \"/variables/create\", w(\"a\")),\n    await call(\"POST\", \"/variables/create\", w(\"a\")),\n    await call(\"POST\", \"/variables/update/f/wl_fa/w\", JSON.stringify({ value: \"b\" })),\n    await call(\"POST\", \"/variables/update/f/wl_fa/none\", JSON.stringify({ value: \"b\" })),\n    await call(\"POST\", \"/variables/update/f/wl_fa/w\", JSON.stringify({ value: \"c\" })),\n    await call(\"GET\", \"/variables/get_value/f/wl_fa/w\"),\n  ];\n  // WA-11/c: secrets stored as ciphertext under another key; the first\n  // 16-byte candidate whose read fails with the padding cause is kept.\n  const cands = [\"AAAAAAAAAAAAAAAAAAAAAA==\", \"AQEBAQEBAQEBAQEBAQEBAQ==\", \"AgICAgICAgICAgICAgICAg==\"];\n  const secret = (path: string, value: string) => JSON.stringify({ path, value, is_secret: true, description: \"\" });\n  let kept = -1, read: Answer | null = null;\n  for (let i = 0; i < cands.length && kept < 0; i++) {\n    await call(\"DELETE\", \"/variables/delete/f/wl_fa/s\");\n    const c = await call(\"POST\", \"/variables/create?already_encrypted=true\", secret(\"f/wl_fa/s\", cands[i]));\n    read = await call(\"GET\", \"/variables/get_value/f/wl_fa/s\");\n    if (c.status < 300 && read.body.includes(\"Could not decrypt value\")) kept = i;\n  }\n  out.wa11c = { kept, read };\n  // WA-11/d: the shape check.\n  const shape: Answer[] = [];\n  for (const v of [\"hunter2\", \"dGVzdA==\", \"$vault:f/wl_fa/p\"]) {\n    await call(\"DELETE\", \"/variables/delete/f/wl_fa/p\");\n    shape.push(await call(\"POST\", \"/variables/create?already_encrypted=true\", secret(\"f/wl_fa/p\", v)));\n  }\n  shape.push(await call(\"GET\", \"/variables/get_value/f/wl_fa/p\"));\n  out.wa11d = shape;\n  // WA-12/g: job_id on the interpolated resource read.\n  const rnd = crypto.randomUUID();\n  const ipol = (p: string, id: string) => call(\"GET\", `/resources/get_value_interpolated/${p}?job_id=${id}`);\n  out.wa12g = {\n    plain: [await ipol(\"f/wl_fa/plain\", rnd), await ipol(\"f/wl_fa/plain\", completed), await ipol(\"f/wl_fa/plain\", self)].map((a) => ({ ...a, body: a.body.replaceAll(rnd, \"<random>\") })).map(scrub),\n    ctx: [await ipol(\"f/wl_fa/ctx\", rnd), await ipol(\"f/wl_fa/ctx\", completed), await ipol(\"f/wl_fa/ctx\", self)].map((a) => ({ ...a, body: a.body.replaceAll(rnd, \"<random>\") })).map(scrub),\n    nope: [await ipol(\"f/wl_fa/plain\", \"nope\"), await ipol(\"f/wl_fa/ctx\", \"nope\")].map((a) => a.status),\n  };\n  // WA-12/h: CUSTOM_INSTANCE_DB/ as the superadmin, connection fields masked.\n  const cdb = await call(\"GET\", \"/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo\");\n  let cdbValue: any = null;\n  try {\n    cdbValue = JSON.parse(cdb.body);\n    for (const k of [\"host\", \"user\", \"password\", \"port\", \"sslmode\"]) if (k in cdbValue) cdbValue[k] = \"<masked>\";\n  } catch { cdbValue = cdb.body; }\n  out.wa12h = { interpolated: { status: cdb.status, value: cdbValue }, raw: await call(\"GET\", \"/resources/get_value/CUSTOM_INSTANCE_DB/demo\") };\n  return out;\n}\n",
+              "input_transforms": {
+                "completed": {
+                  "expr": "results.p",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "p",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { return process.env.WM_JOB_ID; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// Talks to the oracle's API with the step's own token (a black-box client,\n// as the harness is), so a recording can hold what only the API shows.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst root = process.env.WM_ROOT_FLOW_JOB_ID!;\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nasync function call(method: string, path: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${path}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: await r.text() };\n}\nasync function json(method: string, path: string, value?: unknown): Promise<any> {\n  const a = await call(method, path, value === undefined ? undefined : JSON.stringify(value));\n  if (a.status >= 300) throw new Error(`${method} ${path}: ${a.status} ${a.body}`);\n  return a.body === \"\" ? null : JSON.parse(a.body);\n}\n// Starts a job and returns its id, failing at once on a refused request.\nasync function start(path: string, body = \"{}\"): Promise<string> {\n  const a = await call(\"POST\", path, body);\n  if (a.status >= 300) throw new Error(`POST ${path}: ${a.status} ${a.body}`);\n  return a.body.replaceAll('\"', \"\");\n}\nasync function done(id: string, secs = 100): Promise<any> {\n  for (let i = 0; i < secs * 4; i++) {\n    const r = await json(\"GET\", `/jobs_u/completed/get_result_maybe/${id}`);\n    if (r.completed) return r;\n    await new Promise((res) => setTimeout(res, 250));\n  }\n  throw new Error(`job ${id} did not complete`);\n}\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// A driver reads the oracle's API: anywhere else (windmill-lite's facade\n// answers only the routes a step's client makes) it fails at once.\nasync function oracleAPI() {\n  const r = await fetch(`${base}/api/version`);\n  const v = r.ok ? await r.text() : \"\";\n  if (!v.startsWith(\"CE v\")) throw new Error(`the driver needs Windmill's API; /api/version answered ${r.status} ${v}`);\n}\nconst tag = () => root.replaceAll(\"-\", \"\").slice(0, 12);\n\nexport async function main(completed: string) {\n  await oracleAPI();\n  const self = process.env.WM_JOB_ID!;\n  const scrub = (a: Answer) => ({ ...a, body: a.body.replaceAll(completed, \"<completed>\").replaceAll(self, \"<self>\").replaceAll(root, \"<root>\") });\n  const out: Record<string, unknown> = {};\n  out.wa19b = await call(\"GET\", \"/jobs_u/get_root_job_id/00000000-0000-0000-0000-000000000001\");\n  out.wa19c = await call(\"GET\", \"/jobs_u/get_root_job_id/abc\");\n  out.wav2c = await call(\"GET\", \"/jobs_u/completed/get_result_maybe/abc\");\n  out.wa14d = [\n    await call(\"GET\", \"/jobs/flow/user_states/abc/k\"),\n    await call(\"POST\", `/jobs/flow/user_states/${root}/k`, \"hello\", \"application/json\"),\n    await call(\"POST\", `/jobs/flow/user_states/${root}/k`, \"hello\", null),\n  ].map(scrub);\n  // WA-11/e: a variable's create and update answers, then the write a\n  // setVariable makes and a read of it.\n  await call(\"DELETE\", \"/variables/delete/f/wl_fa/w\");\n  const w = (value: string) => JSON.stringify({ path: \"f/wl_fa/w\", value, is_secret: false, description: \"\" });\n  out.wa11e = [\n    await call(\"POST\", \"/variables/create\", w(\"a\")),\n    await call(\"POST\", \"/variables/create\", w(\"a\")),\n    await call(\"POST\", \"/variables/update/f/wl_fa/w\", JSON.stringify({ value: \"b\" })),\n    await call(\"POST\", \"/variables/update/f/wl_fa/none\", JSON.stringify({ value: \"b\" })),\n    await call(\"POST\", \"/variables/update/f/wl_fa/w\", JSON.stringify({ value: \"c\" })),\n    await call(\"GET\", \"/variables/get_value/f/wl_fa/w\"),\n  ];\n  // WA-11/c: secrets stored as ciphertext under another key; the first\n  // 16-byte candidate whose read fails with the padding cause is kept.\n  const cands = [\"AAAAAAAAAAAAAAAAAAAAAA==\", \"AQEBAQEBAQEBAQEBAQEBAQ==\", \"AgICAgICAgICAgICAgICAg==\"];\n  const secret = (path: string, value: string) => JSON.stringify({ path, value, is_secret: true, description: \"\" });\n  let kept = -1, read: Answer | null = null;\n  for (let i = 0; i < cands.length && kept < 0; i++) {\n    await call(\"DELETE\", \"/variables/delete/f/wl_fa/s\");\n    const c = await call(\"POST\", \"/variables/create?already_encrypted=true\", secret(\"f/wl_fa/s\", cands[i]));\n    read = await call(\"GET\", \"/variables/get_value/f/wl_fa/s\");\n    if (c.status < 300 && read.body.includes(\"Could not decrypt value\")) kept = i;\n  }\n  out.wa11c = { kept, read };\n  // WA-11/d: the shape check.\n  const shape: Answer[] = [];\n  for (const v of [\"hunter2\", \"dGVzdA==\", \"$vault:f/wl_fa/p\"]) {\n    await call(\"DELETE\", \"/variables/delete/f/wl_fa/p\");\n    shape.push(await call(\"POST\", \"/variables/create?already_encrypted=true\", secret(\"f/wl_fa/p\", v)));\n  }\n  shape.push(await call(\"GET\", \"/variables/get_value/f/wl_fa/p\"));\n  out.wa11d = shape;\n  // WA-12/g: job_id on the interpolated resource read.\n  const rnd = crypto.randomUUID();\n  const ipol = (p: string, id: string) => call(\"GET\", `/resources/get_value_interpolated/${p}?job_id=${id}`);\n  out.wa12g = {\n    plain: [await ipol(\"f/wl_fa/plain\", rnd), await ipol(\"f/wl_fa/plain\", completed), await ipol(\"f/wl_fa/plain\", self)].map((a) => ({ ...a, body: a.body.replaceAll(rnd, \"<random>\") })).map(scrub),\n    ctx: [await ipol(\"f/wl_fa/ctx\", rnd), await ipol(\"f/wl_fa/ctx\", completed), await ipol(\"f/wl_fa/ctx\", self)].map((a) => ({ ...a, body: a.body.replaceAll(rnd, \"<random>\") })).map(scrub),\n    nope: [await ipol(\"f/wl_fa/plain\", \"nope\"), await ipol(\"f/wl_fa/ctx\", \"nope\")].map((a) => a.status),\n  };\n  // WA-12/h: CUSTOM_INSTANCE_DB/ as the superadmin, connection fields masked.\n  const cdb = await call(\"GET\", \"/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo\");\n  let cdbValue: any = null;\n  try {\n    cdbValue = JSON.parse(cdb.body);\n    for (const k of [\"host\", \"user\", \"password\", \"port\", \"sslmode\"]) if (k in cdbValue) cdbValue[k] = \"<masked>\";\n  } catch { cdbValue = cdb.body; }\n  out.wa12h = { interpolated: { status: cdb.status, value: cdbValue }, raw: await call(\"GET\", \"/resources/get_value/CUSTOM_INSTANCE_DB/demo\") };\n  return out;\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "completed": {
+                  "expr": "results.p",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "p",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline p.ts",
+              "input_transforms": {},
+              "lock": "!inline p.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {
+                "completed": {
+                  "type": "javascript",
+                  "expr": "results.p"
+                }
+              },
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

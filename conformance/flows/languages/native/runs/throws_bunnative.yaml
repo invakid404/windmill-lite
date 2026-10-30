@@ -1,0 +1,13 @@
+# WR-43/a: a thrown Error in the native runtime (bunnative) gives exactly
+# message, stack and name: no step_id and no extra, so the own property code
+# is gone.
+spec: [WR-43/a]
+target: f/wl_nat/throws_bunnative
+expect:
+  status: failure
+  result: {error: {message: boom, stack: "<stack>", name: TypeError}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: boom, stack: "<stack>", name: TypeError}}

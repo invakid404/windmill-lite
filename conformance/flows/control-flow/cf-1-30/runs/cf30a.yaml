@@ -1,0 +1,10 @@
+# CF-30/a: the failure module's sleep expression is never evaluated, so the
+# handler's "handled" is the failed flow's result.
+spec: [CF-30/a]
+target: f/wl_cf130/cf30a
+expect:
+  status: failure
+  result: handled
+  steps:
+    "m:a": {status: failure}
+    "s:failure": {status: success, result: handled}

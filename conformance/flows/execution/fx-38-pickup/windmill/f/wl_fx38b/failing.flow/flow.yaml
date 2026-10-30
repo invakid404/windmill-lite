@@ -1,0 +1,13 @@
+summary: failing
+value:
+  modules:
+    - id: c
+      value:
+        type: rawscript
+        content: "!inline c.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

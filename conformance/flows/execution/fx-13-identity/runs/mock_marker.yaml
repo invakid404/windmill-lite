@@ -1,0 +1,12 @@
+# FX-13/b: a mock value carrying wm_failure fails a's identity job, and b
+# never runs.
+spec: [FX-13/b]
+target: f/wl_fx13i/mock_marker
+expect:
+  status: failure
+  result: {x: 1, error: {name: ManualFailure, message: m}, wm_failure: m}
+  steps:
+    "m:a":
+      status: failure
+      result: {x: 1, error: {name: ManualFailure, message: m}, wm_failure: m}
+    "m:b": {status: not_run}

@@ -1,0 +1,13 @@
+# FX-42/m on a branchall whose one branch is an identity: the input {"n":
+# 1e400}, which the run file tags !!float so that the run API receives a
+# number, reaches the child flow's stored result, so the read of l's
+# children fails, but no job is completed with that text: the flow stays
+# running, neither b nor the failure module runs, and the zombie-flow
+# monitor cancels it some 60 s or more later.
+spec: [FX-42/m]
+target: f/wl_fx42m/m_branchall
+args: {"n": !!float 1e400}
+expect:
+  status: canceled
+  result: {error: {name: Canceled}}
+  steps: {"m:b": {status: not_run}, "s:failure": {status: not_run}}

@@ -1,0 +1,14 @@
+# Recording batch E3f (ADR 0012): CF-7/e, an ai parallelism that holds
+# every iteration until the run is canceled. The run compares as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#cf-7. Deployed with oracle.deploy api.
+id: control-flow/cf-7-ai
+spec: [CF-7/e]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

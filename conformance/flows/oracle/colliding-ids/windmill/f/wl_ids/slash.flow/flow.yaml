@@ -1,0 +1,19 @@
+summary: "Q-OR-17 (iii)"
+value:
+  modules:
+    - id: a/b
+      value:
+        type: rawscript
+        content: "!inline a_slash_b.ts"
+        language: bun
+        input_transforms: {}
+    - id: "a%2Fb"
+      value:
+        type: rawscript
+        content: "!inline a_pct_b.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

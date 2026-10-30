@@ -1,0 +1,29 @@
+# OR-21/b to OR-21/d: scripts created through the scripts API with
+# delete_after_use (the CLI never sends it), with and without
+# delete_after_secs, at paths named by the run: a flow step keeps its args
+# and result on CE; the run-and-wait script route blanks the job's result,
+# args and logs; a positive delete_after_secs only schedules, so nothing is
+# blanked; delete_after_secs 0 blanks at once.
+spec: [OR-21/b, OR-21/c, OR-21/d]
+target: f/wl_drv/or21
+expect:
+  status: success
+  result:
+    created: [201, 201, 201]
+    flow_created: 201
+    b: {flow_result: {secret: 7}, step_args: {x: 7}, step_result: {secret: 7}}
+    c:
+      response: "{\"secret\": 7}"
+      result: {}
+      args: {}
+      logs: "##DELETED##"
+    d:
+      response: "{\"secret\": 7}"
+      result: {secret: 7}
+      args: {x: 7}
+      logs: kept
+    d_zero:
+      response: "{\"secret\": 7}"
+      result: {}
+      args: {}
+      logs: "##DELETED##"

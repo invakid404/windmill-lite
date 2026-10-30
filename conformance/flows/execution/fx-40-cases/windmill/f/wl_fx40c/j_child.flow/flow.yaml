@@ -1,0 +1,16 @@
+summary: "FX-40/j: the child"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms:
+          x: {type: static, value: "$var:f/wl_fx40c/v"}
+          v: {type: javascript, expr: flow_input.v}
+      cache_ttl: 60
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}}

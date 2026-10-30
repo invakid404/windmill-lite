@@ -159,7 +159,9 @@ func TestClientUsesTheOpenAPISurface(t *testing.T) {
 		"DeleteWorkspace": func() error { return c.DeleteWorkspace(ctx, ws) },
 		"CreateFolder":    func() error { return c.CreateFolder(ctx, ws, "t") },
 		"CreateScript": func() error {
-			_, err := c.CreateScript(ctx, ws, NewScript{Path: "f/t/s", Summary: "s", Content: "x", Language: "bun"})
+			ttl, secs := 60, 3600
+			_, err := c.CreateScript(ctx, ws, NewScript{Path: "f/t/s", Summary: "s", Content: "x", Language: "bun",
+				CacheTTL: &ttl, Envs: []string{"A=b"}, Schema: json.RawMessage(`{"type":"object"}`), DeleteAfterSecs: &secs})
 			return err
 		},
 		"CreateFlow": func() error {

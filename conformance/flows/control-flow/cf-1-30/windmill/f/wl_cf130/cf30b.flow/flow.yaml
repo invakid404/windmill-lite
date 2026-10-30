@@ -1,0 +1,41 @@
+summary: CF-30/b
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms: {x: {type: javascript, expr: flow_input}}
+  preprocessor_module:
+    id: p
+    value:
+      type: branchone
+      branches: []
+      default:
+        - id: a2
+          value:
+            type: rawscript
+            content: "!inline a2.ts"
+            language: bun
+            input_transforms: {}
+        - id: inner
+          value:
+            type: forloopflow
+            iterator: {type: javascript, expr: "[1, 2, 3]"}
+            modules:
+              - id: v
+                value:
+                  type: rawscript
+                  content: "!inline v.ts"
+                  language: bun
+                  input_transforms:
+                    x:
+                      type: javascript
+                      expr: "(typeof previous_result === \"number\" ? previous_result : -1000) + flow_input.iter.value"
+            parallel: false
+            skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,0 +1,14 @@
+# Q-CF-18: CF-7/a with parallelism 2 over four iterations whose bodies sleep
+# different times (index 0 4 s, the others 1 s; index 1 throws): each
+# completion releases one held iteration, in index order, within a pickup
+# delay of up to about 5 s. Step i reads each body job's start and end
+# through the jobs API; the loop's skip_failures keeps the failed iteration
+# as a value, so i runs.
+spec: [CF-7/a, CF-7]
+target: f/wl_cf7r/a
+expect:
+  status: success
+  result:
+    first_two_start_before_any_completion: true
+    third_released_by_first_completion: true
+    fourth_released_by_second_completion: true

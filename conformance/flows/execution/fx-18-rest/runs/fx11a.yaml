@@ -1,0 +1,9 @@
+# FX-11/a: flow_env is visible to a transform, also in a loop body.
+spec: [FX-11/a]
+target: f/wl_fx18/fx11
+expect:
+  status: success
+  result: [v]
+  steps:
+    "m:a": {status: success, args: {x: v}, result: v}
+    "m:l/i:0/m:b": {status: success, args: {x: v}, result: v}

@@ -1,0 +1,9 @@
+summary: "WR-22/c: env1"
+value:
+  modules:
+    - id: s
+      value: {type: script, path: f/wl_wr22/env1, input_transforms: {}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

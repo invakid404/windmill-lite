@@ -1,0 +1,17 @@
+summary: "FX-40/k: the child"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          f: {type: javascript, expr: flow_input.f}
+          v: {type: javascript, expr: flow_input.v}
+      cache_ttl: 60
+      cache_ignore_s3_path: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}, f: {type: object}}

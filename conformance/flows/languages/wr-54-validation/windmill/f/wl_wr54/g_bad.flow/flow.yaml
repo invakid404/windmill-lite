@@ -1,0 +1,12 @@
+summary: g_bad
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_wr54/xs_anyof
+        input_transforms: {xs: {type: static, value: [1]}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

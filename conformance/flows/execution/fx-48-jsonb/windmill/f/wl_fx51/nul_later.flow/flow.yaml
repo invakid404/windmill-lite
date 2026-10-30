@@ -1,0 +1,20 @@
+summary: "NUL after a step"
+value:
+  modules:
+    - id: x
+      value:
+        type: rawscript
+        content: "!inline x.ts"
+        language: bun
+        input_transforms: {}
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          s: {type: javascript, expr: "String.fromCharCode(0)"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

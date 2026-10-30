@@ -1,0 +1,10 @@
+# WR-42/a (nativets): an undefined field is omitted and an undefined element
+# becomes null; the next step's transform sees no key a.
+spec: [WR-42/a]
+target: f/wl_n42/wr42_a_nativets
+expect:
+  status: success
+  result: false
+  steps:
+    "m:a": {status: success, args: {}, result: {b: 1, c: [null]}}
+    "m:b": {status: success, args: {x: false}, result: false}

@@ -1,0 +1,7 @@
+# WR-55 under squash: a loop over [1, 2] whose body starts a background
+# child sleeping 5 s and returns at once; step i reads whether each
+# iteration job completed only after its child. The reference leaves the
+# squashed runners' handling open; the recording holds it.
+spec: [WR-55/a, CF-25]
+target: f/wl_cf25r/child_squash
+expect: {status: success, result: {}}

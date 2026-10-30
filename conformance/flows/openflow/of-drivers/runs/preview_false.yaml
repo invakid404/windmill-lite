@@ -1,0 +1,10 @@
+# OF-7/d: the previews (flowpreview) of F7-seq, F7-par and F7-ba: with the
+# flag explicitly false the previews fail as with it absent.
+spec: [OF-7/d]
+target: f/wl_ofd/preview_false
+expect:
+  status: success
+  result:
+    seq: {success: false, result: [{error: {message: boom, name: Error}}]}
+    par: {success: false, result: [{error: {message: boom, name: Error}}, 2]}
+    ba: {success: false, result: [{error: {message: b, name: Error}}]}

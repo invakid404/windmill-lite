@@ -1,0 +1,16 @@
+# Recording batch E3f (ADR 0012): the result-size limit (OR-7/b, OR-7/c;
+# Q-OR-14 is answered from the source; this confirms it), in the oracle
+# workflow's result_size session, whose oracle runs with
+# MAX_RESULT_SIZE_MB=3 (oracle.session result_size). The runs compare as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#or-7. Deployed with oracle.deploy api.
+id: oracle/result-size
+spec: [OR-7/b, OR-7/c]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api, session: result_size}
+compare: {mode: subset}

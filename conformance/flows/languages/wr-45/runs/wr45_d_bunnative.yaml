@@ -1,0 +1,29 @@
+# WR-45/d (bunnative): the installed globals.
+spec: [WR-45/d]
+target: f/wl_n45/wr45_d_bunnative
+expect:
+  status: success
+  result:
+    - function
+    - function
+    - function
+    - function
+    - object
+    - function
+    - function
+    - function
+    - object
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        - function
+        - function
+        - function
+        - function
+        - object
+        - function
+        - function
+        - function
+        - object

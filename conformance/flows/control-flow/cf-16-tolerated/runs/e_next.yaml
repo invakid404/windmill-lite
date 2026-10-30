@@ -1,0 +1,13 @@
+# CF-16/e: the sequential loop's continue_on_error tolerates the handled
+# failure; the only handler job runs inside the loop's child flow, and n
+# passes [H] on.
+spec: [CF-16/e]
+target: f/wl_cf16t/e_next
+expect:
+  status: success
+  result: [H]
+  steps:
+    "m:l": {status: failure}
+    "m:l/i:0/s:failure": {status: success, result: H}
+    "m:n": {status: success, result: [H]}
+    "s:failure": {status: not_run}

@@ -1,0 +1,2 @@
+summary: xs_anyof
+schema: {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"xs": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]}}, "required": []}

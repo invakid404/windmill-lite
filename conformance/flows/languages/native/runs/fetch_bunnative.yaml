@@ -1,0 +1,18 @@
+# WR-45: a native step (bunnative) fetches the loopback effect sink, the
+# only host it reaches, and gets the sink's answer; the effect it posted is
+# the run's, grouped by the outer root (OR-16).
+spec: [WR-45, OR-16/a]
+target: f/wl_nat/fetch_bunnative
+expect:
+  status: success
+  result: [200, "{\"ok\":true}"]
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result: {sink: "<masked>", root: "<job:>"}
+    "m:b":
+      status: success
+      args: {sink: "<masked>", root: "<job:>"}
+      result: [200, "{\"ok\":true}"]
+  effects: [{root: "<job:>", job: "<job:m:b>", step: b, native: true}]

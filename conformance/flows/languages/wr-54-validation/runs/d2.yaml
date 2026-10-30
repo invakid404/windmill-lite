@@ -1,0 +1,5 @@
+# WR-54/d: with static inputs {"c": "blue"}, // schema_validation passes
+# them.
+spec: [WR-54/d]
+target: f/wl_wr54/d2
+expect: {status: success, result: blue}

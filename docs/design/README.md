@@ -41,7 +41,9 @@ control-flow cases and settled contested rules of
 expression cases and CF-19 and CF-V6, which settled another, recording
 batch E3e the remaining recordings (FX-36's HTTP part, the contested
 `later` rows, the probe catalogue rebuilt as fixtures, codebase scripts),
-and milestone E4a its stub mode. Milestone F4 implements the bundle of
+recording batch E3f native steps and what the reference's revisions SC3
+and SC4 asked the oracle for (below), each in the oracle configuration it
+needs, and milestone E4a its stub mode. Milestone F4 implements the bundle of
 [0010](0010-packaging.md) (the build, the manifest and the bundle digest,
 `verify`) in [internal/bundle](../../internal/bundle/README.md) and
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md), and put the
@@ -852,6 +854,13 @@ source-derived prediction; the named case or question holds the exact
 text. Compare location suffixes as `<loc>` and mask job ids
 ([OR-14](../semantics/oracle.md#or-14), [FX-50](../semantics/execution.md#fx-50)).
 Nothing here may commit the oracle's database credentials unmasked.
+
+*Recorded by batch E3f* ([ADR 0012](0012-layout-and-milestones.md)): each
+request below is a fixture of the batch, recorded in the session it names,
+or is deferred with its reason in the batch's manifest,
+[`internal/oracle/testdata/batches/e3f.json`](../../internal/oracle/testdata/batches/e3f.json),
+which also lists every claim the oracle contradicted. Requests the next
+semantics revision makes go in a new section.
 
 **The reference session** (one worker, default worker tags):
 

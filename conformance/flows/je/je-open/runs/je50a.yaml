@@ -1,0 +1,8 @@
+# JE-50/a: this in a plain function call is undefined: the evaluation is
+# strict-mode code.
+spec: [JE-50/a]
+target: f/wl_jeopen/je50a
+expect:
+  status: success
+  result: undefined
+  steps: {"m:b": {status: success, args: {x: undefined}, result: undefined}}

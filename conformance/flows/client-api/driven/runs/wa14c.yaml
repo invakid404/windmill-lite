@@ -1,0 +1,10 @@
+# WA-14/c: a flow's user state during the run, and the GET and POST by the
+# root's id after it completed.
+spec: [WA-14/c]
+target: f/wl_drv/wa14c
+expect:
+  status: success
+  result:
+    during: 1
+    get_after: {status: 200, body: "null"}
+    post_after: {status: 404, body: "Not found: Flow job not found"}

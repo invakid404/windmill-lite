@@ -1,0 +1,14 @@
+summary: "WR-43/e (nativets)"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: nativets
+        input_transforms: {}
+      timeout: {type: static, value: 10}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

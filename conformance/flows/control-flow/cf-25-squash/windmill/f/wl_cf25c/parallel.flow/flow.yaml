@@ -1,0 +1,23 @@
+summary: "CF-25/c: a parallel loop never starts the runners"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                v: {type: javascript, expr: flow_input.iter.value}
+        parallel: true
+        skip_failures: false
+        squash: true
+    - {id: "n", value: {type: identity}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,0 +1,21 @@
+summary: "a native step that posts to the loopback effect sink (bunnative)"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          sink: {type: javascript, expr: results.a.sink}
+          root: {type: javascript, expr: results.a.root}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

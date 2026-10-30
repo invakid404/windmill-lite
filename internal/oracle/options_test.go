@@ -264,6 +264,89 @@ func TestSessionListenInterval(t *testing.T) {
 	}
 }
 
+// TestSessionConfiguration runs a session of a changed configuration
+// (SessionConfigs): its variables reach the oracle's services through the
+// session environment file and every recording's provenance, it records
+// only the fixtures that need its configuration, and the reference session
+// skips or refuses those, before any workspace exists.
+func TestSessionConfiguration(t *testing.T) {
+	// spec: OR-4, OR-7
+	rig := newRig(t)
+	editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}", "oracle: {workers: 1, session: native}")
+	s := rig.session(20 * GiB)
+	s.Config = "native"
+	rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("native session: %s: %s %s", r.Run, r.Outcome, r.Error)
+		}
+	}
+	if rig.docker.sessionEnv != "WORKER_TAGS=nativets\n" {
+		t.Errorf("native session environment file %q", rig.docker.sessionEnv)
+	}
+	for _, r := range rig.load(t).Runs {
+		var p Provenance
+		if err := json.Unmarshal(r.Recorded.Provenance, &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Env["WORKER_TAGS"] != "nativets" {
+			t.Errorf("%s: provenance env %v", r.Name, p.Env)
+		}
+	}
+
+	// The reference session leaves the fixture to a native session, and a
+	// native session leaves a reference fixture alone.
+	for _, c := range []struct {
+		config, fixture string
+		skip            bool
+		want            string
+		reason          string
+	}{
+		{"", "oracle: {workers: 1, session: native}", true, OutcomeSkipped, `{"error":"fixture_requires_session","need":"native","have":""}`},
+		{"", "oracle: {workers: 1, session: native}", false, OutcomeRefused, `{"error":"fixture_requires_session","need":"native","have":""}`},
+		{"native", "oracle: {workers: 1}", true, OutcomeSkipped, `{"error":"fixture_requires_session","need":"","have":"native"}`},
+		{"", "oracle: {workers: 1, session: nope}", true, OutcomeRefused, `{"error":"unknown_session","session":"nope"}`},
+	} {
+		rig := newRig(t)
+		editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}", c.fixture)
+		s := rig.session(20 * GiB)
+		s.Config, s.SkipUnmetSession = c.config, c.skip
+		rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rep.Runs) != len(rig.load(t).Runs) {
+			t.Fatalf("%+v: %d run reports", c, len(rep.Runs))
+		}
+		for _, r := range rep.Runs {
+			if r.Outcome != c.want || r.Error != c.reason {
+				t.Errorf("%+v: %s: %s %s", c, r.Run, r.Outcome, r.Error)
+			}
+		}
+		if rig.oracle.deleted != 0 || len(rig.oracle.workspaces) != 0 {
+			t.Errorf("%+v: a workspace was created", c)
+		}
+		if c.config == "" && rig.docker.sessionEnv != "" {
+			t.Errorf("reference session environment file %q", rig.docker.sessionEnv)
+		}
+	}
+
+	// A configuration SessionConfigs does not name is refused before the
+	// oracle starts.
+	rig = newRig(t)
+	s = rig.session(20 * GiB)
+	s.Config = "nope"
+	if _, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)}); err == nil || err.Error() != `{"error":"unknown_session","session":"nope"}` {
+		t.Errorf("unknown configuration: %v", err)
+	}
+	if rig.docker.called("compose") != 0 {
+		t.Error("the oracle was started for an unknown configuration")
+	}
+}
+
 // TestSessionPullsTheDeployedTree deploys the smoke fixture through the
 // API with oracle.pull: after the gate the CLI's sync pull writes the
 // workspace back once, and each run's deployment evidence holds the pulled

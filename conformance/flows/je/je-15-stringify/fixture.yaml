@@ -1,0 +1,17 @@
+# Recording batch E3f (ADR 0012): a transform whose result text is not JSON
+# (JE-15/j, JE-15/k; Q-JE-14): a replaced JSON.stringify supplies the
+# result text, after promise adoption and the host-string conversion, and a
+# text that is not JSON makes the step's push fail at jsonb. Expected texts
+# end in the location suffixes the catalogue writes <loc>, as oracle run
+# 40990751153 recorded them. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#je-15. Deployed with oracle.deploy api.
+id: je/je-15-stringify
+spec: [JE-15/j, JE-15/k]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

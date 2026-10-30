@@ -1,0 +1,2 @@
+summary: env1
+envs: ["A=b=c", "B="]

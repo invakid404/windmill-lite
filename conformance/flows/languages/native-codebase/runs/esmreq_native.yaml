@@ -1,0 +1,12 @@
+# An ESM bundle under //native whose banner makes require from node:module
+# when it can (the configuration a codebase entry gives its //native
+# scripts, format esm and the banner): the bundle loads in the native
+# runtime, and require is a function.
+spec: [WR-50, WR-40]
+target: f/wl_ncb/esmreq_native
+note: "Predicted from WR-45's absent Node built-in modules: the dynamic import of node:module rejects, the banner's catch makes require undefined, and the bundle loads. Recorded in oracle run 40989292429: the bundle loads, as predicted, and require is a function, as windmill-lite's native mode also gives: the bunnative bundle, built by bun build for the browser target, inlines a module for node:module, so createRequire exists (compare WR-40's polyfills of node: built-ins)."
+expect:
+  status: success
+  result: ["undefined", "undefined", "function"]
+  steps:
+    "m:s": {status: success, args: {}, result: ["undefined", "undefined", "function"]}

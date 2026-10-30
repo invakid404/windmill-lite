@@ -1,0 +1,21 @@
+summary: "OF-7/b: F7-par"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1, 2]}
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              language: bun
+              input_transforms:
+                x: {type: javascript, expr: flow_input.iter.value}
+          - {id: c, value: {type: identity}}
+        parallel: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

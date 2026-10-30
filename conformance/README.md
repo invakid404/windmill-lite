@@ -13,7 +13,9 @@ and E3d (loops, branches and the result cache), the stub-mode acceptance
 cases, those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
 HTTP responses, the contested `later` cases, codebase scripts, and the
-probe catalogue rebuilt as fixtures). This README covers `conformance/`.
+probe catalogue rebuilt as fixtures), and those of recording batch E3f
+(native steps, on a worker that serves `nativets`, and the recordings that
+semantics revisions SC3 and SC4 requested). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, through the `wl`
 library in `warm` and `fresh` (milestone F1), on the engine core
 (milestones E1, N1a, N1b, N3a and N3b), which runs flows of
@@ -52,7 +54,7 @@ repository to exercise one behaviour each.
 | plugins | `plugins/hooks.yaml` | in use (milestone F2c); run by `go test ./wl` (a TypeScript plugin in `warm` processes, and Go callbacks) and `go test ./cmd/windmill-lite` (the host SDK's plugin in host mode), on the pinned Bun |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | hooks | `hooks/<topic>.yaml` | in use (milestone F2b): `hooks/latch-precedence.yaml`, the latch-precedence cases of [ADR 0008](../docs/design/0008-host-hooks.md): the latch (H5), cancellation and deadlines (H4), fatal error names (H7), halts (H8) and the clock (H10) against retry, `continue_on_error`, `skip_failures` and the failure module, each case a synthetic flow of identity modules, the host's signals and what the run must show; windmill-lite's rules (provenance `policy`), never recorded; run by `go test ./wl` (`TestHookCases`) through the public hooks |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2, E3f), `flows/control-flow/cf-*` (E3d, N3c, NI, E3f) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a, E3f), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2, E3f), the other `flows/oracle/*` and `flows/openflow/*` fixtures (E3e, E3f), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -125,6 +127,15 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/control-flow/pull` | Batch E3e: CF-6/b and SY-6/c, a flow created through the API as written and read back with the CLI's `sync pull` (`oracle: {deploy: api, pull: true}`); the pulled value is in each recording's provenance. |
 | `flows/je/shortcut-texts` | Batch E3e: B2a's request 8, the text the JE-7 and JE-8 shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error. Its unit cases (FU5) restate them: a stored `flow_input` member in jsonb's spaced text, and the compact array after a loop. |
 | `flows/je/transform-order`, `transform-order-api` | Batch E3e: the evaluation order of a step's input transforms ([JE-23](../docs/semantics/expressions.md#je-23)), with the transforms in the CLI's name order and, created through the API, as written. |
+| `flows/languages/native`, `native-codebase`, `native-timeout`, `wr-40` … `wr-46`, `wr-43-stack`, `wr-45-useragent`, `flows/openflow/of-3-native` | Batch E3f, the `native` session (`oracle: {session: native}`, a worker with `WORKER_TAGS=nativets`, [Q-WR-21](../docs/semantics/languages.md#q-wr-21)): `//native` (`bunnative`) and `nativets` steps returning JSON values, throwing, and fetching the loopback sink; two codebase scripts under `//native`, the CommonJS one failing at its first use of `module` ([WR-50](../docs/semantics/languages.md#wr-50)/f) and the ESM one with a `createRequire` banner loading; the WR-40 to WR-46 cases (WR-43/c's stack prefix also as a value, which the stack masking does not reach), FX-24/g's in-process timeout and OF-3/c's native switch. Each runs in windmill-lite's native mode too. |
+| `flows/execution/fx-13-identity`, `fx-18-rest`, `fx-47-null`, `fx-30-due`, `fx-38-pickup`, `fx-40-cases`, `fx-42-decode`, `fx-42-notation`, `fx-48-jsonb`; `flows/control-flow/cf-1-30`, `cf-7-ai`, `cf-7-parallel`, `cf-16-tolerated`, `cf-17-recursive`, `cf-21-throwing`, `cf-22-retried`, `cf-23-branchone`, `cf-23-retry`, `cf-25-squash`, `cf-25-runtime`, `cf-27-flow-timeouts`, `cf-31-slot` | Batch E3f, the reference session: the execution and control-flow cases SC3 and SC4 requested ([docs/design/README.md](../docs/design/README.md), Recording requests for batch E3f), among them Q-FX-18's and Q-CF-17's remaining cases. |
+| `flows/je/je-11-rewrite`, `je-15-stringify`, `je-20-providers`, `je-21-object`, `je-49-deep`, `je-open`; `flows/languages/import-base`, `import-base-inline`, `wr-22-envs`, `wr-54-validation`, `wr-55-processes`, `wr-v2`; `flows/oracle/preprocessor`, `colliding-ids`; `flows/openflow/of-deployed`; `flows/client-api/facade-answers`, `raw-requests`, `object-storage` | Batch E3f, the reference session: expression, language, OpenFlow ([Q-OF-1](../docs/semantics/openflow.md#q-of-1), the deployed values checked in the manifest against each recording's deployment evidence) and client-API cases; a Bun step that calls the API with its own token records what only the API shows. |
+| `flows/execution/fx-42-monitor`, `fx-26-delays`, `fx-40-raw`; `flows/je/je-51-chain`; `flows/control-flow/cf-31-parallel`; `flows/client-api/driven`; `flows/control-flow/cf-7-release`; `flows/openflow/of-drivers`; `flows/oracle/result-size`; `flows/openflow/flow-script-off` | Batch E3f, the other sessions: `long` for runs that wait on the server's monitors (their timestamped messages masked), two workers for steps that wait for the jobs they start (previews, a restart, released iterations, retry delays, FX-40/i's runs with literal JSON bodies), `result_size` (`MAX_RESULT_SIZE_MB=3`) and `flow_script_off` (`DISABLE_FLOW_SCRIPT=true`). |
+
+A fixture that needs the oracle in another configuration names it in
+`oracle.session` (`native`, `long`, `result_size`, `flow_script_off`); the
+oracle workflow records it in the session of that configuration, and every
+other session skips it ([internal/oracle](../internal/oracle/README.md#a-session)).
 
 `internal/oracle/testdata/batches/<batch>.json` names each batch's
 findings, fixtures and the cases it defers, and `TestRecordingBatches`
@@ -246,15 +257,15 @@ only in part, each with the reason and where it is checked.
 The cases the semantics reference added on 2026-10-28 are checked at
 evaluator level in the meantime, by the pipeline cases of
 [internal/expr](../internal/expr/README.md) that run on the engine; those
-it added on 2026-10-29 that no recording holds are checked there too
-(JE-11/b–e, JE-16/h), or at engine level in
-[internal/engine](../internal/engine/README.md) (JE-18/e, and JE-11/e as an
-input transform's failure), since milestone FU6; JE-44/f is not encoded
-yet, nor are revision SC3's JE-15/k, JE-20/c–d, JE-42/i–j and JE-49/d–e,
-whose recordings
-[docs/design/README.md](../docs/design/README.md#recording-requests-for-batch-e3f)
-requests from batch E3f; JE-19/f, like JE-19/e, needs a restarted run and
-is outside the contract.
+it added on 2026-10-29 are checked there too (JE-11/b–e, JE-16/h), or at
+engine level in [internal/engine](../internal/engine/README.md) (JE-18/e,
+and JE-11/e as an input transform's failure), since milestone FU6. Batch
+E3f recorded JE-11/c and /e, JE-15/j and /k, JE-20/c and /d, JE-21/b,
+JE-42/i and /j, JE-49/d and JE-50/a to JE-52/a end to end in the flow
+fixtures under `flows/je`; JE-49/e crashed the
+oracle's server and stays deferred, JE-44/f is not encoded yet, and
+JE-19/e and /f need a restarted run, which is outside the contract and
+whose route answers 500 on the oracle.
 
 ## Claims and unit cases
 

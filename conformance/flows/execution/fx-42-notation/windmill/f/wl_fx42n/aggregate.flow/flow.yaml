@@ -1,0 +1,21 @@
+summary: "Q-JE-13: a loop aggregate of 1.50"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: flow_input.items}
+        modules: [{id: x, value: {type: identity}}]
+        parallel: false
+        skip_failures: false
+    - id: q
+      value:
+        type: rawscript
+        content: "!inline q.ts"
+        language: bun
+        input_transforms: {}
+      timeout: {type: javascript, expr: results.l}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

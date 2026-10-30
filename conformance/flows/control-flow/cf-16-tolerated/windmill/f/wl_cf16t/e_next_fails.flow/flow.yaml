@@ -1,0 +1,34 @@
+summary: "CF-16/e: n fails"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+        parallel: false
+        skip_failures: false
+      continue_on_error: true
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: "!inline failure.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

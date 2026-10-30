@@ -1,0 +1,11 @@
+# OF-7/a-c: the previews (flowpreview) of F7-seq, F7-par and F7-ba: a raw
+# value's absent flag reads false: F7-seq and F7-ba stop at the first
+# failure and F7-par fails after both iterations.
+spec: [OF-7/a, OF-7/b, OF-7/c]
+target: f/wl_ofd/preview_absent
+expect:
+  status: success
+  result:
+    seq: {success: false, result: [{error: {message: boom, name: Error}}]}
+    par: {success: false, result: [{error: {message: boom, name: Error}}, 2]}
+    ba: {success: false, result: [{error: {message: b, name: Error}}]}

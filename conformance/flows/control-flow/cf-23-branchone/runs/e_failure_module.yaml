@@ -1,0 +1,16 @@
+# CF-23/e: the flow's failure module gets the carried 1 as previous_result,
+# and an error derived from it by JE-17's decision list, not the branch
+# job's stored InternalError.
+spec: [CF-23/e]
+target: f/wl_cf23b/e_failure_module
+expect:
+  status: failure
+  result:
+    - 1
+    - {name: UnknownError, message: "Could not parse the error", error: 1}
+  steps:
+    "s:failure":
+      status: success
+      result:
+        - 1
+        - {name: UnknownError, message: "Could not parse the error", error: 1}

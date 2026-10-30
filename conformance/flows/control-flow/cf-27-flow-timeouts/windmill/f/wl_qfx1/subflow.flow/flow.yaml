@@ -1,0 +1,10 @@
+summary: "Q-FX-1: subflow"
+value:
+  modules:
+    - id: c
+      value: {type: flow, path: f/wl_qfx1/slow, input_transforms: {}}
+      timeout: {type: static, value: 1}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

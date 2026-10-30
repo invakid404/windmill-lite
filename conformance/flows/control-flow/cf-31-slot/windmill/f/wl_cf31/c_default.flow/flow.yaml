@@ -1,0 +1,33 @@
+summary: c_default
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: branchone
+      branches:
+        - expr: "error.message == 'x'"
+          modules:
+            - id: h1
+              value:
+                type: rawscript
+                content: "!inline h1.ts"
+                language: bun
+                input_transforms: {}
+      default:
+        - id: h2
+          value:
+            type: rawscript
+            content: "!inline h2.ts"
+            language: bun
+            input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

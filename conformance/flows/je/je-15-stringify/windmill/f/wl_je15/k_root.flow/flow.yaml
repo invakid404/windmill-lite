@@ -1,0 +1,14 @@
+summary: "JE-15/k at the root"
+value:
+  modules:
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: "(JSON.stringify = () => \"hello\", 1)"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

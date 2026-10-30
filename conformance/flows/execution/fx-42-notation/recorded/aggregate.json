@@ -1,0 +1,249 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": {
+      "error": {
+        "name": "InternalError",
+        "message": "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [{\"iter\":{\"index\":0,\"value\":{\"a\":1,\"b\":1.5}},\"items\":[{\"a\":1,\"b\":1.5}]}]"
+      }
+    },
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          {
+            "iter": {
+              "index": 0,
+              "value": {
+                "a": 1,
+                "b": 1.50
+              }
+            },
+            "items": [
+              {
+                "a": 1,
+                "b": 1.50
+              }
+            ]
+          }
+        ]
+      },
+      "m:l/i:0/m:x": {
+        "status": "success",
+        "args": {
+          "previous_result": {
+            "iter": {
+              "index": 0,
+              "value": {
+                "a": 1,
+                "b": 1.50
+              }
+            },
+            "items": [
+              {
+                "a": 1,
+                "b": 1.50
+              }
+            ]
+          }
+        },
+        "result": {
+          "iter": {
+            "index": 0,
+            "value": {
+              "a": 1,
+              "b": 1.50
+            }
+          },
+          "items": [
+            {
+              "a": 1,
+              "b": 1.50
+            }
+          ]
+        }
+      },
+      "m:q": {
+        "status": "not_run",
+        "ran": false
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030030051-3c1bb5db00ea",
+      "revision": "3c1bb5db00ea465aea4cbf9145a35e24a05c295b",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40994947681"
+    },
+    "recorded_at": "2026-10-30T03:16:49Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:39551"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 206,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T03:16:49.713052Z",
+          "started_at": "2026-10-30T03:16:49.749503Z",
+          "completed_at": "2026-10-30T03:16:49.769796Z",
+          "duration_ms": 20
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T03:16:49.750819Z",
+          "started_at": "2026-10-30T03:16:49.754406Z",
+          "completed_at": "2026-10-30T03:16:49.766027Z",
+          "duration_ms": 12
+        },
+        "m:l/i:0/m:x": {
+          "kind": "identity",
+          "created_at": "2026-10-30T03:16:49.758319Z",
+          "started_at": "2026-10-30T03:16:49.760845Z",
+          "completed_at": "2026-10-30T03:16:49.762894Z",
+          "duration_ms": 0
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "iterator": {
+                "expr": "flow_input.items",
+                "type": "javascript"
+              },
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "type": "identity"
+                  }
+                }
+              ],
+              "parallel": false,
+              "skip_failures": false,
+              "type": "forloopflow"
+            }
+          },
+          {
+            "id": "q",
+            "timeout": {
+              "expr": "results.l",
+              "type": "javascript"
+            },
+            "value": {
+              "content": "export function main() { return 1; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "type": "identity"
+                  }
+                }
+              ],
+              "iterator": {
+                "expr": "flow_input.items",
+                "type": "javascript"
+              },
+              "parallel": false,
+              "skip_failures": false
+            }
+          },
+          {
+            "id": "q",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { return 1; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            },
+            "timeout": {
+              "expr": "results.l",
+              "type": "javascript"
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "type": "identity"
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "javascript",
+                "expr": "flow_input.items"
+              },
+              "parallel": false,
+              "skip_failures": false
+            }
+          },
+          {
+            "id": "q",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline q.ts",
+              "input_transforms": {},
+              "lock": "!inline q.lock",
+              "language": "bun"
+            },
+            "timeout": {
+              "type": "javascript",
+              "expr": "results.l"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

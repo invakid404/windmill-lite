@@ -1,0 +1,317 @@
+{
+  "observation": {
+    "status": "success",
+    "result": 0,
+    "steps": {
+      "m:br": {
+        "status": "success",
+        "result": 0,
+        "branch_chosen": {
+          "type": "branch",
+          "branch": 0
+        }
+      },
+      "m:br/b:0/m:r": {
+        "status": "success",
+        "args": {
+          "n": 2
+        },
+        "result": 0
+      },
+      "m:br/b:0/m:r/m:br": {
+        "status": "success",
+        "result": 0,
+        "branch_chosen": {
+          "type": "branch",
+          "branch": 0
+        }
+      },
+      "m:br/b:0/m:r/m:br/b:0/m:r": {
+        "status": "success",
+        "args": {
+          "n": 1
+        },
+        "result": 0
+      },
+      "m:br/b:0/m:r/m:br/b:0/m:r/m:br": {
+        "status": "success",
+        "result": 0,
+        "branch_chosen": {
+          "type": "branch",
+          "branch": 0
+        }
+      },
+      "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r": {
+        "status": "success",
+        "args": {
+          "n": 0
+        },
+        "result": 0
+      },
+      "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r/m:br": {
+        "status": "success",
+        "result": 0,
+        "branch_chosen": {
+          "type": "default"
+        }
+      },
+      "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:default/m:z": {
+        "status": "success",
+        "args": {
+          "p": 0
+        },
+        "result": 0
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030021644-0428ec8fda04",
+      "revision": "0428ec8fda045de7350c71b149097be29ebf2447",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40990751153"
+    },
+    "recorded_at": "2026-10-30T02:20:37Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:46303"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:20:36.954970Z",
+          "started_at": "2026-10-30T02:20:36.997306Z",
+          "completed_at": "2026-10-30T02:20:37.093783Z",
+          "duration_ms": 96
+        },
+        "m:br/b:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T02:20:36.999459Z",
+          "started_at": "2026-10-30T02:20:37.003478Z",
+          "completed_at": "2026-10-30T02:20:37.090868Z",
+          "duration_ms": 87
+        },
+        "m:br/b:0/m:r": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:20:37.006706Z",
+          "started_at": "2026-10-30T02:20:37.009865Z",
+          "completed_at": "2026-10-30T02:20:37.087691Z",
+          "duration_ms": 78
+        },
+        "m:br/b:0/m:r/m:br/b:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T02:20:37.012598Z",
+          "started_at": "2026-10-30T02:20:37.015427Z",
+          "completed_at": "2026-10-30T02:20:37.084410Z",
+          "duration_ms": 69
+        },
+        "m:br/b:0/m:r/m:br/b:0/m:r": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:20:37.018151Z",
+          "started_at": "2026-10-30T02:20:37.020813Z",
+          "completed_at": "2026-10-30T02:20:37.080967Z",
+          "duration_ms": 60
+        },
+        "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T02:20:37.024005Z",
+          "started_at": "2026-10-30T02:20:37.026838Z",
+          "completed_at": "2026-10-30T02:20:37.077638Z",
+          "duration_ms": 51
+        },
+        "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:20:37.029662Z",
+          "started_at": "2026-10-30T02:20:37.032460Z",
+          "completed_at": "2026-10-30T02:20:37.074346Z",
+          "duration_ms": 42
+        },
+        "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:default": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T02:20:37.035748Z",
+          "started_at": "2026-10-30T02:20:37.038549Z",
+          "completed_at": "2026-10-30T02:20:37.071162Z",
+          "duration_ms": 33
+        },
+        "m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:0/m:r/m:br/b:default/m:z": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:20:37.042699Z",
+          "started_at": "2026-10-30T02:20:37.045348Z",
+          "completed_at": "2026-10-30T02:20:37.068021Z",
+          "duration_ms": 20
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "br",
+            "value": {
+              "branches": [
+                {
+                  "expr": "flow_input.n > 0",
+                  "modules": [
+                    {
+                      "id": "r",
+                      "value": {
+                        "input_transforms": {
+                          "n": {
+                            "expr": "flow_input.n - 1",
+                            "type": "javascript"
+                          }
+                        },
+                        "path": "f/wl_cf17j/rec",
+                        "type": "flow"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "default": [
+                {
+                  "id": "z",
+                  "value": {
+                    "content": "export function main(p: any) { return p; }\n",
+                    "input_transforms": {
+                      "p": {
+                        "expr": "flow_input.n",
+                        "type": "javascript"
+                      }
+                    },
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                }
+              ],
+              "type": "branchone"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "br",
+            "value": {
+              "type": "branchone",
+              "default": [
+                {
+                  "id": "z",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "export function main(p: any) { return p; }\n",
+                    "language": "bun",
+                    "input_transforms": {
+                      "p": {
+                        "expr": "flow_input.n",
+                        "type": "javascript"
+                      }
+                    }
+                  }
+                }
+              ],
+              "branches": [
+                {
+                  "expr": "flow_input.n > 0",
+                  "modules": [
+                    {
+                      "id": "r",
+                      "value": {
+                        "path": "f/wl_cf17j/rec",
+                        "type": "flow",
+                        "input_transforms": {
+                          "n": {
+                            "expr": "flow_input.n - 1",
+                            "type": "javascript"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "parallel": true,
+                  "skip_failure": true
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "br",
+            "value": {
+              "type": "branchone",
+              "branches": [
+                {
+                  "modules": [
+                    {
+                      "id": "r",
+                      "value": {
+                        "type": "flow",
+                        "input_transforms": {
+                          "n": {
+                            "type": "javascript",
+                            "expr": "flow_input.n - 1"
+                          }
+                        },
+                        "path": "f/wl_cf17j/rec"
+                      }
+                    }
+                  ],
+                  "expr": "flow_input.n > 0",
+                  "parallel": true,
+                  "skip_failure": true
+                }
+              ],
+              "default": [
+                {
+                  "id": "z",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline z.ts",
+                    "input_transforms": {
+                      "p": {
+                        "type": "javascript",
+                        "expr": "flow_input.n"
+                      }
+                    },
+                    "lock": "!inline z.lock",
+                    "language": "bun"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# CF-31/a: a sequential loop in the failure slot runs only its first
+# iteration, so the result is 10, not an array.
+spec: [CF-31/a]
+target: f/wl_cf31/a_seq
+expect: {status: failure, result: 10}

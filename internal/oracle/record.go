@@ -73,6 +73,16 @@ type Session struct {
 	// LISTEN_NEW_EVENTS_INTERVAL_SEC in place of OracleEnv's 1 (OR-7/a); it
 	// is in every recording's provenance, which is never compared.
 	ListenInterval int
+	// Config is the oracle configuration the session runs, a key of
+	// SessionConfigs: "" (the reference configuration of OR-4), or one
+	// whose variables join the oracle's environment and every recording's
+	// provenance. The session runs only the fixtures that need Config
+	// (conformance.OracleNeeds.Session).
+	Config string
+	// SkipUnmetSession skips a fixture that needs another configuration
+	// than Config, reporting its runs as skipped, where the session would
+	// otherwise refuse them: a session of that configuration records them.
+	SkipUnmetSession bool
 
 	// Test seams: the oracle's URL, the poll interval, the disk
 	// measurement and the settle delay of OR-30 step 6.
@@ -192,6 +202,9 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 		s.RunTimeout = s.minRunTimeout
 	}
 	rep := &Report{Session: SessionReport{Images: map[string]ImageInfo{}, MemoryPeak: map[string]int64{}, Deployments: map[string]Deployment{}}}
+	if _, ok := SessionConfigs[s.Config]; !ok {
+		return rep, ErrUnknownSession(s.Config)
+	}
 
 	left, err := Leftovers(ctx, s.Docker)
 	if err != nil {
@@ -235,7 +248,7 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	defer sink.Shutdown()
 	sinkURL := fmt.Sprintf("http://host.docker.internal:%d", port)
 
-	file, err := WriteComposeFile(tmp)
+	file, err := WriteComposeFile(tmp, SessionConfigs[s.Config])
 	if err != nil {
 		return rep, err
 	}
@@ -395,6 +408,9 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		env[k] = v
 	}
 	env["LISTEN_NEW_EVENTS_INTERVAL_SEC"] = s.listenInterval()
+	for k, v := range SessionConfigs[s.Config] {
+		env[k] = v
+	}
 	base := Provenance{
 		Oracle: OracleProvenance{
 			Version:       OracleVersion,
@@ -418,6 +434,18 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 			// would run the real targets, so its runs are skipped.
 			for _, r := range f.Runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeSkipped, Error: ErrProvidedSites(len(f.Provided)).Error()})
+			}
+			continue
+		}
+		if need := f.Oracle.Session; need != s.Config {
+			outcome, reason := OutcomeRefused, ErrRequiresSession(need, s.Config)
+			if _, ok := SessionConfigs[need]; !ok {
+				reason = ErrUnknownSession(need)
+			} else if s.SkipUnmetSession {
+				outcome = OutcomeSkipped
+			}
+			for _, r := range f.Runs {
+				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: outcome, Error: reason.Error()})
 			}
 			continue
 		}

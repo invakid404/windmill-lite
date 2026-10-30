@@ -1,0 +1,29 @@
+summary: while_one_plain
+value:
+  modules:
+    - id: l
+      value:
+        type: whileloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: "flow_input.iter.value ?? flow_input.iter.index"
+                prev: {type: static, value: null}
+        skip_failures: false
+      stop_after_if: {expr: "result.v >= 2", skip_if_stopped: false}
+    - id: i
+      value:
+        type: rawscript
+        content: "!inline i.ts"
+        language: bun
+        input_transforms: {items: {type: javascript, expr: results.l}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

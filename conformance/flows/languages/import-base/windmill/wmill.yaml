@@ -1,0 +1,8 @@
+defaultTs: bun
+includes: ["f/**"]
+codebases:
+  - relative_path: f/wl_ib/cjs
+    includes: ["f/wl_ib/cjs/**"]
+  - relative_path: f/wl_ib/tar
+    includes: ["f/wl_ib/tar/**"]
+    assets: [{from: "f/wl_ib/tardata/a.txt", to: "a.txt"}]

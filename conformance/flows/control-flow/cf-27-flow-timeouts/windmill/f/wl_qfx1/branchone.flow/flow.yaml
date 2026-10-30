@@ -1,0 +1,19 @@
+summary: "Q-FX-1: branchone"
+value:
+  modules:
+    - id: b
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+      timeout: {type: static, value: 1}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

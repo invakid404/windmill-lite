@@ -1,0 +1,5 @@
+# OF-7/d: F7-seq deployed: with the flag explicitly false the deployed run
+# matches the preview: the first failure stops the container.
+spec: [OF-7/d]
+target: f/wl_of/f7_seq_false
+expect: {status: failure, result: [{error: {message: boom, name: Error}}]}

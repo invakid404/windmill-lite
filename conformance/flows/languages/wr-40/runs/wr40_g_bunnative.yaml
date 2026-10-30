@@ -1,0 +1,8 @@
+# WR-40/g (bunnative): the module-level this: Bun's bundler writes it as
+# null in the bunnative bundle; the nativets module keeps undefined.
+spec: [WR-40/g]
+target: f/wl_n40/wr40_g_bunnative
+expect:
+  status: success
+  result: [true, false]
+  steps: {"m:a": {status: success, args: {}, result: [true, false]}}

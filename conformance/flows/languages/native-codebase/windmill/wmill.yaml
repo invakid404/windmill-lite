@@ -1,0 +1,12 @@
+defaultTs: bun
+includes: ["f/**"]
+codebases:
+  - relative_path: f/wl_ncb/cjs
+    includes: ["f/wl_ncb/cjs/**"]
+  - relative_path: f/wl_ncb/esm
+    includes: ["f/wl_ncb/esm/**"]
+    format: esm
+  - relative_path: f/wl_ncb/esmreq
+    includes: ["f/wl_ncb/esmreq/**"]
+    format: esm
+    banner: {js: "const require = (await import('node:module').catch(() => null))?.createRequire(import.meta.url);"}

@@ -1,0 +1,35 @@
+summary: "CF-21/f (2)"
+value:
+  modules:
+    - id: o
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[5]"}
+        modules:
+          - id: i
+            value:
+              type: forloopflow
+              iterator: {type: javascript, expr: "[1]"}
+              modules:
+                - id: b
+                  value:
+                    type: rawscript
+                    content: "!inline b.ts"
+                    language: bun
+                    input_transforms:
+                      p: {type: javascript, expr: flow_input.iter.value}
+              parallel: false
+              skip_failures: false
+            timeout: {type: javascript, expr: "flow_input.iter.index + 10"}
+          - id: c
+            value:
+              type: rawscript
+              content: "!inline c.ts"
+              language: bun
+              input_transforms: {}
+        parallel: false
+        skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

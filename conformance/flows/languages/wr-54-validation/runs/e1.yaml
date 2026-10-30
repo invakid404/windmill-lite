@@ -1,0 +1,11 @@
+# WR-54/e: with static inputs {"xs": [1, "2"], "o": {}}, //
+# schema_validation refuses them with the rule's text.
+spec: [WR-54/e]
+target: f/wl_wr54/e1
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nProblem with arguments: Argument `xs[1]` should be a numeric value"
+      name: ExecutionErr
+      step_id: s

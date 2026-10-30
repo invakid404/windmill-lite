@@ -295,7 +295,7 @@ Every contested finding in this table can be recorded on the CE oracle,
 which public CI may run, so none of them gets a permanent switch. Instead:
 
 1. Recordings are made in **batches, one per consumer** (milestones E3a to
-   E3e in [0012](0012-layout-and-milestones.md)): each contested rule's
+   E3f in [0012](0012-layout-and-milestones.md)): each contested rule's
    discriminating cases are recorded in the batch that gates the milestone
    implementing that rule, as the last column says.
 2. Until a case is recorded, the implementation follows the default below,
@@ -464,6 +464,18 @@ switch through a change to this record, naming the reason.
   record Node. The catalogue's tags and tracking questions stay the
   semantics team's to update ([README](README.md), request 11, answered by
   the reference's revision of 2026-10-29).
+- Recording batch E3f recorded native steps on a worker that serves the
+  `nativets` tag, the configuration D5's native boundary mode stands in
+  for: a CommonJS codebase script under `//native` fails at its first use
+  of `module` (`ReferenceError`, `module is not defined`), as WR-50
+  predicts, and an ES module one whose banner builds `require` with
+  `createRequire` loads, its `require` a function since the browser-target
+  bundle stubs `node:module`. windmill-lite's native mode gives both. Where
+  windmill-lite's native mode differs from a recording (a promise that
+  never settles fails at once on the oracle, WR-43/e, and waits for the
+  step's timeout on windmill-lite), the batch lists the run for the next
+  semantics revision and the run stays out of the flow suite; no deviation
+  is added.
 
 - Milestone N2 settled §7's JE-2 row: windmill-lite reproduces the
   zombie-flow monitor's cancel, which recording batch E3a found ends a
