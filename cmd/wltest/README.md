@@ -402,7 +402,11 @@ a few at a time (`flows.go`):
    trace's job times (milestone N2): each `to` site's job starts at least
    `at_least_ms` after the `from` site's job ended, where the oracle's
    side reads the recording's provenance. A run
-   with nothing to compare fails.
+   with nothing to compare fails. After each run, the files its steps left
+   in `/tmp` to count their attempts across retries, which the fixtures name
+   `wl-<fixture>-<job id>-<tag>` after a job of the run, are removed
+   (`removeCounters`, milestone FU8): on Windmill they stay in the worker's
+   `/tmp`, but a windmill-lite run would leave them in the host's.
 
 **Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
 `oracle: {effects: true}` or `stub: true` gets an effect server of its
