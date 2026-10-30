@@ -1,0 +1,173 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      1,
+      2
+    ],
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          1,
+          2
+        ]
+      },
+      "m:l/i:0/m:b": {
+        "status": "failure",
+        "result": {
+          "error": {
+            "name": "InternalError",
+            "message": "Expected an integer, found: String(\"1\")"
+          }
+        },
+        "branch_chosen": {
+          "type": "default"
+        }
+      },
+      "m:l/i:0/m:b/b:default/m:r": {
+        "status": "success",
+        "args": {
+          "x": 1
+        },
+        "result": 1
+      },
+      "m:l/i:0/m:b/b:default/m:s": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:1/m:b": {
+        "status": "failure",
+        "result": {
+          "error": {
+            "name": "InternalError",
+            "message": "Expected an integer, found: String(\"1\")"
+          }
+        },
+        "branch_chosen": {
+          "type": "default"
+        }
+      },
+      "m:l/i:1/m:b/b:default/m:r": {
+        "status": "success",
+        "args": {
+          "x": 2
+        },
+        "result": 2
+      },
+      "m:l/i:1/m:b/b:default/m:s": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:n": {
+        "status": "success",
+        "args": {
+          "x": [
+            1,
+            2
+          ]
+        },
+        "result": [
+          1,
+          2
+        ]
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030014257-a194d7977eaf",
+      "revision": "a194d7977eafb6838a4776d23ea0f72b57b34935",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40987475130"
+    },
+    "recorded_at": "2026-10-30T01:46:52Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:45809"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 405,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T01:46:52.020057Z",
+          "started_at": "2026-10-30T01:46:52.063838Z",
+          "completed_at": "2026-10-30T01:46:52.266543Z",
+          "duration_ms": 203
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T01:46:52.065618Z",
+          "started_at": "2026-10-30T01:46:52.069611Z",
+          "completed_at": "2026-10-30T01:46:52.102673Z",
+          "duration_ms": 33
+        },
+        "m:l/i:0/m:b/b:default": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T01:46:52.071879Z",
+          "started_at": "2026-10-30T01:46:52.075009Z",
+          "completed_at": "2026-10-30T01:46:52.100229Z",
+          "duration_ms": 25
+        },
+        "m:l/i:0/m:b/b:default/m:r": {
+          "kind": "script",
+          "created_at": "2026-10-30T01:46:52.077776Z",
+          "started_at": "2026-10-30T01:46:52.079306Z",
+          "completed_at": "2026-10-30T01:46:52.096072Z",
+          "duration_ms": 15
+        },
+        "m:l/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T01:46:52.105144Z",
+          "started_at": "2026-10-30T01:46:52.149185Z",
+          "completed_at": "2026-10-30T01:46:52.182109Z",
+          "duration_ms": 33
+        },
+        "m:l/i:1/m:b/b:default": {
+          "kind": "flownode",
+          "created_at": "2026-10-30T01:46:52.152365Z",
+          "started_at": "2026-10-30T01:46:52.154397Z",
+          "completed_at": "2026-10-30T01:46:52.179465Z",
+          "duration_ms": 25
+        },
+        "m:l/i:1/m:b/b:default/m:r": {
+          "kind": "script",
+          "created_at": "2026-10-30T01:46:52.157189Z",
+          "started_at": "2026-10-30T01:46:52.158895Z",
+          "completed_at": "2026-10-30T01:46:52.175819Z",
+          "duration_ms": 15
+        },
+        "m:n": {
+          "kind": "script",
+          "created_at": "2026-10-30T01:46:52.184691Z",
+          "started_at": "2026-10-30T01:46:52.227817Z",
+          "completed_at": "2026-10-30T01:46:52.259447Z",
+          "duration_ms": 27
+        }
+      }
+    }
+  }
+}

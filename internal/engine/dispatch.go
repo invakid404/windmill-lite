@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -43,6 +45,10 @@ type ScriptRequest struct {
 	// first of RootJob, ParentJob and itself that is set, and its flow path
 	// ParentPath, so its state path is <ParentPath>/nostep_user (WA-5).
 	ParentJob, RootJob, ParentPath string
+	// Around, when set, gives a host plugin's around wrappers at the
+	// script job's site, a site with no path whose Script is the script's
+	// path (RunRequest.Around).
+	Around func(Site) []int
 }
 
 // ScriptResult is how a script job ended: its stored result, or its
@@ -51,6 +57,10 @@ type ScriptResult struct {
 	ID     string
 	Failed bool
 	Result jsonval.Value
+	// Latched, when not nil, is the error the job's step latched on its
+	// run (H5, milestone F2c): its own wl.latch, or an around wrapper's
+	// failure. A latched job has failed, with no result.
+	Latched error
 }
 
 // RunScript runs a root script of the program as a script job and returns
@@ -62,7 +72,15 @@ type ScriptResult struct {
 // cache_ttl, the result cache may answer it before it runs (FX-40). An
 // error means it could not start: a path that is not a script root, or arguments that
 // are not a JSON object or that the job API could not store.
-func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult, error) {
+func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptResult, err error) {
+	// The warnings that latch a run latch the job's (H5); the latch
+	// outranks the job's outcome, as at a flow step's completion.
+	rep := &scriptReporter{}
+	defer func() {
+		if l := rep.latch.Err(); l != nil && err == nil {
+			res = ScriptResult{ID: res.ID, Failed: true, Latched: l}
+		}
+	}()
 	s := e.prog.Scripts[req.Path]
 	if s == nil || s.Kind != ir.PathScript || !slices.Contains(e.prog.Roots.Scripts, req.Path) {
 		return ScriptResult{}, fmt.Errorf("engine: no script root %q in the program", req.Path)
@@ -94,7 +112,13 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	}
 	env := ident.Env(e.host)
 	reserved := maps.Clone(env)
-	addScriptEnvs(env, s, boundary)
+	// An envs entry the worker refuses fails the job once it is picked up,
+	// after the result cache and the entrypoint's check (WR-22).
+	envErr := addScriptEnvs(env, s, boundary)
+	var around []int
+	if req.Around != nil {
+		around = req.Around(Site{Script: s.Path})
+	}
 	// FX-40: the script's own cache_ttl, under which the result cache may
 	// answer the job before it runs, and keeps its result when it
 	// succeeds. A hit is still a job with its identity, which the job
@@ -118,6 +142,9 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	entry, _, err := Entrypoint(args)
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", err.Error())}, nil
+	}
+	if envErr != nil {
+		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+envErr.Error())}, nil
 	}
 	resolved, err := e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
@@ -143,7 +170,8 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		Env:         env,
 		Boundary:    boundary,
 		ModuleState: e.moduleState,
-		Report:      NopReporter{},
+		Report:      rep,
+		Around:      around,
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
@@ -160,7 +188,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
 	}
-	if ttl > 0 && !st.Failed {
+	if ttl > 0 && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the
 		// cache never fails a job.
 		_ = e.cachePut(ctx, key, time.Now(), ttl, st.Value, st.Origin, nil)
@@ -211,7 +239,14 @@ func NewDispatcher(e *Engine, exec StepExecutor) *Dispatcher {
 	return &Dispatcher{e: e, exec: exec, ctx: ctx, cancel: cancel, runs: map[string]*dispatched{}}
 }
 
-// Dispatch starts the run of d's target and returns its job id.
+// Dispatch starts the run of d's target and returns its job id. The run
+// request's arguments are refused as Windmill's run API refuses them,
+// with no job created, which the API answers with HTTP 400 and the
+// error's display as plain text: a top-level key that does not decode
+// (requestKeysError), then a text jsonb refuses when the job is stored, a
+// NUL escape, an unpaired surrogate escape or a number beyond numeric's
+// range, anywhere else (FX-48 and FX-51 cases 3 and 4), with the database
+// error, SqlErr (FX-50; Windmill's location suffix is not written, D14).
 func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, error) {
 	var roots []string
 	switch d.Kind {
@@ -230,8 +265,13 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	if a := bytes.TrimSpace(args.Producer()); len(a) == 0 || a[0] != '{' {
 		return "", &platform.Error{Variant: "BadRequest", Message: "windmill-lite: the arguments of a dispatched run are a JSON object"}
 	}
-	if _, err := args.Stored(); err != nil {
-		return "", &platform.Error{Variant: "BadRequest", Message: "windmill-lite: the arguments of a dispatched run cannot be stored: " + err.Error()}
+	if err := requestKeysError(args.Producer()); err != nil {
+		return "", err
+	}
+	if _, err := args.Stored(); errors.Is(err, jsonval.ErrSyntax) {
+		return "", &platform.Error{Variant: "BadRequest", Message: "windmill-lite: the arguments of a dispatched run are not JSON: " + err.Error()}
+	} else if err != nil {
+		return "", &platform.Error{Variant: "SqlErr", Message: databaseError(err).Error()}
 	}
 	// The run's links are taken now, while the dispatching job is still
 	// registered: the run may start after it has ended (a delay, or a
@@ -250,6 +290,90 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	x.mu.Unlock()
 	go x.run(id, d, args, links, rec)
 	return id, nil
+}
+
+// requestKeysError is the refusal of a run request whose body has a
+// top-level key the run API cannot decode (FX-51 rule 3): it decodes each
+// key as a string, which validates its escapes, and keeps each value's
+// text raw, so only a key's surrogate escape without its pair is refused
+// before the job is stored, with Bad request: invalid json: <message> at
+// line <l> column <c>, in Windmill's JSON library's words and position
+// (FX-51 rule 5 gives the column rule): unexpected end of hex escape for
+// a high surrogate not followed by an escape, lone leading surrogate in
+// hex escape for a low one or for a high one followed by another escape
+// that is not its low half. It is nil when every key decodes, and for a
+// body that is not one JSON object, which the storage check refuses.
+func requestKeysError(body []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil
+	}
+	for dec.More() {
+		from := int(dec.InputOffset())
+		if _, err := dec.Token(); err != nil {
+			return nil
+		}
+		to := int(dec.InputOffset())
+		// Only white space and a comma come before the key's opening
+		// quote.
+		open := from + bytes.IndexByte(body[from:to], '"')
+		if msg, at := surrogateError(body, open+1, to-1); msg != "" {
+			line, start := 1, 0
+			for i, c := range body[:at] {
+				if c == '\n' {
+					line, start = line+1, i+1
+				}
+			}
+			return &platform.Error{Variant: "BadRequest", Message: fmt.Sprintf("invalid json: %s at line %d column %d", msg, line, at-start)}
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil
+		}
+	}
+	return nil
+}
+
+// surrogateError scans the body of a valid JSON string, body[from:to],
+// for its first surrogate escape without its pair, and returns the JSON
+// library's message for it and the offset its reader stood at, which is
+// one past the byte it failed on; "" when there is none.
+func surrogateError(body []byte, from, to int) (string, int) {
+	hex := func(at int) uint64 {
+		if at+6 > to || body[at+1] != 'u' {
+			return 0
+		}
+		n, _ := strconv.ParseUint(string(body[at+2:at+6]), 16, 16)
+		return n
+	}
+	for i := from; i < to; i++ {
+		if body[i] != '\\' {
+			continue
+		}
+		n := hex(i)
+		switch {
+		case body[i+1] != 'u':
+			i++
+			continue
+		case n >= 0xDC00 && n <= 0xDFFF:
+			return "lone leading surrogate in hex escape", i + 6
+		case n < 0xD800 || n > 0xDBFF:
+			i += 5
+			continue
+		}
+		next := i + 6
+		switch {
+		case next >= to || body[next] != '\\':
+			return "unexpected end of hex escape", next + 1
+		case body[next+1] != 'u':
+			return "unexpected end of hex escape", next + 2
+		}
+		if low := hex(next); low < 0xDC00 || low > 0xDFFF {
+			return "lone leading surrogate in hex escape", next + 6
+		}
+		i = next + 5
+	}
+	return "", 0
 }
 
 // run runs one dispatched target to its end.

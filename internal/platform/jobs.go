@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
@@ -370,6 +371,31 @@ func (s *Services) JobEnv(id string) (map[string]string, bool) {
 	return j.Env, true
 }
 
+// ErrNoJobVariables marks a resource read whose job_id names a live job
+// whose job variables the job registry does not keep: a flow job, whose
+// stored fields windmill-lite cannot resolve $WM_* strings from.
+var ErrNoJobVariables = errors.New("platform: the job registry keeps no job variables of a flow job")
+
+// ReadJobEnv returns the reserved variables that a resource read made with
+// a job id (job_id, WA-12) resolves $WM_* strings from: APIEnv of the job
+// variables of the job id names, which must still be live and, when
+// workspace is not "", of that workspace (its WM_WORKSPACE), as Windmill
+// looks the job up among the queued and running jobs of the path's
+// workspace. An unknown id, a job that has ended and a job of another
+// workspace fail with the API's 404 `Not found: Job not found at name
+// <id>`, written without Windmill's Rust location (D14); a live flow job
+// fails with ErrNoJobVariables.
+func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
+	j, live, ok := s.jobs().Job(id)
+	switch {
+	case !ok || !live || workspace != "" && j.Env["WM_WORKSPACE"] != "" && j.Env["WM_WORKSPACE"] != workspace:
+		return nil, notFound("Job not found at name %s", id)
+	case j.Kind != JobScript || j.Env == nil:
+		return nil, ErrNoJobVariables
+	}
+	return APIEnv(j.Env), nil
+}
+
 // FlowUserState reads the flow user state at key of the job id names
 // (WA-14, JE-20): the value stored there, or JSON null when there is none,
 // when the job is not a flow job, and when it is no longer live, as the
@@ -391,8 +417,9 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // SetFlowUserState writes body, a JSON text, at key of the job id names
 // (WA-14). The job must be a live flow job, else the write fails with
 // ErrFlowJobNotFound; a write to a run that has ended fails so too, since
-// its map was discarded with it (windmill-lite's lifetime policy; whether
-// Windmill accepts it is Q-WA-10). The value is held as a read gives it
+// its map was discarded with it (windmill-lite's lifetime policy), as
+// Windmill refuses it once the root's completion is committed (WA-14,
+// After the run; WA-14/c). The value is held as a read gives it
 // back, which the oracle recorded (fixture client-api/user-state, run
 // order): the body as Windmill's backend JSON library parses and writes
 // it (1e3 as 1000.0, 1.50 as 1.5), stored as the flow status column

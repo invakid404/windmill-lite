@@ -9,15 +9,31 @@
 //
 // Environment: WL_ENGINE (the engine binary), WL_BUNDLE, WL_HOST_SOCKET,
 // WL_KILL_AFTER_MS (the watchdog's threshold), WL_WORKDIR (the working
-// directory it passes; its own by default) and WL_RECYCLE_MODULES (the
-// modules recycle trigger, unset by default).
+// directory it passes; its own by default), WL_RECYCLE_MODULES (the
+// modules recycle trigger, unset by default), WL_PLUGIN_CASES (a JSON file
+// of plugin cases, whose case plugin the host connects with, milestone
+// F2c), WL_PLUGIN_REPORT (the file that plugin's onRunSettled reports to)
+// and WL_ENGINE_FLAGS (flags for the engine, space-separated).
 
-import { connect, HostError } from "../../../../harnesses/bun/host/index.ts";
+import { readFileSync } from "node:fs";
+import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
+import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
 import * as scopes from "../hostfolder/f/host/scopes.ts";
 import * as outside from "../hostlib/tenant.ts";
 
 const env = process.env;
 let recycled: string | null = null;
+// The case plugin, whose onRunEnd also reports the tenant scope it runs in
+// (H11: a plugin call re-enters the run's scope).
+let plugin: Plugin | undefined;
+if (env.WL_PLUGIN_CASES) {
+  const p = casePlugin(JSON.parse(readFileSync(env.WL_PLUGIN_CASES, "utf8")), env.WL_PLUGIN_REPORT);
+  const end = p.onRunEnd!;
+  plugin = {
+    ...p,
+    onRunEnd: async (t) => [...((await end(t)) ?? []), { code: "plugin_scope", message: scopes.store.getStore()?.tenant ?? "" }],
+  };
+}
 let host;
 try {
   host = await connect({
@@ -28,6 +44,8 @@ try {
     watchdog: { killAfter: Number(env.WL_KILL_AFTER_MS ?? "30000") },
     recycle: env.WL_RECYCLE_MODULES ? { modules: Number(env.WL_RECYCLE_MODULES) } : undefined,
     onRecycle: (reason) => (recycled = reason),
+    plugin,
+    engineFlags: env.WL_ENGINE_FLAGS ? env.WL_ENGINE_FLAGS.split(" ") : undefined,
   });
 } catch (e) {
   // The supervisor's test reads why the host could not connect.
@@ -42,11 +60,15 @@ function percentiles(ms: number[]) {
 }
 
 // A run's outcome, or the code of a HostError for a run that did not start.
-async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" }, onSettled?: () => void) {
+// The run options a caller may send besides intercept and kind: the run's
+// budgets and latches (F2c carries F2b's).
+type Budgets = Pick<RunOptions, "writeCapable" | "fatalErrorNames" | "deadlineMs" | "preWriteDeadlineMs" | "clock">;
+
+async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" } & Budgets, onSettled?: () => void) {
   try {
-    return await scopes.store.run({ tenant: b.tenant ?? "" }, () =>
-      outside.tenant.run(b.tenant ?? "", () => host.run(b.path, b.args, { intercept: b.intercept, kind: b.kind, onSettled })),
-    );
+    const { writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
+    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
+    return await scopes.store.run({ tenant: b.tenant ?? "" }, () => outside.tenant.run(b.tenant ?? "", () => host.run(b.path, b.args, opts)));
   } catch (e) {
     if (e instanceof HostError) return { refused: e.code };
     throw e;

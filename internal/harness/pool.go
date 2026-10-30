@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -92,6 +93,10 @@ type Pool struct {
 	affinity runMap
 	// fresh holds a fresh pool's processes until they exit.
 	fresh map[*Process]struct{}
+	// plugin is the host plugin declaration of the pool's first process,
+	// which every later one must carry (F2c); nil until one loaded a
+	// plugin.
+	plugin []byte
 }
 
 type member struct {
@@ -111,6 +116,7 @@ func (m *member) inService() bool { return !m.tainted && !m.surplus && !m.retiri
 type spawnAttempt struct {
 	done chan struct{}
 	err  error
+	cfg  ProcessConfig // the process's, as the pool held it when it began
 }
 
 // NewPool returns a pool; processes start on the first Execute, or on
@@ -383,7 +389,12 @@ func (pl *Pool) inServiceLocked() int {
 }
 
 func (pl *Pool) spawnLocked() *spawnAttempt {
-	att := &spawnAttempt{done: make(chan struct{})}
+	att := &spawnAttempt{done: make(chan struct{}), cfg: pl.cfg.Process}
+	// A pool whose first process loaded a host plugin holds the later ones
+	// to its declaration (F2c).
+	if pl.plugin != nil {
+		att.cfg.ExpectPlugin = pl.plugin
+	}
 	pl.starting++
 	if pl.spawning == nil {
 		pl.spawning = att
@@ -393,10 +404,13 @@ func (pl *Pool) spawnLocked() *spawnAttempt {
 }
 
 func (pl *Pool) spawn(att *spawnAttempt) {
-	p, err := Spawn(context.Background(), pl.cfg.Process)
+	p, err := Spawn(context.Background(), att.cfg)
 	pl.mu.Lock()
 	pl.starting--
 	att.err = err
+	if err == nil && pl.plugin == nil && !p.Hello().Plugin.IsZero() {
+		pl.plugin = slices.Clone(p.Hello().Plugin.Producer())
+	}
 	if err == nil {
 		if pl.closed {
 			// Close may have stopped waiting for this start already; it waits

@@ -1,13 +1,13 @@
 # wl
 
-**Current state:** milestones F1, F2a, F2b and F3a of
+**Current state:** milestones F1, F2a, F2b, F3a and F2c of
 [ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
 [ADR 0009](../docs/design/0009-host-adapters.md), the host hooks of
 [ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
 bundle's mandatory host-provided sites (F2a), its budgets and latches
 (F2b: write-capable steps and the first-write signal, deadlines, the
-latch, fatal error names, the clock and the jitter), and host mode
-(F3a). This README covers `wl`,
+latch, fatal error names, the clock and the jitter), host mode (F3a),
+and host plugins in TypeScript over `host_call` (F2c). This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
@@ -19,10 +19,11 @@ calls: the command line's `windmill-lite run`
 through it. Host mode (F3a) is `Options.Host`: a runtime whose steps run
 in the host process that started it, and whose runs that host submits;
 `windmill-lite host`, the engine the Bun host SDK starts, is that runtime.
-Host plugins in TypeScript (F2c) and the go-plugin adapter (F5,
-`wl/plugin`) come later, as fields of `Options` and `RunOptions` and as
-runtimes over the same calls, so a host written against this API keeps
-compiling.
+Host plugins (F2c) are TypeScript hooks the harness runs, which the
+runtime asks over `host_call`: `Options.Plugin` in `warm`, the host's own
+in host mode. The go-plugin adapter (F5, `wl/plugin`) comes later, as
+fields of `Options` and `RunOptions` and as a runtime over the same
+calls, so a host written against this API keeps compiling.
 
 ## Files
 
@@ -32,6 +33,7 @@ compiling.
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; `Clock`, `RealClock`, `RecordClock`, `Jitter`, `SeededJitter`, `ErrPreWriteDeadline` (H4, H10); the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `FatalError`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs it serves |
+| `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins (F2c), their declaration as `Hooks` and `Providers` whose callbacks are `host_call`s, their resources and variables (H13), `around`, and the merge of a run's hooks with its plugin's |
 
 ## Open
 
@@ -265,6 +267,80 @@ The bundle must be a directory, which the host loads too; steps run warm
    flight were lost with the host (`harness_lost`). `Close` cancels the
    runs in flight and ends the connection.
 
+## Host plugins
+
+A host plugin (milestone F2c, ADR 0008, ADR 0004 §Host plugins) is
+TypeScript the Bun harness runs, written against
+`harnesses/bun/runtime/plugin.ts`: the hooks of F2a (H1's interceptions,
+H2's rewrites, H6's observers, H8's halts, H9's run-end hooks, H12's
+environment hook), `around` wrappers, the named providers of the host
+contract's provided sites, and `resource` and `variable` (H13's provider
+bridge).
+
+1. **Where.** `Options.Plugin` names a module that every `warm` harness
+   process loads (`--plugin`); `Open` starts the first process to read
+   its declaration. In host mode the plugin is the host's (the host SDK's
+   `plugin`), and the handshake reads it from the hello (`HostConfig.Check`).
+   A `fresh` runtime, and `Options.Plugin` in host mode, fail `Open`.
+2. **The declaration** names the hooks the plugin answers and their
+   selectors. The runtime checks them as it checks a Go host's (well
+   formed, unambiguous), checks that every provider the host contract
+   names is in `Options.Providers` or the plugin's (`missing_provider`;
+   none may be in both), and refuses otherwise: `Open` fails, or the host
+   is refused with `plugin_mismatch`.
+3. **Hooks.** The declaration becomes `Hooks` and `Providers` (F2a's
+   seams): a static interception and the halts stay in Go, and every other
+   callback sends a `host_call` with its hook, run, site and payload (an
+   interception or rewrite names its entry by index) and decodes the
+   reply. A run's own `RunOptions.Hooks` come first, then the plugin's
+   (`mergeHooks`). A plugin's error (`HostCallError`) latches the run, as
+   a Go hook's does, and so does a reply that does not come within
+   `Options.PluginTimeout` (`ErrHostCallTimeout`, 60 s by default); a run
+   whose context ends first is not latched. A failed `onRunEnd` adds a
+   `plugin_error` warning; a failed `onRunSettled` is written to the
+   diagnostics.
+4. **H13.** A plugin that declares `resource` or `variable` answers them
+   for each run, after the run's own (`RunOptions.Platform`) and before
+   the runtime's, for the job API and argument resolution alike; the
+   engine's router does the interpolation and errors.
+5. **`around`.** The engine puts the indexes of the plugin's around
+   wrappers whose selectors match a leaf's site on its invocation, and
+   the harness runs the step inside them; a script run's job too.
+6. **F2b's hooks.** A plugin can declare write-capable selectors,
+   `beforeFirstWrite` (a `host_call`) and fatal error names (H3, H7);
+   `mergeHooks` puts them after the run's own. `onRunEnd` reports a run
+   whose context ended too: its call has the plugin timeout alone.
+   - **Hooks hold settlement.** Every `host_call` of a run holds the run's
+     settlement from before it is sent (`doHeld`,
+     `engine.HoldSettlement`) until its reply, or, when the runtime
+     stopped waiting first (the plugin timeout, the run's end, a step that
+     settled meanwhile), its late reply or the harness's exit, so
+     `OnRunSettled`, `run_settled` and the release of the run's resources
+     come after every hook of the run. A hook of a settled run is not
+     called (`errRunSettled`).
+   - **H13 failures latch.** The plugin's `resource` and `variable` reach
+     their run through a `runBinding` that `engine.RunRequest.Started`
+     fills, since the facade serves job-API calls outside the run's
+     context: a failure or timeout latches the run, unless the call ended
+     with its context or the run's outcome was decided, and the router
+     still answers the call with the error.
+   - **The trace.** A hook's record and trace (`recordJSON`, `traceJSON`)
+     carry every field of the Go `StepRecord` and `Trace` in snake_case:
+     the arguments before H2, as stored and as resolved, the carried value,
+     timings, late output, child flows, spans, deviations and platform
+     calls.
+7. **The step API.** Steps call `wl.latch(error)` and `wl.signal()` on
+   `globalThis` (ADR 0004 §Host plugins): a latch latches the run, a
+   script run's too (`StatusLatched`, with `*engine.StepLatch` in
+   `Result.Latched`, as a failed `around` gives a `*engine.PluginError`),
+   and the signal aborts when the engine abandons the step.
+8. **A host's budgets.** In host mode a run frame carries what a Go host
+   gives in `RunOptions` (`hostBudgets`): write-capable selectors and
+   fatal error names, as the run's own hooks; the pre-write deadline; the
+   record clock; and a hard deadline, which bounds the run's context
+   until the run has settled. `run_done` carries `MayHaveMutated` and the
+   trace's deviations.
+
 ## BuildInfo and Close
 
 `BuildInfo()` reports the bundle digest, the engine version, the Bun and
@@ -331,7 +407,15 @@ is asked once for two write-capable steps and makes the run report
 pre-write deadline ends a run with no write but not one past its first
 write; a write-capable subflow call asked about before its child flow,
 vetoed and approved, and of two calls of one subflow only the marked one;
-and an H12 veto after the approval, which still counts as written.
+and an H12 veto after the approval, which still counts as written; and
+the step API (F2c, `TestStepAPI`): a script's `wl.latch` latches its
+script run in `warm` and `fresh`, so does a failed `around` wrapper, and
+in `warm` a step that waits for `wl.signal()` alone settles once the
+run's deadline has aborted it; that a TypeScript plugin's `onRunEnd` and
+`onModuleEnd` get, on one run, the trace and records a Go hook gets, with
+a job-API read and update, a rewrite and a `$var` resolution
+(`TestPluginTraceParity`); and that an `around` wrapper's late `next()`
+runs no step (`TestAroundLateNextStartsNothing`).
 `outside_test.go` builds a bundle whose host contract lists two modules
 outside the sync folder (milestone F3h) and runs it on Bun without a host:
 a codebase script that imports one finds no host scope, and two step
@@ -347,3 +431,22 @@ refusals in the handshake: another working directory, one that does not
 exist, a fresh module state, a bundle of another engine version and no
 working directory. cmd/windmill-lite runs host mode end to end with the
 Bun host SDK.
+
+`plugin_test.go` (F2c) covers host plugins without Bun: a plugin refused
+in a `fresh` runtime and as `Options.Plugin` in host mode, a host whose
+declaration has a malformed or ambiguous selector refused with
+`plugin_mismatch` and a usable one welcomed, the providers a plugin adds
+toward the contract's (`missing_provider`, a name given twice), the
+declaration's hooks as `host_call`s (an interception by index, a
+decline, `around`'s matches, a timeout latching and a run's own end not),
+`mergeHooks`'s order, and that a hook's call holds its run's settlement
+while in flight and is not made for a settled run
+(`TestPluginCallsHoldSettlement`). `plugincases_test.go` runs the cases of
+`conformance/plugins/hooks.yaml` on a bundle built from them, through
+the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
+through Go callbacks built from the same plugins, each case with its
+run's budgets and latches in `RunOptions` (`caseRun`), and checks that
+every run's `onRunEnd` reported it, a canceled run's too, and, from the
+plugin's report file, that every case's run settled and none while one
+of its hooks still ran (`checkSettlement`); it needs Bun like
+`bun_test.go`.

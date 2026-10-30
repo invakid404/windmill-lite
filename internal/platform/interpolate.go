@@ -89,8 +89,38 @@ func (s *Services) RawResource(ctx context.Context, path string) ([]byte, error)
 // an invalid nested path, a $jsonvar: that is not JSON, or the depth
 // limit.
 func (s *Services) InterpolatedResource(ctx context.Context, path string, job map[string]string) ([]byte, error) {
-	n, e := (&apiWalk{s: s, ctx: ctx, job: job}).resource(path, 0, false)
-	if e != nil {
+	return s.InterpolatedResourceOf(ctx, path, heldJob(job))
+}
+
+// JobLookup finds the reserved variables of the job an interpolated read
+// names by its job_id, which its $WM_* strings resolve from (APIEnv); its
+// error fails the whole read, and is an *Error with the API's status and
+// body, such as ReadJobEnv's 404, or another error, which the read
+// returns as it is.
+type JobLookup func() (map[string]string, error)
+
+// heldJob is the lookup of a job whose reserved variables the caller
+// holds, nil for none.
+func heldJob(env map[string]string) JobLookup {
+	if env == nil {
+		return nil
+	}
+	return func() (map[string]string, error) { return env, nil }
+}
+
+// InterpolatedResourceOf is InterpolatedResource for a read whose job is
+// found by job, nil for a read without a job id. As Windmill looks a
+// read's job_id up (WA-12), job is called only when the walk meets a $WM_*
+// string, at each such string: a value without one is read as if no job
+// id had been sent, whatever the id names, and a lookup that fails fails
+// the read only then.
+func (s *Services) InterpolatedResourceOf(ctx context.Context, path string, job JobLookup) ([]byte, error) {
+	w := &apiWalk{s: s, ctx: ctx, job: job}
+	n, e := w.resource(path, 0, false)
+	switch {
+	case w.jobErr != nil:
+		return nil, w.jobErr
+	case e != nil:
 		return nil, e
 	}
 	return n.write(nil), nil
@@ -204,7 +234,11 @@ func (s *Services) resolve(ctx context.Context, path string, resource bool, n *n
 type apiWalk struct {
 	s   *Services
 	ctx context.Context
-	job map[string]string
+	// job finds the reserved variables $WM_* strings resolve from, nil
+	// when they stay literal; jobErr is the error of its call that failed
+	// the walk.
+	job    JobLookup
+	jobErr error
 }
 
 // resource loads and interpolates the resource at path, at depth: 0 for
@@ -266,7 +300,16 @@ func (w *apiWalk) walk(n *node, depth int) (*node, *Error) {
 			}
 			return w.resource(p, depth+1, true)
 		case strings.HasPrefix(s, "$WM_") && w.job != nil:
-			if v, ok := w.job[s[1:]]; ok {
+			env, err := w.job()
+			if err != nil {
+				w.jobErr = err
+				var pe *Error
+				if errors.As(err, &pe) {
+					return nil, pe
+				}
+				return nil, internal("%v", err)
+			}
+			if v, ok := env[s[1:]]; ok {
 				return stringNode(v), nil
 			}
 		}
@@ -431,7 +474,7 @@ func (w *workerWalk) walk(name string, n *node, depth int) (*node, *Error) {
 			if len(strings.Split(p, "/")) < 2 && !strings.HasPrefix(p, "CUSTOM_INSTANCE_DB/") {
 				return nil, internal("Argument `%s` is an invalid resource path: %s", name, p)
 			}
-			r, e := (&apiWalk{s: w.s, ctx: w.ctx, job: w.apiEnv}).resource(p, 0, false)
+			r, e := (&apiWalk{s: w.s, ctx: w.ctx, job: heldJob(w.apiEnv)}).resource(p, 0, false)
 			if e != nil {
 				return nil, notFound("Resource %s not found for `%s`: %s", p, name, e.Body())
 			}

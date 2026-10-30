@@ -1,0 +1,15 @@
+# CF-23/f: b's retry_if sees result and previous_result as the carried 1
+# and error derived from it, so it is true: a second branch job runs and
+# aborts the same way, and the flow fails with the carried 1.
+spec: [CF-23/f, FX-26]
+target: f/cf23/carry_retry_if
+expect:
+  status: failure
+  result: 1
+  steps:
+    "m:b/r:0": {status: failure, args: {}, result: {error: {name: InternalError, message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}}
+    "m:b/r:0/m:r": {status: success, args: {x: 1}, result: 1}
+    "m:b/r:0/m:l": {status: not_run, ran: false}
+    "m:b": {status: failure, branch_chosen: {type: default}, result: {error: {name: InternalError, message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}, carried: 1}
+    "m:b/b:default/m:r": {status: success, args: {x: 1}, result: 1}
+    "m:b/b:default/m:l": {status: not_run, ran: false}

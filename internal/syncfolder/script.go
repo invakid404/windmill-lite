@@ -222,14 +222,16 @@ func (f *Folder) readMetadata(s *Script, file string) *Error {
 		// `!inline <p>.script.lock`), then regenerates the schema from
 		// main's parameters and the lock, which windmill-lite does not do:
 		// the schema stays nil, and the lock is <p>.script.lock as the
-		// default file names it.
-		lock, lockFile, warning, err := f.readLockFile(s.Path + ".script.lock")
+		// default file names it. The CLI writes that file empty when it is
+		// missing, so a missing one is not warned about.
+		name := s.Path + ".script.lock"
+		lock, lockFile, unreadable, err := f.readLockFile(name)
 		if err != nil {
 			return err
 		}
 		s.Lock, s.LockFile = &lock, lockFile
-		if warning != "" {
-			s.Warnings = append(s.Warnings, warning)
+		if unreadable != nil {
+			s.Warnings = append(s.Warnings, inlinePathWarning(name, unreadable))
 		}
 		return nil
 	}
@@ -299,7 +301,8 @@ func (f *Folder) readMetadata(s *Script, file string) *Error {
 // first; then a string that starts with exactly `!inline ` is a reference
 // to the file named by its second space-separated token, relative to the
 // sync root, and any other string is the lock as written. A missing or
-// unreadable file is the empty lock, with the CLI's warning.
+// unreadable file is the empty lock, with the CLI's warning
+// ([inlinePathWarning]).
 func (f *Folder) readLock(s *Script, m fields) *Error {
 	n := m.get("lock")
 	if n == nil {
@@ -330,18 +333,34 @@ func (f *Folder) readLock(s *Script, m fields) *Error {
 	if err != nil {
 		return err
 	}
-	lock, lockFile, warning, err := f.readLockFile(p)
+	lock, lockFile, unreadable, err := f.readLockFile(p)
 	if err != nil {
 		return err
 	}
-	if warning == "" && lockFile == "" {
-		warning = fmt.Sprintf("Error reading inline path: %s, the file is missing", p)
-	}
 	s.Lock, s.LockFile = &lock, lockFile
-	if warning != "" {
-		s.Warnings = append(s.Warnings, warning)
+	if lockFile == "" {
+		s.Warnings = append(s.Warnings, inlinePathWarning(name, unreadable))
 	}
 	return nil
+}
+
+// inlinePathWarning is the CLI's warning for a script lock reference whose
+// file it cannot read (SY-5): `Error reading inline path: <name>, <error>`,
+// where name is the reference as written and error is the read error as
+// the published CLI, on Node, prints it. A missing file (unreadable nil)
+// gives `Error: ENOENT: no such file or directory, open '<name>'`, and a
+// file the decoder refuses gives `Error: ` and the decoder's message
+// (SY-19). The reference gives no text for any other failure, such as a
+// file without read permission; windmill-lite then gives `Error: ` and the
+// failure in Go's words. Both the decoder's message and Go's error name the
+// file root-relative, which is name for any reference without `.`, `..`
+// or empty segments.
+func inlinePathWarning(name string, unreadable *Error) string {
+	cause := fmt.Sprintf("ENOENT: no such file or directory, open '%s'", name)
+	if unreadable != nil {
+		cause = unreadable.Msg
+	}
+	return fmt.Sprintf("Error reading inline path: %s, Error: %s", name, cause)
 }
 
 // scriptLockFile recognises a `.script.yaml` lock reference (SY-5): a
@@ -355,25 +374,21 @@ func scriptLockFile(s string) (string, bool) {
 	return secondToken(s)
 }
 
-// readLockFile reads a lock file through the decoder; a missing file is
-// the empty lock (SY-5, SY-7), and lockFile is then "". So is a file that
-// cannot be read, the decoder's refusal included, and warning is then the
-// CLI's warning (SY-5, SY-19), unless readReference fails the push.
-func (f *Folder) readLockFile(p string) (lock, lockFile, warning string, err *Error) {
+// readLockFile reads a lock file through the decoder. A file that is
+// missing, or that cannot be read, the decoder's refusal included, is the
+// empty lock, and lockFile is then "" (SY-5, SY-7, SY-19); unreadable is
+// the failure, nil for a missing file, for the caller's warning. A file the
+// walk reads fails the push instead ([Folder.readReference]).
+func (f *Folder) readLockFile(p string) (lock, lockFile string, unreadable, err *Error) {
 	data, found, unreadable, err := f.readReference(p)
-	switch {
-	case err != nil:
-		return "", "", "", err
-	case unreadable != nil:
-		return "", "", fmt.Sprintf("Error reading inline path: %s, %s", p, unreadable.Msg), nil
-	case !found:
-		return "", "", "", nil
+	if err != nil || unreadable != nil || !found {
+		return "", "", unreadable, err
 	}
 	text, terr := checkText(data, p, "")
 	if terr != nil {
-		return "", "", "", terr.(*Error)
+		return "", "", nil, terr.(*Error)
 	}
-	return text, p, "", nil
+	return text, p, nil, nil
 }
 
 // rootPath resolves a reference relative to the sync root. A reference

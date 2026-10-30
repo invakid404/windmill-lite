@@ -35,8 +35,10 @@ func inputsOf(m *ir.Module) []ir.Input {
 // that failed fails the step with it (CF-17): its failure value, a failed
 // container's array, or its failure module's result, a recovered one
 // included, since a subflow that ran its failure module reports a failure
-// to its caller (CF-V1, FX-33). The step's own stop_after_if is evaluated
-// after a success, whatever stop the subflow raised.
+// to its caller (CF-V1, FX-33); one that aborted at a later transition
+// hands the step its last carried value, while lookups read the stored
+// error (CF-23 route 3). The step's own stop_after_if is evaluated after a
+// success, whatever stop the subflow raised.
 func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value) outcome {
 	m := fr.moduleAt(i)
 	c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
@@ -50,9 +52,12 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	if ended(e.status) {
 		return branchInterrupted(o, true, r.endedStatus(ctx, e.status))
 	}
+	// Lookups read the subflow job's stored result; the step takes the
+	// value delivered with its completion, which differs after an abort
+	// (CF-23 route 3).
 	r.recordJob(fr, i, e.result)
-	o.rec.Result, o.rec.Carried, o.rec.ResultOrigin, o.rec.ResultNested, o.rec.CarriedNested = e.result, e.result, e.origin, e.nested, e.nested
-	o.carried, o.origin, o.nested = e.result, e.origin, e.nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result, e.origin, e.nested
+	o = carryOn(o, e)
 	// The step's job status is the subflow job's own: success when its
 	// failure module recovered, skipped when a clean stop with
 	// skip_if_stopped ended it (OR-V2).
@@ -70,6 +75,20 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	}
 	o.rec.Module = conformance.ModuleSuccess
 	return r.stop(ctx, fr, i, site, o)
+}
+
+// carryOn makes the value delivered with a single child flow's completion,
+// e, what o, a branchone or a subflow step, carries on (flowEnd.carried):
+// its result, or the child's last carried value after an abort, which
+// the engine set apart from the job's result (CF-23 route 3).
+func carryOn(o outcome, e flowEnd) outcome {
+	c := e.carried()
+	o.carried, o.origin, o.nested = c.value, c.origin, c.nested
+	o.rec.Carried, o.rec.CarriedNested = c.value, c.nested
+	if e.delivered != nil {
+		o.rec.CarriedOrigin = c.origin
+	}
+	return o
 }
 
 // subflowFrame creates the child flow that module i of fr, a flow step,

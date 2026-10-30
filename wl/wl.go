@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -87,6 +88,20 @@ type Options struct {
 	// them. Open fails with ErrMissingProvider when the contract names one
 	// that is not here; a static provided site needs none.
 	Providers map[string]Provider
+	// Plugin, when set, is the path of a host plugin module (ADR 0008,
+	// milestone F2c) that every warm harness process loads: TypeScript
+	// hooks for the runtime's runs, around wrappers and providers, which
+	// the engine calls over host_call (harnesses/bun/runtime/plugin.ts).
+	// Open starts the first process to read the plugin's declaration, and
+	// fails when the declaration is not usable (a malformed or ambiguous
+	// selector, a provider the host contract names that neither
+	// Providers nor the plugin has). A fresh runtime takes none: its
+	// processes live for one step. In host mode the plugin is the host's.
+	Plugin string
+	// PluginTimeout bounds each host_call: a hook whose reply does not come
+	// within it fails with ErrHostCallTimeout, which latches the run. Zero
+	// means DefaultPluginTimeout.
+	PluginTimeout time.Duration
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -155,6 +170,13 @@ type Runtime struct {
 	store     *platform.Store
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
+
+	// plugin is the host plugin, once its harness declared it (F2c);
+	// providers are the Go host's and the plugin's named providers, and
+	// goProviders the Go host's alone.
+	plugin      atomic.Pointer[plugin]
+	providers   atomic.Pointer[map[string]Provider]
+	goProviders map[string]Provider
 
 	// mu guards closed: once Close begins, Run admits no run. active counts
 	// the runs admitted, which stop's cancellation ends.
@@ -298,8 +320,17 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		return nil, err
 	}
 	rt.prog = prog
-	if err := checkProviders(prog, opts.Providers); err != nil {
-		return nil, err
+	rt.goProviders = maps.Clone(opts.Providers)
+	providers := maps.Clone(opts.Providers)
+	rt.providers.Store(&providers)
+	switch {
+	case opts.Plugin != "" && opts.Host != nil:
+		return nil, errors.New("wl: in host mode the host plugin is the host's, not Options.Plugin")
+	case opts.Plugin == "" && opts.Host == nil:
+		// A plugin's providers count too, once it has declared them.
+		if err := checkProviders(prog, opts.Providers); err != nil {
+			return nil, err
+		}
 	}
 	rt.state = rt.manifest.ModuleState
 	if opts.ModuleState != "" {
@@ -311,6 +342,9 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	}
 	if rt.state != engine.ModuleStateWarm && rt.state != engine.ModuleStateFresh {
 		return nil, fmt.Errorf("wl: module state %q is neither warm nor fresh", rt.state)
+	}
+	if opts.Plugin != "" && rt.state == engine.ModuleStateFresh {
+		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin)")
 	}
 
 	store, err := platform.LoadData(os.DirFS(rt.dir))
@@ -350,7 +384,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.js, err = quickjs.New(quickjs.Options{Slots: opts.ExpressionSlots}); err != nil {
 		return nil, err
 	}
-	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: provide(opts.Providers)}); err != nil {
+	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide}); err != nil {
 		return nil, err
 	}
 	// The default dispatcher runs the bundle's roots as runs of their own
@@ -358,9 +392,14 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	// it is in the services before any run starts.
 	rt.dispatch = engine.NewDispatcher(rt.eng, rt.fac.Executor(inner))
 	rt.services.Dispatcher = rt.dispatch
+	if opts.Plugin != "" {
+		if err := rt.loadPlugin(opts); err != nil {
+			return nil, err
+		}
+	}
 	if opts.Host != nil {
 		attached = true
-		if err := rt.attachHost(opts.Host, opts.Diagnostics); err != nil {
+		if err := rt.attachHost(opts.Host, opts.Diagnostics, opts); err != nil {
 			return nil, err
 		}
 	}
@@ -403,6 +442,13 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 		origin = rt.fac.FreshOrigin()
 	}
 	path, args := harness.BunCommand(bun, filepath.Join(runtimeDir, "main.ts"), rt.dir)
+	if opts.Plugin != "" {
+		extra, err := pluginArgs(opts.Plugin)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, extra...)
+	}
 	return harness.NewPool(harness.PoolConfig{
 		Key: harness.Key{Class: string(ir.ClassBun), Runtime: harness.PinnedBun, Deps: rt.digest, ModuleState: rt.state},
 		Process: harness.ProcessConfig{

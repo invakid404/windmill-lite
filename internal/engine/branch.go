@@ -27,7 +27,9 @@ var jsonObjectString = jsonval.FromProducer([]byte(`"{}"`))
 // branchOne runs module i of fr, a branchone, from its predicates to its
 // completion; o is its outcome so far. The chosen branch's result is the
 // module's, and its stop_after_if, evaluated with it, is an ordinary stop of
-// the flow (CF-14).
+// the flow (CF-14). A branch whose flow aborted at a later transition
+// hands the module its last carried value, while lookups read the stored
+// error (CF-23 route 3).
 func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	m := fr.modules[i]
 	site := fr.sites[i]
@@ -110,10 +112,13 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	// The branch's flow is the module's job, which a retry records as its
 	// failed attempt (CF-22).
 	o.lastChild = &childJob{site: c.site, flow: true, input: c.input, end: e}
+	// Lookups read the branch's stored result; the module takes the value
+	// delivered with its completion, which differs after an abort (CF-23
+	// route 3).
 	r.recordJob(fr, i, e.result)
 	o.rec.Ran = true
-	o.rec.Result, o.rec.Carried, o.rec.ResultOrigin, o.rec.ResultNested, o.rec.CarriedNested = e.result, e.result, e.origin, e.nested, e.nested
-	o.carried, o.origin, o.nested = e.result, e.origin, e.nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result, e.origin, e.nested
+	o = carryOn(o, e)
 	o.rec.Status, o.rec.Module = conformance.StepSuccess, conformance.ModuleSuccess
 	switch o.end = branchOneEnd(e); o.end {
 	case endFailed, endErrorStop:
@@ -184,6 +189,14 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 	bs := fr.modules[i].BranchAll.Branches
 	var it iterations
 	failed, handled := false, false
+	// A chaining error before a branch after the first aborts the flow
+	// with the previous branch's result as its last carried value, as a
+	// sequential loop's does (outcome.last, CF-23 route 3).
+	var last *carry
+	chaining := func(k int, text string) outcome {
+		o.last = last
+		return r.chainingAt(fr, k == 0 && b.first, o, text)
+	}
 	for k, br := range bs {
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, k > 0, st)
@@ -202,11 +215,11 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 			if ctx.Err() != nil {
 				return r.loopInterrupted(o, &it, k > 0, conformance.RunCanceled)
 			}
-			return r.chainingAt(fr, k == 0 && b.first, o, text)
+			return chaining(k, text)
 		}
 		c, text := r.branchFrame(fr, i, conformance.Branch(k), br.Modules, fr.path+"/branchall-"+strconv.Itoa(k), false)
 		if c == nil {
-			return r.chainingAt(fr, k == 0 && b.first, o, text)
+			return chaining(k, text)
 		}
 		if k == 0 {
 			c.due = b.due
@@ -223,6 +236,7 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 			return r.loopInterrupted(o, &it, true, st)
 		}
 		it.add(e)
+		last = &carry{e.result, e.origin, e.nested}
 		if e.stopped || e.errorStop {
 			// A forwarded stop of a failure that a failure module handled
 			// in the branch keeps it handled (CF-16 item 4).
@@ -379,7 +393,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 func (r *run) branchFrame(fr *frame, i int, seg conformance.Segment, ms []*ir.Module, path string, parallel bool) (*frame, string) {
 	stored, err := fr.input.Stored()
 	if err != nil {
-		return nil, databaseError(err).Error()
+		return nil, pushError(err).Error()
 	}
 	site := fr.sites[i].Child(seg)
 	c := newFrame(ms, site)

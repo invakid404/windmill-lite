@@ -19,15 +19,20 @@ with their arithmetic, jitter and argument reuse, deadlines and the clock,
 `flow_user_state()`, a root script's run as a script job and the default
 dispatcher, the integration of milestone NI (N2's waits and retries,
 the cancellation and failures inside containers, and the evaluation timing
-of container-level fields), and the `cache_ttl` result cache of milestone
-N4. This README
-covers `internal/engine` and its `testdata/`. The package holds the seams
+of container-level fields), the `cache_ttl` result cache of milestone
+N4, and what milestone F2c added for host plugins: `RunRequest.Around`
+and `ScriptRequest.Around`, which put a plugin's around wrappers on a
+leaf's `Invocation.Around`, and the latch on an invocation's
+`plugin_error` warning (`WarningPluginError`, `PluginError`) or on a
+step's `wl.latch` (`WarningLatch`, `StepLatch`), which `LatchOf` maps; a
+script job latches too (`ScriptResult.Latched`), and its latched job has
+failed with no result, for the dispatcher as for `wl`. This README
+covers `internal/engine`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
-trace) and the interpreter itself. `skeleton.go` is what remains of the
-walking skeleton (W1): the loader of W1's hand-written bundle, which runs
-its flows on the engine core. Since F3a moved host mode onto `wl` and
-built bundles, only its own tests use it. The
+trace) and the interpreter itself. The walking skeleton's loader (W1),
+which only its own tests used once F3a moved host mode onto `wl`, was
+removed with its bundle `testdata/w1/` (milestone FU8). The
 harness that executes steps is [internal/harness](../harness/README.md).
 
 ## Contracts
@@ -36,19 +41,18 @@ harness that executes steps is [internal/harness](../harness/README.md).
 |---|---|---|
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it; PF1's facade wraps it |
 | `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `ManualFailure`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below); `TimeoutError`, a step's timeout text by boundary (C3n) | C3a, N1b; the step-case runner (`wltest check`) and the engine call them |
-| `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
+| `settle.go` | `RunSettlement`: counts a run's unsettled invocations, and the holds on it (F2c), and says once when the run has settled; `HoldSettlement` | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `waits.go` | H10's `Jitter`, `SeededJitter` and `RecordClock`; the values of `sleep` and `timeout` and the retry schedule (below) | N2 calls them; F2b exposes the clock and the jitter to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span`, `PlatformCall` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md); the platform calls of a run's steps, which wl fills from the facade's records, since the engine does not see the facade). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
-| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; wl (F1) |
 | `provided.go` | `ProvideFunc`, `ErrProviderDeclined`: a mandatory host-provided site's launch ([ADR 0008](../../docs/design/0008-host-hooks.md), below) | wl (F2a) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `cache.go` | The `cache_ttl` result cache (N4, below): the key, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
-| `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
+| `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step; an entry with no `=` fails a Bun or bunnative job before it runs ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `branch.go`, `subflow.go`, `serde.go` | the flows a run executes (the root, its containers' child flows and its subflows by path), their results scopes, for and while loops, branches and subflows (below); the texts of Windmill's JSON library | N3a, N3b, N3c |
-| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | its own tests (W1's `windmill-lite host` until F3a) |
 
 Site identities are `conformance.SitePath` values. Run statuses are
 `conformance.RunStatus` values, including the windmill-lite-only `latched`
@@ -184,12 +188,21 @@ An invocation settles when its entrypoint call can run no more code, and
   first `Settled` and drops duplicates. Once `End` has been called and
   nothing is unsettled, it calls its callback once; that is where the engine
   calls `OnRunSettled` and releases what step code can reach (ADR 0004 host
-  mode item 5).
+  mode item 5). `Hold` counts work that is not an invocation, a host
+  plugin's hook from its call until it has finished, which may outlive the
+  engine's wait for it (F2c), even after `End`; once the run has settled
+  it holds nothing and says so, and the work must not start. A context of
+  no run, the settlement callback's own, holds nothing, so the callback
+  never waits on itself. A flow run's context carries its settlement, so
+  that whatever serves it holds it with `HoldSettlement(ctx)`, and
+  `RunRequest.Started` hands what serves the run outside its hooks (a
+  plugin's H13 providers) that context and the run's handle.
 - **Tests.** `settle_test.go` drives a fake executor through completion,
   abandonment with a late end, a non-final late error, a process exit, a
   never-dispatched invocation, and an `escaped` outcome fixed while the call
   is still pending, which settles only when the call ends or its process
-  exits.
+  exits; and holds, before and after `End`, released once, and in a run's
+  context.
 
 ## The engine core
 
@@ -230,8 +243,7 @@ bodies run raw with a suffixed copy of it
 only); `cache_ignore_s3_path` (`later`), since the object store keeps no
 ETag to hash an S3 object's argument with
 ([FX-40](../../docs/semantics/execution.md#fx-40)); a step of another harness than Bun's, whose `bun` and
-`native` boundaries it runs (L1); an `ai`
-parallelism, whose error the reference does not give; a preprocessor,
+`native` boundaries it runs (L1); a preprocessor,
 `skip_expr` and an `ai` sleep or timeout (`later`).
 
 **One module** follows [FX-2](../../docs/semantics/execution.md#fx-2):
@@ -264,7 +276,14 @@ parallelism, whose error the reference does not give; a preprocessor,
    which H1 may answer for like any launch. An identity job's result is
    its stored arguments' `previous_result`, or `{}`
    ([FX-16](../../docs/semantics/execution.md#fx-16)), and it is never
-   timed ([FX-24](../../docs/semantics/execution.md#fx-24)). A host-provided
+   timed ([FX-24](../../docs/semantics/execution.md#fx-24)). Like a
+   script's result, it fails when it marks itself failed with a string
+   `wm_failure`, kept with its `ManualFailure` error put in
+   ([FX-13](../../docs/semantics/execution.md#fx-13)): a mock value, or an
+   identity's or a skipped module's passthrough, so a step after a
+   tolerated `wm_failure` fails again; the module is then `Failure`, which
+   carries no skipped flag
+   ([OR-11](../../docs/semantics/oracle.md#or-11)). A host-provided
    site's provider answers its launch in place of H1 (below). A leaf is
    offered to H1 (`Intercept`), then its entrypoint is chosen
    (`Entrypoint`), H3 asks `BeforeFirstWrite` once per run before the
@@ -289,7 +308,8 @@ parallelism, whose error the reference does not give; a preprocessor,
    body takes its child flow's job id, innermost scope and path, or its
    collapsed loop's step id and `<flow path>/loop-<i>` job path (For loops,
    below). A Bun step of a path script also gets the script's own `envs`
-   entries (`KEY=VALUE`) under them: a name the worker sets later (a
+   entries (`KEY=VALUE`, split at the first `=`, an empty name kept)
+   under them: a name the worker sets later (a
    reserved variable, or a common Bun variable such as `PATH` or
    `BASE_URL`, and `NODE_PATH` when the engine's environment has one,
    which the harness then copies, WR-22/b) or one already set is skipped,
@@ -297,7 +317,11 @@ parallelism, whose error the reference does not give; a preprocessor,
    ([WR-22](../../docs/semantics/languages.md#wr-22),
    [WA-2](../../docs/semantics/client-api.md#wa-2); `env.go`). A native
    step gets no `envs` ([WR-45](../../docs/semantics/languages.md#wr-45)),
-   milestone FU5.
+   milestone FU5. An entry with no `=` fails a Bun or a bunnative
+   (`//native`) job once it is picked up, before H12, its arguments'
+   resolution and its script, with the worker's execution error
+   `{"error": {"message": "execution error:\nBad request: Invalid env var: <entry>. Must be in the form of KEY=VALUE", "name": "ExecutionErr", "step_id": …}}`;
+   a `nativets` job never reads its entries (WR-22/c).
 6. **`stop_after_if`** after a success, except on the failure module, and
    on an identity job classified skipped: any identity job of a module
    with a `skip_if`, whatever the predicate answered, and whether it ran or
@@ -474,11 +498,12 @@ the step's success value, not the `EarlyStopError`
 | the same at a later module | the flow fails at once, the module not run: `{"error": {"message": <text>, "name": "InternalError"}}` | FX-15 context 1, JE-35 (a) |
 | `stop_after_if` fails | the module fails unrecoverably with the string `{"error": <text>}` | FX-21, JE-26 |
 | a for loop's iterator throws, is not an array, or is `ai` | a chaining error, routed as above: `Error: <evaluator text>`, ``Expected an array value in the iterator expression, found: <serde's message>``, or `AI input transform not supported for iterator` | CF-2, CF-23, JE-30 |
-| jsonb refuses the iterator's array (a NUL, an unpaired surrogate, a number beyond numeric's range), or a child flow's input | a chaining error, routed as above, before any iteration runs: `error returned from database: <PostgreSQL's message>` | CF-2, FX-48, FX-51 |
+| jsonb refuses the iterator's array (a NUL, an unpaired surrogate, a number beyond numeric's range), or a child flow's input | a chaining error, routed as above, before any iteration runs: `SqlErr: error returned from database: <PostgreSQL's message>` | CF-2, FX-48, FX-51, FX-50 |
 | a parallel loop's `parallelism` throws or is not a u16 | a chaining error: ``Error during evaluation of expression `<text>`:
 <evaluator text>``, `Error parsing result as u16: <serde's message>. Value was: <value>` or `Error parsing static value as u16: <serde's message>` | JE-V1 |
 | a parallel loop of two or more iterations in a `same_worker` flow | a chaining error: `Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker` | CF-7 |
 | a chaining error at a child flow's first module | the child fails at once with the `Anyhow` form, its module not started; the loop sees a failed iteration | FX-15 context 3, CF-V3 |
+| a chaining error at a later module of a child flow | the child's flow job stores the `InternalError` form, which a loop's or a `branchall`'s array and every lookup (`results.<id>`) read; a `branchone` or a flow step takes the child's last carried value instead, the module's before the start that failed (`flowEnd.delivered`), as its own carried value: its `retry_if`'s `result` and `previous_result`, the next module's `previous_result` under `continue_on_error`, its flow's failure module's `previous_result` (whose `error` JE-17 derives from it) and, when its flow ends on it, that flow's failed result | CF-23 route 3 |
 | a `branchone` predicate throws | the module fails in place, an ordinary step failure wherever it is, never a chaining error: `{"error": {"message": "Error: <evaluator text>", "name": "Anyhow"}}`, with a nil job | CF-14, CF-23, JE-31 |
 | a parallel `branchall` of two or more branches in a `same_worker` flow | the `same_worker` chaining error of a parallel loop | CF-7 |
 | a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
@@ -496,8 +521,17 @@ the step's success value, not the `EarlyStopError`
 A predicate's `<text>` is `Error: <evaluator text>` for a failed
 evaluation, or `Expected a boolean value, found: "<value's JSON>"`
 ([JE-24](../../docs/semantics/expressions.md#je-24)); an argument's is
-`error returned from database: <PostgreSQL's message>`
-([FX-48](../../docs/semantics/execution.md#fx-48)). serde's message is
+the push's database error,
+`SqlErr: error returned from database: <PostgreSQL's message>`
+([FX-48](../../docs/semantics/execution.md#fx-48) case 2,
+[FX-50/a](../../docs/semantics/conformance.md#fx-50)), also when the
+arguments are not JSON because a replaced `JSON.stringify` wrote them
+(`invalid input syntax for type json`,
+[JE-15/k](../../docs/semantics/conformance.md#je-15); H2's not-an-object
+check applies only to arguments a hook changed). The completion insert of
+a result quotes the bare `error returned from database: …` after its own
+`Internal: Could not add completed job <job id>: ` instead (FX-48 case
+1). serde's message is
 what Windmill's JSON library reports for the value (`serde.go`), such as
 ``invalid type: map, expected a sequence at line 1 column 0`` or
 ``invalid type: floating point `1.5`, expected u16 at line 1 column 3``.
@@ -526,12 +560,15 @@ its branch's result with its origin and pointers.
   leaf's launch that H1 declined or a subflow call's child flow: an
   intercepted module or an identity job writes nothing.
 - An argument that jsonb refuses fails the push with PostgreSQL's message
-  ([Q-FX-8](../../docs/semantics/execution.md#q-fx-8) leaves the text open).
+  in the database error's display (FX-50/a predicts it from the source;
+  [Q-FX-8](../../docs/semantics/execution.md#q-fx-8) leaves the recording
+  open).
 - An invalid entrypoint override fails as a pre-run error, with no
   `step_id`.
-- The `wm_failure` marker and the storage failure of FX-48 case 1 apply to
-  a leaf's outcome, never to an identity job's result; an H1 intercept,
-  which runs no job, is checked for `wm_failure` but not for storage.
+- The storage failure of FX-48 case 1 applies to a leaf's outcome, never
+  to an identity job's result, which the `wm_failure` marker is checked
+  on (FX-13); an H1 intercept, which runs no job, is checked for
+  `wm_failure` but not for storage.
 - A canceled step's killed text and the run's `Canceled` error take the
   same reason and canceler, Windmill's defaults included.
 - N2's readings are listed with its section, below.
@@ -576,11 +613,15 @@ its branch's result with its origin and pointers.
   whose predicate threw has a nil job, as an empty branch's
   ([OR-11](../../docs/semantics/oracle.md#or-11)), so results reads of it
   behave alike; a stop that a branch propagates is not followed by the
-  `branchone`'s own `stop_after_if`; a branch that fails at a later
-  transition of its child flow (FX-15 context 1) gives its `branchone` the
-  stored error, as a loop's entry is, where
-  [Q-CF-3](../../docs/semantics/control-flow.md#q-cf-3) part 2 leaves open
-  whether Windmill hands it the last successful inner result; an error
+  `branchone`'s own `stop_after_if`; a child flow that aborts on a
+  chaining error raised before a sequential container's child after the
+  first (its timeout, the push, a loop's mid-loop `skip_if`) delivers as
+  its last carried value the flow's last result that a mid-loop `skip_if`
+  sees (CF-21: the previous child's result, or the flow's input for a
+  loop at its flow's first module), a sequential `branchall` the previous
+  branch's result (pinned by `TestBranchOneAbortedMidLoop`), and one
+  whose failure module's start fails delivers the failing value (CF-23
+  route 3 names a module's start only); an error
   stop a `branchone` or a sequential `branchall` propagates is an error
   stop of the module, so `continue_on_error` ends the flow there unless
   the module is the last
@@ -657,7 +698,11 @@ result is the array of its iterations' results
    iterations have completed; the children not held start at once, so one
    never waits behind a held one, and held ones start in the order of that
    count, by index among equals; with N = 0 none starts and only the run's
-   end stops the wait. There is no fail-fast: every iteration runs
+   end stops the wait. An `ai` parallelism evaluates to 0 and holds every
+   iteration the same way
+   ([CF-7/e](../../docs/semantics/conformance.md#cf-7)), which the sync
+   folder's decoder takes in the slot (`internal/openflow`). There is no
+   fail-fast: every iteration runs
    (Windmill's continue-all, decisions Q-18), and the loop fails with the
    full array unless every iteration succeeded or `skip_failures`. A stop
    ends only its iteration, and the loop's `stop_after_if` is not
@@ -972,8 +1017,18 @@ flows with its own, and the runs the dispatcher starts read its own.
   detached from the call and from the dispatching run; it ends on its own
   or when the dispatcher closes (`Close`), which cancels what still runs.
   Any other target is not in the bundle (`platform.NotInBundleError`,
-  ADR 0001 §5a), and arguments that are not a JSON object jsonb could
-  store are a 400. A run's links (its `parent_job`, `root_job` and the
+  ADR 0001 §5a), and arguments that are not a JSON object are a 400.
+  Arguments the run API refuses get no job, as
+  [FX-48](../../docs/semantics/execution.md#fx-48) and
+  [FX-51](../../docs/semantics/execution.md#fx-51) cases 3 and 4 trace it:
+  a surrogate escape without its pair in a top-level key, which the API
+  decodes, is `Bad request: invalid json: <message> at line <l> column
+  <c>` in Windmill's JSON library's words; a NUL, an unpaired surrogate
+  in a value or a number beyond numeric's range, which reach the job
+  row's insert, are the database error, the `SqlErr` variant
+  (`SqlErr: error returned from database: <PostgreSQL's message>`); both
+  answer 400 with the display as plain text (FX-48/d, FX-51/d and /e). A
+  run's links (its `parent_job`, `root_job` and the
   parent job's runnable path, from the job registry) are taken when the
   dispatch is accepted, so a run that starts after its parent has ended,
   after `scheduled_in_secs` or at once, keeps them. It answers the result
@@ -1041,7 +1096,9 @@ the FX-40 fixtures in both.
 compiler and runs them on the real QuickJS-ng engine, with steps answered
 in Go: transforms and the results routes, the shuffled orders, identity,
 `skip_if` and `mock` (a table of their rules), identity jobs with H1 and
-H2 and the skipped classification, `stop_after_if` (each stop, a throw, a
+H2 and the skipped classification, the `wm_failure` marker on an identity
+job's result (`TestEngineIdentityManualFailure`), arguments that are not
+JSON (`TestEngineNonJSONArguments`), `stop_after_if` (each stop, a throw, a
 non-boolean, the textual `results` condition), the chaining errors, the
 argument failures and the keys at the storage boundary, the timeouts'
 precedence, repeated ids, every hook seam and its precedence, the
@@ -1057,7 +1114,7 @@ identity, collapsing and its previous_result chain, the loop's timeout
 and failure texts, `skip_failures`, every break and stop of the flow, the
 empty loop, the iterator's errors at both routes, nested `iter`, a
 parallel loop's index order, `parallelism`'s release order with a gated
-executor (N = 2, 1 and 0, and a different N per child), continue-all, its
+executor (N = 2, 1 and 0, an `ai` one, and a different N per child), continue-all, its
 start errors, an iterator jsonb refuses, chaining errors in a child flow,
 the hooks inside loops, the host signals across parallel iterations,
 halt-after in nested loops and after each kind of iteration outcome, the
@@ -1072,7 +1129,9 @@ job's results reads, every stop through a `branchone` and a sequential
 `branchall` and one level up, parallel and sequential `branchall` with
 their skip rules, empty branches and no branches, its
 `stop_after_all_iters_if`, the `same_worker` error, the hooks, halt-after,
-a latch and a cancellation in branches, provenance and concurrent runs;
+a latch and a cancellation in branches, provenance and concurrent runs,
+a branch that aborts at a later transition (CF-23/d to /f and a mid-loop
+abort: `TestBranchOneAborted*`);
 also a clean `stop_after_all_iters_if` stop of a failed `branchall`, while
 loop or for loop under `continue_on_error`, a halt-after that waits for
 its containers' own stops, for loops' included, and one that stops the
@@ -1081,7 +1140,8 @@ other children of a parallel container at their next module.
 input, results scope and job identity, a body inside one under a
 caller's loop, the caller's results and `flow_env` it reads, every
 outcome (a failure, a tolerated one, both failure modules, a recovered
-one, each kind of stop), a pickup error, the hooks, `same_worker`, the
+one, each kind of stop), a pickup error, a subflow that aborts at a
+later transition (`TestSubflowAborted`), the hooks, `same_worker`, the
 executor check through a subflow, and concurrent runs.
 `subflow_retry_test.go` (N5) covers a retried flow step: the failed
 attempt's child flow and modules at `r:<k>`, the retry's arguments and
@@ -1111,9 +1171,12 @@ and a dispatched script root's, known while its root lives and
 forgotten with it. `dispatch_test.go`'s `TestRunScriptCache` covers a
 script root's own `cache_ttl`.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
-Bun step's environment, a later entry winning and every name the worker
-sets later skipped, and none in a native step's, `nativets` or
-`//native`. `provided_test.go` (F2a) covers host-provided sites (a named
+Bun step's environment, split at the first `=`, an empty name kept, a
+later entry winning and every name the worker sets later skipped, and
+none in a native step's, `nativets` or `//native`;
+`TestScriptEnvsWithoutEquals` checks that an entry with no `=` fails a
+Bun and a bunnative step, and a script run, before it runs, and not a
+`nativets` one. `provided_test.go` (F2a) covers host-provided sites (a named
 and a static provider, the provider's arguments, the site's
 `stop_after_if`, its retry around a failing provider, a declining
 provider, a provider's error, no `Provide`) and child flows in the job
@@ -1124,7 +1187,9 @@ root and a flow root run as separate runs, a failure's value, the
 arguments resolved and stored, the script job's identity on its own and
 with a dispatch's links (as the oracle recorded it), the refusals of a
 target not in the bundle or of the wrong kind and of a hash, arguments
-that are not an object, a run detached from its call that reports
+that are not an object, and `TestDispatchRefusesUnstorableArguments`
+arguments the run API refuses, a key's surrogate and every storage
+failure, a run detached from its call that reports
 started and is canceled by `Close`, a scheduled start, the links of a run
 that starts after its parent has ended (a script and a flow, delayed and
 at once), a script job's own timeout, the records following their root, a
@@ -1394,10 +1459,12 @@ the reference left to them.
   completed keep theirs (recorded by `cf-28/held`); a canceled
   `branchone` fails with its branch's `Canceled` error. The run then ends
   canceled.
-- **`squash`** (CF-25) has no effect: on the Community Edition a squashed
-  loop runs as an ordinary loop, collapsed or not, sequential or parallel
-  (recorded by the `cf-25` fixture, which contradicts CF-25/a's predicted
-  error).
+- **`squash`** (CF-25) is accepted and ignored: windmill-lite runs a
+  squashed loop unsquashed, collapsed or not, sequential or parallel,
+  which gives the results the Community Edition image recorded (CF-25/d,
+  recorded by the `cf-25` fixture; CF-25/a's error describes a build
+  without the `private` feature). Whether CE reuses one runtime across a
+  squashed loop's iterations is open (Q-CF-19).
 - **A collapsed iteration whose push fails** (its timeout, its arguments'
   storage) has no site, since its job was never pushed; its record is
   superseded.
@@ -1423,42 +1490,3 @@ a `branchall`, spent attempts), the mid-loop `skip_if` (collapsed, child
 flows, while, parallel, a throw), `squash`, and the waits and retries in a
 parallel loop's child flows with the virtual identity; `while_test.go`
 and `branch_test.go` cover a canceled container's failure.
-
-## The walking skeleton
-
-`Skeleton` (milestone W1) is now a loader: it reads a bundle directory
-that holds each flow as `flows/<flow path>.flow.json`, the flow's OpenFlow
-document as JSON, turns each into the IR, and runs it on an `Engine`. Its
-scripts are named by their job paths (`scripts/bun/<flow path>/<id>.mjs`
-for an inline step, or `.native.js`), which it records as their inventory
-ids. It accepts W1's subset (script steps by path and inline Bun-family
-steps, `bun`, `bunnative` and `nativets`; static, javascript and ai
-transforms; a static step timeout) and refuses anything else with
-`ErrSkeletonUnsupported`, at load. Each step gets its boundary (C3n): an
-inline step's follows the compiler's rule (`ir.DeployedLanguage`,
-`ir.BoundaryOf`), native for a `nativets` step with or without a
-`//native` header ([WR-40](../../docs/semantics/languages.md#wr-40)'s
-note) and for a `bun` or `bunnative` step whose header says `//native`;
-a path script's is what its metadata in the bundle records
-(`SkeletonConfig.ScriptsDir`, by default the bundle directory), Bun when
-it has none. `windmill-lite host` served it until F3a moved host mode onto
-`wl` and its bundles; the host-mode tests now build a sync folder of
-their own (cmd/windmill-lite), and the loader and `testdata/w1/` remain
-for their own tests until a cleanup removes them.
-
-`testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step
-modules written by hand, each with the `.meta.json` signature the build
-helper would record (the harness binds arguments by it), among them
-`scope_shim.mjs`, which reads the host-provided module `f/w1/scopes.ts`
-through a hand-written shim, `scope_copy.mjs`, which bundles its own
-copy of it, and `stall.mjs` (flow `f/w1/stall`), which backs up a host's
-socket with a large log, starts a child and blocks the event loop, which
-the host-mode test of WR-55's child groups in `cmd/windmill-lite` used
-until F3a (milestone FU6).
-
-`skeleton_test.go` checks the loader and the interpreter through it with a
-fake executor and the real QuickJS-ng engine: transforms (JE-6's verbatim
-answer included), the step timeout, H1, failure values, cancellation and
-settlement, and latches. `skeleton_bun_test.go` runs it on the real Bun
-harness and reports W1's first per-step latency figure; it needs `WL_BUN`,
-like the harness tests.

@@ -226,7 +226,9 @@ type ForLoop struct {
 	// Parallelism is a restricted transform: a static value is a u16 or
 	// null (OF-V2).
 	Parallelism *Transform `json:"parallelism,omitempty"`
-	// Squash fails the loop on CE when it starts runners (CF-25).
+	// Squash is accepted and ignored: the engine runs the loop unsquashed,
+	// which gives the results the CE image recorded (CF-25/d); whether CE
+	// reuses one runtime across iterations is open (Q-CF-19).
 	Squash bool `json:"squash,omitempty"`
 	// Collapse reports that the loop runs each iteration as a job of the
 	// enclosing flow, with no child flow (FX-46, CF-8).

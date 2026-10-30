@@ -17,10 +17,7 @@
           "script": {
             "f/a/x": {
               "at": {
-                "/lock": "",
-                "/warnings": [
-                  "Error reading inline path: f/a/x.script.lock, the file is missing"
-                ]
+                "/lock": ""
               },
               "absent": [
                 "/lock_file"
@@ -75,6 +72,65 @@
               "absent": [
                 "/lock_file",
                 "/warnings"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5/d",
+      "provenance": "source-derived",
+      "title": "the warning for a missing lock file",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline f/a/x.script.lock'\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "",
+                "/warnings": [
+                  "Error reading inline path: f/a/x.script.lock, Error: ENOENT: no such file or directory, open 'f/a/x.script.lock'"
+                ]
+              },
+              "absent": [
+                "/lock_file"
+              ]
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "the warning names the reference as written",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline ./f/a/x.script.lock'\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "",
+                "/warnings": [
+                  "Error reading inline path: ./f/a/x.script.lock, Error: ENOENT: no such file or directory, open './f/a/x.script.lock'"
+                ]
+              },
+              "absent": [
+                "/lock_file"
               ]
             }
           }

@@ -160,6 +160,19 @@ func appendJSONStrings(b []byte, vs []string) ([]byte, error) {
 	return append(b, ']'), first
 }
 
+// ints writes an array of integers, in order.
+func (e *envelope) ints(k string, vs []int) {
+	e.key(k)
+	e.b = append(e.b, '[')
+	for i, v := range vs {
+		if i > 0 {
+			e.b = append(e.b, ',')
+		}
+		e.b = strconv.AppendInt(e.b, int64(v), 10)
+	}
+	e.b = append(e.b, ']')
+}
+
 func (e *envelope) end() ([]byte, error) {
 	e.b = append(e.b, '}')
 	return e.b, e.err

@@ -706,3 +706,117 @@ func TestPendingHaltStopsSiblingNextModule(t *testing.T) {
 		})
 	}
 }
+
+// abortingBranch is CF-23/d's branchone b: its default branch runs r,
+// which returns 1, and then starts a loop whose iterator is an object, a
+// chaining error at a later transition of the branch's flow.
+func abortingBranch(envelope string) string {
+	return branchOneOf("b", nil, []string{
+		value("r", "1", ""),
+		loopOf("l", []string{value("x", "1", "")}, `"iterator":`+js("({o: 1})")+`,"parallel":false,"skip_failures":false`, ""),
+	}, envelope)
+}
+
+// wantAborted checks that rec, the record of a branchone or a subflow step
+// whose child flow aborted at a later transition (CF-23 route 3), failed
+// with the child's stored InternalError as its job's result while it
+// carries carried, the child's last carried value, which is the user's.
+func wantAborted(t *testing.T, rec StepRecord, carried string) {
+	t.Helper()
+	if rec.Status != conformance.StepFailure || rec.Module != conformance.ModuleFailure {
+		t.Fatalf("the module %+v", rec)
+	}
+	if name, msg := errorOf(rec.Result); name != "InternalError" || !strings.Contains(msg, "Expected an array value in the iterator expression") || rec.ResultOrigin != OriginEngine {
+		t.Fatalf("the child's stored result %s (origin %q)", rec.Result, rec.ResultOrigin)
+	}
+	sameJSON(t, "the carried value", rec.Carried, carried)
+	if rec.CarriedOrigin != OriginNone {
+		t.Fatalf("the carried value's origin %q", rec.CarriedOrigin)
+	}
+}
+
+// CF-23/d, route 3: a branchone whose branch's flow aborts on a chaining
+// error at a later transition takes the value delivered with the failure,
+// the branch's last carried value, here r's 1: (i) a flow that ends on it
+// fails with 1, no error member; (ii) continue_on_error hands 1 on as
+// previous_result, while results.b reads the branch job's stored
+// InternalError.
+func TestBranchOneAbortedBranch(t *testing.T) {
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(abortingBranch(""))}, &scripts{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunFailure, `1`)
+	wantAborted(t, at(t, tr, "m:b"), `1`)
+	if l := at(t, tr, "m:b/b:default/m:l"); l.Status != conformance.StepNotRun {
+		t.Fatalf("the loop %+v", l)
+	}
+
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(
+		abortingBranch(`"continue_on_error":true`),
+		mod("c", "value", inputs("v", js("previous_result")), ""),
+		mod("d", "value", inputs("v", js("results.b")), ""),
+	)}, &scripts{})
+	tr = runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, "")
+	wantAborted(t, at(t, tr, "m:b"), `1`)
+	sameJSON(t, "c's result", at(t, tr, "m:c").Result, `1`)
+	if name, msg := errorOf(tr.Result); name != "InternalError" || !strings.Contains(msg, "Expected an array value in the iterator expression") {
+		t.Fatalf("the run's result %s", tr.Result)
+	}
+}
+
+// CF-23/e: the flow's failure module gets the aborted branch's last
+// carried value as previous_result, and error derived from it by JE-17's
+// rule 3, not the branch job's stored InternalError.
+func TestBranchOneAbortedFailureModule(t *testing.T) {
+	e := mustOpen(t, map[string]string{"f/t/main": withFailure(
+		handler("echo", inputs("p", js("previous_result"), "e", js("error")), ""),
+		abortingBranch(""),
+	)}, &scripts{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunFailure, `{"p":1,"e":{"name":"UnknownError","message":"Could not parse the error","error":1}}`)
+	wantAborted(t, at(t, tr, "m:b"), `1`)
+}
+
+// CF-23/f: retry_if sees the carried value as result and previous_result,
+// and error derived from it, so a predicate that only holds for them
+// retries the branchone once, whose second branch job aborts the same way;
+// a false predicate is the control, with one branch job.
+func TestBranchOneAbortedRetryIf(t *testing.T) {
+	for _, c := range []struct {
+		name, expr string
+		jobs       int
+	}{
+		{"carried value", "result === 1 && previous_result === 1 && error.name === 'UnknownError' && error.error === 1", 2},
+		{"control", "false", 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			x, _ := json.Marshal(c.expr)
+			retry := `"retry":{"constant":{"attempts":1,"seconds":0},"retry_if":{"expr":` + string(x) + `}}`
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(abortingBranch(retry))}, s)
+			tr := runIt(t, e, `{}`, nil)
+			wantStatus(t, tr, conformance.RunFailure, `1`)
+			wantAborted(t, at(t, tr, "m:b"), `1`)
+			if calls := s.calls(); len(calls) != c.jobs {
+				t.Fatalf("r ran at %v, want %d branch jobs", calls, c.jobs)
+			}
+		})
+	}
+}
+
+// CF-23 route 3, a reading: a chaining error raised before a sequential
+// loop's iteration after the first, here its skip_if throwing, aborts the
+// flow with the flow's last result, the previous child's (CF-21), so the
+// branchone carries the loop's first iteration's 1, not r's 5.
+func TestBranchOneAbortedMidLoop(t *testing.T) {
+	loop := loopOf("l", []string{mod("x", "value", inputs("v", js("flow_input.iter.value")), "")},
+		`"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"skip_if":`+`{"expr":"previous_result === 5 ? false : null.x"}`)
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(branchOneOf("b", nil, []string{value("r", "5", ""), loop}, ""))}, &scripts{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunFailure, `1`)
+	b := at(t, tr, "m:b")
+	if name, _ := errorOf(b.Result); name != "InternalError" {
+		t.Fatalf("the branch's stored result %s", b.Result)
+	}
+	sameJSON(t, "b's carried value", b.Carried, `1`)
+}

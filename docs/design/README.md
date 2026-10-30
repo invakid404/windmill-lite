@@ -120,6 +120,14 @@ Milestone F2b adds the budgets and latches of [0008](0008-host-hooks.md)
 (H3, H4, H5, H7, H10) to `wl`, and the hooks level of
 [0003](0003-semantics-placement.md)'s conformance suite, whose
 latch-precedence cases hold their precedence.
+Milestone F2c gives TypeScript hosts the same seams: a host plugin
+declares its hooks in its harness's hello and answers them over
+`host_call` ([0004](0004-harness-protocol.md)), with `around` wrappers
+and the provider bridge of [0007](0007-platform-interface.md); a
+host-mode run carries F2b's budgets and latches in its `run` frame; and
+step code reaches its run's latch and signal through `wl.latch` and
+`wl.signal`. The plugins level of [0003](0003-semantics-placement.md)
+runs its cases three ways with one outcome.
 Milestone N5, added to [0012](0012-layout-and-milestones.md) after the
 first plan, retries a flow step that runs a flow by path: the oracle
 recorded where a failed attempt's subflow sits, below the step's `r:<k>`,
@@ -180,7 +188,7 @@ flowchart LR
 | [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
 | [0006 Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition. |
 | [0007 Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements; one interpolation walker with three modes and a host secret layer; a facade reached by intercepted `fetch` (warm) or per-invocation tokens (`fresh`), never by a shared token; unsupported routes fail with `UnsupportedPlatformCall`; hybrid dispatch built behind interfaces, its remote adapter held for a licence decision. |
-| [0008 Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins; mandatory host-provided call sites that fail closed; scopes reach steps through host-provided modules; seams defined in the first engine milestone. |
+| [0008 Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins (declared up front, called over `host_call`, with `around` wrappers; a plugin's error or timeout latches the run); step code's `wl.latch` and `wl.signal`; mandatory host-provided call sites that fail closed; scopes reach steps through host-provided modules; seams defined in the first engine milestone. |
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
 | [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
@@ -1361,6 +1369,15 @@ FX-V2/a; FX-26/c–f have their own request above),
 [Q-OF-13](../semantics/openflow.md#q-of-13)'s sync trees. Q-CF-1 is
 answered by recordings milestone N3c had already made, and Q-OR-17's
 colliding pairs have their own request above.
+
+**From the build team** (milestone FU8, N5's follow-up). N5 left a
+canceled flow step that is scheduled but not launched unrecorded; it is
+now [FX-38/b](../semantics/conformance.md#fx-38)'s subflow variant,
+requested above ("A step canceled while it waits to start"). Its Bun
+variant is recorded already (`conformance/flows/execution/fx-23`, run
+`canceled_sleep`). windmill-lite treats both alike: the cancellation makes
+the queued job due, and it fails without running, with the `Canceled`
+error, before a flow step's subflow starts (internal/engine, FX-38).
 
 ## Changing the design
 

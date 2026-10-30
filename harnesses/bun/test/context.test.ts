@@ -9,6 +9,7 @@ import {
   exitStatus,
   installEnvView,
   installProcessScope,
+  installStepAPI,
   type InvocationContext,
   InvocationLog,
   InvocationResources,
@@ -16,6 +17,7 @@ import {
   PROCESS_SCOPE,
   type ProcessScope,
   shadow,
+  type StepAPI,
 } from "../runtime/context.ts";
 
 process.env.WL_CONTEXT_TEST_OWN = "process";
@@ -161,4 +163,36 @@ test("a code exitStatus refuses leaves process.exitCode as it was", () => {
     expect(() => exitStatus(bad)).toThrow();
   }
   expect(process.exitCode).toBe(before);
+});
+
+test("the step API: wl.latch sends its error's text, wl.signal is the invocation's signal (F2c)", () => {
+  installStepAPI();
+  const wl = (globalThis as { wl?: StepAPI }).wl!;
+  // Outside every invocation, as in a host plugin's hook, both refuse.
+  expect(() => wl.latch(new Error("x"))).toThrow(TypeError);
+  expect(() => wl.signal()).toThrow(TypeError);
+  const latched: string[] = [];
+  const controller = new AbortController();
+  const ctx = { ...context({}), signal: controller.signal, latch: (text: string) => latched.push(text) };
+  invocations.run(ctx, () => {
+    expect(wl.signal()).toBe(controller.signal);
+    wl.latch(new RangeError("too far"));
+    wl.latch("a plain text");
+    wl.latch({ code: 7 });
+    expect(() => wl.latch(undefined)).toThrow(TypeError);
+    expect(() => wl.latch(null)).toThrow(TypeError);
+  });
+  expect(latched).toEqual(["RangeError: too far", "a plain text", '{"code":7}']);
+  // A settled invocation's step API refuses, as its facade fetch does.
+  ctx.resources.settle();
+  invocations.run(ctx, () => {
+    expect(() => wl.latch(new Error("late"))).toThrow(TypeError);
+    expect(() => wl.signal()).toThrow(TypeError);
+  });
+  // A step cannot replace it for the steps that share its process.
+  expect(() => {
+    "use strict";
+    (globalThis as Record<string, unknown>).wl = {};
+  }).toThrow(TypeError);
+  expect((globalThis as { wl?: StepAPI }).wl).toBe(wl);
 });

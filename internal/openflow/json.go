@@ -156,7 +156,13 @@ func (p *parser) object(n *node) error {
 		return nil
 	}
 	for {
-		if p.pos >= len(p.data) || p.data[p.pos] != '"' {
+		switch {
+		case p.pos >= len(p.data) && len(n.members) == 0:
+			// serde's wording for an unclosed container. The reference
+			// does not give it for the end of the input after a comma,
+			// which keeps this parser's own refusal.
+			return p.fail("EOF while parsing an object")
+		case p.pos >= len(p.data) || p.data[p.pos] != '"':
 			return p.fail("key must be a string")
 		}
 		key, err := p.string()
@@ -164,7 +170,10 @@ func (p *parser) object(n *node) error {
 			return err
 		}
 		p.space()
-		if p.pos >= len(p.data) || p.data[p.pos] != ':' {
+		switch {
+		case p.pos >= len(p.data):
+			return p.fail("EOF while parsing an object")
+		case p.data[p.pos] != ':':
 			return p.fail("expected `:`")
 		}
 		p.pos++
@@ -199,7 +208,12 @@ func (p *parser) array(n *node) error {
 	}
 	p.pos++
 	p.space()
-	if p.pos < len(p.data) && p.data[p.pos] == ']' {
+	switch {
+	case p.pos >= len(p.data):
+		// serde's wording: "a list" for the unclosed list, "a value"
+		// only where a value was due, after a comma.
+		return p.fail("EOF while parsing a list")
+	case p.data[p.pos] == ']':
 		p.pos++
 		p.depth--
 		return nil

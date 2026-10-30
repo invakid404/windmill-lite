@@ -10,19 +10,21 @@ policy for the routes windmill-lite does not serve, and Windmill's
 `text/plain` error bodies. It serves the root lookup (PF1), the resource
 and variable reads (PF2), and the job registry's lookups, flow user state,
 dispatch and its result polls, and the object store (PF3), and a
-variable's update (F1). Job identity
+variable's update (F1); milestone FU8 aligned its answers for a token's
+workspace, an unknown job and a read's `job_id` with the reference's
+revision of 2026-10-29. Job identity
 and the services are [internal/platform](../README.md).
 
 ## Files
 
 | File | Contents |
 |---|---|
-| `facade.go` | `Facade`, `Config`, `Policy`, `Session`, `Call`, `Reply`, `Handler`, `Record`: registration, attribution, recording, the 501 decision |
+| `facade.go` | `Facade`, `Config`, `Policy`, `Session`, `Call`, `Reply`, `Handler`, `Record`: registration, attribution, recording, a token's workspace, the 501 decision |
 | `routes.go`, `routes.json` | The route table and its matching |
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |
-| `jobs.go` | The root lookup, the job environment a read's `job_id` names, flow user state and the result polls, from the job registry and the dispatcher (PF1, PF3) |
-| `providers.go` | The resource and variable reads (PF2), and the variable update (F1), answered from the caller's run's own services when it has them (H13, F2a) |
+| `jobs.go` | The root lookup, flow user state and the result polls, from the job registry and the dispatcher (PF1, PF3, FU8) |
+| `providers.go` | The resource and variable reads (PF2), a read's `job_id` (FU8), and the variable update (F1), answered from the caller's run's own services when it has them (H13, F2a) |
 | `dispatch.go` | The dispatch routes (PF3) |
 | `objects.go` | The object store's job helpers (PF3) |
 | `errors.go` | `Error`: an API error as a reply, with the variants of `platform.Error` (WA-42) |
@@ -68,9 +70,16 @@ D3): a job of a run that is still running, its job ended or not, a flow
 scope one of its jobs runs in, or the run itself. The facade registers
 each invocation there as a script job while it runs (`Register`, its
 `WM_JOB_ID`, `WM_ROOT_JOB_ID` and `WM_JOB_PATH`), and the engine each flow
-run. A job the registry does not know of (another workspace's, or one of
-a run that has ended) answers 501, since what Windmill answers for an id
-with no job is not in the reference.
+run. An id with no job in the path's workspace answers as Windmill
+answers one with no job row
+([WA-19](../../../docs/semantics/client-api.md#wa-19)/b, FU8): `400`
+`text/plain` `SqlErr: no rows returned by a query that expected to return
+at least one row`, without Windmill's Rust location (D14). That is an id
+the registry does not know of (a job of a run that has ended is forgotten,
+where Windmill, keeping its job rows, would still answer its root), any
+id looked up in a workspace other than the caller's, and an id that is
+not a UUID, which Windmill's web framework refuses with a `400` of its own
+(WA-19/c).
 
 **The resource and variable reads** (PF2) answer from `Config.Platform`
 ([internal/platform](../README.md#services)), nil meaning none, so every
@@ -84,7 +93,7 @@ that the other routes answer from. They keep the three resource-read contracts o
 
 | Operation | Route | Answer |
 |---|---|---|
-| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)); `$WM_*` strings stay literal unless `job_id` names a script job the job registry knows (PF3), whose stored fields they then are (`platform.APIEnv`); a `job_id` the registry does not know answers 501, as the root lookup does; `allow_cache` is ignored |
+| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)); `$WM_*` strings stay literal without `job_id`; with one, the job is looked up only when the walk meets a `$WM_*` string, at each one, as Windmill looks it up (FU8, WA-12/g), so a value without one reads as if no `job_id` had been sent; the job must be a live job of the path's workspace, whose stored fields the strings then are (`platform.ReadJobEnv`, `platform.APIEnv`), else `404` `Not found: Job not found at name <id>`; a live flow job, whose job variables the registry does not keep, answers 501; `allow_cache` is ignored |
 | `getResourceValue` | `GET /w/{ws}/resources/get_value/{path}` | the stored value, nothing resolved (contract (a)) |
 | `existsResource`, `existsVariable` | `GET /w/{ws}/resources/exists/{path}`, `…/variables/exists/{path}` | `true` or `false` |
 | `getVariableValue` | `GET /w/{ws}/variables/get_value/{path}` | the value as a JSON string, a secret's plaintext through `Secrets` and the value resolvers ([WA-11](../../../docs/semantics/client-api.md#wa-11)) |
@@ -127,8 +136,8 @@ hands each run to `Services.Dispatcher`
 |---|---|---|
 | `runScriptByPath`, `runFlowByPath` | `POST /w/{ws}/jobs/run/p/{path}`, `…/run/f/{path}` | `201` `text/plain` with the new job's id; the body is the run's arguments, and the query's `parent_job`, `root_job`, `tag` and `scheduled_in_secs` go to the dispatcher with the caller's job variables |
 | `runScriptByHash` | `POST /w/{ws}/jobs/run/h/{hash}` | refused: a windmill-lite bundle records no script hash, so no hash names a root |
-| `getCompletedJobResultMaybe` | `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` | what waitJob polls ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)): a dispatched run's `started`, `success`, `completed` and `result`, with explicit nulls while it runs (`started` only when `get_started=true` asks); for a UUID that names no job, Windmill's answer for an id with no job row |
-| `getCompletedJobResult` | `GET /w/{ws}/jobs_u/completed/get_result/{id}` | a dispatched run's result once it has completed; `404` before, and for a UUID that names no job |
+| `getCompletedJobResultMaybe` | `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` | what waitJob polls ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)): a dispatched run's `started`, `success`, `completed` and `result`, with explicit nulls while it runs (`started` only when `get_started=true` asks); for a UUID that names no job, and any job looked up in a workspace other than the caller's (WA-V2/d), Windmill's answer for an id with no job row |
+| `getCompletedJobResult` | `GET /w/{ws}/jobs_u/completed/get_result/{id}` | a dispatched run's result once it has completed; before, for a UUID that names no job, and in a workspace other than the caller's, `404` `Not found: Completed Job not found at name <id>` ([WA-19](../../../docs/semantics/client-api.md#wa-19)/d), without Windmill's location |
 
 - **A target that is not a root of the bundle** (ADR 0001 §5a), and
   every target when there is no dispatcher, answers `501` with the body
@@ -160,10 +169,16 @@ upload without `file_key` (a key the server generates), a call with
 object store is configured; `delete_s3_file` and the credential and
 presigning routes have no handler.
 
-The error texts the reference does not give (an unknown job's result, a
-missing object, a body that is not JSON, an id that is not a UUID) are
-windmill-lite's, `Not found: windmill-lite: …` or `Bad request:
-windmill-lite: …`, with the status Windmill's API gives the variant.
+The error texts the reference does not give (a missing object, a variable
+update's body that is not an `EditVariable`) are windmill-lite's, `Not
+found: windmill-lite: …` or `Bad request: windmill-lite: …`, with the
+status Windmill's API gives the variant. So are, for now, the answers
+Windmill's web framework gives before a handler runs, whose texts the
+reference does give: an id that is not a UUID, a body that does not parse
+and a body without the JSON content type (WA-V2/c, WA-14/d, WA-19/c).
+Emulating them takes one request-extraction layer for every route, left
+to a later milestone; ADR 0007 (FU8) lists where the statuses already
+agree.
 
 ## Attribution and transports
 
@@ -196,6 +211,18 @@ environment, and its registration ends when it settles (`Session.End`).
   (`Stray`, the latest 256), never against an invocation. A token two
   registrations carried names none until both have ended; a later
   registration is then its sole owner.
+- **A token is valid for its job's workspace only**
+  ([WA-4](../../../docs/semantics/client-api.md#wa-4), FU8). An
+  authenticated route whose path names a workspace other than the
+  caller's (`WM_WORKSPACE`) answers `401` `Not authorized: Unauthorized`
+  before its handler runs: before the 501 of an operation without one and
+  before any rejection of its path or body. The call is recorded against
+  its invocation with that status, and is not unsupported. Every route of
+  a workspace (`/w/{ws}/…`) is authenticated but those of the groups whose
+  segment ends in `_u`: `jobs_u`, whose routes check no token and look
+  their job up in the path's workspace, where windmill-lite has none
+  unless it is the caller's; and `apps_u`, which has no handler. A caller
+  without `WM_WORKSPACE` is of every workspace.
 - **One reply for both transports.** The answer to `HEAD`, and one with a
   null-body status (204, 205, 304), has no body, whichever transport
   carries it, as Go's HTTP server sends it over TCP and as a `Response`
@@ -265,22 +292,33 @@ comparison. An abandoned invocation has no outcome to replace.
   (`TestHandlerFailuresBothTransports`), bodyless replies to `HEAD` and
   204 on both (`TestBodylessReplies`), WA-42/a's rows, and handler
   registration.
-- `services_test.go` (PF3), without Bun: the root lookup and a read's
-  `job_id` from the job registry (an ended job of a live run, a flow
-  scope, the run, a job of an ended run); flow user state on both
+- `services_test.go` (PF3), without Bun: the root lookup from the job
+  registry (an ended job of a live run, a flow scope, the run) and
+  WA-19/b's `400` for an unknown id, an id that is not a UUID, a job
+  looked up in another workspace and a job of an ended run, on both
+  transports; the workspace of a token (`TestTokenWorkspace`, WA-4/b): the
+  `401` before a handler, a 501 and a rejection, on both transports,
+  recorded and not unsupported, with the state unchanged, while `jobs_u`,
+  `apps_u` (its 501), the routes outside a workspace and a caller without
+  `WM_WORKSPACE` are not refused; flow user state on both
   transports (the write's answer, the read, null, the 404, the 400); the
   dispatch routes with a fake dispatcher (what reaches it, the 201, a
   refused target and its quoted message, a hash, the refused query
   parameters, a bad `scheduled_in_secs`, no dispatcher); the result polls
   (completed, running with and without `get_started`, WA-V2/a and /b, an
-  id that is not a UUID, a job the dispatcher did not start); and the
+  id that is not a UUID, a job the dispatcher did not start, WA-19/d's
+  not-found, and a job looked up in another workspace, WA-V2/d); and the
   object store routes (a round trip with metadata, a missing object, the
   501s of a generated key, a resource's bucket, deletion and no store).
 - `providers_test.go`, without Bun: the resource and variable reads on
   both transports, their statuses, content types and bodies (WA-11/a,
   WA-12/a, WA-40's raw read and exists, WA-42/b and /c, WA-V3/a), a read
   with a live invocation's `job_id` and with an unknown one, a write's 501,
-  and a facade with no platform; and the variable update (WA-11, F1): a
+  and a facade with no platform; a read's `job_id` (`TestReadWithAJobID`,
+  WA-12/g): ignored for a value without a `$WM_*` string, and for one the
+  404 of a random UUID, an ended job and another workspace's job, the
+  caller's own job resolved, and a live flow job's 501, which the policy
+  quotes; and the variable update (WA-11, F1): a
   value later reads see, its secrecy, a missing variable's 404, and the
   501s of a rename, an encrypted value and a read-only service; and the
   per-run providers (H13, F2a): an invocation whose run chose its own

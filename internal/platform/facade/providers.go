@@ -25,21 +25,23 @@ func (f *Facade) serveProviders() {
 
 // resourceInterpolated answers GET /w/{ws}/resources/get_value_interpolated/{path}
 // (WA-12): contract (b). Without job_id, as the stock clients call it,
-// $WM_* strings stay literal; with one, they are the stored fields of
-// that job (platform.APIEnv), which must be a live invocation's: a job it
-// does not know of answers 501, as the root lookup does, until the job
-// registry of milestone PF3. allow_cache is ignored: windmill-lite caches
-// nothing (WA-12, caching).
+// $WM_* strings stay literal. With one, the job is looked up in the job
+// registry only when the walk meets a $WM_* string, as Windmill looks it
+// up, and those strings are then its stored fields (platform.ReadJobEnv):
+// a value without one reads as if no job_id had been sent. The job must
+// be live and of the path's workspace, else the read answers 404 `Not
+// found: Job not found at name <id>` (WA-12/g); a live flow job, whose
+// job variables the registry does not keep, answers 501. allow_cache is
+// ignored: windmill-lite caches nothing (WA-12, caching).
 func (f *Facade) resourceInterpolated(ctx context.Context, c *Call) Reply {
-	var job map[string]string
+	var job platform.JobLookup
 	if id := c.Query.Get("job_id"); id != "" {
-		env, ok := f.jobEnv(id)
-		if !ok {
-			return text(501, UnsupportedPrefix+c.Route.Name())
-		}
-		job = platform.APIEnv(env)
+		job = func() (map[string]string, error) { return f.platform.ReadJobEnv(id, c.Params["workspace"]) }
 	}
-	body, err := f.providers(c).InterpolatedResource(ctx, c.Params["path"], job)
+	body, err := f.providers(c).InterpolatedResourceOf(ctx, c.Params["path"], job)
+	if errors.Is(err, platform.ErrNoJobVariables) {
+		return text(501, UnsupportedPrefix+c.Route.Name()+" with the job_id of a flow job")
+	}
 	return answer(body, err)
 }
 

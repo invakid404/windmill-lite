@@ -1,0 +1,13 @@
+# CF-23/d (i): route 3 inside a branchone. The branch's flow aborts when l
+# starts, and its job stores the InternalError; the branchone step fails
+# naming that job, and the flow fails with the branch's last carried value,
+# r's 1, with no error member.
+spec: [CF-23/d]
+target: f/cf23/carry_alone
+expect:
+  status: failure
+  result: 1
+  steps:
+    "m:b": {status: failure, branch_chosen: {type: default}, result: {error: {name: InternalError, message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}, carried: 1}
+    "m:b/b:default/m:r": {status: success, args: {x: 1}, result: 1}
+    "m:b/b:default/m:l": {status: not_run, ran: false}

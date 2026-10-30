@@ -135,7 +135,14 @@ decrypts Windmill ciphertext; it hands that to the resolver
   `host_call`. A provider-backed call therefore costs two round trips inside
   one process, about 25–35 µs at the measured 12.5–18 µs each
   ([0003](0003-semantics-placement.md)); a provider can mark answers
-  cacheable for the run to avoid repeating them. Answering `platform` frames
+  cacheable for the run to avoid repeating them. Milestone F2c built this
+  bridge as the plugin's `resource(path)` and `variable(path)`, asked
+  after the run's own providers and before the runtime's, for the job API
+  and for argument resolution alike; cacheable answers are not built yet.
+  A TypeScript provider that throws or times out latches the run, as any
+  plugin hook does ([0008](0008-host-hooks.md) H5): the router still
+  answers the call with its error, but neither the step that tolerates
+  that answer nor `continue_on_error` keeps the run going. Answering `platform` frames
   directly in TypeScript was rejected because it would copy the router's
   rules into a second language.
 - **Unsupported routes** answer `501` with `text/plain` body
@@ -302,7 +309,7 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     run trace; host mode stays on the walking skeleton without a facade
     until F3a, whose SDK must set `BASE_URL` from the welcome before any
     step module loads; and a call's `{workspace}` is not checked against
-    the caller's `WM_WORKSPACE`.
+    the caller's `WM_WORKSPACE` (FU8 checks it, below).
 - Milestone PF2 implemented the resource, variable and secret services,
   their local defaults, the host secret layer and the interpolation walker
   ([internal/platform](../../internal/platform/README.md)), their routes in
@@ -334,8 +341,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     from the stored fields of a live invocation's job
     (`platform.APIEnv`: its stored root, `""` for a step directly in a
     top-level flow); a job the facade does not know of answers 501, as the
-    root lookup does, until PF3's job registry. The engine passes a step's
-    stored fields directly.
+    root lookup does, until PF3's job registry, and since FU8 (below) the
+    job is looked up only for a `$WM_*` string and answers Windmill's 404.
+    The engine passes a step's stored fields directly.
   - **Argument resolution** happens at the job's pickup, after its job
     identity, its script's `envs` and H12, before the step runs; a failure
     fails the job with the worker's execution error. `$<NAME>` reads the
@@ -356,7 +364,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     ends.
   - **Not yet:** the writes (`createResource`, `updateResourceValue`,
     `createVariable`, `updateVariable`) and so `setState` are `later` and
-    answer 501; a secret's plaintext is not registered for log masking
+    answer 501 (milestone F1 has since served `updateVariable`, except
+    with `already_encrypted=true`, a rename or a read-only variable
+    service); a secret's plaintext is not registered for log masking
     ([Q-WA-9](../semantics/client-api.md#q-wa-9), `later`); per-run
     providers (H13) are F2a's.
 
@@ -377,16 +387,18 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     invocation as a script job, and the flow scopes its variables name
     become known with it. A job stays known while its root lives; once the
     root and every job of its tree have ended, the tree is forgotten. The
-    root lookup and a read's `job_id` answer from it; an id it does not
-    know still answers 501, since what Windmill answers for one is not in
-    the reference.
+    root lookup and a read's `job_id` answer from it; an id it did not
+    know still answered 501, since what Windmill answers for one was not in
+    the reference, until FU8 answered it as Windmill does (below).
   - **Flow user state** is a map per flow job, which the stock helpers
     address by the effective root. A read gives `null` for a missing key,
     a job that is not a live flow job and a run that has ended; a write
     anywhere but a live flow job answers `404` `Not found: Flow job not
     found` (WA-14). The map is discarded with its run, so a write by id
-    after the run is refused with that 404 where whether Windmill accepts
-    it is Q-WA-10. A value comes back as the oracle recorded it
+    after the run is refused with that 404, as Windmill refuses it once
+    the root's completion is committed (Q-WA-10, which the reference's
+    revision of 2026-10-29 answered; WA-14/c), and a read gives `null`, as
+    Windmill's does. A value comes back as the oracle recorded it
     (`conformance/flows/client-api/user-state`, run `order`): in jsonb's
     key order, with numbers as Windmill's JSON library writes them (`1e3`
     as `1000.0`). The engine's `flow_user_state()` reads the same map. The
@@ -480,9 +492,85 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     that names an S3 object is hashed as its JSON, and
     `cache_ignore_s3_path` is refused (`later`).
 
+- Milestone FU8 followed the reference's revision of 2026-10-29 (SC3) in
+  the facade ([internal/platform/facade](../../internal/platform/facade/README.md))
+  and the services ([internal/platform](../../internal/platform/README.md)):
+  - **The workspace of a token** ([WA-4](../semantics/client-api.md#wa-4),
+    [WA-42](../semantics/client-api.md#wa-42)). A job token is valid only
+    for the job's workspace, so an authenticated route whose path names
+    another workspace answers `401` `Not authorized: Unauthorized` before
+    its handler runs: before the 501 of an operation without one, and
+    before any rejection of its path or body. Every route of a workspace
+    (`/w/{workspace}/…`) is authenticated but those of the unauthenticated
+    groups: `jobs_u`, which the reference names, and `apps_u`, the public
+    apps' routes, which have no handler and keep their 501. The caller's
+    workspace is its `WM_WORKSPACE`, and a caller without one is of every
+    workspace. Every token windmill-lite issues names one of its
+    invocations, of the one workspace its jobs run in, so no caller is
+    anonymous and a token issued for another workspace (WA-V2/d's first
+    request) cannot arise; a token that names no invocation keeps its own
+    `401` text (Transports, above).
+  - **Job lookups in the path's workspace.** windmill-lite's jobs are all
+    of the caller's workspace, so a `jobs_u` lookup in any other finds no
+    job: the root lookup answers as for an unknown id, and the result
+    polls as for a UUID with no job (WA-V2/d's second request).
+  - **The root lookup of an unknown id** answers as Windmill answers an id
+    with no job row ([WA-19](../semantics/client-api.md#wa-19)/b): `400`
+    `text/plain` `SqlErr: no rows returned by a query that expected to
+    return at least one row`, without the Rust location (D14). That
+    covers an id the registry never knew and a job whose run has ended
+    and was forgotten, which Windmill, keeping its job rows, still
+    answers (D3).
+  - **`getResult`'s not-found** is Windmill's `Not found: Completed Job not
+    found at name <id>`, without its location (WA-19/d).
+  - **A read's `job_id`** ([WA-12](../semantics/client-api.md#wa-12)/g) is
+    looked up only when the walk meets a `$WM_*` string, at each one
+    (`platform.JobLookup`), so a value without one reads as if no job id
+    had been sent. The job must be live and of the path's workspace
+    (`Services.ReadJobEnv`): an unknown id, a job that has ended and a job
+    of another workspace answer `404` `Not found: Job not found at name
+    <id>`, without the location. A live flow job answers `501` (`… with
+    the job_id of a flow job`), since the registry keeps the job variables
+    of script jobs only.
+  - **Recorded, not changed.**
+    - The web framework's request-extraction answers, with
+      `Content-Type: text/plain; charset=utf-8`: `400` ``Invalid URL:
+      Cannot parse `<param>` with value `<id>`: …`` for an id that is not
+      a UUID ([WA-V2](../semantics/client-api.md#wa-v2)/c, WA-14/d,
+      WA-19/c); `400` `Failed to parse the request body as JSON: …` for a
+      body that does not parse, and `415` for a body sent without the
+      JSON content type (WA-14/d); the id checked before the body; and a
+      query string that does not parse (a `job_id` that is not a UUID,
+      WA-12/g). Emulating them takes one request-extraction layer for
+      every route, left to a later milestone. Until then a result poll
+      whose id is not a UUID answers `400` with windmill-lite's text; the
+      root lookup of one answers the `400` of an unknown id, with the
+      `SqlErr` text; a flow user state read of one answers `200` and
+      `null`, and a write `404` `Not found: Flow job not found` for a JSON
+      body; a write's body is read before its id, so one that is not JSON
+      answers `400` with windmill-lite's text whatever the id and the
+      content type, never `415`; and a read's `job_id` that is not a UUID
+      is looked up as any id. So the status is Windmill's for the result
+      polls, the root lookup and a write whose body does not parse, sent
+      with the JSON content type; it is not for a read of an id that is
+      not a UUID, a write of a JSON body to one, a body sent without the
+      JSON content type (a JSON one is stored), or a `job_id` that is not
+      a UUID.
+    - windmill-lite never decrypts Windmill ciphertext (Secrets, above):
+      a secret held as ciphertext and an `$encrypted:` value fail with
+      `secret_unavailable`, never with CE's decryption texts
+      ([WA-11](../semantics/client-api.md#wa-11)/c,
+      [JE-42](../semantics/expressions.md#je-42)/j). `createVariable`
+      still has no handler, so no secret is created with
+      `already_encrypted=true`, and WA-11/d's shape check waits for the
+      milestone that serves it.
+    - windmill-lite has no instance database and no instance super
+      admins, so a `CUSTOM_INSTANCE_DB/` resource path (WA-12/h) is looked
+      up as any other path.
+
 ## Spec IDs relied on
 
-WA-1 to WA-6, WA-8, WA-9, WA-12, WA-14 to WA-16, WA-30, WA-31, WA-40 to
-WA-42, WA-50, WA-51, WA-V1 to WA-V5, FX-5, FX-40, FX-46, WR-22, JE-20,
-JE-43, SY-11, OR-5, OR-10, LIC-1, Q-OF-7, Q-WA-3, Q-WA-10, and the client
-table of client-api.md.
+WA-1 to WA-6, WA-8, WA-9, WA-11, WA-12, WA-14 to WA-16, WA-19, WA-30,
+WA-31, WA-40 to WA-42, WA-50, WA-51, WA-V1 to WA-V5, FX-5, FX-40, FX-46,
+WR-22, JE-20, JE-42, JE-43, SY-11, OR-5, OR-10, LIC-1, Q-OF-7, Q-WA-3,
+Q-WA-10, and the client table of client-api.md.

@@ -9,9 +9,8 @@ import (
 )
 
 // The job routes of ADR 0007's services (milestones PF1 and PF3): the root
-// lookup and the job environment a read's job_id names, from the job
-// registry (D3); flow user state (WA-14); and the result polls of the
-// runs a step dispatched (WA-15, WA-V2).
+// lookup, from the job registry (D3); flow user state (WA-14); and the
+// result polls of the runs a step dispatched (WA-15, WA-V2).
 func (f *Facade) serveJobs() {
 	f.Handle("getRootJobId", f.rootJobID)
 	f.Handle("getFlowUserState", f.getFlowUserState)
@@ -20,24 +19,29 @@ func (f *Facade) serveJobs() {
 	f.Handle("getCompletedJobResult", f.result)
 }
 
-// rootJobID answers getRootJobId, GET /w/{ws}/jobs_u/get_root_job_id/{id}
-// (WA-8, WA-14): the effective root of a job (WA-V1), as a JSON string,
-// from the job registry: a job of a run that is still running, a flow
-// scope one of its jobs runs in, or the run itself. A job the registry
-// does not know of (another workspace's, or one whose run has ended)
-// answers 501: what Windmill answers for an id with no job is not in the
-// reference, and a guess would be worse than a loud failure.
-func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
-	if root, ok := f.platform.RootJob(c.Params["id"]); ok {
-		return jsonReply(200, jsonString(root))
-	}
-	return text(501, UnsupportedPrefix+c.Route.Name())
-}
+// noRows is the database's text for a lookup that expected a row and
+// found none, which the root lookup answers as SqlErr (WA-19).
+const noRows = "no rows returned by a query that expected to return at least one row"
 
-// jobEnv is the job environment of the script job a read's job_id names,
-// from the job registry.
-func (f *Facade) jobEnv(id string) (map[string]string, bool) {
-	return f.platform.JobEnv(id)
+// rootJobID answers getRootJobId, GET /w/{ws}/jobs_u/get_root_job_id/{id}
+// (WA-8, WA-14, WA-19): the effective root of a job (WA-V1), as a JSON
+// string, from the job registry: a job of a run that is still running, a
+// flow scope one of its jobs runs in, or the run itself. An id with no
+// job in the path's workspace (one the registry does not know of, a job
+// looked up in a workspace other than the caller's, or a job whose run
+// has ended and was forgotten) answers as Windmill answers an id with no
+// job row: 400 `SqlErr: no rows returned by a query that expected to
+// return at least one row`, without Windmill's Rust location (D14). The
+// route checks no token (WA-4), and an id that is not a UUID answers the
+// same, where Windmill's web framework refuses it with a 400 of its own
+// (WA-19/c).
+func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
+	if ownWorkspace(c) {
+		if root, ok := f.platform.RootJob(c.Params["id"]); ok {
+			return jsonReply(200, jsonString(root))
+		}
+	}
+	return Error{Variant: "SqlErr", Message: noRows}.Reply()
 }
 
 // getFlowUserState answers GET /w/{ws}/jobs/flow/user_states/{id}/{key}
@@ -76,8 +80,9 @@ func badJobID(id string) Reply {
 // /w/{ws}/jobs_u/completed/get_result_maybe/{id}, which waitJob polls
 // (WA-15, WA-V2), for the runs the dispatcher started: completed, with its
 // success and result; or not, with started null unless get_started=true
-// asks for it. A UUID that names no job answers as Windmill does for an id
-// with no job row (WA-V2/a, /b); a job of windmill-lite's that the
+// asks for it. A UUID that names no job, and any job looked up in a
+// workspace other than the caller's, answer as Windmill does for an id
+// with no job row (WA-V2/a, /b, /d); a job of windmill-lite's that the
 // dispatcher did not start answers 501, since job introspection beyond
 // dispatched runs is `later` (ADR 0007, Jobs).
 func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
@@ -93,7 +98,7 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 	}
 	out.Result = json.RawMessage("null")
 	asked := c.Query.Get("get_started") == "true"
-	r, ok, err := f.dispatched(ctx, id)
+	r, ok, err := f.dispatched(ctx, c, id)
 	switch {
 	case err != nil:
 		return answer(nil, err)
@@ -105,7 +110,7 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 			out.Started = &r.Started
 		}
 	default:
-		if _, _, known := f.platform.JobRegistry().Job(id); known {
+		if f.known(c, id) {
 			return text(501, UnsupportedPrefix+c.Route.Name())
 		}
 		if asked {
@@ -120,37 +125,46 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 }
 
 // result answers getCompletedJobResult, GET
-// /w/{ws}/jobs_u/completed/get_result/{id} (WA-15): the result of a run
-// the dispatcher started, once it has completed, failed or not. One that
-// has not completed, and a UUID that names no job, answer 404 (WA-15/e);
-// the text is windmill-lite's. A job of windmill-lite's that the
+// /w/{ws}/jobs_u/completed/get_result/{id} (WA-15, WA-19): the result of
+// a run the dispatcher started, once it has completed, failed or not. One
+// that has not completed, a UUID that names no job, and any job looked up
+// in a workspace other than the caller's answer 404 `Not found: Completed
+// Job not found at name <id>` (WA-15/e, WA-19/d), without Windmill's
+// parenthesised Rust location (D14). A job of windmill-lite's that the
 // dispatcher did not start answers 501, as resultMaybe's does.
 func (f *Facade) result(ctx context.Context, c *Call) Reply {
 	id := c.Params["id"]
 	if !uuidPattern.MatchString(id) {
 		return badJobID(id)
 	}
-	r, ok, err := f.dispatched(ctx, id)
+	r, ok, err := f.dispatched(ctx, c, id)
 	switch {
 	case err != nil:
 		return answer(nil, err)
 	case ok && r.Completed:
 		return jsonReply(200, r.Result)
-	case !ok:
-		if _, _, known := f.platform.JobRegistry().Job(id); known {
-			return text(501, UnsupportedPrefix+c.Route.Name())
-		}
+	case !ok && f.known(c, id):
+		return text(501, UnsupportedPrefix+c.Route.Name())
 	}
-	return Error{Variant: "NotFound", Message: "windmill-lite: no completed job " + id}.Reply()
+	return Error{Variant: "NotFound", Message: "Completed Job not found at name " + id}.Reply()
 }
 
-// dispatched returns the state of a run the dispatcher started.
-func (f *Facade) dispatched(ctx context.Context, id string) (platform.JobResult, bool, error) {
+// dispatched returns the state of a run the dispatcher started, looked up
+// in the workspace of c's path: a run in no other workspace than the
+// caller's.
+func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.JobResult, bool, error) {
 	d := f.platform.Dispatcher
-	if d == nil {
+	if d == nil || !ownWorkspace(c) {
 		return platform.JobResult{}, false, nil
 	}
 	return d.Result(ctx, id)
+}
+
+// known reports whether the job registry knows the job id names, looked
+// up in the workspace of c's path.
+func (f *Facade) known(c *Call, id string) bool {
+	_, _, ok := f.platform.JobRegistry().Job(id)
+	return ok && ownWorkspace(c)
 }
 
 func jsonString(s string) []byte {

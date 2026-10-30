@@ -122,8 +122,9 @@ func TestFlowUserState(t *testing.T) {
 		}
 	}
 	end()
-	// WA-14/c: after the run a read by its id is null; the write is
-	// refused, since the map was discarded with the run (Q-WA-10).
+	// WA-14/c: after the run a read by its id is null and a write is
+	// refused with the 404, as Windmill answers them once the root has
+	// completed; windmill-lite discarded the map with the run.
 	if got := get("run", "k"); got != "null" {
 		t.Errorf("after the run: %s", got)
 	}
@@ -133,6 +134,38 @@ func TestFlowUserState(t *testing.T) {
 	if err := s.SetFlowUserState(ctx, "run", "k", []byte("1")); !errors.As(err, &pe) || pe.HTTPStatus() != 404 {
 		t.Errorf("a write after the run: %v", err)
 	}
+}
+
+// WA-12/g: the job a resource read's job_id names must be live and of the
+// path's workspace, else the read fails with the API's 404; a live script
+// job gives its stored fields (APIEnv), and a live flow job, whose job
+// variables the registry does not keep, ErrNoJobVariables.
+func TestReadJobEnv(t *testing.T) {
+	s := &Services{}
+	endRun := s.JobRegistry().Begin(Job{ID: "run", Kind: JobFlow})
+	defer endRun()
+	env := map[string]string{"WM_JOB_ID": "step", "WM_FLOW_JOB_ID": "run", "WM_ROOT_FLOW_JOB_ID": "run", "WM_ROOT_JOB_ID": "run", "WM_WORKSPACE": "ws"}
+	endStep := s.JobRegistry().Begin(Job{ID: "step", Kind: JobScript, Root: "run", Env: env})
+	for _, ws := range []string{"ws", ""} {
+		got, err := s.ReadJobEnv("step", ws)
+		if err != nil || got["WM_JOB_ID"] != "step" || got["WM_ROOT_JOB_ID"] != "" {
+			t.Errorf("a live step in %q: %v %v", ws, got, err)
+		}
+	}
+	if _, err := s.ReadJobEnv("run", "ws"); !errors.Is(err, ErrNoJobVariables) {
+		t.Errorf("a live flow job: %v", err)
+	}
+	notFound := func(what, id, ws string) {
+		t.Helper()
+		var pe *Error
+		if _, err := s.ReadJobEnv(id, ws); !errors.As(err, &pe) || pe.HTTPStatus() != 404 || pe.Body() != "Not found: Job not found at name "+id {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	notFound("another workspace's", "step", "other")
+	notFound("an unknown id", "00000000-0000-4000-8000-000000000001", "ws")
+	endStep()
+	notFound("an ended job of a live run", "step", "ws")
 }
 
 // Two Services share no registry; one Services gives every caller the
