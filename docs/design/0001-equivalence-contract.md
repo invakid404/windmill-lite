@@ -171,6 +171,7 @@ recorded in each run's trace.
 | D15 | A host-set cap on in-flight invocations per process. There is none by default; with one set, concurrent children that wait on each other, or parents that wait on runs they dispatched locally, can wait forever where a Windmill with enough workers completes them | a host may need to bound concurrency; the reference has no such bound | [0004](0004-harness-protocol.md) |
 | D16 | A transcendental `Math` function (`Math.sin`, `Math.tan`, `Math.log`, `Math.cosh` and the like) gives what the engine build's C library gives, which can differ in the last digit from the glibc of Windmill's image. Measured on recording batch E3a's 30 values: the static musl engine (`amd64` and `arm64`) gives all of them; the glibc of CI's Ubuntu 24.04 runner differs on `Math.cbrt(10)` and macOS's libm on 6, each by one unit in the last place. Other inputs can differ on any library but the image's own | QuickJS-ng calls the C library's libm, and the release engine links musl statically ([0003](0003-semantics-placement.md)); no libm that reproduces glibc's results is vendored | [JE-1](../semantics/expressions.md#je-1), [0003](0003-semantics-placement.md) |
 | D17 | A recursion fits deeper in an expression than on Windmill: both engines stop at QuickJS-ng's 1 MiB stack ([JE-48](../semantics/expressions.md#je-48)), but the depth that fits depends on the compiled engine's frames. Recording batch E3a found that JE-48/a's depth of 1 000 overflows on the oracle (600 fits); windmill-lite's builds fit about 1 020 to 1 070 frames of such a function (1 019 on the static `amd64` engine, 1 070 on `arm64`, 1 035 on macOS) | depth is not portable between builds (JE-48); matching it would mean calibrating the stack limit to one compiler's frames | [0003](0003-semantics-placement.md) |
+| D18 | With shared code, a `warm` or host-mode process compiles the dependency modules of a group of scripts once and gives each step module its own instance of them, so module state stays per script; but stack frames of dependency code name the shared closure file, and an ES module dependency initialises when the step first reaches it, in import order, where its per-script bundle hoists it before the step's CommonJS dependencies. A host turns it on at build; `fresh` runs the per-script bundles | a process that loads many step modules carrying one large dependency closure would otherwise hold a copy of the closure per module: a host measured about 59 MiB per module against a 650 MiB budget | [0013](0013-shared-module-code.md) |
 
 **D5, the native boundary mode** (milestone C3n). A native invocation runs
 in a `node:vm` context of the harness process, made for it and released
@@ -261,10 +262,10 @@ The realm cannot keep:
 - result streaming ([WR-46](../semantics/languages.md#wr-46), `later`),
   which is not implemented.
 
-`fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10 and D11:
-it runs one process per invocation, in its own working directory, and kills
-it at the end, on timeout and on cancellation; the watchdog does not apply
-to it.
+`fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10, D11
+and D18: it runs one process per invocation, from the script's per-script
+bundle, in its own working directory, and kills it at the end, on timeout
+and on cancellation; the watchdog does not apply to it.
 
 ### 5a. Restrictions
 

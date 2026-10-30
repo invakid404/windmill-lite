@@ -60,6 +60,9 @@ func TestMain(m *testing.M) {
 	if buildDir != "" {
 		os.RemoveAll(buildDir)
 	}
+	if memHostBin != "" {
+		os.RemoveAll(filepath.Dir(memHostBin))
+	}
 	os.Exit(code)
 }
 
