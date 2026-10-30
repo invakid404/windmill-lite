@@ -12,7 +12,7 @@
 id: execution/fx-40-raw
 spec: [FX-40/i]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 2, deploy: api, concurrency: true}
 compare: {mode: subset}

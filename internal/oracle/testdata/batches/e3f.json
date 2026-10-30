@@ -53,6 +53,9 @@
     "FX-42/f",
     "FX-42/i",
     "FX-42/j",
+    "FX-42/m",
+    "FX-42/n",
+    "FX-42/o",
     "FX-47/b",
     "FX-48/b",
     "FX-48/c",
@@ -236,6 +239,9 @@
     "conformance/flows/execution/fx-30-due",
     "conformance/flows/execution/fx-38-pickup",
     "conformance/flows/execution/fx-40-cases",
+    "conformance/flows/execution/fx-40-raw",
+    "conformance/flows/execution/fx-42-decode",
+    "conformance/flows/execution/fx-42-monitor",
     "conformance/flows/execution/fx-42-notation",
     "conformance/flows/execution/fx-47-null",
     "conformance/flows/execution/fx-48-jsonb",
@@ -256,6 +262,7 @@
     "conformance/flows/languages/wr-41",
     "conformance/flows/languages/wr-42",
     "conformance/flows/languages/wr-43",
+    "conformance/flows/languages/wr-43-stack",
     "conformance/flows/languages/wr-44",
     "conformance/flows/languages/wr-45",
     "conformance/flows/languages/wr-45-useragent",
@@ -498,6 +505,12 @@
       "run": "conformance/flows/execution/fx-48-jsonb/result_low",
       "pointer": "/result/error/message",
       "prefix": "Internal: Could not add completed job "
+    },
+    {
+      "case": "FX-42/o",
+      "run": "conformance/flows/execution/fx-42-decode/o_128",
+      "pointer": "/result/error/message",
+      "prefix": "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column 128"
     },
     {
       "case": "JE-52/a",
