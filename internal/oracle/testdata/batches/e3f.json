@@ -300,7 +300,7 @@
     {
       "case": "WR-54/f",
       "milestone": "none",
-      "reason": "the script whose stored schema has a type array naming array fails its lock job at deploy (oracle run 40994947681: \"Error creating schema validator: ... Problem making rule for xs: Error: Array type should have field `items`\"), before any run, as the case expects since the semantics revision SC5 corrected it, and the harness stops a fixture whose dependency job fails, so no fixture commits it; the run after the failed deploy needs a driver, which docs/design/README.md requests from the next run of batch E3f (SC5)"
+      "reason": "the script whose stored schema has a type array naming array fails its lock job at deploy (oracle run 40994947681: \"Error creating schema validator: ... Problem making rule for xs: Error: Array type should have field `items`\"), before any run, as the case expects since the semantics revision SC5 corrected it, and the harness stops a fixture whose dependency job fails, so no fixture commits it; what follows the failed deploy, a run by path refused with 404 before any job and a run by hash that reaches the validator error (as the semantics revision SC5 corrected the case in its validation round 1), needs a driver, which docs/design/README.md requests from the next run of batch E3f (SC5)"
     },
     {
       "case": "WR-V9/a",
