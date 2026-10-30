@@ -50,6 +50,9 @@ import (
 type flowChecker struct {
 	bun, repo, mode string
 	js              expr.Engine
+	// afterRuns, when set, is called in host mode once a fixture's runs
+	// have ended, before its host's teardown (tests: hostmode_test.go).
+	afterRuns func(*hostRuntime)
 }
 
 // runResult is how one run of a fixture went.
@@ -198,7 +201,12 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 		if fc.mode == ModeHost {
 			if host, err = fc.openHost(b.out, work, opts, &diag); err != nil {
-				return failRuns(results, "host: "+err.Error())
+				// The host's output, which its close copied, says why.
+				results = failRuns(results, "host: "+err.Error())
+				for i := range results {
+					results[i].diag = diag.String()
+				}
+				return results
 			}
 			defer host.close()
 			rt = host.rt
@@ -275,12 +283,19 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			}
 		}
 	}
-	if host != nil && host.exitedEarly() {
-		// One generation serves the fixture: a host that exits before its
-		// engine closes fails every run it took.
-		for i := range results {
-			if results[i].unsupported == "" {
-				results[i].problems = append(results[i].problems, "the fixture's host exited before its engine closed")
+	if host != nil {
+		if fc.afterRuns != nil {
+			fc.afterRuns(host)
+		}
+		// One generation serves the fixture: a host lost before its engine
+		// closes fails every run it took, whatever those runs observed.
+		early := host.exitedEarly()
+		host.close()
+		if early {
+			for i := range results {
+				if results[i].unsupported == "" {
+					results[i].problems = append(results[i].problems, "the fixture's host was lost before its engine closed")
+				}
 			}
 		}
 	}

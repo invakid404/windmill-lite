@@ -639,13 +639,29 @@ checker's, as in warm and fresh mode.
   `go test`), in proxy mode (`WLTEST_ENGINE_PROXY`): it passes the host's
   socket and child channel, its file descriptors 3 and 4, to the checker
   over a Unix socket (`engineProxy`), then waits until the checker has
-  closed the runtime, when the host sees its engine exit and exits.
+  closed the runtime, when it exits and the host sees its engine exit and
+  exits. It keeps its own copies open until then: on macOS, closing a
+  socket while it is still in flight to the checker could end the
+  connection before the checker received it, which failed a fixture's
+  start now and then.
+- **Teardown** (`hostRuntime.close`) closes the runtime, then the host's
+  socket and child channel, which the runtime does not own, and the
+  proxy's connection; it waits for the host to exit and copies the host's
+  output, which went to a file, into the fixture's diagnostics.
 - **The watchdog is off,** since the engine is not the host's child here;
   the engine's parent check is the watchdog's (ADR 0004 host mode item 4).
   The watchdog's own cases run on the real topology, in
   `cmd/windmill-lite`.
 - **One generation per fixture.** The host lives as long as its fixture;
-  one that exits before its engine closes fails every run it took.
+  one lost before its engine closes, its process exited or its connection
+  ended, fails every run it took, whatever those runs observed. The host's
+  output goes to a file, not a pipe: the proxy inherits it, and a pipe
+  would keep the host's wait open while the proxy lives.
+
+`hostmode_test.go` checks that a host killed after its fixture's runs
+fails them all (`TestHostModeHostLossFailsTheFixture`) and that closed
+fixtures leave no descriptor open, with garbage collection off
+(`TestHostModeClosesItsChannels`).
 - **The host's environment** is the base environment a spawned harness
   gets (`harness.BaseEnv`), and its working directory is the fixture's.
 

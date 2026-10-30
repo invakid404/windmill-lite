@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -54,9 +55,13 @@ func proxyMain() {
 
 // engineProxy is the engine a flow-suite host spawns (proxyEnv): it passes
 // its file descriptors 3 (the host's socket) and 4 (the child channel, when
-// the host passed one) to the checker listening at sock, closes its own
-// copies, and waits until the checker closes the connection, which it does
-// once the runtime has closed. The host sees its engine exit then.
+// the host passed one) to the checker listening at sock, and waits until
+// the checker closes the connection, which it does once the runtime has
+// closed; it exits then, its copies with it, and the host sees its engine
+// exit. It keeps its copies open until then: on macOS, closing a socket
+// while it is still in flight to the checker can end the connection before
+// the checker has received it (the host then sees its socket close before
+// the welcome).
 func engineProxy(sock string) int {
 	c, err := net.Dial("unix", sock)
 	if err != nil {
@@ -73,25 +78,32 @@ func engineProxy(sock string) int {
 		fmt.Fprintf(os.Stderr, "wltest engine proxy: %v\n", err)
 		return 1
 	}
-	for _, fd := range fds {
-		syscall.Close(fd)
-	}
 	_, _ = io.Copy(io.Discard, c)
 	return 0
 }
 
 // hostRuntime is a fixture's host and its runtime.
 type hostRuntime struct {
-	rt      *wl.Runtime
-	cmd     *exec.Cmd
-	exited  chan struct{}
-	control net.Conn
-	ln      net.Listener
+	rt     *wl.Runtime
+	cmd    *exec.Cmd
+	exited chan struct{}
+	// conn and children are the host's socket and child channel, which
+	// the runtime reads but does not own; control keeps the engine proxy
+	// waiting.
+	conn, children, control net.Conn
+	ln                      net.Listener
+	// log holds the host's output, which close copies into diag. A file,
+	// not a pipe: the engine proxy, the host's child, inherits the host's
+	// output, and a pipe would keep cmd.Wait waiting for the proxy, so a
+	// host that died would not look exited while the runtime is open.
+	log    *os.File
+	diag   io.Writer
+	closed sync.Once
 }
 
 // openHost starts a flow-suite host on the bundle at out, in a working
 // directory below work, and opens the runtime that serves it with opts,
-// whose Host it sets. The host's output goes to diag.
+// whose Host it sets. The host's output goes to diag when it closes.
 func (fc *flowChecker) openHost(out, work string, opts wl.Options, diag io.Writer) (*hostRuntime, error) {
 	workdir := filepath.Join(work, "host")
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
@@ -101,18 +113,23 @@ func (fc *flowChecker) openHost(out, work string, opts wl.Options, diag io.Write
 	if err != nil {
 		return nil, err
 	}
-	sock := filepath.Join(work, "engine.sock")
-	ln, err := net.Listen("unix", sock)
+	log, err := os.Create(filepath.Join(work, "host.log"))
 	if err != nil {
 		return nil, err
 	}
-	h := &hostRuntime{ln: ln, exited: make(chan struct{})}
+	sock := filepath.Join(work, "engine.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		log.Close()
+		return nil, err
+	}
+	h := &hostRuntime{ln: ln, exited: make(chan struct{}), log: log, diag: diag}
 	cmd := exec.Command(fc.bun, "run", filepath.Join(fc.repo, "cmd", "wltest", "testdata", "flowhost", "host.ts"))
 	cmd.Dir = workdir
 	cmd.Env = append(harness.BaseEnv(), "WL_ENGINE="+self, "WL_BUNDLE="+out, proxyEnv+"="+sock)
-	cmd.Stdout, cmd.Stderr = diag, diag
+	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
-		ln.Close()
+		h.close()
 		return nil, err
 	}
 	h.cmd = cmd
@@ -124,14 +141,12 @@ func (fc *flowChecker) openHost(out, work string, opts wl.Options, diag io.Write
 		h.close()
 		return nil, err
 	}
-	conn, children, control, err := acceptHost(ln, h.exited)
-	if err != nil {
+	if h.conn, h.children, h.control, err = acceptHost(ln, h.exited); err != nil {
 		return fail(err)
 	}
-	h.control = control
-	opts.Host = &wl.Host{Conn: conn, Workdir: workdir, KillAfter: -1}
-	if children != nil {
-		opts.Host.Children = children
+	opts.Host = &wl.Host{Conn: h.conn, Workdir: workdir, KillAfter: -1}
+	if h.children != nil {
+		opts.Host.Children = h.children
 	}
 	opts.ModuleState = ""
 	if h.rt, err = wl.Open(out, opts); err != nil {
@@ -206,29 +221,46 @@ func acceptHost(ln net.Listener, exited <-chan struct{}) (conn net.Conn, childre
 
 // close closes the runtime, which ends the host's connection, lets the
 // engine proxy exit, and waits for the host to exit, killing it after a
-// while.
+// while; it closes the host's socket and child channel, which the runtime
+// does not own, and copies the host's output into diag. It is idempotent.
 func (h *hostRuntime) close() {
-	if h.rt != nil {
-		h.rt.Close()
-	}
-	if h.control != nil {
-		h.control.Close()
-	}
-	h.ln.Close()
-	if h.cmd != nil {
-		select {
-		case <-h.exited:
-		case <-time.After(10 * time.Second):
-			_ = h.cmd.Process.Kill()
-			<-h.exited
+	h.closed.Do(func() {
+		if h.rt != nil {
+			h.rt.Close()
 		}
-	}
+		for _, c := range []net.Conn{h.conn, h.children, h.control} {
+			if c != nil {
+				c.Close()
+			}
+		}
+		h.ln.Close()
+		if h.cmd != nil {
+			select {
+			case <-h.exited:
+			case <-time.After(10 * time.Second):
+				_ = h.cmd.Process.Kill()
+				<-h.exited
+			}
+		}
+		if _, err := h.log.Seek(0, io.SeekStart); err == nil && h.diag != nil {
+			_, _ = io.Copy(h.diag, h.log)
+		}
+		h.log.Close()
+	})
 }
 
-// exitedEarly reports whether the host exited while its runtime was open.
+// exitedEarly reports whether the host was lost while its runtime was
+// open: its process exited, or its connection ended, which the runtime's
+// Done reports.
 func (h *hostRuntime) exitedEarly() bool {
+	var done <-chan struct{}
+	if h.rt != nil {
+		done = h.rt.Done()
+	}
 	select {
 	case <-h.exited:
+		return true
+	case <-done:
 		return true
 	default:
 		return false
