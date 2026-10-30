@@ -1,0 +1,9 @@
+# JE-52/a: an error message with an unpaired surrogate is dropped: b fails
+# with a message that ends the QuickJS evaluation error line at Error:
+# (checked in the batch manifest).
+spec: [JE-52/a]
+target: f/wl_jeopen/je52a
+expect:
+  status: failure
+  result: {error: {}}
+  steps: {"m:a": {status: success, result: 1}}

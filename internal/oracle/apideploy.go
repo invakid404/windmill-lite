@@ -52,6 +52,12 @@ type scriptMeta struct {
 	Summary     string `json:"summary"`
 	Description string `json:"description"`
 	CacheTTL    *int   `json:"cache_ttl"`
+	// Envs, Schema and DeleteAfterSecs are sent as written: a script's
+	// envs (WR-22), the stored schema validation builds from (WR-54), and
+	// delete_after_secs (OR-21), which the CLI's metadata cannot give.
+	Envs            []string        `json:"envs"`
+	Schema          json.RawMessage `json:"schema"`
+	DeleteAfterSecs *int            `json:"delete_after_secs"`
 }
 
 // DeployAPI creates the folders, scripts and flows of the sync tree dir
@@ -179,6 +185,7 @@ func readScript(dir, path string) (NewScript, error) {
 		return s, fmt.Errorf("oracle: api deploy: %s: %w", metaPath, err)
 	}
 	s.Summary, s.Description, s.CacheTTL = m.Summary, m.Description, m.CacheTTL
+	s.Envs, s.Schema, s.DeleteAfterSecs = m.Envs, m.Schema, m.DeleteAfterSecs
 	return s, nil
 }
 

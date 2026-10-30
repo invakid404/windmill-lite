@@ -1,0 +1,17 @@
+# FX-40/f: an error stop is not stored: both calls fail with the
+# EarlyStopError and a runs both times (the calls tolerate the failure, so
+# the second one runs).
+spec: [FX-40/f]
+target: f/wl_fx40c/f
+expect:
+  status: success
+  result: {error: {name: EarlyStopError, message: halt}}
+  steps:
+    "m:s1":
+      status: failure
+      result: {error: {name: EarlyStopError, message: halt}}
+    "m:s1/m:a": {status: success, result: 1}
+    "m:s2":
+      status: failure
+      result: {error: {name: EarlyStopError, message: halt}}
+    "m:s2/m:a": {status: success, result: 1}

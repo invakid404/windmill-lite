@@ -1,0 +1,7 @@
+# WR-54/f: a stored schema whose type array names array cannot be built, so
+# the job fails before the script runs, with the builder's text inside the
+# load error's layers (checked in the batch manifest); any input fails the
+# same way.
+spec: [WR-54/f]
+target: f/wl_wr54/f_array
+expect: {status: failure, result: {error: {}}}

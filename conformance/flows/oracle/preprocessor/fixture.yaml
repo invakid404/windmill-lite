@@ -1,0 +1,16 @@
+# Recording batch E3f (ADR 0012): a script's own preprocessor (OR-24/e,
+# Q-OR-11), run through the run API as a script job, and a flow step by path
+# with apply_preprocessor, without a hash and pinned to the deployed hash
+# (WR-11/b, WR-11/c). The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#or-24 and #wr-11. Deployed with
+# oracle.deploy api.
+id: oracle/preprocessor
+spec: [OR-24/e, WR-11/b, WR-11/c]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

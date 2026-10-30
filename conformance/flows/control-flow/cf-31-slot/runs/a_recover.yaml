@@ -1,0 +1,5 @@
+# CF-31/a: with a body that returns recover true, the flow succeeds with the
+# first iteration's value.
+spec: [CF-31/a]
+target: f/wl_cf31/a_recover
+expect: {status: success, result: {recover: true, i: 1}}

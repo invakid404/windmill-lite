@@ -1,0 +1,20 @@
+summary: "Q-OR-17 (i)"
+value:
+  modules:
+    - id: failure
+      value:
+        type: rawscript
+        content: "!inline failure.ts"
+        language: bun
+        input_transforms: {}
+  failure_module:
+    id: recover
+    value:
+      type: rawscript
+      content: "!inline recover.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

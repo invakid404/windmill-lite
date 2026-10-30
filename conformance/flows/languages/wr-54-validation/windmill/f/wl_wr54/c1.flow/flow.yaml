@@ -1,0 +1,15 @@
+summary: "WR-54/c (1)"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        language: bun
+        input_transforms:
+          a: {type: static, value: null}
+          b: {type: static, value: 1}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

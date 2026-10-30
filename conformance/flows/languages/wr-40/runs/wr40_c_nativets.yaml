@@ -1,13 +1,13 @@
 # WR-40/c (nativets): a static import of a host file that does not exist
 # fails the load; the whole message is the catalogue's, with the location
-# suffix as <loc>.
+# suffix it writes <loc> as oracle run 40990751153 recorded it.
 spec: [WR-40/c]
 target: f/wl_n40/wr40_c_nativets
 expect:
   status: failure
   result:
     error:
-      message: "execution error:\nError: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2)<loc>"
+      message: "execution error:\nError: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2) @lib.rs:893:22"
       name: ExecutionErr
       step_id: a
   steps:
@@ -16,6 +16,6 @@ expect:
       args: {}
       result:
         error:
-          message: "execution error:\nError: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2)<loc>"
+          message: "execution error:\nError: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2) @lib.rs:893:22"
           name: ExecutionErr
           step_id: a

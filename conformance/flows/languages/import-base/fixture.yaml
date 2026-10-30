@@ -1,0 +1,19 @@
+# Recording batch E3f (ADR 0012): the rest of Q-WR-20 and WR-22/b's codebase
+# half: the inline-flow import base (WR-29/a, WR-29/b), a CommonJS codebase
+# script's environment (WR-22/b), and a single-file codebase script whose
+# main.js keeps the CRLF line breaks of the CLI's form-data upload, beside
+# the
+# same body uploaded as a tar (WR-49/h). Deployed with the CLI, which
+# resolves the imports and bundles the codebase scripts; its generated
+# metadata is committed as written (OR-8). The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#wr-29, #wr-22 and #wr-49.
+id: languages/import-base
+spec: [WR-29/a, WR-29/b, WR-22/b, WR-49/h]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}
+compare: {mode: subset}

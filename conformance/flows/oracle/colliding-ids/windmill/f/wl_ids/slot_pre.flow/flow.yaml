@@ -1,0 +1,20 @@
+summary: "Q-OR-17 (ii)"
+value:
+  modules:
+    - id: preprocessor
+      value:
+        type: rawscript
+        content: "!inline preprocessor.ts"
+        language: bun
+        input_transforms: {}
+  preprocessor_module:
+    id: pre
+    value:
+      type: rawscript
+      content: "!inline pre.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

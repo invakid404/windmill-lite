@@ -1,0 +1,17 @@
+# WR-V2/a: a script that exits 0 without writing a result fails its flow
+# step with the empty-result InternalErr, with no step_id.
+spec: [WR-V2/a]
+target: f/wl_wrv2/step
+expect:
+  status: failure
+  result:
+    error:
+      message: "Internal: Result of job is invalid json (empty)<loc>"
+      name: InternalErr
+  steps:
+    "m:a":
+      status: failure
+      result:
+        error:
+          message: "Internal: Result of job is invalid json (empty)<loc>"
+          name: InternalErr

@@ -5,8 +5,9 @@
 # later
 # transition, a result whose unpaired surrogate the completion insert
 # refuses after its retries (about 30 s each), and $jsonvar: texts serde
-# refuses. Expected texts with <loc> name the catalogue's location
-# suffixes. The runs compare as a subset.
+# refuses. Expected texts end in the location suffixes the catalogue writes
+# <loc>, as oracle run 40990751153 recorded them. The runs compare as a
+# subset.
 #
 # Each run's expect is the reference's source-derived prediction, written
 # before the oracle ran it. Synthetic, written for this repository from

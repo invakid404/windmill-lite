@@ -1,0 +1,8 @@
+# CF-31/e: a parallel loop in the failure slot: both children complete, but
+# the flow does not, and about 60 s later the monitor cancels it, with a
+# Canceled error whose canceler is monitor.
+spec: [CF-31/e]
+target: f/wl_cf31e/e_parallel
+expect:
+  status: canceled
+  result: {error: {name: Canceled, canceler: monitor}}

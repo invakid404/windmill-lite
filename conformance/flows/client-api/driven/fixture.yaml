@@ -1,0 +1,39 @@
+# Recording batch E3f (ADR 0012): what only the API shows of runs a step
+# starts and waits for, made by a Bun step with its own token (a black-box
+# client, as the harness is) on two workers, since a step that waits for a
+# job needs a second worker (OR-5/b): flow user state after the run
+# (WA-14/c),
+# getResult of a running child (WA-19/d), the trailing virtual step
+# (OR-V7/c,
+# OF-17/a), delete_after_use from the scripts API (OR-21/b to OR-21/d),
+# previews (WR-37/b, WR-51/d, WR-52/a, WR-52/e, JE-36/d's preview half) and
+# a
+# restart (JE-19/e, JE-19/f). Paths a run creates carry its root job id, so
+# the oracle's repeated runs compare. Recorded by the workflow's two-worker
+# session. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/design/README.md (Recording requests for batch E3f) and the cases
+# each run cites. Deployed with oracle.deploy api.
+id: client-api/driven
+spec:
+  - WA-14/c
+  - WA-19/d
+  - OR-V7/c
+  - OF-17/a
+  - OR-21/b
+  - OR-21/c
+  - OR-21/d
+  - WR-37/b
+  - WR-51/d
+  - WR-52/a
+  - WR-52/e
+  - JE-36/d
+  - JE-19/e
+  - JE-19/f
+scope: later
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 2, deploy: api, concurrency: true}
+compare: {mode: subset}

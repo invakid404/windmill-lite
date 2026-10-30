@@ -97,8 +97,9 @@ func restrictedFields[I integer]() []field[restricted[I]] {
 // and loop `parallelism` (u16) (OF-V2). A bare integer is a static value. In
 // object form every supplied `value` must be an integer of the slot's width
 // or null, and every supplied `expr` a string or null, whatever the `type`.
-// Null means the slot is absent.
-func decodeRestricted[I integer](n *node) (*InputTransform, error) {
+// Null means the slot is absent. allowAI admits the ai transform type, which
+// the parallelism slot accepts and the timeout slot refuses (CF-7).
+func decodeRestricted[I integer](n *node, allowAI bool) (*InputTransform, error) {
 	switch n.kind {
 	case kindNull:
 		return nil, nil
@@ -126,6 +127,12 @@ func decodeRestricted[I integer](n *node) (*InputTransform, error) {
 				t.Expr = *r.expr
 			}
 			return t, nil
+		case "ai":
+			// An ai parallelism decodes and evaluates to 0, where a
+			// number is expected, so it holds every iteration (CF-7).
+			if allowAI {
+				return &InputTransform{Type: AI}, nil
+			}
 		}
 		typ, _ := soleMember(n, "type")
 		return nil, gotTransformType(typ, r.typ)

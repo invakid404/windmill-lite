@@ -5,9 +5,10 @@
 spec: [JE-44]
 target: f/wl_fx42n/aggregate
 args: {items: [{b: 1.50, a: 1}]}
+note: "Predicted text: Value was: [{\"a\":1,\"b\":1.5}]. Recorded in oracle run 40990751153 with each element the identity body's whole input, the iteration's iter and the run input, since a child flow's identity returns its flow input (CF-9): the loop's text re-prints 1.50 as 1.5 with the keys in jsonb order, as Q-JE-13 predicts, inside both."
 expect:
   status: failure
   result:
     error:
       name: InternalError
-      message: "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [{\"a\":1,\"b\":1.5}]"
+      message: "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [{\"iter\":{\"index\":0,\"value\":{\"a\":1,\"b\":1.5}},\"items\":[{\"a\":1,\"b\":1.5}]}]"

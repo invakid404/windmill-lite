@@ -1,0 +1,27 @@
+summary: d_one
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: forloopflow
+      iterator: {type: javascript, expr: "[]"}
+      modules:
+        - id: h
+          value:
+            type: rawscript
+            content: "!inline h.ts"
+            language: bun
+            input_transforms: {}
+      parallel: false
+      skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

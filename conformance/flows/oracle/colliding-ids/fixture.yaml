@@ -1,0 +1,17 @@
+# Recording batch E3f (ADR 0012): colliding step identities (Q-OR-17):
+# flows created through the flows API, not the CLI, whose file names derive
+# from module ids: a step named failure beside a failure module named
+# recover, a step named preprocessor beside a preprocessor module named pre,
+# and the ids a/b and a%2Fb. Each pair must stay two distinct records and
+# placeholders. The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/oracle.md#q-or-17. Deployed with oracle.deploy api.
+id: oracle/colliding-ids
+spec: [OR-11]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

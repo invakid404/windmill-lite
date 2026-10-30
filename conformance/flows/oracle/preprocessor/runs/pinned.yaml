@@ -1,0 +1,5 @@
+# WR-11/c: the same step pinned to the script's deployed hash honours
+# apply_preprocessor: the preprocessor runs on the step's args.
+spec: [WR-11/c]
+target: f/wl_pre/pinned
+expect: {status: success, result: pre}

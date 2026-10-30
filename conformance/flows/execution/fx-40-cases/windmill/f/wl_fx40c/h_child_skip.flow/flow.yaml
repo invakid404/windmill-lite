@@ -1,0 +1,23 @@
+summary: "FX-40/h: skip_failures True"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                v: {type: javascript, expr: flow_input.iter.value}
+                nonce: {type: javascript, expr: flow_input.v}
+        parallel: true
+        skip_failures: true
+  cache_ttl: 60
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}}

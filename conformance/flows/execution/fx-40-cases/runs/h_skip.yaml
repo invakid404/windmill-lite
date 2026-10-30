@@ -1,0 +1,15 @@
+# FX-40/h: with skip_failures true the second call's result equals the
+# first's, and no iteration runs.
+spec: [FX-40/h]
+target: f/wl_fx40c/h_skip
+expect:
+  status: success
+  result: [{error: {name: Error, message: one}}, "<job:m:s1/m:l/i:1/m:x>"]
+  steps:
+    "m:s1":
+      status: success
+      result: [{error: {name: Error, message: one}}, "<job:m:s1/m:l/i:1/m:x>"]
+    "m:s2":
+      status: success
+      result: [{error: {name: Error, message: one}}, "<job:m:s1/m:l/i:1/m:x>"]
+    "m:s2/m:l": {status: not_run}

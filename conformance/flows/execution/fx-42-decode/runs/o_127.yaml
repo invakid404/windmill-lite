@@ -1,0 +1,7 @@
+# FX-42/o: with 127 wrappings the loop succeeds.
+spec: [FX-42/o]
+target: f/wl_fx42d/o_127
+expect:
+  status: success
+  result: 1
+  steps: {"m:b": {status: success, result: 1}}

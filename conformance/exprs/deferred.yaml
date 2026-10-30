@@ -11,21 +11,9 @@ deferred:
   - case: JE-11/b
     reason: the count that places a call's `)` starts at the call, so non-ASCII text before it shifts nothing (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
     checked_in: FU6, at evaluator level (internal/expr/testdata/pipeline/je-11.json, TestPipelineCasesOnEngine); not recorded yet
-  - case: JE-11/c
-    reason: non-ASCII text inside the call moves its `)` early by the extra bytes (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
-    checked_in: FU6, at evaluator level (internal/expr/testdata/pipeline/je-11.json, TestPipelineCasesOnEngine); not recorded yet
   - case: JE-11/d
     reason: a call that never closes gets its `)` at the end of its part (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
     checked_in: FU6, at evaluator level (internal/expr/testdata/pipeline/je-11.json, TestPipelineCasesOnEngine); not recorded yet
-  - case: JE-11/e
-    reason: an insertion inside a multi-byte character fails the evaluation with the runtime's panic report (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
-    checked_in: FU6, at evaluator level (internal/expr/testdata/pipeline/je-11.json, TestPipelineCasesOnEngine, TestJE11OnEngine) and as the input transform's failure (internal/engine, TestJE11PanicFailsTheStep); not recorded yet
-  - case: JE-15/j
-    reason: a replaced `JSON.stringify` supplies the result text unchecked (Q-JE-14); the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-15.json, TestPipelineCasesOnEngine); batch E3e did not record it
-  - case: JE-15/k
-    reason: later; result text that is not JSON (a replaced `JSON.stringify`, JE-15/j) makes the job's push fail at jsonb, so `b`'s job is never created, with the error shapes of FX-50/a (Q-JE-14); the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
-    checked_in: N1b, whose storage boundary refuses an argument text that is not JSON as a push failure routed by FX-15 (internal/engine), with B2b's unchecked result text (JE-15/j); not encoded yet
   - case: JE-16/c
     reason: an evaluator-level case (point O1) whose previous_result holds the raw token -0, which no flow input reaches (the job API stores the input as jsonb, which has no negative zero); JE-16/e and JE-16/f record the oracle side
     checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-16.json, TestPipelineCasesOnEngine; B2b's TestBindings checks the same token)
@@ -41,45 +29,12 @@ deferred:
   - case: JE-18/e
     reason: a repeated module id (OF-2), which the engine's lookup resolves to the last such module with a job and the direct lookup to the one that completed most recently; the semantics reference added the case on 2026-10-29 and no recording holds it yet
     checked_in: FU6, at engine level (internal/engine, TestRepeatedIDLookups, with A5's duplicate-id occurrences); not recorded yet
-  - case: JE-19/e
-    reason: needs a restarted run (restart from a step), which the oracle harness does not drive (Q-JE-8); windmill-lite has no restart (ADR 0001 section 1), so recording batch E3e left the case outside the contract
-    checked_in: none
-  - case: JE-19/f
-    reason: later; needs a restarted run (restart from a step), which the oracle harness does not drive (Q-JE-8, answered from the source); windmill-lite has no restart (ADR 0001 section 1), so the case is outside the contract, as JE-19/e is; the semantics reference added the case on 2026-10-29 (SC3), and docs/design/README.md lists the restart among the optional E3f recordings outside the equivalence contract
-    checked_in: none
-  - case: JE-20/c
-    reason: a failed `resource()` throws the API's body from the helper's frame at line 15, column 50 of Windmill's helper script, where windmill-lite's prelude throws resource()'s Error from line 9 (internal/expr, program.go, laid out after the variable() frame at line 7 that E3a recorded); the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
-    checked_in: B2b (the prelude's helper frames) and PF2 (the not-found texts of the resource and variable services); not encoded yet
-  - case: JE-20/d
-    reason: resource() reads without a job id, so a `$WM_*` placeholder stays literal in `x` and `y`, while the static `$res:` argument `w` resolves it to the step's job id (contract (c)); the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
-    checked_in: PF2, whose resource() helper reads with contract (b) and no job id (internal/engine) and whose leaf argument resolution passes the step's job (ADR 0007); not encoded yet
-  - case: JE-21/b
-    reason: a thrown non-Error value shows its debug form (Q-JE-1); the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-21.json, TestPipelineCasesOnEngine); batch E3e did not record it
-  - case: JE-42/i
-    reason: later; a `$jsonvar:` value that does not parse fails the step before its script runs with serde_json's message and its line and column, counted in bytes; the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
-    checked_in: PF2, whose `$jsonvar:` resolution quotes its parser's error in serde_json's words, with its line and column (internal/platform, FX-51/c); not encoded yet
-  - case: JE-42/j
-    reason: later; an `$encrypted:` value that does not decrypt fails the step with CE's decryption error; windmill-lite holds no workspace key and decrypts nothing, so its local secrets answer an `$encrypted:` value with windmill-lite's own secret_unavailable cause (ADR 0007, Secrets), not CE's texts; the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
-    checked_in: none (a CE observation for the reference; PF2's local secrets give windmill-lite's own text)
   - case: JE-44/f
     reason: after an identity job, `previous_result` is jsonb's printed text, quoted here by a javascript `timeout`'s parse error; the semantics reference added the case on 2026-10-29 and no recording holds it yet
     checked_in: N1b, whose identity job reads its argument back in jsonb's printed form (internal/engine), end to end with N2's javascript timeout; not encoded yet
-  - case: JE-49/d
-    reason: a flow input nested 127 levels deep is accepted by the run API and fails at the binding with serde_json's recursion limit, at the column of the compact re-serialisation (Q-JE-15); the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
-    checked_in: B2b (internal/expr's recursion limit on a bound context value, JE-49), end to end with N1a's flow input; not encoded yet
   - case: JE-49/e
-    reason: a flow_env member nested 128 levels deep deploys and fails at the binding, its column counted in the member's own text (Q-JE-15); the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
+    reason: a flow_env member nested 128 levels deep deploys and fails at the binding, its column counted in the member's own text (Q-JE-15); batch E3f could not record it, because deploying that flow stopped the CE standalone server (it answered nothing within two seconds of the deployment, oracle run 40990751153), which ended the session; the spec team is asked to settle it (internal/oracle/testdata/batches/e3f.json)
     checked_in: B2b (internal/expr's recursion limit on a bound context value, JE-49), end to end with PF2's resolution of flow_env; not encoded yet
-  - case: JE-50/a
-    reason: in a plain function call, `this` is `undefined` (a strict-mode global script); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-50.json, TestPipelineCasesOnEngine); batch E3e did not record it
-  - case: JE-51/a
-    reason: a queued job that throws does not fail the evaluation; the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-51.json, TestPipelineCasesOnEngine); batch E3e did not record it
-  - case: JE-52/a
-    reason: an error message with an unpaired surrogate is dropped (O5); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-52.json, TestPipelineCasesOnEngine); batch E3e did not record it
   - case: JE-V5/a
     reason: the transforms are taken in a hash map's order, which is not fixed and may change between runs, so on the oracle which one fails first is not stable and neither is a recording; it is a host- or evaluator-level case, with a variable service that records its calls
     checked_in: B2b, PF2

@@ -1,0 +1,11 @@
+# FX-40/k: without workspace object storage an S3 object hashes as plain
+# JSON and cache_ignore_s3_path does nothing: the same key hits, another key
+# misses.
+spec: [FX-40/k]
+target: f/wl_fx40c/k
+expect:
+  status: success
+  result: "<job:m:s3/m:a>"
+  steps:
+    "m:s2": {status: success, result: "<job:m:s1/m:a>"}
+    "m:s3": {status: success, result: "<job:m:s3/m:a>"}

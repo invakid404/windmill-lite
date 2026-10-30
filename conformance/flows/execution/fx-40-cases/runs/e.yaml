@@ -1,0 +1,19 @@
+# FX-40/e: a failure tolerated at the cached flow's last module is stored:
+# the first call succeeds with the wrapped error, and the second gives the
+# same result from the cache, a not running.
+spec: [FX-40/e]
+target: f/wl_fx40c/e
+expect:
+  status: success
+  result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:s1":
+      status: success
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:s1/m:a":
+      status: failure
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:s2":
+      status: success
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:s2/m:a": {status: not_run}

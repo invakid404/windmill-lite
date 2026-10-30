@@ -8,5 +8,5 @@ expect:
   result:
     error:
       name: InternalError
-      message: "Error during evaluation of expression `null.t`…"
+      message: "Error during evaluation of expression `null.t`:\nQuickJS evaluation error: Error: cannot read property 't' of null\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"
   steps: {"m:a": {status: success, result: 1}, "m:l": {status: not_run}}

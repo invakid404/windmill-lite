@@ -1,0 +1,290 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      {
+        "index": 1,
+        "value": 20
+      },
+      {
+        "index": 1,
+        "value": 20
+      }
+    ],
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          {
+            "index": 1,
+            "value": 20
+          },
+          {
+            "index": 1,
+            "value": 20
+          }
+        ]
+      },
+      "m:l/i:0/m:b": {
+        "status": "success",
+        "args": {
+          "i": 0,
+          "p": {
+            "index": 1,
+            "value": 20
+          },
+          "fail_always": false
+        },
+        "result": {
+          "index": 1,
+          "value": 20
+        }
+      },
+      "m:l/i:1/m:b": {
+        "status": "success",
+        "args": {
+          "i": 1,
+          "p": {
+            "index": 1,
+            "value": 20
+          },
+          "fail_always": false
+        },
+        "result": {
+          "index": 1,
+          "value": 20
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030021644-0428ec8fda04",
+      "revision": "0428ec8fda045de7350c71b149097be29ebf2447",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40990751153"
+    },
+    "recorded_at": "2026-10-30T02:21:49Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:46303"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 10009,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:21:39.554707Z",
+          "started_at": "2026-10-30T02:21:39.593603Z",
+          "completed_at": "2026-10-30T02:21:49.534856Z",
+          "duration_ms": 9941
+        },
+        "m:l/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T02:21:44.423674Z",
+          "started_at": "2026-10-30T02:21:44.465677Z",
+          "completed_at": "2026-10-30T02:21:44.503706Z",
+          "duration_ms": 38
+        },
+        "m:l/i:0/m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:21:44.469944Z",
+          "started_at": "2026-10-30T02:21:44.472664Z",
+          "completed_at": "2026-10-30T02:21:44.500544Z",
+          "duration_ms": 26
+        },
+        "m:l/i:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T02:21:44.423674Z",
+          "started_at": "2026-10-30T02:21:49.441347Z",
+          "completed_at": "2026-10-30T02:21:49.518376Z",
+          "duration_ms": 77
+        },
+        "m:l/i:1/m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:21:49.456511Z",
+          "started_at": "2026-10-30T02:21:49.468626Z",
+          "completed_at": "2026-10-30T02:21:49.510012Z",
+          "duration_ms": 31
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "l",
+            "retry": {
+              "constant": {
+                "attempts": 1,
+                "seconds": 0
+              }
+            },
+            "value": {
+              "iterator": {
+                "expr": "[10, 20]",
+                "type": "javascript"
+              },
+              "modules": [
+                {
+                  "id": "b",
+                  "value": {
+                    "content": "import { existsSync, writeFileSync } from \"node:fs\";\n\n// Throws on its first run in the outer run for index 0, and returns its\n// iter_parent otherwise; the marker file is keyed by the outer root.\nexport function main(i: number, p: any, fail_always: boolean) {\n  const marker = `/tmp/wl-cf22h-${process.env.WM_ROOT_JOB_ID}-${i}`;\n  const first = !existsSync(marker);\n  writeFileSync(marker, \"1\");\n  if (i === 0 && (first || fail_always)) throw new Error(\"first\");\n  return p;\n}\n",
+                    "input_transforms": {
+                      "fail_always": {
+                        "type": "static",
+                        "value": false
+                      },
+                      "i": {
+                        "expr": "flow_input.iter.index",
+                        "type": "javascript"
+                      },
+                      "p": {
+                        "expr": "flow_input.iter_parent ?? null",
+                        "type": "javascript"
+                      }
+                    },
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                }
+              ],
+              "parallel": true,
+              "parallelism": {
+                "type": "static",
+                "value": 1
+              },
+              "skip_failures": false,
+              "type": "forloopflow"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "l",
+            "retry": {
+              "constant": {
+                "seconds": 0,
+                "attempts": 1
+              }
+            },
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "b",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "import { existsSync, writeFileSync } from \"node:fs\";\n\n// Throws on its first run in the outer run for index 0, and returns its\n// iter_parent otherwise; the marker file is keyed by the outer root.\nexport function main(i: number, p: any, fail_always: boolean) {\n  const marker = `/tmp/wl-cf22h-${process.env.WM_ROOT_JOB_ID}-${i}`;\n  const first = !existsSync(marker);\n  writeFileSync(marker, \"1\");\n  if (i === 0 && (first || fail_always)) throw new Error(\"first\");\n  return p;\n}\n",
+                    "language": "bun",
+                    "input_transforms": {
+                      "i": {
+                        "expr": "flow_input.iter.index",
+                        "type": "javascript"
+                      },
+                      "p": {
+                        "expr": "flow_input.iter_parent ?? null",
+                        "type": "javascript"
+                      },
+                      "fail_always": {
+                        "type": "static",
+                        "value": false
+                      }
+                    }
+                  }
+                }
+              ],
+              "iterator": {
+                "expr": "[10, 20]",
+                "type": "javascript"
+              },
+              "parallel": true,
+              "parallelism": {
+                "type": "static",
+                "value": 1
+              },
+              "skip_failures": false
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "b",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline b.ts",
+                    "input_transforms": {
+                      "fail_always": {
+                        "type": "static",
+                        "value": false
+                      },
+                      "i": {
+                        "type": "javascript",
+                        "expr": "flow_input.iter.index"
+                      },
+                      "p": {
+                        "type": "javascript",
+                        "expr": "flow_input.iter_parent ?? null"
+                      }
+                    },
+                    "lock": "!inline b.lock",
+                    "language": "bun"
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "javascript",
+                "expr": "[10, 20]"
+              },
+              "parallel": true,
+              "parallelism": {
+                "type": "static",
+                "value": 1
+              },
+              "skip_failures": false
+            },
+            "retry": {
+              "constant": {
+                "attempts": 1,
+                "seconds": 0
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

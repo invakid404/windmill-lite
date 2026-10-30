@@ -1,0 +1,12 @@
+# WR-55/c: no process serves two ordinary script jobs on CE:
+# f/wl_wr55/counter's two steps each return n 1, and step i, reading every
+# completed job of the script so far (this run's and the earlier runs'),
+# finds n 1 in all and no pid repeated.
+spec: [WR-55/c]
+target: f/wl_wr55/counter
+expect:
+  status: success
+  result: {at_least_two: true, all_n_one: true, pids_distinct: true}
+  steps:
+    "m:a": {status: success, result: {"n": 1}}
+    "m:b": {status: success, result: {"n": 1}}

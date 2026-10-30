@@ -1,0 +1,5 @@
+# WR-11/b: a flow step by path without a hash never applies the
+# preprocessor, so apply_preprocessor has no effect.
+spec: [WR-11/b]
+target: f/wl_pre/by_path
+expect: {status: success, result: orig}

@@ -1,0 +1,17 @@
+# Recording batch E3f (ADR 0012): a job chain that never ends (Q-JE-12,
+# JE-51) at a module-0 transform. The run waits for the zombie-flow monitor,
+# about 60 s or more, so the fixture is recorded by the oracle workflow's
+# long session (oracle.session long), whose run timeout allows it. The run
+# compares as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/expressions.md#q-je-12. Deployed with oracle.deploy api.
+id: je/je-51-chain
+spec: [JE-51]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api, session: long}
+compare: {mode: subset}

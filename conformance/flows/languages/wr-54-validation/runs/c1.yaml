@@ -1,0 +1,11 @@
+# WR-54/c: with static inputs {"a": null, "b": 1}, // schema_validation
+# refuses them with the rule's text.
+spec: [WR-54/c]
+target: f/wl_wr54/c1
+expect:
+  status: failure
+  result:
+    error:
+      message: "execution error:\nProblem with arguments: Argument a cannot be null"
+      name: ExecutionErr
+      step_id: s

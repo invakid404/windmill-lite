@@ -1,0 +1,5 @@
+# OF-V5/b: the trailing-sleep flow itself succeeds with 7, the worker
+# reading whichever form the status has.
+spec: [OF-V5/b]
+target: f/wl_dfs/trailing
+expect: {status: success, result: 7}

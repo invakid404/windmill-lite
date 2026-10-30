@@ -8,5 +8,5 @@ expect:
   result:
     error:
       name: InternalError
-      message: "SqlErr: error returned from database: invalid input syntax for type json<loc>"
+      message: "SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5"
   steps: {"m:a": {status: success, result: 1}}

@@ -1,0 +1,164 @@
+{
+  "observation": {
+    "status": "success",
+    "result": 3000,
+    "steps": {
+      "m:b": {
+        "status": "success",
+        "result": 3000,
+        "branch_chosen": {
+          "type": "default"
+        }
+      },
+      "m:b/b:default/m:x": {
+        "status": "success",
+        "args": {},
+        "result": 3000
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030021644-0428ec8fda04",
+      "revision": "0428ec8fda045de7350c71b149097be29ebf2447",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40990751153"
+    },
+    "recorded_at": "2026-10-30T02:23:18Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:46303"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 3208,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T02:23:15.041007Z",
+          "started_at": "2026-10-30T02:23:15.048316Z",
+          "completed_at": "2026-10-30T02:23:18.099215Z",
+          "duration_ms": 3051
+        },
+        "m:b/b:default": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T02:23:15.050918Z",
+          "started_at": "2026-10-30T02:23:15.054337Z",
+          "completed_at": "2026-10-30T02:23:18.094062Z",
+          "duration_ms": 3040
+        },
+        "m:b/b:default/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T02:23:15.058837Z",
+          "started_at": "2026-10-30T02:23:15.061628Z",
+          "completed_at": "2026-10-30T02:23:18.088211Z",
+          "duration_ms": 3023
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "b",
+            "timeout": {
+              "type": "static",
+              "value": 1
+            },
+            "value": {
+              "branches": [],
+              "default": [
+                {
+                  "id": "x",
+                  "value": {
+                    "content": "export async function main() { await new Promise((r) => setTimeout(r, 3000)); return 3000; }\n",
+                    "input_transforms": {},
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                }
+              ],
+              "type": "branchone"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "b",
+            "value": {
+              "type": "branchone",
+              "default": [
+                {
+                  "id": "x",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "export async function main() { await new Promise((r) => setTimeout(r, 3000)); return 3000; }\n",
+                    "language": "bun",
+                    "input_transforms": {}
+                  }
+                }
+              ],
+              "branches": []
+            },
+            "timeout": {
+              "type": "static",
+              "value": 1
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "b",
+            "value": {
+              "type": "branchone",
+              "branches": [],
+              "default": [
+                {
+                  "id": "x",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline x.ts",
+                    "input_transforms": {},
+                    "lock": "!inline x.lock",
+                    "language": "bun"
+                  }
+                }
+              ]
+            },
+            "timeout": {
+              "type": "static",
+              "value": 1
+            }
+          }
+        ]
+      }
+    }
+  }
+}

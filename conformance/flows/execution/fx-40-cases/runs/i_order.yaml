@@ -1,0 +1,10 @@
+# FX-40/i: arguments match as jsonb values, so the same object in another
+# key order is a hit.
+spec: [FX-40/i]
+target: f/wl_fx40c/i_order
+expect:
+  status: success
+  result: "<job:m:s1/m:a>"
+  steps:
+    "m:s2": {status: success, result: "<job:m:s1/m:a>"}
+    "m:s2/m:a": {status: not_run}

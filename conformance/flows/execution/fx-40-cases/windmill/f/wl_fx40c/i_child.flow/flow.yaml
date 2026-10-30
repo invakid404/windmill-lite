@@ -1,0 +1,17 @@
+summary: "FX-40/i: the cached child"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          v: {type: javascript, expr: flow_input.v}
+          o: {type: javascript, expr: "flow_input.o ?? null"}
+          "n": {type: javascript, expr: "flow_input.n ?? null"}
+  cache_ttl: 60
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}, o: {type: object}, "n": {type: number}}

@@ -1,0 +1,5 @@
+# WR-29/a: the same step inside a for-loop of flow f/wl_ib/fl_loop: ./x
+# loads f/wl_ib/fl_loop/x.
+spec: [WR-29/a]
+target: f/wl_ib/fl_loop
+expect: {status: success, result: [[shared_lib, loop]]}

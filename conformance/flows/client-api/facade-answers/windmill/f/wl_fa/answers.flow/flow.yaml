@@ -1,0 +1,19 @@
+summary: "the facade's answers"
+value:
+  modules:
+    - id: p
+      value:
+        type: rawscript
+        content: "!inline p.ts"
+        language: bun
+        input_transforms: {}
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {completed: {type: javascript, expr: results.p}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

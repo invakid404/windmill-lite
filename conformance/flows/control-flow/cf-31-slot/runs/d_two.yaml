@@ -1,0 +1,9 @@
+# CF-31/d: an empty-iterator loop in the slot makes the failed step succeed:
+# b runs and returns [], and a's position holds a Success entry with id
+# failure.
+spec: [CF-31/d]
+target: f/wl_cf31/d_two
+expect:
+  status: success
+  result: []
+  steps: {"m:b": {status: success, result: []}}

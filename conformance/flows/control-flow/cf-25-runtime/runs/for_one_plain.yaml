@@ -1,0 +1,14 @@
+# Q-CF-19: a sequential forloopflow over [1, 2, 3] with a one-step Bun body,
+# without squash (the control). The body keeps a module-scope counter and
+# returns its pid, the counter and v; step i reads the iterations back, with
+# each job's log, and says whether a runtime was reused (a pid repeated or a
+# counter above 1) and whether a log line starts dedicated worker bun:.
+# Unsquashed, every iteration has its own process.
+spec: [CF-25]
+target: f/wl_cf25r/for_one_plain
+expect:
+  status: success
+  result:
+    values: [1, 2, 3]
+    runtime_reused: false
+    dedicated_worker_log: false

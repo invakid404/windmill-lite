@@ -1,0 +1,9 @@
+summary: "WR-V2/a: a flow step"
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/wl_wrv2/exit0, input_transforms: {}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

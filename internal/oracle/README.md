@@ -416,7 +416,9 @@ a narrow tree and refuses anything else:
 - `wmill.yaml` and `folder.meta.yaml`, which are not sent; a folder is
   created for every `f/<folder>/`;
 - Bun scripts `f/<folder>/<name>.ts`, with an optional
-  `<name>.script.yaml` of `summary`, `description` and `cache_ttl`;
+  `<name>.script.yaml` of `summary`, `description`, `cache_ttl` and, for
+  the cases the CLI's metadata cannot give (batch E3f), `envs`, `schema`
+  and `delete_after_secs`;
 - flows `f/<folder>/<name>.flow/flow.yaml`, whose rawscript `content` and
   `lock` may be `!inline <file>` in the flow's directory, and whose by-path
   `script` modules may pin the hash `0000000000000000`

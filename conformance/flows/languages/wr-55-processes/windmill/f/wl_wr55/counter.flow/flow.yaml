@@ -1,0 +1,17 @@
+summary: WR-55/c
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/wl_wr55/counter, input_transforms: {}}
+    - id: b
+      value: {type: script, path: f/wl_wr55/counter, input_transforms: {}}
+    - id: i
+      value:
+        type: rawscript
+        content: "!inline i.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

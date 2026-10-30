@@ -1,0 +1,23 @@
+summary: FX-40/e
+value:
+  modules:
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+    - id: s1
+      value:
+        type: flow
+        path: f/wl_fx40c/e_child
+        input_transforms: {v: {type: javascript, expr: results.n}}
+    - id: s2
+      value:
+        type: flow
+        path: f/wl_fx40c/e_child
+        input_transforms: {v: {type: javascript, expr: results.n}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,0 +1,29 @@
+# FX-48/d, FX-51/d and FX-51/e: run requests whose bodies hold a NUL in a
+# value and in a key, a number beyond numeric's range, and an unpaired
+# surrogate in a value and in a key are refused with HTTP 400 and
+# text/plain, and no job is created; Q-FX-7: a run request's {"n": 1.50e3,
+# "m": 1.50, "k": 1.50e1} is stored with PostgreSQL's numeric scale (a
+# prediction from PostgreSQL, not the Windmill source).
+spec: [FX-48/d, FX-51/d, FX-51/e]
+target: f/wl_raw/requests
+expect:
+  status: success
+  result:
+    refused:
+      - status: 400
+        type: text/plain
+        body: "SqlErr: error returned from database: unsupported Unicode escape sequence<loc>"
+      - status: 400
+        type: text/plain
+        body: "SqlErr: error returned from database: unsupported Unicode escape sequence<loc>"
+      - status: 400
+        type: text/plain
+        body: "SqlErr: error returned from database: value overflows numeric format<loc>"
+      - status: 400
+        type: text/plain
+        body: "SqlErr: error returned from database: invalid input syntax for type json<loc>"
+      - status: 400
+        type: text/plain
+        body: "Bad request: invalid json: unexpected end of hex escape at line 1 column 10"
+    jobs_created: 0
+    stored_args: "{\"k\": 15.0, \"m\": 1.50, \"n\": 1500}"

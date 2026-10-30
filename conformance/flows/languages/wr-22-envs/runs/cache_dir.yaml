@@ -1,0 +1,5 @@
+# WR-22/b: the reference image's Bun step sees the Bun cache directory set
+# and NODE_PATH unset (the CommonJS codebase half is languages/import-base).
+spec: [WR-22/b]
+target: f/wl_wr22/cache_dir
+expect: {status: success, result: ["/tmp/windmill/cache_nomount/bun", unset]}

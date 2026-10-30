@@ -1,5 +1,5 @@
 # JE-42/j: the static $encrypted:secret does not decrypt, so b fails before
-# its script runs with CE's cause: Invalid padding
+# its script runs with CE's cause: Invalid padding @variables.rs:269:14
 spec: [JE-42/j]
 target: f/wl_je20/j2
 expect:
@@ -7,5 +7,5 @@ expect:
   result:
     error:
       name: ExecutionErr
-      message: "execution error:\nInternal: Invalid padding<loc>"
+      message: "execution error:\nInternal: Invalid padding @variables.rs:269:14"
       step_id: b

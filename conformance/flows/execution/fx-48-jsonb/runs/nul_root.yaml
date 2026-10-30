@@ -8,4 +8,4 @@ expect:
   result:
     error:
       name: Anyhow
-      message: "Error: SqlErr: error returned from database: unsupported Unicode escape sequence<loc><loc>"
+      message: "Error: SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5 @worker.rs:3822:13"

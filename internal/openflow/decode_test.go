@@ -270,6 +270,18 @@ func TestDecodedValuesOwnTheirBytes(t *testing.T) {
 	}
 }
 
+// TestAIParallelism decodes an ai parallelism, which the parallelism slot
+// accepts and evaluates to 0 (CF-7/e), while the timeout slot refuses the
+// ai type (TestRestrictedTransforms).
+func TestAIParallelism(t *testing.T) {
+	// spec: CF-7/e
+	v := decodeOK(t, `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"javascript","expr":"[1]"},"modules":[],"parallel":true,"parallelism":{"type":"ai"}}}]}`)
+	l, ok := v.Modules[0].Value.(*ForLoop)
+	if !ok || l.Parallelism == nil || l.Parallelism.Type != AI {
+		t.Fatalf("parallelism = %+v", v.Modules[0].Value)
+	}
+}
+
 func TestRestrictedTransforms(t *testing.T) {
 	v := decodeOK(t, identityWith(`,"timeout":{"type":"javascript","expr":null,"value":null}`))
 	if tt := v.Modules[0].Timeout; tt.Type != JavaScript || tt.Expr != "" {

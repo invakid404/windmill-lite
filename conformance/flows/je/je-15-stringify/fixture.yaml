@@ -2,8 +2,8 @@
 # (JE-15/j, JE-15/k; Q-JE-14): a replaced JSON.stringify supplies the
 # result text, after promise adoption and the host-string conversion, and a
 # text that is not JSON makes the step's push fail at jsonb. Expected texts
-# with <loc> name the catalogue's location suffixes; the recording gives
-# them. The runs compare as a subset.
+# end in the location suffixes the catalogue writes <loc>, as oracle run
+# 40990751153 recorded them. The runs compare as a subset.
 #
 # Each run's expect is the reference's source-derived prediction, written
 # before the oracle ran it. Synthetic, written for this repository from

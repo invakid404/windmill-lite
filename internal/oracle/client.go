@@ -270,12 +270,15 @@ func (c *Client) CreateFolder(ctx context.Context, workspace, name string) error
 // NewScript is the body of POST /w/{ws}/scripts/create: the fields an API
 // deployment sets (NewScript in the vendored schema).
 type NewScript struct {
-	Path        string `json:"path"`
-	Summary     string `json:"summary"`
-	Description string `json:"description"`
-	Content     string `json:"content"`
-	Language    string `json:"language"`
-	CacheTTL    *int   `json:"cache_ttl,omitempty"`
+	Path            string          `json:"path"`
+	Summary         string          `json:"summary"`
+	Description     string          `json:"description"`
+	Content         string          `json:"content"`
+	Language        string          `json:"language"`
+	CacheTTL        *int            `json:"cache_ttl,omitempty"`
+	Envs            []string        `json:"envs,omitempty"`
+	Schema          json.RawMessage `json:"schema,omitempty"`
+	DeleteAfterSecs *int            `json:"delete_after_secs,omitempty"`
 }
 
 // CreateScript creates a script and returns the hash Windmill assigned it,

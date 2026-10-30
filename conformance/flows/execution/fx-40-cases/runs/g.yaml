@@ -1,0 +1,13 @@
+# FX-40/g: a clean stop is stored: the first call completes skipped with a's
+# value, and the hit completes success, not skipped, with the same value,
+# and no step runs.
+spec: [FX-40/g]
+target: f/wl_fx40c/g
+expect:
+  status: success
+  result: "<job:m:s1/m:a>"
+  steps:
+    "m:s1": {status: skipped, result: "<job:m:s1/m:a>"}
+    "m:s2": {status: success, result: "<job:m:s1/m:a>"}
+    "m:s2/m:a": {status: not_run}
+    "m:s2/m:b": {status: not_run}

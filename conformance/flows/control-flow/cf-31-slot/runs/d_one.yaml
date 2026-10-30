@@ -1,0 +1,4 @@
+# CF-31/d: the one-step flow with the same slot succeeds with [].
+spec: [CF-31/d]
+target: f/wl_cf31/d_one
+expect: {status: success, result: []}

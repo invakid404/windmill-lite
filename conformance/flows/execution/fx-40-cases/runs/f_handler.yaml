@@ -1,0 +1,13 @@
+# FX-40/f: with a failure module the module's result is stored: the first
+# call fails with H, and the second succeeds with H from the cache, with
+# neither a nor the handler running.
+spec: [FX-40/f]
+target: f/wl_fx40c/f_handler
+expect:
+  status: success
+  result: H
+  steps:
+    "m:s1": {status: failure, result: H}
+    "m:s2": {status: success, result: H}
+    "m:s2/m:a": {status: not_run}
+    "m:s2/s:failure": {status: not_run}

@@ -8,5 +8,5 @@ expect:
   result:
     error:
       name: ExecutionErr
-      message: "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12<loc>"
+      message: "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12 @common.rs:299:17"
       step_id: b

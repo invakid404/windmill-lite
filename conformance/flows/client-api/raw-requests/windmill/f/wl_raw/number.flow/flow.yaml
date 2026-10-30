@@ -1,0 +1,13 @@
+summary: "the number target"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {"n": {type: javascript, expr: flow_input.n}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

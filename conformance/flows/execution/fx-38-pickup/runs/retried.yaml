@@ -15,7 +15,7 @@ expect:
   steps:
     "m:b/r:0": {status: failure}
     "m:b":
-      status: canceled
+      status: failure
       result:
         error:
           message: "Job canceled: wltest: cancel_after_ms by admin"

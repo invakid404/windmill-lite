@@ -1,8 +1,11 @@
 # Recording batch E3f (ADR 0012): resource() and the provider texts
 # (JE-20/c, JE-20/d, JE-42/i, JE-42/j; Q-JE-17), with the resources and
 # variables setup.yaml creates after the push, as E3a's je/providers does,
-# under f/wl_je20/ in place of the catalogue's u/test/. Expected texts with
-# <loc> name the catalogue's location suffixes; JE-20/c's message contents
+# under f/wl_je20/ in place of the catalogue's u/test/. Expected texts end
+# in
+# the location suffixes the catalogue writes <loc>, as oracle run
+# 40990751153
+# recorded them; JE-20/c's message contents
 # are checked in the batch manifest. The runs compare as a subset.
 #
 # Each run's expect is the reference's source-derived prediction, written

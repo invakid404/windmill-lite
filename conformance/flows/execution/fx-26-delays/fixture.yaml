@@ -1,0 +1,20 @@
+# Recording batch E3f (ADR 0012): retry delays and jitter (FX-26/c to
+# FX-26/f, Q-FX-18). A Bun step starts each flow through the API with its
+# own token, reads the queued retry job's scheduled_for once the step's
+# status names it, subtracts the failed attempt's completion time and
+# cancels the flow. FX-26/e's second delay follows its first 300 s retry,
+# so the run takes over five minutes: the fixture needs two workers (a step
+# that waits for a job, OR-5/b) and the long session's run timeout, and is
+# recorded by the workflow's long two-worker session. The run compares as a
+# subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-26. Deployed with oracle.deploy api.
+id: execution/fx-26-delays
+spec: [FX-26/c, FX-26/d, FX-26/e, FX-26/f]
+scope: later
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 2, deploy: api, concurrency: true, session: long}
+compare: {mode: subset}

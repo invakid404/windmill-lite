@@ -1,0 +1,15 @@
+# Recording batch E3f (ADR 0012): WR-V2/a, the empty-result InternalErr of a
+# script that exits 0 without writing a result, as a plain job and as a flow
+# step. The expected location is written <loc>; the recording gives it. The
+# runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#wr-v2. Deployed with oracle.deploy api.
+id: languages/wr-v2
+spec: [WR-V2/a]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

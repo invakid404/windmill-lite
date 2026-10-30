@@ -1,0 +1,8 @@
+# JE-19/e and JE-19/f (outside the equivalence contract, optional): a run
+# whose b fails is restarted from b, and c's x, y and z read 17, 17 and 5
+# through the restarted run's copied status and the restart fallback.
+spec: [JE-19/e, JE-19/f]
+target: f/wl_drv/restart
+expect:
+  status: success
+  result: {first_success: false, second: {x: 17, "y": 17, z: 5}}

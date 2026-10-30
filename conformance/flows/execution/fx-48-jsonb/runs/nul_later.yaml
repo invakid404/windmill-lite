@@ -8,5 +8,5 @@ expect:
   result:
     error:
       name: InternalError
-      message: "SqlErr: error returned from database: unsupported Unicode escape sequence<loc>"
+      message: "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5"
   steps: {"m:x": {status: success, result: 1}}

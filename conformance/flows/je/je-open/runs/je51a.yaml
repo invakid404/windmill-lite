@@ -1,0 +1,8 @@
+# JE-51/a: a queued job that throws does not fail the evaluation, and no
+# message mentions job.
+spec: [JE-51/a]
+target: f/wl_jeopen/je51a
+expect:
+  status: success
+  result: 1
+  steps: {"m:b": {status: success, args: {x: 1}, result: 1}}

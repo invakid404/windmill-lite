@@ -85,11 +85,28 @@ jobs:
           # recordings, made at 1 s with one worker, must hold unchanged
           # (OR-7/a).
           - id: workers2
-            args: --workers 2 --listen-interval 10 --skip-unmet-session conformance/flows/oracle/smoke conformance/flows/oracle/workers2 conformance/flows/client-api/dispatch
+            args: --workers 2 --listen-interval 10 --skip-unmet-session conformance/flows/oracle/smoke conformance/flows/oracle/workers2 conformance/flows/client-api/dispatch conformance/flows/client-api/driven conformance/flows/control-flow/cf-7-release
           # A worker that serves the nativets tag (WORKER_TAGS=nativets,
           # Q-WR-21) records the native-step fixtures (batch E3f).
           - id: native
             args: --workers 1 --session native --skip-unmet-workers --skip-unmet-session conformance/flows
+          # The reference configuration, for the fixtures whose runs wait a
+          # minute or more on the server's own monitors (batch E3f), with a
+          # longer run timeout.
+          - id: long
+            args: --workers 1 --session long --skip-unmet-workers --skip-unmet-session --run-timeout 5m conformance/flows
+            timeout: 75
+          # The same on two workers, for FX-26's retry delays, whose step
+          # waits for the flows it starts, one of them over five minutes.
+          - id: long2
+            args: --workers 2 --session long --skip-unmet-session --run-timeout 9m conformance/flows/execution/fx-26-delays
+            timeout: 45
+          # MAX_RESULT_SIZE_MB=3 (OR-7/b, OR-7/c).
+          - id: result_size
+            args: --workers 1 --session result_size --skip-unmet-workers --skip-unmet-session conformance/flows
+          # DISABLE_FLOW_SCRIPT=true (OF-V5/b).
+          - id: flow_script_off
+            args: --workers 1 --session flow_script_off --skip-unmet-workers --skip-unmet-session conformance/flows
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

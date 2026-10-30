@@ -1,0 +1,27 @@
+summary: "FX-40/i: 1 and 1.0"
+value:
+  modules:
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+    - id: s1
+      value:
+        type: flow
+        path: f/wl_fx40c/i_child
+        input_transforms:
+          v: {type: javascript, expr: results.n}
+          "n": {type: static, value: 1}
+    - id: s2
+      value:
+        type: flow
+        path: f/wl_fx40c/i_child
+        input_transforms:
+          v: {type: javascript, expr: results.n}
+          "n": {type: static, value: 1.0}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

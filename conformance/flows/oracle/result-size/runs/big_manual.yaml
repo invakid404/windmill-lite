@@ -1,0 +1,18 @@
+# OR-7/c: the same payload with wm_failure added ends as ResultTooLarge too,
+# not as a ManualFailure.
+spec: [OR-7/c]
+target: f/wl_size/big_manual
+expect:
+  status: failure
+  result:
+    error:
+      message: "Result of job <job:m:a> is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+      name: ResultTooLarge
+  steps:
+    "m:a":
+      status: failure
+      result:
+        error:
+          message: "Result of job <job:m:a> is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+          name: ResultTooLarge
+    "m:b": {status: not_run}

@@ -1,0 +1,6 @@
+# OF-V5/b, OF-17/a: with DISABLE_FLOW_SCRIPT=true at enqueue, the flow
+# status a run by path starts with is the full-built form, whose step ids
+# are [a], with no generated a-v.
+spec: [OF-V5/b, OF-17/a]
+target: f/wl_dfs/enqueue
+expect: {status: success, result: [a]}
