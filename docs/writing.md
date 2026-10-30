@@ -85,15 +85,19 @@ The rule covers the prose of documents. It does not cover:
 - code identifiers, file names and wire-format names, which stay byte-exact
   in code spans.
 
-The rule applies to code comments too. The link takes the form that its
-medium can show:
+The rule applies to code comments too. The link takes the form that the
+medium renders as a link:
 
-- in a Markdown document, the link is a Markdown link;
-- in a code comment, the link is the repository path of the defining file
-  with its anchor, right after the ID, in the sentence that states the rule.
+- in a Markdown document, the link is a relative Markdown link;
+- in a Go doc comment, the link is a Go doc link: the ID in square brackets
+  in the sentence that states the rule. A link definition at the end of the
+  comment gives the definition's address on GitHub
+  ([Go doc comments](https://go.dev/doc/comment#links));
+- in another comment, the link is the form that its documentation tool
+  renders, such as `{@link <address> | <ID>}` in a TSDoc comment.
 
-Where a code comment has no room for such a link, leave the ID out of the
-comment, and keep it in the test or the case data. A milestone ID is not an
+Where a comment cannot hold such a link, leave the ID out of the comment,
+and keep it in the test or the case data. A milestone ID is not an
 identifier in this sense: it names work, so the self-contained rule forbids
 it.
 
@@ -112,13 +116,21 @@ Rewritten to this rule:
 > on how a run was submitted, such as `WM_USERNAME`
 > ([OR-29](semantics/oracle.md#or-29)).
 
-The same rule in a code comment, before and after:
+The next example is a comment on code that runs native steps: `nativets`
+and `//native` scripts, each of whose invocations runs in a fresh JavaScript
+realm (the [glossary](glossary.md#warm) explains them). Before:
 
 ```go
 // Preserve isolation. See WR-41.
+```
 
-// Each invocation runs in a realm of its own, as Windmill gives each native
-// job a new isolate (WR-41, docs/semantics/languages.md#wr-41).
+After, with a Go doc link that Go renders as a link to the finding:
+
+```go
+// Each native invocation runs in a realm of its own, matching Windmill's
+// fresh isolate per native job ([WR-41]).
+//
+// [WR-41]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-41
 ```
 
 ### Work status in ADRs
@@ -309,7 +321,8 @@ A guide explains one task or one standard, such as
 ## Markdown
 
 - Use [GitHub-flavoured Markdown](https://github.github.com/gfm/).
-- Use relative links between files in the repository.
+- Use relative links between files in the repository. A Go doc comment
+  links with an absolute address instead ([Identifiers](#identifiers)).
 - Draw diagrams in [Mermaid](https://mermaid.js.org), a text format for
   diagrams, with the default rendering: no theme or colour overrides.
 - Label the boxes and arrows of a diagram with the names of things and

@@ -8,6 +8,7 @@ import io
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,28 @@ sys.modules[_spec.name] = checker
 _spec.loader.exec_module(checker)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+
+# Prints the HTML that Go's doc-comment renderer (go/doc/comment) makes of
+# the comment text on stdin.
+RENDER_GO = """package main
+
+import (
+\t"fmt"
+\t"go/doc/comment"
+\t"io"
+\t"os"
+)
+
+func main() {
+\ttext, err := io.ReadAll(os.Stdin)
+\tif err != nil {
+\t\tpanic(err)
+\t}
+\tvar p comment.Parser
+\tvar pr comment.Printer
+\tfmt.Print(string(pr.HTML(p.Parse(string(text)))))
+}
+"""
 
 
 def words(count: int) -> str:
@@ -337,17 +360,42 @@ class StandardTest(unittest.TestCase):
         self.assertIn(rule.format(" (such as a finding ID)"), guidance)
 
     def test_both_apply_the_identifier_rule_to_code_comments(self) -> None:
-        # The rule has no exception for prose in comments: the link takes the
-        # comment's form, and the plain statement shares its sentence.
+        # The rule has no exception for prose in comments: the link takes a
+        # form that the comment's renderer shows as a link, and the plain
+        # statement shares its sentence.
         form = (
-            "in a code comment, the link is the repository path of the defining file with its anchor, "
-            "right after the ID, in the sentence that states the rule"
+            "in a Go doc comment, the link is a Go doc link: the ID in square brackets "
+            "in the sentence that states the rule"
         )
         for name in ("docs/writing.md", "memoria.toml"):
             text = " ".join((REPO / name).read_text().split())
             with self.subTest(name):
                 self.assertIn(form, text)
                 self.assertNotIn("same comment", text)
+                self.assertNotIn("repository path of the defining file", text)
+
+    @unittest.skipUnless(shutil.which("go"), "needs the go command")
+    def test_the_go_comment_example_renders_a_link_to_the_finding(self) -> None:
+        # Render the standard's Go doc comment example with Go's own renderer:
+        # each ID must become a link whose target exists in this repository.
+        blocks = re.findall(r"```go\n(.*?)```", (REPO / "docs/writing.md").read_text(), flags=re.S)
+        example = next(block for block in blocks if "]: https://" in block)
+        text = "".join(re.sub(r"^// ?", "", line) + "\n" for line in example.splitlines())
+        targets = re.findall(r"^\[([^\]]+)\]: (\S+)$", text, flags=re.M)
+        self.assertTrue(targets)
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "render.go").write_text(RENDER_GO)
+            html = subprocess.run(
+                ["go", "run", "render.go"], cwd=tmp, input=text, capture_output=True, text=True, check=True,
+                env={**os.environ, "GOTOOLCHAIN": "local", "GOFLAGS": ""}, timeout=300,
+            ).stdout
+        prefix = "https://github.com/invakid404/windmill-lite/blob/main/"
+        for name, address in targets:
+            with self.subTest(name):
+                self.assertIn(f'<a href="{address}">{name}</a>', html)
+                self.assertTrue(address.startswith(prefix))
+                path, _, anchor = address[len(prefix):].partition("#")
+                self.assertIn(f'<a id="{anchor}"></a>', (REPO / path).read_text())
 
     def test_memoria_guidance_states_the_limits(self) -> None:
         text = " ".join((REPO / "memoria.toml").read_text().split())
