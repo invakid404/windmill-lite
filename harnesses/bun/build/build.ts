@@ -22,7 +22,7 @@ import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
 import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
-import { CLOSURE_META, CLOSURE_SPECIFIER, closureEntry, closureId, closureSupport, depReference, esmReference, keptImports } from "./shared.ts";
+import { CJS_SPECIFIER, CLOSURE_META, CLOSURE_SPECIFIER, closureEntry, closureId, closureSupport, depReference, esmReference, keptImports } from "./shared.ts";
 import { importSpecifiers, liveBindings, parseModule, signatures, type Syntax } from "./signature.ts";
 import { detectWorkflowAsCode } from "./wac.ts";
 
@@ -773,10 +773,22 @@ export class Builder {
     }
     const refs = new Map<string, string>();
     const empty = this.materialise(s.dir, join("wl", "dep", "empty.cjs"), "module.exports = {};\n");
+    // Every file this build writes is reached by the path the plugin
+    // returns, never through Bun's resolver: Bun 1.3.10 keeps directory
+    // listings across builds in one process, and on a file system with
+    // coarse timestamps a file written in the same tick as an earlier read
+    // of its directory leaves the listing unchanged, so a relative import of
+    // it can fail to resolve.
+    const cjsFiles = new Map<string, string>();
     const plugin: BunPlugin = {
       name: "windmill-lite-shared",
       setup: (b) => {
         b.onResolve({ filter: new RegExp(`^${CLOSURE_SPECIFIER}$`) }, () => ({ path: support }));
+        b.onResolve({ filter: new RegExp(`^${CJS_SPECIFIER}`) }, (args) => {
+          const f = cjsFiles.get(args.path);
+          if (f === undefined) throw new Error(`the shared layout of ${s.id}: no CommonJS reference ${JSON.stringify(args.path)}`);
+          return { path: f };
+        });
         b.onResolve({ filter: /.*/ }, (args) => {
           if (args.importer !== s.entry || args.path === ENV_SPECIFIER) return undefined;
           const p = resolved.get(`${args.kind}\0${args.path}`);
@@ -789,7 +801,8 @@ export class Builder {
           const name = new Bun.CryptoHasher("sha256").update(p).digest("hex").slice(0, 16);
           const cjs = this.materialise(s.dir, join("wl", "dep", name + ".cjs"), depReference(p));
           if (inputs[p]?.format !== "esm") return { path: cjs };
-          return { path: this.materialise(s.dir, join("wl", "dep", name + ".mjs"), esmReference(p, "./" + name + ".cjs", hasDefault(join(s.dir, p)))) };
+          cjsFiles.set(CJS_SPECIFIER + name, cjs);
+          return { path: this.materialise(s.dir, join("wl", "dep", name + ".mjs"), esmReference(p, CJS_SPECIFIER + name, hasDefault(join(s.dir, p)))) };
         });
       },
     };
@@ -808,7 +821,18 @@ export class Builder {
     const entry = this.materialise(dir, join("wl", `closure-entry-${id}.cjs`), closureEntry(files, env ? ENV_SPECIFIER : undefined));
     const seeds = new Map<string, string>();
     for (const [k, f] of files) if (k.startsWith("src/") && k.endsWith(".ts")) seeds.set(f, k.slice(4, -3));
-    return this.bundle(dir, entry, seeds, target, { shims: true }, env, { format: "cjs", define: { "import.meta": CLOSURE_META } });
+    // The entry requires each file by its absolute path, which the plugin
+    // returns as it is, rather than Bun's resolver finding it in a directory
+    // listing it may have kept from before the file was written (above,
+    // sharedModule).
+    const listed = new Set(files.values());
+    const plugin: BunPlugin = {
+      name: "windmill-lite-closure",
+      setup: (b) => {
+        b.onResolve({ filter: /^\// }, (args) => (args.importer === entry && listed.has(args.path) ? { path: args.path } : undefined));
+      },
+    };
+    return this.bundle(dir, entry, seeds, target, { shims: true }, env, { format: "cjs", define: { "import.meta": CLOSURE_META }, plugin });
   }
 
   private writeOut(rel: string, text: string): void {

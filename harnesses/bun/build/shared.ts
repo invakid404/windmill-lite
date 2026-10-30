@@ -12,6 +12,11 @@ import { parse } from "@babel/parser";
 export const CLOSURE_SPECIFIER = "windmill-lite:closure";
 export const CLOSURE_META = "__wl_meta";
 
+// The prefix of the specifier an ES module reference re-exports its
+// CommonJS reference by, which the shared-layout build resolves to the
+// reference's file (the Go build's cjsSpecifier).
+export const CJS_SPECIFIER = "windmill-lite:dep-cjs/";
+
 // The support module of a shared-layout module of closure id: dep(key)
 // returns the exports of the dependency module key in the module's own
 // instance of the closure, made at its first call with the module's

@@ -190,6 +190,13 @@ D18; `buildShared`). Each script's per-script bundle is built as without it.
   request runs the same parse on the closure bundles the Go build made for
   codebase groups and returns, for each, the modules that keep an
   `import()`.
+- **Resolution.** Every file the shared build writes, and every file a
+  closure's entry requires, is reached by the absolute path a plugin
+  returns, never by Bun's resolver. Bun 1.3.10 keeps directory listings
+  across builds in one process. On a file system with coarse timestamps, a
+  file written in the same tick as an earlier read of its directory leaves
+  that listing unchanged, and a relative import of the file then failed to
+  resolve on Linux CI.
 
 ### Native scripts
 
