@@ -128,6 +128,11 @@ Milestone E4b's follow-up E4c lays out the copies that `wltest stub`,
 `wltest check` and `wltest record` make of a sync tree so that the paths
 outside the tree that its codebase entries name resolve from the copy as
 from the original, with `wmill.yaml` unchanged.
+Milestone F3h, added to [0012](0012-layout-and-milestones.md) after an
+embedder built its real folder, lets a host contract list a file of a
+codebase entry's `relative_path` outside the sync root, keeps a codebase
+build's time when host-provided modules are listed, and keeps the load
+effects that Bun 1.3.10 dropped from a listed module's copy.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -179,7 +184,7 @@ flowchart LR
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
 | [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
-| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 51 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
+| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 53 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
 
 ## Measurements behind the decisions
 
@@ -201,6 +206,8 @@ each record):
 | One detached promise rejection in a shared Bun process, 1.3.10 and 1.4.2 | ends the process unless handlers are installed | 0004 |
 | A host spinning forever, watched by a Go child that kills it after 1 s of missed heartbeats | killed 1.04 s after its last heartbeat; a restart-on-exit supervisor serves the next call | 0004 |
 | esbuild CJS and ESM bundles resolving a host-provided module to the generated shim, Bun 1.3.10 and 1.4.2 | 16 of 16 isolated; `import.meta.env` rewritten in ESM only | 0010 |
+| A codebase build of six scripts importing a package of 400 modules, without and with one host-provided module listed, esbuild 0.28.0, Apple M4 (milestone F3h) | 99 ms and 6.1 s when the plugin resolved each import a second time; 99 ms and 99 ms when it loads the listed file's shim in place of the file | 0010 |
+| `Bun.build` on Bun 1.3.10 with a plugin, a package marked `sideEffects: false` whose entry re-exports `export { x } from "./x.js"` (milestone F3h) | the re-exported module is dropped, and the bundle references a binding it never defines, whenever a resolve filter matches the import of the package, even with a callback that resolves nothing; kept when no filter matches it, and with `export *` or an import and export; `ignoreDCEAnnotations` does not change it | 0010 |
 | The Q-WA-4 env-view test (milestone W1), Bun 1.3.10, the stock `windmill-client@1.767.0`: 16 concurrent invocations per variant, steps unbundled, bundled by `Bun.build` and bundled with the define rewrite, by namespace and default import | 16 of 16 on every channel (`process.env`, `Bun.env`, `import.meta.env`, a copy of `process.env`, a written variable, a deleted process variable, an unbundled dependency's `Bun.env`, the client's call), with and without the variables in the process environment; `Bun.env` and `import.meta.env` are isolated at run time, without the define rewrite | 0004, 0010 |
 | H11 through a host-provided module with a hand-written shim, in a host compiled with `bun build --compile`, Bun 1.3.10 (milestone W1) | 16 of 16 concurrent runs read their own scope; a separately bundled copy reads nothing | 0008, 0010 |
 | H11 through an esbuild CommonJS codebase script whose import of the host-provided module resolves to the generated shim, in a host compiled with `bun build --compile`, Bun 1.3.10 (milestone C2b) | 16 of 16 concurrent runs read their own scope, on Bun's CommonJS loader | 0002, 0010 |

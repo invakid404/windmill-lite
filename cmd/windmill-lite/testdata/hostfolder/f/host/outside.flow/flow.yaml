@@ -1,0 +1,5 @@
+summary: A codebase script reads the host's scope through a host-provided module outside the sync folder
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/hostout/read, input_transforms: {delay: {type: javascript, expr: flow_input.delay}}}

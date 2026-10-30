@@ -8,3 +8,6 @@ codebases:
     assets:
       - from: f/hostcb/greeting.txt
         to: data/greeting.txt
+  - relative_path: ../hostlib
+    includes:
+      - f/hostout/**

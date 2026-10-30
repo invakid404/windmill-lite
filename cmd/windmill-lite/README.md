@@ -180,13 +180,18 @@ trace summary, a failing one exits 1 with its error, and a run without the
 harness runtime the bundle was built for does not start.
 
 `host_test.go` runs host mode end to end: the host-mode half of W1's exit
-gate, the host-mode gate of milestone C2b, and F3a's exit gate.
+gate, the host-mode gate of milestone C2b, F3a's exit gate and F3h's
+host-mode case.
 `testdata/hostfolder/` is a synthetic sync folder with its host contract
 (`contract.yaml`), which the test builds once with `bundle.Build`, and
-whose host-provided module is `f/host/scopes.ts`.
+whose host-provided modules are `f/host/scopes.ts` and
+`../hostlib/tenant.ts`: `testdata/hostlib/` lies outside the sync root,
+as the `relative_path` of a codebases entry whose script
+`f/hostout/read.ts` imports the module from there.
 `testdata/host/host.ts` is a Bun host that embeds the SDK, registers its
-instance of that module, connects the engine on the bundle, and serves its
-callers over HTTP on a Unix socket. The test compiles it with
+instances of both modules, connects the engine on the bundle, and serves its
+callers over HTTP on a Unix socket, submitting each run inside the
+caller's tenant scope of both. The test compiles it with
 `bun build --compile`, and its engine is the test binary itself
 (`TestMain` runs the command when `WL_TEST_ENGINE` is set). A supervisor
 that only restarts the host when it exits runs it. The tests:
@@ -195,6 +200,7 @@ that only restarts the host when it exits runs it. The tests:
 |---|---|
 | `TestHostScopesThroughAHostProvidedModule` | 16 concurrent runs, each in its own tenant scope, read their scope through the host-provided module, by the shim the build generated, 16 of 16 (H11); a separately bundled copy of the module reads nothing |
 | `TestHostScopesThroughACodebaseScript` | C2b's gate: `f/hostcb/cb_scope.ts`, the CommonJS codebase script of the folder, its import of `f/host/scopes.ts` resolved to the module's generated shim, reads the host's scope in 16 of 16 concurrent runs on Bun's CommonJS loader (D12, D13), and reads `Bun.env` through the env rewrite |
+| `TestHostScopesThroughAnOutsideModule` | F3h's host-mode case: `f/hostout/read.ts`, a codebase script, reads the host's scope through `../hostlib/tenant.ts`, a host-provided module outside the sync folder, in 16 of 16 concurrent runs |
 | `TestHostCodebaseAsset` | F3a's gate: the codebase script `f/hostcb/cb_asset.ts` reads its asset, which the SDK extracted into the host's working directory, by a relative path and beside its module, and reads the `args.json` the engine wrote there |
 | `TestHostWorkdirRefusedBySDK` | F3a's gate: the SDK refuses to connect with `workdir_mismatch` for another directory than the host's own, and `workdir_not_writable` for a read-only one |
 | `TestHostWorkdirRefusedByEngine` | F3a's gate, from the engine's side: the test plays the host, starts `windmill-lite host` with a socketpair as file descriptor 3 (and none as 4) and greets it; the engine welcomes a host in its own working directory, refuses one whose hello names another (`workdir_mismatch`) or a read-only one (`workdir_not_writable`), and refuses with `engine_refused` when the bundle does not open |
