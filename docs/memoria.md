@@ -93,7 +93,8 @@ To request a review of those READMEs, run `memoria invalidate all --reason
 flows through the per-session flow instead.
 
 [memoria.toml](../memoria.toml) holds the review checklist and names the
-writing standard and the glossary as guidance files. Its ignore list
+writing standard and the glossary as guidance files: Memoria shows them to
+every reviewer, and never counts them as inputs of a README. Its ignore list
 excludes jj internal state, build output, `go.sum`, `renovate.json`, and agent
 process records from review inputs, so a checksum-only dependency update or a
 Renovate config migration needs no README review; `go.mod` remains a review

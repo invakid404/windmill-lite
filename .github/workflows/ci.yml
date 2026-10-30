@@ -368,8 +368,8 @@ jobs:
     # The countable rules of the writing standard (docs/writing.md, "What CI
     # checks"). On a pull request, scripts/check-docs.py annotates the
     # Markdown blocks that the pull request changed; on every run it writes
-    # the count of all findings to the job summary. The script exits 0 when
-    # it finds something, and this job is not a required check.
+    # the count of all warnings to the job summary. A warning leaves the exit
+    # status at 0, and this job is not a required check.
     name: Docs (report only)
     runs-on: ubuntu-latest
     timeout-minutes: 5

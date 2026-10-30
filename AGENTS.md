@@ -2,24 +2,32 @@
 
 These rules apply to every contributor, person or coding agent. `CLAUDE.md`
 points here, so the rules have one copy. The [README](README.md) says what
-windmill-lite is and what works today.
+windmill-lite is and what works today, and the [glossary](docs/glossary.md)
+defines its terms.
 
 ## Layout
 
 Add a package or a top-level directory only where the package layout
-([ADR 0012](docs/design/0012-layout-and-milestones.md)) places it, or amend
-that ADR in the same pull request.
+places it, or amend that layout's architecture decision record
+([ADR 0012](docs/design/0012-layout-and-milestones.md)) in the same pull
+request.
 
 ## Language
 
 Go is the primary language.
 
-- Write the core, the compiler, the CLI and the host adapters in Go.
-- Write a language harness in the language that it runs, because the
-  harness loads that language's scripts in-process. For example, the Bun
-  harness is TypeScript. Keep each harness as small as its job allows.
+- Write the core, the compiler, the command-line interface (CLI) and the
+  adapters that [hosts](docs/glossary.md#host) use in Go.
+- Write a language [harness](docs/glossary.md#harness) in the language that
+  it runs, because the harness loads that language's scripts in-process. For
+  example, the [Bun](docs/glossary.md#bun) harness is TypeScript.
+- A harness only runs steps. Keep in it only the rules that make sense in
+  its language alone, such as parsing a TypeScript signature. Flows,
+  expressions and every other rule live in Go
+  ([ADR 0003](docs/design/0003-semantics-placement.md#decision)).
 - Define each Windmill rule once. When Go and a harness both need a rule,
-  write it as a shared, language-neutral conformance case that both sides
+  write it as a shared, language-neutral
+  [conformance case](docs/glossary.md#conformance-case) that both sides
   run. Do not write two implementations that happen to agree.
 - Format Go code with `gofmt`. It must also pass `go vet ./...` and
   `go test -race ./...`. CI checks all three on Linux and macOS.
@@ -71,13 +79,14 @@ The semantics team writes and validates the semantics reference
 
 - Use identifiers, JSON field names, enum values, error-message strings and
   wire-format literals anywhere, when compatibility requires them.
-- Enterprise-only behaviour is out of scope, unless the Community Edition
-  shows it. Mark it `EE` where you meet it.
+- Behaviour of Windmill's Enterprise Edition (EE) is out of scope, unless
+  the Community Edition shows it too. Mark it `EE` where you meet it.
 - When in doubt, ask in the pull request before you start.
 
 ## Fixtures and public hygiene
 
-- Write tests with synthetic Windmill fixtures made for this repository:
+- Write tests with synthetic Windmill [fixtures](docs/glossary.md#fixture)
+  made for this repository:
   scripts, flows, resources and variables invented to exercise one
   behaviour. Do not copy flows or scripts from a real Windmill workspace,
   and do not copy Windmill's own test fixtures.
@@ -98,10 +107,12 @@ The semantics team writes and validates the semantics reference
 - Give every module directory a `README.md`, and index it from the root
   [README](README.md).
 - After your last edit, follow the per-session flow in
-  [docs/memoria.md](docs/memoria.md) until `memoria check` passes. The
-  Memoria gate in CI fails while a README has an unacknowledged change in
-  its scope, and any change to a file in that scope re-opens the review.
-  Memoria needs a real Git worktree.
+  [docs/memoria.md](docs/memoria.md) until `memoria check` passes.
+  [Memoria](docs/glossary.md#memoria) fails CI while a README has an
+  unacknowledged change in its scope, the files that it describes. Any
+  change to a file in that scope re-opens the review.
+- Run Memoria in a real Git worktree
+  ([docs/memoria.md](docs/memoria.md#when-you-interact-with-it)).
 - CI reports the writing rules that it can count, as warnings
   ([What CI checks](docs/writing.md#what-ci-checks)).
 

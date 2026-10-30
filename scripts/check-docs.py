@@ -16,8 +16,10 @@ The check is advisory. It prints each finding and exits 0, so CI reports
 findings without failing; --strict exits 1 when there is a finding.
 
 Code blocks, inline code, HTML comments (Memoria markers among them) and
-link targets are not prose. Inline code counts as one word. Headings are
-checked for work codes only.
+link targets are not prose. Inline code counts as one word, so a work code
+in inline code is not reported. A list item counts as one block with all
+its paragraphs. Headings are checked for work codes only. Sentence counts
+are a heuristic (see SENTENCE_END).
 
 Usage: check-docs.py [--diff-base REV] [--github] [--summary FILE] [--strict] [PATH ...]
 
@@ -65,8 +67,11 @@ HTML_TAG = re.compile(r"</?[A-Za-z][^>]*>")
 # possible start of a sentence.
 PLACEHOLDER = "@code@"
 
-SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[A-Z0-9\"“'(\[@*_])")
-ABBREVIATIONS = {"e.g", "i.e", "etc", "vs", "cf", "approx", "no"}
+# A heuristic: a sentence ends at ".", "!" or "?" and a space, except after
+# a common abbreviation. The next sentence can start in lower case, as a
+# product name such as windmill-lite does.
+SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[A-Za-z0-9\"“'(\[@*_])")
+ABBREVIATIONS = {"e.g", "i.e", "etc", "vs", "cf", "approx", "no", "fig", "al", "ca"}
 WORD = re.compile(r"\w")
 
 # Milestone IDs use the prefixes of ADR 0012's tables and of the follow-up,
@@ -123,15 +128,18 @@ def blocks(text: str) -> list[Block]:
                 break
 
     current: list[str] = []
-    start = 0
+    start = end = 0
     kind = "paragraph"
     fence = ""
     in_comment = False
     in_list = False  # indented text after a list item belongs to that item
+    held = False  # a list item stays open across a blank line for its next paragraph
 
     def flush() -> None:
+        nonlocal held
+        held = False
         if current:
-            out.append(Block(start, start + len(current) - 1, kind, " ".join(current)))
+            out.append(Block(start, end, kind, " ".join(current)))
             current.clear()
 
     for number, line in enumerate(lines[first:], start=first + 1):
@@ -144,6 +152,9 @@ def blocks(text: str) -> list[Block]:
         if in_comment:
             in_comment = "-->" not in line
             continue
+        indent = len(line) - len(line.lstrip(" "))
+        if held and stripped and (indent == 0 or LIST_ITEM.match(line)):
+            flush()
         match = FENCE.match(line)
         if match:
             flush()
@@ -154,7 +165,10 @@ def blocks(text: str) -> list[Block]:
             in_comment = "-->" not in stripped[4:]
             continue
         if not stripped:
-            flush()
+            if current and kind == "list item":
+                held = True
+            else:
+                flush()
             continue
         if HEADING.match(line):
             flush()
@@ -176,18 +190,19 @@ def blocks(text: str) -> list[Block]:
         item = LIST_ITEM.match(line)
         if item:
             flush()
-            start, kind, in_list = number, "list item", True
+            start = end = number
+            kind, in_list = "list item", True
             current.append(line[item.end():].strip())
             continue
         if current:
             current.append(stripped)
+            end, held = number, False
             continue
         if LINK_DEFINITION.match(line):
             continue
-        indent = len(line) - len(line.lstrip(" "))
         if indent >= 4 and not in_list:
             continue  # an indented code block
-        start = number
+        start = end = number
         kind = "list item" if in_list and indent > 0 else "paragraph"
         in_list = kind == "list item"
         current.append(stripped)
@@ -228,7 +243,15 @@ def opening(sentence: str, count: int = 8) -> str:
 
 def has_current_state(text: str) -> bool:
     fence = False
+    in_comment = False
     for line in text.splitlines():
+        stripped = line.strip()
+        if in_comment:
+            in_comment = "-->" not in line
+            continue
+        if not fence and stripped.startswith("<!--"):
+            in_comment = "-->" not in stripped[4:]
+            continue
         if FENCE.match(line):
             fence = not fence
             continue
@@ -336,14 +359,14 @@ def summary(findings: list[Finding], files: int) -> str:
     lines = [
         "## Documentation check (report only)",
         "",
-        f"{len(findings)} findings in {len({f.path for f in findings})} of {files} Markdown files, "
+        f"{len(findings)} warnings in {len({f.path for f in findings})} of {files} Markdown files, "
         "against the countable rules of docs/writing.md (What CI checks).",
     ]
     if findings:
-        lines += ["", "| Rule | Findings |", "|---|---:|"]
+        lines += ["", "| Rule | Warnings |", "|---|---:|"]
         for rule, count in sorted(collections.Counter(f.rule for f in findings).items()):
             lines.append(f"| `{rule}` | {count} |")
-        lines += ["", "| File | Findings |", "|---|---:|"]
+        lines += ["", "| File | Warnings |", "|---|---:|"]
         for path, count in collections.Counter(f.path for f in findings).most_common(15):
             lines.append(f"| `{path}` | {count} |")
     return "\n".join(lines) + "\n"

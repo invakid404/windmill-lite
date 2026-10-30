@@ -77,6 +77,17 @@ class BlockTest(unittest.TestCase):
         blocks = checker.blocks(text)
         self.assertEqual([(b.kind, b.start, b.end) for b in blocks], [("list item", 1, 2)])
 
+    def test_a_list_item_counts_with_all_its_paragraphs(self) -> None:
+        text = "- One. Two. Three.\n\n  Four. Five.\n\nNext paragraph.\n"
+        blocks = checker.blocks(text)
+        self.assertEqual([(b.kind, b.start, b.end) for b in blocks], [("list item", 1, 3), ("paragraph", 5, 5)])
+        self.assertEqual(rules("doc.md", text), ["paragraph-length"])
+
+    def test_a_new_item_or_unindented_text_ends_a_list_item(self) -> None:
+        text = "- One.\n\n- Two.\n\nThree.\n"
+        self.assertEqual([(b.kind, b.start) for b in checker.blocks(text)],
+                         [("list item", 1), ("list item", 3), ("paragraph", 5)])
+
     def test_each_table_cell_is_a_block(self) -> None:
         text = f"| Name | Meaning |\n|---|---:|\n| a | {words(30)} |\n| b | {words(85)} |\n"
         findings = checker.check_text("doc.md", text)
@@ -136,6 +147,11 @@ class SentenceTest(unittest.TestCase):
         body = "Use a pinned version (e.g. Bun 1.3.10), i.e. One that CI installs."
         self.assertEqual(len(checker.sentences(body)), 1)
 
+    def test_a_sentence_can_start_in_lower_case(self) -> None:
+        text = "One. windmill-lite runs. windmill-lite stops. windmill-lite waits. windmill-lite ends."
+        self.assertEqual(len(checker.sentences(text)), 5)
+        self.assertEqual(rules("doc.md", text), ["paragraph-length"])
+
     def test_version_numbers_do_not_end_a_sentence(self) -> None:
         self.assertEqual(len(checker.sentences("Windmill v1.767.0 ships Bun 1.3.10 today.")), 1)
 
@@ -169,6 +185,10 @@ class WorkCodeTest(unittest.TestCase):
             ("work-code", "paragraph names F3b, SC5; name the behaviour or the decision instead"),
         ])
 
+    def test_a_work_code_in_inline_code_is_not_reported(self) -> None:
+        # A known limit, which docs/writing.md states: inline code is not prose.
+        self.assertEqual(checker.check_text("doc.md", "Added in `F3b`.\n"), [])
+
     def test_inline_code_and_link_targets_are_not_checked(self) -> None:
         text = "Run `wltest record F3b` from [the oracle guide](../x.md#batch-e3f).\n"
         self.assertEqual(checker.check_text("doc.md", text), [])
@@ -184,6 +204,11 @@ class CurrentStateTest(unittest.TestCase):
 
     def test_other_documents_need_none(self) -> None:
         self.assertEqual(rules("docs/guide.md", "# Guide\n\nText.\n"), [])
+
+    def test_a_line_in_an_html_comment_does_not_count(self) -> None:
+        text = "<!--\n**Current state:** works.\n-->\n# Package\n"
+        self.assertEqual(rules("pkg/README.md", text), ["current-state"])
+        self.assertEqual(rules("pkg/README.md", "<!-- x -->\n**Current state:** works.\n"), [])
 
     def test_a_line_in_a_code_block_does_not_count(self) -> None:
         text = "# pkg\n\n```\n**Current state:** example\n```\n"
@@ -231,7 +256,7 @@ class OutputTest(unittest.TestCase):
             checker.Finding("b.md", 1, "sentence-length", ""),
         ]
         text = checker.summary(findings, 5)
-        self.assertIn("3 findings in 2 of 5 Markdown files", text)
+        self.assertIn("3 warnings in 2 of 5 Markdown files", text)
         self.assertIn("| `sentence-length` | 2 |", text)
         self.assertIn("| `a.md` | 2 |", text)
 
@@ -284,7 +309,7 @@ class MainTest(unittest.TestCase):
         path.write_text("before\n")
         self.run_main("--summary", str(path))
         self.assertTrue(path.read_text().startswith("before\n## Documentation check (report only)\n"))
-        self.assertIn("1 findings in 1 of 1 Markdown files", path.read_text())
+        self.assertIn("1 warnings in 1 of 1 Markdown files", path.read_text())
 
 
 class StandardTest(unittest.TestCase):
@@ -298,6 +323,18 @@ class StandardTest(unittest.TestCase):
         )
         self.assertIn(f"Split a sentence of more than {checker.MAX_SENTENCE_WORDS} words.", text)
         self.assertIn(f"`{checker.CURRENT_STATE}`", text)
+
+    def test_both_state_the_identifier_rule_in_the_same_words(self) -> None:
+        rule = (
+            "outside the document that defines it, an identifier{} may appear only as a link to its definition, "
+            "and the same sentence must state the behaviour or rule in plain words. The ID is a pointer for "
+            "traceability, never the explanation, so a reader who does not follow the link still understands "
+            "the sentence. Inside the defining document, IDs are anchors as usual."
+        )
+        writing = " ".join((REPO / "docs/writing.md").read_text().split())
+        guidance = " ".join((REPO / "memoria.toml").read_text().split())
+        self.assertIn(rule.format(", such as a finding ID,"), writing.replace("Outside the document", "outside the document"))
+        self.assertIn(rule.format(" (such as a finding ID)"), guidance)
 
     def test_memoria_guidance_states_the_limits(self) -> None:
         text = " ".join((REPO / "memoria.toml").read_text().split())
