@@ -92,7 +92,10 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	r.root = newFrame(f.Modules, conformance.SitePath{})
 	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
-	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState}
+	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState, SharedCode: e.sharedCode}
+	if e.sharedCode {
+		r.trace.Deviations = []string{"D18"}
+	}
 	r.settle = NewRunSettlement(func() { hooks.OnRunSettled(r.snapshot()) })
 	return r
 }

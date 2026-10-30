@@ -83,12 +83,13 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite is the exit gate of milestones E1, N1a and F1, and in host
-// mode part of F3b's: every run the flow suite requires passes in warm and
-// in fresh mode, through wl on the engine and the real Bun harness on the
-// pinned Bun, and in host mode, on a Bun host that embeds the host SDK and
-// runs the steps in its own process (hostmode.go), each compared with its
-// expect or recording. Every other fixture under
+// TestFlowSuite is the exit gate of milestones E1, N1a and F1, in host
+// mode part of F3b's, and with shared code part of F8b's: every run the
+// flow suite requires passes in warm and in fresh mode, through wl on the
+// engine and the real Bun harness on the pinned Bun, and in host mode, on a
+// Bun host that embeds the host SDK and runs the steps in its own process
+// (hostmode.go), and again in warm and host mode from bundles built with
+// shared code (ADR 0013), each compared with its expect or recording. Every other fixture under
 // conformance/flows, and every expression file under conformance/exprs as
 // its generated one-step flow fixture, also runs: each must load, and its
 // runs are reported as passing, failing or unsupported, with the reason.
@@ -110,9 +111,16 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
 	}
 	dirs = append(dirs, exprs...)
-	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh, ModeHost} {
-		t.Run(mode, func(t *testing.T) {
-			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js}
+	for _, c := range []struct {
+		mode   string
+		shared bool
+	}{{conformance.ModeWarm, false}, {conformance.ModeFresh, false}, {ModeHost, false}, {conformance.ModeWarm, true}, {ModeHost, true}} {
+		mode, name := c.mode, c.mode
+		if c.shared {
+			name += "-shared-code"
+		}
+		t.Run(name, func(t *testing.T) {
+			fc := &flowChecker{bun: bun, repo: root, mode: mode, sharedCode: c.shared, js: js}
 			type outcome struct {
 				res  runResult
 				seen bool
@@ -160,7 +168,7 @@ func TestFlowSuite(t *testing.T) {
 			}
 			slices.Sort(extra)
 			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
-				mode, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
+				name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
 			if len(extra) > 0 {
 				t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
 			}

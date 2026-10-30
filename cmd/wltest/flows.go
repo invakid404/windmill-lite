@@ -49,7 +49,10 @@ import (
 // or the effect sink.
 type flowChecker struct {
 	bun, repo, mode string
-	js              expr.Engine
+	// sharedCode builds each fixture's bundle with shared code (ADR 0013):
+	// warm and host-mode runs then run the scripts' shared-layout modules.
+	sharedCode bool
+	js         expr.Engine
 	// afterRuns, when set, is called in host mode once a fixture's runs
 	// have ended, before its host's teardown (tests: hostmode_test.go).
 	afterRuns func(*hostRuntime)
@@ -492,6 +495,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 			Folder:         root,
 			Contract:       data,
 			ModuleState:    engine.ModuleState(fc.moduleState()),
+			SharedCode:     fc.sharedCode,
 			EngineVersion:  wl.Version(),
 			Bun:            fc.bun,
 			Helper:         filepath.Join(fc.repo, "harnesses", "bun", "build", "main.ts"),

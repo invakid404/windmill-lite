@@ -240,12 +240,16 @@ case's `deviation` (a deviation of ADR 0001 §5, or `5a` for its fetch-only
 restriction), a `left` without `left_behind` among its `warnings` or
 with a count below 1, an `untracked` without `native_untracked` among its
 `warnings` or with a count below 1, a `codebase` that is not a mapping, `files` without
-`codebase` or with a path that leaves the sync root, a `node` check on a
+`codebase` other than a Bun script's workspace scripts (`f/<folder>/<name>.ts`)
+or with a path that leaves the sync root, a `scripts` path that is not a
+Windmill path, a run's `script` that is not one of the case's `scripts`, a `node` check on a
 case that is not a CommonJS codebase script or that gives more than
 `expect` and `claims`, a `language` other than `bun`, `bunnative` and
 `nativets`, a `timeout` that is not a positive number of seconds, and two
 cases of one file that give one path two sources (a file's scripts and
-files share one bundle). Only `bun` has a language directory: native steps
+files share one bundle). A file's `shared_code` builds its bundle with
+shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)).
+Only `bun` has a language directory: native steps
 run in the Bun harness (D5). `FindStepFiles` finds the files below its roots, `deferred.yaml`
 aside, and `IsStepFile` tells one by its path. The format is described in
 [conformance](../../conformance/README.md#step-cases).

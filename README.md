@@ -19,7 +19,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Forty-seven of the fifty-six milestones in ADR 0012's tables have landed,
+Forty-eight of the fifty-six milestones in ADR 0012's tables have landed,
 with follow-ups and spec corrections between them. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
@@ -51,7 +51,11 @@ code against; and C2a, the Bun side of the build (the same package and the
 scripts with Windmill's settings and records their signatures, annotations
 and workflow-as-code markers; and C2b, which bundles codebase scripts as
 the `wmill` CLI does, with esbuild through its Go API, and carries their
-assets. `selfcheck` runs the QuickJS-ng expression
+assets. With `-shared-code`, F8b's opt-in
+([ADR 0013](docs/design/0013-shared-module-code.md)), it also builds shared
+code: a `warm` or host-mode process then compiles each build group's
+dependency code once and gives each step module its own instance of it.
+`selfcheck` runs the QuickJS-ng expression
 engine of [internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
 `host` serves host mode, where a Bun program embeds the host SDK and starts
 `windmill-lite host` as its engine, which opens a built bundle with `wl`

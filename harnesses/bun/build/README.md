@@ -12,7 +12,8 @@ their sources (`parse`, below). Milestone C3n added the native form of
 `nativets` and `//native` scripts and the embedded client (below, "Native
 scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
 (below, step 3) and added the parse of host-provided modules outside the
-folder.
+folder. Milestone F8b added shared code (below, "Shared code") and the
+`kept` request.
 
 ## Running
 
@@ -31,7 +32,7 @@ there.
 `node_modules/` is not committed.
 
 The request and response types are in `protocol.ts`. A request is `scan`,
-`build` or `parse`; the Go side sends a scan first when the bundle has
+`build`, `parse` or `kept`; the Go side sends a scan first when the bundle has
 host-provided modules, writes their shims, then sends the build. `parse`
 (`Builder.parseEntry`) is for codebase scripts: for each entry it reports
 what its source records (annotations and bundler target, workflow-as-code
@@ -62,6 +63,7 @@ the rest are still built.
 | `wac.ts` | Workflow-as-code detection |
 | `native.ts` | The native form of a module, the nativets transpile, the `//useragent` and `//proxy` header, the embedded client |
 | `text.ts` | Rust's line and whitespace rules, for the textual scans |
+| `shared.ts` | Shared code: the support module, dependency references and closure entry, the closure id, the parse for kept `import()` |
 | `protocol.ts` | The request and response |
 
 ### Bundling each script
@@ -154,6 +156,40 @@ Sources are written under the dependency set's directory before bundling,
 so the paths a bundle's comments name are the same on every machine:
 `entry/<id>.ts`, `src/<Windmill path>.ts`, `host/<id>.mjs` and
 `node_modules/…`.
+
+### Shared code
+
+A `build` request with `shared_code` also builds shared code for its
+`bun` and `node` target scripts ([ADR 0013](../../../docs/design/0013-shared-module-code.md),
+D18; `buildShared`). Each script's per-script bundle is built as without it.
+
+- **Groups.** The scripts with one target and one lock, that is one
+  dependency set, form a group; `//native` ones form none. Its closure id is
+  `bun-` and twelve hex digits of the SHA-256 of what makes it.
+- **The shared-layout module** of a script is a second bundle of its entry
+  in which each import the entry's own bundle resolved to a module of the
+  dependency set (a workspace script under `src/`, a package under
+  `node_modules/`) becomes a reference to that module in the script's
+  instance of the closure: a CommonJS reference, or for an ES module an
+  ES module one whose named exports stay live and whose default, when it
+  has one, is read once. The env support module and the shims of
+  host-provided modules stay as the per-script bundle has them. An import
+  the per-script bundle dropped (a module it pruned) becomes an empty
+  module. It is written to `scripts/bun/<id>.shared.mjs`.
+- **The closure** is a CommonJS bundle of an entry that requires the env
+  support module first, then maps each module the group's scripts reach, by
+  its path in the dependency set's directory, to a function that requires
+  it; `import.meta` reads the instance's. It is written to
+  `<work>/closures/<id>.cjs`, and Go wraps it into its factory.
+- **Fallbacks.** A module whose closure build fails on top-level await,
+  which imports an external module statically (not a module the runtime
+  has built in), or whose code keeps an `import()`, found by parsing the
+  closure bundle with Babel (`keptImports`), keeps the scripts that reach
+  it on their per-script bundle, and the closure is built again without
+  them; the response records each script's closure or reason. A `kept`
+  request runs the same parse on the closure bundles the Go build made for
+  codebase groups and returns, for each, the modules that keep an
+  `import()`.
 
 ### Native scripts
 

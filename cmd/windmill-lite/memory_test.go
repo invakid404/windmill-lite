@@ -14,8 +14,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/evanw/esbuild/pkg/api"
-
 	"github.com/invakid404/windmill-lite/internal/bundle"
 )
 
@@ -31,10 +29,10 @@ import (
 //   - shared-instance: that module is a host-provided module (D12), so the
 //     host's one instance serves every step, as ADR 0013's options (a),
 //     (b) and (c1) would;
-//   - shared-code: the prototype of ADR 0013's decision. The module's
-//     CommonJS build (esbuild, WR-47's settings) is compiled once per
-//     process by a host-provided factory and instantiated once per step
-//     module, so each step keeps module state of its own.
+//   - shared-code: the same folder built with shared code (ADR 0013,
+//     milestone F8b): the module is in its build group's closure, compiled
+//     once per process, and each step module makes an instance of its own,
+//     so each step keeps module state of its own.
 //
 // TestModuleMemory is the public synthetic reproduction and runs wherever
 // the host-mode tests run. TestModuleMemoryClosure is the closure shaped
@@ -113,14 +111,15 @@ func compileHost(bun, entry, out string) error {
 	return nil
 }
 
-// buildMemBundle builds the sync folder with its host contract into out.
-func buildMemBundle(t *testing.T, bun, folder string, contract []byte, out string) {
+// buildMemBundle builds the sync folder with its host contract into out,
+// with shared code when shared is set.
+func buildMemBundle(t *testing.T, bun, folder string, contract []byte, out string, shared bool) {
 	t.Helper()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bundle.Build(context.Background(), bundle.Config{
+	res, err := bundle.Build(context.Background(), bundle.Config{
 		Folder:         folder,
 		Contract:       contract,
 		EngineVersion:  resolveVersion(),
@@ -129,50 +128,19 @@ func buildMemBundle(t *testing.T, bun, folder string, contract []byte, out strin
 		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
 		Out:            out,
 		Work:           out + ".work",
-	}); err != nil {
+		SharedCode:     shared,
+	})
+	if err != nil {
 		t.Fatalf("bundle.Build %s: %v", folder, err)
 	}
-}
-
-// buildClosure writes the CommonJS build of entry, bundled with esbuild in
-// the settings the pinned CLI uses for a codebase script (WR-47), to out.
-func buildClosure(t *testing.T, entry, out string) {
-	t.Helper()
-	r := api.Build(api.BuildOptions{
-		EntryPoints: []string{entry},
-		Outfile:     out,
-		Bundle:      true,
-		Write:       true,
-		Platform:    api.PlatformNode,
-		Format:      api.FormatCommonJS,
-		Engines:     []api.Engine{{Name: api.EngineNode, Version: "20.15.1"}},
-		Packages:    api.PackagesBundle,
-		LogLevel:    api.LogLevelSilent,
-	})
-	if len(r.Errors) > 0 {
-		t.Fatalf("esbuild %s: %s", entry, r.Errors[0].Text)
+	// Every script of the layout must have its shared layout: one that
+	// keeps its per-script bundle would measure per-script memory.
+	for _, w := range res.Warnings {
+		if strings.HasPrefix(w, bundle.WarningSharedCodeFallback) {
+			t.Errorf("bundle.Build %s: %s", folder, w)
+		}
 	}
 }
-
-// memFactory is the shared-code prototype's host-provided module: it
-// compiles the closure's CommonJS build once per process and makes one
-// instance of it per call, so each step module that calls it at load keeps
-// module state of its own while the code is parsed and compiled once.
-const memFactory = `// ADR 0013's shared-code prototype (cmd/windmill-lite/memory_test.go).
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname } from "node:path";
-import vm from "node:vm";
-
-const file = process.env.WL_CLOSURE ?? "";
-let compiled: ((...a: unknown[]) => void) | undefined;
-export function instance(): Record<string, any> {
-  compiled ??= vm.compileFunction(readFileSync(file, "utf8"), ["exports", "require", "module", "__filename", "__dirname"], { filename: file }) as never;
-  const module = { exports: {} as Record<string, any> };
-  compiled!.call(module.exports, module.exports, createRequire(file), module, file, dirname(file));
-  return module.exports;
-}
-`
 
 func writeFiles(t *testing.T, root string, files map[string]string) {
 	t.Helper()
@@ -273,9 +241,6 @@ func TestModuleMemory(t *testing.T) {
 	host := memHost(t, bun)
 	dir := t.TempDir()
 	big := synthStrings()
-	closure := filepath.Join(dir, "closure", "strings.cjs")
-	writeFiles(t, filepath.Join(dir, "closure"), map[string]string{"strings.ts": big})
-	buildClosure(t, filepath.Join(dir, "closure", "strings.ts"), closure)
 
 	for _, layout := range memLayouts {
 		t.Run(layout, func(t *testing.T) {
@@ -293,20 +258,15 @@ func TestModuleMemory(t *testing.T) {
 			case "shared-instance":
 				contract += "host_modules: [f/mem/strings.ts]\n"
 				hostModules = map[string]string{"f/mem/strings.ts": filepath.Join(folder, "f", "mem", "strings.ts")}
-			case "shared-code":
-				files["f/mem/factory.ts"] = memFactory
-				imports = "import { instance } from \"./factory.ts\";\n\nconst { state, strings } = instance();"
-				contract += "host_modules: [f/mem/factory.ts]\n"
-				hostModules = map[string]string{"f/mem/factory.ts": filepath.Join(folder, "f", "mem", "factory.ts")}
 			}
 			for n := 1; n <= 6; n++ {
 				files[fmt.Sprintf("f/mem/s%d.ts", n)] = fmt.Sprintf("%s\n\nexport async function main(i: number = 0, prev: Record<string, number> = {}) {\n  state.calls++;\n  return { ...prev, s%d: state.calls, len: strings[(i + %d) %% strings.length].length };\n}\n", imports, n, n)
 			}
 			writeFiles(t, folder, files)
 			out := filepath.Join(dir, layout+".bundle")
-			buildMemBundle(t, bun, folder, []byte(contract), out)
+			buildMemBundle(t, bun, folder, []byte(contract), out, layout == "shared-code")
 			mods, _ := json.Marshal(hostModules)
-			h := memHarness{t, superviseHost(t, []string{host}, out, 0, "WL_HOST_MODULES="+string(mods), "WL_CLOSURE="+closure)}
+			h := memHarness{t, superviseHost(t, []string{host}, out, 0, "WL_HOST_MODULES="+string(mods))}
 
 			connect := h.sample()
 			h.run("f/mem/one", 1, 1)
@@ -358,9 +318,10 @@ func TestModuleMemory(t *testing.T) {
 // generated API client, so that each step's bundle is about 6.9 MB, as the
 // embedder's are on average. It reports the host's resident set with one
 // module, with all 34, with eight concurrent runs of them, and after a
-// soak of 1,000 runs, as the embedder soaked its host; with the shared code of the prototype, the soak's peak must stay
-// within the embedder's 650 MiB budget. It runs only with WL_MEMORY_PROBE
-// set.
+// soak of 1,000 runs, as the embedder soaked its host. With shared code,
+// ADR 0013's memory gate holds: each further module costs at most 16 MiB
+// and the soak's peak stays within the embedder's 650 MiB budget. It runs
+// only with WL_MEMORY_PROBE set.
 func TestModuleMemoryClosure(t *testing.T) {
 	if os.Getenv("WL_MEMORY_PROBE") == "" {
 		t.Skip("WL_MEMORY_PROBE is not set; this probe needs the network once and about 2 GiB of memory")
@@ -388,8 +349,6 @@ func TestModuleMemoryClosure(t *testing.T) {
 	}
 	writeFiles(t, filepath.Join(dir, "node_modules", "synth-sdk"), synthSDK(90, 60))
 	writeFiles(t, filepath.Join(dir, "lib"), map[string]string{"shared.ts": closureShared})
-	closure := filepath.Join(dir, "closure", "shared.cjs")
-	buildClosure(t, filepath.Join(dir, "lib", "shared.ts"), closure)
 
 	all := make([]int, steps)
 	for k := range all {
@@ -421,20 +380,15 @@ func TestModuleMemoryClosure(t *testing.T) {
 				if err := compileHost(bun, entry, host); err != nil {
 					t.Fatal(err)
 				}
-			case "shared-code":
-				files["f/cb/factory.ts"] = memFactory
-				imports = "import { instance } from \"./factory\";\n\nconst { client, describe, model } = instance();"
-				contract += "host_modules: [f/cb/factory.ts]\n"
-				hostModules = map[string]string{"f/cb/factory.ts": filepath.Join(folder, "f", "cb", "factory.ts")}
 			}
 			for n := 1; n <= steps; n++ {
 				files[fmt.Sprintf("f/cb/s%02d.ts", n)] = fmt.Sprintf("%s\n\nexport async function main(i: number = 0) {\n  const own = Array.from({ length: %d }, (_, k) => k * i);\n  return { step: %d, d: describe(i), m: model.modelName, calls: client.calls, own: own.length };\n}\n", imports, n, n)
 			}
 			writeFiles(t, folder, files)
 			out := filepath.Join(dir, layout+".bundle")
-			buildMemBundle(t, bun, folder, []byte(contract), out)
+			buildMemBundle(t, bun, folder, []byte(contract), out, layout == "shared-code")
 			mods, _ := json.Marshal(hostModules)
-			h := memHarness{t, superviseHost(t, []string{host}, out, 0, "WL_HOST_MODULES="+string(mods), "WL_CLOSURE="+closure)}
+			h := memHarness{t, superviseHost(t, []string{host}, out, 0, "WL_HOST_MODULES="+string(mods))}
 
 			connect := h.sample()
 			h.run("f/flows/e1", 1, 1)
@@ -446,10 +400,14 @@ func TestModuleMemoryClosure(t *testing.T) {
 			soak := h.run("f/flows/all", 8, 125)
 			after := h.sample()
 			mib := func(b int64) float64 { return float64(b) / (1 << 20) }
+			perModule := (loaded.mib() - one.mib()) / (steps - 1)
 			t.Logf("%s: %.1f MiB at connect, %.1f after one module, %.1f after %d (%.2f MiB per further module; first run %.0f ms), %.1f after eight concurrent runs, %.1f after 1,000 runs, 125 rounds of eight (%.0f ms); peak %.1f MiB",
-				layout, connect.mib(), one.mib(), loaded.mib(), steps, (loaded.mib()-one.mib())/(steps-1), first.MS, eight.mib(), after.mib(), soak.MS, mib(after.Peak))
+				layout, connect.mib(), one.mib(), loaded.mib(), steps, perModule, first.MS, eight.mib(), after.mib(), soak.MS, mib(after.Peak))
 			if loaded.Modules != steps {
 				t.Fatalf("modules loaded: %d; want %d", loaded.Modules, steps)
+			}
+			if layout == "shared-code" && perModule > 16 {
+				t.Errorf("shared-code: %.2f MiB per further module; want at most 16", perModule)
 			}
 			if layout == "shared-code" && mib(after.Peak) > 650 {
 				t.Errorf("shared-code: peak %.1f MiB after the soak; the embedder's budget is 650", mib(after.Peak))

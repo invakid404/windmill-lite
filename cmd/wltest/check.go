@@ -58,6 +58,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	node := fs.String("node", os.Getenv("WL_NODE"), "the Node executable that runs CommonJS codebase bundles as Windmill does (D13); empty skips that side")
 	repo := fs.String("repo", "", "the repository root, which holds harnesses/bun (default: found from the working directory)")
 	verbose := fs.Bool("v", false, "print the harness diagnostics of every failed case or run")
+	shared := fs.Bool("shared-code", false, "build every bundle with shared code (ADR 0013): warm and host-mode runs run the scripts' shared-layout modules; a step file can ask for it itself (shared_code)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -108,7 +109,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	failed, passed, unsupported := 0, 0, 0
-	sc := &stepChecker{bun: *bun, node: *node, repo: root, mode: *mode}
+	sc := &stepChecker{bun: *bun, node: *node, repo: root, mode: *mode, sharedCode: *shared}
 	for _, path := range files {
 		f, err := conformance.LoadStepFile(path)
 		if err != nil {
@@ -139,7 +140,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		defer js.Close()
-		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, js: js}
+		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, sharedCode: *shared, js: js}
 		for _, fr := range fc.runFixtures(ctx, dirs) {
 			if fr.err != nil {
 				fmt.Fprintln(stdout, "invalid", fr.dir, fr.err)
@@ -200,6 +201,9 @@ func findFixtures(args []string) ([]string, error) {
 // runs CommonJS codebase bundles on Node (D13).
 type stepChecker struct {
 	bun, node, repo, mode string
+	// sharedCode builds every step file's bundle with shared code, as a
+	// file's own shared_code does (ADR 0013).
+	sharedCode bool
 }
 
 // caseResult is how one case went: what failed, if anything, and the
@@ -265,14 +269,28 @@ func (sc *stepChecker) runFile(ctx context.Context, f *conformance.StepFile) []c
 			results[i].problems = []string{"build: " + p}
 			continue
 		}
+		for _, other := range slices.Sorted(maps.Keys(c.Scripts)) {
+			if p, ok := problems[otherID(f, c, other)]; ok {
+				results[i].problems = append(results[i].problems, "build: "+other+": "+p)
+			}
+		}
+		if len(results[i].problems) > 0 {
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i].problems, results[i].diag = sc.runCase(ctx, c, out, digest, caseID(f, c))
+			id := func(path string) string {
+				if path == "" {
+					return caseID(f, c)
+				}
+				return otherID(f, c, path)
+			}
+			results[i].problems, results[i].diag = sc.runCase(ctx, c, out, digest, id)
 			if wrapper != "" && onNode(c) {
-				results[i].problems = append(results[i].problems, sc.runNodeCase(ctx, c, out, caseID(f, c), wrapper, work)...)
+				results[i].problems = append(results[i].problems, sc.runNodeCase(ctx, c, out, id, wrapper, work)...)
 			}
 		}()
 	}
@@ -290,6 +308,12 @@ func failAll(rs []caseResult, problem string) []caseResult {
 // caseID is the inventory id of a case's script in its file's bundle.
 func caseID(f *conformance.StepFile, c *conformance.StepCase) string {
 	return strings.ToLower(f.Finding) + "/" + c.Name()
+}
+
+// otherID is the inventory id of another script of a case (Scripts), by
+// its path.
+func otherID(f *conformance.StepFile, c *conformance.StepCase, path string) string {
+	return caseID(f, c) + "/" + strings.ReplaceAll(path, "/", "_")
 }
 
 // build writes f's scripts into a sync folder below work and builds them
@@ -311,11 +335,12 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 		return os.WriteFile(p, []byte(src), 0o644)
 	}
 	cfg := bundle.BunConfig{
-		Bun:    sc.bun,
-		Helper: filepath.Join(sc.repo, "harnesses", "bun", "build", "main.ts"),
-		Folder: folder,
-		Out:    out,
-		Work:   filepath.Join(work, "build"),
+		Bun:        sc.bun,
+		Helper:     filepath.Join(sc.repo, "harnesses", "bun", "build", "main.ts"),
+		Folder:     folder,
+		Out:        out,
+		Work:       filepath.Join(work, "build"),
+		SharedCode: f.SharedCode || sc.sharedCode,
 	}
 	hosts := map[string]bool{}
 	var codebase []bundle.CodebaseScript
@@ -332,12 +357,26 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 			if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
 				return "", "", nil, err
 			}
+			// A Bun script's workspace import resolves to a script of the
+			// folder (WR-28).
+			if c.Codebase == nil {
+				scripts[strings.TrimSuffix(p, ".ts")] = p
+			}
 		}
-		if c.Codebase != nil {
-			codebase = append(codebase, bundle.CodebaseScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts", Settings: c.Codebase})
-		} else {
+		entry := func(id, path string) {
+			if c.Codebase != nil {
+				codebase = append(codebase, bundle.CodebaseScript{ID: id, Path: path, File: path + ".ts", Settings: c.Codebase})
+				return
+			}
 			lang, _ := language(c)
-			cfg.Entries = append(cfg.Entries, bundle.BunScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts", Language: string(lang)})
+			cfg.Entries = append(cfg.Entries, bundle.BunScript{ID: id, Path: path, File: path + ".ts", Language: string(lang)})
+		}
+		entry(caseID(f, c), c.ScriptPath())
+		for _, p := range slices.Sorted(maps.Keys(c.Scripts)) {
+			if err := write(p, c.Scripts[p]); err != nil {
+				return "", "", nil, err
+			}
+			entry(otherID(f, c, p), p)
 		}
 		for _, h := range c.HostModules {
 			if hosts[h.Path] {
@@ -382,7 +421,7 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 		}
 		_, err := bundle.BuildCodebase(ctx, bundle.CodebaseConfig{
 			Bun: cfg.Bun, Helper: cfg.Helper, Folder: folder, Out: out, Work: filepath.Join(work, "codebase"),
-			Entries: codebase, HostModules: chosts,
+			Entries: codebase, HostModules: chosts, SharedCode: f.SharedCode || sc.sharedCode,
 		})
 		if err := collect(err); err != nil {
 			return "", "", nil, err
@@ -405,7 +444,7 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 // its own, which ends with it. The late reports of a run are compared at
 // the end of the case, so that one its work makes after it settled, which
 // the D9 fence must stop, is seen.
-func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out, digest, id string) ([]string, string) {
+func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out, digest string, id func(path string) string) ([]string, string) {
 	var diag syncBuffer
 	// The case's own platform facade (ADR 0007, milestone PF1), in its
 	// default fail mode: a warm process reaches it through the intercepted
@@ -472,7 +511,7 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 			}
 		}
 		var prs []string
-		prs, recs[i] = sc.runOne(ctx, f.Executor(p), calls, c, &c.Runs[i], id, runID)
+		prs, recs[i] = sc.runOne(ctx, f.Executor(p), calls, c, &c.Runs[i], id(c.Runs[i].Script), runID)
 		if warm == nil {
 			end(p)
 		}
@@ -697,12 +736,12 @@ func (sc *stepChecker) nodeWrapper(ctx context.Context, work string) (string, er
 // directory of its own as Windmill runs each job (WR-1, WR-50), and
 // compares what it shows with the run's node check, or its own check
 // when the two runtimes agree (D13).
-func (sc *stepChecker) runNodeCase(ctx context.Context, c *conformance.StepCase, out, id, wrapper, work string) []string {
+func (sc *stepChecker) runNodeCase(ctx context.Context, c *conformance.StepCase, out string, id func(path string) string, wrapper, work string) []string {
 	var problems []string
 	runID := newUUID()
 	for i := range c.Runs {
 		r := &c.Runs[i]
-		got, err := sc.runNode(ctx, c, r, out, id, wrapper, work, runID)
+		got, err := sc.runNode(ctx, c, r, out, id(r.Script), wrapper, work, runID)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("run %d on node: %v", i+1, err))
 			continue

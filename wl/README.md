@@ -1,13 +1,14 @@
 # wl
 
-**Current state:** milestones F1, F2a, F2b, F3a and F2c of
+**Current state:** milestones F1, F2a, F2b, F3a, F2c and F8b of
 [ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
 [ADR 0009](../docs/design/0009-host-adapters.md), the host hooks of
 [ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
 bundle's mandatory host-provided sites (F2a), its budgets and latches
 (F2b: write-capable steps and the first-write signal, deadlines, the
 latch, fatal error names, the clock and the jitter), host mode (F3a),
-and host plugins in TypeScript over `host_call` (F2c). This README covers `wl`,
+and host plugins in TypeScript over `host_call` (F2c), and the shared code
+of [ADR 0013](../docs/design/0013-shared-module-code.md) (F8b). This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
@@ -345,12 +346,15 @@ bridge).
 
 `BuildInfo()` reports the bundle digest, the engine version, the Bun and
 esbuild versions, the harness runtime digests, the module state in effect,
-the host contract, the deviations in effect and whether the bundle was
+whether steps run shared code (`SharedCode`: the bundle was built with it
+and steps run warm, as in host mode; ADR 0013), the host contract, the deviations in effect and whether the bundle was
 built on another Bun (`nonconformant_runtime`). The deviations are the
 manifest's, with those of the module state in effect in place of the
 manifest's mode's when `Options.ModuleState` overrode it (D1, D2, D9, D10
-and D11 are warm mode's, ADR 0006; `bundle.ModeDeviations`, the rule the
-build lists them by).
+and D11 are warm mode's, ADR 0006, as D18 is for a bundle with shared code;
+`bundle.ModeDeviations`, the rule the build lists them by). A run's trace
+records shared code too (`Trace.SharedCode`, and `shared_code` in the
+trace a host plugin reads), with D18 among its deviations.
 
 `Close()` stops admitting runs, cancels the runs in flight and the
 dispatcher's and waits for them, then drains the harness pool (in host

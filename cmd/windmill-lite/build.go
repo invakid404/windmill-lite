@@ -27,6 +27,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	mismatch := fs.Bool("bun-mismatch", false, "build on a Bun other than 1.3.10 and mark the bundle nonconformant_runtime")
 	mode := fs.String("module-state", string(engine.ModuleStateWarm), "the module-state `mode`: warm or fresh")
 	strict := fs.Bool("strict", false, "refuse absent for-loop skip_failures and branchall skip_failure instead of defaulting them")
+	shared := fs.Bool("shared-code", false, "build with shared code (ADR 0013): warm and host-mode processes compile each build group's dependency modules once and give each step module its own instance of them (D18)")
 	work := fs.String("work", "", "a scratch `directory` for dependency installs (default: a temporary one)")
 	verbose := fs.Bool("verbose", false, "copy the build helper's output to stderr")
 	pos, ok := parse(fs, args)
@@ -48,6 +49,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		Folder:           pos[0],
 		Strict:           *strict,
 		ModuleState:      engine.ModuleState(*mode),
+		SharedCode:       *shared,
 		EngineVersion:    resolveVersion(),
 		Bun:              *bun,
 		Helper:           *helper,

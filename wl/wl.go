@@ -384,7 +384,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.js, err = quickjs.New(quickjs.Options{Slots: opts.ExpressionSlots}); err != nil {
 		return nil, err
 	}
-	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide}); err != nil {
+	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, SharedCode: rt.sharedCode(), Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide}); err != nil {
 		return nil, err
 	}
 	// The default dispatcher runs the bundle's roots as runs of their own
@@ -501,8 +501,11 @@ type BuildInfo struct {
 	// runtimes the bundle was built for.
 	HarnessRuntimes map[string]string
 	// ModuleState is the mode the runtime runs steps in, the manifest's
-	// unless Options overrode it.
+	// unless Options overrode it; SharedCode says that its steps run the
+	// shared-layout modules of a bundle built with shared code (ADR 0013),
+	// in warm mode.
 	ModuleState string
+	SharedCode  bool
 	// Contract is the host contract the bundle was compiled against, as
 	// the manifest holds it (JSON).
 	Contract json.RawMessage
@@ -531,10 +534,17 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 		EsbuildVersion:       rt.manifest.Bundlers.Esbuild,
 		HarnessRuntimes:      runtimes,
 		ModuleState:          string(rt.state),
+		SharedCode:           rt.sharedCode(),
 		Contract:             contract,
-		Deviations:           bundle.ModeDeviations(rt.manifest.Deviations, rt.state),
+		Deviations:           bundle.ModeDeviations(rt.manifest.Deviations, rt.state, rt.manifest.SharedCode),
 		NonconformantRuntime: rt.manifest.NonconformantRuntime,
 	}
+}
+
+// sharedCode reports whether the runtime's steps run shared-layout modules
+// (ADR 0013): the bundle has shared code, and steps run warm.
+func (rt *Runtime) sharedCode() bool {
+	return rt.manifest.SharedCode && rt.state == engine.ModuleStateWarm
 }
 
 // closeTimeout bounds the drain of the runs in flight, the dispatcher's

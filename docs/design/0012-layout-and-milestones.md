@@ -731,6 +731,27 @@ waits on an external gate except R1.
   `WL_MEMORY_PROBE`; F8b replaces their shared-code prototype with the real
   layout.
 
+- F8b builds shared code: `windmill-lite build -shared-code` gives each
+  build group one closure and each script a shared-layout module, in
+  [internal/bundle](../../internal/bundle/README.md) for codebase groups
+  and the Bun build helper for Bun-built ones, and the harness runtime
+  loads them outside `fresh`. Its gate:
+  - the 26 cases of `conformance/steps/bun/d18.yaml` and
+    `conformance/build/d18.json`, named `D18` with variants, since the
+    letters of 0013 are not catalogue cases;
+  - the flow suite, whose 669 required runs pass in `warm` and host mode
+    with shared code as without;
+  - the memory gate: the real layout holds the synthetic reproduction at
+    0.17 MiB per further module, and the embedder-shaped closure at
+    450 MiB with 34 modules loaded and a 497 MiB peak after 1,000 runs, at
+    10.3 MiB per further module.
+
+  It corrected 0013 on two points: both bundlers keep import order, so
+  initialisation order is no difference; and an ES module dependency's
+  default export is read once, since it is reached through an ES module
+  reference. It also fixed a bug on main: a codebase entry whose `define`
+  gives an object value failed to build.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records

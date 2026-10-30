@@ -15,8 +15,8 @@ result behind its own platform call, and fixed the borrowed reading
 methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
 ([WR-55](../../docs/semantics/languages.md#wr-55), below); milestone
-F3a, which completed the host SDK; and milestone F2c, host plugins
-answered over `host_call` (below). This
+F3a, which completed the host SDK; milestone F2c, host plugins
+answered over `host_call`; and milestone F8b, shared code (below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
@@ -80,7 +80,25 @@ cannot corrupt the protocol.
   in the job directory beside its assets
   ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
   `__filename` and `import.meta`, and the relative paths its own `require`
-  resolves at run time, are the working directory's (`moduleFile`).
+  resolves at run time, are the working directory's (`moduleFile`). The
+  runtime keeps only the metadata fields it reads (`runtimeMeta`:
+  `bundler`, `format`, `boundary`, `native`, `signatures`, `shared`), so a
+  process does not hold every script's metafile.
+- **Shared code** ([ADR 0013](../../docs/design/0013-shared-module-code.md),
+  D18). For a script whose metadata names a closure (`shared.closure`), in
+  warm mode and host mode, the module is its shared-layout module,
+  `<id>.shared.mjs` or `<id>.shared.cjs`, from the same working-directory
+  copy for a codebase script; fresh mode, and a script that keeps its
+  per-script bundle (`shared.fallback`), load the per-script one. The
+  runtime installs a process-wide registry,
+  `globalThis[Symbol.for("windmill-lite.closures")]`, before any module
+  loads (`installClosures`): `instance(id, scope)` loads the closure
+  factory `scripts/bun/closures/<id>.cjs` once per process and makes a
+  fresh instance of it with the calling module's `require`, file names and
+  `import.meta`. Each step module that asks has an instance of its own, so
+  module state stays per script while the dependency code is compiled
+  once; a dependency module initialises in an instance on its first
+  reference. Loading a closure runs none of its modules.
 - **Codebase assets.** A harness the engine spawned copies the bundle's
   `assets/` into its working directory, at their paths there, before any
   module loads (`extractAssets`; [ADR 0002](../../docs/design/0002-ir-and-loader.md),

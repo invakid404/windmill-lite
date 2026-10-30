@@ -521,7 +521,7 @@ func traceJSON(t *Trace) map[string]any {
 		calls = append(calls, e)
 	}
 	m := map[string]any{
-		"run": t.RunID, "bundle": t.Bundle, "module_state": t.ModuleState, "status": t.Status, "may_have_mutated": t.MayHaveMutated, "cached": t.Cached,
+		"run": t.RunID, "bundle": t.Bundle, "module_state": t.ModuleState, "shared_code": t.SharedCode, "status": t.Status, "may_have_mutated": t.MayHaveMutated, "cached": t.Cached,
 		"steps": steps, "children": children, "warnings": ws, "deviations": append([]string{}, t.Deviations...), "spans": spans, "platform_calls": calls,
 	}
 	if r := storedText(t.Result); r != nil {

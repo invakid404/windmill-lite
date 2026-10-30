@@ -26,7 +26,8 @@ leaf's `Invocation.Around`, and the latch on an invocation's
 `plugin_error` warning (`WarningPluginError`, `PluginError`) or on a
 step's `wl.latch` (`WarningLatch`, `StepLatch`), which `LatchOf` maps; a
 script job latches too (`ScriptResult.Latched`), and its latched job has
-failed with no result, for the dispatcher as for `wl`. This README
+failed with no result, for the dispatcher as for `wl`; and milestone
+F8b's `Config.SharedCode` (below). This README
 covers `internal/engine`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -1090,7 +1091,11 @@ an engine with none keeps one of its own, per process, D4)
 
 `Config.ModuleState` is the module-state mode every invocation runs in
 (ADR 0006), warm by default, which the trace records; `wltest check` runs
-the FX-40 fixtures in both.
+the FX-40 fixtures in both. `Config.SharedCode` says that the bundle's
+steps run their shared-layout modules
+([ADR 0013](../../docs/design/0013-shared-module-code.md)); it is valid in
+`warm` only (`New` refuses it in another mode), and the trace records it
+(`Trace.SharedCode`) with D18 first among the run's deviations.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered

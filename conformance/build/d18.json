@@ -1,0 +1,277 @@
+{
+  "finding": "D18",
+  "note": "Shared code (ADR 0013, ADR 0001 \u00a75 D18): what a bundle built with it holds. Each case builds a whole sync folder with shared_code and checks each script's record (its group's closure, by a case-local label: one label is one closure, two labels two; a fallback with its reason; or none), what each closure holds, and, for t-closure-membership, that the per-script bundles are the same bytes as without shared code. What a script sees at run time is conformance/steps/bun/d18.yaml's.",
+  "cases": [
+    {
+      "spec": "D18",
+      "variant": "t-closure-membership",
+      "provenance": "policy",
+      "title": "a group's dependency modules are in its closure once, the scripts' own entries and the host-provided modules are not, and the per-script bundles stay the same bytes",
+      "note": "The host-provided module's file loads as its shim, under its own path (milestone F3h), so the closure names the path but holds the shim, which reads the registry, not the module's text. It also holds D18/w and D18/x: the folder is built again without shared code, every per-script module is the same bytes, and the manifest's digest differs; the manifest records shared_code, lists the closure and D18.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/cb/lib/**\ncodebases:\n  - relative_path: f/cb\n    includes:\n      - f/cb/**\n",
+          "f/cb/a.ts": "import { dep } from \"./lib/dep\";\nimport { pkg } from \"pkg-t\";\nexport function main() { return [dep(), pkg]; }\n",
+          "f/cb/b.ts": "import { dep } from \"./lib/dep\";\nimport { main as aMain } from \"./a\";\nexport function main() { return [dep(), typeof aMain]; }\n",
+          "f/cb/lib/dep.ts": "import { ctx } from \"../../host/ctx\";\nexport function dep() { return ctx.tag; }\n",
+          "f/host/ctx.ts": "export const ctx = { tag: \"ctx\" };\n",
+          "node_modules/pkg-t/package.json": "{\"name\": \"pkg-t\", \"version\": \"1.0.0\", \"main\": \"index.js\"}\n",
+          "node_modules/pkg-t/index.js": "exports.pkg = \"pkg\";\n"
+        },
+        "contract": "roots:\n  - script: f/cb/a\n  - script: f/cb/b\nhost_modules: [f/host/ctx.ts]\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/cb/a": "closure:A",
+            "f/cb/b": "closure:A"
+          },
+          "closures": {
+            "A": {
+              "once": [
+                "f/cb/lib/dep.ts",
+                "node_modules/pkg-t/index.js",
+                "f/cb/a.ts",
+                "f/host/ctx.ts"
+              ],
+              "contains": [
+                "Symbol.for(\"windmill-lite.hostModules\")"
+              ],
+              "not_contains": [
+                "// f/cb/b.ts\n",
+                "tag: \"ctx\""
+              ]
+            }
+          },
+          "per_script_identical": true
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "u-groups",
+      "provenance": "policy",
+      "title": "codebase entries with other settings, an ordinary Bun script and a //nodejs one, and CommonJS entries with and without a leading use strict each get a closure of their own",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/shared/**\ncodebases:\n  - relative_path: f/c1\n    includes:\n      - f/c1/**\n  - relative_path: f/c2\n    includes:\n      - f/c2/**\n    define:\n      WL_FLAG: '\"two\"'\n",
+          "f/shared/both.ts": "export const both = \"both\";\n",
+          "f/c1/s.ts": "\"use strict\";\nimport { both } from \"../shared/both\";\nexport function main() { return both; }\n",
+          "f/c1/t.ts": "import { both } from \"../shared/both\";\nexport function main() { return both; }\n",
+          "f/c2/u.ts": "import { both } from \"../shared/both\";\nexport function main() { return both; }\n",
+          "f/b/w.ts": "export const w = \"w\";\n",
+          "f/b/one.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n",
+          "f/b/two.ts": "//nodejs\nimport { w } from \"./w.ts\";\nexport function main() { return w; }\n"
+        },
+        "contract": "roots:\n  - script: f/c1/s\n  - script: f/c1/t\n  - script: f/c2/u\n  - script: f/b/one\n  - script: f/b/two\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/c1/s": "closure:S",
+            "f/c1/t": "closure:T",
+            "f/c2/u": "closure:U",
+            "f/b/one": "closure:B1",
+            "f/b/two": "closure:B2"
+          },
+          "closures": {
+            "S": {
+              "once": [
+                "f/shared/both.ts"
+              ]
+            },
+            "T": {
+              "once": [
+                "f/shared/both.ts"
+              ]
+            },
+            "U": {
+              "once": [
+                "f/shared/both.ts"
+              ]
+            },
+            "B1": {
+              "once": [
+                "src/f/b/w.ts"
+              ]
+            },
+            "B2": {
+              "once": [
+                "src/f/b/w.ts"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "v-installations",
+      "provenance": "policy",
+      "title": "Bun scripts installed from one lock are one group, scripts of another lock another, and a workspace module both import resolves its package through each lock",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/v/w.ts": "import { version } from \"pkg-v\";\nexport const w = version;\n",
+          "f/v/a.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n",
+          "f/v/b.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n",
+          "f/v/c.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n"
+        },
+        "packages": {
+          "pkg-v@1.0.0": {
+            "index.js": "export const version = \"version one\";\n"
+          },
+          "pkg-v@2.0.0": {
+            "index.js": "export const version = \"version two\";\n"
+          }
+        },
+        "locks": {
+          "f/v/a.ts": {
+            "pkg-v": "1.0.0"
+          },
+          "f/v/b.ts": {
+            "pkg-v": "1.0.0"
+          },
+          "f/v/c.ts": {
+            "pkg-v": "2.0.0"
+          }
+        },
+        "contract": "roots:\n  - script: f/v/a\n  - script: f/v/b\n  - script: f/v/c\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/v/a": "closure:V1",
+            "f/v/b": "closure:V1",
+            "f/v/c": "closure:V2"
+          },
+          "closures": {
+            "V1": {
+              "once": [
+                "src/f/v/w.ts"
+              ],
+              "contains": [
+                "version one"
+              ],
+              "not_contains": [
+                "version two"
+              ]
+            },
+            "V2": {
+              "once": [
+                "src/f/v/w.ts"
+              ],
+              "contains": [
+                "version two"
+              ],
+              "not_contains": [
+                "version one"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "y-fallbacks",
+      "provenance": "policy",
+      "title": "a script keeps its per-script bundle where one closure cannot serve it, with the reason, and the others of its group keep their shared layout",
+      "note": "The reasons: a banner on its entry, an object or array define value, top-level await in a dependency (an ES module group, since a CommonJS bundle cannot hold it either), a static import of an external module from a dependency in an ES module group (a Node builtin is not one), a kept import() in a dependency, and a cycle through its own entry. Each such script gets the shared_code_fallback warning.",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\nexcludes:\n  - f/y3/lib/**\n  - f/y4/lib/**\ncodebases:\n  - relative_path: f/y1\n    includes:\n      - f/y1/**\n    banner:\n      js: '// a banner'\n  - relative_path: f/y2\n    includes:\n      - f/y2/**\n    define:\n      WL_OBJ: '{\"a\": 1}'\n  - relative_path: f/y3\n    includes:\n      - f/y3/**\n  - relative_path: f/y4\n    includes:\n      - f/y4/**\n    format: esm\n    external: [y-external]\n",
+          "f/y1/a.ts": "export function main() { return 1; }\n",
+          "f/y2/a.ts": "export function main() { return 2; }\n",
+          "f/y3/cyc.ts": "import { back } from \"./lib/back\";\nexport const name = \"cyc\";\nexport function main() { return back(); }\n",
+          "f/y3/lib/back.ts": "import { name } from \"../cyc\";\nexport function back() { return name; }\n",
+          "f/y3/dyn.ts": "import { load } from \"./lib/load\";\nexport function main(spec: string) { return load(spec); }\n",
+          "f/y3/lib/load.ts": "export function load(spec: string) { return import(spec); }\n",
+          "f/y3/ok.ts": "import { fine } from \"./lib/fine\";\nexport function main() { return fine; }\n",
+          "f/y3/lib/fine.ts": "import { readFileSync } from \"node:fs\";\nexport const fine = typeof readFileSync;\n",
+          "f/y4/tla.ts": "import { later } from \"./lib/later\";\nexport function main() { return later; }\n",
+          "f/y4/lib/later.ts": "export const later = await Promise.resolve(\"later\");\n",
+          "f/y4/ext.ts": "import { ext } from \"./lib/ext\";\nexport function main() { return ext; }\n",
+          "f/y4/lib/ext.ts": "import { thing } from \"y-external\";\nexport const ext = thing;\n",
+          "f/y4/ok.ts": "import { sep } from \"node:path\";\nimport { fine } from \"./lib/fine\";\nexport function main() { return [sep, fine]; }\n",
+          "f/y4/lib/fine.ts": "import { join } from \"node:path\";\nexport const fine = typeof join;\n"
+        },
+        "contract": "roots:\n  - script: f/y1/a\n  - script: f/y2/a\n  - script: f/y3/cyc\n  - script: f/y3/dyn\n  - script: f/y3/ok\n  - script: f/y4/tla\n  - script: f/y4/ext\n  - script: f/y4/ok\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/y1/a": "fallback:banner",
+            "f/y2/a": "fallback:define_object",
+            "f/y3/cyc": "fallback:entry_cycle",
+            "f/y3/dyn": "fallback:dynamic_import",
+            "f/y3/ok": "closure:Y3",
+            "f/y4/tla": "fallback:top_level_await",
+            "f/y4/ext": "fallback:external_import",
+            "f/y4/ok": "closure:Y4"
+          },
+          "closures": {
+            "Y3": {
+              "once": [
+                "f/y3/lib/fine.ts"
+              ]
+            },
+            "Y4": {
+              "once": [
+                "f/y4/lib/fine.ts"
+              ]
+            }
+          }
+        },
+        "warnings": [
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback",
+          "shared_code_fallback"
+        ]
+      }
+    },
+    {
+      "spec": "D18",
+      "variant": "z-natives",
+      "provenance": "policy",
+      "title": "a native script is in no group and keeps its native form, as without shared code",
+      "given": {
+        "shared_code": true,
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
+          "f/z/n.ts": "//native\nexport function main() { return \"native\"; }\n",
+          "f/z/w.ts": "export const w = \"w\";\n",
+          "f/z/r.ts": "import { w } from \"./w.ts\";\nexport function main() { return w; }\n"
+        },
+        "contract": "roots:\n  - script: f/z/n\n  - script: f/z/r\n"
+      },
+      "expect": {
+        "shared": {
+          "scripts": {
+            "f/z/n": "none",
+            "f/z/r": "closure:R"
+          },
+          "closures": {
+            "R": {
+              "once": [
+                "src/f/z/w.ts"
+              ]
+            }
+          }
+        },
+        "entries": {
+          "f/z/n": {
+            "boundary": "native"
+          }
+        }
+      }
+    }
+  ]
+}

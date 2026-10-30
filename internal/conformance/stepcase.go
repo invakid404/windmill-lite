@@ -54,9 +54,13 @@ type StepFile struct {
 	// Finding is the finding (or deviation) whose cases the file holds.
 	Finding string `json:"finding"`
 	// Scope is the finding's scope; a case gives its own where it differs.
-	Scope string     `json:"scope"`
-	Note  string     `json:"note,omitempty"`
-	Cases []StepCase `json:"cases"`
+	Scope string `json:"scope"`
+	Note  string `json:"note,omitempty"`
+	// SharedCode builds the file's bundle with shared code (ADR 0013):
+	// warm runs then run the scripts' shared-layout modules, and fresh
+	// runs their per-script bundles.
+	SharedCode bool       `json:"shared_code,omitempty"`
+	Cases      []StepCase `json:"cases"`
 }
 
 // StepCase is one step case: one script, and the runs of it that one
@@ -105,8 +109,15 @@ type StepCase struct {
 	Codebase json.RawMessage `json:"codebase,omitempty"`
 	// Files are other files of the folder, by path from the sync root,
 	// that a codebase build reads: modules the script imports, inject
-	// files, asset sources.
+	// files, asset sources. A Bun script's are workspace scripts it imports
+	// (f/<folder>/<name>.ts, WR-28).
 	Files map[string]string `json:"files,omitempty"`
+	// Scripts are other entry scripts of the case, by Windmill path, built
+	// as its script is (a Bun script, or a codebase script with its
+	// settings); a run invokes one by its path. Every script's runs go to
+	// one process in warm mode, which is how shared code's cases show what
+	// two scripts that share a dependency module see (ADR 0013).
+	Scripts map[string]string `json:"scripts,omitempty"`
 	// Setup holds the variables and resources the case's platform facade
 	// serves (milestone PF2), in setup.yaml's format; a secret's value is
 	// its plaintext, which the runner passes to the facade as a host
@@ -178,6 +189,9 @@ type StepRun struct {
 	// run without it must show its own check on Node too.
 	Node *StepCheck `json:"node,omitempty"`
 	Note string     `json:"note,omitempty"`
+	// Script is the path of the case's other script the run invokes, one
+	// of Scripts; empty means the case's own script.
+	Script string `json:"script,omitempty"`
 }
 
 // StepCheck is what a run must show in a configuration.
@@ -342,6 +356,9 @@ func (c *StepCase) scripts() map[string]string {
 	for p, text := range c.Files {
 		m["file:"+p] = text
 	}
+	for p, text := range c.Scripts {
+		m[p] = text
+	}
 	return m
 }
 
@@ -369,7 +386,11 @@ func (c *StepCase) check() error {
 	if c.Timeout != nil && *c.Timeout < 1 {
 		return fmt.Errorf("timeout %d is not a positive number of seconds", *c.Timeout)
 	}
-	for _, p := range append([]string{c.ScriptPath()}, hostPaths(c.HostModules)...) {
+	others := make([]string, 0, len(c.Scripts))
+	for p := range c.Scripts {
+		others = append(others, p)
+	}
+	for _, p := range append(append([]string{c.ScriptPath()}, hostPaths(c.HostModules)...), others...) {
 		if !validStepPath(p) {
 			return fmt.Errorf("path %q is not a Windmill path f/<folder>/<name>", p)
 		}
@@ -388,8 +409,8 @@ func (c *StepCase) check() error {
 		}
 	}
 	for p := range c.Files {
-		if c.Codebase == nil {
-			return errors.New("files are read by a codebase build, so they need codebase")
+		if c.Codebase == nil && !(strings.HasSuffix(p, ".ts") && validStepPath(strings.TrimSuffix(p, ".ts"))) {
+			return errors.New("a Bun script's files are workspace scripts f/<folder>/<name>.ts; other files are read by a codebase build, so they need codebase")
 		}
 		if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "..") || strings.Contains(p, "\\") {
 			return fmt.Errorf("file %q is not a clean path relative to the sync root", p)
@@ -406,6 +427,9 @@ func (c *StepCase) check() error {
 		}
 		if r.Node != nil && !c.CommonJS() {
 			return fmt.Errorf("run %d: node states what Node shows of a CommonJS codebase bundle (D13); the case is not one", i+1)
+		}
+		if _, ok := c.Scripts[r.Script]; r.Script != "" && !ok {
+			return fmt.Errorf("run %d: script %s is not one of the case's scripts", i+1, r.Script)
 		}
 		byMode = byMode || r.ByMode != nil
 	}

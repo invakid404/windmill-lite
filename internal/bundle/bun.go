@@ -89,6 +89,9 @@ type BunConfig struct {
 	Diagnostics io.Writer
 	// Timeout bounds each helper run; zero means ten minutes.
 	Timeout time.Duration
+	// SharedCode builds the scripts' shared layout too (ADR 0013): one
+	// closure per build group and a shared-layout module per script.
+	SharedCode bool
 }
 
 // BunResult is what a Bun build produced.
@@ -106,6 +109,9 @@ type BunResult struct {
 	HostModules     map[string]*HostModuleMeta
 	HostModuleOrder []string
 	Warnings        []Warning
+	// Closures are the ids of the closures of shared code it wrote,
+	// sorted (ADR 0013).
+	Closures []string
 }
 
 // validID reports whether id can name files in the bundle tree: one or
@@ -275,6 +281,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 	}
 
 	req.Op = "build"
+	req.SharedCode = cfg.SharedCode
 	resp, err := runHelper(ctx, &cfg, &req)
 	if err != nil {
 		return nil, err
@@ -310,6 +317,10 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 			problems = append(problems, ItemProblem{item, *r.Error})
 			continue
 		}
+		if meta.Shared != nil && meta.Shared.Fallback != "" {
+			res.Warnings = append(res.Warnings, Warning{WarningSharedCodeFallback, fmt.Sprintf(
+				"script %s (%s) keeps its per-script bundle: %s", e.ID, meta.Path, fallbackWhy(meta.Shared.Fallback))})
+		}
 		b, err := json.MarshalIndent(meta, "", "  ")
 		if err != nil {
 			return nil, err
@@ -318,7 +329,23 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 			return nil, err
 		}
 	}
-	res.Warnings = append(sharedDependencyWarnings(cfg, res), nativeImportWarnings(cfg, res)...)
+	res.Warnings = append(append(sharedDependencyWarnings(cfg, res), nativeImportWarnings(cfg, res)...), res.Warnings...)
+	res.Closures = slices.Sorted(slices.Values(resp.Closures))
+	// Each closure bundle the helper wrote, wrapped into its factory: a
+	// Bun-built group's modules are ES modules, so its closure is strict
+	// (ADR 0013).
+	for _, id := range res.Closures {
+		if !validClosureID(id) {
+			return nil, fmt.Errorf("bundle: the build helper reported the closure %q", id)
+		}
+		text, err := os.ReadFile(filepath.Join(cfg.Work, "closures", id+".cjs"))
+		if err != nil {
+			return nil, err
+		}
+		if err := writeFile(filepath.Join(cfg.Out, filepath.FromSlash(ClosureFile(id))), wrapClosure(text, true)); err != nil {
+			return nil, err
+		}
+	}
 	if len(problems) > 0 {
 		return res, &BuildError{Problems: problems}
 	}
@@ -529,6 +556,16 @@ type helperRequest struct {
 	EnvBinding  string             `json:"env_binding"`
 	HostModules []helperHostModule `json:"host_modules"`
 	Entries     []helperEntry      `json:"entries"`
+	// SharedCode asks the build op for the shared layout too (ADR 0013).
+	SharedCode bool `json:"shared_code,omitempty"`
+	// Closures are the closure bundles the kept op parses.
+	Closures []helperClosure `json:"closures,omitempty"`
+}
+
+// helperClosure is a closure bundle the kept op parses, by its id.
+type helperClosure struct {
+	ID   string `json:"id"`
+	File string `json:"file"`
 }
 
 type helperHostModule struct {
@@ -571,6 +608,11 @@ type helperResponse struct {
 	Error       *Problem                    `json:"error"`
 	HostModules map[string]helperHostResult `json:"host_modules"`
 	Entries     map[string]helperEntryRes   `json:"entries"`
+	// Closures are the closures of shared code the build op wrote.
+	Closures []string `json:"closures"`
+	// Kept holds, by closure, the modules the kept op found keeping an
+	// import().
+	Kept map[string][]string `json:"kept"`
 }
 
 type helperHostResult struct {

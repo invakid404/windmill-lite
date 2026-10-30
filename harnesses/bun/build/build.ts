@@ -16,11 +16,13 @@
 
 import type { BunPlugin } from "bun";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
 import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
+import { CLOSURE_META, CLOSURE_SPECIFIER, closureEntry, closureId, closureSupport, depReference, esmReference, keptImports } from "./shared.ts";
 import { importSpecifiers, liveBindings, parseModule, signatures, type Syntax } from "./signature.ts";
 import { detectWorkflowAsCode } from "./wac.ts";
 
@@ -28,6 +30,9 @@ export class BuildProblem extends Error {
   constructor(
     readonly kind: string,
     message: string,
+    // The files, relative to the dependency set's directory, that the
+    // bundler's messages name.
+    readonly files: string[] = [],
   ) {
     super(message);
   }
@@ -59,7 +64,41 @@ type Bundled = {
   metafile: Record<string, unknown>;
   closure: string[];
   hostModules: string[];
+  // The env rewrite's binding the bundle uses, when it has the rewrite.
+  binding?: string;
+  // What the build's plugin resolved each of the entry's imports to, by
+  // kind and specifier, relative to the dependency set's directory: the
+  // metafile names a specifier the plugin resolved by itself, not by the
+  // file it became.
+  resolved: Map<string, string>;
 };
+
+// What a bundle of the shared layout changes (ADR 0013): the output format,
+// defines on top of the env rewrite's, and a plugin ahead of the build's.
+type BundleOptions = { format?: "esm" | "cjs"; define?: Record<string, string>; plugin?: BunPlugin };
+
+// A metafile input's imports, as Bun records them.
+type MetaImport = { path: string; kind: string; original?: string; external?: boolean };
+type MetaInputs = Record<string, { imports?: MetaImport[]; format?: string }>;
+
+// A built script that shared code covers: where its entry was
+// materialised, its dependency set and target, the binding of its env
+// rewrite, and its per-script bundle's metafile.
+type SharedEntry = {
+  id: string;
+  path: string;
+  dir: string;
+  entry: string;
+  deps?: string;
+  target: "bun" | "node";
+  binding?: string;
+  metafile: Record<string, unknown>;
+  resolved: Map<string, string>;
+};
+
+// A script's record under shared code: its group's closure, or the reason
+// it keeps its per-script bundle.
+type SharedRecord = { closure?: string; fallback?: string };
 
 // The specifier a Bun-target entry imports the env support module by,
 // before its own imports, so that the binding exists when any of its
@@ -100,6 +139,7 @@ export class Builder {
   private hostByPackage = new Map<string, HostModuleRequest>();
   private hostByPath = new Map<string, HostModuleRequest>();
   private client: Promise<NativeModule> | undefined;
+  private sharedEntries: SharedEntry[] = [];
 
   constructor(private readonly req: Request) {
     for (const hm of req.host_modules) {
@@ -182,12 +222,13 @@ export class Builder {
     target: "bun" | "browser" | "node",
     hosts: HostMapping,
     env: boolean,
+    opts: BundleOptions = {},
   ): Promise<Bundled> {
-    if (!env) return (await this.bundleOnce(dir, entry, seeds, target, hosts, undefined)).bundled;
+    if (!env) return (await this.bundleOnce(dir, entry, seeds, target, hosts, undefined, opts)).bundled;
     const base = this.req.env_binding;
     for (let n = 1; n <= 20; n++) {
       const name = n === 1 ? base : `${base}_${n}`;
-      const { bundled, inputs } = await this.bundleOnce(dir, entry, seeds, target, hosts, name);
+      const { bundled, inputs } = await this.bundleOnce(dir, entry, seeds, target, hosts, name, opts);
       if (!inputs.some((text) => spells(text, name))) return bundled;
     }
     throw new BuildProblem("bundle_failed", `every candidate name for ${base} occurs in the bundle's sources`);
@@ -200,6 +241,7 @@ export class Builder {
     target: "bun" | "browser" | "node",
     hosts: HostMapping,
     binding: string | undefined,
+    opts: BundleOptions = {},
   ): Promise<{ bundled: Bundled; inputs: string[] }> {
     const modules = new Map(seeds);
     const base = this.req.env_binding;
@@ -207,12 +249,19 @@ export class Builder {
       binding === undefined
         ? undefined
         : this.materialise(dir, join("wl", `env-${binding}.mjs`), this.req.env_support.split(base).join(binding));
-    const define =
+    const envDefine =
       binding === undefined
         ? undefined
         : Object.fromEntries(Object.entries(this.req.define).map(([k, v]) => [k, v.split(base).join(binding)]));
+    const define = opts.define === undefined ? envDefine : { ...opts.define, ...envDefine };
     const closure = new Set<string>();
     const used = new Set<string>();
+    const resolved = new Map<string, string>();
+    // Records what the entry's import resolved to.
+    const answer = <R extends { path: string; external?: boolean } | undefined>(args: { importer: string; kind: string; path: string }, r: R): R => {
+      if (r !== undefined && !r.external && args.importer === entry) resolved.set(`${args.kind}\0${args.path}`, relative(dir, r.path));
+      return r;
+    };
     const host = (hm: HostModuleRequest) => {
       if (hosts.inline) return undefined;
       used.add(hm.key);
@@ -226,10 +275,10 @@ export class Builder {
           const spec = args.path;
           if (spec === ENV_SPECIFIER) {
             if (envFile === undefined) throw new Error(`Could not resolve: "${spec}"`);
-            return { path: envFile };
+            return answer(args, { path: envFile });
           }
           const pkg = this.hostByPackage.get(spec);
-          if (pkg !== undefined && pkg.key !== hosts.self) return host(pkg);
+          if (pkg !== undefined && pkg.key !== hosts.self) return answer(args, host(pkg));
           const importer = modules.get(args.importer);
           if (importer === undefined) return undefined;
           if (!spec.startsWith(".") && !spec.startsWith("/")) return undefined;
@@ -241,14 +290,14 @@ export class Builder {
             throw new Error(`Could not resolve: "${spec}"`);
           }
           const hm = this.hostByPath.get(path);
-          if (hm !== undefined && hm.key !== hosts.self && !hosts.inline) return host(hm);
+          if (hm !== undefined && hm.key !== hosts.self && !hosts.inline) return answer(args, host(hm));
           if (own(this.req.scripts, path) === undefined) {
             throw new Error(`Could not resolve: "${spec}" from ${importer}: no script at ${path}`);
           }
           const abs = this.materialise(dir, join("src", path + ".ts"), this.workspaceSource(path));
           modules.set(abs, path);
           closure.add(path);
-          return { path: abs };
+          return answer(args, { path: abs });
         });
       },
     };
@@ -259,19 +308,25 @@ export class Builder {
       result = await Bun.build({
         entrypoints: [entry],
         target,
-        format: "esm",
+        format: opts.format ?? "esm",
         minify: { syntax: true, identifiers: false, whitespace: false },
         external: ["electron"],
         ...(define === undefined ? {} : { define }),
         metafile: true,
-        plugins: [plugin],
+        plugins: opts.plugin === undefined ? [plugin] : [opts.plugin, plugin],
       });
     } catch (e) {
       throw new BuildProblem("bundle_failed", buildMessage(e));
     } finally {
       process.chdir(cwd);
     }
-    if (!result.success) throw new BuildProblem("bundle_failed", result.logs.map(String).join("\n"));
+    if (!result.success) {
+      const files = result.logs.flatMap((l) => {
+        const f = (l as { position?: { file?: string } | null }).position?.file;
+        return f ? [isAbsolute(f) ? relative(dir, f) : f] : [];
+      });
+      throw new BuildProblem("bundle_failed", result.logs.map(String).join("\n"), files);
+    }
     if (result.outputs.length !== 1) {
       throw new BuildProblem(
         "bundle_failed",
@@ -302,6 +357,8 @@ export class Builder {
         metafile,
         closure: [...closure].sort(),
         hostModules: [...used].sort(),
+        binding,
+        resolved,
       },
       inputs,
     };
@@ -474,6 +531,9 @@ export class Builder {
       }
       const exports = exportScanner.scan(b.text).exports;
       this.writeOut(join("scripts", "bun", e.id + ".mjs"), b.text);
+      if (this.req.shared_code && (target === "bun" || target === "node")) {
+        this.sharedEntries.push({ id: e.id, path: e.path, dir, entry, deps: e.deps, target, binding: b.binding, metafile: b.metafile, resolved: b.resolved });
+      }
       Object.assign(meta, {
         exports,
         signatures: signatures(parsed, exports),
@@ -613,6 +673,144 @@ export class Builder {
     return { meta };
   }
 
+  // Shared code (ADR 0013): groups the built scripts by target and
+  // dependency set, the build groups of the Bun build, and for each builds
+  // its scripts' shared-layout modules and its closure, which a script
+  // keeps its per-script bundle without when a module it reaches cannot be
+  // held by a CommonJS closure (top-level await, a static import of an
+  // external module, a kept import()). The closure bundles go to
+  // <work>/closures/<id>.cjs, which the Go build wraps into factories.
+  async buildShared(): Promise<{ closures: string[]; shared: Record<string, SharedRecord> }> {
+    const out = { closures: [] as string[], shared: {} as Record<string, SharedRecord> };
+    const groups = new Map<string, SharedEntry[]>();
+    for (const s of this.sharedEntries) {
+      const key = `${s.target}\0${s.deps ?? ""}`;
+      groups.set(key, [...(groups.get(key) ?? []), s]);
+    }
+    for (const [key, entries] of groups) {
+      const id = closureId(key);
+      const { dir, target } = entries[0];
+      const support = this.materialise(dir, join("wl", `closure-${id}.mjs`), closureSupport(id));
+      const modules = new Map<string, string>();
+      const refs = new Map<string, Map<string, string>>();
+      for (const s of entries) {
+        const r = await this.sharedModule(s, support);
+        modules.set(s.id, r.text);
+        refs.set(s.id, r.refs);
+      }
+      const reaches = (s: SharedEntry, m: string) => Object.hasOwn((s.metafile.inputs ?? {}) as object, m);
+      let live = entries;
+      while (live.length > 0) {
+        const files = new Map<string, string>();
+        for (const s of live) for (const [k, f] of refs.get(s.id)!) files.set(k, f);
+        const bad = new Map<string, string>();
+        let text: string | undefined;
+        try {
+          const b = await this.closureBundle(dir, id, files, target);
+          text = b.text;
+          for (const m of keptImports(text)) bad.set(m, "dynamic_import");
+          for (const [m, input] of Object.entries((b.metafile.inputs ?? {}) as MetaInputs)) {
+            for (const imp of input.imports ?? []) {
+              // Bun lists a module it pruned from a re-export as an
+              // external relative path; an external module is named bare.
+              const bare = !imp.path.startsWith(".") && !imp.path.startsWith("/");
+              if (!imp.external || !bare || builtinModule(imp.path)) continue;
+              if (imp.kind === "dynamic-import") bad.set(m, "dynamic_import");
+              else if ((imp.kind === "import-statement" || imp.kind === "export-from") && !bad.has(m)) bad.set(m, "external_import");
+            }
+          }
+        } catch (e) {
+          if (!(e instanceof BuildProblem) || e.files.length === 0 || !/top-level await/i.test(e.message)) throw e;
+          for (const f of e.files) bad.set(f, "top_level_await");
+        }
+        const kept = live.filter((s) => {
+          for (const [m, reason] of bad) {
+            if (reaches(s, m)) {
+              out.shared[s.id] = { fallback: reason };
+              return false;
+            }
+          }
+          return true;
+        });
+        if (kept.length < live.length) {
+          live = kept;
+          continue;
+        }
+        if (text === undefined) throw new BuildProblem("bundle_failed", `the closure ${id} fails to build on modules no script reaches`);
+        mkdirSync(join(this.req.work, "closures"), { recursive: true });
+        writeFileSync(join(this.req.work, "closures", id + ".cjs"), text);
+        for (const s of live) {
+          this.writeOut(join("scripts", "bun", s.id + ".shared.mjs"), modules.get(s.id)!);
+          out.shared[s.id] = { closure: id };
+        }
+        out.closures.push(id);
+        break;
+      }
+    }
+    return out;
+  }
+
+  // A script's shared-layout module: the build of its entry with each of
+  // the entry's imports of a module of its per-script bundle resolved to a
+  // reference to that module in the script's instance of closure support's
+  // group, keyed by its path in the dependency set, and an import of a
+  // module the per-script bundle pruned to an empty module, as the bundle
+  // drops it. The env support module and host-provided modules' shims stay
+  // as the per-script bundle has them. It returns the module's text and
+  // the files of the modules it references, by key.
+  private async sharedModule(s: SharedEntry, support: string): Promise<{ text: string; refs: Map<string, string> }> {
+    const inputs = (s.metafile.inputs ?? {}) as MetaInputs;
+    const included = new Set<string>();
+    for (const o of Object.values((s.metafile.outputs ?? {}) as Record<string, { inputs?: object }>)) {
+      for (const k of Object.keys(o.inputs ?? {})) included.add(k);
+    }
+    // The entry's imports Bun resolved by itself name their file, with the
+    // specifier as original; those the build's plugin resolved, it
+    // recorded.
+    const resolved = new Map(s.resolved);
+    for (const imp of inputs[relative(s.dir, s.entry)]?.imports ?? []) {
+      if (imp.original !== undefined && !imp.external) resolved.set(`${imp.kind}\0${imp.original}`, imp.path);
+    }
+    const refs = new Map<string, string>();
+    const empty = this.materialise(s.dir, join("wl", "dep", "empty.cjs"), "module.exports = {};\n");
+    const plugin: BunPlugin = {
+      name: "windmill-lite-shared",
+      setup: (b) => {
+        b.onResolve({ filter: new RegExp(`^${CLOSURE_SPECIFIER}$`) }, () => ({ path: support }));
+        b.onResolve({ filter: /.*/ }, (args) => {
+          if (args.importer !== s.entry || args.path === ENV_SPECIFIER) return undefined;
+          const p = resolved.get(`${args.kind}\0${args.path}`);
+          if (p === undefined) {
+            throw new Error(`the shared layout of ${s.id}: the per-script bundle did not resolve its import ${JSON.stringify(args.path)} (${args.kind})`);
+          }
+          if (p.startsWith("host/") || p.startsWith("wl/")) return undefined;
+          if (!included.has(p)) return { path: empty };
+          refs.set(p, join(s.dir, p));
+          const name = new Bun.CryptoHasher("sha256").update(p).digest("hex").slice(0, 16);
+          const cjs = this.materialise(s.dir, join("wl", "dep", name + ".cjs"), depReference(p));
+          if (inputs[p]?.format !== "esm") return { path: cjs };
+          return { path: this.materialise(s.dir, join("wl", "dep", name + ".mjs"), esmReference(p, "./" + name + ".cjs", hasDefault(join(s.dir, p)))) };
+        });
+      },
+    };
+    const b = await this.bundleOnce(s.dir, s.entry, new Map([[s.entry, s.path]]), s.target, { shims: true }, s.binding, { plugin });
+    return { text: b.bundled.text, refs };
+  }
+
+  // A group's closure bundle: CommonJS, from an entry that requires each
+  // dependency module's file, with the group's target, the env rewrite for
+  // a Bun-target group (its support module first) and import.meta read
+  // from the instance, as dependency code of an ES module bundle reads its
+  // module's own. Workspace modules among the files resolve their imports
+  // from the folder, as in the per-script bundles.
+  private closureBundle(dir: string, id: string, files: Map<string, string>, target: "bun" | "node"): Promise<Bundled> {
+    const env = target === "bun";
+    const entry = this.materialise(dir, join("wl", `closure-entry-${id}.cjs`), closureEntry(files, env ? ENV_SPECIFIER : undefined));
+    const seeds = new Map<string, string>();
+    for (const [k, f] of files) if (k.startsWith("src/") && k.endsWith(".ts")) seeds.set(f, k.slice(4, -3));
+    return this.bundle(dir, entry, seeds, target, { shims: true }, env, { format: "cjs", define: { "import.meta": CLOSURE_META } });
+  }
+
   private writeOut(rel: string, text: string): void {
     const abs = join(this.req.out, rel);
     mkdirSync(dirname(abs), { recursive: true });
@@ -648,6 +846,22 @@ function transformSource(source: string, path: string): string {
 
 // The npm packages a module imports by name, for the shared-dependency
 // warning of ADR 0010.
+// Whether an import names a module the runtime has built in, Node's or
+// Bun's own, which a require loads as an import does.
+function builtinModule(spec: string): boolean {
+  return spec.startsWith("node:") || spec === "bun" || spec.startsWith("bun:") || builtinModules.includes(spec);
+}
+
+// Whether a module's own source has a default export, by Bun's scan.
+function hasDefault(file: string): boolean {
+  const scanner = /\.[jt]sx$/.test(file) ? new Bun.Transpiler({ loader: "tsx" }) : sourceScanner;
+  try {
+    return scanner.scan(readFileSync(file, "utf8")).exports.includes("default");
+  } catch {
+    return true;
+  }
+}
+
 function directPackages(p: ReturnType<typeof parseModule>): string[] {
   const names = new Set<string>();
   for (const spec of importSpecifiers(p, { values: true })) {
