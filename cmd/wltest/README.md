@@ -582,6 +582,12 @@ Windmill v1.767.0's image).
   runs that pass without being required.
 - `TestFlowSuite` also requires every required run to pass in `warm` and
   `host` from bundles built with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)).
+- `TestBuiltinImportsShareTheClosure` builds the synthetic fixture
+  `testdata/builtin-imports` with shared code. Its four scripts reach
+  dependencies that import `node:async_hooks`, two by `import()` and two
+  statically. All four must name one closure, with no
+  `shared_code_fallback` warning. The fixture's flow then passes in `warm`,
+  `fresh` and `host`, and in `warm` and `host` with shared code.
 - `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
   seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
   in `fresh` and in `warm`, since the result cache lives in the engine,

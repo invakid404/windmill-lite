@@ -727,11 +727,12 @@ cases of the semantics catalogue:
 **Flow and memory gates.**
 
 - The flow suite runs in `warm` and in host mode from bundles built with
-  shared code. One of its fixtures, `languages/builtin-imports`, has four
-  scripts whose dependencies import `node:async_hooks`, two by `import()`
-  and two statically. Built with shared code, all four share one closure,
-  and each returns the per-script bundle's result in `warm`, in host mode
-  and in `fresh`.
+  shared code.
+- `TestBuiltinImportsShareTheClosure` (in `cmd/wltest`) runs a flow of
+  four scripts whose dependencies import `node:async_hooks`, two by
+  `import()` and two statically. Built with shared code, all four share one
+  closure, and each returns the per-script bundle's result in `warm`, in
+  host mode and in `fresh`.
 - `TestModuleMemory` and `TestModuleMemoryClosure` run with the real shared
   layout, against the targets above.
 

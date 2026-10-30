@@ -1,0 +1,15 @@
+# Built-in modules under shared code. Two Bun scripts reach a dependency
+# that imports node:async_hooks by import(), and two reach one that imports
+# it statically. The runtime resolves a module it has built in to the same
+# module from every file, so a build with shared code gives all four the
+# shared layout, from one closure, in warm and in host mode; fresh runs
+# their per-script bundles. Each step makes an AsyncLocalStorage and reads
+# its store inside run, so every step returns 1 in every mode. Shared code
+# is windmill-lite's own build, so the run holds an expect written from
+# ADR 0013. Synthetic, written for this repository; it is test data of
+# cmd/wltest, outside conformance/, so no oracle session records it.
+id: wltest/builtin-imports
+spec: [D18]
+scope: core
+provenance: policy
+languages: [bun]

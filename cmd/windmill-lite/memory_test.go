@@ -318,13 +318,13 @@ func TestModuleMemory(t *testing.T) {
 // generated API client, so that each step's bundle is about 6.9 MB, as the
 // embedder's are on average. As published packages do, the shared module
 // imports node:async_hooks by import() and the generated package imports
-// node:fs/promises by import(), both kept in the closure, so a step whose
-// closure holds a lazily imported built-in must keep its shared layout. It reports the host's resident set with one
-// module, with all 34, with eight concurrent runs of them, and after a
-// soak of 1,000 runs, as the embedder soaked its host. With shared code,
-// ADR 0013's memory gate holds: each further module costs at most 16 MiB
-// and the soak's peak stays within the embedder's 650 MiB budget. It runs
-// only with WL_MEMORY_PROBE set.
+// node:fs/promises by import(), both kept in the closure: modules the
+// runtime has built in, so every step keeps its shared layout. It reports
+// the host's resident set with one module, with all 34, with eight
+// concurrent runs of them, and after a soak of 1,000 runs, as the embedder
+// soaked its host. With shared code, ADR 0013's memory gate holds: each
+// further module costs at most 16 MiB and the soak's peak stays within the
+// embedder's 650 MiB budget. It runs only with WL_MEMORY_PROBE set.
 func TestModuleMemoryClosure(t *testing.T) {
 	if os.Getenv("WL_MEMORY_PROBE") == "" {
 		t.Skip("WL_MEMORY_PROBE is not set; this probe needs the network once and about 2 GiB of memory")
