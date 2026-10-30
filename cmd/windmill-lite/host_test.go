@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,7 +25,9 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
+	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
 // These tests run host mode end to end (ADR 0004 host mode, ADR 0009): a
@@ -285,6 +288,10 @@ type runResult struct {
 	Warnings       []runWarning    `json:"warnings"`
 	// Refused is the code of the HostError of a run that did not start.
 	Refused string `json:"refused"`
+	// Latched is the error a latched run latched.
+	Latched string `json:"latched"`
+	// Deviations are the run's run-time deviations (H7, H10).
+	Deviations []string `json:"deviations"`
 	// DoneAt and SettledAt are, for /settle, when the outcome came and
 	// when the run settled, in milliseconds after it was submitted.
 	DoneAt    float64 `json:"doneAt"`
@@ -837,11 +844,14 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		other    bool
 		flags    []string
 		code     string
+		plugin   string // the host plugin declaration of the hello (F2c)
 	}{
-		{"its own working directory", false, false, nil, ""},
-		{"another directory", false, true, nil, harness.RejectWorkdirMismatch},
-		{"read-only", true, false, nil, harness.RejectWorkdirNotWritable},
-		{"a bundle that does not open", false, false, []string{"-digest", "sha256:0000"}, harness.RejectEngine},
+		{"its own working directory", false, false, nil, "", ""},
+		{"another directory", false, true, nil, harness.RejectWorkdirMismatch, ""},
+		{"read-only", true, false, nil, harness.RejectWorkdirNotWritable, ""},
+		{"a bundle that does not open", false, false, []string{"-digest", "sha256:0000"}, harness.RejectEngine, ""},
+		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`},
+		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.readOnly && os.Geteuid() == 0 {
@@ -892,6 +902,9 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 			go func() { exited <- cmd.Wait() }()
 			hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "test"}, Runtime: harness.PinnedBun,
 				Caps: harness.Caps{Fetch: true, Native: true, Host: true}, Bundle: digest, PID: os.Getpid(), Workdir: hostCwd}
+			if tc.plugin != "" {
+				hello.Plugin = jsonval.FromProducer([]byte(tc.plugin))
+			}
 			payload, err := harness.Encode(hello)
 			if err != nil {
 				t.Fatal(err)
@@ -1095,4 +1108,144 @@ func TestHostRecycleModules(t *testing.T) {
 			t.Fatalf("health %+v; want the modules trigger", h)
 		}
 	}
+}
+
+// F2c's exit gate in host mode: the plugin cases of
+// conformance/plugins/hooks.yaml, answered by the host's own TypeScript
+// plugin (the host SDK's plugin option) over host_call. Every case gives
+// its expected status, result, latched error, log and warnings, as through
+// wl in warm processes; and every hook runs in the scope of the run it
+// serves (H11), which the host's onRunEnd reports as the tenant it reads.
+func TestHostPluginCases(t *testing.T) {
+	compiledHost(t)
+	f, err := conformance.LoadPluginFile("../../conformance/plugins/hooks.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleDir := buildPluginBundle(t, f)
+	var cases []map[string]any
+	for _, c := range f.Cases {
+		cases = append(cases, map[string]any{"flow": c.FlowPath(), "plugin": c.Plugin})
+	}
+	casesFile := filepath.Join(t.TempDir(), "cases.json")
+	b, _ := json.Marshal(cases)
+	if err := os.WriteFile(casesFile, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(t.TempDir(), "settled.jsonl")
+	s := supervise(t, 30000, "WL_BUNDLE="+bundleDir, "WL_PLUGIN_CASES="+casesFile, "WL_PLUGIN_REPORT="+report,
+		fmt.Sprintf("WL_ENGINE_FLAGS=-plugin-timeout %dms", f.TimeoutMS))
+	var runs []string
+	for _, c := range f.Cases {
+		t.Run(c.ID, func(t *testing.T) {
+			tenant := "tenant-" + c.ID
+			r, err := s.post("/run", caseRunBody(c, tenant))
+			if err != nil || r.Refused != "" {
+				t.Fatalf("%+v, %v", r, err)
+			}
+			runs = append(runs, r.ID)
+			o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
+			scope := ""
+			for _, w := range r.Warnings {
+				o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})
+				if w.Code == "plugin_scope" {
+					scope = w.Message
+				}
+			}
+			if d := c.Check(o); len(d) > 0 {
+				t.Fatalf("%s:\n  %s", c.Title, strings.Join(d, "\n  "))
+			}
+			if scope != tenant {
+				t.Fatalf("the plugin's onRunEnd ran in the scope of tenant %q, want the run's, %q", scope, tenant)
+			}
+		})
+	}
+	// H9's onRunSettled through the host's plugin: every case's run
+	// settles, and none while one of its hooks still ran in the host, a
+	// hook the engine stopped waiting for included: run_settled, and the
+	// host's release of the run's resources, wait for it.
+	var settled, early []string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if settled, early, err = conformance.ReadSettlement(report); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(runs, func(r string) bool { return !slices.Contains(settled, r) }) {
+			break
+		}
+	}
+	for _, r := range runs {
+		if !slices.Contains(settled, r) {
+			t.Errorf("the host plugin's onRunSettled never heard of run %s", r)
+		}
+	}
+	if len(early) > 0 {
+		t.Errorf("runs %q settled while one of their hooks still ran in the host", early)
+	}
+	// The step API's signal in host mode: run_deadline's step waits for
+	// wl.signal() alone, so its run settles only once the deadline the run
+	// frame carried has aborted it.
+	for _, c := range f.Cases {
+		if c.ID != "run_deadline" {
+			continue
+		}
+		r, err := s.post("/settle?wait=10000", caseRunBody(c, "t"))
+		if err != nil || r.Status != "canceled" || r.SettledAt < 0 {
+			t.Fatalf("%+v, %v: want canceled, then settled once wl.signal() aborted", r, err)
+		}
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
+// caseRunBody is a plugin case's run as the host submits it: in tenant's
+// scope, with the run's budgets and latches in its run options, which the
+// host SDK carries in the run frame.
+func caseRunBody(c conformance.PluginCase, tenant string) map[string]any {
+	body := map[string]any{"path": c.FlowPath(), "tenant": tenant, "args": map[string]any{}}
+	r := c.Run
+	if len(r.WriteCapable) > 0 {
+		var sels []map[string]any
+		for _, m := range r.WriteCapable {
+			sels = append(sels, map[string]any{"flow": c.FlowPath(), "module": m})
+		}
+		body["writeCapable"] = sels
+	}
+	if len(r.FatalErrorNames) > 0 {
+		body["fatalErrorNames"] = r.FatalErrorNames
+	}
+	if r.DeadlineMS > 0 {
+		body["deadlineMs"] = r.DeadlineMS
+	}
+	if r.PreWriteDeadlineMS > 0 {
+		body["preWriteDeadlineMs"] = r.PreWriteDeadlineMS
+	}
+	if r.Clock != "" {
+		body["clock"] = r.Clock
+	}
+	return body
+}
+
+// buildPluginBundle builds the plugin cases' folder and contract into a
+// bundle, for this binary's engine version.
+func buildPluginBundle(t *testing.T, f *conformance.PluginFile) string {
+	t.Helper()
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := t.TempDir()
+	if err := f.WriteFolder(folder); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "bundle")
+	if _, err := bundle.Build(context.Background(), bundle.Config{
+		Folder: folder, Contract: f.Contract(), EngineVersion: resolveVersion(), Bun: os.Getenv("WL_BUN"),
+		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
+		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
+		Out:            out, Work: filepath.Join(t.TempDir(), "work"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

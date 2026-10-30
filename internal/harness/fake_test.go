@@ -84,13 +84,28 @@ func fakeHarness(mode string) int {
 	case "slow-hello":
 		time.Sleep(time.Second)
 	}
-	send(Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid})
+	hello := Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid}
+	if mode == "plugin" {
+		hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+	}
+	send(hello)
 	w := recv().(Welcome)
 	if w.Reject != nil {
 		return 2
 	}
 	heartbeat := time.Duration(w.Config.HeartbeatMS) * time.Millisecond
 	switch mode {
+	case "plugin":
+		// Answers every host_call with the hook it was for (F2c).
+		for {
+			switch m := recv().(type) {
+			case HostCall:
+				send(HostReply{ID: m.ID, Payload: jsonval.FromProducer([]byte(`{"hook":"` + m.Hook + `","run":"` + m.Run + `"}`))})
+			case Drain:
+				send(Bye{})
+				return 0
+			}
+		}
 	case "silent-reader":
 		// Heartbeats on its own and never reads again: the engine's writes
 		// back up while frames keep arriving from this side.

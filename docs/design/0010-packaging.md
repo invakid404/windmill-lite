@@ -29,7 +29,7 @@ A bundle is a directory, or the same tree as one `.wlb` file (a tar archive):
 | `scripts/bun/provided/<id>.mjs` | a bundled copy of each host-provided module, used when no host registers its own |
 | `assets/` | codebase assets, extracted into a harness process's working directory at start ([0002](0002-ir-and-loader.md)) |
 | `data/` | resources, resource types and non-secret variables from the folder |
-| `plugins/` | host plugins, when the host ships any ([0008](0008-host-hooks.md)) |
+| `plugins/` | host plugins, when the host ships any ([0008](0008-host-hooks.md)); milestone F2c loads a `warm` runtime's plugin from a module the runtime names at open, and a host-mode plugin is the host's own, so no build writes this directory yet |
 
 Secrets are never written into a bundle unless the host passes them
 explicitly. A runtime opens a bundle only if the manifest's engine version is

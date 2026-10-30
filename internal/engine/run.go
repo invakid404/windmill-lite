@@ -78,6 +78,9 @@ type run struct {
 	// actual time deciding and never the delivery of the deadline's timer.
 	preWriteAt time.Time
 	preWrite   atomic.Int32
+	// around gives a host plugin's around wrappers at a leaf's site
+	// (RunRequest.Around), or is nil.
+	around func(Site) []int
 
 	mu    sync.Mutex // guards trace and the frames' job results
 	trace Trace
@@ -2114,6 +2117,9 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		ModuleState: r.e.moduleState,
 		Platform:    r.ownPlatform(),
 	}
+	if r.around != nil {
+		inv.Around = r.around(site)
+	}
 	inv.Env = r.jobEnv(fr, i, inv.ID)
 	// The job's reserved variables, which its argument resolution reads
 	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
@@ -2166,8 +2172,60 @@ func (p *runReporter) Late(l Late) {
 func (p *runReporter) Warning(w Warning) {
 	r := p.run
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.trace.Warnings = append(r.trace.Warnings, w)
+	r.mu.Unlock()
+	// A host plugin's around wrapper that failed latches the run, as any
+	// failed hook does, and so does a step's wl.latch (H5, milestone F2c);
+	// the harness reports either ahead of the frame that settles the
+	// invocation, so the latch outranks the step's outcome.
+	r.Latch(LatchOf(w))
 }
+
+// scriptReporter is a script job's reporter: it keeps the latch of the
+// warnings that latch a run (LatchOf) and discards the rest.
+type scriptReporter struct {
+	NopReporter
+	latch Latch
+}
+
+func (p *scriptReporter) Warning(w Warning) { p.latch.Set(LatchOf(w)) }
+
+// LatchOf is the error a warning latches its invocation's run with (H5),
+// or nil: a *PluginError for WarningPluginError, a *StepLatch for
+// WarningLatch.
+func LatchOf(w Warning) error {
+	switch w.Code {
+	case WarningPluginError:
+		return &PluginError{Message: w.Message}
+	case WarningLatch:
+		return &StepLatch{Message: w.Message}
+	}
+	return nil
+}
+
+// WarningPluginError is the code of a warning that a host plugin's around
+// wrapper failed (milestone F2c); it latches the run.
+const WarningPluginError = "plugin_error"
+
+// WarningLatch is the code of a warning by which a step latched its run
+// with wl.latch(error) (H5, milestone F2c); it latches the run.
+const WarningLatch = "latch"
+
+// StepLatch is the latch of a run whose step latched it with
+// wl.latch(error) (H5, milestone F2c); Message is the step's error as the
+// harness describes it.
+type StepLatch struct {
+	Message string
+}
+
+func (e *StepLatch) Error() string { return e.Message }
+
+// PluginError is the latch of a run whose host plugin failed in a hook
+// the harness runs itself, an around wrapper (milestone F2c).
+type PluginError struct {
+	Message string
+}
+
+func (e *PluginError) Error() string { return "plugin_error: " + e.Message }
 
 func (p *runReporter) Settled(SettleKind) {}

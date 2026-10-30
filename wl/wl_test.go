@@ -34,6 +34,7 @@ import (
 // sleeps 30 s before its step.
 var testFlows = map[string]string{
 	"f/t/echo":  `{"modules":[{"id":"a","value":{"type":"identity"}}]}`,
+	"f/t/dup":   `{"modules":[{"id":"a","value":{"type":"identity"}},{"id":"a","value":{"type":"identity"}}]}`,
 	"f/t/sleep": `{"modules":[{"id":"a","value":{"type":"identity"},"sleep":{"type":"static","value":30}}]}`,
 	"f/t/which": `{"modules":[{"id":"b","value":{"type":"branchone","branches":[{"expr":"variable(\"u/t/v\") === \"host\"","modules":[` +
 		`{"id":"h","value":{"type":"identity"},"mock":{"enabled":true,"return_value":"host"}}]}],` +

@@ -21,9 +21,8 @@ const ProtocolVersion = 1
 // frames of spawned harnesses; the walking skeleton (W1) added
 // `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
 // and host mode's `run`/`run_done`/`run_cancel`; milestone C3a added
-// `warning`, FU6 `child`, and F3a host mode's `run_settled`.
-// `host_call`/`host_reply` (F2c) are refused as CodeUnknownType until
-// their milestone.
+// `warning`, FU6 `child`, F3a host mode's `run_settled`, and F2c the host
+// plugin's `host_call`/`host_reply`.
 const (
 	TypeHello         = "hello"
 	TypeWelcome       = "welcome"
@@ -40,6 +39,8 @@ const (
 	TypeRunDone       = "run_done"
 	TypeRunCancel     = "run_cancel"
 	TypeRunSettled    = "run_settled"
+	TypeHostCall      = "host_call"
+	TypeHostReply     = "host_reply"
 	TypePing          = "ping"
 	TypePong          = "pong"
 	TypePart          = "part"
@@ -76,6 +77,11 @@ type Hello struct {
 	// engine (ADR 0004, the shared-process failure model, item 5); ""
 	// otherwise.
 	Workdir string
+	// Plugin, if not zero, is the declaration of the host plugin the
+	// harness loaded (ADR 0008, milestone F2c): a JSON object naming the
+	// hooks it answers over host_call, with their selectors. The engine
+	// asks it only for those.
+	Plugin jsonval.Value
 }
 
 // HarnessInfo names the harness implementation.
@@ -144,9 +150,16 @@ const (
 	// RejectEngine refuses a host when the engine cannot serve the bundle
 	// at all: another engine version built it, or it does not verify.
 	RejectEngine = "engine_refused"
+	// RejectPlugin refuses a harness whose host plugin declaration the
+	// engine cannot use (milestone F2c): it differs from the one the
+	// pool's other processes declared, or the engine finds it invalid.
+	RejectPlugin = "plugin_mismatch"
 )
 
-// Invoke asks the harness to run one step.
+// Invoke asks the harness to run one step. Around, when not empty, lists
+// the host plugin's around wrappers whose selectors match the step's
+// site, by their index in its declaration, outermost first (ADR 0008 H1,
+// milestone F2c): the harness runs the step inside them.
 type Invoke struct {
 	ID       string
 	Run      string
@@ -156,6 +169,7 @@ type Invoke struct {
 	Args     jsonval.Value
 	Env      map[string]string
 	Boundary string
+	Around   []int
 }
 
 // Result is an invocation's outcome.
@@ -316,6 +330,13 @@ const (
 	RunScript = "script"
 )
 
+// Clocks of a run frame (H10): the real clock, the default, or record
+// mode's quick waits.
+const (
+	ClockReal   = "real"
+	ClockRecord = "record"
+)
+
 // RunRequest is a run that a host-mode harness submits (ADR 0004 host
 // mode, ADR 0009): the target by kind and path and its arguments. Its id is
 // the run's id in the engine, so invocations of the run carry it as `run`
@@ -323,12 +344,24 @@ const (
 // Intercept, if not zero, is a JSON object of module ids to the results
 // that stand in for those modules: the static, no-code form of H1
 // (ADR 0008).
+//
+// The rest are the run's budgets and latches (ADR 0008, milestone F2b,
+// carried by F2c): WriteCapable, if not zero, is a JSON array of
+// selectors (H3); FatalErrorNames are error names that latch (H7);
+// DeadlineMS and PreWriteDeadlineMS, when positive, are the hard and the
+// pre-write deadline (H4), in milliseconds from the engine's receipt of
+// the frame; Clock is ClockReal ("" too) or ClockRecord (H10).
 type RunRequest struct {
-	ID        string
-	Kind      string
-	Path      string
-	Args      jsonval.Value
-	Intercept jsonval.Value
+	ID                 string
+	Kind               string
+	Path               string
+	Args               jsonval.Value
+	Intercept          jsonval.Value
+	WriteCapable       jsonval.Value
+	FatalErrorNames    []string
+	DeadlineMS         int64
+	PreWriteDeadlineMS int64
+	Clock              string
 }
 
 // RunDone is a run's outcome, answering a RunRequest with the same id.
@@ -343,7 +376,13 @@ type RunDone struct {
 	Result         jsonval.Value
 	MayHaveMutated bool
 	Warnings       jsonval.Value
-	Error          *RunError
+	// Latched is the text of the error a latched run latched (H5), such
+	// as provider_declined (milestone F2c); "" otherwise.
+	Latched string
+	// Deviations are the flow run's deviations that depend on a run-time
+	// setting, as its trace lists them (H7, H10).
+	Deviations []string
+	Error      *RunError
 	// Settled, which is not part of the frame, closes once the run has
 	// settled (ADR 0004 host mode item 5): the process then sends
 	// RunSettled, after the run_done. Nil means never.
@@ -365,6 +404,44 @@ const (
 	// RunRefused answers a run the engine cannot start: no such target,
 	// arguments that are not an object, a runtime that is closing.
 	RunRefused = "refused"
+)
+
+// HostCall asks the harness's host plugin to answer one hook (ADR 0008,
+// milestone F2c): Hook names it, Run and Site are the run and the site it
+// serves (Site is "" for a hook of the run as a whole), and Payload, a
+// JSON object, is what the hook gets. The harness answers with a
+// HostReply under the same id.
+type HostCall struct {
+	ID      string
+	Hook    string
+	Run     string
+	Site    string
+	Payload jsonval.Value
+}
+
+// HostReply answers a HostCall with the same id: Payload, a JSON object,
+// is the hook's answer, or Error says why the plugin gave none.
+type HostReply struct {
+	ID      string
+	Payload jsonval.Value
+	Error   *HostError
+}
+
+// HostError says why a host plugin gave no answer. Code is one of the
+// HostError constants.
+type HostError struct {
+	Code    string
+	Message string
+}
+
+// HostError codes.
+const (
+	// HostErrorPlugin: the plugin's hook threw, or answered something that
+	// is not what the hook answers.
+	HostErrorPlugin = "plugin_error"
+	// HostErrorUnknownHook: the plugin declares no such hook, or no such
+	// entry of one.
+	HostErrorUnknownHook = "unknown_hook"
 )
 
 // RunSettled tells a host that one of its runs has settled: its outcome
@@ -435,6 +512,8 @@ func (RunRequest) Type() string      { return TypeRun }
 func (RunDone) Type() string         { return TypeRunDone }
 func (RunCancel) Type() string       { return TypeRunCancel }
 func (RunSettled) Type() string      { return TypeRunSettled }
+func (HostCall) Type() string        { return TypeHostCall }
+func (HostReply) Type() string       { return TypeHostReply }
 func (Ping) Type() string            { return TypePing }
 func (Pong) Type() string            { return TypePong }
 func (Part) Type() string            { return TypePart }
@@ -459,6 +538,9 @@ func (m Hello) appendPayload(b []byte) ([]byte, error) {
 	e.int("pid", int64(m.PID))
 	if m.Workdir != "" {
 		e.str("workdir", m.Workdir)
+	}
+	if !m.Plugin.IsZero() {
+		e.raw("plugin", m.Plugin.Producer())
 	}
 	return e.end()
 }
@@ -503,6 +585,9 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 	e.raw("args", m.Args.Producer())
 	e.strMap("env", m.Env)
 	e.str("boundary", m.Boundary)
+	if len(m.Around) > 0 {
+		e.ints("around", m.Around)
+	}
 	return e.end()
 }
 
@@ -621,6 +706,21 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if !m.Intercept.IsZero() {
 		e.raw("intercept", m.Intercept.Producer())
 	}
+	if !m.WriteCapable.IsZero() {
+		e.raw("write_capable", m.WriteCapable.Producer())
+	}
+	if m.FatalErrorNames != nil {
+		e.strings("fatal_error_names", m.FatalErrorNames)
+	}
+	if m.DeadlineMS != 0 {
+		e.int("deadline_ms", m.DeadlineMS)
+	}
+	if m.PreWriteDeadlineMS != 0 {
+		e.int("pre_write_deadline_ms", m.PreWriteDeadlineMS)
+	}
+	if m.Clock != "" {
+		e.str("clock", m.Clock)
+	}
 	return e.end()
 }
 
@@ -641,6 +741,43 @@ func (m RunDone) appendPayload(b []byte) ([]byte, error) {
 	}
 	if !m.Warnings.IsZero() {
 		e.raw("warnings", m.Warnings.Producer())
+	}
+	if m.Latched != "" {
+		e.str("latched", m.Latched)
+	}
+	if m.Deviations != nil {
+		e.strings("deviations", m.Deviations)
+	}
+	if m.Error != nil {
+		e.object("error", func(e *envelope) {
+			e.str("code", m.Error.Code)
+			e.str("message", m.Error.Message)
+		})
+	}
+	return e.end()
+}
+
+func (m HostCall) appendPayload(b []byte) ([]byte, error) {
+	if m.Payload.IsZero() {
+		return b, protoErr(CodeMissingField, "host_call without payload")
+	}
+	e := newEnvelope(b, TypeHostCall)
+	e.str("id", m.ID)
+	e.str("hook", m.Hook)
+	e.str("run", m.Run)
+	e.str("site", m.Site)
+	e.raw("payload", m.Payload.Producer())
+	return e.end()
+}
+
+func (m HostReply) appendPayload(b []byte) ([]byte, error) {
+	if m.Payload.IsZero() == (m.Error == nil) {
+		return b, protoErr(CodeBadField, "host_reply needs exactly one of payload and error")
+	}
+	e := newEnvelope(b, TypeHostReply)
+	e.str("id", m.ID)
+	if !m.Payload.IsZero() {
+		e.raw("payload", m.Payload.Producer())
 	}
 	if m.Error != nil {
 		e.object("error", func(e *envelope) {
@@ -765,6 +902,11 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("workdir") {
 			h.Workdir = d.str("workdir")
 		}
+		if d.present("plugin") {
+			if h.Plugin = d.raw("plugin"); derr == nil && !isObject(h.Plugin) {
+				d.fail(CodeBadField, "hello plugin is not an object")
+			}
+		}
 		m = h
 	case TypeWelcome:
 		wm := Welcome{Proto: d.int("proto"), Engine: d.str("engine"), Bundle: d.str("bundle")}
@@ -797,6 +939,11 @@ func Decode(payload []byte) (Message, error) {
 			Args:     d.raw("args"),
 			Env:      d.env("env"),
 			Boundary: d.str("boundary"),
+		}
+		if d.present("around") {
+			inv := m.(Invoke)
+			inv.Around = d.ints("around")
+			m = inv
 		}
 	case TypeResult:
 		r := Result{ID: d.str("id"), Outcome: d.str("outcome"), Settled: d.bool("settled")}
@@ -889,6 +1036,32 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("intercept") {
 			r.Intercept = d.raw("intercept")
 		}
+		// The budgets and latches (F2c carries F2b's).
+		if d.present("write_capable") {
+			r.WriteCapable = d.raw("write_capable")
+			if derr == nil && !bytes.HasPrefix(bytes.TrimLeft(r.WriteCapable.Producer(), " \t\r\n"), []byte("[")) {
+				d.fail(CodeBadField, "run write_capable is not an array")
+			}
+		}
+		if d.present("fatal_error_names") {
+			r.FatalErrorNames = d.strings("fatal_error_names")
+		}
+		for _, f := range []struct {
+			k string
+			v *int64
+		}{{"deadline_ms", &r.DeadlineMS}, {"pre_write_deadline_ms", &r.PreWriteDeadlineMS}} {
+			if k, v := f.k, f.v; d.present(k) {
+				if *v = d.int64(k); *v <= 0 && derr == nil {
+					d.fail(CodeBadField, "run %s %d is not positive", k, *v)
+				}
+			}
+		}
+		if d.present("clock") {
+			r.Clock = d.str("clock")
+			if r.Clock != ClockReal && r.Clock != ClockRecord && derr == nil {
+				d.fail(CodeBadField, "run clock %q", r.Clock)
+			}
+		}
 		m = r
 	case TypeRunDone:
 		r := RunDone{ID: d.str("id")}
@@ -913,6 +1086,12 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("may_have_mutated") {
 			r.MayHaveMutated = d.bool("may_have_mutated")
 		}
+		if d.present("latched") {
+			r.Latched = d.str("latched")
+		}
+		if d.present("deviations") {
+			r.Deviations = d.strings("deviations")
+		}
 		if d.present("warnings") {
 			r.Warnings = d.raw("warnings")
 			if derr == nil && !bytes.HasPrefix(bytes.TrimLeft(r.Warnings.Producer(), " \t\r\n"), []byte("[")) {
@@ -924,6 +1103,27 @@ func Decode(payload []byte) (Message, error) {
 		m = RunCancel{ID: d.str("id")}
 	case TypeRunSettled:
 		m = RunSettled{ID: d.str("id")}
+	case TypeHostCall:
+		c := HostCall{ID: d.str("id"), Hook: d.str("hook"), Run: d.str("run"), Site: d.str("site"), Payload: d.raw("payload")}
+		if derr == nil && !isObject(c.Payload) {
+			d.fail(CodeBadField, "host_call payload is not an object")
+		}
+		m = c
+	case TypeHostReply:
+		r := HostReply{ID: d.str("id")}
+		if d.present("error") {
+			if ed := d.object("error"); ed != nil {
+				r.Error = &HostError{Code: ed.str("code"), Message: ed.str("message")}
+			}
+			if d.present("payload") && derr == nil {
+				d.fail(CodeBadField, "host_reply has both payload and error")
+			}
+		} else {
+			if r.Payload = d.raw("payload"); derr == nil && !isObject(r.Payload) {
+				d.fail(CodeBadField, "host_reply payload is not an object")
+			}
+		}
+		m = r
 	case TypePing:
 		m = Ping{ID: d.str("id"), Health: d.health()}
 	case TypePong:
@@ -966,6 +1166,11 @@ const (
 	LateError  = "error"
 	LateLog    = "log"
 )
+
+// isObject reports whether a raw value is a JSON object.
+func isObject(v jsonval.Value) bool {
+	return bytes.HasPrefix(bytes.TrimLeft(v.Producer(), " \t\r\n"), []byte("{"))
+}
 
 // decoder reads the fields of one object. It keeps the first error.
 type decoder struct {
@@ -1050,6 +1255,25 @@ func (d *decoder) int64(name string) int64 {
 }
 
 func (d *decoder) int(name string) int { return int(d.int64(name)) }
+
+// ints reads an array of integers, each as int64 reads one.
+func (d *decoder) ints(name string) []int {
+	raw := d.field(name)
+	if raw == nil {
+		return nil
+	}
+	var items []json.RawMessage
+	if raw[0] != '[' || json.Unmarshal(raw, &items) != nil {
+		d.badType(name)
+		return nil
+	}
+	out := make([]int, 0, len(items))
+	for i, it := range items {
+		sub := &decoder{t: d.t, prefix: d.prefix + name + ".", f: map[string]json.RawMessage{strconv.Itoa(i): it}, err: d.err}
+		out = append(out, sub.int(strconv.Itoa(i)))
+	}
+	return out
+}
 
 func (d *decoder) bool(name string) bool {
 	raw := d.field(name)

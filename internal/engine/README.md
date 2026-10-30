@@ -19,8 +19,14 @@ with their arithmetic, jitter and argument reuse, deadlines and the clock,
 `flow_user_state()`, a root script's run as a script job and the default
 dispatcher, the integration of milestone NI (N2's waits and retries,
 the cancellation and failures inside containers, and the evaluation timing
-of container-level fields), and the `cache_ttl` result cache of milestone
-N4. This README
+of container-level fields), the `cache_ttl` result cache of milestone
+N4, and what milestone F2c added for host plugins: `RunRequest.Around`
+and `ScriptRequest.Around`, which put a plugin's around wrappers on a
+leaf's `Invocation.Around`, and the latch on an invocation's
+`plugin_error` warning (`WarningPluginError`, `PluginError`) or on a
+step's `wl.latch` (`WarningLatch`, `StepLatch`), which `LatchOf` maps; a
+script job latches too (`ScriptResult.Latched`), and its latched job has
+failed with no result, for the dispatcher as for `wl`. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -36,7 +42,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 |---|---|---|
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it; PF1's facade wraps it |
 | `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `ManualFailure`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below); `TimeoutError`, a step's timeout text by boundary (C3n) | C3a, N1b; the step-case runner (`wltest check`) and the engine call them |
-| `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
+| `settle.go` | `RunSettlement`: counts a run's unsettled invocations, and the holds on it (F2c), and says once when the run has settled; `HoldSettlement` | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `waits.go` | H10's `Jitter`, `SeededJitter` and `RecordClock`; the values of `sleep` and `timeout` and the retry schedule (below) | N2 calls them; F2b exposes the clock and the jitter to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
@@ -184,12 +190,21 @@ An invocation settles when its entrypoint call can run no more code, and
   first `Settled` and drops duplicates. Once `End` has been called and
   nothing is unsettled, it calls its callback once; that is where the engine
   calls `OnRunSettled` and releases what step code can reach (ADR 0004 host
-  mode item 5).
+  mode item 5). `Hold` counts work that is not an invocation, a host
+  plugin's hook from its call until it has finished, which may outlive the
+  engine's wait for it (F2c), even after `End`; once the run has settled
+  it holds nothing and says so, and the work must not start. A context of
+  no run, the settlement callback's own, holds nothing, so the callback
+  never waits on itself. A flow run's context carries its settlement, so
+  that whatever serves it holds it with `HoldSettlement(ctx)`, and
+  `RunRequest.Started` hands what serves the run outside its hooks (a
+  plugin's H13 providers) that context and the run's handle.
 - **Tests.** `settle_test.go` drives a fake executor through completion,
   abandonment with a late end, a non-final late error, a process exit, a
   never-dispatched invocation, and an `escaped` outcome fixed while the call
   is still pending, which settles only when the call ends or its process
-  exits.
+  exits; and holds, before and after `End`, released once, and in a run's
+  context.
 
 ## The engine core
 

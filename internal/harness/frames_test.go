@@ -174,6 +174,10 @@ func runEncode(t *testing.T, c *frameCase) {
 			if field == "warnings" {
 				raw = v.Warnings.Producer()
 			}
+		case HostCall:
+			raw = v.Payload.Producer()
+		case HostReply:
+			raw = v.Payload.Producer()
 		}
 		if string(raw) != want {
 			t.Fatalf("raw %s = %q, want %q byte for byte", field, raw, want)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
+	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -75,6 +79,17 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"f/t/subs.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
 			`{"id":"one","value":{"type":"flow","path":"f/t/env","input_transforms":{}}},` +
 			`{"id":"two","value":{"type":"flow","path":"f/t/env","input_transforms":{}}}]}}`,
+		// The trace a TypeScript hook gets (F2c): a step that reads and
+		// updates a variable through the job API, then one whose argument
+		// a $var reference resolves, after H2 rewrote it.
+		"f/t/trace.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
+			`{"id":"a","value":{"type":"script","path":"f/t/set","input_transforms":{"v":{"type":"static","value":"u/t/v"}}}},` +
+			`{"id":"b","value":{"type":"rawscript","language":"bun","content":"export async function main(x: string) { return x }","input_transforms":{"x":{"type":"static","value":"$var:u/t/v"}}}}]}}`,
+		// The step API (F2c): a script root that latches its run, and a
+		// step that waits for its signal, with no timer of its own.
+		"f/t/latch.ts": `export async function main() { (globalThis as any).wl.latch(new TypeError("the script latched")); return 1 }`,
+		"f/t/wait.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { const s = (globalThis as any).wl.signal(); await new Promise((r) => s.addEventListener('abort', r)); return 1 }","input_transforms":{}}}]}}`,
 		"f/t/par.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"all","value":{"type":"branchall","parallel":true,"branches":[` +
 			`{"skip_failure":false,"modules":[{"id":"p1","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}}]},` +
 			`{"skip_failure":false,"modules":[{"id":"p2","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 2 }","input_transforms":{}}}]}]}}]}}`,
@@ -455,4 +470,224 @@ func TestWritesAndDeadlines(t *testing.T) {
 	if res.Status != StatusCanceled || launched(res, "m:w2") {
 		t.Fatalf("a deadline with no write: %s %s", res.Status, res.Result)
 	}
+}
+
+// TestStepAPI runs the step API of milestone F2c on the pinned Bun:
+// wl.latch latches a script run as it latches a flow's (H5), and so does a
+// failed around wrapper of the host plugin; wl.signal aborts when the
+// run's deadline abandons the step (H4), so a step that waits for nothing
+// else settles, and the run with it.
+func TestStepAPI(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	for _, mode := range []string{"warm", "fresh"} {
+		t.Run(mode+": a script latches its script run", func(t *testing.T) {
+			rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			res, err := rt.Run(context.Background(), "f/t/latch", nil, RunOptions{Kind: KindScript})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var l *engine.StepLatch
+			if res.Status != StatusLatched || !errors.As(res.Latched, &l) || l.Message != "TypeError: the script latched" || res.Result != nil {
+				t.Fatalf("%s %v %s, want latched with the script's error and no result", res.Status, res.Latched, res.Result)
+			}
+		})
+	}
+	t.Run("a failed around wrapper latches a script run", func(t *testing.T) {
+		plugin := filepath.Join(t.TempDir(), "plugin.ts")
+		src := `export default { around: [{ selector: { script: "f/t/latch" }, fn: async () => { throw new Error("the wrapper failed") } }] };`
+		if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		res, err := rt.Run(context.Background(), "f/t/latch", nil, RunOptions{Kind: KindScript})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pe *engine.PluginError
+		if res.Status != StatusLatched || !errors.As(res.Latched, &pe) || !strings.Contains(pe.Message, "the wrapper failed") {
+			t.Fatalf("%s %v, want latched by the wrapper's failure", res.Status, res.Latched)
+		}
+	})
+	t.Run("warm: the signal aborts at the deadline and the step settles", func(t *testing.T) {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		settled := make(chan struct{})
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		res, err := rt.Run(ctx, "f/t/wait", nil, RunOptions{Hooks: &Hooks{OnRunSettled: func(*Trace) { close(settled) }}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusCanceled {
+			t.Fatalf("status %s, want canceled", res.Status)
+		}
+		select {
+		case <-settled:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the run never settled: its step did not see wl.signal() abort")
+		}
+	})
+}
+
+// TestPluginTraceParity checks that a TypeScript plugin's hooks get the
+// evidence Go hooks get (F2c review R1-5): on one run, a Go OnRunEnd and
+// OnModuleEnd and the plugin's onRunEnd and onModuleEnd see the same
+// trace and records, the platform calls of a job-API read and update, the
+// arguments before and after H2 and after a $var reference's resolution,
+// the carried values, timings and deviations included.
+func TestPluginTraceParity(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const ends: unknown[] = [];
+export default {
+  rewriteArgs: [{ selector: { flow: "f/t/trace", module: "b" }, fn: () => ({ x: "$var:u/t/w" }) }],
+  onModuleEnd({ record }) { ends.push(record) },
+  onRunEnd(trace) { return [{ code: "ts_trace", message: JSON.stringify({ trace, ends }) }] },
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Variables: map[string]Variable{"u/t/v": {Value: "first"}, "u/t/w": {Value: "other"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	var goTrace []byte
+	var goEnds []any
+	hooks := &Hooks{
+		OnModuleEnd: func(_ context.Context, _ RunHandle, _ Site, rec StepRecord) error {
+			goEnds = append(goEnds, recordJSON(rec))
+			return nil
+		},
+		OnRunEnd: func(_ context.Context, tr *Trace) []Warning {
+			goTrace, _ = json.Marshal(traceJSON(tr))
+			return nil
+		},
+	}
+	res, err := rt.Run(context.Background(), "f/t/trace", nil, RunOptions{Hooks: hooks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess {
+		t.Fatalf("status %s", res.Status)
+	}
+	var ts struct {
+		Trace json.RawMessage `json:"trace"`
+		Ends  json.RawMessage `json:"ends"`
+	}
+	for _, w := range res.Warnings {
+		if w.Code == "ts_trace" {
+			if err := json.Unmarshal([]byte(w.Message), &ts); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if ts.Trace == nil {
+		t.Fatalf("the plugin's onRunEnd did not report: %+v", res.Warnings)
+	}
+	// The same evidence, field for field.
+	if ok, err := jsonEqual(ts.Trace, goTrace); err != nil || !ok {
+		t.Fatalf("the plugin's trace differs from the Go hook's:\n  plugin %s\n  go     %s", ts.Trace, goTrace)
+	}
+	goEndsText, _ := json.Marshal(goEnds)
+	if ok, err := jsonEqual(ts.Ends, goEndsText); err != nil || !ok {
+		t.Fatalf("the plugin's onModuleEnd records differ from the Go hook's:\n  plugin %s\n  go     %s", ts.Ends, goEndsText)
+	}
+	// And the evidence is there.
+	var tr struct {
+		PlatformCalls []struct{ Site, Method, Route string } `json:"platform_calls"`
+		Steps         []struct {
+			Site       string          `json:"site"`
+			Before     json.RawMessage `json:"args_before_rewrite"`
+			Args       json.RawMessage `json:"args"`
+			Resolved   json.RawMessage `json:"resolved_args"`
+			Carried    json.RawMessage `json:"carried"`
+			Start      string          `json:"start"`
+			DurationMS float64         `json:"duration_ms"`
+		} `json:"steps"`
+		Spans      []any    `json:"spans"`
+		Deviations []string `json:"deviations"`
+	}
+	if err := json.Unmarshal(ts.Trace, &tr); err != nil {
+		t.Fatal(err)
+	}
+	if len(tr.PlatformCalls) != 2 || len(res.Trace.PlatformCalls) != 2 || tr.PlatformCalls[0].Site != "m:a" || tr.PlatformCalls[0].Method != "GET" || tr.PlatformCalls[1].Method != "POST" {
+		t.Errorf("platform calls %+v, want the step's read and update", tr.PlatformCalls)
+	}
+	for _, s := range tr.Steps {
+		if s.Site != "m:b" {
+			continue
+		}
+		if string(s.Before) != `{"x":"$var:u/t/v"}` || string(s.Args) != `{"x":"$var:u/t/w"}` || string(s.Resolved) != `{"x":"other"}` || string(s.Carried) != `"other"` || s.Start == "" || s.DurationMS <= 0 {
+			t.Errorf("m:b's record %+v: want the arguments before and after H2 and after resolution, the carried value and its timing", s)
+		}
+	}
+	if len(tr.Spans) == 0 || tr.Deviations == nil {
+		t.Errorf("spans %v, deviations %v: want the run's timings and its (empty) deviations", tr.Spans, tr.Deviations)
+	}
+}
+
+// TestAroundLateNextStartsNothing checks that an around wrapper that
+// returns without calling next(), and calls it later from a continuation,
+// starts no step after its failure settled the invocation and latched the
+// run (F2c review R1-3): the step's side effect never happens.
+func TestAroundLateNextStartsNothing(t *testing.T) {
+	bun := bunOrSkip(t)
+	marker := filepath.Join(t.TempDir(), "step-ran.txt")
+	flow, _ := json.Marshal(map[string]any{"modules": []any{map[string]any{"id": "a", "value": map[string]any{
+		"type": "rawscript", "language": "bun", "input_transforms": map[string]any{},
+		"content": fmt.Sprintf(`export async function main() { await Bun.write(%q, "ran"); return 1 }`, marker),
+	}}}})
+	f := loadPluginCases(t)
+	c := conformance.PluginCase{ID: "late_next", Flow: flow}
+	f.Cases = append(f.Cases, c)
+	out, runtimeDir := buildPluginBundle(t, bun, f)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := fmt.Sprintf(`export default { around: [{ selector: { flow: %q, module: "a" }, fn: (_c, next) => { void Bun.sleep(100).then(next).catch(() => {}) } }] };`, c.FlowPath())
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Providers: newGoCasePlugin(f).providers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), c.FlowPath(), nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pe *engine.PluginError
+	if res.Status != StatusLatched || !errors.As(res.Latched, &pe) || !strings.Contains(pe.Message, "never called next()") {
+		t.Fatalf("%s %v: want latched for never calling next()", res.Status, res.Latched)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("next(), called after its wrapper returned, ran the step")
+	}
+}
+
+// jsonEqual reports whether two JSON texts hold equal values.
+func jsonEqual(a, b []byte) (bool, error) {
+	var x, y any
+	if err := json.Unmarshal(a, &x); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(b, &y); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(x, y), nil
 }

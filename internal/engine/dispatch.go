@@ -43,6 +43,10 @@ type ScriptRequest struct {
 	// first of RootJob, ParentJob and itself that is set, and its flow path
 	// ParentPath, so its state path is <ParentPath>/nostep_user (WA-5).
 	ParentJob, RootJob, ParentPath string
+	// Around, when set, gives a host plugin's around wrappers at the
+	// script job's site, a site with no path whose Script is the script's
+	// path (RunRequest.Around).
+	Around func(Site) []int
 }
 
 // ScriptResult is how a script job ended: its stored result, or its
@@ -51,6 +55,10 @@ type ScriptResult struct {
 	ID     string
 	Failed bool
 	Result jsonval.Value
+	// Latched, when not nil, is the error the job's step latched on its
+	// run (H5, milestone F2c): its own wl.latch, or an around wrapper's
+	// failure. A latched job has failed, with no result.
+	Latched error
 }
 
 // RunScript runs a root script of the program as a script job and returns
@@ -62,7 +70,15 @@ type ScriptResult struct {
 // cache_ttl, the result cache may answer it before it runs (FX-40). An
 // error means it could not start: a path that is not a script root, or arguments that
 // are not a JSON object or that the job API could not store.
-func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult, error) {
+func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptResult, err error) {
+	// The warnings that latch a run latch the job's (H5); the latch
+	// outranks the job's outcome, as at a flow step's completion.
+	rep := &scriptReporter{}
+	defer func() {
+		if l := rep.latch.Err(); l != nil && err == nil {
+			res = ScriptResult{ID: res.ID, Failed: true, Latched: l}
+		}
+	}()
 	s := e.prog.Scripts[req.Path]
 	if s == nil || s.Kind != ir.PathScript || !slices.Contains(e.prog.Roots.Scripts, req.Path) {
 		return ScriptResult{}, fmt.Errorf("engine: no script root %q in the program", req.Path)
@@ -95,6 +111,10 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	env := ident.Env(e.host)
 	reserved := maps.Clone(env)
 	addScriptEnvs(env, s, boundary)
+	var around []int
+	if req.Around != nil {
+		around = req.Around(Site{Script: s.Path})
+	}
 	// FX-40: the script's own cache_ttl, under which the result cache may
 	// answer the job before it runs, and keeps its result when it
 	// succeeds. A hit is still a job with its identity, which the job
@@ -143,7 +163,8 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		Env:         env,
 		Boundary:    boundary,
 		ModuleState: e.moduleState,
-		Report:      NopReporter{},
+		Report:      rep,
+		Around:      around,
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
@@ -160,7 +181,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
 	}
-	if ttl > 0 && !st.Failed {
+	if ttl > 0 && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the
 		// cache never fails a job.
 		_ = e.cachePut(ctx, key, time.Now(), ttl, st.Value, st.Origin, nil)

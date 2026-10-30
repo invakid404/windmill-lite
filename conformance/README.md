@@ -49,6 +49,7 @@ repository to exercise one behaviour each.
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
+| plugins | `plugins/hooks.yaml` | in use (milestone F2c); run by `go test ./wl` (a TypeScript plugin in `warm` processes, and Go callbacks) and `go test ./cmd/windmill-lite` (the host SDK's plugin in host mode), on the pinned Bun |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | hooks | `hooks/<topic>.yaml` | in use (milestone F2b): `hooks/latch-precedence.yaml`, the latch-precedence cases of [ADR 0008](../docs/design/0008-host-hooks.md): the latch (H5), cancellation and deadlines (H4), fatal error names (H7), halts (H8) and the clock (H10) against retry, `continue_on_error`, `skip_failures` and the failure module, each case a synthetic flow of identity modules, the host's signals and what the run must show; windmill-lite's rules (provenance `policy`), never recorded; run by `go test ./wl` (`TestHookCases`) through the public hooks |
 | flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
@@ -580,6 +581,38 @@ sides check: the host SDK before it starts the engine (`checkWorkdir` in
 `file`, sets the modes it names (skipped as root), and passes `workdir`;
 `expect` is the refusal's code (`workdir_not_writable`,
 `workdir_mismatch`) or null.
+
+## Plugin cases
+
+`plugins/hooks.yaml` (milestone F2c) holds the host-plugin cases of
+[ADR 0008](../docs/design/0008-host-hooks.md): every hook of F2a (H1, H2,
+H6, H8, H9, H12, H13) and a mandatory provided site answered by a host
+plugin over `host_call`, an `around` wrapper around a step, and the
+errors, declines and timeouts that latch a run; F2b's H3 and H7 answered
+by the plugin, its budgets and latches as a run carries them, and step
+code's `wl.latch` and `wl.signal`. Provenance `policy`:
+these are windmill-lite's rules for its hosts. The file's `scripts` and
+each case's `flow` (at `f/plugins/<id>`) make one sync folder, whose host
+contract has every flow as a root and the cases' `provided` sites; each
+case's `plugin` is declarative (intercept, rewrite_args, halt_before and
+halt_after, write_capable, first_write, fatal_error_names, around,
+observe, env, variables, fail_variables, fail_resources, slow_start_ms,
+providers, warnings), and its `run` holds the
+run's own budgets and latches (write_capable, fatal_error_names,
+deadline_ms, pre_write_deadline_ms, clock), which a Go host gives in
+`RunOptions` and a TypeScript host in its run frame, so the
+same cases run through a TypeScript plugin (`harnesses/bun/test/caseplugin.ts`)
+in `warm` processes and in host mode, and through Go callbacks built from
+the same plugin, unless `go: false` (which a failing or slow plugin
+needs); every plugin's `onRunEnd` reports its log of the run in the
+warning `plugin_log`, and its `onRunSettled` writes each run to a report
+file, with whether one of the run's hooks still ran, which the runners
+check never happens: every case's run must settle, none early. `expect` is the run's
+`status`, `may_have_mutated`, `result`, `latched` (a text of the latched
+error), the plugin's `log`, its `warnings`, the sites that ran no job
+(`not_ran`) and the run's `deviations`.
+`timeout_ms` is the plugin timeout of the runtimes that run them.
+`internal/conformance` loads and checks them (`plugins.go`).
 
 ## Step cases
 

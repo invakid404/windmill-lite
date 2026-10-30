@@ -14,8 +14,9 @@ milestone PF1, which gave intercepted replies their reason phrase, kept a
 result behind its own platform call, and fixed the borrowed reading
 methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
-([WR-55](../../docs/semantics/languages.md#wr-55), below); and milestone
-F3a, which completed the host SDK (below). This
+([WR-55](../../docs/semantics/languages.md#wr-55), below); milestone
+F3a, which completed the host SDK; and milestone F2c, host plugins
+answered over `host_call` (below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
@@ -43,7 +44,8 @@ cannot corrupt the protocol.
 
 | File | Contents |
 |---|---|
-| `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, connects to fd 3, starts the runtime |
+| `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, loads the host plugin `--plugin` names, connects to fd 3, starts the runtime |
+| `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
 | `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
@@ -374,7 +376,10 @@ calls on its current connection.
 ## Host mode and the host SDK
 
 `host/index.ts` is the SDK for a host that is itself a Bun program
-(ADR 0009). `connect(options)`:
+(ADR 0009). Its `plugin` option is the host's plugin (below, Host
+plugins), whose declaration goes in the hello and which the engine checks
+there, refusing a host it cannot use with `plugin_mismatch`; the SDK
+re-exports the plugin types. `connect(options)`:
 
 1. checks `workdir` (`checkWorkdir`): it must be a directory this process
    can write, else `workdir_not_writable`, and already the process's
@@ -413,15 +418,22 @@ calls on its current connection.
 
 It returns a `Host`:
 
-- `run(path, args, {kind, intercept, signal, onSettled})` submits a run of
-  a flow, or with `kind: "script"` a script, and resolves with its `id`,
-  `status`, `result`, `mayHaveMutated` and `warnings`, or rejects with a
+- `run(path, args, {kind, intercept, signal, onSettled, writeCapable,
+  fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock})` submits a run
+  of a flow, or with `kind: "script"` a script, and resolves with its
+  `id`, `status`, `result`, `mayHaveMutated`, `warnings`, `deviations`
+  (H7, H10) and, for a latched run, `latched` (the error it latched), or
+  rejects with a
   `HostError` when the engine does not start it (`draining`, or `refused`:
   no such target, arguments that are not an object). An aborted `signal`
   cancels it. The scope the caller has when it calls `run` is captured
   with `AsyncLocalStorage.snapshot()`, and every invocation of the run
   re-enters it (H11). `intercept` maps module ids to the results that
-  stand in for them (H1's static form). `onSettled` is called once the run
+  stand in for them (H1's static form). The run's budgets and latches
+  (F2b's, in the run frame) are its write-capable selectors (H3) and fatal
+  error names (H7), ahead of the plugin's, its hard and pre-write
+  deadlines in milliseconds (H4), and its clock (H10, `record` for quick
+  waits). `onSettled` is called once the run
   has settled, after its outcome (`run_settled`, ADR 0004 host mode item
   5), in the scope the run was submitted in (H11), outside every
   invocation: every invocation it started has settled, which may be never,
@@ -456,6 +468,62 @@ event loop stops answering (`watchdog.killAfter`, default 30 s, 0 disables
 it). A step reads a host scope only through a host-provided module; the
 bundle's step imports it through the shim the build generates, which
 takes each export from the registry.
+
+## Host plugins
+
+A host plugin (milestone F2c, ADR 0008 and ADR 0004 §Host plugins) is a
+`Plugin` (`runtime/plugin.ts`): `intercept` (with a static value or `fn`),
+`rewriteArgs`, `haltBefore`, `haltAfter`, `around`, `onModuleStart`,
+`onModuleEnd`, `invocationEnv`, `onRunEnd`, `onRunSettled`, `providers`
+(the named providers of mandatory host-provided sites), and `resource`
+and `variable`, the provider bridge of H13 (raw values the engine's
+router interpolates). Each list entry has a selector, the host
+contract's form; the engine matches them.
+
+- **Where it comes from.** In host mode, the host SDK's `connect` option
+  `plugin`. In a `warm` harness the engine spawned, the default export (or
+  the export `plugin`) of the module `--plugin` names, which `main.ts`
+  loads once the runtime's process-wide hooks are in place and before the
+  hello (`Runtime.usePlugin`; the engine names it with
+  `wl.Options.Plugin`).
+- **The declaration** (`declaration`) goes in the hello as `plugin`: the
+  hooks the plugin answers, each list's selectors, static values. A plugin
+  whose shape is wrong (an interception with both or neither of `static`
+  and `fn`, a hook that is no function) is refused before the hello.
+- **Answers.** The runtime answers a `host_call` with `dispatch`, outside
+  every invocation, and in host mode inside the scope the host had when it
+  submitted the run (H11); that scope is kept until the run settles, for
+  `onRunSettled`. A hook's throw replies `plugin_error`, a hook or entry
+  the plugin lacks `unknown_hook`, and a harness without a plugin replies
+  `unknown_hook` to every call.
+- **`around`.** When an `invoke` names around wrappers, the runtime runs
+  the step inside them, outermost first, in the invocation's context
+  (`runAround`): each calls `next()` once and gets the step's outcome
+  (`{outcome, result}`), which stays the step's own. A wrapper that throws
+  or never calls `next()` is reported in a `plugin_error` warning before
+  the invocation's result, which latches the run; a step that never ran
+  then fails with an error the harness generated. A wrapper's `next()` is
+  closed once the wrapper returns or the invocation is no longer running:
+  a first call then rejects and starts nothing, so a continuation the
+  wrapper left behind never runs the step after its invocation settled.
+- **Payloads.** A hook's `StepRecord` and `Trace` carry every field a Go
+  hook gets (`plugin.ts`): the arguments before H2, as stored and as
+  resolved, the carried value, timings, late output, child flows, spans,
+  deviations and `PlatformCall`s.
+- **F2b's hooks.** A plugin may declare `writeCapable` selectors,
+  `beforeFirstWrite` (a throw vetoes the write) and `fatalErrorNames`.
+- **The step API** (`installStepAPI`, `context.ts`). `wl` on `globalThis`
+  gives step code `wl.latch(error)`, sent as a `latch` warning ahead of
+  the step's result, which latches the run, and `wl.signal()`, the
+  invocation's abort signal, which aborts with the `cancel`'s reason. Both
+  throw a `TypeError` outside an open invocation (a plugin's hook latches
+  by throwing); a step cannot replace `wl`; a native step's realm has
+  none.
+
+`test/caseplugin.ts` (with a report file its `onRunSettled` writes, of
+each run and whether one of its hooks still ran) is the plugin of the cases of
+`conformance/plugins/hooks.yaml`, which the Go tests load in `warm`
+processes and in a compiled host.
 
 ## The step runner
 
@@ -684,7 +752,8 @@ platform call of its invocation included), partial writes,
 under backpressure, with a pong still overtaking them.
 `test/context.test.ts` checks the environment view's rules in one process
 (a first write of a process variable included), the registry, the process
-scope and the exit status; `test/fence.test.ts` the settle-time fence (the
+scope, the exit status and the step API (`wl.latch`'s texts and refusals,
+`wl.signal()`, a `wl` no step can replace); `test/fence.test.ts` the settle-time fence (the
 timers and `refresh()`, the fetch view and the evidence that ends a
 body's transfer, with a native-versus-fenced comparison of the
 response's semantics, a reading method or clone borrowed for another
@@ -694,7 +763,10 @@ the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
 sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
-and `test/host.test.ts` the SDK: the shared working-directory cases of
+`test/plugin.test.ts` host plugins: the declaration, each hook's answer
+and the `unknown_hook` and `plugin_error` refusals, and the runtime
+answering a `host_call` in the run's scope; and `test/host.test.ts` the
+SDK: the shared working-directory cases of
 `conformance/protocol/host/workdir.json` through `checkWorkdir`, the
 refusals before the engine starts, the assets extracted into the
 working directory before it does, and a run's `onSettled` running in its

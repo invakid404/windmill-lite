@@ -135,7 +135,14 @@ decrypts Windmill ciphertext; it hands that to the resolver
   `host_call`. A provider-backed call therefore costs two round trips inside
   one process, about 25–35 µs at the measured 12.5–18 µs each
   ([0003](0003-semantics-placement.md)); a provider can mark answers
-  cacheable for the run to avoid repeating them. Answering `platform` frames
+  cacheable for the run to avoid repeating them. Milestone F2c built this
+  bridge as the plugin's `resource(path)` and `variable(path)`, asked
+  after the run's own providers and before the runtime's, for the job API
+  and for argument resolution alike; cacheable answers are not built yet.
+  A TypeScript provider that throws or times out latches the run, as any
+  plugin hook does ([0008](0008-host-hooks.md) H5): the router still
+  answers the call with its error, but neither the step that tolerates
+  that answer nor `continue_on_error` keeps the run going. Answering `platform` frames
   directly in TypeScript was rejected because it would copy the router's
   rules into a second language.
 - **Unsupported routes** answer `501` with `text/plain` body
