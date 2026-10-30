@@ -543,6 +543,145 @@ cases:
         script: f/wl_b/d18_h_bun_two
         expect: {status: success, result: f/wl_b/d18_h_bun_two}
   - spec: D18
+    variant: h-builtin-import
+    provenance: policy
+    deviation: D18
+    title: a Bun-built dependency's import() of a module the runtime has built in, reached by two scripts, gives each the per-script bundle's result, and runs from the closure with shared code
+    note: >-
+      The runtime resolves a module it has built in to the same module from
+      every file, so an import() of a literal naming one keeps no script on
+      its per-script bundle (ADR 0013, decision item 5). The dependency
+      imports node:async_hooks, fs/promises with and without node:, and
+      bun:sqlite. It also reports whether its own stack names the closure
+      file: in warm both scripts run their shared layout, so it does; in
+      fresh neither does.
+    files:
+      f/wl_step/d18_builtin.ts: |
+        export async function storage() {
+          const { AsyncLocalStorage } = await import("node:async_hooks");
+          return new AsyncLocalStorage<number>();
+        }
+        export async function forms() {
+          const [fs, nodeFs, sqlite] = [await import("fs/promises"), await import("node:fs/promises"), await import("bun:sqlite")];
+          return [fs.readFile === nodeFs.readFile, typeof sqlite.Database];
+        }
+        export function inClosure() { return (new Error().stack ?? "").includes("scripts/bun/closures/"); }
+    path: f/wl_step/d18_h_builtin_one
+    script: |
+      import { storage, forms, inClosure } from "./d18_builtin.ts";
+      export async function main() {
+        const s = await storage();
+        return { store: s.run(1, () => s.getStore()), forms: await forms(), closure: inClosure() };
+      }
+    scripts:
+      f/wl_step/d18_h_builtin_two: |
+        import { storage, forms, inClosure } from "./d18_builtin.ts";
+        export async function main() {
+          const s = await storage();
+          return { store: s.run(1, () => s.getStore()), forms: await forms(), closure: inClosure() };
+        }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: {store: 1, forms: [true, function], closure: true}}}
+          fresh: {expect: {status: success, result: {store: 1, forms: [true, function], closure: false}}}
+      - args: '{}'
+        script: f/wl_step/d18_h_builtin_two
+        by_mode:
+          warm: {expect: {status: success, result: {store: 1, forms: [true, function], closure: true}}}
+          fresh: {expect: {status: success, result: {store: 1, forms: [true, function], closure: false}}}
+  - spec: D18
+    variant: h-builtin-import-cjs
+    provenance: policy
+    deviation: D18
+    title: a CommonJS codebase dependency's import() of a module the runtime has built in, reached by two scripts, gives each the per-script bundle's result, and runs from the closure with shared code
+    note: >-
+      As h-builtin-import, for a CommonJS codebase group, whose esbuild
+      bundle keeps the node: prefix. Node runs the per-script bundle, as
+      Windmill does (D13), so there the stack names no closure.
+    codebase: {relative_path: f/wl_step, format: cjs}
+    files:
+      f/wl_step/d18_builtin_cjs.ts: |
+        export async function storage() {
+          const { AsyncLocalStorage } = await import("node:async_hooks");
+          return new AsyncLocalStorage<number>();
+        }
+        export async function forms() {
+          const [fs, nodeFs] = [await import("fs/promises"), await import("node:fs/promises")];
+          return [fs.readFile === nodeFs.readFile];
+        }
+        export function inClosure() { return (new Error().stack ?? "").includes("scripts/bun/closures/"); }
+    path: f/wl_step/d18_h_builtin_cjs_one
+    script: |
+      import { storage, forms, inClosure } from "./d18_builtin_cjs";
+      export async function main() {
+        const s = await storage();
+        return { store: s.run(1, () => s.getStore()), forms: await forms(), closure: inClosure() };
+      }
+    scripts:
+      f/wl_step/d18_h_builtin_cjs_two: |
+        import { storage, forms, inClosure } from "./d18_builtin_cjs";
+        export async function main() {
+          const s = await storage();
+          return { store: s.run(1, () => s.getStore()), forms: await forms(), closure: inClosure() };
+        }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: {store: 1, forms: [true], closure: true}}}
+          fresh: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+        node: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+      - args: '{}'
+        script: f/wl_step/d18_h_builtin_cjs_two
+        by_mode:
+          warm: {expect: {status: success, result: {store: 1, forms: [true], closure: true}}}
+          fresh: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+        node: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+  - spec: D18
+    variant: h-builtin-import-esm
+    provenance: policy
+    deviation: D18
+    title: a format esm codebase dependency's import() of a module the runtime has built in, reached by two scripts, gives each the per-script bundle's result, and runs from the closure with shared code
+    note: >-
+      As h-builtin-import-cjs, for an ES module codebase group, whose
+      closure is an ES module file.
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/d18_builtin_esm.ts: |
+        export async function storage() {
+          const { AsyncLocalStorage } = await import("node:async_hooks");
+          return new AsyncLocalStorage<number>();
+        }
+        export async function forms() {
+          const [fs, nodeFs] = [await import("fs/promises"), await import("node:fs/promises")];
+          return [fs.readFile === nodeFs.readFile];
+        }
+        export function inClosure() { return (new Error().stack ?? "").includes("scripts/bun/closures/"); }
+    path: f/wl_step/d18_h_builtin_esm_one
+    script: |
+      import { storage, forms, inClosure } from "./d18_builtin_esm";
+      export async function main() {
+        const s = await storage();
+        return { store: s.run(1, () => s.getStore()), forms: await forms(), closure: inClosure() };
+      }
+    scripts:
+      f/wl_step/d18_h_builtin_esm_two: |
+        import { storage, forms, inClosure } from "./d18_builtin_esm";
+        export async function main() {
+          const s = await storage();
+          return { store: s.run(1, () => s.getStore()), forms: await forms(), closure: inClosure() };
+        }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: {store: 1, forms: [true], closure: true}}}
+          fresh: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+      - args: '{}'
+        script: f/wl_step/d18_h_builtin_esm_two
+        by_mode:
+          warm: {expect: {status: success, result: {store: 1, forms: [true], closure: true}}}
+          fresh: {expect: {status: success, result: {store: 1, forms: [true], closure: false}}}
+  - spec: D18
     variant: i-import-meta
     provenance: policy
     title: a Bun-built dependency reads the step's import.meta.url, and import.meta.env gives the invocation's environment

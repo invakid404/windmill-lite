@@ -270,6 +270,11 @@ each in three layouts:
 | `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
 | `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, 34 CommonJS codebase scripts of about 6.9 MB each that import one module outside the sync folder, over mongoose, `windmill-client`, js-yaml, Babel's parser and types (pinned by `testdata/memory/closure.package.json` and `closure.bun.lock`, which it installs, so it needs the network once) and a generated package shaped like an API client. It reports the resident set with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs; with shared code, the soak's peak must stay within the embedder's budget of 650 MiB |
 
+In `TestModuleMemoryClosure`, the shared module imports `node:async_hooks`
+by `import()`, and the generated package imports `node:fs/promises` by
+`import()`, as published packages do. Both are modules the runtime has
+built in, so every script keeps its shared layout.
+
 With shared code, both tests assert the memory gate of [ADR 0013](../../docs/design/0013-shared-module-code.md).
 `TestModuleMemory` allows at most 1.5 MiB per further module.
 `TestModuleMemoryClosure` allows at most 16 MiB per further module, and a

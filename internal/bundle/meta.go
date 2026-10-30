@@ -87,11 +87,14 @@ const (
 	FallbackTopLevelAwait = "top_level_await"
 	// FallbackExternalImport: in an ES module group, a dependency module it
 	// reaches imports an external module statically, which the closure
-	// would turn into a synchronous require.
+	// would turn into a synchronous require. A module the runtime has
+	// built in is not an external module here.
 	FallbackExternalImport = "external_import"
 	// FallbackDynamicImport: a dependency module it reaches keeps an
 	// import() the bundler did not resolve, which resolves from the file
-	// that holds it.
+	// that holds it. An import() whose specifier is a literal naming a
+	// module the runtime has built in does not count: it loads the same
+	// module from every file.
 	FallbackDynamicImport = "dynamic_import"
 	// FallbackEntryCycle: a dependency module it reaches imports its own
 	// entry file.

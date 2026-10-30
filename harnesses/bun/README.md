@@ -28,9 +28,10 @@ on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
 ([WR-3](../../docs/semantics/languages.md#wr-3)).
 
 The runtime and the host SDK have no dependencies and no `package.json`.
-The build helper has one, for its TypeScript parser. The type check in
-`test/typecheck` has one for TypeScript and Bun's type declarations, which
-only developers and CI install ([Type check](#type-check)).
+The build helper has one, for its TypeScript parser. The type check has two,
+in `test/typecheck` and `test/typecheck/oldest`, for TypeScript and the type
+declarations, which only developers and CI install
+([Type check](#type-check)).
 
 The runtime also runs a bundle's shared code (below,
 [ADR 0013](../../docs/design/0013-shared-module-code.md)).
@@ -865,20 +866,38 @@ vendors them as source sees them
 ([ADR 0009](../../docs/design/0009-host-adapters.md)). It copies both
 directories into a temporary package of type module. There it runs
 TypeScript 6.0.3 against `@types/bun` 1.3.10, the type declarations of the
-pinned Bun, both from the lockfile in `test/typecheck`.
+pinned Bun.
+
+`@types/bun` accepts any version of `@types/node`, and a host brings its
+own. The check therefore runs against two sets of declarations, each pinned
+by its own lockfile:
+
+| Directory | `@types/node` | Which version |
+|---|---|---|
+| `test/typecheck` | 26.6.6 | The newest |
+| `test/typecheck/oldest` | 24.19.1 | The oldest a host is expected to use |
 
 - Its `tsconfig.json` resolves modules as Node.js does (`NodeNext`).
-- It runs `tsc` four times: with and without the DOM library, each in
-  strict and in non-strict mode, and exits 1 if any run reports an error.
+- For each set, it runs `tsc` four times: with and without the DOM library,
+  each in strict and in non-strict mode. It exits 1 if any of the eight
+  runs reports an error.
 - CI's non-required `Bun SDK types` job runs it.
+- Renovate keeps `@types/bun` at 1.3.10 in both sets, and the oldest set's
+  `@types/node` within major version 24.
 
 The code uses only names that Bun's type declarations define, with or
-without the DOM library. Where those declarations miss what Bun does,
-the code names the gap in a comment and casts once: `RequestOf` (a
-`Request` built from a URL) and the file-descriptor form of `Bun.connect`.
+without the DOM library, and that both versions of `@types/node` declare.
+For example, `@types/node` 24 exports no `Console` type from `node:console`,
+so the runtime types a console as
+`InstanceType<typeof import("node:console").Console>`. Where the
+declarations miss what Bun does, the code names the gap in a comment and
+casts once: `RequestOf` (a `Request` built from a URL) and the
+file-descriptor form of `Bun.connect`.
 
 To run it:
 
-1. Install its dependencies:
+1. Install the newest set:
    `(cd harnesses/bun/test/typecheck && bun install --frozen-lockfile)`.
-2. Run `harnesses/bun/test/typecheck/check.sh`.
+2. Install the oldest set:
+   `(cd harnesses/bun/test/typecheck/oldest && bun install --frozen-lockfile)`.
+3. Run `harnesses/bun/test/typecheck/check.sh`.

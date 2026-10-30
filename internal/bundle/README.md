@@ -413,12 +413,22 @@ and the warning `shared_code_fallback`, which names the module) for:
   object of an ES module whose names are not all known (a star re-export of
   an external module), or imports a module that exports `__esModule`;
 - by module of the closure: top-level await, which fails the CommonJS
-  build; a static import of an external module from an ES module group (a
-  module the runtime has built in is not one); and a kept `import()`.
+  build; a static import of an external module from an ES module group;
+  and a kept `import()`.
+
+A module the runtime has built in is neither an external import nor a kept
+`import()`: the runtime resolves it to the same module from every file
+([ADR 0013](../../docs/design/0013-shared-module-code.md), decision item
+5). A specifier names one when it is a name of `builtins`, alone or after
+`node:`; an `import()` counts only with a literal specifier.
+
+`builtins` is the list that `node:module`'s `builtinModules` gives on the
+build helper's Bun. The build requires that Bun to be 1.3.10 unless
+`BunConfig.AllowBunMismatch` is set.
 
 The build helper finds namespace imports and kept imports by parsing with
 Babel: its `namespaces` op parses each module, and its `kept` op parses the
-closure bundle.
+closure bundle and returns the list of built-in modules.
 
 **Recorded:** the manifest's `shared_code` and `closures`, [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations) among its
 deviations, and each script's `shared` record (its closure or its
@@ -572,6 +582,11 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   label, what each closure names and contains, and text of each script's
   shared-layout module. For `t-closure-membership` they also check that
   the per-script bundles are the same bytes as without shared code.
+- `TestBuiltins` checks the build helper's `kept` op: an `import()` of
+  `node:async_hooks` is not kept and one of a variable is. It also checks
+  that the list of built-in modules it returns holds Node's modules, their
+  subpaths and Bun's own, and that `node:` names outside the list are not
+  built in.
 - `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
   flow, an inline step, a path script, a workspace import, a host-provided
   module, a codebase script with a define, an import of its codebase and an

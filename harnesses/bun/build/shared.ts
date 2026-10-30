@@ -1,4 +1,5 @@
 import { parse } from "@babel/parser";
+import { builtinModules } from "node:module";
 import type { Syntax } from "./signature.ts";
 
 // Shared code (ADR 0013), the Bun build's side: the sources a Bun-built
@@ -91,13 +92,46 @@ export function closureEntry(files: Map<string, string>, envSpecifier: string | 
   return lines.join("\n") + "\n";
 }
 
+// The names of the modules the runtime has built in: the list that
+// node:module's builtinModules gives on the Bun that runs the build, which
+// the build requires to be the pinned Bun 1.3.10 unless its caller allows
+// another. Bun 1.3.10 lists Node's modules without the node: prefix,
+// subpaths such as fs/promises among them, and its own: bun, bun:ffi,
+// bun:jsc, bun:sqlite, bun:test and bun:wrap, and ws and undici, which it
+// implements itself whatever node_modules holds. The Go build asks for the
+// list with the kept op.
+export const BUILTIN_MODULES: readonly string[] = [...builtinModules].sort();
+
+const BUILTINS = new Set(BUILTIN_MODULES);
+
+// Whether a specifier names a module the runtime has built in: a name of
+// BUILTIN_MODULES, alone or after node:. The runtime resolves such a
+// specifier to the same module from every file, so importing one from a
+// closure instead of the step's module changes nothing (ADR 0013, decision
+// item 5). A node: specifier of a name not in the list counts as no
+// built-in, and keeps the fallbacks that apply to other specifiers.
+export function builtinModule(spec: string): boolean {
+  return BUILTINS.has(spec) || (spec.startsWith("node:") && BUILTINS.has(spec.slice("node:".length)));
+}
+
+// The string a specifier node of the Babel AST spells: a string literal, or
+// a template literal without expressions; undefined for anything else.
+function literalOf(n: unknown): string | undefined {
+  const x = n as { type?: unknown; value?: unknown; expressions?: unknown[]; quasis?: { value: { cooked?: string } }[] } | null | undefined;
+  if (x?.type === "StringLiteral") return x.value as string;
+  if (x?.type === "TemplateLiteral" && x.expressions!.length === 0) return x.quasis![0].value.cooked;
+  return undefined;
+}
+
 // The modules of a closure bundle whose code keeps an import(), by the
 // path the bundler's comment before each module names: a bundler rewrites
 // every dynamic import it resolves, so an import expression left in its
 // output is one it kept (a specifier it could not resolve at build, or an
 // external one), which resolves from the file holding it (ADR 0013,
-// decision item 5). The bundle is parsed, so text that only looks like an
-// import, in a string or a comment, is not one.
+// decision item 5). An import() whose specifier is a literal naming a
+// module the runtime has built in (builtinModule) does not count: it loads
+// that module from any file. The bundle is parsed, so text that only looks
+// like an import, in a string or a comment, is not one.
 export function keptImports(text: string): Set<string> {
   const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
   const marks = (ast.comments ?? [])
@@ -112,8 +146,10 @@ export function keptImports(text: string): Set<string> {
       continue;
     }
     if (n === null || typeof n !== "object") continue;
-    const node = n as { type?: unknown; start?: number; callee?: { type?: unknown } };
-    if (node.type === "ImportExpression" || (node.type === "CallExpression" && node.callee?.type === "Import")) {
+    const node = n as { type?: unknown; start?: number; callee?: { type?: unknown }; source?: unknown; arguments?: unknown[] };
+    const dynamic = node.type === "ImportExpression" || (node.type === "CallExpression" && node.callee?.type === "Import");
+    const spec = node.type === "ImportExpression" ? literalOf(node.source) : literalOf(node.arguments?.[0]);
+    if (dynamic && !(spec !== undefined && builtinModule(spec))) {
       let path = "";
       for (const m of marks) {
         if (m.start > (node.start ?? 0)) break;
@@ -149,14 +185,6 @@ export function namespaceImports(text: string, syntax: Syntax): string[] | null 
     return null;
   }
   type Node = { type?: unknown; [k: string]: unknown };
-  const literal = (n: unknown): string | undefined => {
-    const x = n as Node | null | undefined;
-    if (x?.type === "StringLiteral") return x.value as string;
-    if (x?.type === "TemplateLiteral" && (x.expressions as unknown[]).length === 0) {
-      return ((x.quasis as Node[])[0].value as { cooked?: string }).cooked;
-    }
-    return undefined;
-  };
   const out = new Set<string>();
   const stack: unknown[] = [ast.program];
   while (stack.length > 0) {
@@ -170,15 +198,15 @@ export function namespaceImports(text: string, syntax: Syntax): string[] | null 
     const specifiers = (node.specifiers ?? []) as Node[];
     let spec: string | undefined;
     if (node.type === "ImportDeclaration" && node.importKind !== "type" && specifiers.some((s) => s.type === "ImportNamespaceSpecifier")) {
-      spec = literal(node.source);
+      spec = literalOf(node.source);
     } else if (node.type === "ExportNamedDeclaration" && node.exportKind !== "type" && specifiers.some((s) => s.type === "ExportNamespaceSpecifier")) {
-      spec = literal(node.source);
+      spec = literalOf(node.source);
     } else if (node.type === "ExportAllDeclaration" && node.exported != null && node.exportKind !== "type") {
-      spec = literal(node.source);
+      spec = literalOf(node.source);
     } else if (node.type === "ImportExpression") {
-      spec = literal(node.source);
+      spec = literalOf(node.source);
     } else if (node.type === "CallExpression" && (node.callee as Node | undefined)?.type === "Import") {
-      spec = literal((node.arguments as unknown[])[0]);
+      spec = literalOf((node.arguments as unknown[])[0]);
     }
     if (spec !== undefined) out.add(spec);
     for (const [k, v] of Object.entries(node)) {

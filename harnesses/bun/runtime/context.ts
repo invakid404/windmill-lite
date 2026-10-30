@@ -176,8 +176,10 @@ export const TAIL_LENGTH = 600;
 export class InvocationLog {
   closed = false;
   /** The Console that formats this invocation's console calls, made on
-   * its first one, so counters, timers and groups are its own. */
-  console?: import("node:console").Console;
+   * its first one, so counters, timers and groups are its own. It is typed
+   * as an instance of node:console's Console constructor, which
+   * `@types/node` 24 and later all declare; 24 exports no Console type. */
+  console?: InstanceType<typeof import("node:console").Console>;
   private batch: string[] = [];
   private partial: Record<string, string> = {};
   private recent = "";
