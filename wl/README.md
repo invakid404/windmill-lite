@@ -331,8 +331,12 @@ is asked once for two write-capable steps and makes the run report
 pre-write deadline ends a run with no write but not one past its first
 write; a write-capable subflow call asked about before its child flow,
 vetoed and approved, and of two calls of one subflow only the marked one;
-and an H12 veto after the approval, which still counts as written. It needs
-`WL_BUN` and the build helper's dependencies, and skips without them unless
+and an H12 veto after the approval, which still counts as written.
+`outside_test.go` builds a bundle whose host contract lists two modules
+outside the sync folder (milestone F3h) and runs it on Bun without a host:
+a codebase script that imports one finds no host scope, and two step
+bundles share the other's one registered copy. Both need
+`WL_BUN` and the build helper's dependencies, and skip without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
 
 `host_test.go` plays a host on a socketpair, so it needs no Bun: `Open`

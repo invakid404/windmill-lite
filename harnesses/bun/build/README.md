@@ -3,14 +3,16 @@
 **Current state:** the Bun build helper of milestone C2a
 ([ADR 0012](../../../docs/design/0012-layout-and-milestones.md)). This README
 covers `harnesses/bun/build`. The Go build in
-[internal/bundle](../../../internal/bundle/README.md) runs it; nothing else
-does yet, and no `windmill-lite build` command exists (F4). It runs on the
+[internal/bundle](../../../internal/bundle/README.md), behind
+`windmill-lite build` (F4), runs it; nothing else does. It runs on the
 pinned Bun 1.3.10 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
 refuses another unless the caller allows it. Codebase scripts are not
 bundled here: esbuild bundles them in Go (C2b), and the helper only parses
 their sources (`parse`, below). Milestone C3n added the native form of
 `nativets` and `//native` scripts and the embedded client (below, "Native
-scripts").
+scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
+(below, step 3) and added the parse of host-provided modules outside the
+folder.
 
 ## Running
 
@@ -37,7 +39,12 @@ markers, the packages it imports) and a signature for each export of its
 bundle, whose names the Go build reads from esbuild and sends as the
 entry's `exports` (without them, the source's own exports are scanned).
 As for any Bun script, a function the source declares gets its
-parameters and an export it does not declare gets none. It installs,
+parameters and an export it does not declare gets none. A `parse`
+request's host-provided modules each give a `source`, the absolute path of
+a module outside the folder (milestone F3h), and the `loader` esbuild
+bundles it with: the helper reads it with that loader's syntax (`ts`,
+`tsx`, `js` or `jsx`; another loader's file is not parsed) and reports the
+packages it imports, or `host_module_live_binding`. It installs,
 bundles and writes nothing. A request it cannot serve
 at all (unreadable, another Bun) exits with code 2 and an `error` in the
 response. A problem with one script or module is reported against it, and
@@ -47,7 +54,7 @@ the rest are still built.
 
 | File | Contents |
 |---|---|
-| `main.ts` | Reads the request, checks the Bun version, runs the scan or the build, writes the response |
+| `main.ts` | Reads the request, checks the Bun version, runs the scan, the build or the parse, writes the response |
 | `build.ts` | Dependency installs, the import transforms and resolution, `Bun.build`, host-provided modules, the metafile |
 | `imports.ts` | Pinned-import removal, the `.ts` rewrite, workspace paths, package names |
 | `signature.ts` | The AST parse: signatures, `Date` marking, import specifiers, live bindings |
@@ -102,7 +109,13 @@ For each script the build:
    included), fails the bundle (`bundle_failed`). Bare specifiers resolve
    from the dependency set's `node_modules`; a bundle that took a file from
    outside the dependency set's directory (a `node_modules` above it, which
-   no lock installed) fails.
+   no lock installed) fails. The plugin's resolve filter matches only the
+   specifiers it resolves (relative and absolute ones, the env support
+   module and listed packages): Bun 1.3.10 drops a module that a package
+   marked `sideEffects: false` re-exports (`export { x } from "./x.js"`)
+   whenever a resolve filter matches the import of that package, even when
+   the callback resolves nothing, which left bundles referencing a binding
+   they never defined (milestone F3h).
 4. **Bundles** with `Bun.build` and Windmill's settings
    ([WR-27](../../../docs/semantics/languages.md#wr-27)): ESM, syntax-only
    minification, only `electron` external, every npm package and workspace
@@ -237,7 +250,9 @@ which the parser's version has dropped.
 ### Host-provided modules
 
 A host-provided module ([ADR 0010](../../../docs/design/0010-packaging.md),
-D12) is a script of the folder or an installed package.
+D12) is a script of the folder or an installed package here. One outside
+the folder is bundled by the Go build with esbuild; the helper only parses
+its source (`parse`, above).
 
 - **Scan.** The module must be an ES module: a CommonJS one, whose names
   are its exports object's properties and are known only when it runs, is

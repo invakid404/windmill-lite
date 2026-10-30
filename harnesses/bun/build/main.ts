@@ -7,7 +7,8 @@
 // the host-provided copies and every Bun script, writing the modules into
 // the bundle directory and returning what the parse recorded. `parse`
 // returns only what each entry's source records, for codebase scripts,
-// which esbuild bundles in Go (C2b). A request
+// which esbuild bundles in Go (C2b), and checks the source of each
+// host-provided module outside the folder (F3h). A request
 // that cannot be served at all fails with exit code 2 and an `error` in the
 // response; a problem with one script or module is reported against it.
 
@@ -63,8 +64,13 @@ const problemOf = (e: unknown) => {
   return { kind: "internal", message: String((e as Error)?.stack ?? e) };
 };
 
-for (const hm of req.op === "parse" || req.op === "native" ? [] : req.host_modules) {
+for (const hm of req.op === "native" ? [] : req.host_modules) {
   try {
+    if (req.op === "parse") {
+      // Only a module outside the folder is parsed (milestone F3h).
+      if (hm.source !== undefined) response.host_modules[hm.id] = builder.parseHostSource(hm);
+      continue;
+    }
     response.host_modules[hm.id] =
       req.op === "scan" ? await builder.scanHostModule(hm) : await builder.buildHostModule(hm);
   } catch (e) {
