@@ -444,6 +444,12 @@ exist, a fresh module state, a bundle of another engine version and no
 working directory. cmd/windmill-lite runs host mode end to end with the
 Bun host SDK.
 
+`TestHostRunHalts`, in `host_test.go`, runs one flow several times on one
+connection. Only a run whose frame names a halt ends `halted`, before or
+after its module, and the host plugin's own halt still halts every run of
+its flow. A run whose halt selector is malformed, ambiguous or has an
+unknown field is refused, naming the selector, and the next run succeeds.
+
 `plugin_test.go` (F2c) covers host plugins without Bun: a plugin refused
 in a `fresh` runtime and as `Options.Plugin` in host mode, a host whose
 declaration has a malformed or ambiguous selector refused with
@@ -456,8 +462,8 @@ while in flight and is not made for a settled run
 (`TestPluginCallsHoldSettlement`). `plugincases_test.go` runs the cases of
 `conformance/plugins/hooks.yaml` on a bundle built from them, through
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
-through Go callbacks built from the same plugins, each case with its
-run's budgets and latches in `RunOptions` (`caseRun`), and checks that
+through Go callbacks built from the same plugins, each of a case's runs
+with its own hooks and budgets in `RunOptions` (`caseRun`), and checks that
 every run's `onRunEnd` reported it, a canceled run's too, and, from the
 plugin's report file, that every case's run settled and none while one
 of its hooks still ran (`checkSettlement`); it needs Bun like
