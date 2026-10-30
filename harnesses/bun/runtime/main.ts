@@ -113,6 +113,8 @@ if (pluginPath !== undefined) {
   }
 }
 
+// Bun.connect takes a file descriptor (Bun.FdSocketOptions), but its
+// declared overloads list only TCP and Unix socket options.
 socket = await Bun.connect({
   fd: 3,
   socket: {
@@ -135,7 +137,7 @@ socket = await Bun.connect({
       runtime.onClose();
     },
   },
-} as Parameters<typeof Bun.connect>[0]);
+} satisfies Bun.FdSocketOptions as unknown as Bun.UnixSocketOptions);
 
 runtime.start();
 started = true;

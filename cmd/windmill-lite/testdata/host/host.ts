@@ -73,13 +73,13 @@ function percentiles(ms: number[]) {
 
 // A run's outcome, or the code of a HostError for a run that did not start.
 // The run options a caller may send besides intercept and kind: the run's
-// budgets and latches (F2c carries F2b's).
-type Budgets = Pick<RunOptions, "writeCapable" | "fatalErrorNames" | "deadlineMs" | "preWriteDeadlineMs" | "clock">;
+// own hooks and budgets.
+type Budgets = Pick<RunOptions, "writeCapable" | "haltBefore" | "haltAfter" | "fatalErrorNames" | "deadlineMs" | "preWriteDeadlineMs" | "clock">;
 
 async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" } & Budgets, onSettled?: () => void) {
   try {
-    const { writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
-    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
+    const { writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
+    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
     return await scopes.store.run({ tenant: b.tenant ?? "" }, () => outside.tenant.run(b.tenant ?? "", () => host.run(b.path, b.args, opts)));
   } catch (e) {
     if (e instanceof HostError) return { refused: e.code };

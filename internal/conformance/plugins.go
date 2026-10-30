@@ -41,10 +41,14 @@ type PluginCase struct {
 		Module   string `json:"module"`
 		Provider string `json:"provider"`
 	} `json:"provided"`
-	// Run is the run's own budgets and latches (F2b's), which a Go host
-	// gives in RunOptions and a TypeScript host in its run frame.
+	// Run is the run's own hooks and budgets, which a Go host gives in
+	// RunOptions and a TypeScript host in its run frame.
 	Run    PluginRun    `json:"run"`
 	Expect PluginExpect `json:"expect"`
+	// Then are more runs of the case's flow, in order after its run, on
+	// the same runtime, and in host mode on the same connection, each
+	// with its own hooks and budgets and its own expectations.
+	Then []PluginThen `json:"then"`
 	// Go, when false, runs the case only through the TypeScript plugin.
 	Go *bool `json:"go"`
 }
@@ -103,10 +107,18 @@ type PluginFailure struct {
 	DelayMS int    `json:"delay_ms"`
 }
 
-// PluginRun is a case run's budgets and latches (the file's header says
+// PluginThen is one of a case's later runs.
+type PluginThen struct {
+	Run    PluginRun    `json:"run"`
+	Expect PluginExpect `json:"expect"`
+}
+
+// PluginRun is a case run's own hooks and budgets (the file's header says
 // what each field does).
 type PluginRun struct {
 	WriteCapable       []string `json:"write_capable"`
+	HaltBefore         []string `json:"halt_before"`
+	HaltAfter          []string `json:"halt_after"`
 	FatalErrorNames    []string `json:"fatal_error_names"`
 	DeadlineMS         int      `json:"deadline_ms"`
 	PreWriteDeadlineMS int      `json:"pre_write_deadline_ms"`
@@ -187,11 +199,18 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 		if err := pd.Decode(&c.Hooks); err != nil {
 			return nil, fmt.Errorf("%s: case %s: plugin: %w", path, c.ID, err)
 		}
-		if c.Expect.Status == "" {
-			return nil, fmt.Errorf("%s: case %s: expect.status is required", path, c.ID)
-		}
-		if r := c.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || r.DeadlineMS < 0 || r.PreWriteDeadlineMS < 0 {
-			return nil, fmt.Errorf("%s: case %s: run: a clock that is real or record, and deadlines that are not negative", path, c.ID)
+		runs := append([]PluginThen{{Run: c.Run, Expect: c.Expect}}, c.Then...)
+		for j, r := range runs {
+			where := "run"
+			if j > 0 {
+				where = fmt.Sprintf("then[%d]", j-1)
+			}
+			if r.Expect.Status == "" {
+				return nil, fmt.Errorf("%s: case %s: %s: expect.status is required", path, c.ID, where)
+			}
+			if r := r.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || r.DeadlineMS < 0 || r.PreWriteDeadlineMS < 0 {
+				return nil, fmt.Errorf("%s: case %s: %s: a clock that is real or record, and deadlines that are not negative", path, c.ID, where)
+			}
 		}
 		// Go callbacks cannot fail as a plugin's host_call does.
 		if h := c.Hooks; (len(h.FailVariables) > 0 || len(h.FailResources) > 0 || h.SlowStartMS > 0) && c.RunsGo() {
@@ -266,11 +285,14 @@ type PluginOutcome struct {
 	Deviations []string
 }
 
-// Check compares a run's outcome with the case's expectations and
+// Check compares the outcome of the case's run with its expectations and
 // returns the differences, none when it matches.
-func (c PluginCase) Check(o PluginOutcome) []string {
+func (c PluginCase) Check(o PluginOutcome) []string { return c.Expect.Check(o) }
+
+// Check compares a run's outcome with the expectations and returns the
+// differences, none when it matches.
+func (e PluginExpect) Check(o PluginOutcome) []string {
 	var diffs []string
-	e := c.Expect
 	if o.Status != e.Status {
 		diffs = append(diffs, fmt.Sprintf("status %s, want %s", o.Status, e.Status))
 	}

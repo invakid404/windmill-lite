@@ -110,7 +110,7 @@ seams to hosts ([0012](0012-layout-and-milestones.md)).
 | H5 | **Run-fatal latch** | Any hook, plugin, observer or step (through `wl.latch(error)`) can latch an error on its run. A latched run starts no further module, iteration, branch or retry, outranks every later step outcome, ends with status `latched` and the host's error, and never converts the error into a step result. Iterations already running finish (their effects stand) or are abandoned at the deadline. |
 | H6 | **Observers** | `onModuleStart` and `onModuleEnd(site, outcome)` for every module, nested ones and iterations included. Observers can latch (H5). |
 | H7 | **Fatal error names** | The host lists error `name`s that bypass `retry`, `continue_on_error`, `skip_failures` and `skip_failure` and latch instead. Using it is a recorded deviation in the run trace, because Windmill has no such rule ([FX-28](../semantics/execution.md#fx-28) is per-module YAML). |
-| H8 | **Halt** | `haltBefore(selector)` or `haltAfter(selector)` ends the run successfully at that point with status `halted` and its trace: evaluating a read-only prefix of a flow. |
+| H8 | **Halt** | `haltBefore(selector)` or `haltAfter(selector)` ends the run successfully at that point with status `halted` and its trace: evaluating a read-only prefix of a flow. A halt is a run's own, so one run halts while other runs of the same flow run whole. |
 | H9 | **Trace and run end** | Every run returns its trace: per site the status, whether it ran, recorded and resolved arguments, stored result, carried value, error, attempt number and timings. `onRunEnd(trace)` may append warnings to the run's outcome without changing its status, which is where replay of effects on a resumed attempt belongs. `onRunSettled(run)` fires later, when the run's abandoned invocations have all settled (possibly never), and is where resources step code can reach are released ([0004](0004-harness-protocol.md)). |
 | H10 | **Clock and randomness** | The engine's clock and the retry-jitter source are injectable: `real`; `record`, which records every requested wait and returns at once (quick-waits mode, for tests and latency measurement); and a fixed jitter seed. |
 | H11 | **Host scopes** | In host mode ([0009](0009-host-adapters.md)), submitting a run captures the host's `AsyncLocalStorage` context; every invocation of that run, every plugin call and every parallel iteration re-enters it. A step sees a scope only through a module instance the host shares with it, so a host that wants step code to read its scopes lists those modules as **host-provided** ([0010](0010-packaging.md), D12); a separately bundled copy of the same module has its own `AsyncLocalStorage` and reads nothing. Run data the host attaches is readable by plugins as `wl.run.data`. Policy case: the host sets a store in a host-provided module, and a step importing that module reads it, for two concurrent runs with different stores. |
@@ -193,8 +193,8 @@ Two further rules complete it:
   is the invocation's, which aborts when the engine abandons the step.
   Plugin hooks get no signal of their own: a hook runs outside every
   invocation, and the run's end only stops the engine waiting for it. A
-  host-mode run carries F2b's budgets and latches (H3, H4, H7, H10) in
-  its `run` frame, and `onRunEnd` runs for a canceled run too, with the
+  host-mode run carries its own hooks and budgets (H3, H4, H7, H8, H10)
+  in its `run` frame, and `onRunEnd` runs for a canceled run too, with the
   plugin timeout alone. Review round 1 settled four more points: a
   TypeScript H13 provider's failure or timeout latches the run, through
   the job API and reference resolution alike; a hook holds the run's
@@ -204,6 +204,19 @@ Two further rules complete it:
   settled first, included); an `around` wrapper's `next()` is
   closed once the wrapper returns; and a TypeScript hook's records and
   traces carry every field a Go hook's do.
+- **Halts are carried per run.** A Go host gives a run's halts in that
+  run's hooks, and a host-mode host in that run's `run` frame
+  (`halt_before`, `halt_after`), which the engine decodes into the run's
+  own hooks ahead of its plugin's ([0004](0004-harness-protocol.md)). The
+  engine checks a frame's selectors as it checks a plugin's, and refuses
+  the run when one fails. A plugin's halts, declared once for its host,
+  apply to every run of that host.
+- **A run's own halt follows the precedence above** exactly as a
+  plugin's or a Go host's halt does. At a module's start it comes after
+  the latch and the cancellation checks and before the first-write
+  signal, and a completion that ends the run keeps its status. The
+  `run_halt_*` cases of `conformance/plugins/hooks.yaml` show it through
+  Go callbacks, a TypeScript plugin, and in host mode.
 - Milestone K1 added the two rules after the precedence paragraph, and
   widened H4's FX-38 exception from "the failure module" to whatever the
   continue decision asks for, which FX-19 shows can be a retry or the next

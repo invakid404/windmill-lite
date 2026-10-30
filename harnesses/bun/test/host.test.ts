@@ -154,3 +154,33 @@ test("onSettled runs in its run's submission scope", async () => {
   expect(seen).toEqual({ "tenant-a": "tenant-a", "tenant-b": "tenant-b" });
   runtime.onClose();
 });
+
+// A run's own selectors, its write-capable sites (H3) and its halts (H8),
+// go in its run frame as the host gave them, for the engine to check.
+test("a run frame carries the run's write-capable selectors and halts", async () => {
+  const { Runtime } = await import("../runtime/runtime.ts");
+  const { DEFAULT_MAX_MESSAGE, decodeAll, encode, frame, FrameReader, MAX_FRAME } = await import("../runtime/frame.ts");
+  const reader = new FrameReader(MAX_FRAME);
+  const sent: Record<string, unknown>[] = [];
+  const write = (b: Uint8Array) => {
+    sent.push(...(decodeAll(reader.push(b), DEFAULT_MAX_MESSAGE) as Record<string, unknown>[]));
+    return b.length;
+  };
+  const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", host: true, transport: { write, end: () => {} }, exit: () => {} });
+  runtime.start();
+  const send = (m: Record<string, unknown>) => runtime.onData(frame(encode(m as { t: string })));
+  send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: 1 << 20 } });
+  const flow = "f/x";
+  const fields = {
+    write_capable: [{ flow, module: "w" }],
+    halt_before: [{ flow, module: "b" }],
+    halt_after: [{ flow, module: "a", occurrence: 1 }],
+  };
+  const r = runtime.submit("flow", flow, "{}", fields);
+  for (let i = 0; i < 100 && !sent.some((m) => m.t === "run"); i++) await Bun.sleep(1);
+  const run = sent.find((m) => m.t === "run");
+  expect(run).toMatchObject({ id: r.id, path: flow, ...fields });
+  send({ t: "run_done", id: r.id, status: "halted" });
+  expect((await r.done).status).toBe("halted");
+  runtime.onClose();
+});

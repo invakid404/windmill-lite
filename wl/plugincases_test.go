@@ -108,34 +108,46 @@ func pluginOutcome(res *Result) conformance.PluginOutcome {
 	return o
 }
 
-// caseRun is how a case's run is started: its context, bounded by the
-// run's hard deadline, and base with the run's budgets and latches (its
-// write-capable modules and fatal error names after base's own hooks).
-func caseRun(c conformance.PluginCase, base RunOptions) (context.Context, context.CancelFunc, RunOptions) {
+// caseRun is how one of a case's runs is started: its context, bounded by
+// the run's hard deadline, and base with the run's own hooks and budgets
+// (its write-capable modules, halts and fatal error names after base's
+// own hooks), for the case's flow.
+func caseRun(c conformance.PluginCase, r conformance.PluginRun, base RunOptions) (context.Context, context.CancelFunc, RunOptions) {
 	ctx, cancel := context.Background(), context.CancelFunc(func() {})
-	if c.Run.DeadlineMS > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.Run.DeadlineMS)*time.Millisecond)
+	if r.DeadlineMS > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(r.DeadlineMS)*time.Millisecond)
 	}
 	opts := base
-	if len(c.Run.WriteCapable) > 0 || len(c.Run.FatalErrorNames) > 0 {
+	if len(r.WriteCapable) > 0 || len(r.HaltBefore) > 0 || len(r.HaltAfter) > 0 || len(r.FatalErrorNames) > 0 {
 		var h Hooks
 		if base.Hooks != nil {
 			h = *base.Hooks
 		}
-		h.WriteCapable = slices.Clone(h.WriteCapable)
-		for _, m := range c.Run.WriteCapable {
-			h.WriteCapable = append(h.WriteCapable, Selector{Flow: c.FlowPath(), Module: &m})
+		sels := func(have []Selector, modules []string) []Selector {
+			out := slices.Clone(have)
+			for _, m := range modules {
+				out = append(out, Selector{Flow: c.FlowPath(), Module: &m})
+			}
+			return out
 		}
-		h.FatalErrorNames = append(slices.Clone(h.FatalErrorNames), c.Run.FatalErrorNames...)
+		h.WriteCapable = sels(h.WriteCapable, r.WriteCapable)
+		h.HaltBefore = sels(h.HaltBefore, r.HaltBefore)
+		h.HaltAfter = sels(h.HaltAfter, r.HaltAfter)
+		h.FatalErrorNames = append(slices.Clone(h.FatalErrorNames), r.FatalErrorNames...)
 		opts.Hooks = &h
 	}
-	if c.Run.PreWriteDeadlineMS > 0 {
-		opts.PreWriteDeadline = time.Now().Add(time.Duration(c.Run.PreWriteDeadlineMS) * time.Millisecond)
+	if r.PreWriteDeadlineMS > 0 {
+		opts.PreWriteDeadline = time.Now().Add(time.Duration(r.PreWriteDeadlineMS) * time.Millisecond)
 	}
-	if c.Run.Clock == "record" {
+	if r.Clock == "record" {
 		opts.Clock = &RecordClock{}
 	}
 	return ctx, cancel, opts
+}
+
+// caseRuns are a case's runs in order: its own, then those of its then.
+func caseRuns(c conformance.PluginCase) []conformance.PluginThen {
+	return append([]conformance.PluginThen{{Run: c.Run, Expect: c.Expect}}, c.Then...)
 }
 
 func TestPluginCases(t *testing.T) {
@@ -154,19 +166,21 @@ func TestPluginCases(t *testing.T) {
 		var runs []string
 		for _, c := range f.Cases {
 			t.Run(c.ID, func(t *testing.T) {
-				ctx, cancel, opts := caseRun(c, RunOptions{})
-				defer cancel()
-				res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
-				if err != nil {
-					t.Fatal(err)
-				}
-				runs = append(runs, res.ID)
-				if d := c.Check(pluginOutcome(res)); len(d) > 0 {
-					t.Fatalf("%s:\n  %s", c.Title, strings.Join(d, "\n  "))
-				}
-				// onRunEnd reports every run, a canceled one too.
-				if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == conformance.PluginLog }) {
-					t.Fatalf("no %s warning: the plugin's onRunEnd did not report the run: %+v", conformance.PluginLog, res.Warnings)
+				for i, r := range caseRuns(c) {
+					ctx, cancel, opts := caseRun(c, r.Run, RunOptions{})
+					res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
+					cancel()
+					if err != nil {
+						t.Fatalf("run %d: %v", i, err)
+					}
+					runs = append(runs, res.ID)
+					if d := r.Expect.Check(pluginOutcome(res)); len(d) > 0 {
+						t.Fatalf("%s, run %d:\n  %s", c.Title, i, strings.Join(d, "\n  "))
+					}
+					// onRunEnd reports every run, a canceled one too.
+					if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == conformance.PluginLog }) {
+						t.Fatalf("run %d: no %s warning: the plugin's onRunEnd did not report the run: %+v", i, conformance.PluginLog, res.Warnings)
+					}
 				}
 			})
 		}
@@ -192,14 +206,16 @@ func TestPluginCases(t *testing.T) {
 				for p, v := range c.Hooks.Variables {
 					vars[p] = Variable{Value: v}
 				}
-				ctx, cancel, opts := caseRun(c, RunOptions{Hooks: g.hooks, Platform: &RunPlatform{Variables: vars}})
-				defer cancel()
-				res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if d := c.Check(pluginOutcome(res)); len(d) > 0 {
-					t.Fatalf("%s:\n  %s", c.Title, strings.Join(d, "\n  "))
+				for i, r := range caseRuns(c) {
+					ctx, cancel, opts := caseRun(c, r.Run, RunOptions{Hooks: g.hooks, Platform: &RunPlatform{Variables: vars}})
+					res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
+					cancel()
+					if err != nil {
+						t.Fatalf("run %d: %v", i, err)
+					}
+					if d := r.Expect.Check(pluginOutcome(res)); len(d) > 0 {
+						t.Fatalf("%s, run %d:\n  %s", c.Title, i, strings.Join(d, "\n  "))
+					}
 				}
 			})
 		}

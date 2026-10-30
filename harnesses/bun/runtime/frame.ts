@@ -54,7 +54,7 @@ const FIELDS: Record<string, readonly string[]> = {
   child: ["id", "pid", "token"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
-  run: ["id", "kind", "path", "args", "intercept", "write_capable", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
+  run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
   run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error"],
   run_cancel: ["id"],
   run_settled: ["id"],
@@ -317,8 +317,10 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "run":
       if (!["flow", "script"].includes(m.kind)) throw new ProtocolError("bad_field", `run kind ${JSON.stringify(m.kind)}`);
-      // The budgets and latches (F2c carries F2b's).
-      if (m.write_capable != null && !Array.isArray(m.write_capable)) throw new ProtocolError("bad_field", "run write_capable is not an array");
+      // The run's own hooks and budgets: selector lists are arrays.
+      for (const k of ["write_capable", "halt_before", "halt_after"]) {
+        if (m[k] != null && !Array.isArray(m[k])) throw new ProtocolError("bad_field", `run ${k} is not an array`);
+      }
       if (m.fatal_error_names != null) checkField(m.t, m, "fatal_error_names", "strings");
       for (const k of ["deadline_ms", "pre_write_deadline_ms"]) {
         if (m[k] == null) continue;
@@ -369,7 +371,7 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   invoke: ["args"],
   result: ["body"],
   late: ["body"],
-  run: ["args", "intercept", "write_capable"],
+  run: ["args", "intercept", "write_capable", "halt_before", "halt_after"],
   run_done: ["result", "warnings"],
   hello: ["plugin"],
   host_call: ["payload"],

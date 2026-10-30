@@ -1,0 +1,7 @@
+summary: Two steps, a read-only check and then a write, each returning its label
+value:
+  modules:
+    - id: check
+      value: {type: script, path: f/repro/echo, input_transforms: {label: {type: static, value: check}}}
+    - id: write
+      value: {type: script, path: f/repro/echo, input_transforms: {label: {type: static, value: write}}}

@@ -578,6 +578,16 @@
       "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":[{\"module\":\"b\"}],\"fatal_error_names\":[\"HostFatal\"],\"deadline_ms\":30000,\"pre_write_deadline_ms\":5000,\"clock\":\"record\"}"
     },
     {
+      "case": "run-halts",
+      "title": "a run with its own halts: selectors before or after whose modules the run ends halted (H8), after its write-capable selectors in the canonical order",
+      "message_text": "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"fatal_error_names\":[\"HostFatal\"],\"halt_after\":[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}],\"halt_before\":[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}],\"write_capable\":[{\"module\":\"b\"}]}",
+      "raw": {
+        "halt_after": "[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}]",
+        "halt_before": "[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}]"
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":[{\"module\":\"b\"}],\"halt_before\":[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}],\"halt_after\":[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}],\"fatal_error_names\":[\"HostFatal\"]}"
+    },
+    {
       "case": "run-done",
       "title": "a run's outcome with its final result",
       "message": {
@@ -1519,6 +1529,22 @@
       "title": "a run's write_capable is an array of selectors",
       "frames": [
         "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":{\"module\":\"b\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-halt-before-not-array",
+      "title": "a run's halt_before is an array of selectors",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"halt_before\":{\"flow\":\"f/w1/flow\",\"module\":\"b\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-halt-after-not-array",
+      "title": "a run's halt_after is an array of selectors",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"halt_after\":\"f/w1/flow\"}"
       ],
       "error": "bad_field"
     },

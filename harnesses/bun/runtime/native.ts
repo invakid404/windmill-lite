@@ -29,7 +29,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { types } from "node:util";
 import vm from "node:vm";
-import { current, type InvocationResources, invocations, realTimers } from "./context.ts";
+import { current, type InvocationResources, invocations, realTimers, type RequestOf } from "./context.ts";
 import { type Param, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 /** The URL a native step's module is loaded as, and the embedded client's,
@@ -486,16 +486,14 @@ export class Native {
     }
     const d = Object.getOwnPropertyDescriptor(R.prototype, "clone")!;
     const clone = d.value as (this: object) => object;
-    Object.defineProperty(R.prototype, "clone", {
-      ...d,
-      value: function clone_(this: object) {
-        const c = clone.call(this);
-        const m = meta.get(this);
-        if (m !== undefined) meta.set(c, m);
-        return c;
-      },
-    });
-    Object.defineProperty(R.prototype.clone, "name", { value: "clone" });
+    const value = function clone_(this: object) {
+      const c = clone.call(this);
+      const m = meta.get(this);
+      if (m !== undefined) meta.set(c, m);
+      return c;
+    };
+    Object.defineProperty(value, "name", { value: "clone" });
+    Object.defineProperty(R.prototype, "clone", { ...d, value });
   }
 
   /** An object of a realm-facing class that stands for an object every
@@ -949,7 +947,7 @@ export class NativeJob {
     return (input: unknown, init?: unknown) =>
       new g.Promise((resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
         try {
-          const req = new Request(input as RequestInfo, init as RequestInit);
+          const req = new (Request as RequestOf)(input as string | URL | Request, init as RequestInit);
           if (!req.headers.has("user-agent")) req.headers.set("user-agent", ua);
           const abort = new AbortController();
           const untrack = this.inv.resources.track("fetch", () => abort.abort());

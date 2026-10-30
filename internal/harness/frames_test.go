@@ -168,6 +168,12 @@ func runEncode(t *testing.T, c *frameCase) {
 				raw = v.Args.Producer()
 			case "intercept":
 				raw = v.Intercept.Producer()
+			case "write_capable":
+				raw = v.WriteCapable.Producer()
+			case "halt_before":
+				raw = v.HaltBefore.Producer()
+			case "halt_after":
+				raw = v.HaltAfter.Producer()
 			}
 		case RunDone:
 			raw = v.Result.Producer()

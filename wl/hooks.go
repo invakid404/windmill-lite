@@ -217,10 +217,7 @@ func engineHooks(h *Hooks, prog *ir.Program) (*hooks, error) {
 		return nil, nil
 	}
 	check := func(where string, s Selector) error {
-		if err := checkSelector(s); err != nil {
-			return fmt.Errorf("%s: %w", where, err)
-		}
-		if err := ambiguous(s, prog); err != nil {
+		if err := checkSelectorIn(s, prog); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
 		return nil
@@ -281,6 +278,16 @@ func checkSelector(s Selector) error {
 		}
 	}
 	return nil
+}
+
+// checkSelectorIn checks a selector's form (checkSelector) and that it is
+// unambiguous in prog (ambiguous): the check of every selector a host
+// gives, whether in Go hooks, a host plugin's declaration or a run frame.
+func checkSelectorIn(s Selector, prog *ir.Program) error {
+	if err := checkSelector(s); err != nil {
+		return err
+	}
+	return ambiguous(s, prog)
 }
 
 // ambiguous reports a module selector without an occurrence whose id
