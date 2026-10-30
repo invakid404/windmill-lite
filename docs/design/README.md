@@ -1376,6 +1376,15 @@ FX-V2/a; FX-26/c–f have their own request above),
 answered by recordings milestone N3c had already made, and Q-OR-17's
 colliding pairs have their own request above.
 
+**From the build team** (milestone FU8, N5's follow-up). N5 left a
+canceled flow step that is scheduled but not launched unrecorded; it is
+now [FX-38/b](../semantics/conformance.md#fx-38)'s subflow variant,
+requested above ("A step canceled while it waits to start"). Its Bun
+variant is recorded already (`conformance/flows/execution/fx-23`, run
+`canceled_sleep`). windmill-lite treats both alike: the cancellation makes
+the queued job due, and it fails without running, with the `Canceled`
+error, before a flow step's subflow starts (internal/engine, FX-38).
+
 ## Changing the design
 
 1. A record is changed by a pull request that edits it in place and says why

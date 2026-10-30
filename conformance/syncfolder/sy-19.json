@@ -83,7 +83,7 @@
               "at": {
                 "/lock": "",
                 "/warnings": [
-                  "Error reading inline path: f/a/x.script.lock, File f/a/x.script.lock is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+                  "Error reading inline path: f/a/x.script.lock, Error: File f/a/x.script.lock is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
                 ]
               },
               "absent": [
@@ -120,6 +120,39 @@
                   "Script file legacy.inline_script.ts not found"
                 ]
               }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-19/e",
+      "provenance": "source-derived",
+      "title": "a refused flow inline lock",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/flow.yaml']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export function main() { return 1 }\n"
+        },
+        "hex_files": {
+          "f/a/fl.flow/a.inline_script.lock": "fffe7b007d000a00"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "",
+                "/inline/0/warnings": [
+                  "Lock file a.inline_script.lock not found, treating as empty"
+                ]
+              },
+              "absent": [
+                "/inline/0/lock_file"
+              ]
             }
           }
         },
@@ -214,7 +247,7 @@
               "at": {
                 "/flow/value/modules/0/value/lock": "",
                 "/inline/0/warnings": [
-                  "Error reading inline path: f/a/fl.flow/a.lock, File f/a/fl.flow/a.lock is encoded as UTF-16 BE, which is not supported. Please convert it to UTF-8."
+                  "Lock file a.lock not found, treating as empty"
                 ]
               },
               "absent": [

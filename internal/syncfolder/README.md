@@ -203,7 +203,12 @@ when it exceeds the distance between the ends, as minimatch does even for
   is joined with `\n` first. A string that starts with exactly `!inline `
   is a reference to the file named by its second space-separated token,
   relative to the root; a missing or unreadable file is the empty lock, with
-  the CLI's warning `Error reading inline path: <file>, …`. Any other string,
+  the CLI's warning `Error reading inline path: <file>, <error>` in
+  `Script.Warnings`, `<file>` as written. `<error>` is Node's text,
+  `Error: ENOENT: no such file or directory, open '<file>'` for a missing
+  file and `Error: ` with the decoder's message for a refused one. The
+  reference gives no text for other failures, such as a file without read
+  permission; `<error>` is then `Error: ` and Go's error. Any other string,
   ` !inline …` with its leading space included, is the lock as written; an
   absent lock is nil.
 - **Codebase** ([SY-8](../../docs/semantics/openflow.md#sy-8)): only a script
@@ -233,7 +238,10 @@ resolved ([SY-7](../../docs/semantics/openflow.md#sy-7),
    reported at once (`missing_inline_file`).
 4. A lock is a reference when, after JavaScript's leading white space, it
    starts with `!inline `; its token comes from the untrimmed string, so
-   `" !inline a.lock"` names `!inline`. A missing lock file is the empty lock.
+   `" !inline a.lock"` names `!inline`. A lock file that is missing or
+   cannot be read, a refused one included, is the empty lock, with the
+   CLI's `Lock file <file> not found, treating as empty`, `<file>` as
+   written.
 
 `Flow.Inline` records which files each rawscript came from.
 
@@ -268,7 +276,7 @@ mark is removed, and a leading UTF-16 or UTF-32 one is refused with
 | a script's source or metadata, `flow.yaml`, a resource, variable or resource-type file | reading the item fails |
 | a script lock reference the walk does not read | the empty lock, with a warning in `Script.Warnings` |
 | a flow's inline content file the walk does not read | read as missing, so the fallback name is tried |
-| a flow's inline lock file the walk does not read | the empty lock, with a warning in `InlineScript.Warnings` |
+| a flow's inline lock file the walk does not read | the empty lock, with the missing-file warning in `InlineScript.Warnings` |
 
 The last three rows hold for a file that cannot be read for any other
 reason too, such as its permissions, as the CLI's reference readers catch

@@ -37,7 +37,7 @@ var moduleFields = []field[Module]{
 		return err
 	}},
 	{name: "timeout", decode: func(_ *decoder, n *node, m *Module) (err error) {
-		m.Timeout, err = decodeRestricted[int32](n)
+		m.Timeout, err = decodeRestricted[int32](n, false)
 		return err
 	}},
 	{name: "retry", decode: func(d *decoder, n *node, m *Module) (err error) {

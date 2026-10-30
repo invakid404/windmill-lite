@@ -15,9 +15,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
-	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
-	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
 // The engine's tests compile synthetic sync folders with the IR compiler
@@ -113,20 +111,7 @@ func newTestJS() (*quickjs.Engine, error) { return quickjs.New(quickjs.Options{S
 // openEngine compiles the flows, every one a root, and opens them.
 func openEngine(t *testing.T, flows map[string]string, exec StepExecutor) (*Engine, error) {
 	t.Helper()
-	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
-	if jsErr != nil {
-		t.Fatal(jsErr)
-	}
-	folder, err := syncfolder.Load(testFolder(flows))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer folder.Close()
-	prog, err := ir.Compile(folder, nil, ir.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return New(Config{Program: prog, Bundle: "sha256:test", Exec: exec, JS: jsEng})
+	return New(Config{Program: compileFlows(t, flows), Bundle: "sha256:test", Exec: exec, JS: jsEng})
 }
 
 func mustOpen(t *testing.T, flows map[string]string, exec StepExecutor) *Engine {
@@ -184,6 +169,25 @@ func wantStatus(t *testing.T, tr *Trace, st conformance.RunStatus, result string
 	}
 	if result != "" {
 		sameJSON(t, "the run's result", tr.Result, result)
+	}
+}
+
+// step returns the record of the top-level module id of tr.
+func step(t *testing.T, tr *Trace, id string) StepRecord {
+	t.Helper()
+	rec, ok := tr.Step(conformance.SitePath{}.Child(conformance.Module(id)))
+	if !ok {
+		t.Fatalf("no step %s in %+v", id, tr.Steps)
+	}
+	return rec
+}
+
+// sameJSON fails unless v is the JSON value want, in any member order.
+func sameJSON(t *testing.T, what string, v jsonval.Value, want string) {
+	t.Helper()
+	same, err := conformance.SameJSON(v.Producer(), []byte(want), false)
+	if err != nil || !same {
+		t.Fatalf("%s\n got %s\nwant %s (%v)", what, v, want, err)
 	}
 }
 
@@ -328,6 +332,60 @@ func TestEngineIdentitySkipAndMock(t *testing.T) {
 	}
 }
 
+// FX-13/b, FX-13/c: the wm_failure marker is checked on an identity job's
+// result too, a mock value, an identity's or a skipped module's
+// passthrough, and an identity reading its flow input directly: a string
+// marker fails the job with the ManualFailure error put in, as a script's
+// result does, and the module is Failure, with no skipped flag (OR-11);
+// the flow stops there. A marker that is not a string passes through.
+func TestEngineIdentityManualFailure(t *testing.T) {
+	marked := static(`{"wm_failure":"nope","x":1}`)
+	nope := `{"x":1,"error":{"name":"ManualFailure","message":"nope"},"wm_failure":"nope"}`
+	for _, c := range []struct {
+		name, input string
+		mods        []string
+		// failed is the module whose identity job fails, calls the steps
+		// that launched, and result the flow's result.
+		failed, result string
+		calls          int
+	}{
+		{name: "mock (FX-13/b)", mods: []string{mod("a", "value", inputs("v", static("1")), `"mock":{"enabled":true,"return_value":{"wm_failure":"m","x":1}}`), value("b", "2", "")},
+			failed: "a", result: `{"x":1,"error":{"name":"ManualFailure","message":"m"},"wm_failure":"m"}`},
+		{name: "identity after a tolerated marker (FX-13/c)", mods: []string{mod("a", "value", inputs("v", marked), `"continue_on_error":true`), `{"id":"b","value":{"type":"identity"}}`, value("c", "3", "")},
+			failed: "b", result: nope, calls: 1},
+		{name: "skipped after a tolerated marker (FX-13/c)", mods: []string{mod("a", "value", inputs("v", marked), `"continue_on_error":true`), mod("b", "value", inputs("v", static("2")), `"skip_if":{"expr":"true"}`), value("c", "3", "")},
+			failed: "b", result: nope, calls: 1},
+		{name: "identity, direct input", input: `{"previous_result":{"wm_failure":"in"}}`, mods: []string{`{"id":"a","pass_flow_input_directly":true,"value":{"type":"identity"}}`, value("b", "2", "")},
+			failed: "a", result: `{"error":{"name":"ManualFailure","message":"in"},"wm_failure":"in"}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.mods...)}, s)
+			input := c.input
+			if input == "" {
+				input = `{}`
+			}
+			tr := runIt(t, e, input, nil)
+			wantStatus(t, tr, conformance.RunFailure, c.result)
+			rec := step(t, tr, c.failed)
+			if !rec.Ran || rec.Skipped || rec.Status != conformance.StepFailure || rec.Module != conformance.ModuleFailure || rec.ResultOrigin != OriginUser {
+				t.Fatalf("%s %+v", c.failed, rec)
+			}
+			sameJSON(t, c.failed+"'s result", rec.Result, c.result)
+			if calls := s.calls(); len(calls) != c.calls {
+				t.Fatalf("launched %v", calls)
+			}
+		})
+	}
+	// A marker that is not a string marks nothing, so it passes through.
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(value("a", `{"wm_failure":1}`, ""), `{"id":"b","value":{"type":"identity"}}`)}, &scripts{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, `{"wm_failure":1}`)
+	if b := step(t, tr, "b"); b.Status != conformance.StepSuccess {
+		t.Fatalf("b %+v", b)
+	}
+}
+
 // FX-19, FX-21, FX-V2, JE-26: stop_after_if after a success, with the
 // module's own result as result and previous_result: the clean stops, the
 // error stop and its message, and a throwing predicate.
@@ -403,10 +461,11 @@ func TestEngineSkipIfChainingErrors(t *testing.T) {
 	}
 }
 
-// FX-14, WR-12, FX-48: a failing transform launches the step with empty
-// arguments and fails it without running; an entrypoint override selects
-// the export, and an invalid one fails the job before it runs; an argument
-// jsonb refuses fails the push, a chaining error.
+// FX-14, WR-12, FX-48, FX-50/a: a failing transform launches the step with
+// empty arguments and fails it without running; an entrypoint override
+// selects the export, and an invalid one fails the job before it runs; an
+// argument jsonb refuses fails the push, a chaining error whose text is the
+// database error's, SqlErr.
 func TestEngineArgumentFailures(t *testing.T) {
 	s := &scripts{}
 	e := mustOpen(t, map[string]string{
@@ -433,8 +492,39 @@ func TestEngineArgumentFailures(t *testing.T) {
 	if inv := s.invs[0]; inv.Entry != "other" || len(s.invs) != 1 {
 		t.Fatalf("invocations %+v", s.invs)
 	}
-	wantStatus(t, run("f/t/nul"), conformance.RunFailure, `{"error":{"name":"Anyhow","message":"Error: error returned from database: unsupported Unicode escape sequence"}}`)
-	wantStatus(t, run("f/t/nul2"), conformance.RunFailure, `{"error":{"name":"InternalError","message":"error returned from database: unsupported Unicode escape sequence"}}`)
+	wantStatus(t, run("f/t/nul"), conformance.RunFailure, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
+	wantStatus(t, run("f/t/nul2"), conformance.RunFailure, `{"error":{"name":"InternalError","message":"SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
+}
+
+// JE-15/k, FX-50/a: an input transform whose replaced JSON.stringify
+// returns text that is not JSON gives arguments jsonb refuses, so the
+// step's push fails with the database error, SqlErr, and its job never
+// runs: at a later transition the flow fails at once with the chaining
+// InternalError, at the root's first pickup the step fails with Anyhow and
+// one Error: prefix (Windmill's location suffixes are not written, D14).
+func TestEngineNonJSONArguments(t *testing.T) {
+	b := mod("b", "echo", inputs("x", js(`(JSON.stringify = () => "hello", 1)`)), "")
+	for _, c := range []struct {
+		name   string
+		mods   []string
+		result string
+	}{
+		{"later transition", []string{value("a", "1", ""), b}, `{"error":{"name":"InternalError","message":"SqlErr: error returned from database: invalid input syntax for type json"}}`},
+		{"root's first pickup", []string{b}, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: invalid input syntax for type json"}}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.mods...)}, s)
+			tr := runIt(t, e, `{}`, nil)
+			wantStatus(t, tr, conformance.RunFailure, c.result)
+			if rec := step(t, tr, "b"); rec.Ran || slices.Contains(s.calls(), "m:b") {
+				t.Fatalf("b %+v, calls %v", rec, s.calls())
+			}
+			if rec := step(t, tr, "b"); (len(c.mods) == 1) != (rec.Status == conformance.StepFailure) {
+				t.Fatalf("b %+v", rec)
+			}
+		})
+	}
 }
 
 // FX-3: a flow with no modules returns its input. OF-2: a module id that
@@ -721,8 +811,8 @@ func TestEngineArgumentKeys(t *testing.T) {
 		name, args, result string
 		calls              int
 	}{
-		{"NUL key", `{"\u0000":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: error returned from database: unsupported Unicode escape sequence"}}`, 0},
-		{"unpaired surrogate key", `{"\ud800":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: error returned from database: invalid input syntax for type json"}}`, 0},
+		{"NUL key", `{"\u0000":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`, 0},
+		{"unpaired surrogate key", `{"\ud800":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: invalid input syntax for type json"}}`, 0},
 		{"unusual key", `{"\u00e9\n":1,"v":7}`, `7`, 1},
 		{"duplicate keys", `{"v":1,"\u0076":7}`, `7`, 1},
 	} {
@@ -819,8 +909,9 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"loop timeouts":           flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":5}`) + `]},"timeout":{"type":"static","value":3}}`),
 		"a sleep after a loop":    flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`, mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
 		// N2's waits and retries in or on a container, or delaying one
-		// (milestone NI), and a squashed loop, which runs as CE runs it,
-		// as an ordinary loop (CF-25, recorded by the cf-25 fixture).
+		// (milestone NI), and a squashed loop, whose squash is accepted
+		// and ignored: it runs unsquashed, which gives the results the
+		// CE image recorded (CF-25/d, the cf-25 fixture).
 		"loop body retry":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
 		"loop body sleep":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}}`),
 		"loop body js timeout":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`) + `]}}`),

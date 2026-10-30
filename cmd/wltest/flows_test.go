@@ -1111,3 +1111,71 @@ func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
 		}
 	}
 }
+
+// A run that exceeds its deadline is reported as such, and the files its
+// steps left to count their attempts are still removed, while another
+// run's stay (FU8 review).
+func TestTimedOutRunRemovesCounters(t *testing.T) {
+	bun := bunOrSkip(t)
+	counters := t.TempDir()
+	oldDir, oldTimeout := counterDir, flowRunTimeout
+	counterDir, flowRunTimeout = counters, 2*time.Second
+	t.Cleanup(func() { counterDir, flowRunTimeout = oldDir, oldTimeout })
+	other := "wl-t-11111111-1111-4111-8111-111111111111-a"
+	if err := os.WriteFile(filepath.Join(counters, other), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "flows", "fu8", "timeout")
+	writeTree(t, dir, map[string]string{
+		"fixture.yaml":        "id: fu8/timeout\nspec: [OR-15]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
+		"windmill/wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\n",
+		"windmill/f/t/hang.flow/flow.yaml": "summary: t\nvalue:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        content: '!inline a.ts'\n" +
+			"        input_transforms:\n          dir: {type: static, value: '" + counters + "'}\n        language: bun\n" +
+			"schema:\n  type: object\n  properties: {}\n  required: []\n",
+		// The step counts its attempt, then outlasts the run's deadline.
+		"windmill/f/t/hang.flow/a.ts": "import { writeFileSync } from \"node:fs\";\n" +
+			"export async function main(dir: string) {\n" +
+			"  writeFileSync(dir + \"/wl-t-\" + process.env.WM_JOB_ID + \"-a\", \"1\");\n" +
+			"  await new Promise((r) => setTimeout(r, 60000));\n}\n",
+		"runs/hang.yaml": "target: f/t/hang\nexpect: {status: success, result: 1}\n",
+	})
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), filepath.Dir(dir)}, &stdout, &stderr)
+	out := stdout.String()
+	if want := "fail " + dir + " hang\n  the run did not end within 2s\n"; code != 1 || !strings.Contains(out, want) {
+		t.Fatalf("exit %d, want 1 and %q\n%s%s", code, want, out, stderr.String())
+	}
+	var left []string
+	ents, _ := os.ReadDir(counters)
+	for _, e := range ents {
+		left = append(left, e.Name())
+	}
+	if want := []string{other}; !slices.Equal(left, want) {
+		t.Fatalf("left %v, want %v", left, want)
+	}
+}
+
+// The files a run's steps leave to count their attempts are removed after
+// the run, those named after its root, its child flows and its steps' jobs,
+// and no other run's (N5's follow-up: they piled up in the host's /tmp).
+func TestRemoveCounters(t *testing.T) {
+	dir := t.TempDir()
+	old := counterDir
+	counterDir = dir
+	t.Cleanup(func() { counterDir = old })
+	names := []string{"wl-n5-run1-a", "wl-ni-child1-b", "wl-ni-job1-args", "wl-n5-other-a", "wl-n5-run1", "unrelated"}
+	for _, n := range names {
+		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeCounters(&engine.Trace{RunID: "run1", Children: []engine.ChildFlow{{ID: "child1"}}, Steps: []engine.StepRecord{{Job: "job1"}, {}}})
+	var left []string
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		left = append(left, e.Name())
+	}
+	if want := []string{"unrelated", "wl-n5-other-a", "wl-n5-run1"}; !slices.Equal(left, want) {
+		t.Fatalf("left %v, want %v", left, want)
+	}
+}

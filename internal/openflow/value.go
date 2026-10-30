@@ -98,7 +98,7 @@ var valueFieldTable = []field[valueFields]{
 	optBoolField("skip_failures", func(v *valueFields) **bool { return &v.skipFailures }),
 	optBoolField("parallel", func(v *valueFields) **bool { return &v.parallel }),
 	{name: "parallelism", decode: func(_ *decoder, n *node, v *valueFields) (err error) {
-		v.parallelism, err = decodeRestricted[uint16](n)
+		v.parallelism, err = decodeRestricted[uint16](n, true)
 		return err
 	}},
 	optBoolField("squash", func(v *valueFields) **bool { return &v.squash }),

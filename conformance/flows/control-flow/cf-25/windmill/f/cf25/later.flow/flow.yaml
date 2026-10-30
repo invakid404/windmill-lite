@@ -1,4 +1,4 @@
-summary: CF-25/a a squashed loop on CE
+summary: CF-25/d a squashed loop on CE after a first step
 value:
   modules:
     - id: a

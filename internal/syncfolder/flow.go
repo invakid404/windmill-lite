@@ -153,8 +153,10 @@ func (f *Folder) inline(fl *Flow) *Error {
 // of the string. A content file that is missing, or that the decoder
 // refuses, is tried again as `<module id>.` plus everything after the
 // first dot of the name, nothing when it has none (SY-7, SY-19). A lock
-// file that is missing or refused is the empty lock. A refused file the
-// CLI's walk reads fails the push instead.
+// file that is missing or cannot be read, the decoder's refusal included,
+// is the empty lock, with the CLI's `Lock file <file> not found, treating
+// as empty`, the file as written, either way. A refused file the CLI's
+// walk reads fails the push instead.
 func (f *Folder) inlineScript(dir, id string, rs *openflow.RawScript) (*InlineScript, string, *Error) {
 	if !strings.HasPrefix(rs.Content, "!inline") {
 		return nil, "", nil
@@ -198,13 +200,13 @@ func (f *Folder) inlineScript(dir, id string, rs *openflow.RawScript) (*InlineSc
 			if err != nil {
 				return nil, "", err
 			}
-			lock, lockFile, warning, err := f.readLockFile(lp)
+			lock, lockFile, _, err := f.readLockFile(lp)
 			if err != nil {
 				return nil, "", err
 			}
 			rs.Lock, in.LockFile = &lock, lockFile
-			if warning != "" {
-				in.Warnings = append(in.Warnings, warning)
+			if lockFile == "" {
+				in.Warnings = append(in.Warnings, fmt.Sprintf("Lock file %s not found, treating as empty", name))
 			}
 		}
 	}

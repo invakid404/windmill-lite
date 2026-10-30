@@ -405,7 +405,12 @@ a few at a time (`flows.go`):
    trace's job times (milestone N2): each `to` site's job starts at least
    `at_least_ms` after the `from` site's job ended, where the oracle's
    side reads the recording's provenance. A run
-   with nothing to compare fails.
+   with nothing to compare fails. After each run, one that timed out
+   included, the files its steps left
+   in `/tmp` to count their attempts across retries, which the fixtures name
+   `wl-<fixture>-<job id>-<tag>` after a job of the run, are removed
+   (`removeCounters`, milestone FU8): on Windmill they stay in the worker's
+   `/tmp`, but a windmill-lite run would leave them in the host's.
 
 **Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
 `oracle: {effects: true}` or `stub: true` gets an effect server of its
@@ -526,9 +531,10 @@ Windmill v1.767.0's image).
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there; recording batch E3e listed the runs of its fixtures
   that windmill-lite already passes, FU5 the `oracle/nul` runs that
-  N1b's engine passes, and E4b the stub runs and the runs of the probe
+  N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
-  made checkable. A required run stays required. The test runs every
+  made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
+  inside a branchone (CF-23/d to f). A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

@@ -137,24 +137,24 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 // stored text, in the order they come; of two keys that store alike, the
 // last one's value is kept, as jsonb keeps it. A key or value that jsonb
 // refuses (a NUL escape, FX-48; an unpaired surrogate escape or a number
-// beyond numeric's range, FX-51) fails the push of the job, whose error is
-// returned with PostgreSQL's message as Windmill's database layer
-// displays it (FX-48 case 2; the exact text is open, Q-FX-8).
+// beyond numeric's range, FX-51), or arguments whose text is not JSON (a
+// replaced JSON.stringify, JE-15), fail the push of the job, whose error
+// is the push's database error (pushError, FX-48 case 2, FX-50).
 func storeMembers(args jsonval.Value) (jsonval.Value, error) {
 	ms, ok := members(args.Producer())
 	if !ok {
-		return jsonval.Value{}, errors.New("error returned from database: invalid input syntax for type json")
+		return jsonval.Value{}, errors.New(sqlErr + "error returned from database: invalid input syntax for type json")
 	}
 	var out []rawMember
 	at := map[string]int{}
 	for _, m := range ms {
 		k, err := jsonval.FromProducer(m.rawKey).Stored()
 		if err != nil {
-			return jsonval.Value{}, databaseError(err)
+			return jsonval.Value{}, pushError(err)
 		}
 		v, err := jsonval.FromProducer(m.value).Stored()
 		if err != nil {
-			return jsonval.Value{}, databaseError(err)
+			return jsonval.Value{}, pushError(err)
 		}
 		if j, dup := at[string(k)]; dup {
 			out[j].value = v
@@ -167,13 +167,27 @@ func storeMembers(args jsonval.Value) (jsonval.Value, error) {
 }
 
 // databaseError is the error Windmill's database layer reports for a text
-// jsonb refuses.
+// jsonb refuses, as the completion insert of a job's result quotes it
+// after its own Internal text (FX-48 case 1).
 func databaseError(err error) error {
 	var se *jsonval.StoreError
 	if errors.As(err, &se) {
 		return errors.New("error returned from database: " + se.DatabaseMessage())
 	}
 	return err
+}
+
+// sqlErr is the display prefix of Windmill's database error kind (FX-50).
+const sqlErr = "SqlErr: "
+
+// pushError is the error of a statement that stores a text jsonb refuses
+// and returns the database error as it is: the push of a job, whose
+// arguments or a child flow's input it stores (FX-48 and FX-51 case 2), or
+// the insert of a dispatched run's job (case 3). It displays as
+// SqlErr: error returned from database: <PostgreSQL's message> (FX-50),
+// without the location suffix Windmill adds (D14).
+func pushError(err error) error {
+	return errors.New(sqlErr + databaseError(err).Error())
 }
 
 // identityResult is what an identity job returns: its stored arguments'

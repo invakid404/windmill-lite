@@ -139,23 +139,35 @@ deferred:
     expected_in: L1
   - spec: WA-14/c
     reason: >-
-      later; a read by id after the run needs a completed root, which no
-      step case has. windmill-lite discards the map when the run ends (the
+      a read by id after the run needs a completed root, which no step
+      case has. windmill-lite discards the map when the run ends (the
       design note of WA-14), so the read gives null and a write is refused
-      with the 404 (Q-WA-10); internal/platform's TestFlowUserState checks
-      both
+      with the 404 `Not found: Flow job not found`, as Windmill answers
+      both once the root's completion is committed (WA-14, After the run;
+      Q-WA-10 answered); internal/platform's TestFlowUserState checks both
     expected_in: PF3 (internal/platform TestFlowUserState)
   - spec: WA-14/d
     reason: >-
       later: CE's user-state routes refuse an id that is not a UUID
       (400), a body that is not JSON (400) and a POST without the JSON
-      content type (415), with the web framework's texts. The facade
-      reads any id that is not a live flow job as null, and refuses a
-      body that is not JSON with a 400 whose text is windmill-lite's
-      (SetFlowUserState in internal/platform). The semantics reference
-      added the case on 2026-10-29 (SC3), and no recording holds it yet;
+      content type (415), the id before the body, with the web
+      framework's texts, which need a request-extraction layer that
+      emulates the framework's rejections (ADR 0007, PF3's follow-up
+      FU8). The facade answers a GET of an id that is not a UUID with
+      200 and null, as for any id that is not a live flow job; it reads
+      a POST's body before its id, so a body that is not JSON answers
+      400 with windmill-lite's text whatever the id and the content type
+      (SetFlowUserState in internal/platform), and a JSON body sent to an
+      id that is not a UUID answers 404 `Not found: Flow job not found`.
+      Of the case's three requests only the second, the body `hello` sent
+      with the JSON content type, gets CE's status; without that content
+      type it gets 400 where CE answers 415, and a JSON body sent so is
+      stored. A token of another
+      workspace gets the 401 first, as on CE (internal/platform/facade
+      TestTokenWorkspace). The semantics reference added the case on
+      2026-10-29 (SC3), and no recording holds it yet;
       docs/design/README.md requests one from a future batch E3f
-    expected_in: a follow-up of PF3 (the user-state routes' refusals)
+    expected_in: a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-14/e
     reason: >-
       the case is a flow: three steps around a parallel loop whose
@@ -227,42 +239,56 @@ deferred:
       windmill-client@1.767.0's JobService.getJob and getIdToken
     expected_in: PF1 (internal/platform/facade TestUnsupportedPolicyOnTheClient)
   - spec: WA-11/b
-    reason: later; writes (TS setVariable's create and update) are not implemented, so they answer 501
-    expected_in: a later milestone that implements variable writes (ADR 0007, Variables)
+    reason: >-
+      later: TS setVariable's first call creates the variable
+      (createVariable, POST …/variables/create), which has no handler and
+      answers 501, so the 501 policy fails the step. Its second call, the
+      update (POST …/variables/update/{path} with {"value":"w"}), is
+      served since milestone F1, and internal/platform/facade's
+      TestVariableUpdate checks it; an update with already_encrypted=true
+      or a rename, and any update when the variable service is read-only,
+      answer 501
+    expected_in: a later milestone that implements createVariable (none in ADR 0012 yet; ADR 0007, Variables)
   - spec: WA-11/c
     reason: >-
       a secret created as ciphertext under another key (variables/create
       with already_encrypted=true) almost always fails every read with
       CE's decryption error; the case, corrected in the reference's
       validation round 1, also allows a UTF-8 cause and, more rarely, a
-      read that returns the decrypted bytes. The create is a variable
-      write, which windmill-lite does
-      not implement (501, as for WA-11/b), and its secrets come from the
-      host: the local layer holds no workspace key and fails ciphertext
-      with windmill-lite's own secret_unavailable text (ADR 0007,
-      Secrets). The semantics reference added the case on 2026-10-29
-      (SC3), and no recording holds it yet; docs/design/README.md
-      requests one from a future batch E3f
-    expected_in: a later milestone that implements variable writes (ADR 0007, Variables)
+      read that returns the decrypted bytes. windmill-lite never decrypts
+      Windmill ciphertext, by design: its secrets come from the host, the
+      local layer holds no workspace key, and a secret held as ciphertext
+      fails the read, the getVariable call and the step's argument with
+      windmill-lite's own cause, the 500 `Internal: secret_unavailable: …`
+      (ADR 0007, Secrets; JE-43), never CE's decryption texts. The create
+      itself has no handler (501, as for WA-11/b). The semantics
+      reference added the case on 2026-10-29 (SC3), and no recording
+      holds it yet; docs/design/README.md requests one from a future
+      batch E3f
+    expected_in: none (windmill-lite decrypts no Windmill ciphertext, ADR 0007, Secrets; a CE observation for the reference)
   - spec: WA-11/d
     reason: >-
       later: the shape check on a secret created with
       already_encrypted=true, and CE's failed read of a value that is
-      not base64. Variable writes are not implemented (501, as for
-      WA-11/b), and windmill-lite's secrets layer decrypts nothing (ADR
-      0007, Secrets). The semantics reference added the case on
-      2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f
-    expected_in: a later milestone that implements variable writes (ADR 0007, Variables)
+      not base64. The create has no handler (createVariable answers 501,
+      as for WA-11/b; the update that is served since F1 answers 501 for
+      already_encrypted=true), and windmill-lite's secrets layer decrypts
+      nothing, so the read of such a secret fails with secret_unavailable,
+      never CE's decryption text (ADR 0007, Secrets). The semantics
+      reference added the case on 2026-10-29 (SC3), and no recording
+      holds it yet; docs/design/README.md requests one from a future
+      batch E3f
+    expected_in: the shape check, a later milestone that implements createVariable (none in ADR 0012 yet); the failed read, none (ADR 0007, Secrets)
   - spec: WA-11/e
     reason: >-
       later: CE's answers to a variable create and update (201, 400, 200
-      and 404, text/plain, with its texts) and setVariable's null.
-      Variable writes are not implemented (501, as for WA-11/b). The
-      semantics reference added the case on 2026-10-29 (SC4), and no
-      recording holds it yet; docs/design/README.md requests one from a
-      future batch E3f
-    expected_in: a later milestone that implements variable writes (ADR 0007, Variables)
+      and 404, text/plain, with its texts) and setVariable's null. The
+      create has no handler (501, as for WA-11/b); the update has been
+      served since F1, with its own 200 text, which the reference did not
+      give before this case. The semantics reference added the case on
+      2026-10-29 (SC4), and no recording holds it yet;
+      docs/design/README.md requests one from a future batch E3f
+    expected_in: a later milestone that implements createVariable and aligns the update's texts (ADR 0007, Variables)
   - spec: WA-12/f
     reason: >-
       a resource of 1001 items is generated by the walker's unit cases
@@ -270,23 +296,30 @@ deferred:
     expected_in: internal/platform/testdata/interpolation.json (WA-12/f, and 1000 items walked)
   - spec: WA-12/g
     reason: >-
-      later: CE uses an interpolated read's job_id only for a $WM_*
-      string, answering 404 `Not found: Job not found at name …` for a
-      random UUID and for a completed job, and the web framework's 400
-      for an id that is not a UUID. The facade answers 501 for any
-      job_id its job registry does not know of, whatever the resource
-      holds (resourceInterpolated in internal/platform/facade). The
-      semantics reference added the case on 2026-10-29 (SC3), and no
-      recording holds it yet; docs/design/README.md requests one from a
-      future batch E3f
-    expected_in: a follow-up of PF3 (the interpolated read's job_id)
+      the job id of a job that completed in the workspace is not one a
+      step case has, and job_id=nope is refused by CE's web framework
+      with a 400 before the handler, whose request-extraction texts need
+      a layer that emulates the framework (ADR 0007, PF3's follow-up
+      FU8). The rest is aligned since FU8 and checked by
+      internal/platform/facade's TestReadWithAJobID: the job is looked up
+      only for a $WM_* string, so u/x/plain gives {"a":1} for any job_id,
+      and for u/x/ctx a random UUID, a job that has ended and a job of
+      another workspace answer 404 `Not found: Job not found at name
+      <id>` (without CE's location, ADR 0001 D14), the step's own job
+      resolves; windmill-lite answers job_id=nope as any unknown id, 200
+      for u/x/plain and the 404 for u/x/ctx. The semantics reference
+      added the case on 2026-10-29 (SC3), and no recording holds it yet;
+      docs/design/README.md requests one from a future batch E3f
+    expected_in: internal/platform/facade TestReadWithAJobID (FU8); the 400 for a job_id that is not a UUID, a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-12/h
     reason: >-
-      later: a CUSTOM_INSTANCE_DB/ resource is read from Windmill's own
-      database URL, for an instance super admin only; windmill-lite has
-      no Windmill database and no instance super admins, so it has
-      nothing to answer as CE does. The semantics reference added the
-      case on 2026-10-29 (SC3), and no recording holds it yet;
+      a CUSTOM_INSTANCE_DB/ resource is read from Windmill's own database
+      URL, for an instance super admin only; windmill-lite has no
+      instance database and no instance super admins, by design (ADR
+      0007, Resources), so it has nothing to answer as CE does: such a
+      path is looked up as any resource, and is a not-found unless a
+      bundle or host holds a resource at it. The semantics reference
+      added the case on 2026-10-29 (SC3), and no recording holds it yet;
       docs/design/README.md requests one from a future batch E3f
     expected_in: none (outside windmill-lite, which has no instance database)
   - spec: WA-42/a
@@ -298,20 +331,28 @@ deferred:
       framework's text, which starts `Invalid URL: Cannot parse`. The facade
       answers 400 too, with a text of windmill-lite's own (badJobID in
       internal/platform/facade), written when the reference gave none.
-      The semantics reference added the case on 2026-10-29 (SC3), and no
-      recording holds it yet; docs/design/README.md requests one from a
-      future batch E3f
-    expected_in: a follow-up of PF3 (the facade's text for a job id that is not a UUID)
+      The framework's texts need a request-extraction layer that emulates
+      its rejections, for every route keyed by a UUID at once (ADR 0007,
+      PF3's follow-up FU8). The semantics reference added the case on
+      2026-10-29 (SC3), and no recording holds it yet;
+      docs/design/README.md requests one from a future batch E3f
+    expected_in: a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-V2/d
     reason: >-
-      later: a job token issued for another workspace makes the caller
-      anonymous. A windmill-lite run has one workspace, and the facade
-      does not check a call's {workspace} against the caller's
-      WM_WORKSPACE (ADR 0007, PF1). The semantics reference added the
-      case on 2026-10-29 (SC3), and no recording holds it yet;
+      the first request needs a job token issued for another workspace,
+      which makes the caller anonymous; every token windmill-lite issues
+      is its invocation's, of the one workspace its jobs run in, so no
+      caller of windmill-lite is anonymous and that request cannot arise.
+      The second is aligned since FU8: a result poll in a workspace other
+      than the caller's finds no job and answers as for an unknown id
+      (internal/platform/facade TestResultRoutes), and an authenticated
+      route there answers 401 `Not authorized: Unauthorized`
+      (TestTokenWorkspace). A step case cannot name a completed job of
+      its workspace. The semantics reference added the case on
+      2026-10-29 (SC3), and no recording holds it yet;
       docs/design/README.md requests one from a future batch E3f if its
       bootstrap can create a second workspace
-    expected_in: none while a run has one workspace
+    expected_in: none for the anonymous read; internal/platform/facade TestResultRoutes (FU8) for the second request
   - spec: WA-V3/a
     reason: >-
       the argument side needs the engine's resolution of a leaf's

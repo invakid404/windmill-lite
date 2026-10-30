@@ -31,6 +31,29 @@ func TestParseJSONStrings(t *testing.T) {
 	}
 }
 
+// An input that ends early is reported in serde's words where the
+// reference quotes them (expressions.md, JE-42's positions): "a list" or
+// "an object" for an unclosed container, "a value" where a value was due.
+// The position follows this parser's own convention.
+func TestParseJSONEOFMessages(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{`[`, "EOF while parsing a list"},
+		{`[ `, "EOF while parsing a list"},
+		{`[1,2`, "EOF while parsing a list"},
+		{`[1,`, "EOF while parsing a value"},
+		{`{`, "EOF while parsing an object"},
+		{`{"a"`, "EOF while parsing an object"},
+		{`{"a":`, "EOF while parsing a value"},
+		{`{"a":1`, "EOF while parsing an object"},
+	} {
+		_, err := parseJSON([]byte(c.in))
+		var e *Error
+		if !errors.As(err, &e) || e.Kind != ErrSyntax || !strings.HasPrefix(e.Detail, c.want+" at line 1 column ") {
+			t.Errorf("parseJSON(%q) = %v, want %s", c.in, err, c.want)
+		}
+	}
+}
+
 func TestParseJSONSyntaxErrorPosition(t *testing.T) {
 	_, err := parseJSON([]byte("{\n  \"a\": ,\n}"))
 	if err == nil || !strings.Contains(err.Error(), "at line 2 column 8") {

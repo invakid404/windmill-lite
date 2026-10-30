@@ -132,9 +132,9 @@ func bodyOf(m *ir.Module) loopBody {
 // Windmill stores the evaluated array and reads each iteration's element
 // from it. A failure returns the chaining error's text: the evaluator's
 // error in its generic form, the array check's, the ai one's, or the
-// database's when jsonb refuses the array (a NUL, FX-48; an unpaired
-// surrogate or a number beyond numeric's range, FX-51), which fails the
-// write before any iteration starts.
+// database's (pushError) when jsonb refuses the array (a NUL, FX-48; an
+// unpaired surrogate or a number beyond numeric's range, FX-51), which
+// fails the write before any iteration starts.
 func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) ([][]byte, string, error) {
 	it := m.ForLoop.Iterator
 	var text []byte
@@ -155,7 +155,7 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 	}
 	stored, err := jsonval.FromProducer(text).Stored()
 	if err != nil {
-		return nil, databaseError(err).Error(), errIterator
+		return nil, pushError(err).Error(), errIterator
 	}
 	items, _ := elements(stored)
 	return items, "", nil
@@ -234,6 +234,18 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	if i == 0 {
 		iterPrev = fr.input
 	}
+	// chaining routes a chaining error raised before iteration k: before
+	// an iteration after the first, the flow's last result, the previous
+	// child's, is what an abort hands its parent (outcome.last, CF-23
+	// route 3).
+	var iterOrigin Origin
+	var iterNested []string
+	chaining := func(k int, pickup bool, text string) outcome {
+		if k > 0 {
+			o.last = &carry{iterPrev, iterOrigin, iterNested}
+		}
+		return r.chainingAt(fr, pickup, o, text)
+	}
 	var it iterations
 	failed, ran, handled := false, false, false
 	var stopErr error
@@ -258,8 +270,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			case err != nil && ctx.Err() != nil:
 				return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
 			case err != nil:
-				return r.chainingAt(fr, false, o, predicateText(err))
+				return chaining(k, false, predicateText(err))
 			case skip:
+				o.last = &carry{iterPrev, iterOrigin, iterNested}
 				return r.loopSkipped(ctx, fr, i, o, iterPrev)
 			}
 		}
@@ -279,7 +292,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 				// retry's re-entry is a later transition, FX-15). The job
 				// was never pushed, so Windmill has no site for it.
 				r.supersede(fr.sites[i].Child(conformance.Iteration(k)), conformance.SitePath{}, conformance.SitePath{})
-				return r.chainingAt(fr, k == 0 && b.first, o, e.chain)
+				return chaining(k, k == 0 && b.first, e.chain)
 			}
 			job = &childJob{site: c.sites[0], input: e.args, end: e}
 		} else {
@@ -290,12 +303,12 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 				if ctx.Err() != nil {
 					return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
 				}
-				return r.chainingAt(fr, k == 0 && b.first, o, text)
+				return chaining(k, k == 0 && b.first, text)
 			}
 			c, text := r.childFrame(fr, i, k, base(k), item(k), false)
 			if c == nil {
 				// The push of the iteration's child flow failed.
-				return r.chainingAt(fr, k == 0 && b.first, o, text)
+				return chaining(k, k == 0 && b.first, text)
 			}
 			if k == 0 {
 				c.due = b.due
@@ -315,7 +328,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			return r.loopInterrupted(o, &it, ran, st)
 		}
 		if i > 0 {
-			iterPrev = e.result
+			iterPrev, iterOrigin, iterNested = e.result, e.origin, e.nested
 		}
 		it.add(e)
 		it.completed(job)
@@ -370,7 +383,8 @@ func handledBy(o outcome, handled bool) outcome {
 // before an iteration after the first, as a skipped identity job of p, the
 // flow's last result (CF-21, Q-CF-6): the identity job replaces the loop's
 // state, so its iterations so far are lost (recorded by cf-21/skip_mid),
-// and the flow goes on with p.
+// and the flow goes on with p. o.last is p with its provenance, which a
+// failed push of the identity job delivers.
 func (r *run) loopSkipped(ctx context.Context, fr *frame, i int, o outcome, p jsonval.Value) outcome {
 	r.supersede(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
 	stored, err := storeMembers(objectOf(member{"previous_result", p.Producer()}))
@@ -703,9 +717,13 @@ func (r *run) iterStopScope(fr *frame, x *expr.Expr, result jsonval.Value, entri
 // (JE-V1, CF-7): with the incoming P as result and previous_result, the
 // containing flow's input unchanged, flow_env and results. Its value must
 // parse as a u16; -1 is none, as a static null is (OF-V2; reading, as for
-// a static timeout). A failure returns the chaining error's text.
+// a static timeout). An ai parallelism evaluates to 0, which holds every
+// child (CF-7/e). A failure returns the chaining error's text.
 func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) (int, string, error) {
 	t := m.ForLoop.Parallelism
+	if t.Type == ir.AI {
+		return 0, "", nil
+	}
 	if t.Type == ir.Static {
 		raw := orNull(t.Value)
 		if string(raw) == "null" {
@@ -751,7 +769,7 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 	m := fr.modules[i]
 	stored, err := iterInput(base, k, item).Stored()
 	if err != nil {
-		return nil, databaseError(err).Error()
+		return nil, pushError(err).Error()
 	}
 	c := newFrame(bodyOf(m).modules, fr.sites[i].Child(conformance.Iteration(k)))
 	now := r.clock.Now()

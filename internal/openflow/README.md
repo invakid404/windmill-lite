@@ -138,8 +138,11 @@ pull request lists them as open questions.
 
 - A null `expr` in an ordinary transform counts as absent, as it does in a
   restricted slot.
-- In a restricted slot, a `type` other than `static` or `javascript`,
-  including `ai`, is rejected with the ordinary transform's message.
+- In a restricted slot, a `type` other than `static` or `javascript` is
+  rejected with the ordinary transform's message, with one exception: a
+  loop's `parallelism` also takes `ai`, as the reference says it decodes
+  ([CF-7/e](../../docs/semantics/conformance.md#cf-7), milestone FU8). The
+  reference says nothing of an `ai` timeout, which stays refused.
 - Within one module, the value decodes first, then the retry check runs, then
   the path check.
 - The integer widths of the debouncing fields are not in the reference; they

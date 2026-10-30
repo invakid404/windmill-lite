@@ -282,7 +282,12 @@ func (p *parser) array() (*node, error) {
 	p.pos++
 	n := &node{kind: kArray, items: []*node{}}
 	p.space()
-	if p.pos < len(p.src) && p.src[p.pos] == ']' {
+	switch {
+	case p.pos >= len(p.src):
+		// The library reports the unclosed list here, and "a value" only
+		// where a value was due, after a comma (`[` and `[1,`).
+		return nil, p.fail("EOF while parsing a list", p.pos)
+	case p.src[p.pos] == ']':
 		p.pos++
 		p.depth--
 		return n, nil

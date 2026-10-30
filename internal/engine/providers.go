@@ -99,9 +99,10 @@ func (r *run) cachedEnvOf(fr *frame) jsonval.Value {
 	return r.envOf(fr)
 }
 
-// resolveFailure is a leaf job's argument resolution that failed: the job
-// fails before its script runs, with the worker's execution error.
-type resolveFailure struct{ err error }
+// pickupFailure is what failed a leaf job once the worker picked it up,
+// before its script runs: its envs entries (WR-22) or its argument
+// resolution (JE-42). The job fails with the worker's execution error.
+type pickupFailure struct{ err error }
 
-func (e *resolveFailure) Error() string { return e.err.Error() }
-func (e *resolveFailure) Unwrap() error { return e.err }
+func (e *pickupFailure) Error() string { return e.err.Error() }
+func (e *pickupFailure) Unwrap() error { return e.err }

@@ -633,6 +633,17 @@ func TestLoopParallelism(t *testing.T) {
 	if tr.Status != conformance.RunCanceled || len(g.started) != 0 {
 		t.Fatalf("status %s, started %v", tr.Status, g.started)
 	}
+
+	// CF-7/e: an ai parallelism decodes, opens and evaluates to 0, so it
+	// holds every iteration as parallelism 0 does.
+	g = newGated()
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(parallelLoop(2, `{"type":"ai"}`, false))}, g)
+	ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	tr = <-runAsync(ctx, e, `{}`, nil)
+	if tr.Status != conformance.RunCanceled || len(g.started) != 0 {
+		t.Fatalf("an ai parallelism: status %s, started %v", tr.Status, g.started)
+	}
 }
 
 // CF-7, CF-12, CF-19, Q-18 (decisions): a parallel loop runs every
@@ -946,8 +957,9 @@ func TestLoopIteratorStorage(t *testing.T) {
 					if tr.Status != conformance.RunFailure || name != want || len(s.invs) != len(mods)-1 || len(tr.Children) != 0 {
 						t.Fatalf("%s, first %v: status %s, result %s, invocations %d", iterator, first, tr.Status, tr.Result, len(s.invs))
 					}
-					// The database's text; its detail is open (Q-FX-8).
-					if !strings.HasPrefix(msg, prefix+"error returned from database: ") {
+					// The database error's text (FX-50); its detail is open
+					// (Q-FX-8).
+					if !strings.HasPrefix(msg, prefix+"SqlErr: error returned from database: ") {
 						t.Fatalf("%s: the message %q", iterator, msg)
 					}
 				}
