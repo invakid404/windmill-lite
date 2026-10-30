@@ -16,7 +16,7 @@
 id: control-flow/cf-25-runtime
 spec: [CF-25, WR-55/a]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun, bash]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

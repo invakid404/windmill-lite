@@ -14,7 +14,7 @@
 id: languages/wr-54-validation
 spec: [WR-54/a, WR-54/b, WR-54/c, WR-54/d, WR-54/e, WR-54/g]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

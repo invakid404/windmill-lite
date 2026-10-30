@@ -4,4 +4,6 @@ spec: [WA-19/d]
 target: f/wl_drv/wa19d
 expect:
   status: success
-  result: [404, "Not found: Completed Job not found at name <id><loc>"]
+  result:
+    - 404
+    - "Not found: Completed Job not found at name <id> (jobs.rs:9074)"

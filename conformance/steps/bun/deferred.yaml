@@ -32,7 +32,10 @@ deferred:
       the case on 2026-10-29 (SC4), and no recording holds it yet;
       docs/design/README.md requests one from a future batch E3f, in a
       session whose worker serves the nativets tag; no step case encodes
-      it yet
+      it yet.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/languages/wr-40, runs wr40_h_bunnative,
+      wr40_hglobal_bunnative.
     expected_in: C3n (the native boundary mode, with wr-40.yaml)
   - spec: WR-40/i
     reason: >-
@@ -43,7 +46,9 @@ deferred:
       added the case on 2026-10-29 (SC4 validation round 1), and no
       recording holds it yet; docs/design/README.md requests one from a
       future batch E3f, in a session whose worker serves the nativets
-      tag; no step case encodes it yet
+      tag; no step case encodes it yet.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/languages/wr-40, run wr40_i_bunnative.
     expected_in: C3n (the native boundary mode, with wr-40.yaml)
   - spec: WR-43/e
     reason: >-
@@ -111,7 +116,9 @@ deferred:
       added the case on 2026-10-29 (SC3), and no recording holds it yet:
       on the oracle the job never starts (WR-50/c), so
       docs/design/README.md requests it from a future batch E3f, in a
-      session whose worker serves the nativets tag
+      session whose worker serves the nativets tag.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/languages/native-codebase, run cjs_native.
     expected_in: C3n (wr-50.yaml, variant native-commonjs) and ADR 0001 D5 (the message)
   - spec: WA-2/b
     reason: later; an ordinary Python job's base URL, which needs the Python harness
@@ -166,7 +173,9 @@ deferred:
       workspace gets the 401 first, as on CE (internal/platform/facade
       TestTokenWorkspace). The semantics reference added the case on
       2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f
+      docs/design/README.md requests one from a future batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run answers.
     expected_in: a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-14/e
     reason: >-
@@ -217,7 +226,9 @@ deferred:
       404 whose text is windmill-lite's (download in
       internal/platform/facade). The semantics reference added the case
       on 2026-10-29 (SC3); docs/design/README.md requests the recording
-      from a future batch E3f
+      from a future batch E3f.
+      Batch E3f could not record it; its manifest gives the reason
+      (internal/oracle/testdata/batches/e3f.json).
     expected_in: none (a CE observation for the reference), as for WA-16/d
   - spec: WA-31/a
     reason: >-
@@ -264,7 +275,9 @@ deferred:
       itself has no handler (501, as for WA-11/b). The semantics
       reference added the case on 2026-10-29 (SC3), and no recording
       holds it yet; docs/design/README.md requests one from a future
-      batch E3f
+      batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run secret_arg.
     expected_in: none (windmill-lite decrypts no Windmill ciphertext, ADR 0007, Secrets; a CE observation for the reference)
   - spec: WA-11/d
     reason: >-
@@ -277,7 +290,9 @@ deferred:
       never CE's decryption text (ADR 0007, Secrets). The semantics
       reference added the case on 2026-10-29 (SC3), and no recording
       holds it yet; docs/design/README.md requests one from a future
-      batch E3f
+      batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run answers.
     expected_in: the shape check, a later milestone that implements createVariable (none in ADR 0012 yet); the failed read, none (ADR 0007, Secrets)
   - spec: WA-11/e
     reason: >-
@@ -287,7 +302,9 @@ deferred:
       served since F1, with its own 200 text, which the reference did not
       give before this case. The semantics reference added the case on
       2026-10-29 (SC4), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f
+      docs/design/README.md requests one from a future batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run answers.
     expected_in: a later milestone that implements createVariable and aligns the update's texts (ADR 0007, Variables)
   - spec: WA-12/f
     reason: >-
@@ -309,7 +326,9 @@ deferred:
       resolves; windmill-lite answers job_id=nope as any unknown id, 200
       for u/x/plain and the 404 for u/x/ctx. The semantics reference
       added the case on 2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f
+      docs/design/README.md requests one from a future batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run answers.
     expected_in: internal/platform/facade TestReadWithAJobID (FU8); the 400 for a job_id that is not a UUID, a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-12/h
     reason: >-
@@ -320,7 +339,9 @@ deferred:
       path is looked up as any resource, and is a not-found unless a
       bundle or host holds a resource at it. The semantics reference
       added the case on 2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f
+      docs/design/README.md requests one from a future batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run answers.
     expected_in: none (outside windmill-lite, which has no instance database)
   - spec: WA-42/a
     reason: a rendering of each error variant is a unit check of the API's error type, not a step's behaviour
@@ -335,7 +356,9 @@ deferred:
       its rejections, for every route keyed by a UUID at once (ADR 0007,
       PF3's follow-up FU8). The semantics reference added the case on
       2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f
+      docs/design/README.md requests one from a future batch E3f.
+      Batch E3f has since recorded it on the oracle:
+      conformance/flows/client-api/facade-answers, run answers.
     expected_in: a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-V2/d
     reason: >-
@@ -351,7 +374,9 @@ deferred:
       its workspace. The semantics reference added the case on
       2026-10-29 (SC3), and no recording holds it yet;
       docs/design/README.md requests one from a future batch E3f if its
-      bootstrap can create a second workspace
+      bootstrap can create a second workspace.
+      Batch E3f could not record it; its manifest gives the reason
+      (internal/oracle/testdata/batches/e3f.json).
     expected_in: none for the anonymous read; internal/platform/facade TestResultRoutes (FU8) for the second request
   - spec: WA-V3/a
     reason: >-

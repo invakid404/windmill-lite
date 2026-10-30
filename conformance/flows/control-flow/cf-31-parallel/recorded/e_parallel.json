@@ -1,0 +1,269 @@
+{
+  "observation": {
+    "status": "canceled",
+    "result": {
+      "error": {
+        "name": "Canceled",
+        "reason": "<masked>",
+        "message": "<masked>",
+        "canceler": "monitor"
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "x",
+            "step_id": "a"
+          }
+        }
+      },
+      "s:failure": {
+        "status": "canceled",
+        "module": "in_progress",
+        "result": [
+          1,
+          2
+        ]
+      },
+      "s:failure/i:0/m:h": {
+        "status": "success",
+        "args": {
+          "x": 1
+        },
+        "result": 1
+      },
+      "s:failure/i:0/s:failure": {
+        "status": "not_run",
+        "ran": false
+      },
+      "s:failure/i:1/m:h": {
+        "status": "success",
+        "args": {
+          "x": 2
+        },
+        "result": 2
+      },
+      "s:failure/i:1/s:failure": {
+        "status": "not_run",
+        "ran": false
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030035855-de3781654dcb",
+      "revision": "de3781654dcbf73e0546f9c907f9f51253cfa2e7",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41000318656"
+    },
+    "recorded_at": "2026-10-30T04:02:01Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:42299"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 60412,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T04:01:01.485896Z",
+          "started_at": "2026-10-30T04:01:01.512697Z",
+          "completed_at": "2026-10-30T04:02:01.808508Z",
+          "duration_ms": 60296
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:01:01.515480Z",
+          "started_at": "2026-10-30T04:01:01.521845Z",
+          "completed_at": "2026-10-30T04:01:01.557446Z",
+          "duration_ms": 36
+        },
+        "s:failure/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T04:01:01.566921Z",
+          "started_at": "2026-10-30T04:01:01.609216Z",
+          "completed_at": "2026-10-30T04:01:01.663700Z",
+          "duration_ms": 54
+        },
+        "s:failure/i:0/m:h": {
+          "kind": "preview",
+          "created_at": "2026-10-30T04:01:01.616502Z",
+          "started_at": "2026-10-30T04:01:01.631534Z",
+          "completed_at": "2026-10-30T04:01:01.652629Z",
+          "duration_ms": 18
+        },
+        "s:failure/i:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-30T04:01:01.566921Z",
+          "started_at": "2026-10-30T04:01:01.622191Z",
+          "completed_at": "2026-10-30T04:01:01.687042Z",
+          "duration_ms": 65
+        },
+        "s:failure/i:1/m:h": {
+          "kind": "preview",
+          "created_at": "2026-10-30T04:01:01.628831Z",
+          "started_at": "2026-10-30T04:01:01.652567Z",
+          "completed_at": "2026-10-30T04:01:01.681026Z",
+          "duration_ms": 24
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "iterator": {
+              "expr": "[1, 2]",
+              "type": "javascript"
+            },
+            "modules": [
+              {
+                "id": "h",
+                "value": {
+                  "content": "export function main(x: number) { return x; }\n",
+                  "input_transforms": {
+                    "x": {
+                      "expr": "flow_input.iter.value",
+                      "type": "javascript"
+                    }
+                  },
+                  "language": "bun",
+                  "type": "rawscript"
+                }
+              }
+            ],
+            "parallel": true,
+            "skip_failures": false,
+            "type": "forloopflow"
+          }
+        },
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "export function main() { throw new Error(\"x\"); }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { throw new Error(\"x\"); }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ],
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "type": "forloopflow",
+            "modules": [
+              {
+                "id": "h",
+                "value": {
+                  "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                  "type": "rawscript",
+                  "content": "export function main(x: number) { return x; }\n",
+                  "language": "bun",
+                  "input_transforms": {
+                    "x": {
+                      "expr": "flow_input.iter.value",
+                      "type": "javascript"
+                    }
+                  }
+                }
+              }
+            ],
+            "iterator": {
+              "expr": "[1, 2]",
+              "type": "javascript"
+            },
+            "parallel": true,
+            "skip_failures": false
+          }
+        }
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          }
+        ],
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "type": "forloopflow",
+            "modules": [
+              {
+                "id": "h",
+                "value": {
+                  "type": "rawscript",
+                  "content": "!inline h.ts",
+                  "input_transforms": {
+                    "x": {
+                      "type": "javascript",
+                      "expr": "flow_input.iter.value"
+                    }
+                  },
+                  "lock": "!inline h.lock",
+                  "language": "bun"
+                }
+              }
+            ],
+            "iterator": {
+              "type": "javascript",
+              "expr": "[1, 2]"
+            },
+            "parallel": true,
+            "skip_failures": false
+          }
+        }
+      }
+    }
+  }
+}

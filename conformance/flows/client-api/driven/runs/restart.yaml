@@ -1,8 +1,15 @@
-# JE-19/e and JE-19/f (outside the equivalence contract, optional): a run
-# whose b fails is restarted from b, and c's x, y and z read 17, 17 and 5
-# through the restarted run's copied status and the restart fallback.
-spec: [JE-19/e, JE-19/f]
+# JE-19 (JE-19/e and JE-19/f, outside the equivalence contract, optional): a
+# run whose b fails is restarted from b through POST /jobs/restart/f/{id}
+# with {step_id: b}, the route the vendored OpenAPI documents; on CE
+# v1.767.0 it answers 500 (oracle run 41000318656), so the restart's copied
+# status and fallback (c's x, y and z, predicted 17, 17 and 5) are not
+# reached.
+spec: [JE-19]
 target: f/wl_drv/restart
 expect:
   status: success
-  result: {first_success: false, second: {x: 17, "y": 17, z: 5}}
+  result:
+    first_success: false
+    restart:
+      status: 500
+      body: "Wrong number of path arguments for `Path`. Expected 4 but got 2"

@@ -1,0 +1,13 @@
+summary: "CF-30/b: the run request"
+value:
+  modules:
+    - id: d
+      value:
+        type: rawscript
+        content: "!inline d.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

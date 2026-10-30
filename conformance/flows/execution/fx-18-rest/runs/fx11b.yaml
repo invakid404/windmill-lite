@@ -1,8 +1,19 @@
-# FX-11/b: a flow_env value that fails to resolve falls back to the literal,
-# and the flow does not fail.
+# FX-11/b: a flow_env value $var:u/x/missing, read by a's transform.
 spec: [FX-11/b]
 target: f/wl_fx18/fx11b
+note: "Predicted from the catalogue: the failed resolution falls back to the literal $var:u/x/missing and the flow does not fail. Recorded in oracle run 41000318656: a fails before its script runs with the variable's not-found error for x, and so does the flow; windmill-lite gives the same. The batch manifest lists the contradiction for the spec team."
 expect:
-  status: success
-  result: "$var:u/x/missing"
-  steps: {"m:a": {status: success, args: {x: "$var:u/x/missing"}}}
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nNot found: Variable u/x/missing not found for `x`: Not found: Variable u/x/missing not found"
+      step_id: a
+  steps:
+    "m:a":
+      status: failure
+      result:
+        error:
+          name: ExecutionErr
+          message: "execution error:\nNot found: Variable u/x/missing not found for `x`: Not found: Variable u/x/missing not found"
+          step_id: a

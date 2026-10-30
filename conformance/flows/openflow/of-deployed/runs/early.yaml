@@ -3,10 +3,11 @@
 spec: [OF-V3/a]
 target: f/wl_of/early
 submit: run_wait_result
+note: "Predicted with the body {\"stage\":\"a\"}; recorded in oracle run 41000318656 as jsonb's spaced text, {\"stage\": \"a\"}."
 expect:
   status: success
   result: {stage: b}
   response:
     status: 200
     content_type: application/json
-    body: "{\"stage\":\"a\"}"
+    body: "{\"stage\": \"a\"}"

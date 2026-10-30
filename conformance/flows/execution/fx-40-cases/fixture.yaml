@@ -23,7 +23,7 @@ spec:
   - FX-40/l
   - FX-40/m
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api, setup: each_run}
 compare: {mode: subset}

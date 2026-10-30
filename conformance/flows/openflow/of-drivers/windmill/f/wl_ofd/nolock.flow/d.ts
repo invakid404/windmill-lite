@@ -44,7 +44,8 @@ const VALUE = {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterato
 export async function main() {
   await oracleAPI();
   const path = `f/wl_ofd/nolock_${tag()}`;
-  await json("POST", "/flows/create", { path, summary: "OF-3/b", description: "", value: VALUE, schema: { type: "object", properties: {} } });
+  const created = await call("POST", "/flows/create", JSON.stringify({ path, summary: "OF-3/b", description: "", value: VALUE, schema: { type: "object", properties: {} } }));
+  if (created.status >= 300) throw new Error(`flows/create: ${created.status} ${created.body}`);
   let deps: any[] = [];
   for (let i = 0; i < 400 && deps.length === 0; i++) {
     deps = await json("GET", `/jobs/completed/list?script_path_exact=${encodeURIComponent(path)}&job_kinds=flowdependencies`);

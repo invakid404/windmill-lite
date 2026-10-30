@@ -1,1 +1,1 @@
-export function main() { return {}; }
+export function preprocessor() { return {}; }

@@ -1,11 +1,10 @@
-# CF-30/b: a forloop in a container-valued preprocessor's body runs as child
-# flows and never collapses, so the preprocessor gives [-999, -998, -997],
-# wrapped as the flow's input {value: ...} (FX-35).
+# CF-30/b: a run by path of the deployed flow whose preprocessor_module is a
+# branchone, sent by a Bun step through the API with its own token.
 spec: [CF-30/b]
-target: f/wl_cf130/cf30b
+target: f/wl_cf130/cf30b_request
+note: "Predicted from the catalogue: the inner loop runs as child flows, the preprocessor gives [-999, -998, -997] and the flow succeeds with {value: [-999, -998, -997]}. Recorded in oracle run 41000318656: the run API refuses the request with HTTP 500, Internal: Unsupported preprocessor module, and no job is created. The batch manifest lists the contradiction for the spec team."
 expect:
   status: success
-  result: {value: [-999, -998, -997]}
-  steps:
-    "s:preprocessor": {status: success, result: [-999, -998, -997]}
-    "m:s": {status: success, result: {value: [-999, -998, -997]}}
+  result:
+    status: 500
+    body: "Internal: Unsupported preprocessor module @trigger_helpers.rs:343:36"

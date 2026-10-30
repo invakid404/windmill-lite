@@ -1,0 +1,125 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": {
+      "error": {
+        "name": "ExecutionErr",
+        "message": "exit code for \"bun run\": 1, last log lines:\nait run();\n43 | } catch(e) {\n44 |     console.error(e);\n45 |     let err = { message: e.message, name: e.name, stack: e.stack };\n                              ^\nTypeError: null is not an object (evaluating 'e.message')\n      at /tmp/windmill/wk-default-3d0087404c5e-gxh00/<job:m:a>/wrapper.mjs:45:26\n\nBun v1.3.10 (Linux x64 baseline)",
+        "step_id": "a",
+        "exit_code": 1
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "ExecutionErr",
+            "message": "exit code for \"bun run\": 1, last log lines:\nait run();\n43 | } catch(e) {\n44 |     console.error(e);\n45 |     let err = { message: e.message, name: e.name, stack: e.stack };\n                              ^\nTypeError: null is not an object (evaluating 'e.message')\n      at /tmp/windmill/wk-default-3d0087404c5e-gxh00/<job:m:a>/wrapper.mjs:45:26\n\nBun v1.3.10 (Linux x64 baseline)",
+            "step_id": "a",
+            "exit_code": 1
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030035855-de3781654dcb",
+      "revision": "de3781654dcbf73e0546f9c907f9f51253cfa2e7",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41000318656"
+    },
+    "recorded_at": "2026-10-30T04:10:33Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:36143"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T04:10:33.222039Z",
+          "started_at": "2026-10-30T04:10:33.275986Z",
+          "completed_at": "2026-10-30T04:10:33.308394Z",
+          "duration_ms": 32
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:10:33.277435Z",
+          "started_at": "2026-10-30T04:10:33.280301Z",
+          "completed_at": "2026-10-30T04:10:33.303773Z",
+          "duration_ms": 23
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "export function main() { throw null; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { throw null; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

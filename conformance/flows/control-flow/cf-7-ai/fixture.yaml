@@ -8,7 +8,7 @@
 id: control-flow/cf-7-ai
 spec: [CF-7/e]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

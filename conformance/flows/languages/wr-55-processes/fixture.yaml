@@ -11,7 +11,7 @@
 id: languages/wr-55-processes
 spec: [WR-55/a, WR-55/b, WR-55/c]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare:

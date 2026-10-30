@@ -8,7 +8,8 @@
 # OF-17/a), delete_after_use from the scripts API (OR-21/b to OR-21/d),
 # previews (WR-37/b, WR-51/d, WR-52/a, WR-52/e, JE-36/d's preview half) and
 # a
-# restart (JE-19/e, JE-19/f). Paths a run creates carry its root job id, so
+# restart (JE-19), whose documented route answers 500 on CE v1.767.0. Paths
+# a run creates carry its root job id, so
 # the oracle's repeated runs compare. Recorded by the workflow's two-worker
 # session. The runs compare as a subset.
 #
@@ -30,8 +31,7 @@ spec:
   - WR-52/a
   - WR-52/e
   - JE-36/d
-  - JE-19/e
-  - JE-19/f
+  - JE-19
 scope: later
 provenance: source-derived
 languages: [bun]

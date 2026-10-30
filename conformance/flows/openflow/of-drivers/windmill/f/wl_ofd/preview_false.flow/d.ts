@@ -40,10 +40,11 @@ async function oracleAPI() {
 }
 const tag = () => root.replaceAll("-", "").slice(0, 12);
 
+// A stack names the job's directory, so it is dropped.
 async function preview(value: unknown) {
   const id = await start("/jobs/run/preview_flow", JSON.stringify({ value, args: {} }));
   const r = await done(id);
-  return { success: r.success, result: r.result };
+  return JSON.parse(JSON.stringify({ success: r.success, result: r.result }), (k, v) => (k === "stack" ? undefined : v));
 }
 const VALUES: Record<string, unknown> = {"seq": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": [1, 2]}, "parallel": false, "modules": [{"id": "b", "value": {"type": "rawscript", "language": "bun", "content": "export function main(x: number) {\n  if (x === 1) throw new Error(\"boom\");\n  return x;\n}", "input_transforms": {"x": {"type": "javascript", "expr": "flow_input.iter.value"}}}}, {"id": "c", "value": {"type": "identity"}}], "skip_failures": false}}]}, "par": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": [1, 2]}, "parallel": true, "modules": [{"id": "b", "value": {"type": "rawscript", "language": "bun", "content": "export function main(x: number) {\n  if (x === 1) throw new Error(\"boom\");\n  return x;\n}", "input_transforms": {"x": {"type": "javascript", "expr": "flow_input.iter.value"}}}}, {"id": "c", "value": {"type": "identity"}}], "skip_failures": false}}]}, "ba": {"modules": [{"id": "ba", "value": {"type": "branchall", "branches": [{"modules": [{"id": "f", "value": {"type": "rawscript", "language": "bun", "content": "export function main() { throw new Error(\"b\"); }", "input_transforms": {}}}], "skip_failure": false}, {"modules": [{"id": "r", "value": {"type": "rawscript", "language": "bun", "content": "export function main() { return 2; }", "input_transforms": {}}}], "skip_failure": false}], "parallel": false}}]}};
 export async function main() {

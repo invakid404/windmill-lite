@@ -29,6 +29,12 @@ deferred:
   - case: JE-18/e
     reason: a repeated module id (OF-2), which the engine's lookup resolves to the last such module with a job and the direct lookup to the one that completed most recently; the semantics reference added the case on 2026-10-29 and no recording holds it yet
     checked_in: FU6, at engine level (internal/engine, TestRepeatedIDLookups, with A5's duplicate-id occurrences); not recorded yet
+  - case: JE-19/e
+    reason: needs a restarted run (restart from a step); windmill-lite has no restart (ADR 0001 section 1), so the case is outside the contract; recording batch E3f's driver (conformance/flows/client-api/driven, run restart) found that the route the OpenAPI documents, POST /jobs/restart/f/{id} with {step_id}, answers 500 (Wrong number of path arguments for `Path`. Expected 4 but got 2) on CE v1.767.0, so no restart could be recorded
+    checked_in: none
+  - case: JE-19/f
+    reason: later; as JE-19/e, a restarted run, outside the contract; the restart route answers 500 on CE v1.767.0 (recording batch E3f, conformance/flows/client-api/driven, run restart)
+    checked_in: none
   - case: JE-44/f
     reason: after an identity job, `previous_result` is jsonb's printed text, quoted here by a javascript `timeout`'s parse error; the semantics reference added the case on 2026-10-29 and no recording holds it yet
     checked_in: N1b, whose identity job reads its argument back in jsonb's printed form (internal/engine), end to end with N2's javascript timeout; not encoded yet

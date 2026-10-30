@@ -9,7 +9,7 @@
 id: je/je-21-object
 spec: [JE-21/b]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare:

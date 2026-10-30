@@ -1,0 +1,566 @@
+{
+  "about": "Recording batch E3f of ADR 0012: an oracle session whose worker serves the nativets tag, with native fixtures (values, a throw, a fetch of the loopback sink, and codebase scripts under //native, WR-50), and the recordings that semantics revisions SC3 and SC4 requested in docs/design/README.md (Recording requests for batch E3f), each in the oracle configuration it needs (oracle.session). Expects are the reference's predictions; where the oracle disagreed the expect holds the recording with a note, and the contradiction is listed below. No milestone needs E3f merged, so the batch has no gates; the runs windmill-lite already matches join the flow suite.",
+  "batch": "E3f",
+  "findings": [],
+  "cases": [
+    "CF-12/g",
+    "CF-16/e",
+    "CF-16/f",
+    "CF-17/j",
+    "CF-21/f",
+    "CF-22/h",
+    "CF-23/d",
+    "CF-23/e",
+    "CF-23/f",
+    "CF-25/c",
+    "CF-31/a",
+    "CF-31/b",
+    "CF-31/c",
+    "CF-31/d",
+    "CF-31/e",
+    "CF-7/a",
+    "CF-7/b",
+    "CF-7/e",
+    "CF-7/f",
+    "FX-13/b",
+    "FX-13/c",
+    "FX-24/g",
+    "FX-30/b",
+    "FX-38/b",
+    "FX-40/e",
+    "FX-40/f",
+    "FX-40/g",
+    "FX-40/h",
+    "FX-40/i",
+    "FX-40/j",
+    "FX-40/k",
+    "FX-40/l",
+    "FX-40/m",
+    "FX-42/a",
+    "FX-42/b",
+    "FX-42/e",
+    "FX-42/f",
+    "FX-42/i",
+    "FX-42/j",
+    "FX-42/m",
+    "FX-42/n",
+    "FX-42/o",
+    "FX-48/b",
+    "FX-48/c",
+    "FX-50/a",
+    "FX-51/a",
+    "FX-51/b",
+    "FX-51/c",
+    "JE-11/c",
+    "JE-11/e",
+    "JE-15/j",
+    "JE-15/k",
+    "JE-19/e",
+    "JE-19/f",
+    "JE-20/c",
+    "JE-20/d",
+    "JE-21/b",
+    "JE-42/i",
+    "JE-42/j",
+    "JE-49/d",
+    "JE-49/e",
+    "JE-50/a",
+    "JE-51/a",
+    "JE-52/a",
+    "OF-14/f",
+    "OF-17/a",
+    "OF-3/c",
+    "OF-V5/b",
+    "OR-16/a",
+    "OR-24/e",
+    "OR-7/b",
+    "OR-7/c",
+    "SY-10/b",
+    "SY-11/b",
+    "SY-13/b",
+    "SY-16/a",
+    "SY-17/a",
+    "SY-17/b",
+    "SY-17/c",
+    "SY-18/a",
+    "SY-18/b",
+    "SY-19/a",
+    "SY-19/b",
+    "SY-19/e",
+    "SY-4/b",
+    "SY-5/c",
+    "SY-5/d",
+    "SY-7/f",
+    "SY-8/c",
+    "WA-11/c",
+    "WA-11/d",
+    "WA-11/e",
+    "WA-12/g",
+    "WA-12/h",
+    "WA-14/d",
+    "WA-16/c",
+    "WA-16/d",
+    "WA-16/e",
+    "WA-19/b",
+    "WA-19/c",
+    "WA-4/b",
+    "WA-V2/c",
+    "WA-V2/d",
+    "WR-11/b",
+    "WR-11/c",
+    "WR-22/b",
+    "WR-22/c",
+    "WR-29/a",
+    "WR-29/b",
+    "WR-40/a",
+    "WR-40/b",
+    "WR-40/c",
+    "WR-40/d",
+    "WR-40/e",
+    "WR-40/f",
+    "WR-40/g",
+    "WR-40/h",
+    "WR-40/i",
+    "WR-41/a",
+    "WR-41/b",
+    "WR-41/c",
+    "WR-41/d",
+    "WR-42/a",
+    "WR-42/b",
+    "WR-42/c",
+    "WR-42/d",
+    "WR-43/a",
+    "WR-43/b",
+    "WR-43/c",
+    "WR-43/d",
+    "WR-43/e",
+    "WR-43/f",
+    "WR-43/g",
+    "WR-43/h",
+    "WR-43/i",
+    "WR-44/a",
+    "WR-44/b",
+    "WR-44/c",
+    "WR-44/d",
+    "WR-45/a",
+    "WR-45/b",
+    "WR-45/c",
+    "WR-45/d",
+    "WR-45/e",
+    "WR-45/f",
+    "WR-45/g",
+    "WR-46/a",
+    "WR-46/b",
+    "WR-47/b",
+    "WR-49/h",
+    "WR-50/c",
+    "WR-50/f",
+    "WR-54/a",
+    "WR-54/b",
+    "WR-54/c",
+    "WR-54/d",
+    "WR-54/e",
+    "WR-54/f",
+    "WR-54/g",
+    "WR-55/a",
+    "WR-55/b",
+    "WR-55/c",
+    "WR-V2/a",
+    "WR-V9/a"
+  ],
+  "fixtures": [
+    "conformance/flows/client-api/facade-answers",
+    "conformance/flows/client-api/object-storage",
+    "conformance/flows/control-flow/cf-16-tolerated",
+    "conformance/flows/control-flow/cf-17-recursive",
+    "conformance/flows/control-flow/cf-21-throwing",
+    "conformance/flows/control-flow/cf-22-retried",
+    "conformance/flows/control-flow/cf-23-branchone",
+    "conformance/flows/control-flow/cf-23-retry",
+    "conformance/flows/control-flow/cf-25-runtime",
+    "conformance/flows/control-flow/cf-25-squash",
+    "conformance/flows/control-flow/cf-27-flow-timeouts",
+    "conformance/flows/control-flow/cf-31-parallel",
+    "conformance/flows/control-flow/cf-31-slot",
+    "conformance/flows/control-flow/cf-7-ai",
+    "conformance/flows/control-flow/cf-7-parallel",
+    "conformance/flows/control-flow/cf-7-release",
+    "conformance/flows/execution/fx-13-identity",
+    "conformance/flows/execution/fx-30-due",
+    "conformance/flows/execution/fx-38-pickup",
+    "conformance/flows/execution/fx-40-cases",
+    "conformance/flows/execution/fx-42-decode",
+    "conformance/flows/execution/fx-42-monitor",
+    "conformance/flows/execution/fx-42-notation",
+    "conformance/flows/execution/fx-48-jsonb",
+    "conformance/flows/je/je-11-rewrite",
+    "conformance/flows/je/je-15-stringify",
+    "conformance/flows/je/je-20-providers",
+    "conformance/flows/je/je-21-object",
+    "conformance/flows/je/je-49-deep",
+    "conformance/flows/je/je-51-chain",
+    "conformance/flows/je/je-open",
+    "conformance/flows/languages/import-base",
+    "conformance/flows/languages/import-base-inline",
+    "conformance/flows/languages/native",
+    "conformance/flows/languages/native-codebase",
+    "conformance/flows/languages/native-timeout",
+    "conformance/flows/languages/wr-22-envs",
+    "conformance/flows/languages/wr-40",
+    "conformance/flows/languages/wr-41",
+    "conformance/flows/languages/wr-42",
+    "conformance/flows/languages/wr-43",
+    "conformance/flows/languages/wr-44",
+    "conformance/flows/languages/wr-45",
+    "conformance/flows/languages/wr-45-useragent",
+    "conformance/flows/languages/wr-46",
+    "conformance/flows/languages/wr-54-validation",
+    "conformance/flows/languages/wr-55-processes",
+    "conformance/flows/languages/wr-v2",
+    "conformance/flows/openflow/flow-script-off",
+    "conformance/flows/openflow/of-3-native",
+    "conformance/flows/oracle/preprocessor",
+    "conformance/flows/oracle/result-size"
+  ],
+  "deferred": [
+    {
+      "case": "FX-42/m",
+      "milestone": "none",
+      "reason": "the run's input {\"n\": 1e400} cannot be submitted: a fixture's YAML gives its args as doubles, as the CLI's parser does, so 1e400 reached the oracle as the string \"1e400\" (oracle run 40994947681), and the child flow's stored result held no number beyond a double; FX-42/n and FX-42/o record the same waiting route with nesting past the library's limit (execution/fx-42-monitor)"
+    },
+    {
+      "case": "CF-31/d",
+      "milestone": "none",
+      "reason": "the empty-iterator slot leaves a Success entry with id failure at a's position, as the case says, and the harness's walker refuses a root status whose module ids differ from the flow's (oracle run 40994947681: \"the root flow has modules [failure], but the fixture's module 0 is a\"), so no observation is recorded; the refusal itself confirms the status entry"
+    },
+    {
+      "case": "JE-49/e",
+      "milestone": "none",
+      "reason": "deploying the flow whose flow_env is nested 128 levels deep crashed the CE server in oracle run 40990751153, which ended the session; no recording can be made without a server that survives it"
+    },
+    {
+      "case": "WR-44/d",
+      "milestone": "none",
+      "reason": "the setting is read on the worker's own schedule, so two runs of the same fixture saw different values (unstable in oracle run 40989292429); the case is not observable as a single recording"
+    },
+    {
+      "case": "WR-54/f",
+      "milestone": "none",
+      "reason": "the script whose stored schema has a type array naming array fails its lock job at deploy (oracle run 40994947681: \"Error creating schema validator: ... Problem making rule for xs: Error: Array type should have field `items`\"), before any run, which fails the fixture's deployment gate; the case expects the failure at run time"
+    },
+    {
+      "case": "WR-V9/a",
+      "milestone": "none",
+      "reason": "the raw_unpinned request during lock generation is visible only in the server's request log, which the harness does not capture"
+    },
+    {
+      "case": "WA-16/c",
+      "milestone": "none",
+      "reason": "needs workspace object storage pointed at an S3-compatible store started beside the oracle (session A of the request), which the harness does not start; WA-16/d, the session without storage, is recorded (client-api/object-storage)"
+    },
+    {
+      "case": "WA-16/e",
+      "milestone": "none",
+      "reason": "as WA-16/c: needs workspace object storage, which the harness does not start"
+    },
+    {
+      "case": "WA-4/b",
+      "milestone": "none",
+      "reason": "needs a second workspace for the same user, which the harness, one workspace per fixture, does not create"
+    },
+    {
+      "case": "WA-V2/d",
+      "milestone": "none",
+      "reason": "as WA-4/b: needs a second workspace"
+    },
+    {
+      "case": "JE-19/e",
+      "milestone": "none",
+      "reason": "outside the equivalence contract (windmill-lite has no restart, ADR 0001 section 1); the driver of client-api/driven, run restart, found that the restart route the vendored OpenAPI documents, POST /jobs/restart/f/{id} with {step_id}, answers 500 (Wrong number of path arguments for `Path`. Expected 4 but got 2) on CE v1.767.0, so no restarted run exists to record"
+    },
+    {
+      "case": "JE-19/f",
+      "milestone": "none",
+      "reason": "as JE-19/e: the restart route answers 500 on CE v1.767.0 (client-api/driven, run restart)"
+    },
+    {
+      "case": "SY-4/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-5/c",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-5/d",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-7/f",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-8/c",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-10/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-11/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-13/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-16/a",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-17/a",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-17/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-17/c",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-18/a",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-18/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-19/a",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-19/b",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "SY-19/e",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    },
+    {
+      "case": "OF-14/f",
+      "milestone": "none",
+      "reason": "Q-OF-13's sync trees: the harness pushes a fixture's tree once, before its runs, and fails the fixture when the push fails, and keeps neither the push's error nor the CLI's standard output and error; recording a refused push, its warnings (SY-5/d, SY-19/e) and the read-back of what was deployed needs a harness session that pushes trees as runs, which batch E3f did not build"
+    }
+  ],
+  "parts": [
+    {
+      "case": "OF-3/c",
+      "part": "the lite node's language bunnative",
+      "milestone": "none",
+      "reason": "the flow_node table is not reachable through the API; the submitted and deployed values are recorded in the deployment evidence"
+    },
+    {
+      "case": "FX-40/i",
+      "part": "{\"n\": 1} then {\"n\": 1.0} missing the cache",
+      "milestone": "none",
+      "reason": "a tree's YAML gives numbers as doubles, as the CLI's parser does, so 1.0 reached the server as 1 (oracle run 40994947681); the key-order half is recorded (i_order)"
+    },
+    {
+      "case": "FX-40/e",
+      "part": "the log line \"Job skipped because args & path found in cache and not expired\" on the hit jobs of FX-40/e to FX-40/m",
+      "milestone": "none",
+      "reason": "the walker records results and statuses, not logs; which step jobs ran is recorded"
+    },
+    {
+      "case": "WR-40/i",
+      "part": "d and e, the builds of child_process and node:test",
+      "milestone": "none",
+      "reason": "the oracle refuses both flows at deploy: the dependency job fails with \"Browser build cannot import Node.js builtin\" (oracle run 40989292429), which fails the fixture's deployment gate, so the run-time error the case expects is never reached; c is recorded"
+    },
+    {
+      "case": "WA-12/h",
+      "part": "the non-admin reader's answer",
+      "milestone": "none",
+      "reason": "needs a second user, which the harness does not create; the superadmin half is recorded"
+    },
+    {
+      "case": "FX-40/k",
+      "part": "the S3-aware hashing with workspace storage (an ETag in the key)",
+      "milestone": "none",
+      "reason": "needs workspace object storage, which the harness does not start; the no-storage half is recorded"
+    }
+  ],
+  "prefixes": [
+    {
+      "case": "FX-51/a",
+      "run": "conformance/flows/execution/fx-48-jsonb/result_high",
+      "pointer": "/result/error/message",
+      "prefix": "Internal: Could not add completed job "
+    },
+    {
+      "case": "FX-51/a",
+      "run": "conformance/flows/execution/fx-48-jsonb/result_low",
+      "pointer": "/result/error/message",
+      "prefix": "Internal: Could not add completed job "
+    },
+    {
+      "case": "FX-42/o",
+      "run": "conformance/flows/execution/fx-42-decode/o_128",
+      "pointer": "/result/error/message",
+      "prefix": "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column 128"
+    },
+    {
+      "case": "JE-52/a",
+      "run": "conformance/flows/je/je-open/je52a",
+      "pointer": "/result/error/message",
+      "prefix": "Error during isolated evaluation of expression `(() => { throw new Error(\"bad \\ud83d\") })()`:\nQuickJS evaluation error: Error:\n    at "
+    },
+    {
+      "case": "WR-45/c",
+      "run": "conformance/flows/languages/wr-45/wr45_c_nativets",
+      "pointer": "/result/error/message",
+      "prefix": "execution error:\nError: failed to load module"
+    },
+    {
+      "case": "WR-43/f",
+      "run": "conformance/flows/languages/wr-43/wr43_f_nativets",
+      "pointer": "/result/error/message",
+      "prefix": "execution error:\nError: "
+    }
+  ],
+  "texts": [
+    {
+      "case": "FX-51/a",
+      "run": "conformance/flows/execution/fx-48-jsonb/result_high",
+      "pointer": "/result/error/message",
+      "contains": [
+        "error returned from database: invalid input syntax for type json"
+      ]
+    },
+    {
+      "case": "FX-51/a",
+      "run": "conformance/flows/execution/fx-48-jsonb/result_low",
+      "pointer": "/result/error/message",
+      "contains": [
+        "error returned from database: invalid input syntax for type json"
+      ]
+    },
+    {
+      "case": "JE-15/j",
+      "run": "conformance/flows/je/je-15-stringify/j4",
+      "pointer": "/result/error/message",
+      "contains": [
+        "QuickJS evaluation error: Error: serializer failed"
+      ]
+    },
+    {
+      "case": "JE-21/b",
+      "run": "conformance/flows/je/je-open/je21b_s",
+      "pointer": "/result/error/message",
+      "contains": [
+        "Exception generated by quickjs: String(Ok(\"s\"))\n"
+      ]
+    },
+    {
+      "case": "JE-21/b",
+      "run": "conformance/flows/je/je-open/je21b_1",
+      "pointer": "/result/error/message",
+      "contains": [
+        "Exception generated by quickjs: Int(1)\n"
+      ]
+    },
+    {
+      "case": "JE-52/a",
+      "run": "conformance/flows/je/je-open/je52a",
+      "pointer": "/result/error/message",
+      "excludes": [
+        "Error: bad"
+      ]
+    },
+    {
+      "case": "JE-49/d",
+      "run": "conformance/flows/je/je-49-deep/deep_input",
+      "pointer": "/result/error/message",
+      "contains": [
+        "recursion limit exceeded at line 1 column 132"
+      ],
+      "excludes": [
+        "QuickJS evaluation error"
+      ]
+    },
+    {
+      "case": "WR-43/f",
+      "run": "conformance/flows/languages/wr-43/wr43_f_nativets",
+      "pointer": "/result/error/message",
+      "excludes": [
+        "failed to load module"
+      ]
+    }
+  ],
+  "contradictions": [
+    {
+      "case": "WR-11/c",
+      "catalogue": "the preprocessor runs on the step's args (pinned to the deployed hash, with apply_preprocessor true)",
+      "run": "conformance/flows/oracle/preprocessor/pinned",
+      "pointer": "/result",
+      "observed": "orig"
+    },
+    {
+      "case": "WR-43/i",
+      "catalogue": "Source predicts the text of one source line of main followed by a newline",
+      "run": "conformance/flows/languages/wr-43/wr43_i_nativets",
+      "pointer": "/result/error/stack",
+      "observed": null
+    },
+    {
+      "case": "WR-43/i",
+      "catalogue": "Source predicts the text of one source line of main followed by a newline",
+      "run": "conformance/flows/languages/wr-43/wr43_i_bunnative",
+      "pointer": "/result/error/stack",
+      "observed": null
+    },
+    {
+      "case": "CF-22/h",
+      "catalogue": "(the reference's reading for the variant whose iteration 0 always throws, so l fails for good) the flow's failure module runs at the root",
+      "run": "conformance/flows/control-flow/cf-22-retried/exhausted",
+      "pointer": "/steps/s:failure/status",
+      "observed": "not_run"
+    }
+  ],
+  "deployments": [
+    {
+      "case": "OF-3/c",
+      "run": "conformance/flows/openflow/of-3-native/relock",
+      "pointer": "/submitted/modules/0/value/language",
+      "value": "bun"
+    },
+    {
+      "case": "OF-3/c",
+      "run": "conformance/flows/openflow/of-3-native/relock",
+      "pointer": "/materialized/modules/0/value/language",
+      "value": "bunnative"
+    }
+  ]
+}

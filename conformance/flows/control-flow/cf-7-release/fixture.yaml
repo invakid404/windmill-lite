@@ -11,7 +11,7 @@
 id: control-flow/cf-7-release
 spec: [CF-7, CF-7/a, CF-7/b]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 2, deploy: api, concurrency: true}
 compare: {mode: subset}

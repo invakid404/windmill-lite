@@ -1,0 +1,359 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "values": [
+        1,
+        2,
+        3
+      ],
+      "counters": [
+        1,
+        2,
+        3
+      ],
+      "pids_found": 0,
+      "distinct_pids": 0,
+      "dedicated_worker_log": false
+    },
+    "steps": {
+      "m:i": {
+        "status": "success",
+        "args": {
+          "items": [
+            {
+              "n": 1,
+              "v": 1,
+              "job": "NOT_AVAILABLE",
+              "prev": null
+            },
+            {
+              "n": 2,
+              "v": 2,
+              "job": "NOT_AVAILABLE",
+              "prev": null
+            },
+            {
+              "n": 3,
+              "v": 3,
+              "job": "NOT_AVAILABLE",
+              "prev": null
+            }
+          ]
+        },
+        "result": {
+          "values": [
+            1,
+            2,
+            3
+          ],
+          "counters": [
+            1,
+            2,
+            3
+          ],
+          "pids_found": 0,
+          "distinct_pids": 0,
+          "dedicated_worker_log": false
+        }
+      },
+      "m:l": {
+        "status": "success",
+        "result": [
+          {
+            "n": 1,
+            "v": 1,
+            "job": "NOT_AVAILABLE",
+            "prev": null
+          },
+          {
+            "n": 2,
+            "v": 2,
+            "job": "NOT_AVAILABLE",
+            "prev": null
+          },
+          {
+            "n": 3,
+            "v": 3,
+            "job": "NOT_AVAILABLE",
+            "prev": null
+          }
+        ]
+      },
+      "m:l/i:0/m:x": {
+        "status": "success",
+        "args": {
+          "v": 1,
+          "prev": null
+        },
+        "result": {
+          "n": 1,
+          "v": 1,
+          "job": "NOT_AVAILABLE",
+          "prev": null
+        }
+      },
+      "m:l/i:1/m:x": {
+        "status": "success",
+        "args": {
+          "v": 2,
+          "prev": null
+        },
+        "result": {
+          "n": 2,
+          "v": 2,
+          "job": "NOT_AVAILABLE",
+          "prev": null
+        }
+      },
+      "m:l/i:2/m:x": {
+        "status": "success",
+        "args": {
+          "v": 3,
+          "prev": null
+        },
+        "result": {
+          "n": 3,
+          "v": 3,
+          "job": "NOT_AVAILABLE",
+          "prev": null
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030035855-de3781654dcb",
+      "revision": "de3781654dcbf73e0546f9c907f9f51253cfa2e7",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41000318656"
+    },
+    "recorded_at": "2026-10-30T04:04:44Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:36143"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T04:04:44.119837Z",
+          "started_at": "2026-10-30T04:04:44.132048Z",
+          "completed_at": "2026-10-30T04:04:44.234909Z",
+          "duration_ms": 103
+        },
+        "m:i": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:04:44.198591Z",
+          "started_at": "2026-10-30T04:04:44.200526Z",
+          "completed_at": "2026-10-30T04:04:44.230301Z",
+          "duration_ms": 27
+        },
+        "m:l/i:0/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:04:44.134050Z",
+          "started_at": "2026-10-30T04:04:44.140509Z",
+          "completed_at": "2026-10-30T04:04:44.173951Z",
+          "duration_ms": 33
+        },
+        "m:l/i:1/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:04:44.177835Z",
+          "started_at": "2026-10-30T04:04:44.181995Z",
+          "completed_at": "2026-10-30T04:04:44.184576Z",
+          "duration_ms": 3
+        },
+        "m:l/i:2/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T04:04:44.188165Z",
+          "started_at": "2026-10-30T04:04:44.192031Z",
+          "completed_at": "2026-10-30T04:04:44.194298Z",
+          "duration_ms": 2
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "iterator": {
+                "expr": "[1, 2, 3]",
+                "type": "javascript"
+              },
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "content": "let n = 0;\nexport function main(v: number, prev: any) { n += 1; console.log(`wl-pid ${process.pid}`); return { n, v, job: process.env.WM_JOB_ID, prev }; }\n",
+                    "input_transforms": {
+                      "prev": {
+                        "type": "static",
+                        "value": null
+                      },
+                      "v": {
+                        "expr": "flow_input.iter.value ?? flow_input.iter.index",
+                        "type": "javascript"
+                      }
+                    },
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                }
+              ],
+              "parallel": false,
+              "skip_failures": false,
+              "squash": true,
+              "type": "forloopflow"
+            }
+          },
+          {
+            "id": "i",
+            "value": {
+              "content": "const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE;\nconst headers = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\nasync function job(id: string): Promise<any> {\n  const r = await fetch(`${base}/api/w/${ws}/jobs_u/completed/get/${id}`, { headers });\n  return await r.json();\n}\nasync function logs(id: string): Promise<string> {\n  const r = await fetch(`${base}/api/w/${ws}/jobs_u/get_logs/${id}`, { headers });\n  return await r.text();\n}\nfunction seconds(j: any): number {\n  return (Date.parse(j.completed_at) - Date.parse(j.started_at)) / 1000;\n}\n// Each iteration's result names its job, and a two-step body's carries the\n// first step's result as prev; each job's log holds its pid, which a result\n// would make unstable.\nexport async function main(items: any[]) {\n  const all = items.flatMap((r) => (r.prev ? [r.prev, r] : [r]));\n  const texts = await Promise.all(all.map((r) => logs(r.job)));\n  const pids = texts.map((t) => (t.match(/wl-pid (\\d+)/) ?? [])[1]).filter((p) => p !== undefined);\n  return {\n    values: items.map((r) => r.v),\n    counters: all.map((r) => r.n),\n    pids_found: pids.length,\n    distinct_pids: new Set(pids).size,\n    dedicated_worker_log: texts.some((t) => t.split(\"\\n\").some((l) => l.startsWith(\"dedicated worker bun:\"))),\n  };\n}\n",
+              "input_transforms": {
+                "items": {
+                  "expr": "results.l",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "squash": true,
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "let n = 0;\nexport function main(v: number, prev: any) { n += 1; console.log(`wl-pid ${process.pid}`); return { n, v, job: process.env.WM_JOB_ID, prev }; }\n",
+                    "language": "bun",
+                    "input_transforms": {
+                      "v": {
+                        "expr": "flow_input.iter.value ?? flow_input.iter.index",
+                        "type": "javascript"
+                      },
+                      "prev": {
+                        "type": "static",
+                        "value": null
+                      }
+                    }
+                  }
+                }
+              ],
+              "iterator": {
+                "expr": "[1, 2, 3]",
+                "type": "javascript"
+              },
+              "parallel": false,
+              "skip_failures": false
+            }
+          },
+          {
+            "id": "i",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE;\nconst headers = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\nasync function job(id: string): Promise<any> {\n  const r = await fetch(`${base}/api/w/${ws}/jobs_u/completed/get/${id}`, { headers });\n  return await r.json();\n}\nasync function logs(id: string): Promise<string> {\n  const r = await fetch(`${base}/api/w/${ws}/jobs_u/get_logs/${id}`, { headers });\n  return await r.text();\n}\nfunction seconds(j: any): number {\n  return (Date.parse(j.completed_at) - Date.parse(j.started_at)) / 1000;\n}\n// Each iteration's result names its job, and a two-step body's carries the\n// first step's result as prev; each job's log holds its pid, which a result\n// would make unstable.\nexport async function main(items: any[]) {\n  const all = items.flatMap((r) => (r.prev ? [r.prev, r] : [r]));\n  const texts = await Promise.all(all.map((r) => logs(r.job)));\n  const pids = texts.map((t) => (t.match(/wl-pid (\\d+)/) ?? [])[1]).filter((p) => p !== undefined);\n  return {\n    values: items.map((r) => r.v),\n    counters: all.map((r) => r.n),\n    pids_found: pids.length,\n    distinct_pids: new Set(pids).size,\n    dedicated_worker_log: texts.some((t) => t.split(\"\\n\").some((l) => l.startsWith(\"dedicated worker bun:\"))),\n  };\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "items": {
+                  "expr": "results.l",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline x.ts",
+                    "input_transforms": {
+                      "prev": {
+                        "type": "static",
+                        "value": null
+                      },
+                      "v": {
+                        "type": "javascript",
+                        "expr": "flow_input.iter.value ?? flow_input.iter.index"
+                      }
+                    },
+                    "lock": "!inline x.lock",
+                    "language": "bun"
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "javascript",
+                "expr": "[1, 2, 3]"
+              },
+              "parallel": false,
+              "skip_failures": false,
+              "squash": true
+            }
+          },
+          {
+            "id": "i",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline i.ts",
+              "input_transforms": {
+                "items": {
+                  "type": "javascript",
+                  "expr": "results.l"
+                }
+              },
+              "lock": "!inline i.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

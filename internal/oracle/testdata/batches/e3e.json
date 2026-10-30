@@ -102,7 +102,7 @@
     {
       "case": "WR-50/f",
       "milestone": "C3n",
-      "reason": "source-derived in the reference's revision of 2026-10-29 (SC3); no E3e run records it: on the oracle a //native codebase script's job never starts (WR-50/c), so docs/design/README.md requests it from a future batch E3f, in a session whose worker serves the nativets tag; windmill-lite's native boundary mode (C3n) runs the CJS bundle and fails it with a ReferenceError (conformance/steps/bun/wr-50.yaml, variant native-commonjs), whose message is JavaScriptCore's rather than V8's `module is not defined`, a text ADR 0001 D5 lists as one the realm cannot keep"
+      "reason": "source-derived in the reference's revision of 2026-10-29 (SC3); no E3e run records it: on the oracle a //native codebase script's job never starts (WR-50/c), so docs/design/README.md requests it from a future batch E3f, in a session whose worker serves the nativets tag; windmill-lite's native boundary mode (C3n) runs the CJS bundle and fails it with a ReferenceError (conformance/steps/bun/wr-50.yaml, variant native-commonjs), whose message is JavaScriptCore's rather than V8's `module is not defined`, a text ADR 0001 D5 lists as one the realm cannot keep. Recorded by batch E3f (conformance/flows/languages/native-codebase, run cjs_native; internal/oracle/testdata/batches/e3f.json)."
     },
     {
       "case": "WR-49/c",
@@ -142,7 +142,7 @@
     {
       "case": "OR-24/e",
       "milestone": "none",
-      "reason": "a script's own preprocessor (WR-11, later), which no run of this batch records; oracle/key-order run pre_keys records the flow-preprocessor variant instead. The reference's revision SC3 corrected the case: a plain run of the script through the run API requests the preprocessor too, not only a trigger, so the harness can record it, and docs/design/README.md requests the recording from batch E3f; no milestone of ADR 0012 implements script preprocessors"
+      "reason": "a script's own preprocessor (WR-11, later), which no run of this batch records; oracle/key-order run pre_keys records the flow-preprocessor variant instead. The reference's revision SC3 corrected the case: a plain run of the script through the run API requests the preprocessor too, not only a trigger, so the harness can record it, and docs/design/README.md requests the recording from batch E3f; no milestone of ADR 0012 implements script preprocessors. Recorded by batch E3f (conformance/flows/oracle/preprocessor, run script_keys; internal/oracle/testdata/batches/e3f.json)."
     },
     {
       "case": "JE-19/e",

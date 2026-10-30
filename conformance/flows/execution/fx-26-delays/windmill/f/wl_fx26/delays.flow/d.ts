@@ -41,16 +41,18 @@ async function oracleAPI() {
 const tag = () => root.replaceAll("-", "").slice(0, 12);
 
 // Starts the flow, waits until its step lists `which` failed attempts and
-// names a queued retry job, reads that job's scheduled_for, subtracts the
-// last failed attempt's completion, and cancels the flow.
+// the queue holds the flow's retry job, reads that job's scheduled_for,
+// subtracts the last failed attempt's completion, and cancels the flow.
+// (The step's status names the retry job only once it starts.)
 async function delay(path: string, which: number): Promise<number> {
   const id = await start(`/jobs/run/f/${path}`, "{}");
   for (let i = 0; i < 1600; i++) {
     const m = (await json("GET", `/jobs_u/get/${id}`)).flow_status?.modules?.[0];
     const failed: string[] = m?.failed_retries ?? [];
-    if (failed.length >= which && m.job && !failed.includes(m.job)) {
-      const retry = await json("GET", `/jobs_u/get/${m.job}`);
-      if (retry.scheduled_for) {
+    if (failed.length >= which) {
+      const queued: any[] = await json("GET", `/jobs/queue/list?parent_job=${id}&per_page=10`);
+      const retry = queued.find((j) => !failed.includes(j.id) && j.scheduled_for);
+      if (retry) {
         const last = await json("GET", `/jobs_u/completed/get/${failed[which - 1]}`);
         const end = last.completed_at ? Date.parse(last.completed_at) : Date.parse(last.started_at) + last.duration_ms;
         await call("POST", `/jobs_u/queue/cancel/${id}`, JSON.stringify({ reason: "wltest: FX-26 delay read" }));
@@ -65,17 +67,18 @@ const CREATED: Record<string, unknown> = {"d": {"modules": [{"id": "a", "value":
 export async function main() {
   const created: Record<string, number> = {};
   for (const [name, value] of Object.entries(CREATED)) {
-    const a = await call("POST", "/flows/create", JSON.stringify({ path: `f/wl_fx26/retry_${name}`, summary: `FX-26/${name}`, description: "", value,
+    // A path per run, since the oracle repeats the run in one workspace.
+    const a = await call("POST", "/flows/create", JSON.stringify({ path: `f/wl_fx26/retry_${name}_${tag()}`, summary: `FX-26/${name}`, description: "", value,
       schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: {} } }));
-    if (a.status >= 300) throw new Error(`flows/create f/wl_fx26/retry_${name}: ${a.status} ${a.body}`);
+    if (a.status >= 300) throw new Error(`flows/create f/wl_fx26/retry_${name}_${tag()}: ${a.status} ${a.body}`);
     created[name] = a.status;
   }
   const f = await Promise.all(Array.from({ length: 20 }, () => delay("f/wl_fx26/retry_f", 1)));
   return {
     created,
     c: await delay("f/wl_fx26/retry_c", 1),
-    d: await delay("f/wl_fx26/retry_d", 1),
-    e_second: await delay("f/wl_fx26/retry_e", 2),
+    d: await delay(`f/wl_fx26/retry_d_${tag()}`, 1),
+    e_second: await delay(`f/wl_fx26/retry_e_${tag()}`, 2),
     f: { count: f.length, all_in_6_to_14: f.every((d) => d >= 6 && d <= 14) },
   };
 }

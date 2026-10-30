@@ -847,6 +847,13 @@ text. Compare location suffixes as `<loc>` and mask job ids
 ([OR-14](../semantics/oracle.md#or-14), [FX-50](../semantics/execution.md#fx-50)).
 Nothing here may commit the oracle's database credentials unmasked.
 
+*Recorded by batch E3f* ([ADR 0012](0012-layout-and-milestones.md)): each
+request below is a fixture of the batch, recorded in the session it names,
+or is deferred with its reason in the batch's manifest,
+[`internal/oracle/testdata/batches/e3f.json`](../../internal/oracle/testdata/batches/e3f.json),
+which also lists every claim the oracle contradicted. Requests the next
+semantics revision makes go in a new section.
+
 **The reference session** (one worker, default worker tags):
 
 - **Retry delays and jitter**
