@@ -116,7 +116,7 @@ func attach(t *testing.T, cfg HostConfig, hello Hello) (*fakeHost, *Process, err
 }
 
 func hostHello() Hello {
-	return Hello{Proto: ProtocolVersion, Harness: HarnessInfo{Kind: "bun", Version: "test"}, Runtime: PinnedBun, Caps: Caps{Fetch: true, Host: true}, Bundle: "sha256:b", PID: fakeHostPID}
+	return Hello{Proto: ProtocolVersion, Harness: HarnessInfo{Kind: "bun", Version: "dev"}, Runtime: PinnedBun, Caps: Caps{Fetch: true, Host: true}, Bundle: "sha256:b", PID: fakeHostPID}
 }
 
 func (h *fakeHost) send(m Message) {

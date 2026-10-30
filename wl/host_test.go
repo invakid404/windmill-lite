@@ -95,7 +95,7 @@ func (h *testHost) next() harness.Message {
 // hello greets the engine as a host whose working directory is workdir.
 // The engine checks that the host is its parent: this test's parent.
 func (h *testHost) hello(digest, workdir string) {
-	hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "test"}, Runtime: harness.PinnedBun,
+	hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "dev"}, Runtime: harness.PinnedBun,
 		Caps: harness.Caps{Fetch: true, Native: true, Host: true}, Bundle: digest, PID: os.Getppid(), Workdir: workdir}
 	if h.plugin != "" {
 		hello.Plugin = jsonval.FromProducer([]byte(h.plugin))

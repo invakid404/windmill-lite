@@ -984,7 +984,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 			theirs.Close()
 			exited := make(chan error, 1)
 			go func() { exited <- cmd.Wait() }()
-			hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "test"}, Runtime: harness.PinnedBun,
+			hello := harness.Hello{Proto: harness.ProtocolVersion, Harness: harness.HarnessInfo{Kind: "bun", Version: "dev"}, Runtime: harness.PinnedBun,
 				Caps: harness.Caps{Fetch: true, Native: true, Host: true}, Bundle: digest, PID: os.Getpid(), Workdir: hostCwd}
 			if tc.plugin != "" {
 				hello.Plugin = jsonval.FromProducer([]byte(tc.plugin))
