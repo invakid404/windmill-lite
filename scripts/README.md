@@ -1,12 +1,40 @@
 # scripts
 
-**Current state:** installed, awaiting activation. This README covers the
-repository tooling in this directory. These scripts serve the
-[Renovate auto-ack workflow](../.github/workflows/memoria-auto-ack.yml), which
-stops at its first step until the owner provisions its
-`MEMORIA_AUTO_ACK_TOKEN` secret (see [docs/memoria.md](../docs/memoria.md#renovate-bumps));
-until then Renovate pull requests are acknowledged by hand. None of these
-scripts is part of windmill-lite itself.
+**Current state:** the documentation check runs in CI and reports warnings
+only. The [Renovate auto-ack](#renovate-auto-ack) scripts are installed,
+awaiting activation. This README covers the scripts in this directory, and
+none of them is part of windmill-lite itself.
+
+## Documentation check
+
+| Script | What it does |
+|---|---|
+| `check-docs.py` | Reports the Markdown that breaks one of the four countable rules of the writing standard, which its section [What CI checks](../docs/writing.md#what-ci-checks) lists. Its warnings leave the exit status at 0; with `--strict`, any warning makes it 1. An error, such as a file that it cannot read, exits non-zero. |
+| `test_check_docs.py` | Unit tests for `check-docs.py`, run by CI. They also check that `docs/writing.md` and `memoria.toml` state the script's limits and the identifier rule in the same words, and render the standard's Go comment example with `go` to check its link. That test skips without `go`. |
+
+The `Docs (report only)` job of the [CI workflow](../.github/workflows/ci.yml)
+runs `check-docs.py` on each pull request. It annotates only the blocks that
+the pull request changed, and writes the count of all warnings to the job
+summary. The job is not a required check, and a warning never fails it.
+
+To check your changes before you push:
+
+```sh
+python3 scripts/check-docs.py AGENTS.md docs/writing.md
+python3 scripts/check-docs.py --diff-base "$(git merge-base origin/main HEAD)"
+```
+
+The second command reports only the blocks that your branch changed.
+
+## Renovate auto-ack
+
+Renovate, the bot that updates this repository's dependencies, opens pull
+requests that can change files in a README's scope. These scripts serve the
+[auto-ack workflow](../.github/workflows/memoria-auto-ack.yml), which
+acknowledges such README reviews automatically. It stops at its first step
+until the owner provisions its
+`MEMORIA_AUTO_ACK_TOKEN` secret ([docs/memoria.md](../docs/memoria.md#renovate-bumps)).
+Until then, Renovate pull requests are acknowledged by hand.
 
 | Script | What it does |
 |---|---|

@@ -28,8 +28,8 @@ updated `memoria.lock` back.
 2. **Review.** Follow the review plan's `next_action`: render outdated imports
    or prepare the next ready README for review with `memoria review
    <README.md>`. Cross-check the README's prose against the source in its scope
-   and the writing rules in [memoria.toml](../memoria.toml). Edit claims that
-   have drifted, then refresh the review packet.
+   and against the [writing standard](writing.md). Edit claims that have
+   drifted, then refresh the review packet.
 3. **Acknowledge.** Run `memoria ack` with a note that states what you verified.
 4. **Check.** Repeat until the plan is empty and `memoria check` passes. Run it
    bare and read its exit code; piping it through `head` or `grep` hides
@@ -82,12 +82,19 @@ install together.
 
 ## Policy changes
 
-When the writing rules change, request a review even though source files have
-not: `memoria invalidate all --reason "..."` for a repository-wide rule, or
-`memoria invalidate subtree:<dir> --reason "..."` for a narrower one. Routine
-drift from ordinary code changes flows through the per-session flow instead.
+A change to the writing rules makes no README pending. The rules are the
+[writing standard](writing.md), the [glossary](glossary.md) and the guidance
+in [memoria.toml](../memoria.toml). `memoria guidance --changed` lists the
+READMEs that were reviewed under older rules.
 
-[memoria.toml](../memoria.toml) holds the writing rules. Its ignore list
+To request a review of those READMEs, run `memoria invalidate all --reason
+"..."` for a repository-wide rule, or `memoria invalidate subtree:<dir>
+--reason "..."` for a narrower one. Routine drift from ordinary code changes
+flows through the per-session flow instead.
+
+[memoria.toml](../memoria.toml) holds the review checklist and names the
+writing standard and the glossary as guidance files: Memoria shows them to
+every reviewer, and never counts them as inputs of a README. Its ignore list
 excludes jj internal state, build output, `go.sum`, `renovate.json`, and agent
 process records from review inputs, so a checksum-only dependency update or a
 Renovate config migration needs no README review; `go.mod` remains a review
