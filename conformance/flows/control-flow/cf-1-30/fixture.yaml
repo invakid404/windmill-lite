@@ -12,7 +12,7 @@
 id: control-flow/cf-1-30
 spec: [CF-1/a, CF-30/a, CF-30/b]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

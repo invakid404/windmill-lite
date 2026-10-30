@@ -1,0 +1,172 @@
+{
+  "observation": {
+    "status": "success",
+    "result": 1,
+    "steps": {
+      "m:preprocessor": {
+        "status": "success",
+        "args": {
+          "reason": "PREPROCESSOR_ARGS_ARE_DISCARDED"
+        },
+        "result": 1
+      },
+      "s:preprocessor": {
+        "status": "success",
+        "args": {
+          "event": {
+            "body": {},
+            "kind": "webhook",
+            "query": {
+              "job_id": "<job:>"
+            },
+            "headers": {
+              "host": "localhost:8000",
+              "user-agent": "Go-http-client/1.1",
+              "content-type": "application/json",
+              "authorization": "Bearer LAv5uPoZf6NigSyRCol4tIhmedtCqiSP",
+              "content-length": "2",
+              "accept-encoding": "gzip"
+            },
+            "raw_string": null
+          },
+          "_ENTRYPOINT_OVERRIDE": "preprocessor"
+        },
+        "result": {}
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.2 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261030043807-a1897c43f789",
+      "revision": "a1897c43f789d0c1642995e6fe35f3830c28b94b",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41003988171"
+    },
+    "recorded_at": "2026-10-30T05:01:28Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:35835"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 206,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-30T05:01:28.465519Z",
+          "started_at": "2026-10-30T05:01:28.506175Z",
+          "completed_at": "2026-10-30T05:01:28.613036Z",
+          "duration_ms": 107
+        },
+        "m:preprocessor": {
+          "kind": "flowscript",
+          "created_at": "2026-10-30T05:01:28.585302Z",
+          "started_at": "2026-10-30T05:01:28.587768Z",
+          "completed_at": "2026-10-30T05:01:28.610376Z",
+          "duration_ms": 20
+        },
+        "s:preprocessor": {
+          "kind": "preview",
+          "created_at": "2026-10-30T05:01:28.507552Z",
+          "started_at": "2026-10-30T05:01:28.510635Z",
+          "completed_at": "2026-10-30T05:01:28.531215Z",
+          "duration_ms": 17
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "preprocessor",
+            "value": {
+              "content": "export function main() { return 1; }\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ],
+        "preprocessor_module": {
+          "id": "pre",
+          "value": {
+            "content": "export function preprocessor() { return {}; }\n",
+            "input_transforms": {},
+            "language": "bun",
+            "type": "rawscript"
+          }
+        }
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "preprocessor",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main() { return 1; }\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ],
+        "preprocessor_module": {
+          "id": "pre",
+          "value": {
+            "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+            "type": "rawscript",
+            "content": "export function preprocessor() { return {}; }\n",
+            "language": "bun",
+            "input_transforms": {}
+          }
+        }
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "preprocessor",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline preprocessor.ts",
+              "input_transforms": {},
+              "lock": "!inline preprocessor.lock",
+              "language": "bun"
+            }
+          }
+        ],
+        "preprocessor_module": {
+          "id": "pre",
+          "value": {
+            "type": "rawscript",
+            "content": "!inline pre.ts",
+            "input_transforms": {},
+            "lock": "!inline pre.lock",
+            "language": "bun"
+          }
+        }
+      }
+    }
+  }
+}

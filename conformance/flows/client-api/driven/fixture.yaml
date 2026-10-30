@@ -33,7 +33,7 @@ spec:
   - JE-36/d
   - JE-19
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 2, deploy: api, concurrency: true}
 compare: {mode: subset}

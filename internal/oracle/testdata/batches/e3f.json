@@ -3,6 +3,7 @@
   "batch": "E3f",
   "findings": [],
   "cases": [
+    "CF-1/a",
     "CF-12/g",
     "CF-16/e",
     "CF-16/f",
@@ -13,6 +14,8 @@
     "CF-23/e",
     "CF-23/f",
     "CF-25/c",
+    "CF-30/a",
+    "CF-30/b",
     "CF-31/a",
     "CF-31/b",
     "CF-31/c",
@@ -22,11 +25,15 @@
     "CF-7/b",
     "CF-7/e",
     "CF-7/f",
+    "FX-1/a",
+    "FX-11/a",
+    "FX-11/b",
     "FX-13/b",
     "FX-13/c",
     "FX-24/g",
     "FX-30/b",
     "FX-38/b",
+    "FX-4/a",
     "FX-40/e",
     "FX-40/f",
     "FX-40/g",
@@ -45,12 +52,20 @@
     "FX-42/m",
     "FX-42/n",
     "FX-42/o",
+    "FX-47/b",
     "FX-48/b",
     "FX-48/c",
+    "FX-48/d",
+    "FX-5/a",
     "FX-50/a",
     "FX-51/a",
     "FX-51/b",
     "FX-51/c",
+    "FX-51/d",
+    "FX-51/e",
+    "FX-V1/a",
+    "FX-V1/b",
+    "FX-V2/a",
     "JE-11/c",
     "JE-11/e",
     "JE-15/j",
@@ -60,6 +75,7 @@
     "JE-20/c",
     "JE-20/d",
     "JE-21/b",
+    "JE-36/d",
     "JE-42/i",
     "JE-42/j",
     "JE-49/d",
@@ -68,13 +84,32 @@
     "JE-51/a",
     "JE-52/a",
     "OF-14/f",
+    "OF-16/c",
+    "OF-16/d",
     "OF-17/a",
+    "OF-18/a",
+    "OF-18/b",
+    "OF-3/a",
+    "OF-3/b",
     "OF-3/c",
+    "OF-3/d",
+    "OF-6/a",
+    "OF-7/a",
+    "OF-7/b",
+    "OF-7/c",
+    "OF-7/d",
+    "OF-8/a",
+    "OF-V3/a",
+    "OF-V3/b",
     "OF-V5/b",
     "OR-16/a",
+    "OR-21/b",
+    "OR-21/c",
+    "OR-21/d",
     "OR-24/e",
     "OR-7/b",
     "OR-7/c",
+    "OR-V7/c",
     "SY-10/b",
     "SY-11/b",
     "SY-13/b",
@@ -97,12 +132,14 @@
     "WA-11/e",
     "WA-12/g",
     "WA-12/h",
+    "WA-14/c",
     "WA-14/d",
     "WA-16/c",
     "WA-16/d",
     "WA-16/e",
     "WA-19/b",
     "WA-19/c",
+    "WA-19/d",
     "WA-4/b",
     "WA-V2/c",
     "WA-V2/d",
@@ -112,6 +149,7 @@
     "WR-22/c",
     "WR-29/a",
     "WR-29/b",
+    "WR-37/b",
     "WR-40/a",
     "WR-40/b",
     "WR-40/c",
@@ -155,6 +193,9 @@
     "WR-49/h",
     "WR-50/c",
     "WR-50/f",
+    "WR-51/d",
+    "WR-52/a",
+    "WR-52/e",
     "WR-54/a",
     "WR-54/b",
     "WR-54/c",
@@ -169,8 +210,11 @@
     "WR-V9/a"
   ],
   "fixtures": [
+    "conformance/flows/client-api/driven",
     "conformance/flows/client-api/facade-answers",
     "conformance/flows/client-api/object-storage",
+    "conformance/flows/client-api/raw-requests",
+    "conformance/flows/control-flow/cf-1-30",
     "conformance/flows/control-flow/cf-16-tolerated",
     "conformance/flows/control-flow/cf-17-recursive",
     "conformance/flows/control-flow/cf-21-throwing",
@@ -186,12 +230,14 @@
     "conformance/flows/control-flow/cf-7-parallel",
     "conformance/flows/control-flow/cf-7-release",
     "conformance/flows/execution/fx-13-identity",
+    "conformance/flows/execution/fx-18-rest",
     "conformance/flows/execution/fx-30-due",
     "conformance/flows/execution/fx-38-pickup",
     "conformance/flows/execution/fx-40-cases",
     "conformance/flows/execution/fx-42-decode",
     "conformance/flows/execution/fx-42-monitor",
     "conformance/flows/execution/fx-42-notation",
+    "conformance/flows/execution/fx-47-null",
     "conformance/flows/execution/fx-48-jsonb",
     "conformance/flows/je/je-11-rewrite",
     "conformance/flows/je/je-15-stringify",
@@ -219,6 +265,9 @@
     "conformance/flows/languages/wr-v2",
     "conformance/flows/openflow/flow-script-off",
     "conformance/flows/openflow/of-3-native",
+    "conformance/flows/openflow/of-deployed",
+    "conformance/flows/openflow/of-drivers",
+    "conformance/flows/oracle/colliding-ids",
     "conformance/flows/oracle/preprocessor",
     "conformance/flows/oracle/result-size"
   ],
@@ -376,6 +425,12 @@
   ],
   "parts": [
     {
+      "case": "FX-4/a",
+      "part": "the wall time of at least 1 s",
+      "milestone": "none",
+      "reason": "a recording's timings are provenance, never compared (OR-V5); the status ids a and a-v are recorded (fx4_ids)"
+    },
+    {
       "case": "OF-3/c",
       "part": "the lite node's language bunnative",
       "milestone": "none",
@@ -413,6 +468,36 @@
     }
   ],
   "prefixes": [
+    {
+      "case": "FX-V1/a",
+      "run": "conformance/flows/execution/fx-18-rest/fxv1a",
+      "pointer": "/result/error/message",
+      "prefix": "Error evaluating stop_after_all_iters_if expression `null.x`: "
+    },
+    {
+      "case": "FX-V1/b",
+      "run": "conformance/flows/execution/fx-18-rest/fxv1b",
+      "pointer": "/result/error/message",
+      "prefix": "Error evaluating stop_after_all_iters_if expression `null.x`: "
+    },
+    {
+      "case": "WR-37/b",
+      "run": "conformance/flows/client-api/driven/previews",
+      "pointer": "/result/wr37b/result/error/message",
+      "prefix": "execution error:\nError: parameter syntax unsupported: `...xs`: "
+    },
+    {
+      "case": "WR-51/d",
+      "run": "conformance/flows/client-api/driven/previews",
+      "pointer": "/result/wr51d/result/error/message",
+      "prefix": "execution error:\nError: Error while parsing code, it is invalid TypeScript: "
+    },
+    {
+      "case": "WR-52/a",
+      "run": "conformance/flows/client-api/driven/previews",
+      "pointer": "/result/wr52a/result/error/message",
+      "prefix": "execution error:\nError: Error while parsing code, it is invalid TypeScript: "
+    },
     {
       "case": "FX-51/a",
       "run": "conformance/flows/execution/fx-48-jsonb/result_high",
@@ -517,6 +602,14 @@
       "excludes": [
         "failed to load module"
       ]
+    },
+    {
+      "case": "OF-16/d",
+      "run": "conformance/flows/openflow/of-deployed/same_two",
+      "pointer": "/result/error/message",
+      "contains": [
+        "Cannot continue on same worker with multiple jobs"
+      ]
     }
   ],
   "contradictions": [
@@ -526,6 +619,20 @@
       "run": "conformance/flows/oracle/preprocessor/pinned",
       "pointer": "/result",
       "observed": "orig"
+    },
+    {
+      "case": "FX-11/b",
+      "catalogue": "x = \"$var:u/x/missing\"; the flow does not fail",
+      "run": "conformance/flows/execution/fx-18-rest/fx11b",
+      "pointer": "/status",
+      "observed": "failure"
+    },
+    {
+      "case": "CF-30/b",
+      "catalogue": "the inner loop runs as child flows (flowpreview), so the preprocessor's result is [-999,-998,-997] and the flow's input becomes {\"value\": [-999,-998,-997]}",
+      "run": "conformance/flows/control-flow/cf-1-30/cf30b",
+      "pointer": "/result/status",
+      "observed": 500
     },
     {
       "case": "WR-43/i",
@@ -551,6 +658,36 @@
   ],
   "deployments": [
     {
+      "case": "OF-3/a",
+      "run": "conformance/flows/openflow/of-deployed/storage",
+      "pointer": "/materialized/modules/0/value/extra",
+      "value": 7
+    },
+    {
+      "case": "OF-3/a",
+      "run": "conformance/flows/openflow/of-deployed/storage",
+      "pointer": "/materialized/modules/1/value/input_transforms",
+      "absent": true
+    },
+    {
+      "case": "OF-3/a",
+      "run": "conformance/flows/openflow/of-deployed/storage",
+      "pointer": "/materialized/modules/2/value/skip_failures",
+      "value": true
+    },
+    {
+      "case": "OF-3/a",
+      "run": "conformance/flows/openflow/of-deployed/storage",
+      "pointer": "/materialized/modules/2/value/parallel",
+      "value": false
+    },
+    {
+      "case": "OF-3/a",
+      "run": "conformance/flows/openflow/of-deployed/storage",
+      "pointer": "/submitted/modules/2/value/skip_failures",
+      "absent": true
+    },
+    {
       "case": "OF-3/c",
       "run": "conformance/flows/openflow/of-3-native/relock",
       "pointer": "/submitted/modules/0/value/language",
@@ -561,6 +698,53 @@
       "run": "conformance/flows/openflow/of-3-native/relock",
       "pointer": "/materialized/modules/0/value/language",
       "value": "bunnative"
+    },
+    {
+      "case": "OF-6/a",
+      "run": "conformance/flows/openflow/of-deployed/ba_shape",
+      "pointer": "/materialized/modules/0/value",
+      "value": {
+        "type": "branchall",
+        "branches": [
+          {
+            "expr": "",
+            "modules": [],
+            "skip_failure": true,
+            "parallel": true
+          }
+        ],
+        "parallel": true
+      }
+    },
+    {
+      "case": "OF-7/a",
+      "run": "conformance/flows/openflow/of-deployed/f7_seq",
+      "pointer": "/materialized/modules/0/value/skip_failures",
+      "value": true
+    },
+    {
+      "case": "OF-7/b",
+      "run": "conformance/flows/openflow/of-deployed/f7_par",
+      "pointer": "/materialized/modules/0/value/skip_failures",
+      "value": true
+    },
+    {
+      "case": "OF-7/c",
+      "run": "conformance/flows/openflow/of-deployed/f7_ba",
+      "pointer": "/materialized/modules/0/value/branches/0/skip_failure",
+      "value": true
+    },
+    {
+      "case": "OF-8/a",
+      "run": "conformance/flows/openflow/of-deployed/while_shape",
+      "pointer": "/materialized/modules/0/value/parallel",
+      "absent": true
+    },
+    {
+      "case": "OF-8/a",
+      "run": "conformance/flows/openflow/of-deployed/while_shape",
+      "pointer": "/materialized/modules/0/value/parallelism",
+      "absent": true
     }
   ]
 }

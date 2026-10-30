@@ -21,3 +21,4 @@ compare:
     - "/steps/m:a/result/sink"
     - "/steps/m:a/carried/sink"
     - "/steps/m:b/args/sink"
+    - "/steps/m:b/resolved_args/sink"

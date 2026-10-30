@@ -1,7 +1,0 @@
-# FX-47/b: a thrown null fails the step with ExecutionErr and exit code 1
-# (the message's start is checked in the batch manifest).
-spec: [FX-47/b]
-target: f/wl_fx18/fx47
-expect:
-  status: failure
-  result: {error: {name: ExecutionErr, exit_code: 1, step_id: a}}

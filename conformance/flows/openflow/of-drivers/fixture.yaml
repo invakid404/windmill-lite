@@ -12,7 +12,7 @@
 id: openflow/of-drivers
 spec: [OF-3/b, OF-7/a, OF-7/b, OF-7/c, OF-7/d]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 2, deploy: api, concurrency: true}
 compare: {mode: subset}

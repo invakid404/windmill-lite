@@ -518,7 +518,8 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a and N5:
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
+  E3f:
   every run the flow suite requires passes in `warm` and in `fresh`,
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API; F2a, whose
@@ -528,8 +529,9 @@ Windmill v1.767.0's image).
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
-  adds itself there; recording batch E3e listed the runs of its fixtures
-  that windmill-lite already passes, FU5 the `oracle/nul` runs that
+  adds itself there; recording batches E3e and E3f listed the runs of
+  their fixtures that windmill-lite already passes (E3f's native fixtures
+  in its native mode), FU5 the `oracle/nul` runs that
   N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
   made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3

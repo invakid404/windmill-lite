@@ -11,7 +11,7 @@
 id: client-api/raw-requests
 spec: [FX-48/d, FX-51/d, FX-51/e, FX-42]
 scope: later
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
 compare: {mode: subset}

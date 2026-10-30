@@ -40,19 +40,21 @@ async function oracleAPI() {
 }
 const tag = () => root.replaceAll("-", "").slice(0, 12);
 
-// Starts the flow, waits until its step lists `which` failed attempts and
-// the queue holds the flow's retry job, reads that job's scheduled_for,
-// subtracts the last failed attempt's completion, and cancels the flow.
-// (The step's status names the retry job only once it starts.)
+// Starts the flow, waits until the flow's retry state lists `which` failed
+// attempts and the step's status entry names a job that is not one of
+// them, the queued retry, reads that job's scheduled_for, subtracts the
+// last failed attempt's completion, and cancels the flow. (The retry state
+// is flow-wide, flow_status.retry; a module's failed_retries is filled only
+// when it completes, FX-26.)
 async function delay(path: string, which: number): Promise<number> {
   const id = await start(`/jobs/run/f/${path}`, "{}");
   for (let i = 0; i < 1600; i++) {
-    const m = (await json("GET", `/jobs_u/get/${id}`)).flow_status?.modules?.[0];
-    const failed: string[] = m?.failed_retries ?? [];
-    if (failed.length >= which) {
-      const queued: any[] = await json("GET", `/jobs/queue/list?parent_job=${id}&per_page=10`);
-      const retry = queued.find((j) => !failed.includes(j.id) && j.scheduled_for);
-      if (retry) {
+    const fs = (await json("GET", `/jobs_u/get/${id}`)).flow_status;
+    const m = fs?.modules?.[0];
+    const failed: string[] = fs?.retry?.failed_jobs ?? [];
+    if (failed.length >= which && m?.job && !failed.includes(m.job)) {
+      const retry = await json("GET", `/jobs_u/get/${m.job}`);
+      if (retry.scheduled_for) {
         const last = await json("GET", `/jobs_u/completed/get/${failed[which - 1]}`);
         const end = last.completed_at ? Date.parse(last.completed_at) : Date.parse(last.started_at) + last.duration_ms;
         await call("POST", `/jobs_u/queue/cancel/${id}`, JSON.stringify({ reason: "wltest: FX-26 delay read" }));
