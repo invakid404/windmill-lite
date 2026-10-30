@@ -269,7 +269,9 @@ func (p *plugin) goHooks() *Hooks {
 					Message string `json:"message"`
 				} `json:"warnings"`
 			}
-			if err := p.do(ctx, "on_run_end", t.RunID, nil, map[string]any{"trace": traceJSON(t)}, &r); err != nil {
+			// A run its context ended, canceled or past a deadline, still
+			// reports its end: the call has the plugin timeout alone.
+			if err := p.do(context.WithoutCancel(ctx), "on_run_end", t.RunID, nil, map[string]any{"trace": traceJSON(t)}, &r); err != nil {
 				// The run's outcome is decided: a failed onRunEnd can only
 				// say so.
 				return []Warning{{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: " + err.Error()}}

@@ -54,8 +54,8 @@ const FIELDS: Record<string, readonly string[]> = {
   child: ["id", "pid", "token"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
-  run: ["id", "kind", "path", "args", "intercept"],
-  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "error"],
+  run: ["id", "kind", "path", "args", "intercept", "write_capable", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error"],
   run_cancel: ["id"],
   run_settled: ["id"],
   host_call: ["id", "hook", "run", "site", "payload"],
@@ -317,6 +317,18 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "run":
       if (!["flow", "script"].includes(m.kind)) throw new ProtocolError("bad_field", `run kind ${JSON.stringify(m.kind)}`);
+      // The budgets and latches (F2c carries F2b's).
+      if (m.write_capable != null && !Array.isArray(m.write_capable)) throw new ProtocolError("bad_field", "run write_capable is not an array");
+      if (m.fatal_error_names != null) checkField(m.t, m, "fatal_error_names", "strings");
+      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) {
+        if (m[k] == null) continue;
+        checkField(m.t, m, k, "int");
+        if (m[k] <= 0) throw new ProtocolError("bad_field", `run ${k} ${m[k]} is not positive`);
+      }
+      if (m.clock != null) {
+        checkField(m.t, m, "clock", "string");
+        if (m.clock !== "real" && m.clock !== "record") throw new ProtocolError("bad_field", `run clock ${JSON.stringify(m.clock)}`);
+      }
       break;
     case "run_done":
       // A run the engine did not start has an error and no status.
@@ -330,6 +342,7 @@ export function decode(payload: Uint8Array): Message {
       }
       if (m.may_have_mutated != null) checkField(m.t, m, "may_have_mutated", "bool");
       if (m.latched != null) checkField(m.t, m, "latched", "string");
+      if (m.deviations != null) checkField(m.t, m, "deviations", "strings");
       if (m.warnings != null && !Array.isArray(m.warnings)) throw new ProtocolError("bad_field", "run_done warnings is not an array");
       break;
     case "ping":
@@ -356,7 +369,7 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   invoke: ["args"],
   result: ["body"],
   late: ["body"],
-  run: ["args", "intercept"],
+  run: ["args", "intercept", "write_capable"],
   run_done: ["result", "warnings"],
   hello: ["plugin"],
   host_call: ["payload"],

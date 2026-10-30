@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
+	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -75,6 +76,11 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"f/t/subs.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
 			`{"id":"one","value":{"type":"flow","path":"f/t/env","input_transforms":{}}},` +
 			`{"id":"two","value":{"type":"flow","path":"f/t/env","input_transforms":{}}}]}}`,
+		// The step API (F2c): a script root that latches its run, and a
+		// step that waits for its signal, with no timer of its own.
+		"f/t/latch.ts": `export async function main() { (globalThis as any).wl.latch(new TypeError("the script latched")); return 1 }`,
+		"f/t/wait.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { const s = (globalThis as any).wl.signal(); await new Promise((r) => s.addEventListener('abort', r)); return 1 }","input_transforms":{}}}]}}`,
 		"f/t/par.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"all","value":{"type":"branchall","parallel":true,"branches":[` +
 			`{"skip_failure":false,"modules":[{"id":"p1","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}}]},` +
 			`{"skip_failure":false,"modules":[{"id":"p2","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 2 }","input_transforms":{}}}]}]}}]}}`,
@@ -455,4 +461,73 @@ func TestWritesAndDeadlines(t *testing.T) {
 	if res.Status != StatusCanceled || launched(res, "m:w2") {
 		t.Fatalf("a deadline with no write: %s %s", res.Status, res.Result)
 	}
+}
+
+// TestStepAPI runs the step API of milestone F2c on the pinned Bun:
+// wl.latch latches a script run as it latches a flow's (H5), and so does a
+// failed around wrapper of the host plugin; wl.signal aborts when the
+// run's deadline abandons the step (H4), so a step that waits for nothing
+// else settles, and the run with it.
+func TestStepAPI(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	for _, mode := range []string{"warm", "fresh"} {
+		t.Run(mode+": a script latches its script run", func(t *testing.T) {
+			rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			res, err := rt.Run(context.Background(), "f/t/latch", nil, RunOptions{Kind: KindScript})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var l *engine.StepLatch
+			if res.Status != StatusLatched || !errors.As(res.Latched, &l) || l.Message != "TypeError: the script latched" || res.Result != nil {
+				t.Fatalf("%s %v %s, want latched with the script's error and no result", res.Status, res.Latched, res.Result)
+			}
+		})
+	}
+	t.Run("a failed around wrapper latches a script run", func(t *testing.T) {
+		plugin := filepath.Join(t.TempDir(), "plugin.ts")
+		src := `export default { around: [{ selector: { script: "f/t/latch" }, fn: async () => { throw new Error("the wrapper failed") } }] };`
+		if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		res, err := rt.Run(context.Background(), "f/t/latch", nil, RunOptions{Kind: KindScript})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pe *engine.PluginError
+		if res.Status != StatusLatched || !errors.As(res.Latched, &pe) || !strings.Contains(pe.Message, "the wrapper failed") {
+			t.Fatalf("%s %v, want latched by the wrapper's failure", res.Status, res.Latched)
+		}
+	})
+	t.Run("warm: the signal aborts at the deadline and the step settles", func(t *testing.T) {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		settled := make(chan struct{})
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		res, err := rt.Run(ctx, "f/t/wait", nil, RunOptions{Hooks: &Hooks{OnRunSettled: func(*Trace) { close(settled) }}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusCanceled {
+			t.Fatalf("status %s, want canceled", res.Status)
+		}
+		select {
+		case <-settled:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the run never settled: its step did not see wl.signal() abort")
+		}
+	})
 }

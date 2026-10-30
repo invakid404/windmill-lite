@@ -14,7 +14,7 @@
 // F2c) and WL_ENGINE_FLAGS (flags for the engine, space-separated).
 
 import { readFileSync } from "node:fs";
-import { connect, HostError, type Plugin } from "../../../../harnesses/bun/host/index.ts";
+import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
 import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
 import * as scopes from "../hostfolder/f/host/scopes.ts";
 
@@ -57,9 +57,15 @@ function percentiles(ms: number[]) {
 }
 
 // A run's outcome, or the code of a HostError for a run that did not start.
-async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" }, onSettled?: () => void) {
+// The run options a caller may send besides intercept and kind: the run's
+// budgets and latches (F2c carries F2b's).
+type Budgets = Pick<RunOptions, "writeCapable" | "fatalErrorNames" | "deadlineMs" | "preWriteDeadlineMs" | "clock">;
+
+async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" } & Budgets, onSettled?: () => void) {
   try {
-    return await scopes.store.run({ tenant: b.tenant ?? "" }, () => host.run(b.path, b.args, { intercept: b.intercept, kind: b.kind, onSettled }));
+    const { writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
+    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
+    return await scopes.store.run({ tenant: b.tenant ?? "" }, () => host.run(b.path, b.args, opts));
   } catch (e) {
     if (e instanceof HostError) return { refused: e.code };
     throw e;

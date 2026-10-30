@@ -418,16 +418,22 @@ re-exports the plugin types. `connect(options)`:
 
 It returns a `Host`:
 
-- `run(path, args, {kind, intercept, signal, onSettled})` submits a run of
-  a flow, or with `kind: "script"` a script, and resolves with its `id`,
-  `status`, `result`, `mayHaveMutated`, `warnings` and, for a latched run,
-  `latched` (the error it latched), or rejects with a
+- `run(path, args, {kind, intercept, signal, onSettled, writeCapable,
+  fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock})` submits a run
+  of a flow, or with `kind: "script"` a script, and resolves with its
+  `id`, `status`, `result`, `mayHaveMutated`, `warnings`, `deviations`
+  (H7, H10) and, for a latched run, `latched` (the error it latched), or
+  rejects with a
   `HostError` when the engine does not start it (`draining`, or `refused`:
   no such target, arguments that are not an object). An aborted `signal`
   cancels it. The scope the caller has when it calls `run` is captured
   with `AsyncLocalStorage.snapshot()`, and every invocation of the run
   re-enters it (H11). `intercept` maps module ids to the results that
-  stand in for them (H1's static form). `onSettled` is called once the run
+  stand in for them (H1's static form). The run's budgets and latches
+  (F2b's, in the run frame) are its write-capable selectors (H3) and fatal
+  error names (H7), ahead of the plugin's, its hard and pre-write
+  deadlines in milliseconds (H4), and its clock (H10, `record` for quick
+  waits). `onSettled` is called once the run
   has settled, after its outcome (`run_settled`, ADR 0004 host mode item
   5), in the scope the run was submitted in (H11), outside every
   invocation: every invocation it started has settled, which may be never,
@@ -497,6 +503,15 @@ contract's form; the engine matches them.
   or never calls `next()` is reported in a `plugin_error` warning before
   the invocation's result, which latches the run; a step that never ran
   then fails with an error the harness generated.
+- **F2b's hooks.** A plugin may declare `writeCapable` selectors,
+  `beforeFirstWrite` (a throw vetoes the write) and `fatalErrorNames`.
+- **The step API** (`installStepAPI`, `context.ts`). `wl` on `globalThis`
+  gives step code `wl.latch(error)`, sent as a `latch` warning ahead of
+  the step's result, which latches the run, and `wl.signal()`, the
+  invocation's abort signal, which aborts with the `cancel`'s reason. Both
+  throw a `TypeError` outside an open invocation (a plugin's hook latches
+  by throwing); a step cannot replace `wl`; a native step's realm has
+  none.
 
 `test/caseplugin.ts` is the plugin of the cases of
 `conformance/plugins/hooks.yaml`, which the Go tests load in `warm`
@@ -729,7 +744,8 @@ platform call of its invocation included), partial writes,
 under backpressure, with a pong still overtaking them.
 `test/context.test.ts` checks the environment view's rules in one process
 (a first write of a process variable included), the registry, the process
-scope and the exit status; `test/fence.test.ts` the settle-time fence (the
+scope, the exit status and the step API (`wl.latch`'s texts and refusals,
+`wl.signal()`, a `wl` no step can replace); `test/fence.test.ts` the settle-time fence (the
 timers and `refresh()`, the fetch view and the evidence that ends a
 body's transfer, with a native-versus-fenced comparison of the
 response's semantics, a reading method or clone borrowed for another

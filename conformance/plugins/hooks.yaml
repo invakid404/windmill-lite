@@ -2,7 +2,9 @@
 # H9, H12, H13) and a mandatory host-provided site answered by a host
 # plugin over host_call (ADR 0004, ADR 0008), an around wrapper around a
 # step, and a plugin's error, a provider's decline and error, and a
-# host_call that times out, which latch the run. These are windmill-lite's
+# host_call that times out, which latch the run; and F2b's budgets and
+# latches as a run carries them (RunOptions, the host's run frame) and as
+# step code reaches them (wl.latch, wl.signal). These are windmill-lite's
 # rules for its hosts, not Windmill's, so nothing is recorded on the
 # oracle. Synthetic, written for this repository from
 # docs/design/0008-host-hooks.md and docs/design/0007-platform-interface.md.
@@ -34,9 +36,14 @@
 # Every plugin also answers onRunEnd (H9) with the warning plugin_log,
 # whose message is its log of the run, as JSON.
 # provided: the case's host-provided sites: [{module, provider}].
+# run: the run's own budgets and latches, which a Go host gives in
+#   RunOptions and a TypeScript host in its run frame:
+#   write_capable: [module ids] (H3); fatal_error_names: [names] (H7);
+#   deadline_ms, pre_write_deadline_ms: the hard and pre-write deadlines,
+#   from the run's start (H4); clock: real or record (H10)
 # expect: status; may_have_mutated; result (the run's result); latched (a text the latched
 # error contains); log; warnings (codes besides plugin_log); not_ran
-# (sites with no job).
+# (sites with no job); deviations (the run's run-time deviations).
 # go: false runs a case only through the TypeScript plugin.
 # timeout_ms: the plugin timeout of the runtimes that run these cases.
 timeout_ms: 1000
@@ -54,6 +61,24 @@ scripts:
         headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` },
       });
       return { api: r.status === 200 ? await r.json() : r.status, arg: v };
+    }
+  f/plugins/latch.ts: |
+    // Latches its run through the step API (H5), then returns a value
+    // that the latch outranks.
+    declare const wl: { latch(error: unknown): void };
+    export async function main() {
+      wl.latch(new Error("the step latched its run"));
+      return "after the latch";
+    }
+  f/plugins/signal.ts: |
+    // Without wait, reports the step API's signal; with wait, waits for it
+    // to abort, with no timer of its own, and returns its reason (H4).
+    declare const wl: { signal(): AbortSignal };
+    export async function main(wait?: boolean) {
+      const s = wl.signal();
+      if (!wait) return { signal: s instanceof AbortSignal, aborted: s.aborted };
+      await new Promise((resolve) => s.addEventListener("abort", resolve, { once: true }));
+      return { reason: String(s.reason) };
     }
 cases:
   - id: h1_result
@@ -264,3 +289,86 @@ cases:
     plugin: {around: [{module: a, throw: before}]}
     expect: {status: latched, latched: plugin_error, not_ran: ["m:b"]}
     go: false
+
+  - id: step_latch
+    spec: [H5]
+    title: a step latches its run with wl.latch, which outranks what it returns
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/latch, input_transforms: {}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {}
+    expect: {status: latched, latched: "Error: the step latched its run", not_ran: ["m:b"]}
+
+  - id: step_signal
+    spec: [H4]
+    title: a step reaches its signal with wl.signal, which has not aborted while the run goes on
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/signal, input_transforms: {}}}
+    plugin: {}
+    expect: {status: success, result: {signal: true, aborted: false}}
+
+  - id: run_write_capable
+    spec: [H3]
+    title: the run's own write-capable module asks the plugin's beforeFirstWrite, and the run may have mutated
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+    plugin: {first_write: approve}
+    run: {write_capable: [a]}
+    expect: {status: success, may_have_mutated: true, result: {x: 1, y: null, tenant: null}}
+
+  - id: run_write_veto
+    spec: [H3, H5]
+    title: the plugin vetoes the first write of the run's own write-capable module
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {first_write: "veto: no writes for this run"}
+    run: {write_capable: [a]}
+    expect: {status: latched, may_have_mutated: false, latched: no writes for this run, not_ran: ["m:a"]}
+
+  - id: run_fatal
+    spec: [H7, H5]
+    title: the run's own fatal error name latches past continue_on_error, a recorded deviation
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+        - {id: b, value: {type: identity}}
+    plugin: {intercept: [{module: a, failed: {name: RunFatal, message: stop}}]}
+    run: {fatal_error_names: [RunFatal]}
+    expect: {status: latched, latched: RunFatal, not_ran: ["m:b"], deviations: [H7]}
+
+  - id: run_record_clock
+    spec: [H10]
+    title: the record clock returns an hour's sleep at once, a recorded deviation
+    flow:
+      modules:
+        - {id: a, sleep: {type: static, value: 3600}, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 2}}}}
+    plugin: {}
+    run: {clock: record}
+    expect: {status: success, result: {x: 2, y: null, tenant: null}, deviations: [H10]}
+
+  - id: run_pre_write_deadline
+    spec: [H4]
+    title: the pre-write deadline passes before the first write, ending the run canceled and aborting the step's signal
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/signal, input_transforms: {wait: {type: static, value: true}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {}
+    run: {write_capable: [b], pre_write_deadline_ms: 300}
+    expect: {status: canceled, may_have_mutated: false, not_ran: ["m:b"]}
+
+  - id: run_deadline
+    spec: [H4]
+    title: the hard deadline ends the run canceled and aborts the step's signal
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/signal, input_transforms: {wait: {type: static, value: true}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {}
+    run: {deadline_ms: 300}
+    expect: {status: canceled, not_ran: ["m:b"]}

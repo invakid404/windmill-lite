@@ -23,7 +23,10 @@ of container-level fields), the `cache_ttl` result cache of milestone
 N4, and what milestone F2c added for host plugins: `RunRequest.Around`
 and `ScriptRequest.Around`, which put a plugin's around wrappers on a
 leaf's `Invocation.Around`, and the latch on an invocation's
-`plugin_error` warning (`WarningPluginError`, `PluginError`). This README
+`plugin_error` warning (`WarningPluginError`, `PluginError`) or on a
+step's `wl.latch` (`WarningLatch`, `StepLatch`), which `LatchOf` maps; a
+script job latches too (`ScriptResult.Latched`), and its latched job has
+failed with no result, for the dispatcher as for `wl`. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run

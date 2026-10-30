@@ -93,11 +93,11 @@ step without failing the others.
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
 | `child` | harness → engine | `id` (the invocation), `pid` (from 2 to 2^31 − 1, so that a negated kill target never narrows to `0`, `-1` or another pid), `token` (the group's guardian's, when it has one: letters, digits and dashes, at most 64) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on, on the socket of a spawned harness or on a host's child channel (fd 4); the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
-| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
+| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`; `plugin_error` and `latch`, which latch the run, §Host plugins), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([0008](0008-host-hooks.md), §Host plugins) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`; `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), `latched` (a latched run's error), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`, then the run's budgets and latches (§Host plugins): `write_capable` (raw, an array of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`); `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), `latched` (a latched run's error), `deviations` (the run-time deviations of its trace), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
@@ -739,6 +739,25 @@ answered by a `host_reply`.
 4. **Where.** Every hook call goes to the run's process in a `warm` pool
    (or the least loaded), and to the host in host mode. A `fresh` runtime
    takes no plugin: its processes live for one step.
+5. **The step API.** Step code reaches its run's latch and signal through
+   `wl` on `globalThis` (H4, H5), which needs no import, so a script that
+   guards it (`globalThis.wl?.latch(e)`) still runs on Windmill.
+   `wl.latch(error)` sends a `warning` with code `latch` and the error's
+   text (`<name>: <message>` for an Error), after what the step wrote and
+   ahead of the frame that settles it, and the engine latches the run on
+   it, a script job's too. `wl.signal()` is the invocation's abort signal,
+   which aborts with the `cancel`'s reason when the engine abandons the
+   step: its timeout, the run's cancellation or deadlines, the run's end.
+   Both throw a `TypeError` outside an open invocation; a hook latches by
+   throwing, and an `around` wrapper, which runs inside the invocation,
+   may call both. A native step's realm (D5) has no `wl`.
+6. **A host's budgets.** A host-mode `run` carries what a Go host gives in
+   its run options (F2b): the run's own write-capable selectors (H3) and
+   fatal error names (H7), ahead of the plugin's; its hard and pre-write
+   deadlines (H4), in milliseconds from the engine's receipt; and its
+   clock (H10). The hard deadline bounds the run until it has settled, so
+   steps a latch or a cancellation left running are abandoned at it.
+   `run_done` reports `may_have_mutated` and the trace's `deviations`.
 
 ### Parallel loops
 
@@ -1048,7 +1067,12 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   engine to the harness only, carry the run whose scope a host re-enters,
   and are answered with a payload or an error. It added the hello's
   `plugin`, the invoke's `around` and run_done's `latched`, and §Host
-  plugins.
+  plugins. It also carried F2b's budgets and latches over the protocol:
+  the step API's `latch` warning, the `run`'s `write_capable`,
+  `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and
+  `clock`, and run_done's `deviations`, without which a host-mode run had
+  no write-capable site, deadline or record clock and never reported
+  `may_have_mutated`.
 - Milestone F3a completed host mode on the engine's `wl` library and real
   bundles: `hello` gained `workdir` and the engine checks the host's
   working directory (host mode item 7, with the `engine_refused` reject

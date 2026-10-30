@@ -187,7 +187,15 @@ Two further rules complete it:
   not attributed yet: the harness refuses a facade request outside every
   invocation, so only an `around` wrapper's calls, made in the
   invocation, reach the facade. A later milestone gives plugin calls the
-  site's identity.
+  site's identity. F2c also gave step code `wl.latch` and `wl.signal`
+  (on `globalThis`, [0004](0004-harness-protocol.md) §Host plugins): a
+  step's latch latches its run, a script job's included, and its signal
+  is the invocation's, which aborts when the engine abandons the step.
+  Plugin hooks get no signal of their own: a hook runs outside every
+  invocation, and the run's end only stops the engine waiting for it. A
+  host-mode run carries F2b's budgets and latches (H3, H4, H7, H10) in
+  its `run` frame, and `onRunEnd` runs for a canceled run too, with the
+  plugin timeout alone.
 - Milestone K1 added the two rules after the precedence paragraph, and
   widened H4's FX-38 exception from "the failure module" to whatever the
   continue decision asks for, which FX-19 shows can be a retry or the next

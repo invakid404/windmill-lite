@@ -1,6 +1,7 @@
 package wl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -128,8 +129,9 @@ func refuseHost(h *Host, version string, diag io.Writer, cause error) {
 
 // serveHost runs one run the host submitted, with Run, and returns what
 // goes back in run_done: its outcome, or why it did not start. Its
-// intercept stands in for the modules it names (H1's static form), and
-// its Settled closes once the run has settled (onRunSettled).
+// intercept stands in for the modules it names (H1's static form), its
+// budgets and latches are the run's (hostBudgets), and its Settled closes
+// once the run has settled (onRunSettled).
 func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.RunRequest) harness.RunDone {
 	// Runs can arrive before AttachHost has returned.
 	rt.hostProc.Store(p)
@@ -145,12 +147,27 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 		}
 		hooks = engine.StaticIntercepts{Results: results}
 	}
-	settled := make(chan struct{})
-	res, err := rt.run(ctx, r.Path, json.RawMessage(r.Args.Producer()), RunOptions{ID: r.ID, Kind: r.Kind}, hooks, func() { close(settled) })
+	opts, err := hostBudgets(r)
 	if err != nil {
 		return refused(err)
 	}
+	// The hard deadline bounds the run's context until the run has
+	// settled: iterations a latch or a cancellation left running are
+	// abandoned at it (H5).
+	cancel := context.CancelFunc(func() {})
+	if r.DeadlineMS > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(r.DeadlineMS)*time.Millisecond)
+	}
+	settled := make(chan struct{})
+	res, err := rt.run(ctx, r.Path, json.RawMessage(r.Args.Producer()), opts, hooks, func() { close(settled); cancel() })
+	if err != nil {
+		cancel()
+		return refused(err)
+	}
 	done := harness.RunDone{Status: res.Status, MayHaveMutated: res.MayHaveMutated, Settled: settled}
+	if res.Trace != nil {
+		done.Deviations = res.Trace.Deviations
+	}
 	if res.Latched != nil {
 		done.Latched = res.Latched.Error()
 	}
@@ -170,6 +187,35 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 		done.Warnings = jsonval.FromProducer(b)
 	}
 	return done
+}
+
+// hostBudgets are the RunOptions of a run frame: its id and kind, and the
+// budgets and latches F2b gives a Go host (ADR 0008, carried over the host
+// protocol by F2c): write-capable selectors (H3) and fatal error names
+// (H7) as the run's own hooks, ahead of the plugin's; the pre-write
+// deadline (H4), from now; and the record clock (H10). The hard deadline
+// is the run's context's (serveHost).
+func hostBudgets(r harness.RunRequest) (RunOptions, error) {
+	opts := RunOptions{ID: r.ID, Kind: r.Kind}
+	var h Hooks
+	if !r.WriteCapable.IsZero() {
+		dec := json.NewDecoder(bytes.NewReader(r.WriteCapable.Producer()))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&h.WriteCapable); err != nil {
+			return opts, fmt.Errorf("the run's write_capable: %w", err)
+		}
+	}
+	h.FatalErrorNames = r.FatalErrorNames
+	if len(h.WriteCapable) > 0 || len(h.FatalErrorNames) > 0 {
+		opts.Hooks = &h
+	}
+	if r.PreWriteDeadlineMS > 0 {
+		opts.PreWriteDeadline = time.Now().Add(time.Duration(r.PreWriteDeadlineMS) * time.Millisecond)
+	}
+	if r.Clock == harness.ClockRecord {
+		opts.Clock = &RecordClock{}
+	}
+	return opts, nil
 }
 
 // refused is the run_done of a run that did not start.

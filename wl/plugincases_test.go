@@ -100,8 +100,39 @@ func pluginOutcome(res *Result) conformance.PluginOutcome {
 				o.Ran[s.Site.String()] = true
 			}
 		}
+		o.Deviations = res.Trace.Deviations
 	}
 	return o
+}
+
+// caseRun is how a case's run is started: its context, bounded by the
+// run's hard deadline, and base with the run's budgets and latches (its
+// write-capable modules and fatal error names after base's own hooks).
+func caseRun(c conformance.PluginCase, base RunOptions) (context.Context, context.CancelFunc, RunOptions) {
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if c.Run.DeadlineMS > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.Run.DeadlineMS)*time.Millisecond)
+	}
+	opts := base
+	if len(c.Run.WriteCapable) > 0 || len(c.Run.FatalErrorNames) > 0 {
+		var h Hooks
+		if base.Hooks != nil {
+			h = *base.Hooks
+		}
+		h.WriteCapable = slices.Clone(h.WriteCapable)
+		for _, m := range c.Run.WriteCapable {
+			h.WriteCapable = append(h.WriteCapable, Selector{Flow: c.FlowPath(), Module: &m})
+		}
+		h.FatalErrorNames = append(slices.Clone(h.FatalErrorNames), c.Run.FatalErrorNames...)
+		opts.Hooks = &h
+	}
+	if c.Run.PreWriteDeadlineMS > 0 {
+		opts.PreWriteDeadline = time.Now().Add(time.Duration(c.Run.PreWriteDeadlineMS) * time.Millisecond)
+	}
+	if c.Run.Clock == "record" {
+		opts.Clock = &RecordClock{}
+	}
+	return ctx, cancel, opts
 }
 
 func TestPluginCases(t *testing.T) {
@@ -118,12 +149,18 @@ func TestPluginCases(t *testing.T) {
 		defer rt.Close()
 		for _, c := range f.Cases {
 			t.Run(c.ID, func(t *testing.T) {
-				res, err := rt.Run(context.Background(), c.FlowPath(), json.RawMessage(`{}`), RunOptions{})
+				ctx, cancel, opts := caseRun(c, RunOptions{})
+				defer cancel()
+				res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if d := c.Check(pluginOutcome(res)); len(d) > 0 {
 					t.Fatalf("%s:\n  %s", c.Title, strings.Join(d, "\n  "))
+				}
+				// onRunEnd reports every run, a canceled one too.
+				if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == conformance.PluginLog }) {
+					t.Fatalf("no %s warning: the plugin's onRunEnd did not report the run: %+v", conformance.PluginLog, res.Warnings)
 				}
 			})
 		}
@@ -160,7 +197,9 @@ func TestPluginCases(t *testing.T) {
 				for p, v := range c.Hooks.Variables {
 					vars[p] = Variable{Value: v}
 				}
-				res, err := rt.Run(context.Background(), c.FlowPath(), json.RawMessage(`{}`), RunOptions{Hooks: g.hooks, Platform: &RunPlatform{Variables: vars}})
+				ctx, cancel, opts := caseRun(c, RunOptions{Hooks: g.hooks, Platform: &RunPlatform{Variables: vars}})
+				defer cancel()
+				res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -588,18 +588,25 @@ sides check: the host SDK before it starts the engine (`checkWorkdir` in
 [ADR 0008](../docs/design/0008-host-hooks.md): every hook of F2a (H1, H2,
 H6, H8, H9, H12, H13) and a mandatory provided site answered by a host
 plugin over `host_call`, an `around` wrapper around a step, and the
-errors, declines and timeouts that latch a run. Provenance `policy`:
+errors, declines and timeouts that latch a run; F2b's H3 and H7 answered
+by the plugin, its budgets and latches as a run carries them, and step
+code's `wl.latch` and `wl.signal`. Provenance `policy`:
 these are windmill-lite's rules for its hosts. The file's `scripts` and
 each case's `flow` (at `f/plugins/<id>`) make one sync folder, whose host
 contract has every flow as a root and the cases' `provided` sites; each
 case's `plugin` is declarative (intercept, rewrite_args, halt_before and
-halt_after, around, observe, env, variables, providers, warnings), so the
+halt_after, write_capable, first_write, fatal_error_names, around,
+observe, env, variables, providers, warnings), and its `run` holds the
+run's own budgets and latches (write_capable, fatal_error_names,
+deadline_ms, pre_write_deadline_ms, clock), which a Go host gives in
+`RunOptions` and a TypeScript host in its run frame, so the
 same cases run through a TypeScript plugin (`harnesses/bun/test/caseplugin.ts`)
 in `warm` processes and in host mode, and through Go callbacks built from
 the same plugin, unless `go: false`; every plugin's `onRunEnd` reports
 its log of the run in the warning `plugin_log`. `expect` is the run's
-`status`, `result`, `latched` (a text of the latched error), the plugin's
-`log`, its `warnings` and the sites that ran no job (`not_ran`).
+`status`, `may_have_mutated`, `result`, `latched` (a text of the latched
+error), the plugin's `log`, its `warnings`, the sites that ran no job
+(`not_ran`) and the run's `deviations`.
 `timeout_ms` is the plugin timeout of the runtimes that run them.
 `internal/conformance` loads and checks them (`plugins.go`).
 

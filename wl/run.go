@@ -205,6 +205,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result)}
 		switch {
+		case res.Latched != nil:
+			// Its step latched the run (H5): wl.latch, or a failed around.
+			out.Status, out.Result, out.Latched = StatusLatched, nil, res.Latched
 		case res.Failed && ctx.Err() != nil:
 			// The script failed because the run's context ended (FX-38).
 			out.Status = StatusCanceled

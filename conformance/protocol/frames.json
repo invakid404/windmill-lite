@@ -555,6 +555,29 @@
       "payload": "{\"t\":\"run\",\"id\":\"r3\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}"
     },
     {
+      "case": "run-budgets",
+      "title": "a run with its budgets and latches: write-capable selectors (H3), fatal error names (H7), the hard and pre-write deadlines (H4) and the record clock (H10), carried by F2c",
+      "message": {
+        "t": "run",
+        "id": "r4",
+        "kind": "flow",
+        "path": "f/w1/flow",
+        "args": {},
+        "write_capable": [
+          {
+            "module": "b"
+          }
+        ],
+        "fatal_error_names": [
+          "HostFatal"
+        ],
+        "deadline_ms": 30000,
+        "pre_write_deadline_ms": 5000,
+        "clock": "record"
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":[{\"module\":\"b\"}],\"fatal_error_names\":[\"HostFatal\"],\"deadline_ms\":30000,\"pre_write_deadline_ms\":5000,\"clock\":\"record\"}"
+    },
+    {
       "case": "run-done",
       "title": "a run's outcome with its final result",
       "message": {
@@ -650,6 +673,22 @@
         "latched": "provider_declined: the provider declined"
       },
       "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"latched\",\"latched\":\"provider_declined: the provider declined\"}"
+    },
+    {
+      "case": "run-done-deviations",
+      "title": "a run_done lists the run-time deviations of its trace (H7, H10; F2c)",
+      "message": {
+        "t": "run_done",
+        "id": "r4",
+        "status": "latched",
+        "may_have_mutated": true,
+        "latched": "FatalError: HostFatal: stop",
+        "deviations": [
+          "H7",
+          "H10"
+        ]
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"latched\",\"may_have_mutated\":true,\"latched\":\"FatalError: HostFatal: stop\",\"deviations\":[\"H7\",\"H10\"]}"
     },
     {
       "case": "host-call",
@@ -1472,6 +1511,54 @@
       "title": "a run_done's latched is a string",
       "frames": [
         "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"latched\",\"latched\":1}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-write-capable-not-array",
+      "title": "a run's write_capable is an array of selectors",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":{\"module\":\"b\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-fatal-error-names-not-strings",
+      "title": "a run's fatal_error_names are strings",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"fatal_error_names\":[1]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-deadline-not-positive",
+      "title": "a run's deadline_ms is positive",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"deadline_ms\":0}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-pre-write-deadline-not-integer",
+      "title": "a run's pre_write_deadline_ms is an integer",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"pre_write_deadline_ms\":1.5}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-clock-unknown",
+      "title": "a run's clock is real or record",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"clock\":\"fast\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-done-deviations-not-strings",
+      "title": "a run_done's deviations are strings",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\",\"deviations\":[7]}"
       ],
       "error": "bad_field"
     },

@@ -290,6 +290,8 @@ type runResult struct {
 	Refused string `json:"refused"`
 	// Latched is the error a latched run latched.
 	Latched string `json:"latched"`
+	// Deviations are the run's run-time deviations (H7, H10).
+	Deviations []string `json:"deviations"`
 	// DoneAt and SettledAt are, for /settle, when the outcome came and
 	// when the run settled, in milliseconds after it was submitted.
 	DoneAt    float64 `json:"doneAt"`
@@ -1092,11 +1094,11 @@ func TestHostPluginCases(t *testing.T) {
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			tenant := "tenant-" + c.ID
-			r, err := s.run(c.FlowPath(), tenant, map[string]any{}, nil)
+			r, err := s.post("/run", caseRunBody(c, tenant))
 			if err != nil || r.Refused != "" {
 				t.Fatalf("%+v, %v", r, err)
 			}
-			o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched}
+			o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
 			scope := ""
 			for _, w := range r.Warnings {
 				o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})
@@ -1134,9 +1136,49 @@ func TestHostPluginCases(t *testing.T) {
 	if !heard {
 		t.Fatalf("the host plugin's onRunSettled never heard of run %s", first.ID)
 	}
+	// The step API's signal in host mode: run_deadline's step waits for
+	// wl.signal() alone, so its run settles only once the deadline the run
+	// frame carried has aborted it.
+	for _, c := range f.Cases {
+		if c.ID != "run_deadline" {
+			continue
+		}
+		r, err := s.post("/settle?wait=10000", caseRunBody(c, "t"))
+		if err != nil || r.Status != "canceled" || r.SettledAt < 0 {
+			t.Fatalf("%+v, %v: want canceled, then settled once wl.signal() aborted", r, err)
+		}
+	}
 	if g := s.generations(); g != 1 {
 		t.Fatalf("the host was restarted: %d generations", g)
 	}
+}
+
+// caseRunBody is a plugin case's run as the host submits it: in tenant's
+// scope, with the run's budgets and latches in its run options, which the
+// host SDK carries in the run frame.
+func caseRunBody(c conformance.PluginCase, tenant string) map[string]any {
+	body := map[string]any{"path": c.FlowPath(), "tenant": tenant, "args": map[string]any{}}
+	r := c.Run
+	if len(r.WriteCapable) > 0 {
+		var sels []map[string]any
+		for _, m := range r.WriteCapable {
+			sels = append(sels, map[string]any{"flow": c.FlowPath(), "module": m})
+		}
+		body["writeCapable"] = sels
+	}
+	if len(r.FatalErrorNames) > 0 {
+		body["fatalErrorNames"] = r.FatalErrorNames
+	}
+	if r.DeadlineMS > 0 {
+		body["deadlineMs"] = r.DeadlineMS
+	}
+	if r.PreWriteDeadlineMS > 0 {
+		body["preWriteDeadlineMs"] = r.PreWriteDeadlineMS
+	}
+	if r.Clock != "" {
+		body["clock"] = r.Clock
+	}
+	return body
 }
 
 // buildPluginBundle builds the plugin cases' folder and contract into a

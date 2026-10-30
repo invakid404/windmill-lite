@@ -41,6 +41,9 @@ type PluginCase struct {
 		Module   string `json:"module"`
 		Provider string `json:"provider"`
 	} `json:"provided"`
+	// Run is the run's own budgets and latches (F2b's), which a Go host
+	// gives in RunOptions and a TypeScript host in its run frame.
+	Run    PluginRun    `json:"run"`
 	Expect PluginExpect `json:"expect"`
 	// Go, when false, runs the case only through the TypeScript plugin.
 	Go *bool `json:"go"`
@@ -88,6 +91,16 @@ type PluginSpec struct {
 	} `json:"warnings"`
 }
 
+// PluginRun is a case run's budgets and latches (the file's header says
+// what each field does).
+type PluginRun struct {
+	WriteCapable       []string `json:"write_capable"`
+	FatalErrorNames    []string `json:"fatal_error_names"`
+	DeadlineMS         int      `json:"deadline_ms"`
+	PreWriteDeadlineMS int      `json:"pre_write_deadline_ms"`
+	Clock              string   `json:"clock"`
+}
+
 // PluginExpect is what a case expects of its run.
 type PluginExpect struct {
 	Status         string          `json:"status"`
@@ -97,6 +110,7 @@ type PluginExpect struct {
 	Log            []string        `json:"log"`
 	Warnings       []string        `json:"warnings"`
 	NotRan         []string        `json:"not_ran"`
+	Deviations     []string        `json:"deviations"`
 }
 
 // PluginLog is the code of the warning in which a case plugin's onRunEnd
@@ -133,6 +147,9 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 		}
 		if c.Expect.Status == "" {
 			return nil, fmt.Errorf("%s: case %s: expect.status is required", path, c.ID)
+		}
+		if r := c.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || r.DeadlineMS < 0 || r.PreWriteDeadlineMS < 0 {
+			return nil, fmt.Errorf("%s: case %s: run: a clock that is real or record, and deadlines that are not negative", path, c.ID)
 		}
 	}
 	if len(f.Cases) == 0 {
@@ -199,6 +216,8 @@ type PluginOutcome struct {
 	// Ran holds, for each site the trace has a record of, whether a job
 	// ran for it.
 	Ran map[string]bool
+	// Deviations are the run's run-time deviations (H7, H10).
+	Deviations []string
 }
 
 // Check compares a run's outcome with the case's expectations and
@@ -246,6 +265,9 @@ func (c PluginCase) Check(o PluginOutcome) []string {
 		if o.Ran[s] {
 			diffs = append(diffs, fmt.Sprintf("site %s ran a job, want none", s))
 		}
+	}
+	if e.Deviations != nil && !slices.Equal(o.Deviations, e.Deviations) {
+		diffs = append(diffs, fmt.Sprintf("deviations %q, want %q", o.Deviations, e.Deviations))
 	}
 	return diffs
 }

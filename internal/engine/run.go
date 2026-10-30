@@ -2175,17 +2175,50 @@ func (p *runReporter) Warning(w Warning) {
 	r.trace.Warnings = append(r.trace.Warnings, w)
 	r.mu.Unlock()
 	// A host plugin's around wrapper that failed latches the run, as any
-	// failed hook does (H5, milestone F2c); the harness reports it ahead
-	// of the frame that settles the invocation, so the latch outranks the
-	// step's outcome.
-	if w.Code == WarningPluginError {
-		r.Latch(&PluginError{Message: w.Message})
+	// failed hook does, and so does a step's wl.latch (H5, milestone F2c);
+	// the harness reports either ahead of the frame that settles the
+	// invocation, so the latch outranks the step's outcome.
+	r.Latch(LatchOf(w))
+}
+
+// scriptReporter is a script job's reporter: it keeps the latch of the
+// warnings that latch a run (LatchOf) and discards the rest.
+type scriptReporter struct {
+	NopReporter
+	latch Latch
+}
+
+func (p *scriptReporter) Warning(w Warning) { p.latch.Set(LatchOf(w)) }
+
+// LatchOf is the error a warning latches its invocation's run with (H5),
+// or nil: a *PluginError for WarningPluginError, a *StepLatch for
+// WarningLatch.
+func LatchOf(w Warning) error {
+	switch w.Code {
+	case WarningPluginError:
+		return &PluginError{Message: w.Message}
+	case WarningLatch:
+		return &StepLatch{Message: w.Message}
 	}
+	return nil
 }
 
 // WarningPluginError is the code of a warning that a host plugin's around
 // wrapper failed (milestone F2c); it latches the run.
 const WarningPluginError = "plugin_error"
+
+// WarningLatch is the code of a warning by which a step latched its run
+// with wl.latch(error) (H5, milestone F2c); it latches the run.
+const WarningLatch = "latch"
+
+// StepLatch is the latch of a run whose step latched it with
+// wl.latch(error) (H5, milestone F2c); Message is the step's error as the
+// harness describes it.
+type StepLatch struct {
+	Message string
+}
+
+func (e *StepLatch) Error() string { return e.Message }
 
 // PluginError is the latch of a run whose host plugin failed in a hook
 // the harness runs itself, an around wrapper (milestone F2c).

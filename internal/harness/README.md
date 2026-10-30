@@ -23,7 +23,10 @@ cannot serve, the host's drain, `run_settled`, `run_done`'s new fields,
 `BASE_URL` and `args.json` for a host's invocations, and a pidfd for the
 watchdog on Linux. Milestone F2c added host plugins: `host_call` and
 `host_reply`, the hello's plugin declaration, the invoke's `around` and
-run_done's `latched` (below).
+run_done's `latched` (below); and F2b's budgets and latches in the run
+frame (`RunRequest`'s `WriteCapable`, `FatalErrorNames`, `DeadlineMS`,
+`PreWriteDeadlineMS` and `Clock`, which `ClockReal` and `ClockRecord`
+spell) and run_done's `Deviations`.
 `Pool` and `Process` implement `engine.StepExecutor`; their user is the
 [wl](../../wl/README.md) runtime: its pool of spawned processes, and in
 host mode (`wl.Options.Host`, which `windmill-lite host` in

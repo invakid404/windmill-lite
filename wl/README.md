@@ -306,6 +306,21 @@ bridge).
 5. **`around`.** The engine puts the indexes of the plugin's around
    wrappers whose selectors match a leaf's site on its invocation, and
    the harness runs the step inside them; a script run's job too.
+6. **F2b's hooks.** A plugin can declare write-capable selectors,
+   `beforeFirstWrite` (a `host_call`) and fatal error names (H3, H7);
+   `mergeHooks` puts them after the run's own. `onRunEnd` reports a run
+   whose context ended too: its call has the plugin timeout alone.
+7. **The step API.** Steps call `wl.latch(error)` and `wl.signal()` on
+   `globalThis` (ADR 0004 §Host plugins): a latch latches the run, a
+   script run's too (`StatusLatched`, with `*engine.StepLatch` in
+   `Result.Latched`, as a failed `around` gives a `*engine.PluginError`),
+   and the signal aborts when the engine abandons the step.
+8. **A host's budgets.** In host mode a run frame carries what a Go host
+   gives in `RunOptions` (`hostBudgets`): write-capable selectors and
+   fatal error names, as the run's own hooks; the pre-write deadline; the
+   record clock; and a hard deadline, which bounds the run's context
+   until the run has settled. `run_done` carries `MayHaveMutated` and the
+   trace's deviations.
 
 ## BuildInfo and Close
 
@@ -373,7 +388,11 @@ is asked once for two write-capable steps and makes the run report
 pre-write deadline ends a run with no write but not one past its first
 write; a write-capable subflow call asked about before its child flow,
 vetoed and approved, and of two calls of one subflow only the marked one;
-and an H12 veto after the approval, which still counts as written. It needs
+and an H12 veto after the approval, which still counts as written; and
+the step API (F2c, `TestStepAPI`): a script's `wl.latch` latches its
+script run in `warm` and `fresh`, so does a failed `around` wrapper, and
+in `warm` a step that waits for `wl.signal()` alone settles once the
+run's deadline has aborted it. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
 
@@ -396,5 +415,7 @@ decline, `around`'s matches, a timeout latching and a run's own end not),
 and `mergeHooks`'s order. `plugincases_test.go` runs the cases of
 `conformance/plugins/hooks.yaml` on a bundle built from them, through
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
-through Go callbacks built from the same plugins, and checks the plugin's
-`onRunSettled`; it needs Bun like `bun_test.go`.
+through Go callbacks built from the same plugins, each case with its
+run's budgets and latches in `RunOptions` (`caseRun`), and checks that
+every run's `onRunEnd` reported it, a canceled run's too, and the
+plugin's `onRunSettled`; it needs Bun like `bun_test.go`.

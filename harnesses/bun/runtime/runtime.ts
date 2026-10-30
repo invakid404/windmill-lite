@@ -49,6 +49,7 @@ import {
   installLogs,
   installProcessHandlers,
   installProcessScope,
+  installStepAPI,
   installTimers,
   type InvocationContext,
   InvocationLog,
@@ -64,7 +65,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
-import { declaration, dispatch, HostCallFailure, type Plugin, type StepOutcome } from "./plugin.ts";
+import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, type StepOutcome } from "./plugin.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 export { TAIL_LENGTH } from "./context.ts";
@@ -171,7 +172,27 @@ export type Mode = "warm" | "fresh";
 
 /** A run's outcome, as run_done reports it: result is its JSON text,
  * warnings its warnings, each with a code and a message. */
-export type RunOutcome = { status: string; result?: string; may_have_mutated: boolean; warnings: { code: string; message: string }[]; latched?: string };
+export type RunOutcome = {
+  status: string;
+  result?: string;
+  may_have_mutated: boolean;
+  warnings: { code: string; message: string }[];
+  latched?: string;
+  deviations: string[];
+};
+
+/** What a run frame carries besides its target and arguments: its static
+ * intercept (JSON text), and its budgets and latches (F2b's, carried by
+ * F2c): write-capable selectors (H3), fatal error names (H7), the hard and
+ * pre-write deadlines in milliseconds (H4), and the clock (H10). */
+export type RunFields = {
+  intercept?: string;
+  write_capable?: Selector[];
+  fatal_error_names?: string[];
+  deadline_ms?: number;
+  pre_write_deadline_ms?: number;
+  clock?: "real" | "record";
+};
 
 /** A run the engine did not start (run_done with an error): code is
  * "draining" while the engine drains, else "refused". */
@@ -192,6 +213,9 @@ export type HostHealth = Health & { oldest_abandoned_ms: number; modules: number
 /** The warning code of a host plugin's around wrapper that failed (F2c),
  * which latches the run (engine.WarningPluginError). */
 const PLUGIN_ERROR = "plugin_error";
+/** The warning code of a step's wl.latch (F2c), which latches the run
+ * (engine.WarningLatch). */
+const LATCH = "latch";
 
 /** An outcome as an around wrapper's next() gives it. */
 function stepView(o: Outcome): StepOutcome {
@@ -277,6 +301,7 @@ export class Runtime {
     });
     installEnvView();
     installProcessScope();
+    installStepAPI();
     installTimers();
     installLogs();
     installChildProcesses();
@@ -486,6 +511,13 @@ export class Runtime {
     const env: Record<string, string> = Object.assign(Object.create(null), m.env);
     shadow(env);
     const ctx: InvocationContext = { id: m.id, run: m.run, env, signal: inv.controller.signal, resources, work: resources, log: inv.log };
+    // A step's wl.latch goes out ahead of the frame that settles it, after
+    // what it wrote before the call, while the engine still waits for it.
+    ctx.latch = (text) => {
+      if (inv.state !== "running") throw new TypeError("windmill-lite: wl.latch needs an open invocation: this step's outcome is already decided");
+      this.sendLog(inv);
+      this.sendWarning(inv.id, text, LATCH);
+    };
     inv.context = ctx;
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
@@ -1025,7 +1057,7 @@ export class Runtime {
     kind: "flow" | "script",
     path: string,
     args: string,
-    intercept?: string,
+    fields: RunFields = {},
     onSettled?: () => void,
   ): { id: string; done: Promise<RunOutcome> } {
     if (!this.opts.host) throw new Error("windmill-lite: runs are submitted only in host mode");
@@ -1041,7 +1073,17 @@ export class Runtime {
       // connection ends.
       if (onSettled) this.settledHandlers.set(id, () => scope(() => invocations.exit(onSettled)));
       try {
-        this.send({ t: "run", id, kind, path, args: new Raw(args), intercept: intercept === undefined ? undefined : new Raw(intercept) });
+        const { intercept, write_capable, ...budgets } = fields;
+        this.send({
+          t: "run",
+          id,
+          kind,
+          path,
+          args: new Raw(args),
+          intercept: intercept === undefined ? undefined : new Raw(intercept),
+          write_capable: write_capable === undefined ? undefined : new Raw(JSON.stringify(write_capable)),
+          ...budgets,
+        });
       } catch (e) {
         this.runs.delete(id);
         this.scopes.delete(id);
@@ -1089,6 +1131,7 @@ export class Runtime {
       may_have_mutated: m.may_have_mutated === true,
       warnings,
       latched: typeof m.latched === "string" ? m.latched : undefined,
+      deviations: Array.isArray(m.deviations) ? m.deviations : [],
     });
   }
 

@@ -330,6 +330,13 @@ const (
 	RunScript = "script"
 )
 
+// Clocks of a run frame (H10): the real clock, the default, or record
+// mode's quick waits.
+const (
+	ClockReal   = "real"
+	ClockRecord = "record"
+)
+
 // RunRequest is a run that a host-mode harness submits (ADR 0004 host
 // mode, ADR 0009): the target by kind and path and its arguments. Its id is
 // the run's id in the engine, so invocations of the run carry it as `run`
@@ -337,12 +344,24 @@ const (
 // Intercept, if not zero, is a JSON object of module ids to the results
 // that stand in for those modules: the static, no-code form of H1
 // (ADR 0008).
+//
+// The rest are the run's budgets and latches (ADR 0008, milestone F2b,
+// carried by F2c): WriteCapable, if not zero, is a JSON array of
+// selectors (H3); FatalErrorNames are error names that latch (H7);
+// DeadlineMS and PreWriteDeadlineMS, when positive, are the hard and the
+// pre-write deadline (H4), in milliseconds from the engine's receipt of
+// the frame; Clock is ClockReal ("" too) or ClockRecord (H10).
 type RunRequest struct {
-	ID        string
-	Kind      string
-	Path      string
-	Args      jsonval.Value
-	Intercept jsonval.Value
+	ID                 string
+	Kind               string
+	Path               string
+	Args               jsonval.Value
+	Intercept          jsonval.Value
+	WriteCapable       jsonval.Value
+	FatalErrorNames    []string
+	DeadlineMS         int64
+	PreWriteDeadlineMS int64
+	Clock              string
 }
 
 // RunDone is a run's outcome, answering a RunRequest with the same id.
@@ -360,7 +379,10 @@ type RunDone struct {
 	// Latched is the text of the error a latched run latched (H5), such
 	// as provider_declined (milestone F2c); "" otherwise.
 	Latched string
-	Error   *RunError
+	// Deviations are the flow run's deviations that depend on a run-time
+	// setting, as its trace lists them (H7, H10).
+	Deviations []string
+	Error      *RunError
 	// Settled, which is not part of the frame, closes once the run has
 	// settled (ADR 0004 host mode item 5): the process then sends
 	// RunSettled, after the run_done. Nil means never.
@@ -684,6 +706,21 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if !m.Intercept.IsZero() {
 		e.raw("intercept", m.Intercept.Producer())
 	}
+	if !m.WriteCapable.IsZero() {
+		e.raw("write_capable", m.WriteCapable.Producer())
+	}
+	if m.FatalErrorNames != nil {
+		e.strings("fatal_error_names", m.FatalErrorNames)
+	}
+	if m.DeadlineMS != 0 {
+		e.int("deadline_ms", m.DeadlineMS)
+	}
+	if m.PreWriteDeadlineMS != 0 {
+		e.int("pre_write_deadline_ms", m.PreWriteDeadlineMS)
+	}
+	if m.Clock != "" {
+		e.str("clock", m.Clock)
+	}
 	return e.end()
 }
 
@@ -707,6 +744,9 @@ func (m RunDone) appendPayload(b []byte) ([]byte, error) {
 	}
 	if m.Latched != "" {
 		e.str("latched", m.Latched)
+	}
+	if m.Deviations != nil {
+		e.strings("deviations", m.Deviations)
 	}
 	if m.Error != nil {
 		e.object("error", func(e *envelope) {
@@ -996,6 +1036,32 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("intercept") {
 			r.Intercept = d.raw("intercept")
 		}
+		// The budgets and latches (F2c carries F2b's).
+		if d.present("write_capable") {
+			r.WriteCapable = d.raw("write_capable")
+			if derr == nil && !bytes.HasPrefix(bytes.TrimLeft(r.WriteCapable.Producer(), " \t\r\n"), []byte("[")) {
+				d.fail(CodeBadField, "run write_capable is not an array")
+			}
+		}
+		if d.present("fatal_error_names") {
+			r.FatalErrorNames = d.strings("fatal_error_names")
+		}
+		for _, f := range []struct {
+			k string
+			v *int64
+		}{{"deadline_ms", &r.DeadlineMS}, {"pre_write_deadline_ms", &r.PreWriteDeadlineMS}} {
+			if k, v := f.k, f.v; d.present(k) {
+				if *v = d.int64(k); *v <= 0 && derr == nil {
+					d.fail(CodeBadField, "run %s %d is not positive", k, *v)
+				}
+			}
+		}
+		if d.present("clock") {
+			r.Clock = d.str("clock")
+			if r.Clock != ClockReal && r.Clock != ClockRecord && derr == nil {
+				d.fail(CodeBadField, "run clock %q", r.Clock)
+			}
+		}
 		m = r
 	case TypeRunDone:
 		r := RunDone{ID: d.str("id")}
@@ -1022,6 +1088,9 @@ func Decode(payload []byte) (Message, error) {
 		}
 		if d.present("latched") {
 			r.Latched = d.str("latched")
+		}
+		if d.present("deviations") {
+			r.Deviations = d.strings("deviations")
 		}
 		if d.present("warnings") {
 			r.Warnings = d.raw("warnings")

@@ -119,7 +119,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F7c | `windmill-lite gen go` | F1 | — | 9 | no |
 | F7d | `windmill-lite gen ts` | F1 | — | 9 | no |
 | F6 | `pack --single` and `image` | F1, F3a | the image runs on its base: empty for the static engine; for the compiled Bun harness, the smallest base that provides the C library it links, recorded in the manifest | 10 | no |
-| F2c | host plugins over `host_call`: TypeScript hooks, `around`, the provider bridge | F2a, F3a | the `conformance/plugins` cases in `warm` (a plugin the runtime names) and in host mode (the host SDK's plugin): every F2a hook (H1, H2, H6, H8, H9, H12, H13) and a mandatory provided site answered by a TypeScript plugin over `host_call`, giving what the same cases give through Go callbacks; an `around` wrapper around a step; a plugin's error, a provider's decline and error, and a `host_call` timeout latching the run; `host_call` refused where it must be (a `fresh` runtime, an undeclared hook, a reply to no call, a declaration the engine cannot use) | 10 | yes |
+| F2c | host plugins over `host_call`: TypeScript hooks, `around`, the provider bridge | F2a, F3a | the `conformance/plugins` cases in `warm` (a plugin the runtime names) and in host mode (the host SDK's plugin): every F2a hook (H1, H2, H6, H8, H9, H12, H13) and a mandatory provided site answered by a TypeScript plugin over `host_call`, giving what the same cases give through Go callbacks; an `around` wrapper around a step; a plugin's error, a provider's decline and error, and a `host_call` timeout latching the run; `host_call` refused where it must be (a `fresh` runtime, an undeclared hook, a reply to no call, a declaration the engine cannot use); F2b's H3 and H7 answered by the plugin, and its budgets and latches carried to the run (H3, H4, H7, H10: `RunOptions` in `warm`, the `run` frame in host mode); step code's `wl.latch` latching the run and `wl.signal` aborting at a deadline | 10 | yes |
 | F7a | plain gRPC adapter | F5 | — | 10 | no |
 | F3b | **host-mode integration gate** | F2b, F2c, F3a, E1 | on Bun 1.3.10, with a public test supervisor that only restarts on exit: the flow suite in `warm` and in host mode; the never-settling-step, watchdog, `watchdog/finite-cpu` (host mode) and resource-release tests of [0004](0004-harness-protocol.md); the H11 policy case | 11 | yes |
 | R1 | `internal/platform/remote` (hybrid dispatch) | PF3, **H-b** | — | — | no |
@@ -651,7 +651,11 @@ waits on an external gate except R1.
   around the invocations whose sites its selectors match, which the
   engine names on the `invoke`. A plugin's platform calls outside an
   invocation, and cacheable provider answers (ADR 0007), are not in F2c.
-  F3a's two follow-ups, the SDK–engine version pairing and the
+  F2b's settings reach TypeScript hosts here too: a plugin declares
+  write-capable selectors, `beforeFirstWrite` and fatal error names; a
+  host-mode `run` frame carries the run's budgets and latches; and step
+  code calls `wl.latch` and `wl.signal`, added to the gate because F2b
+  left them to F2c. F3a's two follow-ups, the SDK–engine version pairing and the
   retired-entry recycle trigger, are not `host_call` matters and go to
   F3b.
 

@@ -108,7 +108,7 @@ test("onSettled runs in its run's submission scope", async () => {
   const seen: Record<string, string | undefined> = {};
   const submit = (tenant: string) =>
     store.run(tenant, () =>
-      runtime.submit("flow", "f/x", "{}", undefined, () => {
+      runtime.submit("flow", "f/x", "{}", {}, () => {
         seen[tenant] = store.getStore();
       }),
     );
