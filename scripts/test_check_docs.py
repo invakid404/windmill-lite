@@ -9,6 +9,7 @@ import os
 import pathlib
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -16,6 +17,8 @@ _spec = importlib.util.spec_from_file_location(
     "check_docs", pathlib.Path(__file__).with_name("check-docs.py")
 )
 checker = importlib.util.module_from_spec(_spec)
+# dataclasses looks the module up by name while it builds the classes.
+sys.modules[_spec.name] = checker
 _spec.loader.exec_module(checker)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
