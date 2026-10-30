@@ -15,21 +15,43 @@ permissions:
 
 jobs:
   go:
-    # Branch protection requires these job names as status checks
-    # ("Go (ubuntu-latest)" and "Go (macos-latest)"). Renaming the job or a
-    # matrix entry needs the same change in the protection settings.
-    name: Go (${{ matrix.os }})
+    # Branch protection requires the status checks "Go (ubuntu-latest)" and
+    # "Go (macos-latest)". On Linux this job is the check. On macOS the tests
+    # run in parts on parallel runners, and the job go-macos below reports
+    # the check from their results. Renaming a job or a matrix entry needs
+    # the same change in the protection settings or in go-macos.
+    #
+    # cmd/wltest's flow suite (TestFlowSuite) runs every flow fixture in
+    # five modes: warm, fresh and host, and warm and host from bundles built
+    # with shared code (ADR 0013). macOS runners have three cores, so the
+    # suite runs one fixture at a time there (GOMAXPROCS/2 is 1), and in one
+    # job the macOS tests took about 43 minutes. The macOS parts split the
+    # tests by complementary -run and -skip patterns, so together they run
+    # every test that one `go test ./...` runs: the packages without
+    # TestFlowSuite, TestFlowSuite's modes without shared code, and its
+    # modes with shared code. TestFlowSuite is defined only in cmd/wltest.
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: Go (ubuntu-latest)
+            os: ubuntu-latest
+            checks: true
+          - name: Go (macos-latest, packages)
+            os: macos-latest
+            checks: true
+            skip: ^TestFlowSuite$
+          - name: Go (macos-latest, flow suite)
+            os: macos-latest
+            packages: ./cmd/wltest
+            run: ^TestFlowSuite$
+            skip: ^TestFlowSuite$/-shared-code$
+          - name: Go (macos-latest, flow suite with shared code)
+            os: macos-latest
+            packages: ./cmd/wltest
+            run: ^TestFlowSuite$/-shared-code$
     runs-on: ${{ matrix.os }}
-    # cmd/wltest's flow suite runs in warm, fresh and host mode (milestone
-    # F3b), about 9 minutes under -race on macOS before host mode, about 14
-    # with it, and over 20 with recording batch E3f's fixtures, which macOS
-    # runs one at a time (GOMAXPROCS/2 is 1 on its three cores). It also
-    # runs in warm and host mode from bundles built with shared code (ADR
-    # 0013): about 23 minutes on Linux and 41 on macOS in all.
     timeout-minutes: 50
     steps:
       - name: Check out repository
@@ -90,6 +112,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check formatting
+        if: matrix.checks
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
@@ -99,9 +122,11 @@ jobs:
           fi
 
       - name: Check go.mod is tidy
+        if: matrix.checks
         run: go mod tidy -diff
 
       - name: Vet
+        if: matrix.checks
         run: go vet ./...
 
       - name: Test
@@ -110,13 +135,25 @@ jobs:
         # Q-WA-4 test and the host-mode tests (a host compiled with bun build
         # --compile) always run here; WL_REQUIRE_NODE does the same for
         # D13's Node side of the step suite.
+        #
+        # A part that selects tests by -run also passes -v, so its log shows
+        # the time of each flow-suite mode.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
           WL_REQUIRE_BUN: "1"
           WL_REQUIRE_NODE: "1"
-        run: go test -race -timeout 45m ./...
+          RUN: ${{ matrix.run }}
+          SKIP: ${{ matrix.skip }}
+          PACKAGES: ${{ matrix.packages || './...' }}
+        run: |
+          args=(-race -timeout 45m)
+          if [ -n "$RUN" ]; then args+=(-v -run "$RUN"); fi
+          if [ -n "$SKIP" ]; then args+=(-skip "$SKIP"); fi
+          set -x
+          go test "${args[@]}" "$PACKAGES"
 
       - name: Build a fixture bundle twice and compare
+        if: matrix.checks
         # F4's exit gate (ADR 0010, 0012): the same inputs and pins give one
         # bundle digest. The second build reads a copy of the fixture in
         # another directory; the archives must be the same bytes.
@@ -137,6 +174,7 @@ jobs:
           "$wl" verify "$RUNNER_TEMP/b.wlb" -digest "$a"
 
       - name: Measure the expression pool under load
+        if: matrix.checks
         # Prints latency percentiles of the native QuickJS-ng pool
         # (internal/expr/quickjs, milestone B1a). Report only: it sets no
         # threshold; the budget gate is milestone B2b's.
@@ -146,6 +184,7 @@ jobs:
         run: go test -count=1 -run '^TestPoolUnderLoad$' -v ./internal/expr/quickjs
 
       - name: Report the expression budget gate
+        if: matrix.checks
         # ADR 0003's budget gate, measured through the whole pipeline
         # (internal/expr, milestone B2b). Report only: the gate holds on the
         # benchmark machine; CI's shared runners show the trend.
@@ -155,9 +194,36 @@ jobs:
         run: go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr
 
       - name: Test repository scripts
+        if: matrix.checks
         # Unit tests for the helpers in scripts/: the Renovate auto-ack
         # checks and the documentation check.
         run: python3 -m unittest discover -s scripts -v
+
+  go-macos:
+    # The required status check "Go (macos-latest)": it passes only when
+    # every macOS part of the go job passed. A required check whose job is
+    # skipped counts as passed, so this job runs even when a part failed,
+    # unless the run was cancelled.
+    name: Go (macos-latest)
+    needs: go
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check the macOS parts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest" \
+            --jq '.jobs[] | select(.name | startswith("Go (macos-latest, ")) | "\(.conclusion) \(.name)"' > parts.txt
+          cat parts.txt
+          test -s parts.txt || { echo "no macOS part of the go job ran" >&2; exit 1; }
+          if grep -v '^success ' parts.txt; then
+            echo "a macOS part of the go job did not pass" >&2
+            exit 1
+          fi
 
   static-linux:
     # The Linux engine is one static binary, built with zig cc against musl
