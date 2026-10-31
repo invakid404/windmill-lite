@@ -309,8 +309,8 @@ func TestReadBackInAParallelChildWithoutMonitor(t *testing.T) {
 			e := mustOpen(t, map[string]string{"f/t/main": flowOf(outer, mod("n", "echo", "", ""))}, s)
 			e.transition = 0
 			ctx, cancel := context.WithCancelCause(context.Background())
-			time.AfterFunc(200*time.Millisecond, func() { cancel(&Cancellation{Reason: "r", Canceler: "u"}) })
 			start := time.Now()
+			time.AfterFunc(200*time.Millisecond, func() { cancel(&Cancellation{Reason: "r", Canceler: "u"}) })
 			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
 			if err != nil {
 				t.Fatal(err)
@@ -358,8 +358,8 @@ func TestReadBackWithoutMonitor(t *testing.T) {
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(loopOf("l", []string{`{"id":"x","value":{"type":"identity"}}`}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, ""))}, &loopSteps{})
 	e.transition = 0
 	ctx, cancel := context.WithCancelCause(context.Background())
-	time.AfterFunc(200*time.Millisecond, func() { cancel(&Cancellation{Reason: "r", Canceler: "u"}) })
 	start := time.Now()
+	time.AfterFunc(200*time.Millisecond, func() { cancel(&Cancellation{Reason: "r", Canceler: "u"}) })
 	tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{"n":1e400}`))})
 	if err != nil {
 		t.Fatal(err)
