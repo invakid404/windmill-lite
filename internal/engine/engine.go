@@ -290,14 +290,17 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 		return unsupported("a preprocessor module")
 	case f.SkipExpr != nil:
 		return unsupported("a flow skip_expr")
-	case f.CacheIgnoreS3Path != nil && *f.CacheIgnoreS3Path:
-		return unsupported("cache_ignore_s3_path (later)")
 	}
-	// A container in the failure module's slot runs its bodies raw, each
-	// carrying a copy of the failure module with a suffixed id (CF-30,
-	// FX-34), which the reference describes only as source-traced.
+	// Windmill accepts a container as the failure module, but advances it
+	// with bookkeeping written for list positions: a sequential loop or
+	// branchall runs its first child only, a parallel one hangs until the
+	// server's monitor cancels the flow after 60 s, and a body that starts
+	// no child, or a body that always fails, can keep the flow from ever
+	// completing. windmill-lite refuses the flow when it opens it rather
+	// than reproduce those outcomes (the engine package's README gives the
+	// finding).
 	if f.FailureModule != nil && isContainer(f.FailureModule.Kind) {
-		return unsupported("a %s as the failure module (CF-30)", f.FailureModule.Kind)
+		return unsupported("a %s as the failure module (CF-31)", f.FailureModule.Kind)
 	}
 	for _, m := range flowModules(f) {
 		if err := supportedModule(m, scripts); err != nil {
@@ -375,8 +378,6 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		return unsupported("an ai sleep (later)")
 	case m.Timeout != nil && m.Timeout.Type == ir.AI:
 		return unsupported("an ai timeout (later)")
-	case m.CacheIgnoreS3Path != nil && *m.CacheIgnoreS3Path:
-		return unsupported("cache_ignore_s3_path (later)")
 	}
 	if t := m.Timeout; t != nil && t.Type == ir.Static {
 		if _, err := staticTimeout(t.Value); err != nil && err != errNegativeTimeout {

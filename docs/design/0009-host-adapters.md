@@ -82,10 +82,11 @@ Every adapter below is a transport over these calls.
      connect otherwise (`workdir_not_writable`, `workdir_mismatch`), and the
      engine checks the same again in the handshake.
    - **Consumption.** Nothing is published to a package registry. A host
-     takes the SDK from this repository at the engine release it runs (a git
-     dependency on the release tag, or a vendored copy of `harnesses/bun/host`
-     at that tag). The SDK version equals the engine version; the handshake
-     rejects any other pairing.
+     vendors the SDK together with the harness runtime it imports, from the
+     commit or release of the engine it runs, and checks the copy's
+     provenance ([Vendoring the Bun host SDK](#vendoring-the-bun-host-sdk)).
+     For a release, the SDK version equals the engine version, and the
+     handshake rejects any other pairing.
    - **Types.** A host that vendors the SDK, with the harness runtime it
      imports, typechecks them with its own program. So the SDK and the
      runtime use only names that the pinned Bun's type declarations
@@ -100,6 +101,52 @@ Every adapter below is a transport over these calls.
 5. **CLI.** `windmill-lite run <path> --bundle <b> --args <json|@file>`,
    printing the outcome as JSON and exiting non-zero on failure; used by the
    conformance runner and for debugging.
+
+### Vendoring the Bun host SDK
+
+A Bun host copies the SDK into its own repository. A package manager cannot
+install it as a git dependency, because neither the repository root nor
+`harnesses/bun` has a `package.json`.
+
+1. **Copy two directories together.** `harnesses/bun/host/index.ts` imports
+   `../runtime/context.ts`, `../runtime/plugin.ts` and
+   `../runtime/runtime.ts`, which import every other file of
+   `harnesses/bun/runtime` but `main.ts`, the entry point of a spawned
+   harness.
+   Copy both directories from one commit, as siblings named `host/` and
+   `runtime/`, so that the relative imports resolve. A copy of `host/`
+   alone does not load.
+2. **Change no file.** The runtime is the harness that every step of the
+   host runs under: Windmill's wrapper rules, the settle-time fence and the
+   native boundary mode. An edited copy runs steps differently from the code
+   that the engine's tests checked, and no engine check detects the edit
+   (item 4).
+3. **Build the engine and the bundle from the same commit.** `wl.Open`
+   refuses a bundle that another engine version built
+   (`ErrEngineVersion`). For a release, the handshake also refuses an SDK of
+   another release (`version_mismatch`).
+4. **Keep a provenance record, and check it in the host's tests.** In host
+   mode the engine does not compare the host's runtime with the bundle's
+   `harness_runtimes` digest, because the host process is the harness. A
+   copy without a release stamp reports the harness version `dev`, which
+   pairs with any engine. So the host checks the copy itself:
+   - Next to the copy, record the repository URL, the full commit ID, and
+     the SHA-256 of every copied file by its path.
+   - In a test, recompute the SHA-256 of every file in the copy, and fail
+     on a changed, missing or extra file.
+   - In the same test, check that the engine binary was built from the
+     recorded commit (below).
+5. **Update both directories at once.** To move to another commit, replace
+   both directories and the record, rebuild the engine and the bundle, and
+   run the check again.
+
+`windmill-lite version` prints the module version that Go stamps into the
+binary. Built from a clean checkout of the commit, or with
+`go install github.com/invakid404/windmill-lite/cmd/windmill-lite@<commit>`,
+it is a pseudo-version that ends in the first 12 hexadecimal digits of the
+commit ID, such as `v0.0.0-20261028113407-7c82cc9ab979`. Go appends
+`+dirty` to the version of a build from a checkout with uncommitted
+changes.
 
 ### Typed methods
 

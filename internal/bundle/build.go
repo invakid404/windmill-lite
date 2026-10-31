@@ -153,17 +153,18 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	scripts, byFile := folderScripts(folder)
 	var problems []ItemProblem
 	var hosts []HostModule
-	var outside []OutsideHostModule
+	var viaEsbuild []EsbuildHostModule
+	listedCodebase := map[string]string{} // Windmill path → key, of listed codebase scripts
 	for _, key := range prog.Contract.HostModules {
 		p, ok := byFile[key]
 		if !ok {
 			// A file of a codebase entry outside the folder, which its
-			// scripts import (milestone F3h).
+			// scripts import.
 			if m, isOutside, why := outsideModule(root, key, folder.Config.Codebases); isOutside {
 				if why != "" {
 					problems = append(problems, ItemProblem{"host module " + key, Problem{ProblemUnknownHostModule, why}})
 				} else {
-					outside = append(outside, m)
+					viaEsbuild = append(viaEsbuild, m)
 				}
 				continue
 			}
@@ -183,6 +184,13 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			continue
 		}
 		s := scripts[p]
+		if s.Codebase != nil {
+			// A codebase script's shared copy is built as the script is,
+			// with esbuild and its codebases entry's settings.
+			viaEsbuild = append(viaEsbuild, EsbuildHostModule{ID: p, Key: key, Settings: s.Codebase.Settings})
+			listedCodebase[p] = key
+			continue
+		}
 		hosts = append(hosts, HostModule{ID: p, Key: key, Path: p, File: s.File, Lock: lockText(s.Lock)})
 	}
 	files := map[string]string{}
@@ -246,24 +254,28 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil && !errors.As(err, &be) {
 		return nil, err
 	}
+	// The Bun build inlines a workspace import of a listed codebase script,
+	// whose shim it does not have, so such an import is refused: only
+	// codebase scripts, and the modules esbuild builds, reach its shim.
+	problems = append(problems, bunImportsOfCodebaseModules(bres, names, listedCodebase)...)
 	var chosts []CodebaseHostModule
 	for _, m := range hosts {
 		chosts = append(chosts, CodebaseHostModule{Key: m.Key, File: m.File, Package: m.Package, Shim: shimFile(stage, m.ID)})
 	}
-	// The host-provided modules outside the folder, with esbuild, once the
-	// scan has written the shims of the others (milestone F3h).
-	ores := &OutsideResult{HostModules: map[string]*HostModuleMeta{}}
+	// The host-provided modules that esbuild builds, once the scan has
+	// written the shims of the Bun build's.
+	ores := &EsbuildHostResult{HostModules: map[string]*HostModuleMeta{}}
 	var obe *BuildError
-	if len(outside) > 0 && be == nil {
-		ores, err = BuildOutside(ctx, OutsideConfig{
+	if len(viaEsbuild) > 0 && be == nil {
+		ores, err = BuildEsbuildHostModules(ctx, EsbuildHostConfig{
 			Bun: cfg.Bun, Helper: cfg.Helper, AllowBunMismatch: cfg.AllowBunMismatch,
 			Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
-			Folder: root, Out: stage, Work: cfg.Work, Modules: outside, Inside: chosts,
+			Folder: root, Out: stage, Work: cfg.Work, Modules: viaEsbuild, Inside: chosts,
 		})
 		if err != nil && !errors.As(err, &obe) {
 			return nil, err
 		}
-		for _, m := range outside {
+		for _, m := range viaEsbuild {
 			chosts = append(chosts, CodebaseHostModule{Key: m.Key, File: m.Key, Shim: shimFile(stage, m.ID)})
 		}
 	}
@@ -293,14 +305,26 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			problems = append(problems, p)
 		}
 	}
-	for _, w := range append(bres.Warnings, cres.Warnings...) {
-		res.Warnings = append(res.Warnings, w.Code+": "+w.Message)
-	}
 	listed := map[string]bool{}
 	for _, m := range hosts {
 		if m.Package != "" {
 			listed[m.Package] = true
 		}
+	}
+	byKey := map[string]*HostModuleMeta{}
+	for _, metas := range []map[string]*HostModuleMeta{bres.HostModules, ores.HostModules} {
+		for _, m := range metas {
+			byKey[m.Key] = m
+		}
+	}
+	warnings := slices.Concat(bres.Warnings, cres.Warnings)
+	for _, e := range codebase {
+		if meta := cres.Scripts[e.ID]; meta != nil {
+			warnings = append(warnings, sharedDependencies(e.ID, meta, byKey, listed)...)
+		}
+	}
+	for _, w := range warnings {
+		res.Warnings = append(res.Warnings, w.Code+": "+w.Message)
 	}
 	for _, id := range ids {
 		meta := bres.Scripts[id]
@@ -334,6 +358,11 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			if err := src.add(files[p]); err != nil {
 				return nil, err
 			}
+		}
+	}
+	for p := range listedCodebase {
+		if err := addScriptSources(src, scripts, p); err != nil {
+			return nil, err
 		}
 	}
 	// What esbuild read from the folder, and the assets' sources in it.
@@ -411,7 +440,8 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	for _, id := range bres.HostModuleOrder {
 		m.HostModules = append(m.HostModules, HostModuleEntry{Key: bres.HostModules[id].Key, ID: id})
 	}
-	// The outside modules after the others, which never import them.
+	// The modules esbuild builds after the Bun build's, which never import
+	// them.
 	for _, id := range ores.Order {
 		m.HostModules = append(m.HostModules, HostModuleEntry{Key: ores.HostModules[id].Key, ID: id})
 	}

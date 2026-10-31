@@ -263,9 +263,10 @@ and JE-11/e as an input transform's failure), since milestone FU6. Batch
 E3f recorded JE-11/c and /e, JE-15/j and /k, JE-20/c and /d, JE-21/b,
 JE-42/i and /j, JE-49/d, JE-50/a to JE-52/a and JE-2/b end to end in the
 flow fixtures under `flows/je`; JE-49/e crashed the
-oracle's server and stays deferred, JE-44/f is not encoded yet, JE-42/k,
-which the reference's revision SC5 added, waits for the next run of batch
-E3f, and JE-19/e and /f need a restarted run, which is outside the
+oracle's server and stays deferred, JE-44/f is not encoded yet, JE-42/k
+is checked by the `$jsonvar:` resolution cases of
+[internal/platform](../internal/platform/README.md) and waits for the next
+run of batch E3f end to end, and JE-19/e and /f need a restarted run, which is outside the
 contract and which the CE image cannot make (SC5 re-scoped both to `EE`).
 
 ## Claims and unit cases

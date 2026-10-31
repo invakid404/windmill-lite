@@ -35,6 +35,36 @@ const (
 	cacheKindFlow       = "flow"
 )
 
+// jobTTL is the cache_ttl a job has, in seconds. Any job that has one
+// looks the cache up, a TTL of zero or less included, since a lookup tests
+// only the stored entry's own expiry: such a job hits an entry that a job
+// with a positive TTL stored under the same key. Only a positive TTL
+// stores, because an entry stored with zero has already expired ([FX-40]).
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+type jobTTL struct {
+	set  bool
+	secs int64
+}
+
+// ttlOf is the jobTTL of a cache_ttl field, unset when the field is
+// absent.
+func ttlOf[T uint32 | int32](t *T) jobTTL {
+	if t == nil {
+		return jobTTL{}
+	}
+	return jobTTL{set: true, secs: int64(*t)}
+}
+
+// stores reports whether a job with the TTL stores its result.
+func (t jobTTL) stores() bool { return t.secs > 0 }
+
+// duration is the TTL as a duration.
+func (t jobTTL) duration() time.Duration { return time.Duration(t.secs) * time.Second }
+
+// isTrue reports whether an optional flag is set to true.
+func isTrue(b *bool) bool { return b != nil && *b }
+
 // cacheKey returns the key of a job of kind whose runnable is id, with
 // args, a JSON object: a SHA-256 over the bundle's digest, the kind, the
 // runnable and each argument in sorted key order, as its name and its
@@ -46,7 +76,19 @@ const (
 // the deployed version Windmill's runnable ids belong to, so an entry
 // never crosses bundles in a store a host shares (D4). false when args is
 // not an object or holds a value jsonb refuses, which no job could store.
-func (e *Engine) cacheKey(kind, id string, args jsonval.Value) (string, bool) {
+//
+// An argument whose whole value is an S3 object record, and whose object
+// the services' object store holds, is hashed with that object's ETag
+// after its name (objectETag), and its stored text follows unless
+// ignoreS3Path, the job's `cache_ignore_s3_path`, is set. So new content
+// under the same object key misses, and with the flag two object keys
+// that hold the same content share an entry. Without an ETag (no object
+// store, no such object, a failed read) the argument is hashed as its text
+// alone and ignoreS3Path has no effect, as in a Windmill workspace without
+// object storage ([FX-40]).
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func (e *Engine) cacheKey(ctx context.Context, kind, id string, args jsonval.Value, ignoreS3Path bool) (string, bool) {
 	ms, ok := members(args.Producer())
 	if !ok {
 		return "", false
@@ -89,9 +131,78 @@ func (e *Engine) cacheKey(kind, id string, args jsonval.Value) (string, bool) {
 	field([]byte(id))
 	for _, a := range sorted {
 		field([]byte(a.name))
-		field(a.value)
+		etag, ok := e.objectETag(ctx, a.value)
+		if !ok {
+			field(a.value)
+			continue
+		}
+		// The marker cannot start a JSON text, so an ETag's field never
+		// reads as an argument's text. The runnable, which the key holds,
+		// decides ignoreS3Path, so jobs that share a key agree on which
+		// fields follow.
+		field([]byte("\x00etag:" + etag))
+		if !ignoreS3Path {
+			field(a.value)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+// objectETag returns the ETag of the object that stored, an argument's
+// stored text, names, when its whole value is an S3 object record: a JSON
+// object with a string `s3` member, the object's key, and optional
+// `storage`, `filename` and `presigned` members, each a string or null.
+// Other members are ignored, and a value nested inside the argument is not
+// examined. The object is looked up in the services' object store, in the
+// storage that `storage` names, else the default one. Its ETag is the
+// SHA-256 of its content, which changes with the content, as an S3 ETag
+// does. false when the value is no such record, there is no object store,
+// or the object is missing or its read fails: none of them gives an ETag
+// ([FX-40]).
+//
+// Each call reads the whole object, since platform.ObjectStore has no
+// metadata read, so a job whose arguments name large objects pays a read
+// of each at its lookup, and a flow job a second one at its store. The
+// reads are not shared: Windmill fetches a flow's ETags again at its
+// completion, and an object may have new content by then.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func (e *Engine) objectETag(ctx context.Context, stored []byte) (string, bool) {
+	if e.platform == nil || e.platform.Objects == nil {
+		return "", false
+	}
+	ms, ok := members(stored)
+	if !ok {
+		return "", false
+	}
+	var key *string
+	storage := platform.DefaultStorage
+	for _, m := range ms {
+		switch m.key {
+		case "s3", "storage", "filename", "presigned":
+		default:
+			continue
+		}
+		var s *string
+		if err := json.Unmarshal(m.value, &s); err != nil {
+			return "", false
+		}
+		switch {
+		case m.key == "s3":
+			key = s
+		case m.key == "storage" && s != nil:
+			storage = *s
+		}
+	}
+	if key == nil {
+		return "", false
+	}
+	o, found, err := e.platform.Objects.Get(ctx, storage, *key)
+	if err != nil || !found {
+		return "", false
+	}
+	sum := sha256.Sum256(o.Content)
+	return hex.EncodeToString(sum[:]), true
 }
 
 // cacheEntry is a cached result as the engine encodes it for the store:
@@ -108,8 +219,12 @@ type cacheEntry struct {
 func (c cacheEntry) value() jsonval.Value { return jsonval.FromProducer(c.Result) }
 
 // cacheGet returns the entry stored under key that has not expired at now.
+// Expiry is in whole seconds: an entry is valid while now, rounded down to
+// the second, is before its expiry (cachePut, [FX-40]).
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func (e *Engine) cacheGet(ctx context.Context, key string, now time.Time) (cacheEntry, bool, error) {
-	b, ok, err := e.results.Get(ctx, key, now)
+	b, ok, err := e.results.Get(ctx, key, now.Truncate(time.Second))
 	if err != nil || !ok {
 		return cacheEntry{}, false, err
 	}
@@ -122,9 +237,12 @@ func (e *Engine) cacheGet(ctx context.Context, key string, now time.Time) (cache
 	return c, true, nil
 }
 
-// cachePut stores v, of origin and nested, under key until now plus ttl.
-// A value jsonb refuses is never stored, since no job completes with it
-// (FX-48).
+// cachePut stores v, of origin and nested, under key until now, rounded
+// down to the second, plus ttl, as Windmill writes an entry's expiry in
+// whole Unix seconds ([FX-40]). A value jsonb refuses is never stored,
+// since no job completes with it (FX-48).
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl time.Duration, v jsonval.Value, origin Origin, nested []string) error {
 	stored, err := v.Stored()
 	if err != nil {
@@ -134,7 +252,7 @@ func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl ti
 	if err != nil {
 		return err
 	}
-	return e.results.Put(ctx, key, b, now.Add(ttl))
+	return e.results.Put(ctx, key, b, now.Truncate(time.Second).Add(ttl))
 }
 
 // lookup is cacheGet for a run: on its clock, with a store's failure a
@@ -164,38 +282,41 @@ func (r *run) cacheWarning(msg string) {
 }
 
 // leafCache returns the key under which module i's leaf job, of fr, with
-// args, is cached and the TTL that applies, zero for none (FX-40's
-// matrix): an inline step takes its module's cache_ttl, and in a
-// collapsed iteration its loop's, which stands in for the module; a path
-// script takes its own and drops its module's, collapsed or not. A
-// cache_ttl of zero caches nothing.
-func (r *run) leafCache(fr *frame, m *ir.Module, args jsonval.Value) (string, time.Duration) {
+// args, is looked up in the result cache, and its TTL; the key is "" when
+// the job has no cache_ttl ([FX-40]'s matrix). An inline step takes its
+// module's cache_ttl and cache_ignore_s3_path, and in a collapsed
+// iteration its loop's, which stands in for the module. A path script
+// takes its own cache_ttl and drops its module's, collapsed or not, and
+// its module's cache_ignore_s3_path with it: a script's metadata in a sync
+// folder carries no such flag, so its S3 objects are hashed with their
+// text.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func (r *run) leafCache(ctx context.Context, fr *frame, m *ir.Module, args jsonval.Value) (string, jobTTL) {
 	s := r.e.prog.Scripts[m.Leaf.Script]
 	if s == nil {
-		return "", 0
+		return "", jobTTL{}
 	}
-	kind, secs := cacheKindFlowScript, int64(0)
+	kind, ttl, ignoreS3Path := cacheKindFlowScript, jobTTL{}, false
 	switch {
 	case s.Kind == ir.PathScript:
 		kind = cacheKindScript
-		if s.Metadata != nil && s.Metadata.CacheTTL != nil {
-			secs = int64(*s.Metadata.CacheTTL)
+		if s.Metadata != nil {
+			ttl = ttlOf(s.Metadata.CacheTTL)
 		}
 	case fr.collapsed != nil:
-		if t := fr.collapsed.CacheTTL; t != nil {
-			secs = int64(*t)
-		}
-	case m.CacheTTL != nil:
-		secs = int64(*m.CacheTTL)
+		ttl, ignoreS3Path = ttlOf(fr.collapsed.CacheTTL), isTrue(fr.collapsed.CacheIgnoreS3Path)
+	default:
+		ttl, ignoreS3Path = ttlOf(m.CacheTTL), isTrue(m.CacheIgnoreS3Path)
 	}
-	if secs <= 0 {
-		return "", 0
+	if !ttl.set {
+		return "", ttl
 	}
-	key, ok := r.e.cacheKey(kind, s.ID, args)
+	key, ok := r.e.cacheKey(ctx, kind, s.ID, args, ignoreS3Path)
 	if !ok {
-		return "", 0
+		return "", jobTTL{}
 	}
-	return key, time.Duration(secs) * time.Second
+	return key, ttl
 }
 
 // cachedJob completes module i of fr, a leaf whose job the result cache
@@ -230,13 +351,8 @@ func (e *Engine) registerHit(env map[string]string) {
 
 // flowTTL is the TTL of a flow job of f, its flow-level cache_ttl: the
 // root's, or a subflow's by path, whose step's own is dropped (FX-40);
-// zero for none.
-func flowTTL(f *ir.Flow) time.Duration {
-	if f.CacheTTL == nil {
-		return 0
-	}
-	return time.Duration(*f.CacheTTL) * time.Second
-}
+// unset for none.
+func flowTTL(f *ir.Flow) jobTTL { return ttlOf(f.CacheTTL) }
 
 // resultCache is the result cache an engine with services p keeps its
 // results in: the services', or one of its own when it has none (D4).

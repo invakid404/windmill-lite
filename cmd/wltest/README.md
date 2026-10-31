@@ -501,9 +501,10 @@ dispatcher's runs get no run hooks and so no `WL_EFFECT_SINK`; a script run
 (`kind: script`), a run-and-wait run (`submit: run_wait_result`, whose
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
-(L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: a container as the failure module (CF-30),
-caching, a preprocessor). The fixture's other runs are checked.
+(L1), a flow the engine refuses at open (`engine.ErrUnsupported`: a
+container as the failure module, which names
+[CF-31](../../docs/semantics/control-flow.md#cf-31), caching, a
+preprocessor). The fixture's other runs are checked.
 
 ### Expression files
 

@@ -95,6 +95,9 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	c.due = b.due
 	r.addChild(c)
 	e := r.runList(ctx, c)
+	if e.unreported {
+		return r.unreportedJob(ctx, fr, o, e)
+	}
 	// The branch's completion refreshes its flow's ping (JE-2).
 	r.ping(fr)
 	if ended(e.status) {
@@ -128,8 +131,11 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 		// failure module fails it with that module's result, its job
 		// successful when it recovered (CF-16, CF-V1, FX-33); a failure
 		// such a module handled stays handled through the forwarded stop
-		// that a clean stop of a failed container in it raised.
+		// that a clean stop of a failed container in it raised. The
+		// completion that carries a forwarded stop switches the module's
+		// continue_on_error off.
 		o.rec.Module, o.handled = conformance.ModuleFailure, e.handled
+		o.forwarded = o.end == endErrorStop
 		if e.status == conformance.RunFailure {
 			o.rec.Status = conformance.StepFailure
 		}
@@ -226,6 +232,10 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 		}
 		r.addChild(c)
 		e := r.runList(ctx, c)
+		if e.unreported {
+			it.add(e)
+			return r.unreportedChildren(ctx, fr, o, &it)
+		}
 		// The branch's completion refreshes its flow's ping (JE-2).
 		r.ping(fr)
 		if ended(e.status) {
@@ -240,8 +250,11 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 		if e.stopped || e.errorStop {
 			// A forwarded stop of a failure that a failure module handled
 			// in the branch keeps it handled (CF-16 item 4).
-			o = r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			o = r.sequentialStop(ctx, fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
 			o.handled = o.end == endErrorStop && e.handled
+			// A forwarded error stop switches the module's
+			// continue_on_error off for this completion.
+			o.forwarded = o.end == endErrorStop
 			return o
 		}
 		// A branch that ran its copy of the failure module failed, even when
@@ -274,10 +287,10 @@ func sequentialBranchEnd(e flowEnd, skip bool) moduleEnd {
 // and the flow stops right after the module, whose result is the results
 // so far, the stopped branch's included; end says how (sequentialBranchEnd).
 // Its stop_after_all_iters_if is not evaluated (CF-13, JE-27).
-func (r *run) sequentialStop(fr *frame, i int, o outcome, it *iterations, end moduleEnd) outcome {
+func (r *run) sequentialStop(ctx context.Context, fr *frame, i int, o outcome, it *iterations, end moduleEnd) outcome {
 	arr, err := aggregate(it.values)
 	if err != nil {
-		return aggregateFailed(o, err)
+		return r.readFailed(ctx, fr, i, o, it, err)
 	}
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
@@ -354,7 +367,13 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 		r.ping(fr)
 	}
 	var it iterations
-	failed, handled := false, false
+	if unreported(ends[:started]) {
+		for _, e := range ends[:started] {
+			it.add(e)
+		}
+		return r.unreportedChildren(ctx, fr, o, &it)
+	}
+	failed := false
 	for _, e := range ends[:started] {
 		if ended(e.status) && stopped == "" {
 			stopped = e.status
@@ -373,13 +392,13 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 		}
 		it.add(e)
 		if e.status == conformance.RunFailure && !bs[k].SkipFailure {
-			failed, handled = true, handled || e.handled
+			failed = true
 		}
 	}
 	if stopped != "" {
 		return r.loopInterrupted(o, &it, started > 0 || canceled, r.endedStatus(ctx, stopped))
 	}
-	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), handled)
+	return parallelDone(fr, r.loopDone(ctx, fr, i, o, &it, failed, nil), failed)
 }
 
 // branchFrame creates the child flow of a branch of module i of fr (CF-1):

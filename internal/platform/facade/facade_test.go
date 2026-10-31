@@ -2,6 +2,8 @@ package facade
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -50,8 +52,22 @@ func get(t *testing.T, url, token string) (int, string) {
 	return res.StatusCode, string(b)
 }
 
+// env is the job environment of a direct flow step whose job and root
+// are uid(job) and uid(root).
 func env(job, root, token string) map[string]string {
+	job, root = uid(job), uid(root)
 	return map[string]string{"WM_JOB_ID": job, "WM_FLOW_JOB_ID": root, "WM_ROOT_FLOW_JOB_ID": root, "WM_ROOT_JOB_ID": root, "WM_TOKEN": token, "WM_WORKSPACE": "ws"}
+}
+
+// uid returns s when it is a UUID, and otherwise a UUID derived from s,
+// so that a test can name its jobs and still pass the job routes the
+// UUIDs they take.
+func uid(s string) string {
+	if id, _, ok := parseUUID(s); ok {
+		return id
+	}
+	h := sha256.Sum256([]byte(s))
+	return canonicalUUID(hex.EncodeToString(h[:16]))
 }
 
 // On the intercepted path a call is attributed to the invocation the
@@ -64,8 +80,8 @@ func TestInterceptedAttribution(t *testing.T) {
 	b := f.Register("inv-b", "run-b", env("job-b", "root-b", "tok-b"))
 	origin := f.WarmOrigin()
 	for _, c := range []struct{ inv, job, root string }{{"inv-a", "job-a", "root-a"}, {"inv-b", "job-b", "root-b"}} {
-		rep := intercept(f, c.inv, "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/"+c.job, map[string]string{"authorization": "Bearer tok-a"}, nil)
-		if rep.Status != 200 || string(rep.Body) != `"`+c.root+`"` || rep.Headers["content-type"] != "application/json" {
+		rep := intercept(f, c.inv, "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/"+uid(c.job), map[string]string{"authorization": "Bearer tok-a"}, nil)
+		if rep.Status != 200 || string(rep.Body) != `"`+uid(c.root)+`"` || rep.Headers["content-type"] != "application/json" {
 			t.Errorf("%s: %d %s %v", c.inv, rep.Status, rep.Body, rep.Headers)
 		}
 	}
@@ -77,7 +93,7 @@ func TestInterceptedAttribution(t *testing.T) {
 	}
 	// An invocation the facade does not know of is answered 401, as a
 	// stray call.
-	rep := intercept(f, "inv-unknown", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/job-a", nil, nil)
+	rep := intercept(f, "inv-unknown", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/"+uid("job-a"), nil, nil)
 	if rep.Status != 401 || string(rep.Body) != UnknownToken {
 		t.Errorf("unknown invocation: %d %s", rep.Status, rep.Body)
 	}
@@ -103,9 +119,9 @@ func TestAnswered(t *testing.T) {
 	}})
 	f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
 	origin := f.WarmOrigin()
-	intercept(f, "inv-a", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/job-a", nil, nil)
+	intercept(f, "inv-a", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/"+uid("job-a"), nil, nil)
 	intercept(f, "inv-a", "POST", origin+"/api/w/ws/jobs/run/preview", nil, nil)
-	intercept(f, "inv-unknown", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/job-a", nil, nil)
+	intercept(f, "inv-unknown", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/"+uid("job-a"), nil, nil)
 	mu.Lock()
 	defer mu.Unlock()
 	if len(got) != 2 || got[0].Inv != "inv-a" || got[0].Status != 200 || got[0].Route != "GET /w/{ws}/jobs_u/get_root_job_id/{id}" ||
@@ -121,8 +137,8 @@ func TestTCPAttribution(t *testing.T) {
 	f := newFacade(t, Config{})
 	a := f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
 	f.Register("inv-b", "run-b", env("job-b", "root-b", "tok-b"))
-	url := f.FreshOrigin() + "/api/w/ws/jobs_u/get_root_job_id/job-a"
-	if code, body := get(t, url, "tok-a"); code != 200 || body != `"root-a"` {
+	url := f.FreshOrigin() + "/api/w/ws/jobs_u/get_root_job_id/" + uid("job-a")
+	if code, body := get(t, url, "tok-a"); code != 200 || body != `"`+uid("root-a")+`"` {
 		t.Errorf("own token: %d %s", code, body)
 	}
 	// Another live invocation's token is that invocation's: the call is
@@ -139,7 +155,7 @@ func TestTCPAttribution(t *testing.T) {
 	if code, body := get(t, url, "tok-a"); code != 401 || body != UnknownToken {
 		t.Errorf("ended token: %d %s", code, body)
 	}
-	if calls := a.Calls(); len(calls) != 1 || calls[0].Path != "/api/w/ws/jobs_u/get_root_job_id/job-a" {
+	if calls := a.Calls(); len(calls) != 1 || calls[0].Path != "/api/w/ws/jobs_u/get_root_job_id/"+uid("job-a") {
 		t.Errorf("a's calls: %+v", calls)
 	}
 	if s := f.Stray(); len(s) != 3 {
@@ -160,7 +176,7 @@ func TestTCPAttribution(t *testing.T) {
 	d.Release()
 	e := f.Register("inv-e", "run-e", env("job-e", "root-e", "shared"))
 	defer e.Release()
-	if code, body := get(t, f.FreshOrigin()+"/api/w/ws/jobs_u/get_root_job_id/job-e", "shared"); code != 200 || body != `"root-e"` {
+	if code, body := get(t, f.FreshOrigin()+"/api/w/ws/jobs_u/get_root_job_id/"+uid("job-e"), "shared"); code != 200 || body != `"`+uid("root-e")+`"` {
 		t.Errorf("the token's sole owner after the collision: %d %q", code, body)
 	}
 	if calls := e.Calls(); len(calls) != 1 || calls[0].Inv != "inv-e" {

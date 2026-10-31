@@ -103,7 +103,7 @@
     {
       "case": "FX-40/k",
       "milestone": "N4",
-      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). Without workspace object storage an S3 object input hashes as plain JSON and cache_ignore_s3_path does nothing. windmill-lite refuses cache_ignore_s3_path as not supported yet (internal/engine), so a follow-up of N4 decides it. Recorded by batch E3f (conformance/flows/execution/fx-40-cases, run k; internal/oracle/testdata/batches/e3f.json)."
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). Without workspace object storage an S3 object input hashes as plain JSON and cache_ignore_s3_path does nothing. windmill-lite hashes an S3 object argument as its JSON when the object store does not hold the object, and the flag then has no effect, as here; with the object in the store the ETag enters the key (internal/engine, TestCacheS3Objects). Recorded by batch E3f (conformance/flows/execution/fx-40-cases, run k; internal/oracle/testdata/batches/e3f.json)."
     },
     {
       "case": "FX-40/l",
@@ -113,7 +113,7 @@
     {
       "case": "FX-40/m",
       "milestone": "N4",
-      "reason": "source-derived, added in the reference's revision SC4 (2026-10-29) by its validation round 1, and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A step with cache_ttl 0 hits an entry that a step with a positive TTL stored under the same key (the same kind, script hash and arguments; the step paths are not in the key), while an entry stored with TTL 0 has already expired, so two TTL-0 steps both run. windmill-lite differs today: a cache_ttl of 0 neither stores nor looks up (internal/engine, cache.go), and a step pinned to a script hash cannot run from a folder (fx-40-hash's runs stay unsupported); a follow-up of N4 implements the lookup. Recorded by batch E3f (conformance/flows/execution/fx-40-cases, runs m_hit, m_zero; internal/oracle/testdata/batches/e3f.json)."
+      "reason": "source-derived, added in the reference's revision SC4 (2026-10-29) by its validation round 1, and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A step with cache_ttl 0 hits an entry that a step with a positive TTL stored under the same key (the same kind, script hash and arguments; the step paths are not in the key), while an entry stored with TTL 0 has already expired, so two TTL-0 steps both run. windmill-lite looks the cache up for a cache_ttl of 0 and stores only for a positive one (internal/engine, TestCacheZeroTTL), as here; a step pinned to a script hash cannot run from a folder, so fx-40-hash's runs stay unsupported. Recorded by batch E3f (conformance/flows/execution/fx-40-cases, runs m_hit, m_zero; internal/oracle/testdata/batches/e3f.json)."
     }
   ],
   "parts": [

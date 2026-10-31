@@ -863,12 +863,10 @@ harness follow SC2's answers (FU6).
 
     Batch E3f recorded both routes as stated, including the parallel and
     `branchall` forms, and the reference's revision SC5 (2026-10-30) marks
-    FX-42/m to FX-42/o `oracle-observed`. windmill-lite's immediate
-    chaining `InternalError` with the library's bare text, positioned in
-    the child's stored text, differs in both routes: in the name, the
-    wrapper and the position where Windmill fails the flow, and in the
-    outcome where Windmill leaves it waiting. Aligning it is a follow-up for
-    the engine.
+    FX-42/m to FX-42/o `oracle-observed`. The engine follows both routes
+    ([internal/engine](../../internal/engine/README.md), "Unreadable child
+    results"). It cancels a waiting flow at once rather than after 60 s,
+    which is deviation D20 of [0001](0001-equivalence-contract.md).
 
 ## Recording requests for batch E3f
 

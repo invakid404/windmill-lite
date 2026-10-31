@@ -90,14 +90,26 @@ func newRegistry(t testing.TB, packages map[string]map[string]string) *registry 
 		if byName[name] == nil {
 			byName[name] = map[string]version{}
 		}
-		byName[name][ver] = version{tgz, map[string]any{
+		meta := map[string]any{
 			"name": name, "version": ver,
 			"dist": map[string]any{
 				"tarball":   base + "/" + name + "/-/" + name + "-" + ver + ".tgz",
 				"integrity": "sha512-" + base64.StdEncoding.EncodeToString(sum512[:]),
 				"shasum":    hex.EncodeToString(sum1[:]),
 			},
-		}}
+		}
+		// An installer reads a package's dependencies from the registry's
+		// metadata, not from its tarball, so the metadata repeats them.
+		var pj struct {
+			Dependencies map[string]string `json:"dependencies"`
+		}
+		if err := json.Unmarshal([]byte(files["package.json"]), &pj); err != nil {
+			t.Fatalf("package %s: package.json: %v", spec, err)
+		}
+		if len(pj.Dependencies) > 0 {
+			meta["dependencies"] = pj.Dependencies
+		}
+		byName[name][ver] = version{tgz, meta}
 	}
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")

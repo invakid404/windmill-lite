@@ -1195,6 +1195,181 @@
           ]
         }
       }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-no-loader",
+      "provenance": "policy",
+      "title": "an outside module whose loader the entry's loader map sets to default has no loader, and is refused with esbuild's reason, not parsed as TypeScript",
+      "note": "A loader of \"default\" leaves a file with no loader (WR-47), so esbuild cannot bundle it; the live-binding check does not read such a file, and the build reports esbuild's refusal, as it does when the module is not listed.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n    loader:\n      \".data.ts\": default\n",
+          "f/cb/read.ts": "import { bump } from \"../../../lib/ctx.data.ts\";\nexport function main() { return bump(); }\n"
+        },
+        "outside": {
+          "../lib/ctx.data.ts": "export let count = 0;\nexport function bump() { return ++count; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.data.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module ../lib/ctx.data.ts",
+            "kind": "bundle_failed",
+            "contains": [
+              "No loader is configured"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-listed-copy-settings",
+      "provenance": "policy",
+      "title": "the shared copy of a listed codebase script is built with its codebase entry's settings and packages, as the script's own bundle is",
+      "note": "The copy that every step reaches through the shim is bundled by esbuild with the entry's define and loader, in ES module format, and resolves packages from the folder's node_modules as the entry's scripts do, so a module-scope read of a defined name, a text import and a package import work in the copy too. Neither the step bundle nor the copy applies the .ts rewrite of Bun scripts.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    define:\n      BUILD_VALUE: \"42\"\n    loader:\n      \".data\": text\n",
+          "f/cb/ctx.ts": "import note from \"./note.data\";\nimport { tag } from \"fixture-cb\";\nexport const value = BUILD_VALUE;\nexport const text = note;\nexport { tag };\n",
+          "f/cb/note.data": "from a text file\n",
+          "f/cb/use.ts": "import { value, text, tag } from \"./ctx.ts\";\nexport function main() { return [value, text, tag]; }\n",
+          "node_modules/fixture-cb/package.json": "{\"name\":\"fixture-cb\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\"}",
+          "node_modules/fixture-cb/index.js": "export const tag = \"from the folder's package\";\n"
+        },
+        "contract": "roots:\n  - script: f/cb/use\nhost_modules: [f/cb/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/use": {
+            "host_modules": [
+              "f/cb/ctx.ts"
+            ],
+            "bundle_not_contains": [
+              "from a text file",
+              "from the folder's package"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "f/cb/ctx"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/use",
+              "result": [
+                42,
+                "from a text file\n",
+                "from the folder's package"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-shared-dependency",
+      "provenance": "policy",
+      "deviation": "D12",
+      "title": "a codebase script that imports directly a package a listed module it uses imports is warned about",
+      "note": "The listed module's copy and the script's bundle each inline the package, so the process holds two instances of it, with different configuration (ADR 0010).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/main.ts": "import { lib } from \"fixture-lib\";\nimport { viaCtx } from \"../../../lib/ctx.ts\";\nexport function main() { return [lib.id === viaCtx().id, typeof lib.id]; }\n",
+          "f/cb/plain.ts": "import { viaCtx } from \"../../../lib/ctx.ts\";\nexport function main() { return typeof viaCtx().id; }\n"
+        },
+        "outside": {
+          "../lib/ctx.ts": "import { lib } from \"fixture-lib\";\nexport const viaCtx = () => lib;\n",
+          "../node_modules/fixture-lib/package.json": "{\"name\":\"fixture-lib\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\"}",
+          "../node_modules/fixture-lib/index.js": "export const lib = { id: Math.random() };\n"
+        },
+        "contract": "roots:\n  - script: f/cb/main\n  - script: f/cb/plain\nhost_modules: [../lib/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "warnings": [
+          "host_module_shared_dependency"
+        ],
+        "run": {
+          "register": [
+            "outside/1/lib/ctx.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/main",
+              "result": [
+                false,
+                "number"
+              ]
+            },
+            {
+              "entry": "f/cb/plain",
+              "result": "number"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-listed-bun-import",
+      "provenance": "policy",
+      "title": "a Bun script that imports a listed codebase script is refused, since the Bun build has no shim for it",
+      "note": "esbuild builds the shared copy of a listed codebase script after the Bun build, with the entry's settings, so the Bun build would inline a second instance of it; only codebase scripts import it through its shim.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/ctx.ts": "export const store = { tenant: null };\n",
+          "f/bun/a.ts": "import { store } from \"../cb/ctx.ts\";\nexport function main() { return store.tenant; }\n"
+        },
+        "contract": "roots:\n  - script: f/bun/a\nhost_modules: [f/cb/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "script f/bun/a",
+            "kind": "unsupported_feature",
+            "contains": [
+              "f/cb/ctx.ts",
+              "only codebase scripts can import it"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-listed-bun-module-import",
+      "provenance": "policy",
+      "title": "a listed module of the Bun build that imports a listed codebase script is refused, since the Bun build has no shim for it",
+      "note": "esbuild builds the shared copy of a listed codebase script after the Bun build, with the entry's settings, so the Bun-built copy of the other listed module would inline a second instance of it.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/ctx.ts": "export const store = { tenant: null };\n",
+          "f/lib/helper.ts": "import { store } from \"../cb/ctx.ts\";\nexport function tenant() { return store.tenant; }\nexport function main() { return tenant(); }\n",
+          "f/bun/a.ts": "import { tenant } from \"../lib/helper.ts\";\nexport function main() { return tenant(); }\n"
+        },
+        "contract": "roots:\n  - script: f/bun/a\nhost_modules: [f/cb/ctx.ts, f/lib/helper.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module f/lib/helper.ts",
+            "kind": "unsupported_feature",
+            "contains": [
+              "f/cb/ctx.ts",
+              "only codebase scripts can import it"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

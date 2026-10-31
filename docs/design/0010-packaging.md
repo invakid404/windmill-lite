@@ -155,14 +155,28 @@ the host was a compiled Bun executable.
    cannot import it; the files of the folder its copy reads are sources of
    the bundle, as a codebase script's are. An entry that leaves the root but
    names no file of a codebase entry's `relative_path` fails the build with
-   `host_module_unknown`, naming the entry (milestone F3h).
+   `host_module_unknown`, naming the entry.
    Only imports of a listed module resolve to its shim: a listed codebase
    script that is itself a root is bundled from its own source, with its
-   entry's settings (WR-47), as is the copy of an outside module. The
-   shared copy of a listed module inside the folder is the Bun build's,
-   even when the module is a codebase script, so its entry's settings
-   (`define`, `loader`) do not reach that copy: a step that reaches the
-   module through its shim runs the Bun-built copy.
+   entry's settings (WR-47), as is the copy of an outside module.
+   - esbuild builds the shared copy of a listed codebase script inside the
+     folder, as it builds an outside module's copy. It uses the entry's
+     settings (`define`, `loader`, `inject`, `banner`) and the folder's
+     `node_modules`, so a step that reaches the module through its shim
+     runs the code that the script's own bundle runs.
+   - These copies register after the modules that the Bun build makes, so
+     only codebase scripts can import them. A Bun script, or a listed
+     module of the Bun build, that imports a listed codebase script fails
+     the build with `unsupported_feature`. The Bun build has no shim for
+     it, so it would inline a second instance.
+   - The shared copy of any other listed module inside the folder is the
+     Bun build's.
+   - Rejected: the Bun build's copy for every listed module inside the
+     folder. It lets a Bun script import a listed codebase script. But the
+     entry's settings and packages do not reach that copy, so a step that
+     reaches the module through its shim runs other code than the script's
+     own bundle. A host that must share such a module with Bun scripts
+     leaves its file out of the codebase entry's `includes`.
 2. **Host mode.** The Bun host SDK registers the host's own instances (the
    modules the host's program imported) before any step module loads.
 3. **Elsewhere.** The harness loads the bundled copy from
@@ -195,8 +209,12 @@ the host was a compiled Bun executable.
    (`export { x } from "./x.js"`) whenever a plugin's resolve filter matches
    the import of that package, even when the callback resolves nothing, and
    the bundle then references a binding it never defines; the Bun helper's
-   filter therefore matches only the specifiers it resolves (milestone
-   F3h).
+   filter therefore matches only the specifiers it resolves. Windmill's own
+   Bun build filters every specifier that ends in `.ts`. So it drops such a
+   module behind a package's bare import that ends in `.ts` (a package
+   named `*.ts`, or a deep `pkg/index.ts`), where windmill-lite keeps it:
+   deviation D19 of [0001](0001-equivalence-contract.md)
+   ([WR-27](../semantics/languages.md#wr-27)).
 
 This departs from Windmill, which inlines every import into each script's
 bundle ([WR-27](../semantics/languages.md#wr-27)): it is deviation D12, and the
@@ -409,10 +427,10 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   Host-provided packages stay refused: 0013 weighed them and chose not to
   add them. Its probes found two limits of host-provided modules as they
   stand:
-  - a listed file inside the folder that imports packages fails to build,
-    since its shared copy is the Bun build's, which resolves no package
-    from the folder's `node_modules`; a file outside the folder, which
-    esbuild builds, does build;
+  - a listed Bun script inside the folder that imports packages fails to
+    build. Its shared copy is the Bun build's, which resolves no package
+    from the folder's `node_modules`. A listed codebase script and a file
+    outside the folder, which esbuild builds, do build;
   - a host compiled with `bun build --compile` resolves no package from
     disk at run time, so a listed module that imports packages must be
     compiled into the host.

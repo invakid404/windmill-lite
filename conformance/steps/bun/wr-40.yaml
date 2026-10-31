@@ -57,19 +57,18 @@ cases:
         expect: {status: success, result: ["1.326.0", true, wl-step-token]}
   - spec: WR-40/c
     provenance: oracle-observed
-    title: a static import of a missing host file fails the load
+    title: "a static import of a missing host file fails the load with the loader's text and the operating system's error, joined by \": \""
+    note: >-
+      windmill-lite reads no file of the host it runs on, so every host file
+      a native script imports is missing, and the text is Windmill's for a
+      file that does not exist on its Linux worker.
     language: nativets
     script: |
       import { x } from "./helper.ts";
       export function main() { return x; }
     runs:
       - args: '{}'
-        claims:
-          - {at: /status, equals: failure}
-          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
-          - {at: /result/error/name, equals: ExecutionErr}
-          - {at: /result/error/step_id, equals: a}
-          - {at: /result/error/stack, absent: true}
+        expect: {status: failure, result: {error: {message: "execution error:\nError: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2)", name: ExecutionErr, step_id: a}}}
   - spec: WR-40/d
     variant: absolute
     provenance: oracle-observed
@@ -106,23 +105,13 @@ cases:
         expect: {status: success, result: [true, true]}
   - spec: WR-40/f
     provenance: oracle-observed
-    title: an uncaught failed dynamic import gives the exception shape, not a load failure
-    note: >-
-      The reference's revision SC4 gives the error's name, TypeError, and
-      its whole message, which Q-WR-21 had left to the oracle;
-      windmill-lite's name is Error, so the claims hold only what both
-      share.
+    title: "an uncaught failed dynamic import gives the exception shape, not a load failure: a TypeError whose message gives the operating system's error under \"Caused by:\""
     language: nativets
     script: |
       export async function main() { await import("./missing.ts"); return 1; }
     runs:
       - args: '{}'
-        claims:
-          - {at: /status, equals: failure}
-          - {at: /result/error/message, prefix: "Failed to load file:///missing.ts", not_contains: [failed to load module]}
-          - {at: /result/error/name, not_contains: [ExecutionErr]}
-          - {at: /result/error/step_id, absent: true}
-          - {at: /result/error/extra, absent: true}
+        expect: {status: failure, result: {error: {message: "Failed to load file:///missing.ts\n  Caused by:\n    No such file or directory (os error 2)", stack: "<stack>", name: TypeError}}}
   - spec: WR-40
     variant: dynamic-client
     provenance: source-derived
@@ -178,7 +167,7 @@ cases:
   - spec: WR-40
     variant: no-client-for-bunnative
     provenance: source-derived
-    title: a //native step's runtime does not load windmill.ts; its client is what its lock inlines
+    title: a //native step's runtime does not load windmill.ts, which fails as a missing host file does; its client is what its lock inlines
     note: The specifier is an argument, so the bundler leaves the import to the runtime.
     script: |
       //native
@@ -187,7 +176,7 @@ cases:
       }
     runs:
       - args: '{"spec":"./windmill.ts"}'
-        expect: {status: success, result: "Failed to load file:///windmill.ts"}
+        expect: {status: success, result: "Failed to load file:///windmill.ts\n  Caused by:\n    No such file or directory (os error 2)"}
   - spec: WR-40
     variant: module-scope-nativets
     provenance: source-derived

@@ -21,7 +21,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 |---|---|
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
 | `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services`, `Providers` and `Services.WithProviders` (H13) |
-| `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState` (PF3) |
+| `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState`; `JSONSyntaxError`, the backend JSON library's text for a body that is not JSON, which the facade's JSON-body routes answer |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
 | `results.go` | the `ResultCache` interface and `MemoryResults`, its local default (N4) |
@@ -133,14 +133,17 @@ starts.
   secret, so the host supplies secrets. `SetResource` refuses a value
   jsonb would refuse (a NUL escape, an unpaired surrogate escape, a number
   beyond numeric's range), as Windmill refuses to create one.
-- **Updates** (F1, [WA-11](../../docs/semantics/client-api.md#wa-11)).
+- **Updates** ([WA-11](../../docs/semantics/client-api.md#wa-11)).
   `Services.UpdateVariable` updates an existing variable through the
   variable service when it is a `VariableUpdater`, as `Store` is: a new
   value replaces the old one (and is plaintext, no longer `Encrypted`), and
-  a new secrecy replaces the old; a missing variable is the read's
-  not-found. A `VariableChain` is one too (F2a): it updates its first
-  service that has the variable, the one a read answers from, which must
-  itself be an updater. A variable service that is not one is read-only
+  a new secrecy replaces the old. Windmill's refusals are kept: a missing
+  variable is the 404 `Not found: Variable not found at name <path>`
+  (without Windmill's location, D14), and a secrecy that differs from the
+  variable's, sent without a value, is the 400 `Bad request: cannot change
+  is_secret without updating value too`. A `VariableChain` is an updater
+  too: it updates its first service that has the variable, the one a read
+  answers from, which must itself be an updater. A variable service that is not one is read-only
   (`ErrReadOnlyVariables`), and the facade answers 501. A runtime that owns
   its store ([wl](../../wl/README.md)) thus keeps a step's update for the
   runs after it.
@@ -187,18 +190,27 @@ for a script job, its job variables.
   `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID`) become known with it, as flow
   jobs of its root, live while the root is, unless the engine registered
   them first.
-- **How long.** A job stays known while its root lives, so a step's job
+- **How long.** A job stays live while its root lives, so a step's job
   can be looked up after it ended. Once the root has ended, the jobs of its
-  tree that have ended are forgotten with their user state; a job still
-  live (a step abandoned at the run's end, D2) stays, with the scopes it
-  runs in, until it ends. A long-lived runtime keeps only the trees of the
-  work it still runs.
+  tree that have ended are no longer live, and their user state is
+  forgotten; a job still live (a step abandoned at the run's end, D2)
+  stays live, with the scopes it runs in, until it ends.
+- **Ended jobs.** `Registry` keeps the id, kind, root and path of each job
+  of an ended tree, without a script job's variables, so that the root
+  lookup still answers it, as Windmill keeps a completed job's row until
+  its job retention removes it, 30 days by default
+  ([WA-19](../../docs/semantics/client-api.md#wa-19)). It keeps the latest
+  4096 such jobs (`endedJobs`) and forgets older ones, whose ids are then
+  unknown: windmill-lite bounds the memory by count, not by age. A job
+  registered again is live again.
 - **The lookups.** `Services.RootJob` answers `getRootJobId`: the
-  effective root of a known job. `Services.JobEnv` gives the job variables
-  of a known script job. `Services.ReadJobEnv` finds the job a resource
-  read's `job_id` names, as Windmill looks it up among the queued and
-  running jobs of the path's workspace
-  ([WA-12](../../docs/semantics/client-api.md#wa-12)/g, FU8): a live script
+  effective root of a known job, live or ended. `Services.JobEnv` gives
+  the job variables of a script job whose tree has not ended, the step
+  ended or not; the ended jobs that the registry keeps have none.
+  `Services.ReadJobEnv` finds the
+  job a resource read's `job_id` names, as Windmill looks it up among the
+  queued and running jobs of the path's workspace
+  ([WA-12](../../docs/semantics/client-api.md#wa-12)/g): a live script
   job of that workspace gives the variables its `$WM_*` strings resolve
   from (`APIEnv`); an unknown id, a job that has ended and a job of
   another workspace fail with the API's 404 `Not found: Job not found at
@@ -349,10 +361,13 @@ One walker implements resolution for the three contracts of
 - `identity_test.go` checks the state path's branches (WA-5/a and WA-5/c
   among them), the variables `Env` sets with and without a host
   configuration, and the token's form.
-- `jobs_test.go` (PF3) checks the registry's lifetime: a run and its jobs,
+- `jobs_test.go` checks the registry's lifetime: a run and its jobs,
   the scopes a script job names, a job that ended while its run lives, a
   step that outlives its run, jobs of a root never registered, and the
-  tree forgotten with nothing left behind; flow user state (WA-14/a's
+  tree's jobs kept as ended jobs, with their roots and without their
+  variables, with no live entry left behind; the bound on ended jobs
+  (`TestRegistryEndedBound`: the oldest forgotten, an id registered and
+  ended again kept by its later end); flow user state (WA-14/a's
   reads and writes, the stored form, the 404 and the 400, and WA-14/c's
   read and write after the run, with its maps forgotten), with a host's
   `Jobs` (writes, reads and the maps forgotten with the run), bounded with
@@ -381,7 +396,8 @@ One walker implements resolution for the three contracts of
   `APIEnv`; `TestInterpolatedReadJobLookup` that a read's job is looked
   up only for a `$WM_*` string, nested resources included, and that a
   failed lookup fails the read (WA-12/g); `TestUpdateVariable` the
-  updates, a chain's included, and `TestWithProviders` the per-run
+  updates, a chain's included, the refusal of a secrecy change without a
+  value and the update's not-found text, and `TestWithProviders` the per-run
   providers and what they share.
 - `json_test.go` checks the double notation, parse and write, and the
   parse errors with their positions, among them the reference's examples

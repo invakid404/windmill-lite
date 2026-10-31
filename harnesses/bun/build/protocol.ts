@@ -20,7 +20,8 @@ export type HostModuleRequest = {
   // The esbuild loader that bundles the source (parse only, with source):
   // its extension's, or its codebase entry's loader override. ts, tsx, js
   // and jsx parse with that syntax; any other loader's file has no
-  // JavaScript to check.
+  // JavaScript to check. Absent when the file has no loader (no suffix
+  // has one, or its loader is "default"): the source is not read.
   loader?: string;
   // The generated shim, in the bundle tree, and the scan's export names
   // (build only).

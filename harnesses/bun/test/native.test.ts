@@ -11,7 +11,7 @@ import { join } from "node:path";
 import vm from "node:vm";
 import { nativeHeader, nativeModule, transpile } from "../build/native.ts";
 import { type InvocationContext, InvocationResources, invocations } from "../runtime/context.ts";
-import { DEFAULT_USER_AGENT, Native, type NativeForm, NativeJob, WEB_GLOBALS } from "../runtime/native.ts";
+import { DEFAULT_USER_AGENT, Native, type NativeForm, NativeJob, STALLED, WEB_GLOBALS } from "../runtime/native.ts";
 
 // Runs a module's native form in a fresh context with the imports given,
 // with an empty preamble, and returns its namespace.
@@ -509,6 +509,75 @@ describe("a native realm", () => {
     await invocations.run(ctx, async () => g.performance.timing);
     expect(unowned).toEqual(["no job: Promise", "settled: PerformanceTiming"]);
     expect(j.untracked).toEqual({ PerformanceTiming: 2, WeakMap: 1, "function harnessFunction": 1 });
+  });
+
+  test("a pending entrypoint is given up as unable to settle only once nothing it holds could settle it (WR-43)", async () => {
+    // What outcome gives within ms: the entrypoint's value, STALLED, or
+    // "waiting" while it is still checking.
+    const within = (p: Promise<unknown>, ms: number) => Promise.race([p, Bun.sleep(ms).then(() => "waiting")]);
+    const never = (j: NativeJob) => new j.g.Promise(() => {});
+
+    // Nothing pending: given up after two checks.
+    {
+      const { j, ctx } = registered();
+      expect(await invocations.run(ctx, () => within(j.outcome(never(j)), 200))).toBe(STALLED);
+      // A value, or a promise that settles, is the entrypoint's outcome.
+      expect(await invocations.run(ctx, () => j.outcome(7))).toBe(7);
+      const late = new j.g.Promise((r: (v: unknown) => void) => j.g.setTimeout(() => r("late"), 30));
+      expect(await invocations.run(ctx, () => j.outcome(late))).toBe("late");
+    }
+    // A timer, then a web API promise, each holds it until it ends.
+    {
+      const { native, j, ctx } = registered();
+      let give: (v: unknown) => void = () => {};
+      const out = invocations.run(ctx, () => {
+        j.g.setTimeout(() => {}, 60);
+        return j.outcome(never(j));
+      });
+      expect(await within(out, 40)).toBe("waiting");
+      invocations.run(ctx, () => native.toRealm(new Promise((r) => (give = r))));
+      expect(await within(out, 80)).toBe("waiting");
+      give(1);
+      expect(await within(out, 200)).toBe(STALLED);
+    }
+    // An event listener, a built-in the engine settles by itself, or
+    // anything handed over untracked holds it for good.
+    const holds: ((native: Native, j: NativeJob) => void)[] = [
+      (_, j) => {
+        new j.g.MessageChannel().port1.onmessage = () => {};
+      },
+      (_, j) => {
+        j.g.Atomics.waitAsync(new j.g.Int32Array(new j.g.SharedArrayBuffer(4)), 0, 0, 10);
+      },
+      (native) => {
+        native.toRealm(new WeakMap());
+      },
+    ];
+    for (const hold of holds) {
+      const { native, j, ctx } = registered();
+      const out = invocations.run(ctx, () => {
+        hold(native, j);
+        return j.outcome(never(j));
+      });
+      expect(await within(out, 100)).toBe("waiting");
+    }
+    // So does a web API promise handed to no invocation since it began,
+    // which could be its own work.
+    {
+      const { j, ctx } = registered();
+      unowned.length = 0;
+      const out = invocations.run(ctx, () => j.outcome(never(j)));
+      await new j.g.Blob(["o"]).text();
+      expect(unowned).toEqual(["no job: Promise"]);
+      expect(await within(out, 100)).toBe("waiting");
+    }
+    // Once the invocation settles otherwise, checking stops.
+    {
+      const { j, ctx, resources } = registered();
+      const out = invocations.run(ctx, () => j.outcome(never(j)));
+      resources.settle();
+      expect(await within(out, 100)).toBe("waiting");
+    }
   });
 
   test("a stream error the script catches is no unhandled rejection, as with Bun's own stream (c3n review r2, finding 4)", async () => {

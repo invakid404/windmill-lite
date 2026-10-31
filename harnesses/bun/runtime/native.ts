@@ -20,7 +20,9 @@
 // realm, never hydrated (WR-41); the result is JSON.stringify(value ??
 // null) in the realm, with no replacer (WR-42); a thrown value becomes
 // {message, stack, name}, and anything that fails before the module runs
-// an `execution error:` (WR-43). The process-level errors of a native
+// an `execution error:` (WR-43), as does an entrypoint whose promise is
+// pending when nothing the invocation holds could settle it any more
+// (NativeJob.outcome). The process-level errors of a native
 // invocation are attributed to it through its realm as well as its async
 // context, so an unhandled rejection fails it (WR-43); runtime.ts routes
 // them here.
@@ -69,6 +71,10 @@ export type NativeInvocation = {
   args: Record<string, unknown>;
   env: Record<string, string>;
   resources: InvocationResources;
+  /** Whether the engine no longer waits for the invocation's outcome:
+   * it was abandoned, its outcome is fixed, or it has settled. Absent
+   * means the engine waits until the entrypoint settles. */
+  stopped?: () => boolean;
 };
 
 /** The web APIs the native runtime installs (WR-45), by name. Bun 1.3.10
@@ -142,8 +148,45 @@ const LISTENER_METHODS = new Set(["addEventListener", "removeEventListener"]);
 const NULL_BODY = new Set([101, 103, 204, 205, 304]);
 
 /** A failure to load a native module: its static imports, its link or its
- * compilation. It fails the step as an `execution error:` (WR-43). */
-class LoadFailure extends Error {}
+ * compilation. It fails the step as an `execution error:` (WR-43). A
+ * failure with a reason, the operating system's error behind a file that
+ * could not be read, reports it after its text: joined by `: ` in the
+ * message, which a static load reports, and under `Caused by:` in the
+ * TypeError that a dynamic import rejects with (dynamicMessage,
+ * {@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-40 | WR-40}). */
+class LoadFailure extends Error {
+  constructor(
+    readonly text: string,
+    readonly reason?: string,
+  ) {
+    super(reason === undefined ? text : `${text}: ${reason}`);
+  }
+
+  /** The message of the TypeError that a dynamic import of the module
+   * rejects with: the failure's text, then, when it has a reason, the line
+   * `  Caused by:` and the reason indented by four spaces. */
+  get dynamicMessage(): string {
+    return this.reason === undefined ? this.text : `${this.text}\n  Caused by:\n    ${this.reason}`;
+  }
+}
+
+/** The operating system's error that Windmill's Linux worker reports for a
+ * file that does not exist. windmill-lite reads no file of the host it
+ * runs on, so every host file that a native script imports is missing
+ * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-40 | WR-40}). */
+const NO_SUCH_FILE = "No such file or directory (os error 2)";
+
+/** The native runtime's text for an entrypoint whose promise is pending
+ * when nothing is left that could settle it
+ * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-43 | WR-43}). */
+const PENDING_TEXT = "Promise resolution is still pending but the event loop has already resolved";
+
+/** How often, in ms, a native invocation whose entrypoint is pending is
+ * checked for work that could still settle it (NativeJob.outcome). */
+const IDLE_CHECK_MS = 10;
+
+/** NativeJob.outcome's value for an entrypoint that can no longer settle. */
+export const STALLED = Symbol("stalled");
 
 /** The functions every native realm runs before any of its script's code:
  * the argument copy, which builds each argument in the realm from its
@@ -213,6 +256,12 @@ export class Native {
   private timers = { ...realTimers, queueMicrotask };
   private fetch: typeof fetch = fetch;
   private console: Console = console;
+  /** How many times the boundary handed something to a native realm with
+   * no invocation to own it: an untracked object or a promise, or an
+   * event listener. An invocation whose entrypoint is pending is not
+   * failed as unable to settle once this has grown since it began
+   * (NativeJob.idle). */
+  unattributed = 0;
 
   constructor(
     private opts: {
@@ -425,6 +474,11 @@ export class Native {
    * invocation's, and passes on its event and its this (toRealm). An
    * object's handleEvent is read when the event arrives. */
   private listener(target: object, l: object): (e: unknown) => unknown {
+    // An event can settle what an invocation waits for, at a time the
+    // harness cannot see.
+    const job = this.currentJob();
+    if (job !== undefined) job.listening = true;
+    else this.unattributed++;
     let byTarget = this.listeners.get(target);
     if (byTarget === undefined) this.listeners.set(target, (byTarget = new WeakMap()));
     let w = byTarget.get(l);
@@ -602,6 +656,7 @@ export class Native {
     if (proto === Promise.prototype) Object.setPrototypeOf(p, this.trackedProto!);
     else if (proto !== this.trackedProto) this.untracked(job, `${proto?.constructor?.name ?? "Promise"} (its continuations)`);
     this.tracked.set(p, job);
+    job.give(p);
     return p;
   }
 
@@ -609,8 +664,12 @@ export class Native {
    * not track, on its job, which reports the count when it settles; or,
    * when no unsettled job can count it, reports it through onUntracked. */
   private untracked(job: NativeJob | undefined, kind: string) {
-    if (job !== undefined && !job.inv.resources.settled) job.count(kind);
-    else this.opts.onUntracked(job, kind);
+    if (job !== undefined && !job.inv.resources.settled) {
+      job.count(kind);
+      return;
+    }
+    if (job === undefined) this.unattributed++;
+    this.opts.onUntracked(job, kind);
   }
 
   /** A callback a web API method calls: its this and its arguments passed
@@ -748,7 +807,8 @@ export class Native {
       const fn = ns[entry];
       // The call goes through the module namespace (WR-41).
       if (typeof fn !== "function") throw new job.g.TypeError(`${entry} is not a function`);
-      const value = await fn.apply(ns, job.bind(sig?.params ?? [], inv.args));
+      const value = await job.outcome(fn.apply(ns, job.bind(sig?.params ?? [], inv.args)));
+      if (value === STALLED) return { error: signatureErrorText(PENDING_TEXT, stepId), generated: true };
       return { ok: job.stringify(value) };
     } catch (e) {
       return { error: job.errorText(e) };
@@ -830,12 +890,32 @@ export class NativeJob {
   /** What the boundary handed this invocation untracked, by kind
    * (Native.untracked). */
   private untrackedKinds = new Map<string, number>();
+  /** The web APIs' promises handed to this invocation (Native.promise),
+   * each until it is seen settled. They are held weakly, so a settled
+   * promise's value is freed once the script drops it; a promise that is
+   * collected can settle nothing. */
+  private given = new Set<WeakRef<Promise<unknown>>>();
+  /** The size of given at which give prunes it next: twice the pending
+   * promises that the last pruning left, and at least 64. */
+  private pruneAt = 64;
+  /** Set once the invocation registers an event listener or an on…
+   * handler: an event can arrive at a time the harness cannot see. */
+  listening = false;
+  /** Set once the invocation calls a built-in whose promise the engine
+   * settles by itself (Atomics.waitAsync, WebAssembly's asynchronous
+   * compilation), at a time the harness cannot see. */
+  private engineWork = false;
+  /** The dynamic imports in flight. */
+  private importing = 0;
+  /** Native.unattributed when the invocation began. */
+  private unattributedAtOpen: number;
 
   constructor(
     private native: Native,
     readonly inv: NativeInvocation,
     private form: NativeForm,
   ) {
+    this.unattributedAtOpen = native.unattributed;
     this.ctx = vm.createContext();
     this.g = vm.runInContext("globalThis", this.ctx);
     this.realm = REALM_SCRIPT.runInContext(this.ctx)();
@@ -846,6 +926,97 @@ export class NativeJob {
   /** Counts one thing the boundary handed this invocation untracked. */
   count(kind: string) {
     this.untrackedKinds.set(kind, (this.untrackedKinds.get(kind) ?? 0) + 1);
+  }
+
+  /** Records a web API's promise handed to this invocation. */
+  give(p: Promise<unknown>) {
+    if (this.given.size >= this.pruneAt) {
+      this.prune();
+      this.pruneAt = Math.max(64, 2 * this.given.size);
+    }
+    this.given.add(new WeakRef(p));
+  }
+
+  /** Drops the given promises that have settled or been collected, and
+   * returns whether one is still pending. */
+  private prune(): boolean {
+    let pending = false;
+    for (const ref of this.given) {
+      const p = ref.deref();
+      if (p !== undefined && Bun.peek.status(p) === "pending") pending = true;
+      else this.given.delete(ref);
+    }
+    return pending;
+  }
+
+  /** The entrypoint's value, or STALLED once its promise is pending and
+   * nothing is left that could settle it (idle). The native runtime then
+   * fails the job at once with its pending-promise text, where a runtime
+   * that kept waiting would run to the step's timeout
+   * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-43 | WR-43}).
+   *
+   * The invocation is checked every IDLE_CHECK_MS ms, and it takes two
+   * idle checks in a row: Bun reports a rejection nobody handles after
+   * its microtasks run, so that rejection fails the invocation first, as
+   * it does on Windmill. Checking stops once the entrypoint settles, or
+   * once the engine no longer waits for the invocation (stopped): its
+   * timeout or a cancel abandoned it, its outcome was fixed otherwise, or
+   * it settled. */
+  outcome(r: unknown): Promise<unknown> {
+    if (!types.isPromise(r) || Bun.peek.status(r) !== "pending") return Promise.resolve(r);
+    const { timers } = this.native.hooks;
+    return new Promise((resolve, reject) => {
+      let ended = false;
+      Promise.resolve(r).then(
+        (v) => {
+          ended = true;
+          resolve(v);
+        },
+        (e) => {
+          ended = true;
+          reject(e);
+        },
+      );
+      let quiet = 0;
+      const check = () => {
+        if (ended || this.inv.resources.settled || this.inv.stopped?.()) return;
+        quiet = this.idle() ? quiet + 1 : 0;
+        if (quiet < 2) {
+          timers.setTimeout(check, IDLE_CHECK_MS);
+          return;
+        }
+        ended = true;
+        resolve(STALLED);
+      };
+      timers.setTimeout(check, IDLE_CHECK_MS);
+    });
+  }
+
+  /** Whether nothing the harness can see could still settle the
+   * entrypoint's promise. The invocation is idle when all of these hold:
+   *
+   * - no timer, request or other resource of it is pending;
+   * - no web API promise handed to it is pending;
+   * - no dynamic import of it is in flight;
+   * - it holds nothing whose end the harness cannot see: an event listener
+   *   or handler, a call of a built-in that the engine completes by
+   *   itself, or anything the boundary handed it untracked;
+   * - the boundary has handed nothing to a realm with no invocation to
+   *   own it since the invocation began, since that could be this
+   *   invocation's work.
+   *
+   * Each of these keeps a step that could still settle from failing early;
+   * a step that cannot settle but holds one of them runs to its timeout.
+   * The realm reaches the rest of the process only through the web APIs,
+   * so nothing else can settle its promises. A script that changes a
+   * web API object shared with other invocations, such as a class's
+   * prototype, is the exception: what another invocation does with that
+   * object stays unseen. */
+  private idle(): boolean {
+    if (this.listening || this.engineWork || this.importing > 0 || this.untrackedKinds.size > 0) return false;
+    if (this.native.unattributed !== this.unattributedAtOpen) return false;
+    if (Object.keys(this.inv.resources.pending()).length > 0) return false;
+    return !this.prune();
   }
 
   /** What the boundary handed this invocation untracked, by kind in
@@ -899,6 +1070,26 @@ export class NativeJob {
     const events = new (this.native.webGlobals.EventTarget as typeof EventTarget)();
     for (const k of ["addEventListener", "removeEventListener", "dispatchEvent"] as const) define(k, events[k].bind(events));
     define("Deno", Object.freeze({ core: Object.freeze({}) }));
+    // The engine settles these built-ins' promises by itself, which the
+    // harness cannot see (NativeJob.idle).
+    const engineAsync: [Record<string, unknown> | undefined, string[]][] = [
+      [g.Atomics, ["waitAsync"]],
+      [g.WebAssembly, ["compile", "instantiate", "compileStreaming", "instantiateStreaming"]],
+    ];
+    for (const [o, names] of engineAsync) {
+      for (const n of names) {
+        const f = o?.[n];
+        if (o === undefined || typeof f !== "function") continue;
+        const value = {
+          [n]: (...a: unknown[]) => {
+            this.engineWork = true;
+            return Reflect.apply(f, o, a);
+          },
+        }[n];
+        Object.defineProperty(value, "length", { value: f.length });
+        Object.defineProperty(o, n, { value, writable: true, enumerable: false, configurable: true });
+      }
+    }
   }
 
   /** setTimeout or setInterval of the realm: numeric ids, as the web API
@@ -1032,14 +1223,15 @@ export class NativeJob {
 
   /** The module at a resolved URL: the embedded client, for a nativets
    * script (WR-40), loaded once per job; anything else cannot be loaded,
-   * since windmill-lite reads no file of the host it runs on. */
+   * since windmill-lite reads no file of the host it runs on, and fails as
+   * a missing file does on Windmill's worker (NO_SUCH_FILE). */
   private module(url: string): Promise<Record<string, unknown>> {
     let p = this.modules.get(url);
     if (p === undefined) {
       if (url === CLIENT_URL && this.form.kind === "nativets") {
         p = this.native.client().then((form) => this.load(join("scripts", "native", "windmill.js"), form, CLIENT_URL));
       } else {
-        p = Promise.reject(new LoadFailure(`Failed to load ${url}`));
+        p = Promise.reject(new LoadFailure(`Failed to load ${url}`, NO_SUCH_FILE));
       }
       // Rejections are read by whoever awaits; a later import sees the
       // same outcome.
@@ -1051,7 +1243,9 @@ export class NativeJob {
 
   /** import(…) of the realm: a promise of the realm that resolves to the
    * module's namespace, or rejects with an error the script can catch
-   * (WR-40). */
+   * (WR-40). A module that fails to load rejects it with a TypeError,
+   * whatever the failure, as the native runtime turns every loader failure
+   * of a dynamic import into one. */
   private dynamicImport(spec: unknown) {
     const g = this.g;
     return new g.Promise((ok: (v: unknown) => void, fail: (e: unknown) => void) => {
@@ -1066,7 +1260,17 @@ export class NativeJob {
         fail(new g.TypeError(target.error));
         return;
       }
-      this.module(target).then(ok, (e) => fail(e instanceof LoadFailure ? new g.Error(e.message) : e));
+      this.importing++;
+      this.module(target).then(
+        (ns) => {
+          this.importing--;
+          ok(ns);
+        },
+        (e) => {
+          this.importing--;
+          fail(e instanceof LoadFailure ? new g.TypeError(e.dynamicMessage) : e);
+        },
+      );
     });
   }
 

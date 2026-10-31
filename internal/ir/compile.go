@@ -512,6 +512,11 @@ func (c *compiler) deviations() {
 		if s.Bundling == BundlingNone {
 			set["D7"] = true
 		}
+		if s.Bundling == BundlingBundled {
+			// Windmill's bundled mode drops a module that windmill-lite's
+			// build keeps; its unbundled mode keeps it too.
+			set["D19"] = true
+		}
 		if s.Codebase != nil && s.Codebase.Format == "cjs" {
 			set["D13"] = true
 		}

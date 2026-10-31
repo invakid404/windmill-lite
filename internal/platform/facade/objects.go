@@ -7,19 +7,27 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The object store routes of ADR 0007's ObjectStore (milestone PF3): the
-// job helpers loadS3File and writeS3File call (WA-16), for explicit keys.
-// What the client contract leaves to the server (a generated key, a
-// resource's own bucket) and deletion are `later` and answer 501, as does
-// every call when no object store is configured.
+// The object store routes of ADR 0007's ObjectStore: the job helpers
+// loadS3File and writeS3File call (WA-16), for explicit keys. What the
+// client contract leaves to the server (a generated key, a resource's own
+// bucket) and deletion are not served, and answer 501. With no object
+// store configured, every call answers 500, as Windmill CE answers an
+// upload when the workspace has no storage.
 func (f *Facade) serveObjects() {
 	f.Handle("fileUpload", f.upload)
 	f.Handle("fileDownload", f.download)
 }
 
 // objectRequest reads the object a job-helper call names: its storage
-// (platform.DefaultStorage when it names none) and its key, or the 501 of
-// what the object store does not serve.
+// (platform.DefaultStorage when it names none) and its key, or the refusal
+// of a call the object store cannot serve. With no object store, that is
+// a 500, the status the stock client met on Windmill CE with no workspace
+// storage ([WA-16]/d): its writeS3File threw the generated client's
+// "Internal Server Error". CE's body was not recorded, so the text is
+// windmill-lite's, and the download, which the recording did not cover,
+// answers the same. What the store does not serve answers 501.
+//
+// [WA-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-16
 func (f *Facade) objectRequest(c *Call) (storage, key string, refused *Reply) {
 	refuse := func(why string) (string, string, *Reply) {
 		r := text(501, UnsupportedPrefix+c.Route.Name()+" "+why)
@@ -28,7 +36,8 @@ func (f *Facade) objectRequest(c *Call) (storage, key string, refused *Reply) {
 	key = c.Query.Get("file_key")
 	switch {
 	case f.platform.Objects == nil:
-		return refuse("(no object store is configured)")
+		r := Error{Variant: "InternalErr", Message: "windmill-lite: no object store is configured"}.Reply()
+		return "", "", &r
 	case key == "":
 		return refuse("without file_key (a key the server generates)")
 	case c.Query.Get("s3_resource_path") != "":

@@ -2,7 +2,8 @@
 # run is exactly {message, stack, name}, with no step_id and no extra: an
 # Error's name and message decoded together, its stack after the source
 # line its first frame points at; three nulls for any other value. Anything
-# that fails before the module runs is the worker's `execution error:`.
+# that fails before the module runs is the worker's `execution error:`, as
+# is an entrypoint whose promise is pending with nothing left to settle it.
 # "Both kinds" cases run once as nativets and once as a bun script whose
 # first line is //native.
 finding: WR-43
@@ -119,6 +120,92 @@ cases:
     runs:
       - args: '{}'
         expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+  - spec: WR-43/e
+    variant: nativets
+    provenance: oracle-observed
+    title: a promise that never settles, with nothing pending, fails at once, not at the step's timeout (nativets)
+    language: nativets
+    timeout: 10
+    script: |
+      export function main() { return new Promise(() => {}); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nPromise resolution is still pending but the event loop has already resolved", name: ExecutionErr, step_id: a}}}
+  - spec: WR-43/e
+    variant: bunnative
+    provenance: oracle-observed
+    title: a promise that never settles, with nothing pending, fails at once, not at the step's timeout (bunnative)
+    timeout: 10
+    script: |
+      //native
+      export function main() { return new Promise(() => {}); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nPromise resolution is still pending but the event loop has already resolved", name: ExecutionErr, step_id: a}}}
+  - spec: WR-43
+    variant: pending-after-work
+    provenance: source-derived
+    title: once its timer, web API promise and request have ended, a promise that never settles fails as nothing pending
+    note: >-
+      Each awaited piece of work keeps the step from failing early while
+      it runs; the step fails at once after the last one ends.
+    language: nativets
+    timeout: 10
+    script: |
+      export async function main() {
+        await new Promise(r => setTimeout(r, 20));
+        await crypto.subtle.digest("SHA-256", new Uint8Array(1));
+        await (await fetch("data:text/plain,ok")).text();
+        return new Promise(() => {});
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nPromise resolution is still pending but the event loop has already resolved", name: ExecutionErr, step_id: a}}}
+  - spec: WR-43
+    variant: pending-listener
+    provenance: policy
+    title: a pending promise that an event listener could settle runs to the step's timeout
+    deviation: D2
+    note: >-
+      The harness cannot see when an event arrives, so a step that
+      registered an event listener or handler is never failed as having
+      nothing pending: it waits, as it would for a message that does come.
+      In warm mode the timeout abandons the call, which stays in flight
+      (D2).
+    language: nativets
+    timeout: 1
+    script: |
+      export function main() {
+        const { port1 } = new MessageChannel();
+        return new Promise(r => { port1.onmessage = r; });
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "execution error:\nQuery timeout after (>1s)", name: ExecutionErr, step_id: a}}}
+            settled: pending
+          fresh:
+            expect: {status: failure, result: {error: {message: "execution error:\nQuery timeout after (>1s)", name: ExecutionErr, step_id: a}}}
+  - spec: WR-43
+    variant: pending-engine-work
+    provenance: policy
+    title: a promise the engine settles by itself is waited for
+    note: >-
+      Atomics.waitAsync's promise is settled by the engine, at a time the
+      harness cannot see, so a step that calls it is never failed as
+      having nothing pending; here the wait times out after 50 ms and the
+      step returns.
+    language: nativets
+    timeout: 10
+    script: |
+      export async function main() {
+        const i32 = new Int32Array(new SharedArrayBuffer(4));
+        return await Atomics.waitAsync(i32, 0, 0, 50).value;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: timed-out}
   - spec: WR-43
     variant: web-api-rejection-nativets
     provenance: source-derived
@@ -452,18 +539,26 @@ cases:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: TypeError}
           - {at: /result/error/step_id, absent: true}
-  - spec: WR-43
-    variant: replaced-stack
-    provenance: policy
-    title: a stack replaced by a non-string is dropped, and with it every frame
+  - spec: WR-43/i
+    variant: nativets
+    provenance: oracle-observed
+    title: a stack replaced by a non-string is dropped, and with it every frame (nativets)
     note: >-
-      WR-43/i, which is deferred: JavaScriptCore reads frames only from the
-      stack text, so windmill-lite gives null. The semantics revision SC5
-      corrected the case to null on Windmill too (batch E3f, oracle run
-      40990751153): the native runtime collects the source line only when
-      it first formats the stack, which a stack assigned first never is.
+      Windmill's native runtime collects the source line only when it first
+      formats the stack, which a stack assigned first never is; JavaScriptCore
+      keeps a thrown error's frames only in its stack text. Both give null.
     language: nativets
     script: |
+      export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: m, stack: null, name: Error}}}
+  - spec: WR-43/i
+    variant: bunnative
+    provenance: oracle-observed
+    title: a stack replaced by a non-string is dropped, and with it every frame (bunnative)
+    script: |
+      //native
       export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }
     runs:
       - args: '{}'

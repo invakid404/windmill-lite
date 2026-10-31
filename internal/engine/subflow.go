@@ -45,6 +45,9 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	r.addChild(c)
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
+	if e.unreported {
+		return r.unreportedJob(ctx, fr, o, e)
+	}
 	o.rec.Cached = e.cached
 	// The subflow's completion ends its step's job, which refreshes fr's
 	// ping (JE-2).
@@ -104,7 +107,7 @@ func carryOn(o outcome, e flowEnd) outcome {
 func (r *run) subflowFrame(fr *frame, i int, sub *ir.Flow, stored jsonval.Value) *frame {
 	now := r.clock.Now()
 	c := newFrame(sub.Modules, fr.sites[i])
-	c.site, c.child, c.id, c.pinged, c.started = fr.sites[i], true, newUUID(), now, now
+	c.site, c.child, c.subflow, c.id, c.pinged, c.started = fr.sites[i], true, true, newUUID(), now, now
 	c.def, c.failure = sub, sub.FailureModule
 	c.input = jsonval.FromProducer(flowInputText(stored.Producer(), fr.rng))
 	c.path, c.nodes, c.rng = sub.Path, newNodeScope(fr.nodes), fr.rng

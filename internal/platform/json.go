@@ -174,8 +174,13 @@ func (e *parseError) Error() string {
 	return fmt.Sprintf("%s at line %d column %d", e.msg, e.line, e.column)
 }
 
-// recursionLimit is how deeply the library nests arrays and objects when
-// it parses.
+// recursionLimit is the library's nesting budget when it parses: each array
+// or object opened takes one, and the one that would use the last fails,
+// so a value nests at most 127 deep and the array or object opened at
+// depth 128 fails ([FX-42] rule 9, [JE-49]).
+//
+// [FX-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-42
+// [JE-49]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-49
 const recursionLimit = 128
 
 // parser reads one JSON text with the library's rules.
@@ -269,7 +274,7 @@ func (p *parser) literal(word string, k kind) (*node, error) {
 }
 
 func (p *parser) nest() error {
-	if p.depth++; p.depth > recursionLimit {
+	if p.depth++; p.depth >= recursionLimit {
 		return p.fail("recursion limit exceeded", p.pos+1)
 	}
 	return nil
@@ -334,6 +339,11 @@ func (p *parser) object() (*node, error) {
 	for {
 		p.space()
 		switch {
+		case p.pos >= len(p.src) && len(n.keys) > 0:
+			// After a comma a key is due, and the library reports the end
+			// of the text there as a missing value, not as an unclosed
+			// object.
+			return nil, p.fail("EOF while parsing a value", p.pos)
 		case p.pos >= len(p.src):
 			return nil, p.fail("EOF while parsing an object", p.pos)
 		case p.src[p.pos] != '"':

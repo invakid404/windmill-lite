@@ -1,19 +1,18 @@
 # internal/platform/facade
 
-**Current state:** milestones PF1 to PF3 of
-[ADR 0012](../../../docs/design/0012-layout-and-milestones.md): the platform
-facade of [ADR 0007](../../../docs/design/0007-platform-interface.md). This
-README covers `internal/platform/facade`. It is the Go router behind the
-stock client's platform calls: the routes of Windmill's API, attribution of
-every call to the invocation that made it over two transports, the 501
-policy for the routes windmill-lite does not serve, and Windmill's
-`text/plain` error bodies. It serves the root lookup (PF1), the resource
-and variable reads (PF2), and the job registry's lookups, flow user state,
-dispatch and its result polls, and the object store (PF3), and a
-variable's update (F1); milestone FU8 aligned its answers for a token's
-workspace, an unknown job and a read's `job_id` with the reference's
-revision of 2026-10-29. Job identity
-and the services are [internal/platform](../README.md).
+**Current state:** the platform facade of
+[ADR 0007](../../../docs/design/0007-platform-interface.md) serves the root
+lookup, the resource and variable reads, a variable's update, flow user
+state, dispatch and its result polls, and the object store; every other
+route of Windmill's API answers 501. This README covers
+`internal/platform/facade`. Job identity and the services are
+[internal/platform](../README.md).
+
+The facade is the Go router behind the stock client's platform calls. It
+attributes every call to the invocation that made it, over two
+transports. It answers with Windmill's statuses, `text/plain` error bodies
+and web framework rejections, and applies the 501 policy to the routes
+windmill-lite does not serve.
 
 ## Files
 
@@ -23,11 +22,12 @@ and the services are [internal/platform](../README.md).
 | `routes.go`, `routes.json` | The route table and its matching |
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |
-| `jobs.go` | The root lookup, flow user state and the result polls, from the job registry and the dispatcher (PF1, PF3, FU8) |
-| `providers.go` | The resource and variable reads (PF2), a read's `job_id` (FU8), and the variable update (F1), answered from the caller's run's own services when it has them (H13, F2a) |
-| `dispatch.go` | The dispatch routes (PF3) |
-| `objects.go` | The object store's job helpers (PF3) |
+| `jobs.go` | The root lookup, flow user state and the result polls, from the job registry and the dispatcher |
+| `providers.go` | The resource and variable reads, a read's `job_id`, and the variable update, answered from the caller's run's own services when it has them (H13) |
+| `dispatch.go` | The dispatch routes |
+| `objects.go` | The object store's job helpers |
 | `errors.go` | `Error`: an API error as a reply, with the variants of `platform.Error` (WA-42) |
+| `extract.go` | The web framework's rejections of a request it cannot extract (a UUID parameter, a JSON body) and the content type of a handler's text answer (WA-42) |
 
 ## Routes
 
@@ -64,27 +64,30 @@ waits on a call that has failed.
 The root lookup, `getRootJobId`, `GET /w/{ws}/jobs_u/get_root_job_id/{id}`,
 answers the effective root of the job as a JSON string
 ([WA-14](../../../docs/semantics/client-api.md#wa-14),
-[WA-V1](../../../docs/semantics/client-api.md#wa-v1)) from the job registry
+[WA-V1](../../../docs/semantics/client-api.md#wa-v1)), from the job
+registry
 ([internal/platform](../README.md#the-job-registry-and-flow-user-state),
-D3): a job of a run that is still running, its job ended or not, a flow
-scope one of its jobs runs in, or the run itself. The facade registers
-each invocation there as a script job while it runs (`Register`, its
-`WM_JOB_ID`, `WM_ROOT_JOB_ID` and `WM_JOB_PATH`), and the engine each flow
-run. An id with no job in the path's workspace answers as Windmill
-answers one with no job row
-([WA-19](../../../docs/semantics/client-api.md#wa-19)/b, FU8): `400`
-`text/plain` `SqlErr: no rows returned by a query that expected to return
-at least one row`, without Windmill's Rust location (D14). That is an id
-the registry does not know of (a job of a run that has ended is forgotten,
-where Windmill, keeping its job rows, would still answer its root), any
-id looked up in a workspace other than the caller's, and an id that is
-not a UUID, which Windmill's web framework refuses with a `400` of its own
-(WA-19/c).
+D3). The facade registers each invocation there as a script job while it
+runs (`Register`, its `WM_JOB_ID`, `WM_ROOT_JOB_ID` and `WM_JOB_PATH`),
+and the engine each flow run. The lookup answers:
+
+- **A known job:** a job of a run that is still running, ended or not, a
+  flow scope one of its jobs runs in, the run itself, and a job of a run
+  that has ended. Windmill keeps a completed job's row until its job
+  retention removes it, and the registry keeps the latest 4096 ended jobs
+  ([WA-19](../../../docs/semantics/client-api.md#wa-19)).
+- **No job in the path's workspace:** an id the registry does not know of
+  or has forgotten, and any id looked up in a workspace other than the
+  caller's. It answers as Windmill answers an id with no job row (WA-19/b):
+  `400` `text/plain` `SqlErr: no rows returned by a query that expected
+  to return at least one row`, without Windmill's Rust location (D14).
+- **An id that is not a UUID:** the web framework's `400` (WA-19/c,
+  [Request rejections](#request-rejections)).
 
 **The resource and variable reads** (PF2) answer from `Config.Platform`
 ([internal/platform](../README.md#services)), nil meaning none, so every
 read is a not-found; for an invocation whose run chose its own providers
-(H13, F2a: `engine.Invocation.Platform`, kept as `Caller.Platform`), they
+(H13: `engine.Invocation.Platform`, kept as `Caller.Platform`), they
 and the variable update answer from those services instead, which share
 the facade's job registry, flow user state, object store and dispatcher
 that the other routes answer from. They keep the three resource-read contracts of
@@ -93,22 +96,49 @@ that the other routes answer from. They keep the three resource-read contracts o
 
 | Operation | Route | Answer |
 |---|---|---|
-| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)); `$WM_*` strings stay literal without `job_id`; with one, the job is looked up only when the walk meets a `$WM_*` string, at each one, as Windmill looks it up (FU8, WA-12/g), so a value without one reads as if no `job_id` had been sent; the job must be a live job of the path's workspace, whose stored fields the strings then are (`platform.ReadJobEnv`, `platform.APIEnv`), else `404` `Not found: Job not found at name <id>`; a live flow job, whose job variables the registry does not keep, answers 501; `allow_cache` is ignored |
+| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)), with `$WM_*` strings literal unless `job_id` is given; `allow_cache` is ignored; [A read's `job_id`](#a-reads-job_id) |
 | `getResourceValue` | `GET /w/{ws}/resources/get_value/{path}` | the stored value, nothing resolved (contract (a)) |
 | `existsResource`, `existsVariable` | `GET /w/{ws}/resources/exists/{path}`, `…/variables/exists/{path}` | `true` or `false` |
 | `getVariableValue` | `GET /w/{ws}/variables/get_value/{path}` | the value as a JSON string, a secret's plaintext through `Secrets` and the value resolvers ([WA-11](../../../docs/semantics/client-api.md#wa-11)) |
 
-`updateVariable`, `POST /w/{ws}/variables/update/{path}` (F1,
-[WA-11](../../../docs/semantics/client-api.md#wa-11)), updates an existing
+<a id="a-reads-job_id"></a>
+**A read's `job_id`** (WA-12/g) is checked before the read: a value that
+is not a UUID, the empty one included, is refused with `400`, whatever
+the resource holds ([Request rejections](#request-rejections)).
+
+A UUID's job is looked up only when the walk meets a `$WM_*` string, at each one,
+as Windmill looks it up, so a value without one reads as if no `job_id`
+had been sent. The job must be a live job of the path's workspace, whose
+stored fields the strings then are (`platform.ReadJobEnv`,
+`platform.APIEnv`), else the read answers `404` `Not found: Job not found
+at name <id>`. A live flow job, whose job variables the registry does not
+keep, answers 501.
+
+`updateVariable`, `POST /w/{ws}/variables/update/{path}`
+([WA-11](../../../docs/semantics/client-api.md#wa-11)), updates an existing
 variable in the services' variable store (`platform.Services.UpdateVariable`),
-which later reads, the engine's included, see: the body is an
-`EditVariable`, whose `value` replaces the value and whose `is_secret`
-sets its secrecy; a missing variable is the read's 404, and a body that is
-not an `EditVariable` a 400. It answers 200 `text/plain` (`updated variable
-<path>`), as the API's schema gives it; the reference does not give
-Windmill's text. A rename (a `path` other than the route's), a value
-already encrypted (`already_encrypted=true`) and an update of a read-only
-variable service answer 501. The other writes (`createResource`,
+which later reads, the engine's included, see. It answers as Windmill does:
+
+- **The body** is an `EditVariable`, whose `value` replaces the value and
+  whose `is_secret` sets its secrecy. It goes through the web framework's
+  checks first ([Request rejections](#request-rejections)); a body that
+  parses but is not an object answers `422` `Failed to deserialize the
+  JSON body into the target type: <message>`, whose message is
+  windmill-lite's.
+- **The answer** is `200` `text/plain; charset=utf-8` `variable <path>
+  updated (npath: "<path>")`, the path after the update, quoted with `"`
+  and `\` escaped (WA-11/e).
+- **Refusals:** a missing variable is `404` `Not found: Variable not found
+  at name <path>`, without Windmill's location (D14); a secrecy that
+  differs from the variable's, sent without a value, is `400` `Bad
+  request: cannot change is_secret without updating value too`.
+- **Not served:** a rename (a `path` other than the route's), a value
+  already encrypted (`already_encrypted=true`) and an update of a
+  read-only variable service answer 501.
+
+The stock clients never show the answer's text to a script: TS
+`setVariable` asks `existsVariable` first, then updates or creates, and
+resolves to `undefined`. The other writes (`createResource`,
 `updateResourceValue`, `createVariable`) are `later` and answer 501, as
 does state's write (`setState`); `getState` reads the state path through
 `get_value_interpolated`, so a state never written is a 404, which the
@@ -121,7 +151,12 @@ PF3) answers from `platform.Services`:
 | Operation | Route | Answer |
 |---|---|---|
 | `getFlowUserState` | `GET /w/{ws}/jobs/flow/user_states/{id}/{key}` | the value at key of the flow job, as `application/json`; `null` for a missing key, for a job that is not a live flow job (a script job, an unknown one, a run that has ended) |
-| `setFlowUserState` | `POST /w/{ws}/jobs/flow/user_states/{id}/{key}` | the body, any JSON, stored at key, answered `200` `text/plain` `Flow job state updated`; `404` `Not found: Flow job not found` unless the job is a live flow job; `400` for a body that is not JSON jsonb could store |
+| `setFlowUserState` | `POST /w/{ws}/jobs/flow/user_states/{id}/{key}` | the body, any JSON, stored at key, answered `200` `text/plain; charset=utf-8` `Flow job state updated`; `404` `Not found: Flow job not found` unless the job is a live flow job; a JSON body that jsonb could not store is a `400` with windmill-lite's text |
+
+Both routes take the id as a UUID, named `job_id` in Windmill's route,
+and the POST a JSON body: the web framework's rejections answer first,
+the id before the body ([Request rejections](#request-rejections),
+WA-14/d).
 
 A value comes back in jsonb's key order with its numbers as Windmill's
 backend JSON library writes them, as the oracle recorded
@@ -134,9 +169,9 @@ hands each run to `Services.Dispatcher`
 
 | Operation | Route | Answer |
 |---|---|---|
-| `runScriptByPath`, `runFlowByPath` | `POST /w/{ws}/jobs/run/p/{path}`, `…/run/f/{path}` | `201` `text/plain` with the new job's id; the body is the run's arguments, and the query's `parent_job`, `root_job`, `tag` and `scheduled_in_secs` go to the dispatcher with the caller's job variables |
+| `runScriptByPath`, `runFlowByPath` | `POST /w/{ws}/jobs/run/p/{path}`, `…/run/f/{path}` | `201` `text/plain; charset=utf-8` with the new job's id; the body is the run's arguments, and the query's `parent_job`, `root_job`, `tag` and `scheduled_in_secs` go to the dispatcher with the caller's job variables |
 | `runScriptByHash` | `POST /w/{ws}/jobs/run/h/{hash}` | refused: a windmill-lite bundle records no script hash, so no hash names a root |
-| `getCompletedJobResultMaybe` | `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` | what waitJob polls ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)): a dispatched run's `started`, `success`, `completed` and `result`, with explicit nulls while it runs (`started` only when `get_started=true` asks); for a UUID that names no job, and any job looked up in a workspace other than the caller's (WA-V2/d), Windmill's answer for an id with no job row |
+| `getCompletedJobResultMaybe` | `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` | what waitJob polls ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)): a dispatched run's `started`, `success`, `completed` and `result`, with explicit nulls while it runs (`started` only when `get_started=true` asks); for a UUID that names no job, and any job looked up in a workspace other than the caller's (WA-V2/d's second request), Windmill's answer for an id with no job row |
 | `getCompletedJobResult` | `GET /w/{ws}/jobs_u/completed/get_result/{id}` | a dispatched run's result once it has completed; before, for a UUID that names no job, and in a workspace other than the caller's, `404` `Not found: Completed Job not found at name <id>` ([WA-19](../../../docs/semantics/client-api.md#wa-19)/d), without Windmill's location |
 
 - **A target that is not a root of the bundle** (ADR 0001 §5a), and
@@ -144,10 +179,10 @@ hands each run to `Services.Dispatcher`
   `dispatch target not in bundle: <target>`; the 501 policy quotes it as
   the step's error. The stock client's async helpers take that body for a
   job id (WA-V5/a).
-- **A result poll whose id is not a UUID** answers `400` (`Bad request:
-  windmill-lite: the job id "<id>" is not a UUID`), as a request whose
-  uuid parameter does not parse is refused, so that a `waitJob` handed a
-  refused dispatch's body fails at once instead of polling forever.
+- **A result poll whose id is not a UUID** gets the web framework's `400`
+  ([Request rejections](#request-rejections), WA-V2/c), so a `waitJob`
+  handed a refused dispatch's body fails at once instead of polling
+  forever.
 - **A job of windmill-lite's that the dispatcher did not start** answers
   the polls with a 501: job introspection beyond dispatched runs is
   `later` (ADR 0007, `Jobs`).
@@ -164,21 +199,45 @@ PF3) answers from `Services.Objects`, for explicit keys:
 | `fileDownload` | `GET /w/{ws}/job_helpers/download_s3_file` | the content, with its upload's content type (`application/octet-stream` when none) and disposition; `404` for an object that is not there |
 
 What the client contract leaves to the server answers 501, named: an
-upload without `file_key` (a key the server generates), a call with
-`s3_resource_path` (a resource's own bucket), and every call when no
-object store is configured; `delete_s3_file` and the credential and
-presigning routes have no handler.
+upload without `file_key` (a key the server generates) and a call with
+`s3_resource_path` (a resource's own bucket); `delete_s3_file` and the
+credential and presigning routes have no handler. With no object store
+configured, both routes answer `500` `Internal: windmill-lite: no object
+store is configured`: Windmill CE answers an upload with no workspace
+storage with a 500, so the stock client's `writeS3File` throws `Internal
+Server Error` on both (WA-16/d). CE's body was not recorded, and the
+download's status is windmill-lite's choice, the upload's.
 
 The error texts the reference does not give (a missing object, a variable
-update's body that is not an `EditVariable`) are windmill-lite's, `Not
-found: windmill-lite: …` or `Bad request: windmill-lite: …`, with the
-status Windmill's API gives the variant. So are, for now, the answers
-Windmill's web framework gives before a handler runs, whose texts the
-reference does give: an id that is not a UUID, a body that does not parse
-and a body without the JSON content type (WA-V2/c, WA-14/d, WA-19/c).
-Emulating them takes one request-extraction layer for every route, left
-to a later milestone; ADR 0007 (FU8) lists where the statuses already
-agree.
+update's body that is not an object) are windmill-lite's, `Not found:
+windmill-lite: …` or with the status Windmill's API gives the variant.
+
+## Request rejections
+
+Windmill's web framework refuses a request whose path, query or JSON body
+it cannot extract, before the handler runs and after the token check
+([WA-42](../../../docs/semantics/client-api.md#wa-42)). Its answers carry
+no error variant's prefix and are typed `text/plain; charset=utf-8`, the
+type a handler's successful text answer has too; an `Error` answer is
+bare `text/plain`. The facade gives these answers on the routes it serves
+(`extract.go`):
+
+| Request | Routes | Answer |
+|---|---|---|
+| A job id that is not a UUID | the root lookup, the result polls (`id`), flow user state (`job_id`) | `400` ``Invalid URL: Cannot parse `<param>` with value `<id>`: UUID parsing failed: <detail>`` (WA-V2/c, WA-19/c, WA-14/d) |
+| A `job_id` query parameter that is not a UUID | `getResourceValueInterpolated` | `400` with windmill-lite's text, `windmill-lite: the query parameter job_id, "<id>", is not a UUID: <detail>`; the reference gives the status only (WA-12/g) |
+| A body without a JSON content type (`application/json`, or `application/<x>+json`) | `setFlowUserState`, `updateVariable` | `415` ``Expected request with `Content-Type: application/json` `` |
+| A body that does not parse as JSON | `setFlowUserState`, `updateVariable` | `400` `Failed to parse the request body as JSON: <message>`, the message in the backend JSON library's words, without the member's path that Windmill puts in front of an error inside a member or an element (`a: ` for `{"a": x}`) |
+
+A job id is read as Windmill's UUID parser reads it: 32 hex digits, the
+hyphenated form, or the hyphenated form in braces or after `urn:uuid:`,
+in either case; the facade looks up its lower-case hyphenated form. The
+`<detail>` is the parser's reason in the reference's words: `invalid
+length: found <n>` for hex digits alone, ``invalid character: found `<c>`
+at <i>``, `invalid group count: expected 5, found <n>` or `invalid group
+length in group <g>: expected <e>, found <n>`. The reference does not say
+from where `<i>` and `<g>` count; the facade counts the character's byte
+position from 1 and the group from 0.
 
 ## Attribution and transports
 
@@ -292,38 +351,53 @@ comparison. An abandoned invocation has no outcome to replace.
   (`TestHandlerFailuresBothTransports`), bodyless replies to `HEAD` and
   204 on both (`TestBodylessReplies`), WA-42/a's rows, and handler
   registration.
-- `services_test.go` (PF3), without Bun: the root lookup from the job
-  registry (an ended job of a live run, a flow scope, the run) and
-  WA-19/b's `400` for an unknown id, an id that is not a UUID, a job
-  looked up in another workspace and a job of an ended run, on both
-  transports; the workspace of a token (`TestTokenWorkspace`, WA-4/b): the
-  `401` before a handler, a 501 and a rejection, on both transports,
-  recorded and not unsupported, with the state unchanged, while `jobs_u`,
-  `apps_u` (its 501), the routes outside a workspace and a caller without
-  `WM_WORKSPACE` are not refused; flow user state on both
-  transports (the write's answer, the read, null, the 404, the 400); the
-  dispatch routes with a fake dispatcher (what reaches it, the 201, a
-  refused target and its quoted message, a hash, the refused query
-  parameters, a bad `scheduled_in_secs`, no dispatcher); the result polls
-  (completed, running with and without `get_started`, WA-V2/a and /b, an
-  id that is not a UUID, a job the dispatcher did not start, WA-19/d's
-  not-found, and a job looked up in another workspace, WA-V2/d); and the
-  object store routes (a round trip with metadata, a missing object, the
-  501s of a generated key, a resource's bucket, deletion and no store).
-- `providers_test.go`, without Bun: the resource and variable reads on
-  both transports, their statuses, content types and bodies (WA-11/a,
-  WA-12/a, WA-40's raw read and exists, WA-42/b and /c, WA-V3/a), a read
-  with a live invocation's `job_id` and with an unknown one, a write's 501,
-  and a facade with no platform; a read's `job_id` (`TestReadWithAJobID`,
-  WA-12/g): ignored for a value without a `$WM_*` string, and for one the
-  404 of a random UUID, an ended job and another workspace's job, the
-  caller's own job resolved, and a live flow job's 501, which the policy
-  quotes; and the variable update (WA-11, F1): a
-  value later reads see, its secrecy, a missing variable's 404, and the
-  501s of a rename, an encrypted value and a read-only service; and the
-  per-run providers (H13, F2a): an invocation whose run chose its own
-  services reads variables and resources from them, another the facade's,
-  and both the shared job registry.
+- `services_test.go`, without Bun:
+  - the root lookup from the job registry: an ended job of a live run, a
+    flow scope, the run, a job of an ended run and the ended run, and a
+    UUID in each of the parser's other forms; WA-19/b's `400` for an
+    unknown id and a job looked up in another workspace, on both
+    transports; WA-19/c's framework `400` for an id that is not a UUID;
+  - the workspace of a token (`TestTokenWorkspace`, WA-4/b): the `401`
+    before a handler, a 501 and a rejection, on both transports, recorded
+    and not unsupported, with the state unchanged, while `jobs_u`,
+    `apps_u` (its 501), the routes outside a workspace and a caller
+    without `WM_WORKSPACE` are not refused;
+  - flow user state on both transports: the write's answer and its type,
+    the read, null, the 404, and WA-14/d's rejections (an id that is not
+    a UUID before the body, a body that is not JSON, a body without a
+    JSON content type), with the state unchanged;
+  - the dispatch routes with a fake dispatcher: what reaches it, the 201
+    and its type, a refused target and its quoted message, a hash, the
+    refused query parameters, a bad `scheduled_in_secs`, no dispatcher;
+  - the result polls: completed, running with and without `get_started`,
+    WA-V2/a and /b, WA-V2/c's framework `400` and the parser's other
+    reasons, a job the dispatcher did not start, WA-19/d's not-found, and
+    a job looked up in another workspace (WA-V2/d's second request);
+  - the object store routes: a round trip with metadata, a missing
+    object, the 501s of a generated key, a resource's bucket and
+    deletion, and the 500s with no store, which are not unsupported
+    (WA-16/d).
+- `providers_test.go`, without Bun:
+  - the resource and variable reads on both transports, their statuses,
+    content types and bodies (WA-11/a, WA-12/a, WA-40's raw read and
+    exists, WA-42/b and /c, WA-V3/a), a read with a live invocation's
+    `job_id`, with an unknown one and with one that is not a UUID, a
+    create's 501, and a facade with no platform;
+  - a read's `job_id` (`TestReadWithAJobID`, WA-12/g): ignored for a
+    value without a `$WM_*` string when it is a UUID; for one, the 404 of
+    a random UUID, an ended job and another workspace's job, and the
+    caller's own job resolved, also in upper case; the `400` of a
+    `job_id` that is not a UUID or is empty, for either value; a live
+    flow job's 501, which the policy quotes;
+  - the variable update (`TestVariableUpdate`, WA-11/e): Windmill's text
+    and type on both transports, a path with a quote and a backslash, a
+    value later reads see, its secrecy with a value, and the refusal of a
+    secrecy change without one; the missing variable's 404, the
+    framework's 415 and 400, and the 422 of a body that is not an object;
+    the 501s of a rename, an encrypted value and a read-only service;
+  - the per-run providers (H13): an invocation whose run chose its own
+    services reads variables and resources from them, another the
+    facade's, and both the shared job registry.
 - `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's
@@ -356,22 +430,27 @@ comparison. An abandoned invocation has no outcome to replace.
     literal (WA-V3/a), a secret's plaintext, and `getState()` returning
     `undefined` for a state never written (WA-41/b), with no unsupported
     call;
-  - in `services_bun_test.go` (PF3), on the stock client in warm and fresh
+  - in `services_bun_test.go`, on the stock client in warm and fresh
     mode: `TestFlowUserStateOnTheClient` (WA-14/a: two steps of a run share
     its map, a missing key and an undefined value read null, a script
     job's write is swallowed with the helper's log line, or rejects when
     strict); `TestObjectsOnTheClient` (WA-16/a–c: the upload request with
     its `file_key` and body, the round trip, another storage, binary
     content on both transports, a bare string refused before any request,
-    a missing object's error); and `TestDispatchRefusedOnTheClient` (the
+    a missing object's error); `TestNoObjectStoreOnTheClient` (WA-16/d:
+    with no object store, `writeS3File` rejects with `Internal Server
+    Error`, status 500, and the step's own result stands);
+    `TestSetVariableOnTheClient` (WA-11/e: `setVariable` asks
+    `existsVariable`, updates, resolves to `undefined`, and the variable
+    reads the new value); and `TestDispatchRefusedOnTheClient` (the
     restriction of ADR 0001 §5a: the async helpers resolve to the
     refusal's body, the synchronous one rejects at once, and in fail mode
     the step fails with `UnsupportedPlatformCall` quoting the refusal).
 
 The step cases of [conformance/steps](../../../conformance/README.md)
-(`wa-2.yaml`, `wa-5.yaml`, `wa-31.yaml`, `wa-41.yaml`; PF2's `wa-10.yaml`,
-`wa-11.yaml`, `wa-12.yaml`, `wa-42.yaml`, `wa-v3.yaml`; PF3's `wa-14.yaml`,
-`wa-15.yaml`, `wa-16.yaml`, `wa-v2.yaml`) run the facade through `wltest
+(`wa-2.yaml`, `wa-5.yaml`, `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`,
+`wa-14.yaml`, `wa-15.yaml`, `wa-16.yaml`, `wa-19.yaml`, `wa-31.yaml`,
+`wa-41.yaml`, `wa-42.yaml`, `wa-v2.yaml`, `wa-v3.yaml`) run the facade through `wltest
 check` in `warm` and `fresh`, and the flow fixtures `client-api/user-state`
 and `client-api/dispatch` run it with the engine on the oracle's
 recordings.

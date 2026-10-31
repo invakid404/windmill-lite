@@ -51,6 +51,47 @@ func (d *diagnostics) line(s string) {
 	io.WriteString(d.w, s+"\n")
 }
 
+// maxPendingKillLines is how many kill lines may wait for their
+// diagnostics writers at once, across every process in the program.
+const maxPendingKillLines = 64
+
+// killLineBudget bounds the goroutines that write kill lines, across all
+// the processes that share it. A kill writes its line on a goroutine of
+// its own, because the diagnostics writer can block, and a kill must never
+// wait for it. Each process writes at most one kill line, but without a
+// shared bound a writer that stays blocked would hold one goroutine for
+// every process the engine kills. Past the bound a line is dropped and
+// counted, and the next line that the budget accepts reports the count.
+type killLineBudget struct {
+	max     int32
+	pending atomic.Int32
+	dropped atomic.Int64
+}
+
+// runtimeKillLines is the budget of every process whose config names no
+// other one.
+var runtimeKillLines = &killLineBudget{max: maxPendingKillLines}
+
+// write writes line to d on a goroutine of its own, or drops it when the
+// budget's maximum of lines is already waiting.
+func (b *killLineBudget) write(d *diagnostics, line string) {
+	if b.pending.Add(1) > b.max {
+		b.pending.Add(-1)
+		b.dropped.Add(1)
+		return
+	}
+	// The count is taken here, not on the goroutine, so it goes to the
+	// first line the budget accepts after the drops, however late that
+	// line's goroutine runs.
+	if n := b.dropped.Swap(0); n > 0 {
+		line += fmt.Sprintf(" (%d earlier kill lines were dropped while %d waited for blocked diagnostics writers)", n, b.max)
+	}
+	go func() {
+		defer b.pending.Add(-1)
+		d.printf("%s", line)
+	}()
+}
+
 // lineWriter forwards a process's stdout and stderr to the diagnostics,
 // one prefixed line at a time, and keeps the last few lines for error
 // messages.

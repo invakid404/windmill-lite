@@ -148,15 +148,35 @@ func (s *Services) VariableExists(ctx context.Context, path string) (bool, error
 // whose variable service takes no writes (VariableUpdater).
 var ErrReadOnlyVariables = errors.New("platform: the variable service is read-only")
 
-// UpdateVariable answers variables/update (WA-11, milestone F1): it sets
-// the value of an existing variable when value is not nil, and its
-// secrecy when secret is not nil. A missing variable is the 404 `Not found: Variable <p> not found`,
-// as a read's; services whose variable service takes no writes fail with
+// UpdateVariable answers variables/update ([WA-11]): it sets the value of
+// an existing variable when value is not nil, and its secrecy when secret
+// is not nil. As Windmill answers an update:
+//
+//   - a missing variable is the 404 `Not found: Variable not found at name
+//     <path>`, written without Windmill's Rust location (D14);
+//   - a secrecy that differs from the variable's, without a new value, is
+//     the 400 `Bad request: cannot change is_secret without updating value
+//     too`, and the variable is left as it was.
+//
+// Services whose variable service takes no writes fail with
 // ErrReadOnlyVariables.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func (s *Services) UpdateVariable(ctx context.Context, path string, value *string, secret *bool) error {
 	u, ok := s.variableService().(VariableUpdater)
 	if !ok {
 		return ErrReadOnlyVariables
+	}
+	if value == nil && secret != nil {
+		v, found, err := s.variable(ctx, path)
+		switch {
+		case err != nil:
+			return internal("%v", err)
+		case !found:
+			return notFound("Variable not found at name %s", path)
+		case v.IsSecret != *secret:
+			return &Error{Variant: "BadRequest", Message: "cannot change is_secret without updating value too"}
+		}
 	}
 	found, err := u.UpdateVariable(ctx, path, value, secret)
 	switch {
@@ -165,7 +185,7 @@ func (s *Services) UpdateVariable(ctx context.Context, path string, value *strin
 	case err != nil:
 		return internal("%v", err)
 	case !found:
-		return notFound("Variable %s not found", path)
+		return notFound("Variable not found at name %s", path)
 	}
 	return nil
 }

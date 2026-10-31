@@ -33,7 +33,8 @@ func TestParseJSONStrings(t *testing.T) {
 
 // An input that ends early is reported in serde's words where the
 // reference quotes them (expressions.md, JE-42's positions): "a list" or
-// "an object" for an unclosed container, "a value" where a value was due.
+// "an object" for an unclosed container, "a value" where a value or a key
+// was due, and a trailing comma for an object closed after a comma.
 // The position follows this parser's own convention.
 func TestParseJSONEOFMessages(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
@@ -45,6 +46,10 @@ func TestParseJSONEOFMessages(t *testing.T) {
 		{`{"a"`, "EOF while parsing an object"},
 		{`{"a":`, "EOF while parsing a value"},
 		{`{"a":1`, "EOF while parsing an object"},
+		{`{"a":1,`, "EOF while parsing a value"},
+		{`{"a":1, `, "EOF while parsing a value"},
+		{`{"a":1,}`, "trailing comma"},
+		{`{"a":1,x`, "key must be a string"},
 	} {
 		_, err := parseJSON([]byte(c.in))
 		var e *Error

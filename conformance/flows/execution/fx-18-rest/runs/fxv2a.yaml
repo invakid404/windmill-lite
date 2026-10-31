@@ -10,7 +10,11 @@ expect:
     r: {error: {name: EarlyStopError, message: E}}
     x: 1
   steps:
-    "m:a": {status: success, module: failure, result: {x: 1}}
+    "m:a":
+      status: success
+      module: failure
+      result: {x: 1}
+      carried: {error: {name: EarlyStopError, message: E}}
     "s:failure":
       status: success
       result:

@@ -168,6 +168,216 @@
           ]
         }
       }
+    },
+    {
+      "spec": "WR-27/b",
+      "provenance": "source-derived",
+      "title": "behind an ordinary package import, a module that a sideEffects: false package re-exports stays in the bundle",
+      "given": {
+        "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
+        "dependencies": {
+          "outer": "1.0.0"
+        },
+        "packages": {
+          "outer@1.0.0": {
+            "package.json": "{\"name\":\"outer\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false}",
+            "index.js": "export { v } from \"./value.js\";\n",
+            "value.js": "globalThis.loaded = (globalThis.loaded ?? 0) + 1;\nexport const v = 42;\n"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27/c",
+      "provenance": "source-derived",
+      "title": "a transitive bare import of a package named leaf.ts keeps the module that the package re-exports",
+      "deviation": "D19",
+      "note": "Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10 drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
+      "given": {
+        "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
+        "dependencies": {
+          "outer": "1.0.0"
+        },
+        "packages": {
+          "leaf.ts@1.0.0": {
+            "package.json": "{\"name\":\"leaf.ts\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false}",
+            "index.js": "export { v } from \"./value.js\";\n",
+            "value.js": "globalThis.loaded = (globalThis.loaded ?? 0) + 1;\nexport const v = 42;\n"
+          },
+          "outer@1.0.0": {
+            "package.json": "{\"name\":\"outer\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false,\"dependencies\":{\"leaf.ts\":\"1.0.0\"}}",
+            "index.js": "export { v } from \"leaf.ts\";\n"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27/c",
+      "variant": "deep-import",
+      "provenance": "source-derived",
+      "title": "a transitive deep import of a package's index.ts keeps the module that it re-exports",
+      "deviation": "D19",
+      "note": "Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10 drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
+      "given": {
+        "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
+        "dependencies": {
+          "outer": "1.0.0"
+        },
+        "packages": {
+          "deep@1.0.0": {
+            "package.json": "{\"name\":\"deep\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false}",
+            "index.ts": "export { v } from \"./value.js\";\n",
+            "value.js": "globalThis.loaded = (globalThis.loaded ?? 0) + 1;\nexport const v = 42;\n"
+          },
+          "outer@1.0.0": {
+            "package.json": "{\"name\":\"outer\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false,\"dependencies\":{\"deep\":\"1.0.0\"}}",
+            "index.js": "export { v } from \"deep/index.ts\";\n"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27/c",
+      "variant": "node-target",
+      "provenance": "source-derived",
+      "title": "a //nodejs bundle keeps the module behind a transitive bare import of leaf.ts",
+      "deviation": "D19",
+      "note": "Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10 drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
+      "given": {
+        "source": "//nodejs\nimport { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
+        "dependencies": {
+          "outer": "1.0.0"
+        },
+        "packages": {
+          "leaf.ts@1.0.0": {
+            "package.json": "{\"name\":\"leaf.ts\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false}",
+            "index.js": "export { v } from \"./value.js\";\n",
+            "value.js": "globalThis.loaded = (globalThis.loaded ?? 0) + 1;\nexport const v = 42;\n"
+          },
+          "outer@1.0.0": {
+            "package.json": "{\"name\":\"outer\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false,\"dependencies\":{\"leaf.ts\":\"1.0.0\"}}",
+            "index.js": "export { v } from \"leaf.ts\";\n"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27/c",
+      "variant": "control-plain-name",
+      "provenance": "source-derived",
+      "title": "the control: the same packages with leaf named leaf keep the module",
+      "given": {
+        "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
+        "dependencies": {
+          "outer": "1.0.0"
+        },
+        "packages": {
+          "leaf@1.0.0": {
+            "package.json": "{\"name\":\"leaf\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false}",
+            "index.js": "export { v } from \"./value.js\";\n",
+            "value.js": "globalThis.loaded = (globalThis.loaded ?? 0) + 1;\nexport const v = 42;\n"
+          },
+          "outer@1.0.0": {
+            "package.json": "{\"name\":\"outer\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false,\"dependencies\":{\"leaf\":\"1.0.0\"}}",
+            "index.js": "export { v } from \"leaf\";\n"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27/c",
+      "variant": "control-relative-ts",
+      "provenance": "source-derived",
+      "title": "the control: leaf re-exporting from ./value.ts keeps the module",
+      "given": {
+        "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
+        "dependencies": {
+          "outer": "1.0.0"
+        },
+        "packages": {
+          "leaf@1.0.0": {
+            "package.json": "{\"name\":\"leaf\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false}",
+            "index.js": "export { v } from \"./value.ts\";\n",
+            "value.ts": "globalThis.loaded = (globalThis.loaded ?? 0) + 1;\nexport const v = 42;\n"
+          },
+          "outer@1.0.0": {
+            "package.json": "{\"name\":\"outer\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"type\":\"module\",\"sideEffects\":false,\"dependencies\":{\"leaf\":\"1.0.0\"}}",
+            "index.js": "export { v } from \"leaf\";\n"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                1
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }

@@ -244,7 +244,7 @@ provided:
 func TestHostModulesDeviation(t *testing.T) {
 	p := mustCompile(t, map[string]string{"wmill.yaml": wmill, "f/x/s.ts": RET1},
 		"roots: [{script: f/x/s}]\nhost_modules: [f/x/scope.ts]\n")
-	if !slices.Equal(p.Deviations, []string{"D12"}) || !slices.Equal(p.Contract.HostModules, []string{"f/x/scope.ts"}) {
+	if !slices.Equal(p.Deviations, []string{"D12", "D19"}) || !slices.Equal(p.Contract.HostModules, []string{"f/x/scope.ts"}) {
 		t.Errorf("deviations %q, host modules %q", p.Deviations, p.Contract.HostModules)
 	}
 }

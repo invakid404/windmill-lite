@@ -245,8 +245,8 @@ func (x *stateExec) Execute(ctx context.Context, inv Invocation) (StepOutcome, e
 // A run is a live flow job of the job registry while it runs, its own
 // root (D3), so its steps' writes reach its flow user state, which the
 // flow_user_state() helper reads (JE-20, WA-14): the value a step stored,
-// and null for a missing key. Once the run has ended, the registry has
-// forgotten it and its map.
+// and null for a missing key. Once the run has ended, it is no longer
+// live, its map is forgotten, and only its root is still known (WA-19).
 func TestEngineFlowUserState(t *testing.T) {
 	services := &platform.Services{}
 	x := &stateExec{s: services}
@@ -256,8 +256,11 @@ func TestEngineFlowUserState(t *testing.T) {
 	)}, x, services)
 	tr := runIt(t, e, `{}`, nil)
 	wantStatus(t, tr, conformance.RunSuccess, `{"k":{"n":5},"none":null}`)
-	if _, ok := services.RootJob(tr.RunID); ok {
-		t.Error("the run is known after it ended")
+	if _, live, _ := services.JobRegistry().Job(tr.RunID); live {
+		t.Error("the run is live after it ended")
+	}
+	if root, ok := services.RootJob(tr.RunID); !ok || root != tr.RunID {
+		t.Errorf("the ended run's root %q, known %v", root, ok)
 	}
 	if v, _ := services.FlowUserState(context.Background(), tr.RunID, "k"); string(v) != "null" {
 		t.Errorf("the run's map after it ended: %s", v)
@@ -490,8 +493,8 @@ func TestDispatchedLinksOutliveTheParent(t *testing.T) {
 	soon := dispatch(platform.DispatchScript, "f/t/echo", 0)
 	endParent()
 	endRun()
-	if _, _, known := services.JobRegistry().Job("parent"); known {
-		t.Fatal("the parent is still known after its run ended")
+	if _, live, _ := services.JobRegistry().Job("parent"); live {
+		t.Fatal("the parent is still live after its run ended")
 	}
 	for _, id := range []string{late, soon} {
 		waitResult(t, d, id)

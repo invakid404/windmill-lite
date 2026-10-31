@@ -1,6 +1,8 @@
 package facade
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,7 +10,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The steps of milestone PF3's tests on the stock client.
+// The steps of the services' tests on the stock client.
 func init() {
 	// Flow user state through the stock helpers (WA-14): op "set" writes
 	// and reads back, "get" reads what another step of the run wrote, and
@@ -72,6 +74,23 @@ export async function main() {
   const bare = await attempt(() => wmill.writeS3File("t/a.txt", "x"));
   const missing = await attempt(() => wmill.loadS3File({ s3: "none" }));
   return { written, read, other, otherRead, again, bytes, type: blob.type, bare, missing };
+}
+`
+	// An upload with no object store (WA-16/d): the stock client throws
+	// the generated client's ApiError, whose message is the status's text.
+	bunSteps["nostorage"] = `import * as wmill from "windmill-client";
+
+export async function main() {
+  return await wmill.writeS3File({ s3: "t/a.txt" }, "hi").then((o) => ({ ok: o }), (e) => ({ error: e.message, status: e.status }));
+}
+`
+	// setVariable on an existing variable (WA-11/e): the client asks
+	// variables/exists, then updates, and resolves to undefined.
+	bunSteps["setvariable"] = `import * as wmill from "windmill-client";
+
+export async function main() {
+  const set = await wmill.setVariable("u/x/w", "c");
+  return { set: set === undefined ? "undefined" : set, read: await wmill.getVariable("u/x/w") };
 }
 `
 	// Dispatches to targets that are not roots of the bundle (ADR 0001
@@ -169,11 +188,64 @@ func TestObjectsOnTheClient(t *testing.T) {
 	}
 }
 
+// WA-16/d on the stock client, in warm and fresh mode: with no object
+// store, an upload answers 500, as Windmill CE answers it with no
+// workspace storage, so writeS3File rejects with the generated client's
+// "Internal Server Error". The call is not unsupported, so the step's own
+// result stands in the default fail mode.
+func TestNoObjectStoreOnTheClient(t *testing.T) {
+	r := newBunRig(t)
+	const want = `{"error":"Internal Server Error","status":500}`
+	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newFacade(t, Config{})
+			x := f.Executor(r.pool(t, f, mode))
+			id := r.identity("f/t/nostorage", "a")
+			out, err := x.Execute(r.ctx(t), r.invocation(id, "attr/nostorage", `{}`, mode))
+			if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != want {
+				t.Fatalf("%+v\n got %s\nwant %s\n%v\n%s", out, out.Body.Producer(), want, err, r.diag)
+			}
+			if calls := r.recorded(id.JobID); len(calls) != 1 || calls[0].Status != 500 || calls[0].Unsupported {
+				t.Errorf("calls %+v", calls)
+			}
+		})
+	}
+}
+
+// WA-11/e on the stock client, in warm and fresh mode: setVariable on an
+// existing variable asks variables/exists, then sends the update, whose
+// answer it does not return: it resolves to undefined, and the variable
+// then reads the new value.
+func TestSetVariableOnTheClient(t *testing.T) {
+	r := newBunRig(t)
+	const want = `{"set":"undefined","read":"c"}`
+	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
+		t.Run(string(mode), func(t *testing.T) {
+			store := platform.NewStore()
+			store.SetVariable("u/x/w", platform.Variable{Value: "a"})
+			f := newFacade(t, Config{Platform: &platform.Services{Variables: store}})
+			x := f.Executor(r.pool(t, f, mode))
+			id := r.identity("f/t/setvariable", "a")
+			out, err := x.Execute(r.ctx(t), r.invocation(id, "attr/setvariable", `{}`, mode))
+			if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != want {
+				t.Fatalf("%+v\n got %s\nwant %s\n%v\n%s", out, out.Body.Producer(), want, err, r.diag)
+			}
+			var routes []string
+			for _, c := range r.recorded(id.JobID) {
+				routes = append(routes, fmt.Sprint(c.Status, " ", c.Route))
+			}
+			if want := []string{"200 GET /w/{ws}/variables/exists/{path}", "200 POST /w/{ws}/variables/update/{path}", "200 GET /w/{ws}/variables/get_value/{path}"}; !slices.Equal(routes, want) {
+				t.Errorf("calls %q, want %q", routes, want)
+			}
+		})
+	}
+}
+
 // The dispatch-target restriction on the stock client (ADR 0001 §5a), in
 // warm and fresh mode: with no target in the bundle, runScriptByPathAsync
 // and runFlowAsync resolve to the refusal's body as a job id (WA-V5/a),
 // and runScriptByPath rejects with the 400 of a result poll whose id is
-// not a UUID instead of polling forever. In fail mode the step fails with
+// not a UUID (WA-V2/c) instead of polling forever. In fail mode the step fails with
 // UnsupportedPlatformCall, "dispatch target not in bundle: <path>",
 // listing the three dispatches.
 func TestDispatchRefusedOnTheClient(t *testing.T) {

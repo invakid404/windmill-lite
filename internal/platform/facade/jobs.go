@@ -3,14 +3,15 @@ package facade
 import (
 	"context"
 	"encoding/json"
-	"regexp"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The job routes of ADR 0007's services (milestones PF1 and PF3): the root
-// lookup, from the job registry (D3); flow user state (WA-14); and the
-// result polls of the runs a step dispatched (WA-15, WA-V2).
+// The job routes of ADR 0007's services: the root lookup, from the job
+// registry (D3); flow user state (WA-14); and the result polls of the
+// runs a step dispatched (WA-15, WA-V2). Each route's job id is a UUID
+// path parameter, which Windmill's web framework refuses with a 400 of
+// its own before the handler runs when it is not one (pathUUID).
 func (f *Facade) serveJobs() {
 	f.Handle("getRootJobId", f.rootJobID)
 	f.Handle("getFlowUserState", f.getFlowUserState)
@@ -26,18 +27,20 @@ const noRows = "no rows returned by a query that expected to return at least one
 // rootJobID answers getRootJobId, GET /w/{ws}/jobs_u/get_root_job_id/{id}
 // (WA-8, WA-14, WA-19): the effective root of a job (WA-V1), as a JSON
 // string, from the job registry: a job of a run that is still running, a
-// flow scope one of its jobs runs in, or the run itself. An id with no
-// job in the path's workspace (one the registry does not know of, a job
-// looked up in a workspace other than the caller's, or a job whose run
-// has ended and was forgotten) answers as Windmill answers an id with no
-// job row: 400 `SqlErr: no rows returned by a query that expected to
-// return at least one row`, without Windmill's Rust location (D14). The
-// route checks no token (WA-4), and an id that is not a UUID answers the
-// same, where Windmill's web framework refuses it with a 400 of its own
-// (WA-19/c).
+// flow scope one of its jobs runs in, the run itself, or a job of a run
+// that has ended, which the registry still knows (platform.Registry). An
+// id with no job in the path's workspace (one the registry does not know
+// of, or a job looked up in a workspace other than the caller's) answers
+// as Windmill answers an id with no job row: 400 `SqlErr: no rows
+// returned by a query that expected to return at least one row`, without
+// Windmill's Rust location (D14). The route checks no token (WA-4).
 func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
+	id, refused := pathUUID(c, "id", "id")
+	if refused != nil {
+		return *refused
+	}
 	if ownWorkspace(c) {
-		if root, ok := f.platform.RootJob(c.Params["id"]); ok {
+		if root, ok := f.platform.RootJob(id); ok {
 			return jsonReply(200, jsonString(root))
 		}
 	}
@@ -48,32 +51,32 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 // (WA-14): the value stored at key for the flow job, JSON null when there
 // is none, when the job is not a live flow job, and when it has ended.
 func (f *Facade) getFlowUserState(ctx context.Context, c *Call) Reply {
-	v, err := f.platform.FlowUserState(ctx, c.Params["id"], c.Params["key"])
+	id, refused := pathUUID(c, "id", "job_id")
+	if refused != nil {
+		return *refused
+	}
+	v, err := f.platform.FlowUserState(ctx, id, c.Params["key"])
 	return answer(v, err)
 }
 
 // setFlowUserState answers POST /w/{ws}/jobs/flow/user_states/{id}/{key}
-// (WA-14): the body, any JSON, is stored at key for the flow job, and the
-// answer is the text `Flow job state updated`; a job that is not a live
-// flow job answers 404 `Not found: Flow job not found`.
+// (WA-14): the body, any JSON, checked as the framework checks a JSON
+// body (jsonBody) after the id, is stored at key for the flow job, and
+// the answer is the text `Flow job state updated`, typed as a handler's
+// text answer; a job that is not a live flow job answers 404 `Not found:
+// Flow job not found`.
 func (f *Facade) setFlowUserState(ctx context.Context, c *Call) Reply {
-	if err := f.platform.SetFlowUserState(ctx, c.Params["id"], c.Params["key"], c.Body); err != nil {
+	id, refused := pathUUID(c, "id", "job_id")
+	if refused == nil {
+		refused = jsonBody(c)
+	}
+	if refused != nil {
+		return *refused
+	}
+	if err := f.platform.SetFlowUserState(ctx, id, c.Params["key"], c.Body); err != nil {
 		return answer(nil, err)
 	}
-	return text(200, "Flow job state updated")
-}
-
-// uuidPattern matches a UUID in any case, the form a job id parameter
-// takes (the schema's JobId is a uuid).
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
-// badJobID answers a result poll whose id is not a UUID with a 400, as a
-// request whose uuid parameter does not parse is refused, rather than as
-// an unknown job, so that a waitJob given the body of a refused dispatch
-// as its id fails at once instead of polling forever (WA-V5/a). The text
-// is windmill-lite's; the reference does not give Windmill's.
-func badJobID(id string) Reply {
-	return Error{Variant: "BadRequest", Message: "windmill-lite: the job id " + string(jsonString(id)) + " is not a UUID"}.Reply()
+	return plainText(200, "Flow job state updated")
 }
 
 // resultMaybe answers getCompletedJobResultMaybe, GET
@@ -86,9 +89,9 @@ func badJobID(id string) Reply {
 // dispatcher did not start answers 501, since job introspection beyond
 // dispatched runs is `later` (ADR 0007, Jobs).
 func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
-	id := c.Params["id"]
-	if !uuidPattern.MatchString(id) {
-		return badJobID(id)
+	id, refused := pathUUID(c, "id", "id")
+	if refused != nil {
+		return *refused
 	}
 	var out struct {
 		Started   *bool           `json:"started"`
@@ -133,9 +136,9 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 // parenthesised Rust location (D14). A job of windmill-lite's that the
 // dispatcher did not start answers 501, as resultMaybe's does.
 func (f *Facade) result(ctx context.Context, c *Call) Reply {
-	id := c.Params["id"]
-	if !uuidPattern.MatchString(id) {
-		return badJobID(id)
+	id, refused := pathUUID(c, "id", "id")
+	if refused != nil {
+		return *refused
 	}
 	r, ok, err := f.dispatched(ctx, c, id)
 	switch {

@@ -295,32 +295,49 @@ F3a), and never removes that directory.
 ## Death and the watchdog
 
 A harness that exits fails every in-flight invocation as escaped, with its
-exit code or the signal that ended it (WR-4). The end of its stream is EOF,
-or `ECONNRESET`, with which Linux ends a socket's reads when its peer closed
-it with data it had not read, as a fresh harness does that exits right after
-its result while a pong to its heartbeat is on its way (`endOfStream`);
-neither is a failed connection, and the exit status says whether the
-process failed (milestone FU8: taking `ECONNRESET` for a failure discarded a
-fresh job's held result as killed by `SIGKILL`). Every kill but the
-watchdog's, which reports its own, is named in the diagnostics
-(`killing the harness: <reason>`), after the signal and on a goroutine of
-its own, at most one line per process: the diagnostics writer can block, a
-full stderr pipe or a host's logger, and neither a kill nor a fresh
-invocation's cancellation, which kills its process, waits for it. The
-engine reads its stdout
-and stderr for one more second (`exitReadGrace`), then closes its ends of
-them, so a child that inherited them cannot keep the engine's descriptors
-or goroutines; `Done` closes after that. The watchdog kills a process
-from which no frame has arrived for `KillAfter` (`DefaultKillAfter`, 30 s;
-`WatchdogOff` disables it), writes a diagnostics line naming the
-invocations in flight, and the pool replaces the process. A `fresh`
-process has no watchdog: it is its invocation, which only the step's own
-timeout ends (case `watchdog/finite-cpu`). It measures
-silence from received frames only, and the harness pings on its own every
-heartbeat (one second, or a quarter of `KillAfter` when shorter), so the
-engine's own blocked writes never make a live harness look silent. The
-signal goes through the `os.Process` handle, which cannot reach a reused
-pid: Go uses a pidfd on Linux and does not signal a reaped child elsewhere.
+exit code or the signal that ended it (WR-4). The end of its stream is EOF
+or `ECONNRESET` (`endOfStream`), and neither is a failed connection: the
+exit status says whether the process failed.
+
+Linux ends a socket's reads
+with `ECONNRESET` when its peer closed it with data it had not read. A
+fresh harness does that when it exits right after its result while a pong
+to its heartbeat is on its way, so taking `ECONNRESET` for a failure would
+discard the job's held result as killed by `SIGKILL`.
+
+Every kill but the watchdog's, which reports its own, is named in the
+diagnostics (`killing the harness: <reason>`). The line is written after
+the signal, on a goroutine of its own, because the diagnostics writer can
+block (a full stderr pipe, or a host's logger). Neither a kill nor a fresh
+invocation's cancellation, which kills its process, waits for it.
+
+- Each process writes at most one kill line.
+- At most 64 kill lines (`maxPendingKillLines`) wait for their writers at
+  once, across every process in the program, so a writer that stays
+  blocked holds at most 64 goroutines.
+- Past that bound a kill's line is dropped. The next kill line that the
+  bound admits ends with the count:
+  `(<n> earlier kill lines were dropped while 64 waited for blocked diagnostics writers)`.
+
+After a harness exits, the engine reads its stdout and stderr for one more
+second (`exitReadGrace`), then closes its ends of them, so a child that
+inherited them cannot keep the engine's descriptors or goroutines. `Done`
+closes after that.
+
+The watchdog kills a process from which no frame has arrived for
+`KillAfter` (`DefaultKillAfter`, 30 s; `WatchdogOff` disables it). It
+writes a diagnostics line naming the invocations in flight, and the pool
+replaces the process. A `fresh` process has no watchdog: it is its
+invocation, which only the step's own timeout ends (case
+`watchdog/finite-cpu`).
+
+- The watchdog measures silence from received frames only. The harness
+  pings on its own every heartbeat (one second, or a quarter of
+  `KillAfter` when shorter), so the engine's own blocked writes never make
+  a live harness look silent.
+- The signal goes through the `os.Process` handle, which cannot reach a
+  reused pid: Go uses a pidfd on Linux and does not signal a reaped child
+  elsewhere.
 
 A fresh process's group is signalled as well, by its id. While a process is
 left in the group, the id is given to no other process; `awaitGroup`,

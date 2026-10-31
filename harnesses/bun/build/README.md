@@ -10,9 +10,10 @@ refuses another unless the caller allows it. Codebase scripts are not
 bundled here: esbuild bundles them in Go (C2b), and the helper only parses
 their sources (`parse`, below). Milestone C3n added the native form of
 `nativets` and `//native` scripts and the embedded client (below, "Native
-scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
-(below, step 3) and added the parse of host-provided modules outside the
-folder.
+scripts"). The workspace plugin's resolve filter matches only the
+specifiers it resolves (below, "The resolve filter"), and `parse` checks
+the sources of the host-provided modules that the Go build bundles with
+esbuild.
 
 The helper also builds shared code
 ([ADR 0013](../../../docs/design/0013-shared-module-code.md); below,
@@ -36,23 +37,30 @@ there.
 
 The request and response types are in `protocol.ts`. A request is `scan`,
 `build` or `parse`; the Go side sends a scan first when the bundle has
-host-provided modules, writes their shims, then sends the build. `parse`
-(`Builder.parseEntry`) is for codebase scripts: for each entry it reports
-what its source records (annotations and bundler target, workflow-as-code
-markers, the packages it imports) and a signature for each export of its
-bundle, whose names the Go build reads from esbuild and sends as the
-entry's `exports` (without them, the source's own exports are scanned).
-As for any Bun script, a function the source declares gets its
-parameters and an export it does not declare gets none. A `parse`
-request's host-provided modules each give a `source`, the absolute path of
-a module outside the folder (milestone F3h), and the `loader` esbuild
-bundles it with: the helper reads it with that loader's syntax (`ts`,
-`tsx`, `js` or `jsx`; another loader's file is not parsed) and reports the
-packages it imports, or `host_module_live_binding`. It installs,
-bundles and writes nothing. A request it cannot serve
-at all (unreadable, another Bun) exits with code 2 and an `error` in the
-response. A problem with one script or module is reported against it, and
-the rest are still built.
+host-provided modules, writes their shims, then sends the build.
+
+`parse` (`Builder.parseEntry`) is for codebase scripts. For each entry it
+reports what its source records (annotations and bundler target,
+workflow-as-code markers, the packages it imports) and a signature for
+each export of its bundle. The Go build reads the export names from
+esbuild and sends them as the entry's `exports`; without them, the
+source's own exports are scanned.
+
+As for any Bun script, a function the source declares gets its parameters
+and an export it does not declare gets none. A `parse` request installs,
+bundles and writes nothing.
+
+A `parse` request's host-provided modules each give a `source`, the
+absolute path of a module that the Go build bundles with esbuild (one
+outside the folder, or a listed codebase script), and the `loader` esbuild
+bundles it with. The helper reads the source with that loader's syntax
+(`ts`, `tsx`, `js` or `jsx`) and reports the packages it imports, or
+`host_module_live_binding`. It does not parse a file of another loader,
+nor read one without a `loader`, which has none.
+
+A request it cannot serve at all (unreadable, another Bun) exits with code
+2 and an `error` in the response. A problem with one script or module is
+reported against it, and the rest are still built.
 
 Shared code adds two more requests, `kept` and `namespaces` (below,
 "Shared code").
@@ -118,12 +126,7 @@ For each script the build:
    from the dependency set's `node_modules`; a bundle that took a file from
    outside the dependency set's directory (a `node_modules` above it, which
    no lock installed) fails. The plugin's resolve filter matches only the
-   specifiers it resolves (relative and absolute ones, the env support
-   module and listed packages): Bun 1.3.10 drops a module that a package
-   marked `sideEffects: false` re-exports (`export { x } from "./x.js"`)
-   whenever a resolve filter matches the import of that package, even when
-   the callback resolves nothing, which left bundles referencing a binding
-   they never defined (milestone F3h).
+   specifiers it resolves (below, "The resolve filter").
 4. **Bundles** with `Bun.build` and Windmill's settings
    ([WR-27](../../../docs/semantics/languages.md#wr-27)): ESM, syntax-only
    minification, only `electron` external, every npm package and workspace
@@ -162,6 +165,22 @@ Sources are written under the dependency set's directory before bundling,
 so the paths a bundle's comments name are the same on every machine:
 `entry/<id>.ts`, `src/<Windmill path>.ts`, `host/<id>.mjs` and
 `node_modules/…`.
+
+### The resolve filter
+
+The plugin's resolve filter matches only the specifiers it resolves:
+relative and absolute ones, the env support module and listed packages.
+Bun 1.3.10 drops a module that a package marked `sideEffects: false`
+re-exports (`export { x } from "./x.js"`) whenever a resolve filter
+matches the import of that package, even when the callback resolves
+nothing. The bundle then references a binding that it never defines.
+
+Windmill's import plugin matches every specifier that ends in `.ts`. So a
+bare import such as `leaf.ts` or `pkg/index.ts` from a package loses the
+re-exported module on Windmill, and the step fails with a
+`ReferenceError`. windmill-lite's filter leaves such an import to Bun, so
+the module stays and the step runs (deviation D19,
+[WR-27](../../../docs/semantics/languages.md#wr-27)).
 
 ### Shared code
 
