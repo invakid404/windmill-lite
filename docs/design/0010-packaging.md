@@ -164,6 +164,10 @@ the host was a compiled Bun executable.
      settings (`define`, `loader`, `inject`, `banner`) and the folder's
      `node_modules`, so a step that reaches the module through its shim
      runs the code that the script's own bundle runs.
+   - The copy takes no `assets` from the entry. On Windmill, an importing
+     script's upload carries that script's entry's assets
+     ([WR-49](../semantics/languages.md#wr-49)). Here a step finds the
+     assets of the scripts the bundle runs.
    - These copies register after the modules that the Bun build makes, so
      only codebase scripts can import them. A Bun script, or a listed
      module of the Bun build, that imports a listed codebase script fails
@@ -204,17 +208,19 @@ the host was a compiled Bun executable.
    registered (by the host's own import in host mode, from the bundled copy
    elsewhere) rather than when a step's module loads. So a listed module
    that a step imports without using, which `sideEffects: false` prunes
-   from a plain bundle, still runs its load effects. Bun 1.3.10 drops a
-   module that a `sideEffects: false` package re-exports
-   (`export { x } from "./x.js"`) whenever a plugin's resolve filter matches
-   the import of that package, even when the callback resolves nothing, and
-   the bundle then references a binding it never defines; the Bun helper's
-   filter therefore matches only the specifiers it resolves. Windmill's own
-   Bun build filters every specifier that ends in `.ts`. So it drops such a
-   module behind a package's bare import that ends in `.ts` (a package
-   named `*.ts`, or a deep `pkg/index.ts`), where windmill-lite keeps it:
-   deviation D19 of [0001](0001-equivalence-contract.md)
-   ([WR-27](../semantics/languages.md#wr-27)).
+   from a plain bundle, still runs its load effects.
+
+   Bun 1.3.10 drops a module that a `sideEffects: false` package re-exports
+   (`export { x } from "./x.js"`) whenever a plugin's resolve filter
+   matches the import of that package, even when the callback resolves
+   nothing. The bundle then references a binding it never defines, so the
+   Bun helper's filter matches only the specifiers it resolves.
+
+   Windmill's own Bun build filters every specifier that ends in `.ts`. So
+   it drops such a module behind a package's bare import that ends in `.ts`
+   (a package named `*.ts`, or a deep `pkg/index.ts`), where windmill-lite
+   keeps it ([WR-27](../semantics/languages.md#wr-27)). This is deviation
+   D19 of [0001](0001-equivalence-contract.md).
 
 This departs from Windmill, which inlines every import into each script's
 bundle ([WR-27](../semantics/languages.md#wr-27)): it is deviation D12, and the

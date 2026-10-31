@@ -530,6 +530,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	}
 	release()
 	var it iterations
+	// waiting: a child flow ended without telling the loop's flow, which
+	// therefore never completes the loop.
+	waiting := false
 	for running > 0 || (stopped == "" && nStarted < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
@@ -545,6 +548,13 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 		k := <-done
 		running--
+		if ends[k].unreported {
+			// The child flow never told the loop's flow that it ended, so
+			// nothing counts it (childUnreported).
+			waiting = true
+			r.childUnreported(ctx, fr)
+			continue
+		}
 		completed++
 		// The last child to complete, whatever its outcome, in the order
 		// the loop received the completions, is the one a retry starts
@@ -557,7 +567,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		r.ping(fr)
 		release()
 	}
-	if unreported(ends) {
+	if waiting {
 		for k, e := range ends {
 			if started[k] {
 				it.add(e)
@@ -624,13 +634,20 @@ func canceledChild(ctx context.Context, j *childJob) flowEnd {
 
 // loopDone completes an active loop or branchall: its result is the array
 // of its children's results (aggregate; one the backend cannot read back
-// leaves it in progress, readFailed); one that failed fails with it (CF-5, CF-15),
-// and a loop whose stop_after_if threw fails as such a step does (FX-21).
+// leaves it in progress, readFailed); one that failed fails with it ([CF-5], [CF-15]),
+// and a loop whose stop_after_if threw fails as such a step does ([FX-21]).
 // Then its stop_after_all_iters_if, evaluated once with that array, stops
 // the flow it is in like an ordinary stop_after_if; an evaluation error is
-// an error stop (CF-13, JE-27). On one that failed, a clean stop keeps the
+// an error stop ([CF-13], [JE-27]). On one that failed, a clean stop keeps the
 // failure and still stops the flow, even under continue_on_error
-// (endFailedStop, FX-2 completion rule 7.1).
+// (endFailedStop, [FX-2] completion rule 7.1).
+//
+// [CF-5]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-5
+// [CF-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-15
+// [FX-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-21
+// [CF-13]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-13
+// [JE-27]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-27
+// [FX-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-2
 func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *iterations, failed bool, stopErr error) outcome {
 	m := fr.modules[i]
 	arr, err := aggregate(it.values)

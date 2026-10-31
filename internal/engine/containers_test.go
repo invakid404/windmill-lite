@@ -13,11 +13,14 @@ import (
 )
 
 // The tests of sleeps, timeouts and retries inside containers, and the
-// evaluation timing of container-level fields (CF-21 to CF-28), on the
+// evaluation timing of container-level fields ([CF-21] to [CF-28]), on the
 // synthetic folders of engine_test.go and the real QuickJS-ng engine; the
 // fixtures conformance/flows/control-flow/cf-21 to cf-28 and waits run the
 // same flows on the real Bun harness against the oracle's recordings
 // (cmd/wltest, TestFlowSuite).
+//
+// [CF-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-21
+// [CF-28]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-28
 
 // CF-21, FX-23: the sleep of the module before a container delays the
 // container's first child only: one wait, whatever the container.

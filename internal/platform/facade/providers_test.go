@@ -16,7 +16,13 @@ import (
 
 // The resource and variable reads answer from Config.Platform with
 // Windmill's statuses, content types and bodies, the same on both
-// transports (WA-10 to WA-12, WA-40, WA-42/b and /c, WA-V3/a).
+// transports ([WA-10] to [WA-12], [WA-40], [WA-42]/b and /c, [WA-V3]/a).
+//
+// [WA-10]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-10
+// [WA-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-12
+// [WA-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-40
+// [WA-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-42
+// [WA-V3]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v3
 func TestProviderRoutes(t *testing.T) {
 	store := platform.NewStore()
 	store.SetVariable("u/x/pw", platform.Variable{Value: "s3cret"})
@@ -58,7 +64,7 @@ func TestProviderRoutes(t *testing.T) {
 		// A job the job registry does not know of, looked up for a $WM_*
 		// string (WA-12/g).
 		{"WA-12/g", "resources/get_value_interpolated/u/test/context?job_id=00000000-0000-4000-8000-0000000000ff", 404, "text/plain", "Not found: Job not found at name 00000000-0000-4000-8000-0000000000ff"},
-		// A job_id that is not a UUID is refused before the read (WA-12/g).
+		// A job_id that is not a UUID is refused before the read.
 		{"WA-12/g", "resources/get_value_interpolated/u/test/context?job_id=nope", 400, "text/plain; charset=utf-8", "windmill-lite: the query parameter job_id, \"nope\", is not a UUID: invalid character: found `n` at 1"},
 	} {
 		t.Run(c.spec+" "+c.path, func(t *testing.T) {
@@ -154,14 +160,15 @@ func TestProviderRoutesWithoutPlatform(t *testing.T) {
 	}
 }
 
-// WA-11: an update sets an existing variable's value, which later reads
 // see, and its secrecy with a value, and answers Windmill's text, typed
-// as a handler's text answer (WA-11/e). Windmill's refusals: a missing
+// as a handler's text answer ([WA-11]/e). Windmill's refusals: a missing
 // variable's 404, a secrecy change without a value (the variable left as
 // it was), and the web framework's for a body without a JSON content type
 // (415), that is not JSON (400) or not an object (422). A rename, a value
 // already encrypted, and any update of a read-only variable service
 // answer 501.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func TestVariableUpdate(t *testing.T) {
 	store := platform.NewStore()
 	store.SetVariable("u/x/v", platform.Variable{Value: "first"})

@@ -76,7 +76,7 @@ export async function main() {
   return { written, read, other, otherRead, again, bytes, type: blob.type, bare, missing };
 }
 `
-	// An upload with no object store (WA-16/d): the stock client throws
+	// An upload with no object store: the stock client throws
 	// the generated client's ApiError, whose message is the status's text.
 	bunSteps["nostorage"] = `import * as wmill from "windmill-client";
 
@@ -84,7 +84,7 @@ export async function main() {
   return await wmill.writeS3File({ s3: "t/a.txt" }, "hi").then((o) => ({ ok: o }), (e) => ({ error: e.message, status: e.status }));
 }
 `
-	// setVariable on an existing variable (WA-11/e): the client asks
+	// setVariable on an existing variable: the client asks
 	// variables/exists, then updates, and resolves to undefined.
 	bunSteps["setvariable"] = `import * as wmill from "windmill-client";
 
@@ -188,11 +188,13 @@ func TestObjectsOnTheClient(t *testing.T) {
 	}
 }
 
-// WA-16/d on the stock client, in warm and fresh mode: with no object
+// [WA-16]/d on the stock client, in warm and fresh mode: with no object
 // store, an upload answers 500, as Windmill CE answers it with no
 // workspace storage, so writeS3File rejects with the generated client's
 // "Internal Server Error". The call is not unsupported, so the step's own
 // result stands in the default fail mode.
+//
+// [WA-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-16
 func TestNoObjectStoreOnTheClient(t *testing.T) {
 	r := newBunRig(t)
 	const want = `{"error":"Internal Server Error","status":500}`
@@ -212,10 +214,12 @@ func TestNoObjectStoreOnTheClient(t *testing.T) {
 	}
 }
 
-// WA-11/e on the stock client, in warm and fresh mode: setVariable on an
+// [WA-11]/e on the stock client, in warm and fresh mode: setVariable on an
 // existing variable asks variables/exists, then sends the update, whose
 // answer it does not return: it resolves to undefined, and the variable
 // then reads the new value.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func TestSetVariableOnTheClient(t *testing.T) {
 	r := newBunRig(t)
 	const want = `{"set":"undefined","read":"c"}`
@@ -243,11 +247,14 @@ func TestSetVariableOnTheClient(t *testing.T) {
 
 // The dispatch-target restriction on the stock client (ADR 0001 §5a), in
 // warm and fresh mode: with no target in the bundle, runScriptByPathAsync
-// and runFlowAsync resolve to the refusal's body as a job id (WA-V5/a),
+// and runFlowAsync resolve to the refusal's body as a job id ([WA-V5]/a),
 // and runScriptByPath rejects with the 400 of a result poll whose id is
-// not a UUID (WA-V2/c) instead of polling forever. In fail mode the step fails with
+// not a UUID ([WA-V2]/c) instead of polling forever. In fail mode the step fails with
 // UnsupportedPlatformCall, "dispatch target not in bundle: <path>",
 // listing the three dispatches.
+//
+// [WA-V5]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v5
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
 func TestDispatchRefusedOnTheClient(t *testing.T) {
 	r := newBunRig(t)
 	const observed = `{"async":"dispatch target not in bundle: u/t/x","sync":{"name":"ApiError","status":400},"flow":"dispatch target not in bundle: f/t/y"}`

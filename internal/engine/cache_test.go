@@ -284,7 +284,7 @@ func TestCacheFlowJob(t *testing.T) {
 		t.Fatalf("%d invocations, want 2", n)
 	}
 
-	// FX-40's store table: a flow stores when its completion counts as a
+	// The store table: a flow stores when its completion counts as a
 	// success before the recover check, and only then.
 	halt := `"stop_after_if":{"expr":"true","skip_if_stopped":false,"error_message":"halt"}`
 	for _, c := range []struct {
@@ -501,12 +501,15 @@ func TestCacheHostChecks(t *testing.T) {
 	}
 }
 
-// ADR 0007 (PF3), FX-40: a job the result cache completes is still a job,
+// ADR 0007, [FX-40]: a job the result cache completes is still a job,
 // which the job registry knows while its root lives, with its identity,
 // as it knows one that ran; once the root has ended, neither is live, and
-// both keep only their root (WA-19). Here the run's jobs share an outer
+// both keep only their root ([WA-19]). Here the run's jobs share an outer
 // root that a dispatch tracked in its parent gives them, which lives on
 // after the run.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func TestCacheHitRegistersJob(t *testing.T) {
 	p := &platform.Services{}
 	end := p.JobRegistry().Begin(platform.Job{ID: "outer", Kind: platform.JobFlow, Root: "outer"})
@@ -580,10 +583,12 @@ func (x registering) Execute(ctx context.Context, inv Invocation) (StepOutcome, 
 	return x.inner.Execute(ctx, inv)
 }
 
-// FX-40/m: a job whose cache_ttl is 0 still looks the cache up, since a
+// [FX-40]/m: a job whose cache_ttl is 0 still looks the cache up, since a
 // lookup tests only the stored entry's own expiry: it never hits its own
 // entries, which expire as they are stored, but it hits an entry that a
 // job with a positive TTL stored under the same key.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func TestCacheZeroTTL(t *testing.T) {
 	x := &idSteps{}
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(cachedInline("a", inputs("v", static("1")), `"cache_ttl":0`))}, x)
@@ -612,10 +617,12 @@ func TestCacheZeroTTL(t *testing.T) {
 	}
 }
 
-// FX-40: an entry's expiry is its store time in whole seconds plus the
+// An entry's expiry ([FX-40]) is its store time in whole seconds plus the
 // TTL, and it is valid while the current time, in whole seconds, is
 // earlier: an entry stored at 12:00:00.9 with a TTL of 60 s is valid at
 // 12:00:59.95 and gone at 12:01:00.1.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func TestCacheExpiryWholeSeconds(t *testing.T) {
 	x := &idSteps{}
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "cached", inputs("v", static("1")), ""))}, x)
@@ -633,11 +640,13 @@ func TestCacheExpiryWholeSeconds(t *testing.T) {
 	}
 }
 
-// FX-40/k, FX-40: an argument whose whole value is an S3 object record is
+// [FX-40]/k, [FX-40]: an argument whose whole value is an S3 object record is
 // hashed with the object's ETag when the object store holds the object,
 // and its text follows unless cache_ignore_s3_path is set. Without an ETag
 // (no object store, no such object, another storage, a record nested in
 // the argument) it is hashed as its text, and the flag has no effect.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func TestCacheS3Objects(t *testing.T) {
 	ctx := context.Background()
 	step := func(ignore bool) string {
@@ -719,10 +728,12 @@ func TestCacheS3Objects(t *testing.T) {
 	})
 }
 
-// FX-40/i: arguments share a key when they are equal as jsonb values:
+// [FX-40]/i: arguments share a key when they are equal as jsonb values:
 // member order and whitespace do not matter, a number's spelling does where
 // jsonb keeps it (1 and 1.0 differ, 1e3 and 1000 do not), and a $var:
 // reference is hashed as its literal text.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func TestCacheArgumentEquality(t *testing.T) {
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf()}, &scripts{})
 	ctx := context.Background()

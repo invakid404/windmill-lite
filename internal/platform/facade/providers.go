@@ -12,10 +12,16 @@ import (
 
 // The resource and variable reads of ADR 0007's services, which the
 // facade answers from Config.Platform: the three resource-read contracts
-// of WA-40 kept apart, with Windmill's statuses and bodies (WA-10 to
-// WA-12, WA-42); and the update of a variable's value (WA-11), when the
+// of [WA-40] kept apart, with Windmill's statuses and bodies ([WA-10] to
+// [WA-12], [WA-42]); and the update of a variable's value ([WA-11]), when the
 // variable service takes writes. The other writes (creating a variable,
 // the resource writes) are not served, and answer 501.
+//
+// [WA-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-40
+// [WA-10]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-10
+// [WA-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-12
+// [WA-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-42
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func (f *Facade) serveProviders() {
 	f.Handle("getResourceValueInterpolated", f.resourceInterpolated)
 	f.Handle("getResourceValue", f.resourceRaw)
@@ -26,7 +32,7 @@ func (f *Facade) serveProviders() {
 }
 
 // resourceInterpolated answers GET /w/{ws}/resources/get_value_interpolated/{path}
-// (WA-12): contract (b). Without job_id, as the stock clients call it,
+// ([WA-12]): contract (b). Without job_id, as the stock clients call it,
 // $WM_* strings stay literal. A job_id that is not a UUID is refused
 // before the read, whatever the value holds, as Windmill's web framework
 // refuses the query string (queryUUID). With a UUID, the job is looked up
@@ -36,7 +42,9 @@ func (f *Facade) serveProviders() {
 // been sent. The job must be live and of the path's workspace, else the
 // read answers 404 `Not found: Job not found at name <id>`; a live flow
 // job, whose job variables the registry does not keep, answers 501.
-// allow_cache is ignored: windmill-lite caches nothing (WA-12, caching).
+// allow_cache is ignored: windmill-lite caches nothing ([WA-12], caching).
+//
+// [WA-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-12
 func (f *Facade) resourceInterpolated(ctx context.Context, c *Call) Reply {
 	id, refused := queryUUID(c, "job_id")
 	if refused != nil {
@@ -76,7 +84,7 @@ func (f *Facade) variableValue(ctx context.Context, c *Call) Reply {
 	return answer(platform.JSONString(v), nil)
 }
 
-// variableUpdate answers POST /w/{ws}/variables/update/{path} (WA-11).
+// variableUpdate answers POST /w/{ws}/variables/update/{path} ([WA-11]).
 // Its body is the API's EditVariable, checked as Windmill's web framework
 // checks a JSON body (jsonBody), then as an object: a body that parses
 // but is not one answers 422 `Failed to deserialize the JSON body into
@@ -93,6 +101,8 @@ func (f *Facade) variableValue(ctx context.Context, c *Call) Reply {
 // path after the update, quoted with " and \ escaped. The stock clients
 // never show it to a script: TS setVariable asks variables/exists first,
 // then updates or creates, and resolves to undefined.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func (f *Facade) variableUpdate(ctx context.Context, c *Call) Reply {
 	path := c.Params["path"]
 	if refused := jsonBody(c); refused != nil {

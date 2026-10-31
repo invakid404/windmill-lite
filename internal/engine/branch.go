@@ -346,7 +346,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 	ends := make([]flowEnd, n)
 	started := 0
 	stopped := conformance.RunStatus("")
-	done := make(chan struct{}, n)
+	done := make(chan int, n)
 	// The branches start together, after one check of the host signals
 	// (CF-15), so none waits on another's outcome to start.
 	if st, ended := r.iterationEnded(ctx); ended {
@@ -356,18 +356,24 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 			started++
 			go func() {
 				ends[k] = r.runList(ctx, c)
-				done <- struct{}{}
+				done <- k
 			}()
 		}
 	}
 	// This goroutine refreshes the flow's ping as each branch completes
-	// (JE-2).
+	// (JE-2). A branch whose child flow never told the flow that it ended
+	// is not a completion (childUnreported).
+	waiting := false
 	for range started {
-		<-done
+		if k := <-done; ends[k].unreported {
+			waiting = true
+			r.childUnreported(ctx, fr)
+			continue
+		}
 		r.ping(fr)
 	}
 	var it iterations
-	if unreported(ends[:started]) {
+	if waiting {
 		for _, e := range ends[:started] {
 			it.add(e)
 		}

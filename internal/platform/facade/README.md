@@ -84,7 +84,7 @@ and the engine each flow run. The lookup answers:
 - **An id that is not a UUID:** the web framework's `400` (WA-19/c,
   [Request rejections](#request-rejections)).
 
-**The resource and variable reads** (PF2) answer from `Config.Platform`
+**The resource and variable reads** answer from `Config.Platform`
 ([internal/platform](../README.md#services)), nil meaning none, so every
 read is a not-found; for an invocation whose run chose its own providers
 (H13: `engine.Invocation.Platform`, kept as `Caller.Platform`), they
@@ -171,7 +171,7 @@ hands each run to `Services.Dispatcher`
 |---|---|---|
 | `runScriptByPath`, `runFlowByPath` | `POST /w/{ws}/jobs/run/p/{path}`, `…/run/f/{path}` | `201` `text/plain; charset=utf-8` with the new job's id; the body is the run's arguments, and the query's `parent_job`, `root_job`, `tag` and `scheduled_in_secs` go to the dispatcher with the caller's job variables |
 | `runScriptByHash` | `POST /w/{ws}/jobs/run/h/{hash}` | refused: a windmill-lite bundle records no script hash, so no hash names a root |
-| `getCompletedJobResultMaybe` | `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` | what waitJob polls ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)): a dispatched run's `started`, `success`, `completed` and `result`, with explicit nulls while it runs (`started` only when `get_started=true` asks); for a UUID that names no job, and any job looked up in a workspace other than the caller's (WA-V2/d's second request), Windmill's answer for an id with no job row |
+| `getCompletedJobResultMaybe` | `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` | what waitJob polls ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)): a dispatched run's `started`, `success`, `completed` and `result`, with explicit nulls while it runs (`started` only when `get_started=true` asks). A UUID that names no job, and any job looked up in a workspace other than the caller's, get Windmill's answer for an id with no job row |
 | `getCompletedJobResult` | `GET /w/{ws}/jobs_u/completed/get_result/{id}` | a dispatched run's result once it has completed; before, for a UUID that names no job, and in a workspace other than the caller's, `404` `Not found: Completed Job not found at name <id>` ([WA-19](../../../docs/semantics/client-api.md#wa-19)/d), without Windmill's location |
 
 - **A target that is not a root of the bundle** (ADR 0001 §5a), and
@@ -200,13 +200,16 @@ PF3) answers from `Services.Objects`, for explicit keys:
 
 What the client contract leaves to the server answers 501, named: an
 upload without `file_key` (a key the server generates) and a call with
-`s3_resource_path` (a resource's own bucket); `delete_s3_file` and the
-credential and presigning routes have no handler. With no object store
-configured, both routes answer `500` `Internal: windmill-lite: no object
-store is configured`: Windmill CE answers an upload with no workspace
-storage with a 500, so the stock client's `writeS3File` throws `Internal
-Server Error` on both (WA-16/d). CE's body was not recorded, and the
-download's status is windmill-lite's choice, the upload's.
+`s3_resource_path` (a resource's own bucket). `delete_s3_file` and the
+credential and presigning routes have no handler.
+
+With no object store configured, both routes answer `500` `Internal:
+windmill-lite: no object store is configured`. Windmill CE answers an
+upload with no workspace storage with a 500
+([WA-16](../../../docs/semantics/client-api.md#wa-16)/d), so the stock
+client's `writeS3File` throws `Internal Server Error` on both. CE's body
+was not recorded, and the download's status is windmill-lite's choice,
+the upload's.
 
 Where the reference gives no text, the text is windmill-lite's, with the
 status that Windmill gives:
@@ -236,13 +239,17 @@ bare `text/plain`. The facade gives these answers on the routes it serves
 
 A job id is read as Windmill's UUID parser reads it: 32 hex digits, the
 hyphenated form, or the hyphenated form in braces or after `urn:uuid:`,
-in either case; the facade looks up its lower-case hyphenated form. The
-`<detail>` is the parser's reason in the reference's words: `invalid
-length: found <n>` for hex digits alone, ``invalid character: found `<c>`
-at <i>``, `invalid group count: expected 5, found <n>` or `invalid group
-length in group <g>: expected <e>, found <n>`. The reference does not say
-from where `<i>` and `<g>` count; the facade counts the character's byte
-position from 1 and the group from 0.
+in either case. The facade looks up its lower-case hyphenated form.
+
+The `<detail>` is the parser's reason in the reference's words:
+
+- `invalid length: found <n>` for hex digits alone;
+- ``invalid character: found `<c>` at <i>``;
+- `invalid group count: expected 5, found <n>`;
+- `invalid group length in group <g>: expected <e>, found <n>`.
+
+The reference does not say from where `<i>` and `<g>` count. The facade
+counts the character's byte position from 1 and the group from 0.
 
 ## Attribution and transports
 
@@ -356,50 +363,52 @@ comparison. An abandoned invocation has no outcome to replace.
   (`TestHandlerFailuresBothTransports`), bodyless replies to `HEAD` and
   204 on both (`TestBodylessReplies`), WA-42/a's rows, and handler
   registration.
-- `services_test.go`, without Bun:
+- `services_test.go`, without Bun, on both transports:
   - the root lookup from the job registry: an ended job of a live run, a
     flow scope, the run, a job of an ended run and the ended run, and a
-    UUID in each of the parser's other forms; WA-19/b's `400` for an
-    unknown id and a job looked up in another workspace, on both
-    transports; WA-19/c's framework `400` for an id that is not a UUID;
-  - the workspace of a token (`TestTokenWorkspace`, WA-4/b): the `401`
-    before a handler, a 501 and a rejection, on both transports, recorded
-    and not unsupported, with the state unchanged, while `jobs_u`,
-    `apps_u` (its 501), the routes outside a workspace and a caller
-    without `WM_WORKSPACE` are not refused;
-  - flow user state on both transports: the write's answer and its type,
-    the read, null, the 404, and WA-14/d's rejections (an id that is not
-    a UUID before the body, a body that is not JSON, a body without a
-    JSON content type), with the state unchanged;
+    UUID in each of the parser's other forms;
+  - the root lookup's `400` for an unknown id and for a job looked up in
+    another workspace, and the framework's `400` for an id that is not a
+    UUID;
+  - the workspace of a token (`TestTokenWorkspace`): the `401` before a
+    handler, a 501 and a rejection, recorded and not unsupported, with the
+    state unchanged. `jobs_u`, `apps_u` (its 501), the routes outside a
+    workspace and a caller without `WM_WORKSPACE` are not refused;
+  - flow user state: the write's answer and its type, the read, null and
+    the 404;
+  - flow user state's rejections, with the state unchanged: an id that is
+    not a UUID before the body, a body that is not JSON, and a body
+    without a JSON content type;
   - the dispatch routes with a fake dispatcher: what reaches it, the 201
     and its type, a refused target and its quoted message, a hash, the
     refused query parameters, a bad `scheduled_in_secs`, no dispatcher;
   - the result polls: completed, running with and without `get_started`,
-    WA-V2/a and /b, WA-V2/c's framework `400` and the parser's other
-    reasons, a job the dispatcher did not start, WA-19/d's not-found, and
-    a job looked up in another workspace (WA-V2/d's second request);
-  - the object store routes: a round trip with metadata, a missing
-    object, the 501s of a generated key, a resource's bucket and
-    deletion, and the 500s with no store, which are not unsupported
-    (WA-16/d).
+    and a UUID that names no job;
+  - the result polls' refusals: the framework's `400` and the parser's
+    other reasons, a job the dispatcher did not start, `getResult`'s
+    not-found, and a job looked up in another workspace;
+  - the object store routes: a round trip with metadata, a missing object,
+    the 501s of a generated key, a resource's bucket and deletion, and the
+    500s with no store, which are not unsupported.
 - `providers_test.go`, without Bun:
-  - the resource and variable reads on both transports, their statuses,
-    content types and bodies (WA-11/a, WA-12/a, WA-40's raw read and
-    exists, WA-42/b and /c, WA-V3/a), a read with a live invocation's
-    `job_id`, with an unknown one and with one that is not a UUID, a
-    create's 501, and a facade with no platform;
-  - a read's `job_id` (`TestReadWithAJobID`, WA-12/g): ignored for a
-    value without a `$WM_*` string when it is a UUID; for one, the 404 of
-    a random UUID, an ended job and another workspace's job, and the
-    caller's own job resolved, also in upper case; the `400` of a
-    `job_id` that is not a UUID or is empty, for either value; a live
-    flow job's 501, which the policy quotes;
-  - the variable update (`TestVariableUpdate`, WA-11/e): Windmill's text
-    and type on both transports, a path with a quote and a backslash, a
-    value later reads see, its secrecy with a value, and the refusal of a
-    secrecy change without one; the missing variable's 404, the
-    framework's 415 and 400, and the 422 of a body that is not an object;
-    the 501s of a rename, an encrypted value and a read-only service;
+  - the resource and variable reads on both transports: their statuses,
+    content types and bodies, the raw read and exists, a create's 501, and
+    a facade with no platform;
+  - a read with a live invocation's `job_id`, with an unknown one and with
+    one that is not a UUID;
+  - a read's `job_id` (`TestReadWithAJobID`): ignored for a value without
+    a `$WM_*` string when it is a UUID. For a value with one, the 404 of a
+    random UUID, an ended job and another workspace's job, and the
+    caller's own job resolved, also in upper case;
+  - the `400` of a `job_id` that is not a UUID or is empty, for either
+    value, and a live flow job's 501, which the policy quotes;
+  - the variable update (`TestVariableUpdate`): Windmill's text and type on
+    both transports, a path with a quote and a backslash, a value later
+    reads see, and its secrecy with a value;
+  - the update's refusals: a secrecy change without a value, the missing
+    variable's 404, the framework's 415 and 400, and the 422 of a body
+    that is not an object. A rename, an encrypted value and a read-only
+    service answer 501;
   - the per-run providers (H13): an invocation whose run chose its own
     services reads variables and resources from them, another the
     facade's, and both the shared job registry.
@@ -436,26 +445,30 @@ comparison. An abandoned invocation has no outcome to replace.
     `undefined` for a state never written (WA-41/b), with no unsupported
     call;
   - in `services_bun_test.go`, on the stock client in warm and fresh
-    mode: `TestFlowUserStateOnTheClient` (WA-14/a: two steps of a run share
-    its map, a missing key and an undefined value read null, a script
-    job's write is swallowed with the helper's log line, or rejects when
-    strict); `TestObjectsOnTheClient` (WA-16/a–c: the upload request with
-    its `file_key` and body, the round trip, another storage, binary
-    content on both transports, a bare string refused before any request,
-    a missing object's error); `TestNoObjectStoreOnTheClient` (WA-16/d:
-    with no object store, `writeS3File` rejects with `Internal Server
-    Error`, status 500, and the step's own result stands);
-    `TestSetVariableOnTheClient` (WA-11/e: `setVariable` asks
-    `existsVariable`, updates, resolves to `undefined`, and the variable
-    reads the new value); and `TestDispatchRefusedOnTheClient` (the
-    restriction of ADR 0001 §5a: the async helpers resolve to the
-    refusal's body, the synchronous one rejects at once, and in fail mode
-    the step fails with `UnsupportedPlatformCall` quoting the refusal).
+    mode:
+    - `TestFlowUserStateOnTheClient`: two steps of a run share its map, a
+      missing key and an undefined value read null, and a script job's
+      write is swallowed with the helper's log line, or rejects when
+      strict;
+    - `TestObjectsOnTheClient`: the upload request with its `file_key` and
+      body, the round trip, another storage, binary content on both
+      transports, a bare string refused before any request, and a missing
+      object's error;
+    - `TestNoObjectStoreOnTheClient`: with no object store, `writeS3File`
+      rejects with `Internal Server Error`, status 500, and the step's own
+      result stands;
+    - `TestSetVariableOnTheClient`: `setVariable` asks `existsVariable`,
+      updates, resolves to `undefined`, and the variable reads the new
+      value;
+    - `TestDispatchRefusedOnTheClient`: the restriction of ADR 0001 §5a.
+      The async helpers resolve to the refusal's body, the synchronous one
+      rejects at once, and in fail mode the step fails with
+      `UnsupportedPlatformCall` quoting the refusal.
 
-The step cases of [conformance/steps](../../../conformance/README.md)
-(`wa-2.yaml`, `wa-5.yaml`, `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`,
-`wa-14.yaml`, `wa-15.yaml`, `wa-16.yaml`, `wa-19.yaml`, `wa-31.yaml`,
-`wa-41.yaml`, `wa-42.yaml`, `wa-v2.yaml`, `wa-v3.yaml`) run the facade through `wltest
-check` in `warm` and `fresh`, and the flow fixtures `client-api/user-state`
-and `client-api/dispatch` run it with the engine on the oracle's
-recordings.
+The step cases of [conformance/steps](../../../conformance/README.md) run
+the facade through `wltest check` in `warm` and `fresh`: `wa-2.yaml`,
+`wa-5.yaml`, `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`, `wa-14.yaml`,
+`wa-15.yaml`, `wa-16.yaml`, `wa-19.yaml`, `wa-31.yaml`, `wa-41.yaml`,
+`wa-42.yaml`, `wa-v2.yaml` and `wa-v3.yaml`. The flow fixtures
+`client-api/user-state` and `client-api/dispatch` run it with the engine on
+the oracle's recordings.

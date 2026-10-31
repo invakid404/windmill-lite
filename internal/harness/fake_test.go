@@ -352,8 +352,10 @@ func TestKillLinesAreBoundedAcrossProcesses(t *testing.T) {
 }
 
 // A fresh invocation's cancellation kills its process, whose kill is named,
-// and returns at once, never waiting for the diagnostics writer (WR-37:
+// and returns at once, never waiting for the diagnostics writer ([WR-37]:
 // Windmill kills a job's process at once on a timeout or a cancellation).
+//
+// [WR-37]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-37
 func TestFreshCancelWithBlockedDiagnostics(t *testing.T) {
 	cfg, _ := fakeConfig(t, "fresh-hang")
 	cfg.ModuleState = engine.ModuleStateFresh

@@ -385,14 +385,15 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     `*Services` share them. The engine
     registers each flow run, its own root; the facade registers each
     invocation as a script job, and the flow scopes its variables name
-    become known with it. A job stays live while its root lives. Once the
-    root and every job of its tree have ended, the registry keeps each job
-    as an ended job: its id, kind, root and path, without a script job's
-    variables. It keeps the latest 4096, as Windmill keeps a completed
-    job's row until its job retention removes it
-    ([WA-19](../semantics/client-api.md#wa-19)). The root lookup answers
-    from it for a live or an ended job; a read's `job_id` needs a live job
-    (below).
+    become known with it.
+    - A job stays live while its root lives.
+    - Once the root and every job of its tree have ended, the registry
+      keeps each job as an ended job: its id, kind, root and path, without
+      a script job's variables. It keeps the latest 4096, as Windmill keeps
+      a completed job's row until its job retention removes it
+      ([WA-19](../semantics/client-api.md#wa-19)).
+    - The root lookup answers for a live or an ended job; a read's
+      `job_id` needs a live job (below).
   - **Flow user state** is a map per flow job, which the stock helpers
     address by the effective root. A read gives `null` for a missing key,
     a job that is not a live flow job and a run that has ended; a write
@@ -414,15 +415,16 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     (`_default_` when none) and key, so no key names a path outside it:
     one version, its metadata line and its content, renamed into place
     whole, so a reader never pairs one upload's content with another's
-    content type and a failed upload leaves the object as it was. It
-    serves explicit keys only: an upload without
-    `file_key` and a call with `s3_resource_path` answer 501, named;
-    deletion, credentials and presigning have no handler (`later`). Its
-    error texts are windmill-lite's (Q-WA-3). When the host configured no
-    store, an upload and a download answer `500` `Internal: windmill-lite:
-    no object store is configured`, as Windmill CE answers with no
-    workspace store ([WA-16](../semantics/client-api.md#wa-16)/d), so the
-    stock client throws `Internal Server Error`.
+    content type and a failed upload leaves the object as it was.
+    - It serves explicit keys only: an upload without `file_key` and a call
+      with `s3_resource_path` answer 501, named. Deletion, credentials and
+      presigning have no handler (`later`). Its error texts are
+      windmill-lite's (Q-WA-3).
+    - When the host configured no store, an upload and a download answer
+      `500` `Internal: windmill-lite: no object store is configured`, as
+      Windmill CE answers with no workspace store
+      ([WA-16](../semantics/client-api.md#wa-16)/d). So the stock client
+      throws `Internal Server Error`.
   - **The default dispatcher is the engine's** (`engine.Dispatcher`): it
     runs the program's roots, so it needs the engine, which imports
     `internal/platform`; the interface and the request types are in
@@ -537,14 +539,15 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **A read's `job_id`** ([WA-12](../semantics/client-api.md#wa-12)/g) is
     looked up only when the walk meets a `$WM_*` string, at each one
     (`platform.JobLookup`), so a value without one reads as if no job id
-    had been sent. A `job_id` that is not a UUID, the empty one included,
-    is refused with `400` before any read (Request extraction, below).
-    The job must be live and of the path's workspace
-    (`Services.ReadJobEnv`): an unknown id, a job that has ended and a job
-    of another workspace answer `404` `Not found: Job not found at name
-    <id>`, without the location. A live flow job answers `501` (`… with
-    the job_id of a flow job`), since the registry keeps the job variables
-    of script jobs only.
+    had been sent.
+    - A `job_id` that is not a UUID, the empty one included, is refused
+      with `400` before any read (Request extraction, below).
+    - The job must be live and of the path's workspace
+      (`Services.ReadJobEnv`): an unknown id, a job that has ended and a
+      job of another workspace answer `404` `Not found: Job not found at
+      name <id>`, without the location.
+    - A live flow job answers `501` (`… with the job_id of a flow job`),
+      since the registry keeps the job variables of script jobs only.
   - **Request extraction.** The facade answers as Windmill's web framework
     does when it cannot extract a request's parameters, before the handler
     runs and after the token check
@@ -552,23 +555,24 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     text/plain; charset=utf-8`:
     - a path id that is not a UUID: `400` ``Invalid URL: Cannot parse
       `<param>` with value `<id>`: UUID parsing failed: …``
-      ([WA-V2](../semantics/client-api.md#wa-v2)/c, WA-14/d, WA-19/c), the
-      id checked before the body;
-    - a body sent without a JSON content type: `415`; a body that does not
-      parse: `400` `Failed to parse the request body as JSON: …` (WA-14/d);
-      a variable update whose body parses but is not an object: `422`;
-    - a `job_id` query that is not a UUID: `400`
-      ([WA-12](../semantics/client-api.md#wa-12)/g). The reference gives
-      only the status, so the text is windmill-lite's.
+      ([WA-V2](../semantics/client-api.md#wa-v2)/c,
+      [WA-14](../semantics/client-api.md#wa-14)/d,
+      [WA-19](../semantics/client-api.md#wa-19)/c), the id checked before
+      the body;
+    - a body sent without a JSON content type: `415`;
+    - a body that does not parse: `400` `Failed to parse the request body
+      as JSON: …` (WA-14/d);
+    - a variable update whose body parses but is not an object: `422`;
+    - a `job_id` query that is not a UUID: `400`, with windmill-lite's
+      text, since the reference gives only the status
+      ([WA-12](../semantics/client-api.md#wa-12)/g).
 
     A handler's successful text answer (a variable update, `Flow job state
     updated`, a dispatch's `201`) is typed `text/plain; charset=utf-8` too,
     and an error variant's answer bare `text/plain`.
 
-    A JSON body that does not parse inside a member or an element gets the
-    parser's message without the member's path that Windmill puts in front
-    of it (`a: expected value at line 1 column 7` for `{"a": x}`). The
-    stock clients always send JSON that parses, so only a raw HTTP request
+    Not reproduced: Windmill puts the member's path in front of a parse
+    error inside a member (`a: ` for `{"a": x}`). Only a raw HTTP request
     meets this.
   - **Not reproduced.**
     - windmill-lite never decrypts Windmill ciphertext (Secrets, above):

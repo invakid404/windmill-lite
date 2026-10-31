@@ -512,10 +512,10 @@ func TestBranchConcurrentRuns(t *testing.T) {
 // stop continue_on_error re-enters the failed container, which aborts the
 // flow with an InternalError ([CF-7]).
 //
-// [CF-7]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-7
-// [CF-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-12
 // [CF-13]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-13
 // [FX-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-2
+// [CF-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-12
+// [CF-7]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-7
 func TestContainerCleanStopAfterFailure(t *testing.T) {
 	failing := []string{branch(skipFailure(false), mod("b", "fail", "", "")), branch(skipFailure(true), value("c", "2", ""))}
 	boom := func(stepID string) string {
@@ -532,7 +532,7 @@ func TestContainerCleanStopAfterFailure(t *testing.T) {
 		return `{"error":{"message":"Bad request: Unrecognized module status for ` + kind + ` Failure { .. }","name":"InternalError"}}`
 	}
 	// Each container fails, with the array it fails with; a collapsed
-	// iteration's error carries the loop's id (CF-8). A parallel one's
+	// iteration's error carries the loop's id. A parallel one's
 	// re-entry aborts the flow with abort.
 	for _, ct := range []struct {
 		name  string
@@ -596,7 +596,7 @@ func TestContainerCleanStopAfterFailure(t *testing.T) {
 	// never advances the cursor past it, so its continue_on_error does not
 	// tolerate an error stop that its own stop_after_all_iters_if raises
 	// after its children succeeded: at the last module the flow fails, and
-	// before a later module the flow's failure module runs (CF-7, FX-19).
+	// before a later module the flow's failure module runs.
 	errStop := `"continue_on_error":true,"stop_after_all_iters_if":{"expr":"true","skip_if_stopped":false,"error_message":"E"}`
 	succeeding := []string{branch(skipFailure(false), value("x", "1", "")), branch(skipFailure(false), value("y", "2", ""))}
 	for name, ba := range map[string]string{

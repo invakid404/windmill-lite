@@ -14,7 +14,9 @@ import (
 // job that ended stays live while its root runs. Once the root and every
 // job of it have ended, the tree's jobs are no longer live but stay known
 // with their kind, root and path, without a script job's variables, as
-// Windmill keeps completed jobs' rows (WA-19).
+// Windmill keeps completed jobs' rows ([WA-19]).
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func TestRegistryLifetime(t *testing.T) {
 	r := NewRegistry()
 	endRun := r.Begin(Job{ID: "run", Kind: JobFlow, Root: "run", Path: "f/x"})

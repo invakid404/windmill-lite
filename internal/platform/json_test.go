@@ -100,7 +100,7 @@ func TestParseErrors(t *testing.T) {
 		{`{"a":1, `, "EOF while parsing a value at line 1 column 8"},
 		{`{"a":1,x`, "key must be a string at line 1 column 8"},
 		{`{"a`, "EOF while parsing a string at line 1 column 3"},
-		// The array opened at depth 128 fails (FX-42/n, FX-42/o).
+		// The array opened at depth 128 fails.
 		{strings.Repeat("[", 128) + "1" + strings.Repeat("]", 128), "recursion limit exceeded at line 1 column 128"},
 		{`{"k": ` + strings.Repeat("[", 127) + strings.Repeat("]", 127) + `}`, "recursion limit exceeded at line 1 column 133"},
 	} {

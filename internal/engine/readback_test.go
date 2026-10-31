@@ -84,12 +84,14 @@ func wantInProgress(t *testing.T, rec StepRecord, st conformance.StepStatus) {
 	}
 }
 
-// FX-42 rule 9, FX-42/m, FX-42/n: when a container's children are child
+// [FX-42] rule 9, [FX-42]/m, [FX-42]/n: when a container's children are child
 // flows, a child result the backend's JSON library cannot read back (a
 // number beyond a double, which an identity child carries from the flow
 // input as jsonb keeps it, or nesting to depth 128) fails no job: the flow
 // waits with the container in progress, its next module and its failure
 // module do not run, and the zombie-flow monitor cancels the run.
+//
+// [FX-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-42
 func TestReadBackLeavesTheFlowWaiting(t *testing.T) {
 	// spec: FX-42/m, FX-42/n, JE-44
 	identity := `{"id":"x","value":{"type":"identity"}}`
@@ -127,13 +129,15 @@ func TestReadBackLeavesTheFlowWaiting(t *testing.T) {
 	}
 }
 
-// FX-42 rule 9, FX-42/o: when a container's children are the flow's own
+// [FX-42] rule 9, [FX-42]/o: when a container's children are the flow's own
 // leaf jobs, a collapsed loop's iterations, the read's failure fails the
 // flow at once with InternalErr, with no retry, continue_on_error or later
 // step, and the loop stays in progress. The error's column counts in the
 // text PostgreSQL prints for the child's stored result: the bracket that
 // opens depth 128. In a child flow, the failure does not reach its
 // parent, which waits until the monitor cancels the run.
+//
+// [FX-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-42
 func TestReadBackCollapsedBody(t *testing.T) {
 	// spec: FX-42/o, JE-44
 	const prefix = "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column "
@@ -204,6 +208,126 @@ func TestReadBackCollapsedBody(t *testing.T) {
 	wantD20(t, tr, true)
 	wantInProgress(t, sub, conformance.StepCanceled)
 	wantInProgress(t, at(t, tr, "m:s/m:br"), conformance.StepFailure)
+}
+
+// childSteps answers f/t/value with an unreadable result, nested to depth
+// 128, in the iterations under the site prefix unreadable, and with 1
+// elsewhere. Once a step under unreadable has started, f/t/echo blocks
+// until its step is canceled.
+type childSteps struct {
+	scripts
+	unreadable string
+	started    chan struct{}
+	once       sync.Once
+}
+
+func (s *childSteps) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	s.mu.Lock()
+	s.invs = append(s.invs, inv)
+	s.mu.Unlock()
+	defer inv.Report.Settled(SettleCompleted)
+	if inv.Script == "f/t/echo" {
+		s.once.Do(func() { close(s.started) })
+		<-ctx.Done()
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	}
+	if strings.HasPrefix(inv.Site.String(), s.unreadable) {
+		if s.started != nil {
+			<-s.started
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(nested(128, "1")))}, nil
+	}
+	return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`))}, nil
+}
+
+// [FX-42] rule 9, [FX-42]/o: a child flow of a parallel container whose
+// collapsed loop fails the read never tells the container's flow that it
+// ended. The container does not count it, so it releases no held
+// iteration, and the container's flow waits: the monitor cancels the run
+// at once (D20), which cancels the container's other children, whose
+// records stay.
+//
+// [FX-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-42
+func TestReadBackInAParallelChild(t *testing.T) {
+	// spec: FX-42/o, CF-7, JE-2
+	inner := loopOf("inner", []string{mod("x", "value", "", "")}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, "")
+
+	// parallelism 1: the second iteration is held, and the first one's end,
+	// which the loop is never told, does not release it.
+	outer := loopOf("outer", []string{inner}, `"iterator":{"type":"static","value":[1,2]},"parallel":true,"parallelism":{"type":"static","value":1},"skip_failures":false`, "")
+	s := &childSteps{unreadable: "m:outer/i:0/"}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(outer, mod("n", "echo", "", ""))}, s)
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunCanceled, "")
+	canceledBy(t, tr, "monitor", hanging(tr.RunID, false))
+	wantD20(t, tr, true)
+	wantInProgress(t, step(t, tr, "outer"), conformance.StepCanceled)
+	if calls := s.calls(); !slices.Equal(calls, []string{"m:outer/i:0/m:inner/i:0/m:x"}) {
+		t.Errorf("calls %v: the held iteration or n ran", calls)
+	}
+
+	// A parallel branchall whose other branch is still running: the monitor
+	// cancels the run as soon as the failing branch ends, not when the
+	// other branch does, and the canceled branch keeps its record.
+	all := branchAllOf("outer", []string{branch(skipFailure(false), inner), branch(skipFailure(false), mod("wait", "echo", "", ""))}, true, "")
+	s = &childSteps{unreadable: "m:outer/b:0/", started: make(chan struct{})}
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(all)}, s)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, tr, conformance.RunCanceled, "")
+	canceledBy(t, tr, "monitor", hanging(tr.RunID, false))
+	wantD20(t, tr, true)
+	wantInProgress(t, step(t, tr, "outer"), conformance.StepCanceled)
+	if rec := at(t, tr, "m:outer/b:1/m:wait"); !rec.Ran {
+		t.Errorf("the other branch's step: %+v", rec)
+	}
+}
+
+// With the monitor disabled, the other children of a parallel loop whose
+// child flow never reported its end still complete, and their completions
+// release held iterations; the loop never completes, and the run waits
+// until it is canceled.
+func TestReadBackInAParallelChildWithoutMonitor(t *testing.T) {
+	// spec: FX-42/o, CF-7, JE-2
+	inner := loopOf("inner", []string{mod("x", "value", "", "")}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, "")
+	for _, c := range []struct {
+		name, parallelism string
+		calls             []string
+	}{
+		// The first iteration's end releases nothing.
+		{"held behind the unreported iteration", "1", []string{"m:outer/i:0/m:inner/i:0/m:x"}},
+		// The second iteration's end releases the third.
+		{"released by another iteration", "2", []string{"m:outer/i:0/m:inner/i:0/m:x", "m:outer/i:1/m:inner/i:0/m:x", "m:outer/i:2/m:inner/i:0/m:x"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			outer := loopOf("outer", []string{inner}, `"iterator":{"type":"static","value":[1,2,3]},"parallel":true,"parallelism":{"type":"static","value":`+c.parallelism+`},"skip_failures":false`, "")
+			s := &childSteps{unreadable: "m:outer/i:0/"}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(outer, mod("n", "echo", "", ""))}, s)
+			e.transition = 0
+			ctx, cancel := context.WithCancelCause(context.Background())
+			time.AfterFunc(200*time.Millisecond, func() { cancel(&Cancellation{Reason: "r", Canceler: "u"}) })
+			start := time.Now()
+			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := time.Since(start); d < 200*time.Millisecond {
+				t.Fatalf("the run ended after %v, before its cancellation", d)
+			}
+			canceledBy(t, tr, "u", "r")
+			wantD20(t, tr, false)
+			wantInProgress(t, step(t, tr, "outer"), conformance.StepCanceled)
+			calls := s.calls()
+			slices.Sort(calls)
+			if !slices.Equal(calls, c.calls) {
+				t.Errorf("calls %v, want %v", calls, c.calls)
+			}
+		})
+	}
 }
 
 // moduleEnds records the sites whose module end H6 observes.

@@ -135,18 +135,21 @@ starts.
   beyond numeric's range), as Windmill refuses to create one.
 - **Updates** ([WA-11](../../docs/semantics/client-api.md#wa-11)).
   `Services.UpdateVariable` updates an existing variable through the
-  variable service when it is a `VariableUpdater`, as `Store` is: a new
+  variable service when it is a `VariableUpdater`, as `Store` is. A new
   value replaces the old one (and is plaintext, no longer `Encrypted`), and
-  a new secrecy replaces the old. Windmill's refusals are kept: a missing
-  variable is the 404 `Not found: Variable not found at name <path>`
-  (without Windmill's location, D14), and a secrecy that differs from the
-  variable's, sent without a value, is the 400 `Bad request: cannot change
-  is_secret without updating value too`. A `VariableChain` is an updater
-  too: it updates its first service that has the variable, the one a read
-  answers from, which must itself be an updater. A variable service that is not one is read-only
-  (`ErrReadOnlyVariables`), and the facade answers 501. A runtime that owns
-  its store ([wl](../../wl/README.md)) thus keeps a step's update for the
-  runs after it.
+  a new secrecy replaces the old. A runtime that owns its store
+  ([wl](../../wl/README.md)) thus keeps a step's update for the runs after
+  it.
+  - Windmill's refusals are kept. A missing variable is the 404 `Not found:
+    Variable not found at name <path>`, without Windmill's location (D14).
+    A secrecy that differs from the variable's, sent without a value, is
+    the 400 `Bad request: cannot change is_secret without updating value
+    too`.
+  - A `VariableChain` is an updater too: it updates its first service that
+    has the variable, the one a read answers from, which must itself be an
+    updater.
+  - A variable service that is not an updater is read-only
+    (`ErrReadOnlyVariables`), and the facade answers 501.
 - **Per-run providers** (F2a, H13 of
   [ADR 0008](../../docs/design/0008-host-hooks.md)). `Providers` holds the
   providers a run may choose for itself: resources, variables, secrets and
@@ -193,30 +196,33 @@ for a script job, its job variables.
 - **How long.** A job stays live while its root lives, so a step's job
   can be looked up after it ended. Once the root has ended, the jobs of its
   tree that have ended are no longer live, and their user state is
-  forgotten; a job still live (a step abandoned at the run's end, D2)
+  forgotten. A job still live (a step abandoned at the run's end, D2)
   stays live, with the scopes it runs in, until it ends.
 - **Ended jobs.** `Registry` keeps the id, kind, root and path of each job
-  of an ended tree, without a script job's variables, so that the root
-  lookup still answers it, as Windmill keeps a completed job's row until
-  its job retention removes it, 30 days by default
-  ([WA-19](../../docs/semantics/client-api.md#wa-19)). It keeps the latest
-  4096 such jobs (`endedJobs`) and forgets older ones, whose ids are then
-  unknown: windmill-lite bounds the memory by count, not by age. A job
-  registered again is live again.
-- **The lookups.** `Services.RootJob` answers `getRootJobId`: the
-  effective root of a known job, live or ended. `Services.JobEnv` gives
-  the job variables of a script job whose tree has not ended, the step
-  ended or not; the ended jobs that the registry keeps have none.
-  `Services.ReadJobEnv` finds the
-  job a resource read's `job_id` names, as Windmill looks it up among the
-  queued and running jobs of the path's workspace
-  ([WA-12](../../docs/semantics/client-api.md#wa-12)/g): a live script
-  job of that workspace gives the variables its `$WM_*` strings resolve
-  from (`APIEnv`); an unknown id, a job that has ended and a job of
-  another workspace fail with the API's 404 `Not found: Job not found at
-  name <id>` (without Windmill's location, D14), and a live flow job,
-  whose job variables the registry does not keep, with
-  `ErrNoJobVariables`.
+  of an ended tree, without a script job's variables, so the root lookup
+  still answers it. Windmill keeps a completed job's row until its job
+  retention removes it, 30 days by default
+  ([WA-19](../../docs/semantics/client-api.md#wa-19)).
+  - The registry keeps the latest 4096 such jobs (`endedJobs`) and forgets
+    older ones, whose ids are then unknown: it bounds the memory by count,
+    not by age.
+  - Registering a job again makes it live again.
+- **The lookups.**
+  - `Services.RootJob` answers `getRootJobId`: the effective root of a
+    known job, live or ended.
+  - `Services.JobEnv` gives the job variables of a script job whose tree
+    has not ended, the step ended or not. The ended jobs that the registry
+    keeps have none.
+  - `Services.ReadJobEnv` finds the job that a resource read's `job_id`
+    names, as Windmill looks it up among the queued and running jobs of
+    the path's workspace
+    ([WA-12](../../docs/semantics/client-api.md#wa-12)/g). A live script
+    job of that workspace gives the variables that its `$WM_*` strings
+    resolve from (`APIEnv`).
+  - An unknown id, a job that has ended and a job of another workspace
+    fail with the API's 404 `Not found: Job not found at name <id>`,
+    without Windmill's location (D14). A live flow job, whose job
+    variables the registry does not keep, fails with `ErrNoJobVariables`.
 
 **Flow user state** ([WA-14](../../docs/semantics/client-api.md#wa-14)) is
 a key/value map per flow job, which the stock helpers address by their
@@ -361,20 +367,22 @@ One walker implements resolution for the three contracts of
 - `identity_test.go` checks the state path's branches (WA-5/a and WA-5/c
   among them), the variables `Env` sets with and without a host
   configuration, and the token's form.
-- `jobs_test.go` checks the registry's lifetime: a run and its jobs,
-  the scopes a script job names, a job that ended while its run lives, a
-  step that outlives its run, jobs of a root never registered, and the
-  tree's jobs kept as ended jobs, with their roots and without their
-  variables, with no live entry left behind; the bound on ended jobs
-  (`TestRegistryEndedBound`: the oldest forgotten, an id registered and
-  ended again kept by its later end); flow user state (WA-14/a's
-  reads and writes, the stored form, the 404 and the 400, and WA-14/c's
-  read and write after the run, with its maps forgotten), with a host's
-  `Jobs` (writes, reads and the maps forgotten with the run), bounded with
-  a registry whose runs end elsewhere, and with a host's `FlowUserState`;
-  the job a resource read's `job_id` names (`TestReadJobEnv`, WA-12/g);
-  and the services' one registry, shared by callers that first ask at
-  once.
+- `jobs_test.go` checks:
+  - the registry's lifetime: a run and its jobs, the scopes a script job
+    names, a job that ended while its run lives, a step that outlives its
+    run, and jobs of a root never registered;
+  - the tree's jobs kept as ended jobs, with their roots and without their
+    variables, with no live entry left behind;
+  - the bound on ended jobs (`TestRegistryEndedBound`): the oldest
+    forgotten, and an id registered and ended again kept by its later end;
+  - flow user state: the reads and writes during the run, the stored form,
+    the 404 and the 400, and the read and write after the run, with its
+    maps forgotten
+    ([WA-14](../../docs/semantics/client-api.md#wa-14)). Also with a host's
+    `Jobs`, bounded with a registry whose runs end elsewhere, and with a
+    host's `FlowUserState`;
+  - the job that a resource read's `job_id` names (`TestReadJobEnv`);
+  - the services' one registry, shared by callers that first ask at once.
 - `objects_test.go` (PF3) checks `DirObjects`: storages kept apart,
   metadata, a replacing write, a missing object, keys that would escape
   the directory, no temporary file left, concurrent writers and readers
@@ -388,22 +396,23 @@ One walker implements resolution for the three contracts of
   default and a host's cache, and concurrent writers and readers seeing
   whole values.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's
-  cases, each citing its catalogue case or finding: WA-10/a, WA-11/a,
-  WA-12/a to WA-12/f, WA-42/b and /c, WA-V3/a and /b, JE-42/a to /h and
-  /k, WR-5/a to /e, FX-42/h and FX-51/c, among others, through the three
-  contracts. It also checks the secret layer (plaintext, ciphertext with
-  and without a host's `Secrets`, a host's resolvers), the chains, and
-  `APIEnv`; `TestInterpolatedReadJobLookup` that a read's job is looked
-  up only for a `$WM_*` string, nested resources included, and that a
-  failed lookup fails the read (WA-12/g); `TestUpdateVariable` the
-  updates, a chain's included, the refusal of a secrecy change without a
-  value and the update's not-found text, and `TestWithProviders` the per-run
-  providers and what they share.
+  cases through the three contracts, each citing its catalogue case or
+  finding in its `spec` field. It also checks:
+  - the secret layer (plaintext, ciphertext with and without a host's
+    `Secrets`, a host's resolvers), the chains, and `APIEnv`;
+  - `TestInterpolatedReadJobLookup`: a read's job is looked up only for a
+    `$WM_*` string, nested resources included, and a failed lookup fails
+    the read;
+  - `TestUpdateVariable`: the updates, a chain's included, the refusal of
+    a secrecy change without a value, and the update's not-found text;
+  - `TestWithProviders`: the per-run providers and what they share.
 - `json_test.go` checks the double notation, parse and write, and the
-  parse errors with their positions, among them the reference's examples
-  of an input that ends early (`[` and `[1,2` an unclosed list, `[1,` a
-  value due), an object cut short (`{"a":1` unclosed, `{"a":1,` a value
-  due where a key was), and the nesting limit: a value nests at most 127
-  deep, and the array or object opened at depth 128 fails.
+  parse errors with their positions. Among them:
+  - the reference's examples of an input that ends early: `[` and `[1,2`
+    an unclosed list, `[1,` a value due;
+  - an object cut short: `{"a":1` unclosed, `{"a":1,` a value due where a
+    key was;
+  - the nesting limit: a value nests at most 127 deep, and the array or
+    object opened at depth 128 fails.
 - `data_test.go` loads `testdata/bundle/data/`, a bundle's `data/` in
   internal/bundle's format.

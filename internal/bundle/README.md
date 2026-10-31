@@ -472,6 +472,15 @@ import them, and which only codebase scripts can import:
   from the folder's `node_modules`, as the script's own bundle does
   ([WR-47](../../docs/semantics/languages.md#wr-47)).
 
+The copy takes no `assets` from its entry. A step's working directory
+holds the assets of the scripts the bundle runs (D10). On Windmill, the
+bundle of a script that imports the module carries the importing
+script's entry's assets, not the module's entry's
+([WR-49](../../docs/semantics/languages.md#wr-49)). So a module that
+reads an asset of its own entry finds it only when that entry's scripts
+are in the bundle, or when the importing script's entry lists the asset
+too.
+
 The build has these steps:
 
 1. The helper's `parse` op reads each source for
@@ -479,9 +488,10 @@ The build has these steps:
    syntax of the loader esbuild bundles it with. `loaderFor` picks it as
    esbuild 0.28.0 does: the longest suffix of the name that starts at a
    dot, over esbuild's own loaders with the entry's `loader` map on top.
-   TSX and JSX parse; another loader's file is not read. A file with no
-   loader (no suffix has one, or its loader is `default`) is not read
-   either: esbuild's refusal, `No loader is configured`, is its problem.
+   - TSX and JSX parse; another loader's file is not read.
+   - A file with no loader (no suffix has one, or its loader is `default`)
+     is not read either: esbuild's refusal, `No loader is configured`, is
+     its problem.
 2. A first esbuild build of each, with the shims of these modules as
    CommonJS placeholders that take any import name, records which listed
    modules it imports, which orders them (`host_module_cycle`).

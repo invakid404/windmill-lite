@@ -479,12 +479,14 @@ func TestAPIEnv(t *testing.T) {
 	}
 }
 
-// WA-11: an update of a Store's variable replaces its value, which is
+// An update of a Store's variable ([WA-11]) replaces its value, which is
 // then plaintext, and its secrecy, which changes only with a value, as
 // Windmill refuses a secrecy change without one; a missing variable is
 // the update's own not-found, and a variable service that is not a
 // VariableUpdater is read-only. A chain updates the service a read
 // answers from, which must itself be an updater.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func TestUpdateVariable(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore()

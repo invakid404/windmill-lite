@@ -8,11 +8,13 @@ import (
 )
 
 // The object store routes of ADR 0007's ObjectStore: the job helpers
-// loadS3File and writeS3File call (WA-16), for explicit keys. What the
+// loadS3File and writeS3File call ([WA-16]), for explicit keys. What the
 // client contract leaves to the server (a generated key, a resource's own
 // bucket) and deletion are not served, and answer 501. With no object
 // store configured, every call answers 500, as Windmill CE answers an
 // upload when the workspace has no storage.
+//
+// [WA-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-16
 func (f *Facade) serveObjects() {
 	f.Handle("fileUpload", f.upload)
 	f.Handle("fileDownload", f.download)

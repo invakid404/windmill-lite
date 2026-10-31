@@ -65,15 +65,17 @@ func (r *run) unreportedChildren(ctx context.Context, fr *frame, o outcome, it *
 	return o
 }
 
-// unreported reports whether one of a parallel container's child flows
-// ended without telling its flow (flowEnd.unreported).
-func unreported(ends []flowEnd) bool {
-	for _, e := range ends {
-		if e.unreported {
-			return true
-		}
-	}
-	return false
+// childUnreported handles a child flow of a parallel container of fr that
+// ended without telling fr's flow (flowEnd.unreported). The container does
+// not count that completion: it releases no held child and refreshes no
+// ping. fr's flow now waits for a transition that never comes, so the
+// monitor ends the run at once (monitor), which cancels the container's
+// other children; the container still receives their ends, so their records
+// stay. With the monitor disabled, the container keeps receiving its other
+// children's completions, which count, and waits once they are done
+// (unreportedChildren).
+func (r *run) childUnreported(ctx context.Context, fr *frame) {
+	r.monitor(ctx, fr)
 }
 
 // inProgress makes o a container that keeps no final status: its record
@@ -92,26 +94,38 @@ func inProgress(o outcome, st conformance.StepStatus, v jsonval.Value, origin Or
 }
 
 // hang ends a run in which waiting, a flow, waits for a transition that
-// never comes, as Windmill's zombie-flow monitor ends it: the run is
-// canceled with canceler "monitor" and the first sentence of the
-// monitor's reason, which names the waiting flow and its run page,
-// `<BASE_URL>/run/<id>?workspace=<workspace>`, in the subflow form when
-// the waiting flow is a flow step's. Windmill's monitor acts once the
-// flow has made no progress for FLOW_ZOMBIE_TRANSITION_TIMEOUT (60 s by
-// default); the engine cancels at once, so steps of the run still in
-// flight are canceled with it, deviation D20, which the trace records.
-// With the monitor disabled (Config.TransitionTimeout negative), nothing
-// ends the wait but the run's own cancellation, so hang returns once the
-// run's context ends. Only the first call acts ([FX-42] rule 9, [JE-2]).
+// never comes, and returns once the run's context has ended: the monitor
+// cancels the run at once (monitor), and with the monitor disabled
+// (Config.TransitionTimeout negative) nothing ends the wait but the run's
+// own cancellation.
+func (r *run) hang(ctx context.Context, waiting *frame) {
+	r.monitor(ctx, waiting)
+	<-ctx.Done()
+}
+
+// monitor cancels the run as Windmill's zombie-flow monitor cancels a flow,
+// waiting, that waits for a transition that never comes: with canceler
+// "monitor" and the first sentence of the monitor's reason, which names the
+// waiting flow and its run page, `<BASE_URL>/run/<id>?workspace=<workspace>`,
+// in the subflow form when the waiting flow is a flow step's. Windmill's
+// monitor acts once the flow has made no progress for
+// FLOW_ZOMBIE_TRANSITION_TIMEOUT (60 s by default); the engine cancels at
+// once, so steps of the run still in flight are canceled with it, deviation
+// D20, which the trace records. It does nothing when the monitor is
+// disabled, when the run's context has already ended, or after its first
+// call ([FX-42] rule 9, [JE-2]).
 //
 // [FX-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-42
 // [JE-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-2
-func (r *run) hang(ctx context.Context, waiting *frame) {
+func (r *run) monitor(ctx context.Context, waiting *frame) {
 	if r.e.transition <= 0 {
-		<-ctx.Done()
 		return
 	}
 	r.hangOnce.Do(func() {
+		if ctx.Err() != nil {
+			// The run ended otherwise first: the monitor never acts.
+			return
+		}
 		env := platform.Identity{}.Env(r.e.host)
 		page := waiting.id + " (" + env["WM_BASE_URL"] + "/run/" + waiting.id + "?workspace=" + env["WM_WORKSPACE"] + ")"
 		reason := "Flow " + page + " was cancelled because it was hanging in between 2 steps."

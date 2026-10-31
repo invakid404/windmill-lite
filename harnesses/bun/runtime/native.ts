@@ -148,7 +148,7 @@ const LISTENER_METHODS = new Set(["addEventListener", "removeEventListener"]);
 const NULL_BODY = new Set([101, 103, 204, 205, 304]);
 
 /** A failure to load a native module: its static imports, its link or its
- * compilation. It fails the step as an `execution error:` (WR-43). A
+ * compilation. It fails the step as an `execution error:` ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-43 | WR-43}). A
  * failure with a reason, the operating system's error behind a file that
  * could not be read, reports it after its text: joined by `: ` in the
  * message, which a static load reports, and under `Caused by:` in the
@@ -1243,7 +1243,7 @@ export class NativeJob {
 
   /** import(…) of the realm: a promise of the realm that resolves to the
    * module's namespace, or rejects with an error the script can catch
-   * (WR-40). A module that fails to load rejects it with a TypeError,
+   * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-40 | WR-40}). A module that fails to load rejects it with a TypeError,
    * whatever the failure, as the native runtime turns every loader failure
    * of a dynamic import into one. */
   private dynamicImport(spec: unknown) {

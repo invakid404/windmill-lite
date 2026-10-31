@@ -8,10 +8,14 @@ import (
 )
 
 // The job routes of ADR 0007's services: the root lookup, from the job
-// registry (D3); flow user state (WA-14); and the result polls of the
-// runs a step dispatched (WA-15, WA-V2). Each route's job id is a UUID
+// registry (D3); flow user state ([WA-14]); and the result polls of the
+// runs a step dispatched ([WA-15], [WA-V2]). Each route's job id is a UUID
 // path parameter, which Windmill's web framework refuses with a 400 of
 // its own before the handler runs when it is not one (pathUUID).
+//
+// [WA-14]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-14
+// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
 func (f *Facade) serveJobs() {
 	f.Handle("getRootJobId", f.rootJobID)
 	f.Handle("getFlowUserState", f.getFlowUserState)
@@ -25,7 +29,7 @@ func (f *Facade) serveJobs() {
 const noRows = "no rows returned by a query that expected to return at least one row"
 
 // rootJobID answers getRootJobId, GET /w/{ws}/jobs_u/get_root_job_id/{id}
-// (WA-8, WA-14, WA-19): the effective root of a job (WA-V1), as a JSON
+// ([WA-8], [WA-14], [WA-19]): the effective root of a job ([WA-V1]), as a JSON
 // string, from the job registry: a job of a run that is still running, a
 // flow scope one of its jobs runs in, the run itself, or a job of a run
 // that has ended, which the registry still knows (platform.Registry). An
@@ -33,7 +37,13 @@ const noRows = "no rows returned by a query that expected to return at least one
 // of, or a job looked up in a workspace other than the caller's) answers
 // as Windmill answers an id with no job row: 400 `SqlErr: no rows
 // returned by a query that expected to return at least one row`, without
-// Windmill's Rust location (D14). The route checks no token (WA-4).
+// Windmill's Rust location (D14). The route checks no token ([WA-4]).
+//
+// [WA-8]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-8
+// [WA-14]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-14
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+// [WA-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v1
+// [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
 func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 	id, refused := pathUUID(c, "id", "id")
 	if refused != nil {
@@ -60,11 +70,13 @@ func (f *Facade) getFlowUserState(ctx context.Context, c *Call) Reply {
 }
 
 // setFlowUserState answers POST /w/{ws}/jobs/flow/user_states/{id}/{key}
-// (WA-14): the body, any JSON, checked as the framework checks a JSON
+// ([WA-14]): the body, any JSON, checked as the framework checks a JSON
 // body (jsonBody) after the id, is stored at key for the flow job, and
 // the answer is the text `Flow job state updated`, typed as a handler's
 // text answer; a job that is not a live flow job answers 404 `Not found:
 // Flow job not found`.
+//
+// [WA-14]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-14
 func (f *Facade) setFlowUserState(ctx context.Context, c *Call) Reply {
 	id, refused := pathUUID(c, "id", "job_id")
 	if refused == nil {

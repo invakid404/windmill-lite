@@ -428,12 +428,12 @@ func continueOnError(fr *frame, m *ir.Module, o outcome) bool {
 	return m.ContinueOnError && !o.forwarded && fr.collapsed == nil
 }
 
-// decide is Windmill's continue decision for module m of fr (FX-2
+// decide is Windmill's continue decision for module m of fr ([FX-2]
 // completion steps 3, 7 and 8) when no retry is due (decideRetry decides
 // that):
-// continue_on_error (FX-30), the error stops (FX-19, FX-V4), the
-// unrecoverable failure of a throwing stop_after_if (FX-21, FX-44) and the
-// failure module (FX-31). last says that m is the flow's last module.
+// continue_on_error ([FX-30]), the error stops ([FX-19], [FX-V4]), the
+// unrecoverable failure of a throwing stop_after_if ([FX-21], [FX-44]) and the
+// failure module ([FX-31]). last says that m is the flow's last module.
 //
 // A failed parallel container is never tolerated, since its completion
 // leaves the cursor on it. Under continue_on_error the decision re-enters
@@ -441,6 +441,13 @@ func continueOnError(fr *frame, m *ir.Module, o outcome) bool {
 // InternalError ([CF-7]); its failure module does not run, handled mark
 // or not ([CF-16] item 8).
 //
+// [FX-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-2
+// [FX-30]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-30
+// [FX-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-19
+// [FX-V4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-v4
+// [FX-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-21
+// [FX-44]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-44
+// [FX-31]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-31
 // [CF-7]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-7
 // [CF-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-16
 func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {

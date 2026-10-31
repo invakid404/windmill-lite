@@ -14,12 +14,15 @@ import (
 // The root lookup answers from the job registry: a job of a live run
 // after the job itself ended, the run, a flow scope a job runs in, and a
 // job of a run that has ended, which Windmill still answers from its job
-// row (WA-19). The id is read as Windmill's UUID parser reads it, so its
+// row ([WA-19]). The id is read as Windmill's UUID parser reads it, so its
 // other forms name the same job. An id with no job in the path's
-// workspace answers as Windmill answers one with no job row (WA-19/b):
+// workspace answers as Windmill answers one with no job row ([WA-19]/b):
 // one never registered, and a job looked up in another workspace, which
-// the unauthenticated route does not refuse for the token (WA-4/b). An id
-// that is not a UUID gets the web framework's 400 (WA-19/c).
+// the unauthenticated route does not refuse for the token ([WA-4]/b). An id
+// that is not a UUID gets the web framework's 400 ([WA-19]/c).
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+// [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
 func TestRootLookupFromTheRegistry(t *testing.T) {
 	services := &platform.Services{}
 	f := newFacade(t, Config{Platform: services})
@@ -74,13 +77,15 @@ func TestRootLookupFromTheRegistry(t *testing.T) {
 	}
 }
 
-// Flow user state through the routes (WA-14), on both transports: the
+// Flow user state through the routes ([WA-14]), on both transports: the
 // write's text answer, typed as a handler's text answer is, and the read's
 // JSON, null for a missing key and for a script job, and the 404 of a
 // write at a script job. The web framework's rejections come first
-// (WA-14/d): an id that is not a UUID, on either method and before the
+// ([WA-14]/d): an id that is not a UUID, on either method and before the
 // body, then a body without a JSON content type (415) or that is not
 // JSON (400), and the state is unchanged.
+//
+// [WA-14]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-14
 func TestFlowUserStateRoutes(t *testing.T) {
 	services := &platform.Services{}
 	f := newFacade(t, Config{Platform: services})
@@ -213,12 +218,16 @@ func TestDispatchRoutes(t *testing.T) {
 	}
 }
 
-// The result polls (WA-15, WA-V2, WA-19): a completed dispatched run, a
+// The result polls ([WA-15], [WA-V2], [WA-19]): a completed dispatched run, a
 // running one with and without get_started, a UUID that names no job, an
-// id that is not a UUID (the web framework's 400, WA-V2/c, so that
+// id that is not a UUID (the web framework's 400, [WA-V2]/c, so that
 // waitJob fails at once), a job of windmill-lite's that the dispatcher
 // did not start (501), and a job looked up in a workspace other than the
-// caller's, which reads as unknown (WA-V2/d's second request).
+// caller's, which reads as unknown ([WA-V2]/d's second request).
+//
+// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func TestResultRoutes(t *testing.T) {
 	const done, running, unknown = "00000000-0000-4000-8000-0000000000d0", "00000000-0000-4000-8000-0000000000d1", "00000000-0000-4000-8000-0000000000d2"
 	const step = "00000000-0000-4000-8000-0000000000e0"
@@ -276,12 +285,14 @@ func TestResultRoutes(t *testing.T) {
 	}
 }
 
-// The object store routes (WA-16): an explicit-key upload answers its
+// The object store routes ([WA-16]): an explicit-key upload answers its
 // file_key and a download gives the content back with the upload's
 // content type; what the store does not serve (no file_key, a resource's
 // bucket) answers 501 naming it, and a missing object 404. With no object
 // store, both routes answer 500, as Windmill CE answers an upload with no
-// workspace storage (WA-16/d), and the call is not unsupported.
+// workspace storage ([WA-16]/d), and the call is not unsupported.
+//
+// [WA-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-16
 func TestObjectRoutes(t *testing.T) {
 	objects, err := platform.NewDirObjects(t.TempDir())
 	if err != nil {

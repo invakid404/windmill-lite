@@ -244,9 +244,13 @@ func (x *stateExec) Execute(ctx context.Context, inv Invocation) (StepOutcome, e
 
 // A run is a live flow job of the job registry while it runs, its own
 // root (D3), so its steps' writes reach its flow user state, which the
-// flow_user_state() helper reads (JE-20, WA-14): the value a step stored,
+// flow_user_state() helper reads ([JE-20], [WA-14]): the value a step stored,
 // and null for a missing key. Once the run has ended, it is no longer
-// live, its map is forgotten, and only its root is still known (WA-19).
+// live, its map is forgotten, and only its root is still known ([WA-19]).
+//
+// [JE-20]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-20
+// [WA-14]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-14
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func TestEngineFlowUserState(t *testing.T) {
 	services := &platform.Services{}
 	x := &stateExec{s: services}
