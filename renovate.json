@@ -3,6 +3,9 @@
   "extends": [
     "local>invakid404/renovate-config"
   ],
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
   "packageRules": [
     {
       "description": "Bun follows the Bun of the pinned Windmill image (WR-3, ADR 0001); it moves only with the semantics pin.",
