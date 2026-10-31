@@ -444,7 +444,8 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - **Codebase groups** are built in Go with esbuild.
   - **Bun-built groups** are built by the helper. Its `kept` and
     `namespaces` ops also parse the codebase closures for kept imports and
-    the codebase modules for namespace imports.
+    the codebase modules for namespace imports. `kept` also lists the
+    modules the runtime has built in, from its own Bun.
 - **Virtual inputs.** esbuild names an object or array value of a codebase
   entry's `define` as an input of its own, `<define:NAME>`. The source
   inventory and the env rewrite's binding check read only the inputs that

@@ -709,10 +709,16 @@ its group's closure, and `fresh` runs the per-script bundles.
 Most of its cases give two or more scripts that share a dependency module
 and invoke them in turn in one process (`runs[].script`). They show that
 each step module keeps module state of its own. They also show what a step
-sees of its dependencies: namespace objects and their shape, the step's
-`module` and `exports`, and the closure's `import.meta` parameter. Others
-cover stack text, load errors, host-provided modules, strictness, interop,
-cycles, inject files and the settle-time fence.
+sees of its dependencies:
+
+- namespace objects and their shape;
+- the step's `module` and `exports`;
+- the closure's `import.meta` parameter;
+- an `import()` of a module the runtime has built in, which runs from the
+  closure.
+
+Others cover stack text, load errors, host-provided modules, strictness,
+interop, cycles, inject files and the settle-time fence.
 
 Host mode runs the flow suite with shared code instead, since a step case
 runs on a spawned harness.
@@ -864,7 +870,10 @@ script; and the shared-dependency warning for codebase scripts).
 `d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
 membership and the `import.meta` parameter, build groups, installations
 and targets, fallbacks (namespace objects and export names among them),
-and native scripts.
+and native scripts. Its `y-builtin-imports` case shows that an import of a
+module the runtime has built in causes no fallback, and its
+`y-builtin-node-prefix` case that `node:` before a name of Bun's own, such
+as `node:ws`, names no built-in module and still does.
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails

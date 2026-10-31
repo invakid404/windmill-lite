@@ -62,7 +62,9 @@ A host has measured it.
     - `@babel/parser` and `@babel/types` 8.0.10;
     - a generated CommonJS package shaped like a generated API client:
       90 modules, each a class of 60 methods and a table of request
-      schemas.
+      schemas, whose base class imports `node:fs/promises` by `import()`;
+    - `node:async_hooks`, by `import()`, as published packages import
+      built-in modules.
 
     Each step's bundle is 6.89 MB. The prototype, outside the repository,
     built all 53 scripts, 379 MB of step bundles. Mongoose 9 is not used:
@@ -417,7 +419,8 @@ instance of every module it imports, as on Windmill.
      module ([WR-50](../semantics/languages.md#wr-50)).
    - **A dynamic `import()`** resolves from the file that holds it, whatever
      the instance passes, so item 5 keeps such a script on its per-script
-     bundle.
+     bundle. An `import()` of a module the runtime has built in is the
+     exception: it resolves the same from every file.
    - **The `import.meta` parameter.** A bundler replaces only free
      references with a define, so a binding of the parameter's name in a
      dependency, at its top level or as a function's parameter, would
@@ -507,9 +510,6 @@ instance of every module it imports, as on Windmill.
      closure would turn it into a synchronous `require`, with the `require`
      conditions, which cannot load a module with top-level `await`. In a
      CommonJS group both layouts already `require` it.
-   - **A module the runtime has built in** (Node's, with or without
-     `node:`, and Bun's own) loads the same either way, so an import of one
-     is not an external import here.
    - **A dynamic `import()` that the bundler keeps in a dependency module it
      reaches, in any group.** That is one whose specifier the bundler cannot
      resolve at build, such as `import(spec)` with a variable, or one that
@@ -524,6 +524,40 @@ instance of every module it imports, as on Windmill.
 
      A `require` with a variable specifier needs no fallback: it goes
      through the instance's `require`, which is the step's.
+   - **A module the runtime has built in** is neither a static external
+     import nor a kept `import()` here. The runtime resolves its specifier
+     to the same module from every file, so the closure loads what the
+     per-script bundle loads.
+     - A static import, or an `import()` whose specifier is a string
+       literal (or a template literal without substitutions), names a
+       built-in module when the specifier is a built-in specifier of the
+       build's Bun. A built-in specifier is a name that `node:module`'s
+       `builtinModules` lists on that Bun, alone or after `node:`, that
+       its resolver (`Bun.resolveSync`) resolves to a built-in module
+       rather than rejecting it or resolving it to a file. The Bun build
+       helper computes the specifiers, and the Go build uses the
+       helper's, so both builds accept the same spellings.
+     - On Bun 1.3.10 that list holds Node's modules and their subpaths,
+       such as `fs/promises`, and Bun's own: `bun`, `bun:ffi`, `bun:jsc`,
+       `bun:sqlite`, `bun:test`, `bun:wrap`, `ws` and `undici`. Bun 1.3.10
+       loads its own `ws` and `undici` whatever `node_modules` holds.
+     - Every listed name resolves alone. After `node:`, Node's names
+       resolve, so `node:fs/promises` is a built-in specifier, but Bun's
+       own do not: Bun 1.3.10 rejects `node:bun`, `node:bun:sqlite`,
+       `node:ws`, `node:undici` and the rest with "No such built-in
+       module". Such a specifier counts as an external module: an
+       `import()` of it keeps a script on its per-script bundle, as does a
+       static import of it where a static external import does.
+     - The list and the resolver decide, not the `node:` prefix. Bun
+       1.3.10 loads `node:test` but does not list `test`, so `node:test`
+       counts as an external module too.
+     - Published packages import built-in modules lazily. The AWS SDK for
+       JavaScript v3 reaches `@aws/lambda-invoke-store` 0.2.4, whose
+       `dist-es/invoke-store.js` runs `await import("node:async_hooks")`;
+       `windmill-client` 1.767.0's `dist/client.mjs` runs
+       `await import("node:fs/promises")`. Were such an `import()` a
+       fallback, 35 of the 45 scripts of one host's bundle would keep their
+       per-script bundles for that reason alone.
    - **How kept imports are found.** The build parses the closure bundle,
      so text that only looks like an `import()`, in a string or a comment,
      does not count.
@@ -600,6 +634,12 @@ instance of every module it imports, as on Windmill.
   further module. C holds 439 to 450 MiB with its 34 modules loaded and 453
   to 462 MiB with eight concurrent runs. It peaks at 492 to 497 MiB after
   1,000 runs, at 9.9 to 10.3 MiB per further module.
+- **C with its lazily imported built-in modules,** as described above, in
+  one run: 451 MiB with its 34 modules loaded, 464 MiB with eight
+  concurrent runs, a 502 MiB peak after 1,000 runs, and 10.3 MiB per
+  further module. If those `import()` expressions kept the scripts on
+  their per-script bundles, all 34 would, at 36.6 MiB per further module
+  and a 1,340 MiB peak.
 - **On its own bundle,** the host re-measures before it relies on the target.
 
 **Why not the others.**
@@ -662,6 +702,7 @@ cases of the semantics catalogue:
 | D18/f | Whole-module pruning: an unused import of a `sideEffects: false` module that no script of the group reaches runs no load effect in either layout |
 | D18/g | Unused code: an export whose `/* @__PURE__ */` initialiser has an effect after all, and a module that a `sideEffects: false` package re-exports beside one both scripts use, each used by one script and not by another; the other script's per-script bundle runs no effect, its shared instance does (deviation D18) |
 | D18/h | A codebase CommonJS dependency's `__dirname`, `__filename`, run-time `require` of an asset and `require` with a variable specifier are the step's, in both layouts (WR-50). A dependency's `import(spec)` with a variable specifier loads a step-local ES module asset, one of them with top-level `await`, and gives the per-script bundle's result in every layout, from scripts whose modules sit in two directories (two Bun-built scripts in different folders, and a codebase entry), so that one shared base cannot pass by accident |
+| D18/h, built-in modules | A dependency's `import()` of `node:async_hooks`, `fs/promises` with and without `node:`, and, for Bun-built scripts, `bun:sqlite`, reached by two scripts, gives each the per-script bundle's result in `warm` and in `fresh`, and its stack names the closure file in `warm`. Shown for Bun-built scripts and CommonJS and ES module codebase entries |
 | D18/h, module and exports | An ES module dependency of a CommonJS codebase entry reads and changes the step's `module.exports` and reads its `exports`, as in the per-script bundle. One of an ES module codebase entry finds no binding of either, so reading one throws a `ReferenceError`, as in an ES module |
 | D18/i | An ES module group's dependency reads the step's `import.meta.url`, and `import.meta.env` gives each of concurrent invocations its own environment, in both layouts |
 | D18/i, the parameter | A dependency's own bindings named like the closure's `import.meta` parameter, at its top level and as a function's parameter, do not capture `import.meta` |
@@ -689,6 +730,8 @@ cases of the semantics catalogue:
 | D18/w | The per-script bundles are byte for byte the same with and without shared code |
 | D18/x | The manifest: `shared_code: true`, the closures with their digests, D18 in the deviations, and another bundle digest than without shared code |
 | D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, a script of an ES module group whose dependency imports an external module statically (an asset with top-level `await`, and a package whose `import` and `require` conditions differ), a script of a CommonJS group and one of an ES module group whose dependency keeps an `import()` (a variable specifier, and an external one), and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
+| D18/y, built-in modules | A script whose dependency imports a module the runtime has built in, statically or by an `import()` of a literal, keeps its shared layout: `node:async_hooks`, `fs/promises` with and without `node:`, and, for Bun-built scripts, `bun:sqlite` and `bun`. A Bun-built dependency's `import()` of a variable, and a codebase dependency's `import()` of a literal naming an external package, in both formats, still cause a fallback (`y-builtin-imports`) |
+| D18/y, `node:` before Bun's own modules | `node:bun`, `node:bun:sqlite`, `node:ws` and `node:undici`, which Bun's resolver rejects, are external modules: a dependency's `import()` of one causes the `dynamic_import` fallback, and a static import of `node:ws` causes the `external_import` fallback for Bun-built scripts and an ES module codebase group. A dependency's `import()` of `node:fs/promises` beside them keeps its scripts' shared layout. Shown for Bun-built scripts and CommonJS and ES module codebase groups (`y-builtin-node-prefix`) |
 | D18/y, namespaces | A script whose entry and a dependency module both take an ES module's namespace object, directly, through a namespace re-export or by an `import()` of a literal specifier, keeps its per-script bundle (`namespace_import`). One where only one side takes it is shared. Both hold for Bun-built scripts and CommonJS and ES module codebase entries (`y-namespace-imports`) |
 | D18/y, export names | A script whose entry imports an ES module whose namespace a reference cannot reproduce keeps its per-script bundle (`export_names`, `y-export-names`). Either its entry takes the namespace object while a star re-export of an external module leaves the names unknown, or the module exports `__esModule` |
 | D18/z | Native scripts are in no group and run in a realm of their own, as without shared code (D5) |
@@ -697,6 +740,11 @@ cases of the semantics catalogue:
 
 - The flow suite runs in `warm` and in host mode from bundles built with
   shared code.
+- `TestBuiltinImportsShareTheClosure` (in `cmd/wltest`) runs a flow of
+  four scripts whose dependencies import `node:async_hooks`, two by
+  `import()` and two statically. Built with shared code, all four share one
+  closure, and each returns the per-script bundle's result in `warm`, in
+  host mode and in `fresh`.
 - `TestModuleMemory` and `TestModuleMemoryClosure` run with the real shared
   layout, against the targets above.
 

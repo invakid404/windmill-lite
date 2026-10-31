@@ -243,9 +243,15 @@ func sharedModuleFile(id string, format Format) string {
 
 // keptImports returns, by closure id, the modules of each closure bundle
 // (a file each) whose code keeps an import(), which resolves from the file
-// holding it (ADR 0013, decision item 5). The build helper parses the
-// bundles, so text that only looks like an import is not one (kept op).
-func keptImports(ctx context.Context, bc *BunConfig, files map[string]string) (map[string]map[string]bool, error) {
+// holding it ([ADR 0013], decision item 5), and the specifiers that name a
+// module the runtime has built in, which resolve to the same module from
+// every file. An import() whose specifier is a literal naming one of those
+// does not count. The build helper parses the bundles, so text that only
+// looks like an import is not one, and lists the built-in specifiers from
+// its runtime (kept op).
+//
+// [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#decision
+func keptImports(ctx context.Context, bc *BunConfig, files map[string]string) (map[string]map[string]bool, builtins, error) {
 	req := helperRequest{
 		Version: 1, Op: "kept", Folder: bc.Folder, Work: bc.Work, Out: bc.Out,
 		Scripts: map[string]string{}, Deps: map[string]string{}, Define: map[string]string{},
@@ -259,7 +265,10 @@ func keptImports(ctx context.Context, bc *BunConfig, files map[string]string) (m
 	}
 	resp, err := runHelper(ctx, bc, &req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if len(resp.Builtins) == 0 {
+		return nil, nil, fmt.Errorf("bundle: the build helper listed no built-in modules")
 	}
 	out := map[string]map[string]bool{}
 	for id, mods := range resp.Kept {
@@ -268,7 +277,11 @@ func keptImports(ctx context.Context, bc *BunConfig, files map[string]string) (m
 			out[id][m] = true
 		}
 	}
-	return out, nil
+	b := builtins{}
+	for _, m := range resp.Builtins {
+		b[m] = true
+	}
+	return out, b, nil
 }
 
 // namespaceImportsOf returns, by module file, the specifiers whose
@@ -657,20 +670,24 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 		}
 		// What a CommonJS closure cannot hold, by module: top-level await
 		// (the build fails on it), a static import of an external module in
-		// an ES module group, and an import() the bundle kept.
+		// an ES module group, and an import() the bundle kept. An import of
+		// a module the runtime has built in is neither. Inputs are listed
+		// only when the closure built, which is when builtin is listed.
 		bad := map[string]string{} // module → reason
 		for m := range failed {
 			bad[m] = FallbackTopLevelAwait
 		}
+		var builtin builtins
 		if text != nil {
 			raw := filepath.Join(cfg.Work, "closures", g.id+".raw.cjs")
 			if err := writeFile(raw, text); err != nil {
 				return "", err
 			}
-			kept, err := keptImports(ctx, bc, map[string]string{g.id: raw})
+			kept, b, err := keptImports(ctx, bc, map[string]string{g.id: raw})
 			if err != nil {
 				return "", err
 			}
+			builtin = b
 			for m := range kept[g.id] {
 				bad[m] = FallbackDynamicImport
 			}
@@ -678,9 +695,10 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 		for m, in := range inputs {
 			for _, imp := range in.Imports {
 				switch {
-				case imp.External && imp.Kind == "dynamic-import":
+				case !imp.External || builtin.has(imp.Path):
+				case imp.Kind == "dynamic-import":
 					bad[m] = FallbackDynamicImport
-				case imp.External && esm && !builtinModule(imp.Path) && (imp.Kind == "import-statement" || imp.Kind == "re-export"):
+				case esm && (imp.Kind == "import-statement" || imp.Kind == "re-export"):
 					if _, ok := bad[m]; !ok {
 						bad[m] = FallbackExternalImport
 					}
@@ -723,28 +741,22 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 	}
 }
 
-// nodeBuiltins are the modules Node 20 has built in (module.builtinModules),
-// which the node platform leaves external: a require of one loads it as an
-// import does, so a static import of one costs no script its shared layout.
-var nodeBuiltins = map[string]bool{}
+// builtins are the specifiers that name a module the runtime has built
+// in, as the build helper lists them on its Bun (the kept op): each name
+// that node:module's builtinModules lists, alone or after node:, that
+// Bun's resolver resolves to a built-in module. Bun 1.3.10 resolves
+// node:fs/promises, for example, but not node:ws or node:bun:sqlite, whose
+// names it lists only bare. The build requires that Bun to be the pinned
+// Bun 1.3.10 unless BunConfig.AllowBunMismatch is set. The runtime
+// resolves an import of one to the same module from every file, and a
+// require of one loads it as an import does. So neither a static import
+// nor an import() of one costs a script its shared layout.
+type builtins map[string]bool
 
-func init() {
-	for _, m := range strings.Fields(`_http_agent _http_client _http_common _http_incoming _http_outgoing
-		_http_server _stream_duplex _stream_passthrough _stream_readable _stream_transform _stream_wrap
-		_stream_writable _tls_common _tls_wrap assert assert/strict async_hooks buffer child_process cluster
-		console constants crypto dgram diagnostics_channel dns dns/promises domain events fs fs/promises http
-		http2 https inspector inspector/promises module net os path path/posix path/win32 perf_hooks process
-		punycode querystring readline readline/promises repl stream stream/consumers stream/promises
-		stream/web string_decoder sys timers timers/promises tls trace_events tty url util util/types v8 vm
-		wasi worker_threads zlib`) {
-		nodeBuiltins[m] = true
-	}
-}
-
-// builtinModule reports whether an import names a module the runtime has
-// built in: Node's, with or without node:, and Bun's own.
-func builtinModule(spec string) bool {
-	return strings.HasPrefix(spec, "node:") || spec == "bun" || strings.HasPrefix(spec, "bun:") || nodeBuiltins[spec]
+// has reports whether an import's specifier names a module the runtime has
+// built in: one of the listed specifiers, spelled exactly.
+func (b builtins) has(spec string) bool {
+	return b[spec]
 }
 
 // fallbackWhy says why a script keeps its per-script bundle, for the
@@ -756,7 +768,7 @@ func fallbackWhy(reason string) string {
 	case FallbackExternalImport:
 		return "a module it imports imports an external module statically, which the closure would turn into a synchronous require"
 	case FallbackDynamicImport:
-		return "a module it imports keeps an import() that resolves from the file holding it"
+		return "a module it imports keeps an import() that resolves from the file holding it: one whose specifier is not a literal naming a module the runtime has built in"
 	case FallbackNamespaceImport:
 		return "it and a module it imports both take the namespace object of one ES module, which the shared layout would make two objects"
 	case FallbackExportNames:
