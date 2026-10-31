@@ -208,9 +208,14 @@ storage with a 500, so the stock client's `writeS3File` throws `Internal
 Server Error` on both (WA-16/d). CE's body was not recorded, and the
 download's status is windmill-lite's choice, the upload's.
 
-The error texts the reference does not give (a missing object, a variable
-update's body that is not an object) are windmill-lite's, `Not found:
-windmill-lite: …` or with the status Windmill's API gives the variant.
+Where the reference gives no text, the text is windmill-lite's, with the
+status that Windmill gives:
+
+- a missing object: `404` `Not found: windmill-lite: no object "<key>" in
+  storage "<storage>"`;
+- no object store: the `500` above;
+- a variable update's body that parses but is not an object: the `422`
+  above, whose message starts `windmill-lite:`.
 
 ## Request rejections
 

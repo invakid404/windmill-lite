@@ -389,8 +389,8 @@ One walker implements resolution for the three contracts of
   whole values.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's
   cases, each citing its catalogue case or finding: WA-10/a, WA-11/a,
-  WA-12/a to WA-12/f, WA-42/b and /c, WA-V3/a and /b, JE-42/a to /h,
-  WR-5/a to /e, FX-42/h and FX-51/c, among others, through the three
+  WA-12/a to WA-12/f, WA-42/b and /c, WA-V3/a and /b, JE-42/a to /h and
+  /k, WR-5/a to /e, FX-42/h and FX-51/c, among others, through the three
   contracts. It also checks the secret layer (plaintext, ciphertext with
   and without a host's `Secrets`, a host's resolvers), the chains, and
   `APIEnv`; `TestInterpolatedReadJobLookup` that a read's job is looked
@@ -402,6 +402,8 @@ One walker implements resolution for the three contracts of
 - `json_test.go` checks the double notation, parse and write, and the
   parse errors with their positions, among them the reference's examples
   of an input that ends early (`[` and `[1,2` an unclosed list, `[1,` a
-  value due).
+  value due), an object cut short (`{"a":1` unclosed, `{"a":1,` a value
+  due where a key was), and the nesting limit: a value nests at most 127
+  deep, and the array or object opened at depth 128 fails.
 - `data_test.go` loads `testdata/bundle/data/`, a bundle's `data/` in
   internal/bundle's format.

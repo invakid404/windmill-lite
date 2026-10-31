@@ -746,7 +746,12 @@ are checked at the flow level.
 ([WA-14](../docs/semantics/client-api.md#wa-14)/a): a flow step's case
 runs in its case's flow run, which the job registry knows while the case
 runs, so a later run reads what an earlier one wrote, and a script job's
-case (`step_id: ""`) is its own root, with no flow status. `wa-16.yaml`
+case (`step_id: ""`) is its own root, with no flow status. It also checks
+the web framework's rejections, which come before the handler (WA-14/d):
+an id that is not a UUID, a body that is not JSON and one sent without the
+JSON content type. `wa-19.yaml` checks the root lookup
+([WA-19](../docs/semantics/client-api.md#wa-19)/a to /c): a step's own job,
+an id with no job, and an id that is not a UUID. `wa-16.yaml`
 checks the object store's job helpers for explicit keys
 ([WA-16](../docs/semantics/client-api.md#wa-16)/a, /c), each case with a
 store of its own, and the 501 of an upload that asks the server for a
@@ -756,7 +761,9 @@ bundle has no root to dispatch, so every dispatch is refused with
 `dispatch target not in bundle: <path>`, which fails the step as
 `UnsupportedPlatformCall`, also when the step waits on it as
 `runScriptByPath` does. `wa-v2.yaml` checks the result poll of a UUID that
-names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b).
+names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b), of an
+id that is not a UUID (/c), and of the step's own job under another
+workspace's path, which reads as unknown.
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step
@@ -850,7 +857,9 @@ CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
 `customBundler` leaves the bundle to esbuild, WR-48/b), `wr-49.json`
 (assets, WR-49), and the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
 output) and `d12.json` (host-provided modules through their shims, those
-outside the folder included).
+outside the folder included; the shared copy of a listed codebase script,
+built with its entry's settings; the refused import of one by a Bun
+script; and the shared-dependency warning for codebase scripts).
 
 `d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
 membership and the `import.meta` parameter, build groups, installations
