@@ -6,6 +6,7 @@
       "name": "windmill-lite-bun-typecheck",
       "devDependencies": {
         "@types/bun": "1.3.10",
+        "@types/node": "26.6.6",
         "typescript": "6.0.3",
       },
     },

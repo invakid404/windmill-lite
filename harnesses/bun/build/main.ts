@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { Builder, BuildProblem } from "./build.ts";
 import type { Request, Response } from "./protocol.ts";
-import { keptImports, namespaceImports, syntaxOf } from "./shared.ts";
+import { BUILTIN_SPECIFIERS, keptImports, namespaceImports, syntaxOf } from "./shared.ts";
 
 const [requestPath, responsePath] = process.argv.slice(2);
 if (requestPath === undefined || responsePath === undefined) {
@@ -65,9 +65,12 @@ const problemOf = (e: unknown) => {
   return { kind: "internal", message: String((e as Error)?.stack ?? e) };
 };
 
-// Kept imports of closure bundles the Go build wrote (ADR 0013).
+// Kept imports of closure bundles the Go build wrote, and the specifiers
+// that name a module the runtime has built in, which the Go build exempts
+// from its own checks of the closures' imports.
 if (req.op === "kept") {
   try {
+    response.builtins = [...BUILTIN_SPECIFIERS];
     response.kept = {};
     for (const c of req.closures ?? []) response.kept[c.id] = [...keptImports(readFileSync(c.file, "utf8"))].sort();
   } catch (e) {

@@ -1,0 +1,13 @@
+# Every step returns its AsyncLocalStorage's store inside run: 1, whether
+# its dependency imports node:async_hooks by import() or statically.
+spec: [D18]
+target: f/wl_builtin/all
+args: {}
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:dynamic_a": {status: success, args: {}, result: 1}
+    "m:dynamic_b": {status: success, args: {}, result: 1}
+    "m:static_a": {status: success, args: {}, result: 1}
+    "m:static_b": {status: success, args: {}, result: 1}

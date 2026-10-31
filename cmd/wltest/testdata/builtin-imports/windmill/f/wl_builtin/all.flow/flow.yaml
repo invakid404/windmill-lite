@@ -1,0 +1,28 @@
+summary: Four steps whose dependencies import node:async_hooks, two by import() and two statically
+value:
+  modules:
+    - id: dynamic_a
+      value:
+        type: script
+        path: f/wl_builtin/dynamic_a
+        input_transforms: {}
+    - id: dynamic_b
+      value:
+        type: script
+        path: f/wl_builtin/dynamic_b
+        input_transforms: {}
+    - id: static_a
+      value:
+        type: script
+        path: f/wl_builtin/static_a
+        input_transforms: {}
+    - id: static_b
+      value:
+        type: script
+        path: f/wl_builtin/static_b
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
