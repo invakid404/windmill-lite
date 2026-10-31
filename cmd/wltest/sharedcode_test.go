@@ -16,7 +16,7 @@ import (
 
 // TestBuiltinImportsShareTheClosure: with shared code, a dependency's
 // import() of a module the runtime has built in costs no script its shared
-// layout, as a static import of one does not (ADR 0013, decision item 5).
+// layout, as a static import of one does not ([ADR 0013], decision item 5).
 // The fixture testdata/builtin-imports has four Bun scripts: two reach a
 // dependency that imports node:async_hooks by import(), and two one that
 // imports it statically. Built with shared code, all four name one closure
@@ -24,6 +24,8 @@ import (
 // four then passes in warm, fresh and host mode, and in warm and host mode
 // from a bundle built with shared code: every step returns its
 // AsyncLocalStorage's store, 1.
+//
+// [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#decision
 func TestBuiltinImportsShareTheClosure(t *testing.T) {
 	bun := bunOrSkip(t)
 	root := repo(t)

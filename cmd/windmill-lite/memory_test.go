@@ -322,9 +322,11 @@ func TestModuleMemory(t *testing.T) {
 // runtime has built in, so every step keeps its shared layout. It reports
 // the host's resident set with one module, with all 34, with eight
 // concurrent runs of them, and after a soak of 1,000 runs, as the embedder
-// soaked its host. With shared code, ADR 0013's memory gate holds: each
-// further module costs at most 16 MiB and the soak's peak stays within the
-// embedder's 650 MiB budget. It runs only with WL_MEMORY_PROBE set.
+// soaked its host. With shared code, the memory gate of [ADR 0013] holds:
+// each further module costs at most 16 MiB and the soak's peak stays within
+// the embedder's 650 MiB budget. It runs only with WL_MEMORY_PROBE set.
+//
+// [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#measurements
 func TestModuleMemoryClosure(t *testing.T) {
 	if os.Getenv("WL_MEMORY_PROBE") == "" {
 		t.Skip("WL_MEMORY_PROBE is not set; this probe needs the network once and about 2 GiB of memory")

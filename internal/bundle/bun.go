@@ -619,8 +619,8 @@ type helperResponse struct {
 	ClosureMeta map[string]string `json:"closure_meta"`
 	// Kept holds, by closure, the modules the kept op found keeping an
 	// import() of a specifier that names no module the runtime has built
-	// in, and Builtins the names of those modules: node:module's
-	// builtinModules on the Bun that runs the helper.
+	// in, and Builtins the specifiers that name one, as the helper's Bun
+	// lists and resolves them (see builtins).
 	Kept     map[string][]string `json:"kept"`
 	Builtins []string            `json:"builtins"`
 	// Namespaces holds, by module file, the specifiers whose namespace

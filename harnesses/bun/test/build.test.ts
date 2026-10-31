@@ -3,10 +3,10 @@
 // conformance/build through the whole helper on the pinned Bun (ADR 0003).
 
 import { describe, expect, test } from "bun:test";
-import { isBuiltin } from "node:module";
+import { builtinModules, isBuiltin } from "node:module";
 import { parseAnnotations, targetFor } from "../build/annotations.ts";
 import { packageName, rewriteRelativeImports, removePinnedImports, unpinned, workspacePath } from "../build/imports.ts";
-import { BUILTIN_MODULES, builtinModule, keptImports } from "../build/shared.ts";
+import { BUILTIN_SPECIFIERS, builtinModule, keptImports } from "../build/shared.ts";
 import { liveBindings, parseModule, signatures, snakeCase } from "../build/signature.ts";
 import { detectWorkflowAsCode, wrapperScan } from "../build/wac.ts";
 import { rustTrim } from "../build/text.ts";
@@ -109,17 +109,27 @@ describe("import transforms (WR-26, WR-28)", () => {
   });
 });
 
-describe("shared code: built-in modules and kept imports (ADR 0013)", () => {
-  test("the runtime's list names Node's modules, their subpaths and Bun's own", () => {
-    for (const m of ["async_hooks", "fs", "fs/promises", "stream/web", "bun", "bun:sqlite"]) expect(BUILTIN_MODULES).toContain(m);
-    // Every name the list gives is one the runtime itself calls built in.
-    for (const m of BUILTIN_MODULES) expect(isBuiltin(m)).toBe(true);
+describe("shared code: built-in modules and kept imports", () => {
+  test("the built-in specifiers are the runtime's listed names, alone and after node: where its resolver accepts that", () => {
+    for (const m of ["async_hooks", "fs", "fs/promises", "node:fs/promises", "stream/web", "bun", "bun:sqlite", "ws", "undici"]) expect(BUILTIN_SPECIFIERS).toContain(m);
+    // Every listed name is a built-in specifier alone, and every specifier is one the runtime calls built in.
+    for (const m of builtinModules) expect(BUILTIN_SPECIFIERS).toContain(m);
+    for (const m of BUILTIN_SPECIFIERS) expect(isBuiltin(m)).toBe(true);
+    // Bun lists its own modules bare, and its resolver rejects them after node:.
+    for (const m of ["node:bun", "node:bun:ffi", "node:bun:jsc", "node:bun:sqlite", "node:bun:test", "node:bun:wrap", "node:ws", "node:undici"]) {
+      expect(() => Bun.resolveSync(m, import.meta.dir)).toThrow(/No such built-in module/);
+      expect(BUILTIN_SPECIFIERS).not.toContain(m);
+    }
+    // Each of Node's listed names is also built in after node:.
+    for (const m of builtinModules) if (!m.startsWith("bun") && m !== "ws" && m !== "undici") expect(BUILTIN_SPECIFIERS).toContain(`node:${m}`);
   });
-  test("a built-in is a listed name, alone or after node:", () => {
-    for (const m of ["async_hooks", "node:async_hooks", "fs/promises", "node:fs/promises", "bun", "bun:sqlite"]) expect(builtinModule(m)).toBe(true);
-    for (const m of ["node:nope", "bun:nope", "left-pad", "./async_hooks", "/abs/fs", "async_hooks/nope"]) expect(builtinModule(m)).toBe(false);
+  test("a built-in is one of the specifiers, spelled exactly", () => {
+    for (const m of ["async_hooks", "node:async_hooks", "fs/promises", "node:fs/promises", "bun", "bun:sqlite", "ws", "undici"]) expect(builtinModule(m)).toBe(true);
+    for (const m of ["node:nope", "bun:nope", "left-pad", "./async_hooks", "/abs/fs", "async_hooks/nope", "node:bun", "node:bun:sqlite", "node:ws", "node:undici", "node:test"]) {
+      expect(builtinModule(m)).toBe(false);
+    }
   });
-  test("an import() of a literal built-in is not kept; a variable, an external package or a non-listed node: name is", () => {
+  test("an import() of a literal built-in is not kept; a variable, an external package or a node: spelling that names no built-in is", () => {
     const text = [
       "// a.js",
       'var a = () => import("node:async_hooks");',
@@ -135,8 +145,14 @@ describe("shared code: built-in modules and kept imports (ADR 0013)", () => {
       'var f = () => import("node:nope");',
       "// g.js",
       "var g = (x) => import(`node:${x}`);",
+      "// h.js",
+      'var h = () => import("node:bun:sqlite");',
+      "// i.js",
+      'var i = () => import("node:ws");',
+      "// j.js",
+      'var j = () => [import("node:fs/promises"), import("ws")];',
       "",
     ].join("\n");
-    expect([...keptImports(text)].sort()).toEqual(["b.js", "c.js", "f.js", "g.js"]);
+    expect([...keptImports(text)].sort()).toEqual(["b.js", "c.js", "f.js", "g.js", "h.js", "i.js"]);
   });
 });

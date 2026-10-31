@@ -530,16 +530,27 @@ instance of every module it imports, as on Windmill.
      per-script bundle loads.
      - A static import, or an `import()` whose specifier is a string
        literal (or a template literal without substitutions), names a
-       built-in module when it is a name that `node:module`'s
-       `builtinModules` lists on the build's Bun, alone or after `node:`.
+       built-in module when the specifier is a built-in specifier of the
+       build's Bun. A built-in specifier is a name that `node:module`'s
+       `builtinModules` lists on that Bun, alone or after `node:`, that
+       its resolver (`Bun.resolveSync`) resolves to a built-in module
+       rather than rejecting it or resolving it to a file. The Bun build
+       helper computes the specifiers, and the Go build uses the
+       helper's, so both builds accept the same spellings.
      - On Bun 1.3.10 that list holds Node's modules and their subpaths,
        such as `fs/promises`, and Bun's own: `bun`, `bun:ffi`, `bun:jsc`,
        `bun:sqlite`, `bun:test`, `bun:wrap`, `ws` and `undici`. Bun 1.3.10
        loads its own `ws` and `undici` whatever `node_modules` holds.
-     - The list decides, not the `node:` prefix. Bun 1.3.10 loads
-       `node:test` but does not list `test`, so `node:test` counts as an
-       external module: an `import()` of it keeps a script on its
-       per-script bundle, as an `import()` of a variable does.
+     - Every listed name resolves alone. After `node:`, Node's names
+       resolve, so `node:fs/promises` is a built-in specifier, but Bun's
+       own do not: Bun 1.3.10 rejects `node:bun`, `node:bun:sqlite`,
+       `node:ws`, `node:undici` and the rest with "No such built-in
+       module". Such a specifier counts as an external module: an
+       `import()` of it keeps a script on its per-script bundle, as does a
+       static import of it where a static external import does.
+     - The list and the resolver decide, not the `node:` prefix. Bun
+       1.3.10 loads `node:test` but does not list `test`, so `node:test`
+       counts as an external module too.
      - Published packages import built-in modules lazily. The AWS SDK for
        JavaScript v3 reaches `@aws/lambda-invoke-store` 0.2.4, whose
        `dist-es/invoke-store.js` runs `await import("node:async_hooks")`;
@@ -720,6 +731,7 @@ cases of the semantics catalogue:
 | D18/x | The manifest: `shared_code: true`, the closures with their digests, D18 in the deviations, and another bundle digest than without shared code |
 | D18/y | Where a script keeps its per-script bundle: a group whose entry has a `banner` or an object or array `define` value, a script that reaches a dependency with top-level `await`, a script of an ES module group whose dependency imports an external module statically (an asset with top-level `await`, and a package whose `import` and `require` conditions differ), a script of a CommonJS group and one of an ES module group whose dependency keeps an `import()` (a variable specifier, and an external one), and a script with a cycle through its own entry each get `shared_code_fallback` with the reason, and run their per-script bundle in `warm` |
 | D18/y, built-in modules | A script whose dependency imports a module the runtime has built in, statically or by an `import()` of a literal, keeps its shared layout: `node:async_hooks`, `fs/promises` with and without `node:`, and, for Bun-built scripts, `bun:sqlite` and `bun`. A Bun-built dependency's `import()` of a variable, and a codebase dependency's `import()` of a literal naming an external package, in both formats, still cause a fallback (`y-builtin-imports`) |
+| D18/y, `node:` before Bun's own modules | `node:bun`, `node:bun:sqlite`, `node:ws` and `node:undici`, which Bun's resolver rejects, are external modules: a dependency's `import()` of one causes the `dynamic_import` fallback, and a static import of `node:ws` causes the `external_import` fallback for Bun-built scripts and an ES module codebase group. A dependency's `import()` of `node:fs/promises` beside them keeps its scripts' shared layout. Shown for Bun-built scripts and CommonJS and ES module codebase groups (`y-builtin-node-prefix`) |
 | D18/y, namespaces | A script whose entry and a dependency module both take an ES module's namespace object, directly, through a namespace re-export or by an `import()` of a literal specifier, keeps its per-script bundle (`namespace_import`). One where only one side takes it is shared. Both hold for Bun-built scripts and CommonJS and ES module codebase entries (`y-namespace-imports`) |
 | D18/y, export names | A script whose entry imports an ES module whose namespace a reference cannot reproduce keeps its per-script bundle (`export_names`, `y-export-names`). Either its entry takes the namespace object while a star re-export of an external module leaves the names unknown, or the module exports `__esModule` |
 | D18/z | Native scripts are in no group and run in a realm of their own, as without shared code (D5) |

@@ -861,7 +861,9 @@ outside the folder included).
 membership and the `import.meta` parameter, build groups, installations
 and targets, fallbacks (namespace objects and export names among them),
 and native scripts. Its `y-builtin-imports` case shows that an import of a
-module the runtime has built in causes no fallback.
+module the runtime has built in causes no fallback, and its
+`y-builtin-node-prefix` case that `node:` before a name of Bun's own, such
+as `node:ws`, names no built-in module and still does.
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails

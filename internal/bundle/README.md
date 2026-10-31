@@ -419,16 +419,19 @@ and the warning `shared_code_fallback`, which names the module) for:
 A module the runtime has built in is neither an external import nor a kept
 `import()`: the runtime resolves it to the same module from every file
 ([ADR 0013](../../docs/design/0013-shared-module-code.md), decision item
-5). A specifier names one when it is a name of `builtins`, alone or after
-`node:`; an `import()` counts only with a literal specifier.
+5). A specifier names one when it is one of `builtins`, spelled exactly; an
+`import()` counts only with a literal specifier.
 
-`builtins` is the list that `node:module`'s `builtinModules` gives on the
-build helper's Bun. The build requires that Bun to be 1.3.10 unless
-`BunConfig.AllowBunMismatch` is set.
+`builtins` holds the specifiers the build helper accepts on its Bun: each
+name that `node:module`'s `builtinModules` lists, alone or after `node:`,
+that Bun's resolver resolves to a built-in module. Bun 1.3.10 resolves its
+own modules only bare, so `node:ws` and `node:bun:sqlite`, for example, are
+external modules, while `node:fs/promises` is built in. The build requires
+that Bun to be 1.3.10 unless `BunConfig.AllowBunMismatch` is set.
 
 The build helper finds namespace imports and kept imports by parsing with
 Babel: its `namespaces` op parses each module, and its `kept` op parses the
-closure bundle and returns the list of built-in modules.
+closure bundle and returns the built-in specifiers.
 
 **Recorded:** the manifest's `shared_code` and `closures`, [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations) among its
 deviations, and each script's `shared` record (its closure or its

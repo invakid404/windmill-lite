@@ -1,5 +1,6 @@
 import { parse } from "@babel/parser";
 import { builtinModules } from "node:module";
+import { isAbsolute } from "node:path";
 import type { Syntax } from "./signature.ts";
 
 // Shared code (ADR 0013), the Bun build's side: the sources a Bun-built
@@ -92,26 +93,49 @@ export function closureEntry(files: Map<string, string>, envSpecifier: string | 
   return lines.join("\n") + "\n";
 }
 
-// The names of the modules the runtime has built in: the list that
-// node:module's builtinModules gives on the Bun that runs the build, which
-// the build requires to be the pinned Bun 1.3.10 unless its caller allows
-// another. Bun 1.3.10 lists Node's modules without the node: prefix,
-// subpaths such as fs/promises among them, and its own: bun, bun:ffi,
-// bun:jsc, bun:sqlite, bun:test and bun:wrap, and ws and undici, which it
-// implements itself whatever node_modules holds. The Go build asks for the
-// list with the kept op.
-export const BUILTIN_MODULES: readonly string[] = [...builtinModules].sort();
+// Whether the runtime's resolver resolves a specifier to a module it has
+// built in: Bun.resolveSync returns a built-in's name, such as node:fs or
+// bun:sqlite, never a file path. It throws for a node: specifier that names
+// no built-in, and returns a file path for a package.
+function resolvesToBuiltin(spec: string): boolean {
+  try {
+    return !isAbsolute(Bun.resolveSync(spec, import.meta.dir));
+  } catch {
+    return false;
+  }
+}
 
-const BUILTINS = new Set(BUILTIN_MODULES);
+// The specifiers that name a module the runtime has built in. Each is a
+// name that node:module's builtinModules lists on the Bun that runs the
+// build, alone or after node:, kept only when the runtime's resolver
+// resolves it to a built-in module (resolvesToBuiltin). The build requires
+// that Bun to be the pinned Bun 1.3.10 unless its caller allows another.
+//
+//   - Bun 1.3.10 lists Node's modules without the node: prefix, subpaths
+//     such as fs/promises among them, and its own: bun, bun:ffi, bun:jsc,
+//     bun:sqlite, bun:test and bun:wrap, and ws and undici, which it
+//     implements itself whatever node_modules holds.
+//   - Every listed name resolves alone. After node:, Node's names resolve
+//     and Bun's own do not: node:bun, node:bun:sqlite, node:ws and
+//     node:undici name no built-in module.
+//   - A name the list leaves out names none, alone or after node:,
+//     although Bun loads node:test.
+//
+// The Go build asks for these specifiers with the kept op, so both builds
+// accept the same spellings.
+export const BUILTIN_SPECIFIERS: readonly string[] = [...new Set(builtinModules.flatMap((m) => [m, `node:${m}`]))]
+  .filter(resolvesToBuiltin)
+  .sort();
 
-// Whether a specifier names a module the runtime has built in: a name of
-// BUILTIN_MODULES, alone or after node:. The runtime resolves such a
-// specifier to the same module from every file, so importing one from a
-// closure instead of the step's module changes nothing (ADR 0013, decision
-// item 5). A node: specifier of a name not in the list counts as no
-// built-in, and keeps the fallbacks that apply to other specifiers.
+const BUILTINS = new Set(BUILTIN_SPECIFIERS);
+
+// Whether a specifier names a module the runtime has built in: one of
+// BUILTIN_SPECIFIERS. The runtime resolves such a specifier to the same
+// module from every file, so importing one from a closure instead of the
+// step's module changes nothing. Any other specifier, node: ones included,
+// keeps the fallbacks that apply to an external module.
 export function builtinModule(spec: string): boolean {
-  return BUILTINS.has(spec) || (spec.startsWith("node:") && BUILTINS.has(spec.slice("node:".length)));
+  return BUILTINS.has(spec);
 }
 
 // The string a specifier node of the Babel AST spells: a string literal, or
@@ -127,11 +151,11 @@ function literalOf(n: unknown): string | undefined {
 // path the bundler's comment before each module names: a bundler rewrites
 // every dynamic import it resolves, so an import expression left in its
 // output is one it kept (a specifier it could not resolve at build, or an
-// external one), which resolves from the file holding it (ADR 0013,
-// decision item 5). An import() whose specifier is a literal naming a
-// module the runtime has built in (builtinModule) does not count: it loads
-// that module from any file. The bundle is parsed, so text that only looks
-// like an import, in a string or a comment, is not one.
+// external one), which resolves from the file holding it. An import()
+// whose specifier is a literal naming a module the runtime has built in
+// (builtinModule) does not count: it loads that module from any file. The
+// bundle is parsed, so text that only looks like an import, in a string or
+// a comment, is not one.
 export function keptImports(text: string): Set<string> {
   const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
   const marks = (ast.comments ?? [])

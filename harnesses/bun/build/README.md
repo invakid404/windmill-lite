@@ -225,9 +225,12 @@ response records the reason instead of a closure:
 A module the runtime has built in is neither an external module nor a kept
 `import()`: the runtime resolves it to the same module from every file
 ([ADR 0013](../../../docs/design/0013-shared-module-code.md), decision item
-5). `builtinModule` decides it from `BUILTIN_MODULES`, the list that
-`node:module`'s `builtinModules` gives on the helper's Bun: a listed name,
-alone or after `node:`. An `import()` counts only with a literal specifier.
+5). `builtinModule` decides it from `BUILTIN_SPECIFIERS`: each name that
+`node:module`'s `builtinModules` lists on the helper's Bun, alone or after
+`node:`, that `Bun.resolveSync` resolves to a built-in module. Bun 1.3.10
+resolves its own modules only bare: `node:ws` and `node:bun:sqlite`, for
+example, are external modules, while `node:fs/promises` is built in. An
+`import()` counts only with a literal specifier.
 
 **Parsing.** The build finds namespace objects (`namespaceImports`) and
 kept imports (`keptImports`) by parsing with Babel, so text that only looks
@@ -236,8 +239,9 @@ build's codebase groups:
 
 - `namespaces` parses the modules of their bundles.
 - `kept` parses their closure bundles and returns, for each, the modules
-  that keep an `import()`, and returns `BUILTIN_MODULES`, which the Go
-  build applies to the imports that esbuild's metafile lists.
+  that keep an `import()`, and returns `BUILTIN_SPECIFIERS`, which the Go
+  build applies to the imports that esbuild's metafile lists, so both
+  builds accept the same spellings.
 
 **Resolution.** Every file that the shared build writes, and every file
 that a closure's entry requires, is reached by the absolute path that a

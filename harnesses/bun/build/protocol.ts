@@ -105,8 +105,8 @@ export type Response = {
   closures?: string[];
   closure_meta?: Record<string, string>;
   // The kept op: by closure, the modules that keep an import() of a
-  // specifier that names no module the runtime has built in, and the names
-  // of those modules (BUILTIN_MODULES).
+  // specifier that names no module the runtime has built in, and the
+  // specifiers that name one (BUILTIN_SPECIFIERS).
   kept?: Record<string, string[]>;
   builtins?: string[];
   // The namespaces op: by module file, the specifiers whose namespace
