@@ -41,10 +41,13 @@ type Job struct {
 // Jobs is the job registry of ADR 0007 (D3): the jobs a runtime has
 // started, which answers job lookups for windmill-lite ids from the runs
 // instead of a job table. The engine registers each flow run, and the
-// facade each invocation, a script job, while it runs. A job stays known
+// facade each invocation, a script job, while it runs. A job stays live
 // while its root runs, so a job of a live run can be looked up after it
-// ended; once the root and every job of its tree have ended, the tree is
-// forgotten, and its ids are unknown again.
+// ended. Once the root and every job of its tree have ended, a job is no
+// longer live, but its root can still be looked up, as Windmill keeps a
+// completed job's row until its job retention removes it ([WA-19]).
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 type Jobs interface {
 	// Begin registers a job that has started and returns the function that
 	// ends it, which may be called more than once. A script job's parent
@@ -53,7 +56,8 @@ type Jobs interface {
 	// as flow jobs of its root, live while the root is.
 	Begin(j Job) (end func())
 	// Job returns what the registry knows of the job id names: the job,
-	// whether it is still live, and whether it is known at all.
+	// whether it is still live, and whether it is known at all. A job
+	// that is known and no longer live may come without its Env.
 	Job(id string) (j Job, live, ok bool)
 }
 
@@ -72,11 +76,38 @@ type FlowUserState interface {
 }
 
 // Registry is the local default of the job registry: the jobs of one
-// runtime, in memory. It is safe for concurrent use.
+// runtime, in memory. Once a job's tree has ended, it keeps the job's id,
+// kind, root and path, without its Env, among the latest endedJobs jobs
+// whose trees ended; an older one is forgotten, and its id is unknown
+// again. Windmill keeps a completed job's row for its job retention
+// period, 30 days by default; windmill-lite bounds the memory by count
+// instead. It is safe for concurrent use.
 type Registry struct {
 	mu    sync.Mutex
 	jobs  map[string]*regJob
 	trees map[string]map[string]bool // root → the ids of its jobs
+	// ended holds the jobs of the trees that have ended, and order their
+	// ids, oldest first, with the seq each was kept under; an entry of
+	// order whose seq is not its id's in ended is stale (the id was
+	// registered again) and is skipped.
+	ended map[string]endedJob
+	order []endedRef
+	seq   uint64
+	keep  int // the most ended jobs kept: endedJobs
+}
+
+// endedJobs is how many jobs of ended trees a Registry keeps known.
+const endedJobs = 4096
+
+// endedJob is a job of a tree that has ended, kept under seq.
+type endedJob struct {
+	job Job
+	seq uint64
+}
+
+type endedRef struct {
+	id  string
+	seq uint64
 }
 
 // regJob is one job of the registry.
@@ -91,7 +122,7 @@ type regJob struct {
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{jobs: map[string]*regJob{}, trees: map[string]map[string]bool{}}
+	return &Registry{jobs: map[string]*regJob{}, trees: map[string]map[string]bool{}, ended: map[string]endedJob{}, keep: endedJobs}
 }
 
 // Begin registers j. A registration of an id the registry derived makes
@@ -105,6 +136,7 @@ func (r *Registry) Begin(j Job) (end func()) {
 		j.Root = j.ID
 	}
 	r.mu.Lock()
+	delete(r.ended, j.ID)
 	e := r.jobs[j.ID]
 	switch {
 	case e == nil:
@@ -194,9 +226,29 @@ func (r *Registry) sweep(root string) {
 		}
 		delete(r.jobs, id)
 		delete(tree, id)
+		if e != nil {
+			r.retire(e.job)
+		}
 	}
 	if len(tree) == 0 {
 		delete(r.trees, root)
+	}
+}
+
+// retire keeps j, a job whose tree has ended, among the ended jobs,
+// without its Env, and forgets the oldest ones beyond keep. Called with mu
+// held.
+func (r *Registry) retire(j Job) {
+	j.Env = nil
+	r.seq++
+	r.ended[j.ID] = endedJob{job: j, seq: r.seq}
+	r.order = append(r.order, endedRef{id: j.ID, seq: r.seq})
+	for len(r.ended) > r.keep || len(r.order) > 2*r.keep {
+		old := r.order[0]
+		r.order = r.order[1:]
+		if k, ok := r.ended[old.id]; ok && k.seq == old.seq {
+			delete(r.ended, old.id)
+		}
 	}
 }
 
@@ -206,7 +258,8 @@ func (r *Registry) Job(id string) (Job, bool, bool) {
 	defer r.mu.Unlock()
 	e := r.jobs[id]
 	if e == nil {
-		return Job{}, false, false
+		k, ok := r.ended[id]
+		return k.job, false, ok
 	}
 	live := e.live > 0
 	if e.derived {
@@ -262,11 +315,11 @@ func (u *UserStates) UserState(_ context.Context, job, key string) (json.RawMess
 }
 
 // SetUserState stores v under key for the flow job, which must be one the
-// job registry knows: a map for a job it does not know of would have no
+// job registry reports live: a map for any other job would have no live
 // root to be forgotten with.
 func (u *UserStates) SetUserState(_ context.Context, job, key string, v json.RawMessage) error {
-	j, _, ok := u.jobs.Job(job)
-	if !ok {
+	j, live, ok := u.jobs.Job(job)
+	if !ok || !live {
 		return nil
 	}
 	u.mu.Lock()
@@ -453,6 +506,15 @@ func userStateValue(body []byte) ([]byte, error) {
 		return nil, err
 	}
 	return n.write(nil), nil
+}
+
+// JSONSyntaxError reports why text is not one JSON text, in the words of
+// Windmill's backend JSON library ("<message> at line <l> column <c>"),
+// or nil when it is one: the message of the 400 Windmill's web framework
+// answers for a request body it cannot parse as JSON.
+func JSONSyntaxError(text []byte) error {
+	_, err := parseJSON(text)
+	return err
 }
 
 func (s *Services) liveFlow(id string) bool {

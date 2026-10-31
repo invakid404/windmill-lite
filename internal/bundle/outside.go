@@ -22,23 +22,37 @@ import (
 // entry's relative_path outside it.
 const ProblemUnknownHostModule = "host_module_unknown"
 
-// OutsideHostModule is a host-provided module outside the sync folder
-// (ADR 0010, milestone F3h): a file of a codebase entry's relative_path,
-// which may lie outside the sync root (WR-49), that the entry's scripts
-// import and esbuild bundles (WR-47). The host contract names it by its
-// path relative to the sync root, such as ../lib/ctx.ts. Only codebase
-// scripts can import it, since a Bun script's relative imports stay in the
-// folder (WR-28), so it is built as they are, with esbuild: its bundled
-// copy with its entry's settings, in ES module format, with the env
-// rewrite, and every other listed module resolved to its shim.
-type OutsideHostModule struct {
-	// ID names its files, as HostModule.ID does (OutsideID).
+// EsbuildHostModule is a host-provided module that esbuild builds, as it
+// builds the codebase scripts that import it (ADR 0010), rather than the
+// Bun build. It is one of two kinds:
+//
+//   - a file outside the sync folder, in a codebase entry's relative_path,
+//     which may lie outside the sync root ([WR-49]). The host contract names
+//     it by its path relative to the sync root, such as ../lib/ctx.ts. Only
+//     codebase scripts can import it, since a Bun script's relative imports
+//     stay in the folder ([WR-28]);
+//   - a codebase script of the folder, which a codebases entry selects. Its
+//     shared copy is built with that entry's settings, as the script's own
+//     bundle is ([WR-47]), so a Bun script cannot import it.
+//
+// Its bundled copy is built with the entry's settings, in ES module format,
+// with the env rewrite, and with every other listed module resolved to its
+// shim.
+//
+// [WR-28]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-28
+// [WR-47]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-47
+// [WR-49]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-49
+type EsbuildHostModule struct {
+	// ID names its files, as HostModule.ID does: OutsideID's for a file
+	// outside the folder, and the script's Windmill path for a codebase
+	// script.
 	ID string
 	// Key is the module as the host contract names it: its path relative
-	// to the sync root, which leaves the folder; it is also File.
+	// to the sync root; it is also its file.
 	Key string
-	// Settings is the codebases entry whose relative_path holds the file,
-	// as JSON (syncfolder.Codebase.Settings).
+	// Settings is the codebases entry that selects the script, or whose
+	// relative_path holds the file outside the folder, as JSON
+	// (syncfolder.Codebase.Settings).
 	Settings json.RawMessage
 }
 
@@ -54,9 +68,9 @@ func OutsideID(rel string) string {
 	return "outside/" + strconv.Itoa(n) + "/" + rel
 }
 
-// OutsideConfig describes the build of the host-provided modules outside
-// the folder.
-type OutsideConfig struct {
+// EsbuildHostConfig describes the build of the host-provided modules that
+// esbuild builds.
+type EsbuildHostConfig struct {
 	// Bun, Helper, AllowBunMismatch, Env, Diagnostics and Timeout are those
 	// of BunConfig: the build helper parses each module's source.
 	Bun              string
@@ -72,37 +86,38 @@ type OutsideConfig struct {
 	Out    string
 	Work   string
 
-	Modules []OutsideHostModule
-	// Inside are the other host-provided modules, with the shims BuildBun
-	// generated, which an outside module's imports of them resolve to.
+	Modules []EsbuildHostModule
+	// Inside are the host-provided modules of the Bun build, with the shims
+	// BuildBun generated, which the modules' imports of them resolve to.
 	Inside []CodebaseHostModule
 }
 
-// OutsideResult is what the build of the outside modules produced.
-type OutsideResult struct {
+// EsbuildHostResult is what the build of the modules produced.
+type EsbuildHostResult struct {
 	// HostModules holds each module's metadata, by ID, and Order the IDs
-	// in the order a harness registers them: a module after the outside
-	// modules it imports (the inside ones, which never import an outside
-	// one, are all registered before).
+	// in the order a harness registers them: a module after the modules of
+	// this build that it imports. The modules of the Bun build never import
+	// one of these, and are all registered before.
 	HostModules map[string]*HostModuleMeta
 	Order       []string
 	// Inputs are the files of the folder the copies read (folderInputs),
-	// sorted: sources of the bundle, as a codebase script's are. The
-	// modules' own files lie outside the folder.
+	// sorted: sources of the bundle, as a codebase script's are. The files
+	// of modules outside the folder are not among them.
 	Inputs []string
 }
 
-// BuildOutside builds the host-provided modules outside the folder: it
-// checks each module's source with the build helper (an export a shim
-// cannot follow, host_module_live_binding), learns which other listed
-// modules each imports, and then, in that order, bundles each with
-// esbuild, the module itself as the entry, which gives its export names
-// (an entry that is CommonJS source has none a shim can take,
-// host_module_commonjs), writes the bundle as its copy and generates its
-// shim from those names. Problems are returned in a *BuildError, by item
-// "host module <key>".
-func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error) {
-	res := &OutsideResult{HostModules: map[string]*HostModuleMeta{}}
+// BuildEsbuildHostModules builds the host-provided modules that esbuild
+// builds. It checks each module's source with the build helper (an export
+// a shim cannot follow, host_module_live_binding; a file with no loader is
+// not read, and esbuild's refusal of it is its problem), learns which
+// other listed modules each imports, and then, in that order, bundles each
+// with esbuild, the module itself as the entry, which gives its export
+// names (an entry that is CommonJS source has none a shim can take,
+// host_module_commonjs). It writes the bundle as the module's copy and
+// generates its shim from those names. Problems are returned in a
+// *BuildError, by item "host module <key>".
+func BuildEsbuildHostModules(ctx context.Context, cfg EsbuildHostConfig) (*EsbuildHostResult, error) {
+	res := &EsbuildHostResult{HostModules: map[string]*HostModuleMeta{}}
 	if len(cfg.Modules) == 0 {
 		return res, nil
 	}
@@ -113,7 +128,7 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 		}
 	}
 	if cfg.Work == "" {
-		if cfg.Work, err = os.MkdirTemp("", "windmill-lite-outside-"); err != nil {
+		if cfg.Work, err = os.MkdirTemp("", "windmill-lite-esbuild-host-"); err != nil {
 			return nil, err
 		}
 		defer os.RemoveAll(cfg.Work)
@@ -123,7 +138,7 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	if err := os.MkdirAll(cfg.Work, 0o755); err != nil {
 		return nil, err
 	}
-	item := func(m OutsideHostModule) string { return "host module " + m.Key }
+	item := func(m EsbuildHostModule) string { return "host module " + m.Key }
 
 	// The helper's parse of each source.
 	bc := BunConfig{
@@ -178,8 +193,8 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 		return res, &BuildError{Problems: problems}
 	}
 
-	// Which listed modules each imports, from a build in which the
-	// outside modules' shims are not generated yet: each is a CommonJS
+	// Which listed modules each imports, from a build in which the shims
+	// of this build's modules are not generated yet: each is a CommonJS
 	// placeholder, from which esbuild lets an import take any name.
 	all := append([]CodebaseHostModule(nil), cfg.Inside...)
 	shims := map[string]string{}
@@ -215,13 +230,13 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	res.Order = order
 
 	// Each copy, after the modules it imports, with their shims.
-	byID := map[string]OutsideHostModule{}
+	byID := map[string]EsbuildHostModule{}
 	for _, m := range cfg.Modules {
 		byID[m.ID] = m
 	}
 	for _, id := range order {
 		m := byID[id]
-		out, p := cc.outsideCopy(m, settings[id], shims)
+		out, p := cc.esbuildCopy(m, settings[id], shims)
 		if p != nil {
 			problems = append(problems, ItemProblem{item(m), *p})
 			continue
@@ -251,10 +266,11 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	return res, nil
 }
 
-// outsideCopy bundles the bundled copy of one outside module: the module
-// as the entry, with the env rewrite under the first binding no input of
-// the bundle spells, and the shims of the other listed modules.
-func (cfg *CodebaseConfig) outsideCopy(m OutsideHostModule, s *CodebaseSettings, shims map[string]string) (*esbuildOutput, *Problem) {
+// esbuildCopy bundles the copy of one host-provided module that esbuild
+// builds: the module as the entry, with the env rewrite under the first
+// binding no input of the bundle spells, and the shims of the other listed
+// modules.
+func (cfg *CodebaseConfig) esbuildCopy(m EsbuildHostModule, s *CodebaseSettings, shims map[string]string) (*esbuildOutput, *Problem) {
 	for n := 1; n <= 20; n++ {
 		binding := EnvBinding
 		if n > 1 {
@@ -295,18 +311,18 @@ func shimFile(out, id string) string {
 // codebases (relative to the root, as wmill.yaml gives it). It returns the
 // module, or why key is not one; ok is false when key does not leave the
 // root, so it is something else.
-func outsideModule(root, key string, codebases []syncfolder.Codebase) (m OutsideHostModule, ok bool, problem string) {
+func outsideModule(root, key string, codebases []syncfolder.Codebase) (m EsbuildHostModule, ok bool, problem string) {
 	rel := path.Clean(key)
 	if rel != key || !strings.HasPrefix(rel, "../") {
-		return OutsideHostModule{}, false, ""
+		return EsbuildHostModule{}, false, ""
 	}
 	abs := filepath.Join(root, filepath.FromSlash(rel))
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return OutsideHostModule{}, true, fmt.Sprintf("unknown host-provided module %s: it leaves the folder, and %v", key, err)
+		return EsbuildHostModule{}, true, fmt.Sprintf("unknown host-provided module %s: it leaves the folder, and %v", key, err)
 	}
 	if !fi.Mode().IsRegular() {
-		return OutsideHostModule{}, true, fmt.Sprintf("unknown host-provided module %s: it leaves the folder, and it is not a file", key)
+		return EsbuildHostModule{}, true, fmt.Sprintf("unknown host-provided module %s: it leaves the folder, and it is not a file", key)
 	}
 	// The codebase entry whose relative_path holds the file, the deepest
 	// one when several do.
@@ -325,8 +341,8 @@ func outsideModule(root, key string, codebases []syncfolder.Codebase) (m Outside
 		}
 	}
 	if best < 0 {
-		return OutsideHostModule{}, true, fmt.Sprintf(
+		return EsbuildHostModule{}, true, fmt.Sprintf(
 			"unknown host-provided module %s: it leaves the folder, and no codebases entry's relative_path holds it", key)
 	}
-	return OutsideHostModule{ID: OutsideID(rel), Key: key, Settings: codebases[best].Settings}, true, ""
+	return EsbuildHostModule{ID: OutsideID(rel), Key: key, Settings: codebases[best].Settings}, true, ""
 }

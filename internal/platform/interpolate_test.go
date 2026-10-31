@@ -479,11 +479,14 @@ func TestAPIEnv(t *testing.T) {
 	}
 }
 
-// WA-11, milestone F1: an update of a Store's variable replaces its value,
-// which is then plaintext, and its secrecy; a missing variable is the
-// read's not-found, and a variable service that is not a VariableUpdater
-// is read-only. A chain updates the service a read answers from (F2a),
-// which must itself be an updater.
+// An update of a Store's variable ([WA-11]) replaces its value, which is
+// then plaintext, and its secrecy, which changes only with a value, as
+// Windmill refuses a secrecy change without one; a missing variable is
+// the update's own not-found, and a variable service that is not a
+// VariableUpdater is read-only. A chain updates the service a read
+// answers from, which must itself be an updater.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func TestUpdateVariable(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore()
@@ -496,15 +499,28 @@ func TestUpdateVariable(t *testing.T) {
 	if v, _, _ := store.Variable(ctx, "u/x/v"); v != (Variable{Value: "plain", IsSecret: true}) {
 		t.Fatalf("after a value update: %+v", v)
 	}
-	if err := s.UpdateVariable(ctx, "u/x/v", nil, &public); err != nil {
+	var pe *Error
+	if err := s.UpdateVariable(ctx, "u/x/v", nil, &public); !errors.As(err, &pe) || pe.HTTPStatus() != 400 || pe.Body() != "Bad request: cannot change is_secret without updating value too" {
+		t.Fatalf("a secrecy change without a value: %v", err)
+	}
+	if v, _, _ := store.Variable(ctx, "u/x/v"); !v.IsSecret {
+		t.Fatalf("after a refused secrecy change: %+v", v)
+	}
+	secret := true
+	if err := s.UpdateVariable(ctx, "u/x/v", nil, &secret); err != nil {
+		t.Fatalf("the secrecy it has, without a value: %v", err)
+	}
+	if err := s.UpdateVariable(ctx, "u/x/v", &value, &public); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := s.VariableValue(ctx, "u/x/v"); err != nil || v != "plain" {
-		t.Fatalf("after a secrecy update: %q, %v", v, err)
+	if v, _, _ := store.Variable(ctx, "u/x/v"); v != (Variable{Value: "plain"}) {
+		t.Fatalf("after a secrecy update with a value: %+v", v)
 	}
-	var pe *Error
-	if err := s.UpdateVariable(ctx, "u/x/none", &value, nil); !errors.As(err, &pe) || pe.HTTPStatus() != 404 {
+	if err := s.UpdateVariable(ctx, "u/x/none", &value, nil); !errors.As(err, &pe) || pe.HTTPStatus() != 404 || pe.Body() != "Not found: Variable not found at name u/x/none" {
 		t.Errorf("a missing variable: %v", err)
+	}
+	if err := s.UpdateVariable(ctx, "u/x/none", nil, &secret); !errors.As(err, &pe) || pe.HTTPStatus() != 404 {
+		t.Errorf("a missing variable's secrecy: %v", err)
 	}
 	ro := &Services{Variables: readOnly{store}}
 	if err := ro.UpdateVariable(ctx, "u/x/v", &value, nil); !errors.Is(err, ErrReadOnlyVariables) {

@@ -11,8 +11,16 @@ expect:
     "m:s1":
       status: failure
       result: {error: {name: EarlyStopError, message: halt}}
-    "m:s1/m:a": {status: success, module: failure, result: 1}
+    "m:s1/m:a":
+      status: success
+      module: failure
+      result: 1
+      carried: {error: {name: EarlyStopError, message: halt}}
     "m:s2":
       status: failure
       result: {error: {name: EarlyStopError, message: halt}}
-    "m:s2/m:a": {status: success, module: failure, result: 1}
+    "m:s2/m:a":
+      status: success
+      module: failure
+      result: 1
+      carried: {error: {name: EarlyStopError, message: halt}}

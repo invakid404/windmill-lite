@@ -1,7 +1,7 @@
 finding: WA-11
 scope: core
 note: >-
-  Milestone PF2: variables/get_value, the read behind getVariable (ADR 0007).
+  variables/get_value, the read behind getVariable, and variables/update, the update behind setVariable (ADR 0007).
   Each script reads the platform as the stock client does, by fetch at BASE_URL with its token, so the cases need no client: the same reads go through the intercepted fetch (warm) and over loopback TCP (fresh), and the case's setup is what the facade serves. The stock client's own handling of the answers (its prefixes and error wrapping) is checked with windmill-client@1.767.0 by internal/platform/facade's TestProvidersOnTheClient, and the walker's rules at unit level by internal/platform/testdata/interpolation.json.
 cases:
   - spec: WA-11/a
@@ -38,3 +38,29 @@ cases:
     runs:
       - args: '{"path":"variables/get_value/u/x/s"}'
         expect: {status: success, result: {status: 200, type: application/json, body: '"hidden"'}}
+  - spec: WA-11
+    variant: update-answers
+    provenance: oracle-observed
+    scope: later
+    title: "an update answers 200 with Windmill's text, typed text/plain; charset=utf-8, a missing variable the 404 typed text/plain, and the value is read back: the update half of WA-11/e, whose create has no handler"
+    setup:
+      variables:
+        - {path: u/x/w, value: a}
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/variables`;
+        const show = async (res: Response) => ({ status: res.status, type: res.headers.get("content-type"), body: await res.text() });
+        const update = (path: string) => fetch(`${base}/update/${path}`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ value: "b" }) });
+        return [await show(await update("u/x/w")), await show(await update("u/x/none")), await show(await fetch(`${base}/get_value/u/x/w`, { headers: auth }))];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result:
+            - {status: 200, type: "text/plain; charset=utf-8", body: "variable u/x/w updated (npath: \"u/x/w\")"}
+            - {status: 404, type: text/plain, body: "Not found: Variable not found at name u/x/none"}
+            - {status: 200, type: application/json, body: '"b"'}
+        calls: ["200 POST /w/{ws}/variables/update/{path}", "404 POST /w/{ws}/variables/update/{path}", "200 GET /w/{ws}/variables/get_value/{path}"]

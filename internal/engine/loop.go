@@ -247,7 +247,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		return r.chainingAt(fr, pickup, o, text)
 	}
 	var it iterations
-	failed, ran, handled := false, false, false
+	failed, ran, handled, forwarded := false, false, false, false
 	var stopErr error
 	r.progress(fr, i, nil)
 	for k := 0; n < 0 || k < n; k++ {
@@ -315,6 +315,10 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 			r.addChild(c)
 			e = r.runList(ctx, c)
+			if e.unreported {
+				it.add(e)
+				return r.unreportedChildren(ctx, fr, o, &it)
+			}
 			job = &childJob{site: c.site, flow: true, input: c.input, end: e}
 			// The child flow's completion refreshes the loop's flow's
 			// ping (JE-2).
@@ -342,6 +346,10 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			if e.errorStop || !l.skipFailures {
 				failed = !l.skipFailures
 				handled = failed && e.handled
+				// The break clears the forwarded stop, not the failure, and
+				// the completion that carried it switches the loop's
+				// continue_on_error off; its retry still applies.
+				forwarded = failed && e.errorStop
 				break
 			}
 			continue
@@ -366,7 +374,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled)
+	o = handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled)
+	o.forwarded = forwarded && o.end.failed()
+	return o
 }
 
 // handledBy marks o, a container that completed, as failed by a failure a
@@ -520,6 +530,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	}
 	release()
 	var it iterations
+	// waiting: a child flow ended without telling the loop's flow, which
+	// therefore never completes the loop.
+	waiting := false
 	for running > 0 || (stopped == "" && nStarted < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
@@ -535,9 +548,17 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 		k := <-done
 		running--
+		if ends[k].unreported {
+			// The child flow never told the loop's flow that it ended, so
+			// nothing counts it (childUnreported).
+			waiting = true
+			r.childUnreported(ctx, fr)
+			continue
+		}
 		completed++
-		// The last child to fail, in the order the loop received their
-		// completions, is the one a retry starts from (CF-22 rule 3).
+		// The last child to complete, whatever its outcome, in the order
+		// the loop received the completions, is the one a retry starts
+		// from (CF-22 rule 5).
 		if !ended(ends[k].status) {
 			it.completed(&childJob{site: children[k].site, flow: true, input: children[k].input, end: ends[k]})
 		}
@@ -546,7 +567,15 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		r.ping(fr)
 		release()
 	}
-	failed, handled := false, false
+	if waiting {
+		for k, e := range ends {
+			if started[k] {
+				it.add(e)
+			}
+		}
+		return r.unreportedChildren(ctx, fr, o, &it)
+	}
+	failed := false
 	for k, e := range ends {
 		if started[k] && ended(e.status) && stopped == "" {
 			stopped = e.status
@@ -570,13 +599,27 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		// skip_failures (CF-7).
 		if e.status == conformance.RunFailure {
 			failed = !l.SkipFailures
-			handled = handled || e.handled
 		}
 	}
 	if stopped != "" {
 		return r.loopInterrupted(o, &it, nStarted > 0 || canceled, r.endedStatus(ctx, stopped))
 	}
-	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), failed && handled)
+	return parallelDone(fr, r.loopDone(ctx, fr, i, o, &it, failed, nil), failed)
+}
+
+// parallelDone marks o, a parallel loop or parallel branchall that
+// completed after its children ran, failed when failed says its children
+// failed it, as completed through the parallel path. A failed one is
+// marked handled whenever the flow has a failure module, since each failed
+// child ran its copy of it, so the flow's own does not run ([CF-16] item
+// 8, [CF-22] rule 5).
+//
+// [CF-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-16
+// [CF-22]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-22
+func parallelDone(fr *frame, o outcome, failed bool) outcome {
+	o = handledBy(o, failed && fr.failure != nil)
+	o.parallel = true
+	return o
 }
 
 // canceledChild is the result a canceled child job leaves its container
@@ -591,18 +634,25 @@ func canceledChild(ctx context.Context, j *childJob) flowEnd {
 
 // loopDone completes an active loop or branchall: its result is the array
 // of its children's results (aggregate; one the backend cannot read back
-// fails the flow, aggregateFailed); one that failed fails with it (CF-5, CF-15),
-// and a loop whose stop_after_if threw fails as such a step does (FX-21).
+// leaves it in progress, readFailed); one that failed fails with it ([CF-5], [CF-15]),
+// and a loop whose stop_after_if threw fails as such a step does ([FX-21]).
 // Then its stop_after_all_iters_if, evaluated once with that array, stops
 // the flow it is in like an ordinary stop_after_if; an evaluation error is
-// an error stop (CF-13, JE-27). On one that failed, a clean stop keeps the
+// an error stop ([CF-13], [JE-27]). On one that failed, a clean stop keeps the
 // failure and still stops the flow, even under continue_on_error
-// (endFailedStop, FX-2 completion rule 7.1).
+// (endFailedStop, [FX-2] completion rule 7.1).
+//
+// [CF-5]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-5
+// [CF-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-15
+// [FX-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-21
+// [CF-13]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-13
+// [JE-27]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-27
+// [FX-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-2
 func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *iterations, failed bool, stopErr error) outcome {
 	m := fr.modules[i]
 	arr, err := aggregate(it.values)
 	if err != nil {
-		return aggregateFailed(o, err)
+		return r.readFailed(ctx, fr, i, o, it, err)
 	}
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
@@ -855,9 +905,10 @@ func arrayOf(entries []jsonval.Value) jsonval.Value {
 // each child's stored result (JE-44): no spaces, keys in jsonb's order,
 // and every number written again in the backend's JSON library's notation
 // (FX-42 rule 9, platform.Reprint). A stored result the library cannot read
-// back, one with a number beyond a double's range or nested more than 128
-// deep, which only an identity child can hold, fails the read, as
-// Windmill's does: err is the library's error (aggregateFailed).
+// back, one with a number beyond a double's range, which only an identity
+// child can hold, or nested to depth 128, fails the read, as Windmill's
+// does: err is the library's error, positioned in PostgreSQL's printed
+// form of that result (readFailed).
 func aggregate(entries []jsonval.Value) (jsonval.Value, error) { return array(entries, true) }
 
 // array writes entries as aggregate does; strict says whether a result the
@@ -880,6 +931,12 @@ func array(entries []jsonval.Value, strict bool) (jsonval.Value, error) {
 			case err == nil:
 				text = out
 			case strict:
+				// The read decodes the text PostgreSQL prints for the
+				// stored result, with a space after each : and , outside
+				// strings, so the error's column counts in that text.
+				if _, printed := platform.Reprint(expr.DatabaseText(text)); printed != nil {
+					err = printed
+				}
 				return jsonval.Value{}, err
 			}
 		}
@@ -887,22 +944,4 @@ func array(entries []jsonval.Value, strict bool) (jsonval.Value, error) {
 	}
 	b.WriteByte(']')
 	return jsonval.FromProducer([]byte(b.String())), nil
-}
-
-// aggregateFailed is a loop or branchall whose children's results the
-// backend cannot read back at its completion (aggregate): Windmill's read
-// fails while it completes the container, a later transition, so the flow
-// fails at once with a chaining error named InternalError (FX-15 context
-// 1), and the module, which ran, fails with no result. Reading: the
-// reference says the read fails, not with which text or wrapper; the
-// message is the JSON library's error text, with the position in the
-// child's stored text (docs/design/README.md, request 13).
-func aggregateFailed(o outcome, err error) outcome {
-	text := err.Error()
-	o.chain = text
-	o.rec.Ran = true
-	o.rec.Status, o.rec.Module = conformance.StepFailure, conformance.ModuleFailure
-	o.rec.ResultNested = nil
-	o.end, o.carried, o.origin, o.nested = endChained, engineError("InternalError", text), OriginEngine, nil
-	return o
 }

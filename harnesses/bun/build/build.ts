@@ -130,8 +130,12 @@ const ENV_SPECIFIER = "windmill-lite:env";
 // sideEffects:false re-exports (`export { x } from "./x.js"`) when an
 // onResolve filter matches the import of that package, even one whose
 // callback resolves nothing, so the bundle references a binding it never
-// defines (milestone F3h); every other package import is left to Bun
-// without the callback.
+// defines; every other package import is left to Bun without the callback.
+// That includes a bare specifier ending in `.ts` (a package named
+// `leaf.ts`, or a deep `pkg/index.ts`), which Windmill's own import plugin
+// matches, so there Windmill's bundle loses the module and the step fails
+// with a ReferenceError while windmill-lite's keeps it (deviation D19,
+// {@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-27 | WR-27}).
 function resolveFilter(packages: Iterable<string>): RegExp {
   const exact = [ENV_SPECIFIER, ...packages].map((s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") + "$");
   return new RegExp(`^(?:\\.|/|${exact.join("|")})`);
@@ -433,22 +437,23 @@ export class Builder {
     return { dir, entry, source, seeds: new Map([[entry, hm.path!]]) };
   }
 
-  // Parse: what the source of a host-provided module outside the folder
-  // must not do, which only its syntax shows (the Go build bundles it with
-  // esbuild, as the codebase scripts that import it, milestone F3h): export
-  // a binding it can reassign, which a shim cannot follow (ADR 0010). The
-  // source is read with the syntax of the loader esbuild bundles it with
-  // (TypeScript, TSX, JavaScript or JSX); a file of any other loader has
-  // no exports a source could reassign.
+  // Parse: what the source of a host-provided module that the Go build
+  // bundles with esbuild (one outside the folder, or a listed codebase
+  // script) must not do, which only its syntax shows: export a binding it
+  // can reassign, which a shim cannot follow (ADR 0010). The source is read
+  // with the syntax of the loader esbuild bundles it with (TypeScript, TSX,
+  // JavaScript or JSX). A file of any other loader has no exports a source
+  // could reassign, and a file with no loader is not read, so the Go build
+  // reports esbuild's refusal of it.
   parseHostSource(hm: HostModuleRequest): HostModuleResult {
+    const syntax = hm.loader;
+    if (syntax !== "ts" && syntax !== "tsx" && syntax !== "js" && syntax !== "jsx") return { packages: [] };
     let source: string;
     try {
       source = readFileSync(hm.source!, "utf8");
     } catch (e) {
       throw new BuildProblem("invalid_request", `cannot read ${hm.key}: ${(e as Error).message}`);
     }
-    const syntax = hm.loader ?? "ts";
-    if (syntax !== "ts" && syntax !== "tsx" && syntax !== "js" && syntax !== "jsx") return { packages: [] };
     const parsed = parse(source, syntax);
     const live = liveBindings(parsed);
     if (live.length > 0) {

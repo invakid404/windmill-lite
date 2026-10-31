@@ -157,7 +157,8 @@ Every path script and inline script the roots reach has one `Script` entry:
 
 `Program.Deviations` lists the deviations the folder's content puts in
 effect: D5, D6 (a derived module id), D7, D12 (the contract lists host
-modules) and D13 (a CommonJS codebase script).
+modules), D13 (a CommonJS codebase script) and D19 (a `bundled`
+script).
 
 ## The host contract
 

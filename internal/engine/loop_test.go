@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -1284,57 +1283,5 @@ func TestSerdeTexts(t *testing.T) {
 	}
 	if got := string(iterInput(jsonval.FromProducer([]byte(`{"iter_parent":2}`)), 0, []byte(`1`)).Producer()); got != `{"iter_parent":2,"iter":{"index":0,"value":1}}` {
 		t.Errorf("iterInput with no iter: %s", got)
-	}
-}
-
-// TestAggregationUnreadable: a loop's or branchall's result is its
-// children's results read back into the backend's JSON values (FX-42 rule
-// 9, JE-44). A child result the backend's JSON library refuses, a number
-// beyond a double's range or nesting past its recursion limit, which an
-// identity child can carry from the flow input as jsonb holds it, fails
-// that read at the container's completion: the flow fails at once with a
-// chaining error (FX-15 context 1), the container fails with no result,
-// and the next module does not run. The message is the library's error,
-// a reading (docs/design/README.md, request 13).
-func TestAggregationUnreadable(t *testing.T) {
-	// spec: FX-42, JE-44, FX-15
-	identity := `{"id":"x","value":{"type":"identity"}}`
-	deep := strings.Repeat("[", 129) + strings.Repeat("]", 129)
-	for _, c := range []struct {
-		name, container, input, message string
-	}{
-		{"loop, overflow", loopOf("l", []string{identity}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, ""), `{"large":1e400}`, "number out of range"},
-		{"parallel loop, overflow", loopOf("l", []string{identity}, `"iterator":{"type":"static","value":[1,2]},"parallel":true,"skip_failures":true`, ""), `{"large":-1e400}`, "number out of range"},
-		{"loop, nesting", loopOf("l", []string{identity}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, ""), `{"deep":` + deep + `}`, "recursion limit exceeded"},
-		{"while loop, overflow", whileOf("l", []string{identity}, false, breakAt("true")), `{"large":1e400}`, "number out of range"},
-		{"branchall, overflow", branchAllOf("l", []string{branch(skipFailure(false), identity)}, false, ""), `{"large":1e400}`, "number out of range"},
-		{"parallel branchall, nesting", branchAllOf("l", []string{branch(skipFailure(false), identity), branch(skipFailure(true), identity)}, true, ""), `{"deep":` + deep + `}`, "recursion limit exceeded"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			s := &loopSteps{}
-			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.container, mod("n", "echo", "", ""))}, s)
-			tr := runIt(t, e, c.input, nil)
-			var got struct {
-				Error struct{ Name, Message string }
-			}
-			if err := json.Unmarshal(tr.Result.Producer(), &got); err != nil {
-				t.Fatal(err)
-			}
-			if tr.Status != conformance.RunFailure || got.Error.Name != "InternalError" || !regexp.MustCompile(`^`+c.message+` at line 1 column [0-9]+$`).MatchString(got.Error.Message) {
-				t.Fatalf("status %s, result %s", tr.Status, tr.Result.Producer())
-			}
-			l := step(t, tr, "l")
-			if !l.Ran || l.Status != conformance.StepFailure || !l.Result.IsZero() {
-				t.Errorf("the container: %+v", l)
-			}
-			if len(s.calls()) != 0 {
-				t.Errorf("calls %v: the next module ran", s.calls())
-			}
-		})
-	}
-	// The sites that show the iterations so far without reading them back
-	// keep a result the library refuses as stored.
-	if got := string(arrayOf([]jsonval.Value{jsonval.FromProducer([]byte(`1e400`))}).Producer()); !strings.HasPrefix(got, "[1000") {
-		t.Errorf("arrayOf: %.20s…", got)
 	}
 }

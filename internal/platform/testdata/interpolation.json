@@ -268,6 +268,27 @@
       "expect": {"text": "{\"x\":\"x $var:u/test/v\",\"y\":\"s\"}"}
     },
     {
+      "spec": "JE-42/k",
+      "title": "$jsonvar: an object that ends after a comma is a missing value, since a key was due",
+      "setup": {"variables": [{"path": "u/test/j", "value": "{\"a\":1,"}]},
+      "resolve": {"args": {"x": "$jsonvar:u/test/j"}},
+      "expect": {"error": "Internal: Failed to parse $jsonvar value as JSON: EOF while parsing a value at line 1 column 7"}
+    },
+    {
+      "spec": "JE-42/k",
+      "title": "$jsonvar: an object that ends after a member is unclosed",
+      "setup": {"variables": [{"path": "u/test/j", "value": "{\"a\":1"}]},
+      "resolve": {"args": {"x": "$jsonvar:u/test/j"}},
+      "expect": {"error": "Internal: Failed to parse $jsonvar value as JSON: EOF while parsing an object at line 1 column 6"}
+    },
+    {
+      "spec": "JE-42/k",
+      "title": "$jsonvar: an object that closes after a comma has a trailing comma",
+      "setup": {"variables": [{"path": "u/test/j", "value": "{\"a\":1,}"}]},
+      "resolve": {"args": {"x": "$jsonvar:u/test/j"}},
+      "expect": {"error": "Internal: Failed to parse $jsonvar value as JSON: trailing comma at line 1 column 8"}
+    },
+    {
       "spec": "WR-5/a",
       "title": "a $res: reference resolves to the resource value; another argument passes through",
       "setup": {"resources": [{"path": "u/a/pg", "resource_type": "postgresql", "value": {"host": "h"}}]},

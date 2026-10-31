@@ -710,7 +710,15 @@ export class Runtime {
       return escaped(`windmill-lite: cannot read the metadata of script ${JSON.stringify(m.script)}: ${describe(e)}`);
     }
     if (!isNative(meta)) return escaped(`windmill-lite: script ${JSON.stringify(m.script)} is not built for the native boundary`);
-    const inv = { id: m.id, script: m.script, entry: m.entry, args: m.args as Record<string, unknown>, env: m.env, resources: c.resources };
+    const inv = {
+      id: m.id,
+      script: m.script,
+      entry: m.entry,
+      args: m.args as Record<string, unknown>,
+      env: m.env,
+      resources: c.resources,
+      stopped: () => this.invocations.get(m.id)?.state !== "running",
+    };
     const r = await this.native.run(inv, meta, c, stepId());
     if ("ok" in r) return { outcome: "ok", body: r.ok };
     return r.generated ? { outcome: "error", body: r.error, origin: "harness" } : { outcome: "error", body: r.error };

@@ -90,14 +90,26 @@ func TestParseErrors(t *testing.T) {
 		{`[1,`, "EOF while parsing a value at line 1 column 3"},
 		{`{"a":1} x`, "trailing characters at line 1 column 9"},
 		{"{\n\"a\":1", "EOF while parsing an object at line 2 column 5"},
-		{strings.Repeat("[", 129) + strings.Repeat("]", 129), "recursion limit exceeded at line 1 column 129"},
+		// An object cut short: unclosed, a member short, and a key due
+		// after a comma, which the library reports as a missing value.
+		{`{`, "EOF while parsing an object at line 1 column 1"},
+		{`{"a"`, "EOF while parsing an object at line 1 column 4"},
+		{`{"a":`, "EOF while parsing a value at line 1 column 5"},
+		{`{"a":1`, "EOF while parsing an object at line 1 column 6"},
+		{`{"a":1,`, "EOF while parsing a value at line 1 column 7"},
+		{`{"a":1, `, "EOF while parsing a value at line 1 column 8"},
+		{`{"a":1,x`, "key must be a string at line 1 column 8"},
+		{`{"a`, "EOF while parsing a string at line 1 column 3"},
+		// The array opened at depth 128 fails.
+		{strings.Repeat("[", 128) + "1" + strings.Repeat("]", 128), "recursion limit exceeded at line 1 column 128"},
+		{`{"k": ` + strings.Repeat("[", 127) + strings.Repeat("]", 127) + `}`, "recursion limit exceeded at line 1 column 133"},
 	} {
 		_, err := parseJSON([]byte(c.in))
 		if err == nil || err.Error() != c.want {
 			t.Errorf("%q: %v, want %s", c.in, err, c.want)
 		}
 	}
-	if _, err := parseJSON([]byte(strings.Repeat("[", 128) + strings.Repeat("]", 128))); err != nil {
-		t.Errorf("128 levels: %v", err)
+	if _, err := parseJSON([]byte(strings.Repeat("[", 127) + strings.Repeat("]", 127))); err != nil {
+		t.Errorf("127 levels: %v", err)
 	}
 }

@@ -415,7 +415,11 @@ calls on its current connection.
 ## Host mode and the host SDK
 
 `host/index.ts` is the SDK for a host that is itself a Bun program
-(ADR 0009). Its `plugin` option is the host's plugin (below, Host
+(ADR 0009). It imports `../runtime/`, so a host vendors `host/` and
+`runtime/` together, from one commit, and checks the copy's provenance
+([ADR 0009, Vendoring the Bun host SDK](../../docs/design/0009-host-adapters.md#vendoring-the-bun-host-sdk)).
+
+Its `plugin` option is the host's plugin (below, Host
 plugins), whose declaration goes in the hello and which the engine checks
 there, refusing a host it cannot use with `plugin_mismatch`; the SDK
 re-exports the plugin types. `connect(options)`:
@@ -765,10 +769,17 @@ this mode cannot reproduce is deviation D5 of
 - **Imports** resolve against `file:///eval.ts`. For a nativets script,
   every spelling of `file:///windmill.ts` is the embedded client
   (`scripts/native/windmill.js`), loaded in the same realm with its own
-  preamble; anything else, and anything for a `//native` script, cannot be
-  loaded: a static import fails the load, a dynamic `import()` rejects
-  with an `Error` the script can catch. A named import that the module does
-  not export fails the link.
+  preamble. Anything else, and anything for a `//native` script, cannot be
+  loaded, since the harness reads no file of the host it runs on. It fails
+  as a missing file does on Windmill's Linux worker
+  ([WR-40](../../docs/semantics/languages.md#wr-40)):
+  - a static import fails the load with `Failed to load <url>: No such file
+    or directory (os error 2)`;
+  - a dynamic `import()` rejects with a `TypeError` that the script can
+    catch. Its message is `Failed to load <url>`, then the line
+    `  Caused by:`, then the same reason indented by four spaces.
+
+  A named import that the module does not export fails the link.
 - **The call.** nativets always calls `main`; `//native` calls the entry,
   so an override applies. Each parameter takes its argument parsed in the
   realm, `undefined` when missing, never hydrated; with no parameters, no
@@ -790,6 +801,22 @@ this mode cannot reproduce is deviation D5 of
   handles, which has no context) or directly (a throw from a microtask it
   queued). One fails a running invocation with its WR-43 object; after its
   outcome it is a late error.
+- **A promise nothing can settle.** When the entrypoint's promise is
+  pending and the invocation holds nothing that could still settle it,
+  the invocation fails at once with the worker's `execution error:` object
+  and the text `Promise resolution is still pending but the event loop has
+  already resolved`, as on Windmill
+  ([WR-43](../../docs/semantics/languages.md#wr-43)). The harness checks
+  every 10 ms and needs two such checks in a row.
+- **What holds an invocation until the work ends:** a pending timer or
+  request, or a pending promise that a web API handed it.
+- **What holds an invocation until its timeout**, since the harness cannot
+  see when the work ends:
+  - an event listener or `on…` handler;
+  - a call of `Atomics.waitAsync` or of WebAssembly's asynchronous
+    compilation;
+  - anything handed to it untracked, or handed to a realm with no
+    invocation to own it since the invocation began.
 
 Exit codes: 0 after `bye`, when the engine's end closes, or in fresh mode
 after the result (otherwise the step's own), 2 for a rejected
@@ -807,7 +834,8 @@ mode (the build's native form, the realm's globals, the fetch user agent
 against a local endpoint, settlement, the error shapes, which errors are
 marked generated, and the boundary: every WR-45 class realm-facing, what
 each way of handing an object over gives, and what it counts as
-untracked), and
+untracked, and when a pending entrypoint fails as one that nothing can
+settle), and
 `test/fit.test.ts` how a warning's message
 is cut to fit `max_message`, and `test/describe.test.ts` the text the
 harness's own messages give an error: Bun 1.3.10 builds the stack of an

@@ -8,7 +8,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The dispatch routes of ADR 0007's Dispatcher (milestone PF3): what
+// The dispatch routes of ADR 0007's Dispatcher: what
 // runScript*Async and runFlowAsync post, and their synchronous forms
 // before waitJob (WA-15). The result polls are in jobs.go.
 func (f *Facade) serveDispatch() {
@@ -23,16 +23,21 @@ func (f *Facade) serveDispatch() {
 var unservedRunQuery = []string{"scheduled_for", "cache_ttl", "job_id"}
 
 // dispatch answers POST /w/{ws}/jobs/run/p/{path}, run/f/{path} and
-// run/h/{hash} (WA-15): it hands the target, the body as the run's
+// run/h/{hash} ([WA-15]): it hands the target, the body as the run's
 // arguments, and the query's parent_job, root_job, tag and
 // scheduled_in_secs to the Dispatcher, and answers 201 with the new job's
-// id as text/plain. A target that is not a root of the bundle, and every
+// id as text, typed text/plain; charset=utf-8 as a handler's text answer
+// is ([WA-42]). A target that is not a root of the bundle, and every
 // target when there is no dispatcher, answers 501 with the body
 // `dispatch target not in bundle: <target>`, which the 501 policy turns
 // into the dispatching step's error (ADR 0001 §5a); the stock client
-// takes that body for a job id (WA-V5/a), whose result poll then fails at
-// once (badJobID). A hash names no root, since a windmill-lite bundle
+// takes that body for a job id ([WA-V5]/a), whose result poll then fails at
+// once, refused as an id that is not a UUID (pathUUID). A hash names no root, since a windmill-lite bundle
 // records no script hash.
+//
+// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-42
+// [WA-V5]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v5
 func (f *Facade) dispatch(kind platform.DispatchKind, param string) Handler {
 	return func(ctx context.Context, c *Call) Reply {
 		for _, q := range unservedRunQuery {
@@ -64,7 +69,7 @@ func (f *Facade) dispatch(kind platform.DispatchKind, param string) Handler {
 		case err != nil:
 			return answer(nil, err)
 		}
-		return text(201, id)
+		return plainText(201, id)
 	}
 }
 

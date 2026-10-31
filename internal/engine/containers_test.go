@@ -12,12 +12,15 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The tests of milestone NI: N2's waits and retries inside containers, and
-// the evaluation timing of container-level fields (CF-21 to CF-28), on the
+// The tests of sleeps, timeouts and retries inside containers, and the
+// evaluation timing of container-level fields ([CF-21] to [CF-28]), on the
 // synthetic folders of engine_test.go and the real QuickJS-ng engine; the
 // fixtures conformance/flows/control-flow/cf-21 to cf-28 and waits run the
 // same flows on the real Bun harness against the oracle's recordings
 // (cmd/wltest, TestFlowSuite).
+//
+// [CF-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-21
+// [CF-28]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-28
 
 // CF-21, FX-23: the sleep of the module before a container delays the
 // container's first child only: one wait, whatever the container.
@@ -263,11 +266,14 @@ func TestLoopSkipIfMidLoop(t *testing.T) {
 	}
 }
 
-// CF-25: squash is accepted and ignored. windmill-lite runs a squashed
+// squash is accepted and ignored ([CF-25]). windmill-lite runs a squashed
 // loop unsquashed, sequential or parallel, a for loop or a while loop,
-// collapsed or not, which gives the results the Community Edition image
-// recorded (CF-25/d, the cf-25 fixture); whether CE reuses one runtime
-// across the iterations is open (Q-CF-19).
+// collapsed or not, which gives the values the Community Edition image
+// recorded (the cf-25 fixture). The runtime that image keeps for each body
+// step across a squashed loop's iterations, with WM_JOB_ID reading
+// NOT_AVAILABLE, is not reproduced; the engine package's README gives why.
+//
+// [CF-25]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-25
 func TestContainerSquash(t *testing.T) {
 	one := []string{mod("b", "value", inputs("v", js("flow_input.iter.value")), "")}
 	two := append(slices.Clone(one), mod("c", "value", inputs("v", js("results.b")), ""))

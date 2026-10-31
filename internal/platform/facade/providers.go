@@ -1,19 +1,27 @@
 package facade
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The resource and variable reads of ADR 0007's services (milestone PF2),
-// which the facade answers from Config.Platform: the three resource-read
-// contracts of WA-40 kept apart, and Windmill's statuses and bodies
-// (WA-10 to WA-12, WA-42); and the update of a variable's value (WA-11,
-// milestone F1), when the variable service takes writes. The other writes
-// (creating a variable, the resource writes) are `later` and answer 501.
+// The resource and variable reads of ADR 0007's services, which the
+// facade answers from Config.Platform: the three resource-read contracts
+// of [WA-40] kept apart, with Windmill's statuses and bodies ([WA-10] to
+// [WA-12], [WA-42]); and the update of a variable's value ([WA-11]), when the
+// variable service takes writes. The other writes (creating a variable,
+// the resource writes) are not served, and answer 501.
+//
+// [WA-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-40
+// [WA-10]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-10
+// [WA-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-12
+// [WA-42]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-42
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func (f *Facade) serveProviders() {
 	f.Handle("getResourceValueInterpolated", f.resourceInterpolated)
 	f.Handle("getResourceValue", f.resourceRaw)
@@ -24,18 +32,26 @@ func (f *Facade) serveProviders() {
 }
 
 // resourceInterpolated answers GET /w/{ws}/resources/get_value_interpolated/{path}
-// (WA-12): contract (b). Without job_id, as the stock clients call it,
-// $WM_* strings stay literal. With one, the job is looked up in the job
-// registry only when the walk meets a $WM_* string, as Windmill looks it
-// up, and those strings are then its stored fields (platform.ReadJobEnv):
-// a value without one reads as if no job_id had been sent. The job must
-// be live and of the path's workspace, else the read answers 404 `Not
-// found: Job not found at name <id>` (WA-12/g); a live flow job, whose
-// job variables the registry does not keep, answers 501. allow_cache is
-// ignored: windmill-lite caches nothing (WA-12, caching).
+// ([WA-12]): contract (b). Without job_id, as the stock clients call it,
+// $WM_* strings stay literal. A job_id that is not a UUID is refused
+// before the read, whatever the value holds, as Windmill's web framework
+// refuses the query string (queryUUID). With a UUID, the job is looked up
+// in the job registry only when the walk meets a $WM_* string, as
+// Windmill looks it up, and those strings are then its stored fields
+// (platform.ReadJobEnv): a value without one reads as if no job_id had
+// been sent. The job must be live and of the path's workspace, else the
+// read answers 404 `Not found: Job not found at name <id>`; a live flow
+// job, whose job variables the registry does not keep, answers 501.
+// allow_cache is ignored: windmill-lite caches nothing ([WA-12], caching).
+//
+// [WA-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-12
 func (f *Facade) resourceInterpolated(ctx context.Context, c *Call) Reply {
+	id, refused := queryUUID(c, "job_id")
+	if refused != nil {
+		return *refused
+	}
 	var job platform.JobLookup
-	if id := c.Query.Get("job_id"); id != "" {
+	if id != "" {
 		job = func() (map[string]string, error) { return f.platform.ReadJobEnv(id, c.Params["workspace"]) }
 	}
 	body, err := f.providers(c).InterpolatedResourceOf(ctx, c.Params["path"], job)
@@ -68,24 +84,37 @@ func (f *Facade) variableValue(ctx context.Context, c *Call) Reply {
 	return answer(platform.JSONString(v), nil)
 }
 
-// variableUpdate answers POST /w/{ws}/variables/update/{path} (WA-11):
-// its body is the API's EditVariable, of which the value and is_secret
-// are applied; description is not kept, since the services hold none. A
-// missing variable is the read's 404. A rename (a path other than the
-// route's) and a value already encrypted (already_encrypted=true) are not
-// served, and nor is any update when the variable service is read-only:
-// each answers 501. The answer is 200 with a text/plain body, as the API's
-// schema gives it; the reference does not give its text, which here names
-// the variable.
+// variableUpdate answers POST /w/{ws}/variables/update/{path} ([WA-11]).
+// Its body is the API's EditVariable, checked as Windmill's web framework
+// checks a JSON body (jsonBody), then as an object: a body that parses
+// but is not one answers 422 `Failed to deserialize the JSON body into
+// the target type: <message>`, whose message is windmill-lite's. Of the
+// body, the value and is_secret are applied (platform.Services.UpdateVariable,
+// which gives a missing variable's 404 and the refusal of a secrecy
+// change without a value); description is not kept, since the services
+// hold none. A rename (a path other than the route's) and a value already
+// encrypted (already_encrypted=true) are not served, and nor is any
+// update when the variable service is read-only: each answers 501.
+//
+// The answer is Windmill's: 200, text/plain; charset=utf-8,
+// `variable <path> updated (npath: "<path>")`, the parenthesis naming the
+// path after the update, quoted with " and \ escaped. The stock clients
+// never show it to a script: TS setVariable asks variables/exists first,
+// then updates or creates, and resolves to undefined.
+//
+// [WA-11]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-11
 func (f *Facade) variableUpdate(ctx context.Context, c *Call) Reply {
 	path := c.Params["path"]
+	if refused := jsonBody(c); refused != nil {
+		return *refused
+	}
 	var edit struct {
 		Path     *string `json:"path"`
 		Value    *string `json:"value"`
 		IsSecret *bool   `json:"is_secret"`
 	}
-	if err := json.Unmarshal(c.Body, &edit); err != nil {
-		return Error{Variant: "BadRequest", Message: "the body is not an EditVariable: " + err.Error()}.Reply()
+	if !bytes.HasPrefix(bytes.TrimLeft(c.Body, " \t\r\n"), []byte("{")) || json.Unmarshal(c.Body, &edit) != nil {
+		return plainText(422, "Failed to deserialize the JSON body into the target type: windmill-lite: the body is not an EditVariable object")
 	}
 	if c.Query.Get("already_encrypted") == "true" || edit.Path != nil && *edit.Path != path {
 		return text(501, UnsupportedPrefix+c.Route.Name())
@@ -96,7 +125,13 @@ func (f *Facade) variableUpdate(ctx context.Context, c *Call) Reply {
 	case err != nil:
 		return answer(nil, err)
 	}
-	return text(200, "updated variable "+path)
+	return plainText(200, "variable "+path+" updated (npath: "+quotePath(path)+")")
+}
+
+// quotePath quotes a variable's path as an update's answer names it: in
+// double quotes, with " and \ escaped by a backslash.
+func quotePath(p string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(p) + `"`
 }
 
 func (f *Facade) variableExists(ctx context.Context, c *Call) Reply {

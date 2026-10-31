@@ -349,13 +349,13 @@ waits on an external gate except R1.
   through `wl` in both modes stays F1's. `execution/fx-40-hash`'s two
   runs stay unsupported: the compiler refuses a hash-pinned script, which
   a folder cannot supply, so the IR has no hash-pinned row of the matrix
-  to run. A flow job stores its result when the job that ended it
-  succeeded, which is FX-40/b's rule; for the cases no recording settles,
-  its text decides: a flow ended by an error stop stores, since that
-  step's job succeeded, and one that a tolerated failure at its last
-  module ends successfully does not, since that job failed. S3-aware
-  argument hashing needs an object's ETag, which the object store does
-  not keep, so `cache_ignore_s3_path` is refused (`later`).
+  to run. A flow job stores its result when its completion counts as a
+  success before the recover check, as the store table of
+  [FX-40](../semantics/execution.md#fx-40) says: an error stop that ends
+  the flow stores nothing, and a failure tolerated at its last module
+  stores. An S3 object argument is hashed with its object's ETag when the
+  object store holds the object, and `cache_ignore_s3_path` leaves its
+  text out of the key.
 
 - N3c runs subflows by path as child flows at their step's site
   (`internal/engine/subflow.go`), each its own results scope (whose
@@ -589,12 +589,14 @@ waits on an external gate except R1.
   fails with none of its modules run, and that the retry runs the
   subflow with an empty input; the engine now lists that never-run child
   flow, retried or not.
-  The engine moves a failed attempt's child flow to that site, as NI
-  moves a retried container's last failed child. The same fixture
+  The engine moves a failed attempt's child flow to that site, as it
+  moves a retried sequential container's last failed child; a parallel
+  loop's or a `branchall`'s failed attempt has no site
+  ([CF-22](../semantics/control-flow.md#cf-22) rule 5). The same fixture
   records a retry on a while loop and on a branchone, which NI's engine
   already ran and which no case had recorded; N5 requires them.
-  Stub mode accepts a retry on a flow step. A failed container attempt
-  is walked as its last failed child alone, under `r:<k>` without the
+  Stub mode accepts a retry on a flow step. A failed sequential container
+  attempt is walked as its last failed child alone, under `r:<k>` without the
   child's `i:` or `b:` segment, so none of its calls matches the site the
   replay service resolved; a retry on a loop or branch step stays
   refused there. The replay service resolves a subflow's step at its

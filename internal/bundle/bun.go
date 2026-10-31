@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -454,7 +455,7 @@ func hostModuleOrder(mods []HostModule, meta map[string]*HostModuleMeta) ([]stri
 	return order, nil
 }
 
-// sharedDependencyWarnings reports each package that a script imports
+// sharedDependencyWarnings reports each package that a Bun script imports
 // directly and a host-provided module it uses imports too (ADR 0010).
 func sharedDependencyWarnings(cfg BunConfig, res *BunResult) []Warning {
 	byKey := map[string]*HostModuleMeta{}
@@ -470,23 +471,69 @@ func sharedDependencyWarnings(cfg BunConfig, res *BunResult) []Warning {
 	}
 	var out []Warning
 	for _, e := range cfg.Entries {
-		meta := res.Scripts[e.ID]
-		if meta == nil {
+		if meta := res.Scripts[e.ID]; meta != nil {
+			out = append(out, sharedDependencies(e.ID, meta, byKey, listed)...)
+		}
+	}
+	return out
+}
+
+// sharedDependencies reports each package that the script id imports
+// directly and a host-provided module it uses imports too, unless the
+// package is listed itself: byKey gives the modules by key, and listed
+// the listed packages, whose shim gives every importer one instance. The
+// script's bundle and the module's copy each hold their own instance of
+// such a package (ADR 0010).
+func sharedDependencies(id string, meta *ScriptMeta, byKey map[string]*HostModuleMeta, listed map[string]bool) []Warning {
+	var out []Warning
+	for _, k := range meta.HostModules {
+		hm := byKey[k]
+		if hm == nil {
 			continue
 		}
-		for _, k := range meta.HostModules {
-			hm := byKey[k]
-			if hm == nil {
-				continue
-			}
-			for _, p := range meta.Packages {
-				if !listed[p] && slices.Contains(hm.Packages, p) {
-					out = append(out, Warning{WarningSharedDependency, fmt.Sprintf(
-						"script %s (%s) imports %s directly, and so does the host-provided module %s it uses; "+
-							"the package exists twice in the process, with different configuration", e.ID, meta.Path, p, k)})
-				}
+		for _, p := range meta.Packages {
+			if !listed[p] && slices.Contains(hm.Packages, p) {
+				out = append(out, Warning{WarningSharedDependency, fmt.Sprintf(
+					"script %s (%s) imports %s directly, and so does the host-provided module %s it uses; "+
+						"the package exists twice in the process, with different configuration", id, meta.Path, p, k)})
 			}
 		}
+	}
+	return out
+}
+
+// bunImportsOfCodebaseModules refuses each workspace import of a listed
+// codebase script by a Bun script or a host-provided module of the Bun
+// build: listed maps such a script's Windmill path to its key, and names
+// gives how problems name each script. The Bun build has no shim for it,
+// since esbuild builds its shared copy, so the import would inline a
+// second instance.
+func bunImportsOfCodebaseModules(res *BunResult, names map[string]string, listed map[string]string) []ItemProblem {
+	if len(listed) == 0 || res == nil {
+		return nil
+	}
+	refuse := func(item string, imports []string) []ItemProblem {
+		var out []ItemProblem
+		for _, p := range imports {
+			if key, ok := listed[p]; ok {
+				out = append(out, ItemProblem{item, Problem{ProblemUnsupportedFeature, fmt.Sprintf(
+					"unsupported: it imports the host-provided module %s, a codebase script, whose shared copy esbuild builds "+
+						"with its codebase entry's settings; only codebase scripts can import it. To share it with Bun scripts, "+
+						"leave it out of the codebase entry's includes, so that the Bun build makes its copy", key)}})
+			}
+		}
+		return out
+	}
+	var out []ItemProblem
+	for _, id := range slices.Sorted(maps.Keys(res.Scripts)) {
+		item := names[id]
+		if item == "" {
+			item = "script " + id
+		}
+		out = append(out, refuse(item, res.Scripts[id].Imports)...)
+	}
+	for _, id := range slices.Sorted(maps.Keys(res.HostModules)) {
+		out = append(out, refuse("host module "+res.HostModules[id].Key, res.HostModules[id].Imports)...)
 	}
 	return out
 }
@@ -579,11 +626,13 @@ type helperHostModule struct {
 	File    string `json:"file,omitempty"`
 	Package string `json:"package,omitempty"`
 	Deps    string `json:"deps,omitempty"`
-	// Source is the absolute path of a module outside the folder, whose
-	// source the parse checks (OutsideHostModule).
+	// Source is the absolute path of a module that esbuild bundles, whose
+	// source the parse checks (EsbuildHostModule).
 	Source string `json:"source,omitempty"`
 	// Loader is the esbuild loader that bundles Source (loaderFor), whose
-	// syntax the parse reads it with.
+	// syntax the parse reads it with. It is empty, and so absent from the
+	// request, when the file has no loader: the parse then reads nothing,
+	// and esbuild's refusal of the file is the module's problem.
 	Loader string `json:"loader,omitempty"`
 	Shim   string `json:"shim,omitempty"`
 	// Exports are the scan's export names (build only), which the bundled

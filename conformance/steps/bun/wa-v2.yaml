@@ -1,9 +1,10 @@
 finding: WA-V2
 scope: core
 note: >-
-  Milestone PF3: the result poll of a UUID that names no job, which the
-  facade answers as Windmill does for an id with no job row; the runs a
-  step dispatches are polled at the flow level
+  The result poll of a UUID that names no job, which the facade answers
+  as Windmill does for an id with no job row, and of an id that is not a
+  UUID, which Windmill's web framework refuses before the handler; the
+  runs a step dispatches are polled at the flow level
   (conformance/flows/client-api/dispatch).
 cases:
   - spec: WA-V2/a
@@ -32,3 +33,35 @@ cases:
       - args: '{}'
         expect: {status: success, result: [200, {started: false, success: null, completed: false, result: null}]}
         calls: ["200 GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}"]
+  - spec: WA-V2/c
+    provenance: oracle-observed
+    scope: later
+    title: "an id that is not a UUID is refused by the web framework: 400, typed text/plain; charset=utf-8, with the UUID parser's reason"
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/completed/get_result_maybe/abc`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {status: 400, type: "text/plain; charset=utf-8", body: "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3"}}
+        calls: ["400 GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}"]
+  - spec: WA-V2
+    variant: another-workspace
+    provenance: source-derived
+    scope: later
+    title: "a job looked up under another workspace's path reads as unknown, so the step's own job answers the null fields there: the second request of WA-V2/d"
+    script: |
+      export async function main() {
+        const e = process.env;
+        const poll = async (query: string) => {
+          const res = await fetch(`${e.BASE_URL}/api/w/other/jobs_u/completed/get_result_maybe/${e.WM_JOB_ID}${query}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+          return [res.status, await res.json()];
+        };
+        return [await poll(""), await poll("?get_started=true")];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [[200, {started: null, success: null, completed: false, result: null}], [200, {started: false, success: null, completed: false, result: null}]]}
+        calls: ["200 GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}", "200 GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}"]

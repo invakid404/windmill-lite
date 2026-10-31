@@ -39,8 +39,8 @@ type frame struct {
 	started time.Time
 	// cacheTTL is the flow-level cache_ttl of the frame's flow job, which
 	// only the root and a subflow by path have (FX-40): a body's child flow
-	// carries none. Zero for none.
-	cacheTTL time.Duration
+	// carries none. Unset for none.
+	cacheTTL jobTTL
 	// input is the flow's input, flow_input (JE-37); prev is its first
 	// module's previous_result, which is the input except in a collapsed
 	// iteration (CF-8, JE-36).
@@ -57,8 +57,10 @@ type frame struct {
 	site conformance.SitePath
 	// child marks a child flow: a chaining error at its first module fails
 	// it at its pickup (FX-15 context 3), where the root's fails that
-	// module (context 2).
-	child bool
+	// module (context 2). subflow marks the child flow of a flow step,
+	// which runs a flow by its path.
+	child   bool
+	subflow bool
 	// due is when the flow is scheduled, the sleep of the module before
 	// its container or the container's retry delay (CF-21, FX-26): a child
 	// flow is picked up then, before any of its modules starts, and a

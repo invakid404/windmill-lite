@@ -121,14 +121,18 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	}
 	// FX-40: the script's own cache_ttl, under which the result cache may
 	// answer the job before it runs, and keeps its result when it
-	// succeeds. A hit is still a job with its identity, which the job
-	// registry knows as it knows one that ran (registerHit); a run
-	// canceled before it completes is killed, as one that ran is.
+	// succeeds with a positive TTL. A hit is still a job with its
+	// identity, which the job registry knows as it knows one that ran
+	// (registerHit); a run canceled before it completes is killed, as one
+	// that ran is.
 	var key string
-	var ttl time.Duration
-	if s.Metadata != nil && s.Metadata.CacheTTL != nil && *s.Metadata.CacheTTL > 0 {
-		if k, ok := e.cacheKey(cacheKindScript, s.ID, args); ok {
-			key, ttl = k, time.Duration(*s.Metadata.CacheTTL)*time.Second
+	var ttl jobTTL
+	if s.Metadata != nil {
+		ttl = ttlOf(s.Metadata.CacheTTL)
+	}
+	if ttl.set {
+		if k, ok := e.cacheKey(ctx, cacheKindScript, s.ID, args, false); ok {
+			key = k
 			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
 				if ctx.Err() != nil {
 					reason, canceler := cancellationOf(ctx)
@@ -188,10 +192,10 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
 	}
-	if ttl > 0 && !st.Failed && rep.latch.Err() == nil {
+	if key != "" && ttl.stores() && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the
 		// cache never fails a job.
-		_ = e.cachePut(ctx, key, time.Now(), ttl, st.Value, st.Origin, nil)
+		_ = e.cachePut(ctx, key, time.Now(), ttl.duration(), st.Value, st.Origin, nil)
 	}
 	return ScriptResult{ID: id, Failed: st.Failed, Result: st.Value}, nil
 }

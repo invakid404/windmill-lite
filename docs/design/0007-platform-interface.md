@@ -385,11 +385,15 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     `*Services` share them. The engine
     registers each flow run, its own root; the facade registers each
     invocation as a script job, and the flow scopes its variables name
-    become known with it. A job stays known while its root lives; once the
-    root and every job of its tree have ended, the tree is forgotten. The
-    root lookup and a read's `job_id` answer from it; an id it did not
-    know still answered 501, since what Windmill answers for one was not in
-    the reference, until FU8 answered it as Windmill does (below).
+    become known with it.
+    - A job stays live while its root lives.
+    - Once the root and every job of its tree have ended, the registry
+      keeps each job as an ended job: its id, kind, root and path, without
+      a script job's variables. It keeps the latest 4096, as Windmill keeps
+      a completed job's row until its job retention removes it
+      ([WA-19](../semantics/client-api.md#wa-19)).
+    - The root lookup answers for a live or an ended job; a read's
+      `job_id` needs a live job (below).
   - **Flow user state** is a map per flow job, which the stock helpers
     address by the effective root. A read gives `null` for a missing key,
     a job that is not a live flow job and a run that has ended; a write
@@ -411,12 +415,16 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     (`_default_` when none) and key, so no key names a path outside it:
     one version, its metadata line and its content, renamed into place
     whole, so a reader never pairs one upload's content with another's
-    content type and a failed upload leaves the object as it was. It
-    serves explicit keys only: an upload without
-    `file_key`, a call with `s3_resource_path`, and every call when the
-    host configured no store answer 501, named; deletion, credentials and
-    presigning have no handler (`later`). Its error texts are
-    windmill-lite's (Q-WA-3).
+    content type and a failed upload leaves the object as it was.
+    - It serves explicit keys only: an upload without `file_key` and a call
+      with `s3_resource_path` answer 501, named. Deletion, credentials and
+      presigning have no handler (`later`). Its error texts are
+      windmill-lite's (Q-WA-3).
+    - When the host configured no store, an upload and a download answer
+      `500` `Internal: windmill-lite: no object store is configured`, as
+      Windmill CE answers with no workspace store
+      ([WA-16](../semantics/client-api.md#wa-16)/d). So the stock client
+      throws `Internal Server Error`.
   - **The default dispatcher is the engine's** (`engine.Dispatcher`): it
     runs the program's roots, so it needs the engine, which imports
     `internal/platform`; the interface and the request types are in
@@ -448,8 +456,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     error now quotes the first unsupported call's answer, so the step fails
     with `UnsupportedPlatformCall`, `dispatch target not in bundle:
     <path>`, as §5a of [0001](0001-equivalence-contract.md) says. A result
-    poll whose id is not a UUID answers `400`, so that a `waitJob` handed
-    the refusal's body as an id fails at once; a UUID that names no job
+    poll whose id is not a UUID answers the web framework's `400` (Request
+    extraction, below), so a `waitJob` handed the refusal's body as an id
+    fails at once. A UUID that names no job
     answers WA-V2's shapes; a windmill-lite job the dispatcher did not
     start answers the polls with a 501, since job introspection beyond
     dispatched runs (`Jobs`'s `jobs_u/get`, `get_args`) stays `later`.
@@ -487,10 +496,13 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     bundles in a shared store.
   - **A store's failure** is a miss and a run warning
     (`result_cache_unavailable`), never a failed run.
-  - **Not yet:** S3-aware argument hashing, which includes an object's ETag
-    (FX-40), needs an ETag the object store does not keep: an argument
-    that names an S3 object is hashed as its JSON, and
-    `cache_ignore_s3_path` is refused (`later`).
+  - **S3 object arguments.** An argument whose whole value is an S3
+    object record is hashed with its object's ETag, the SHA-256 of the
+    content the object store holds, and its text follows unless the job's
+    `cache_ignore_s3_path` is set. With no object store or no such object
+    it is hashed as its JSON and the flag has no effect, as in a Windmill
+    workspace without object storage
+    ([FX-40](../semantics/execution.md#fx-40)).
 
 - Milestone FU8 followed the reference's revision of 2026-10-29 (SC3) in
   the facade ([internal/platform/facade](../../internal/platform/facade/README.md))
@@ -518,44 +530,51 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     with no job row ([WA-19](../semantics/client-api.md#wa-19)/b): `400`
     `text/plain` `SqlErr: no rows returned by a query that expected to
     return at least one row`, without the Rust location (D14). That
-    covers an id the registry never knew and a job whose run has ended
-    and was forgotten, which Windmill, keeping its job rows, still
-    answers (D3).
+    covers an id the registry never knew, and an ended job that it has
+    forgotten because it keeps only the latest 4096 ended jobs, where
+    Windmill keeps a job's row for its job retention, 30 days by default
+    (D3).
   - **`getResult`'s not-found** is Windmill's `Not found: Completed Job not
     found at name <id>`, without its location (WA-19/d).
   - **A read's `job_id`** ([WA-12](../semantics/client-api.md#wa-12)/g) is
     looked up only when the walk meets a `$WM_*` string, at each one
     (`platform.JobLookup`), so a value without one reads as if no job id
-    had been sent. The job must be live and of the path's workspace
-    (`Services.ReadJobEnv`): an unknown id, a job that has ended and a job
-    of another workspace answer `404` `Not found: Job not found at name
-    <id>`, without the location. A live flow job answers `501` (`… with
-    the job_id of a flow job`), since the registry keeps the job variables
-    of script jobs only.
-  - **Recorded, not changed.**
-    - The web framework's request-extraction answers, with
-      `Content-Type: text/plain; charset=utf-8`: `400` ``Invalid URL:
-      Cannot parse `<param>` with value `<id>`: …`` for an id that is not
-      a UUID ([WA-V2](../semantics/client-api.md#wa-v2)/c, WA-14/d,
-      WA-19/c); `400` `Failed to parse the request body as JSON: …` for a
-      body that does not parse, and `415` for a body sent without the
-      JSON content type (WA-14/d); the id checked before the body; and a
-      query string that does not parse (a `job_id` that is not a UUID,
-      WA-12/g). Emulating them takes one request-extraction layer for
-      every route, left to a later milestone. Until then a result poll
-      whose id is not a UUID answers `400` with windmill-lite's text; the
-      root lookup of one answers the `400` of an unknown id, with the
-      `SqlErr` text; a flow user state read of one answers `200` and
-      `null`, and a write `404` `Not found: Flow job not found` for a JSON
-      body; a write's body is read before its id, so one that is not JSON
-      answers `400` with windmill-lite's text whatever the id and the
-      content type, never `415`; and a read's `job_id` that is not a UUID
-      is looked up as any id. So the status is Windmill's for the result
-      polls, the root lookup and a write whose body does not parse, sent
-      with the JSON content type; it is not for a read of an id that is
-      not a UUID, a write of a JSON body to one, a body sent without the
-      JSON content type (a JSON one is stored), or a `job_id` that is not
-      a UUID.
+    had been sent.
+    - A `job_id` that is not a UUID, the empty one included, is refused
+      with `400` before any read (Request extraction, below).
+    - The job must be live and of the path's workspace
+      (`Services.ReadJobEnv`): an unknown id, a job that has ended and a
+      job of another workspace answer `404` `Not found: Job not found at
+      name <id>`, without the location.
+    - A live flow job answers `501` (`… with the job_id of a flow job`),
+      since the registry keeps the job variables of script jobs only.
+  - **Request extraction.** The facade answers as Windmill's web framework
+    does when it cannot extract a request's parameters, before the handler
+    runs and after the token check
+    ([WA-42](../semantics/client-api.md#wa-42)), with `Content-Type:
+    text/plain; charset=utf-8`:
+    - a path id that is not a UUID: `400` ``Invalid URL: Cannot parse
+      `<param>` with value `<id>`: UUID parsing failed: …``
+      ([WA-V2](../semantics/client-api.md#wa-v2)/c,
+      [WA-14](../semantics/client-api.md#wa-14)/d,
+      [WA-19](../semantics/client-api.md#wa-19)/c), the id checked before
+      the body;
+    - a body sent without a JSON content type: `415`;
+    - a body that does not parse: `400` `Failed to parse the request body
+      as JSON: …` (WA-14/d);
+    - a variable update whose body parses but is not an object: `422`;
+    - a `job_id` query that is not a UUID: `400`, with windmill-lite's
+      text, since the reference gives only the status
+      ([WA-12](../semantics/client-api.md#wa-12)/g).
+
+    A handler's successful text answer (a variable update, `Flow job state
+    updated`, a dispatch's `201`) is typed `text/plain; charset=utf-8` too,
+    and an error variant's answer bare `text/plain`.
+
+    Not reproduced: Windmill puts the member's path in front of a parse
+    error inside a member (`a: ` for `{"a": x}`). Only a raw HTTP request
+    meets this.
+  - **Not reproduced.**
     - windmill-lite never decrypts Windmill ciphertext (Secrets, above):
       a secret held as ciphertext and an `$encrypted:` value fail with
       `secret_unavailable`, never with CE's decryption texts

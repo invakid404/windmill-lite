@@ -417,6 +417,8 @@ func (f stepFunc) Execute(ctx context.Context, inv engine.Invocation) (engine.St
 // invocation when the run ends, and at release one whose run is not in
 // flight.
 func TestRecorderAnswerAfterRelease(t *testing.T) {
+	// The step's job id is a UUID, as the root lookup's route takes one.
+	const jobID = "00000000-0000-4000-8000-0000000000a1"
 	x := &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
 	calls := x.begin("run")
 	answering, answer := make(chan struct{}), make(chan struct{})
@@ -435,7 +437,7 @@ func TestRecorderAnswerAfterRelease(t *testing.T) {
 	x.inner = fac.Executor(stepFunc(func(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
 		if inv.ID == "job" {
 			// The step fetches without awaiting the answer, and settles.
-			serve := fac.Platform()(harness.PlatformRequest{ID: "p", Inv: inv.ID, Method: "GET", URL: fac.WarmOrigin() + "/api/w/ws/jobs_u/get_root_job_id/job"})
+			serve := fac.Platform()(harness.PlatformRequest{ID: "p", Inv: inv.ID, Method: "GET", URL: fac.WarmOrigin() + "/api/w/ws/jobs_u/get_root_job_id/" + jobID})
 			go func() { reply <- serve(context.Background()) }()
 			<-answering
 		}
@@ -443,7 +445,7 @@ func TestRecorderAnswerAfterRelease(t *testing.T) {
 		return engine.StepOutcome{Kind: engine.OutcomeOK, Body: jsonval.FromProducer([]byte("null"))}, nil
 	}))
 	if _, err := x.Execute(context.Background(), engine.Invocation{ID: "job", Run: "run", Site: conformance.SitePath{}.Child(conformance.Module("a")),
-		Env: map[string]string{"WM_JOB_ID": "job", "WM_ROOT_JOB_ID": "run"}}); err != nil {
+		Env: map[string]string{"WM_JOB_ID": jobID, "WM_ROOT_JOB_ID": "00000000-0000-4000-8000-0000000000a0"}}); err != nil {
 		t.Fatal(err)
 	}
 	close(answer)

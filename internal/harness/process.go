@@ -117,6 +117,10 @@ type ProcessConfig struct {
 	// So the pool's rules have run by the time a Reporter is told. The pool
 	// sets it.
 	notify func(*Process)
+	// killLines bounds the goroutines that write kill lines; nil means
+	// runtimeKillLines, which every process in the program shares. Tests
+	// set their own.
+	killLines *killLineBudget
 }
 
 // PlatformHandler answers platform requests, the fetches of invocations
@@ -213,6 +217,7 @@ type Process struct {
 	heartbeat  time.Duration
 	maxMessage int64
 	diag       *diagnostics
+	killLines  *killLineBudget
 	stdio      *lineWriter
 
 	// group is whether the process leads a process group of its own, as
@@ -384,6 +389,10 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 		diag = os.Stderr
 	}
 	p.diag = &diagnostics{w: diag}
+	p.killLines = cfg.killLines
+	if p.killLines == nil {
+		p.killLines = runtimeKillLines
+	}
 	timeout := cfg.HandshakeTimeout
 	if timeout == 0 {
 		timeout = DefaultHandshakeTimeout
@@ -1795,14 +1804,14 @@ func (p *Process) kill(reason string) {
 	defer func() {
 		if first && reason != "watchdog" {
 			// The watchdog says why on its own; every other kill is named,
-			// so that a step that ends as killed by SIGKILL says by what
-			// (FU8: the fresh-mode flake's diagnostics were empty). The
-			// line is written after the signal, and on a goroutine of its
-			// own, at most one per process: the diagnostics writer can
-			// block (a full stderr pipe, a host's logger), and a kill,
-			// which a fresh invocation's cancellation waits for, must
-			// never wait for it.
-			go p.diag.printf("killing the harness: %s", reason)
+			// so that a step that ends as killed by SIGKILL says by what.
+			// The line is written after the signal, and on a goroutine of
+			// its own, at most one per process and at most
+			// maxPendingKillLines waiting in the program (killLineBudget):
+			// the diagnostics writer can block (a full stderr pipe, a
+			// host's logger), and a kill, which a fresh invocation's
+			// cancellation waits for, must never wait for it.
+			p.killLines.write(p.diag, "killing the harness: "+reason)
 		}
 	}()
 	if p.host != nil {

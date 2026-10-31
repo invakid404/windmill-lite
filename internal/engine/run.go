@@ -57,6 +57,8 @@ type run struct {
 	halted   atomic.Bool
 	wake     chan struct{}
 	wakeOnce sync.Once
+	// hangOnce ends the run once for a flow left waiting (hang).
+	hangOnce sync.Once
 	// pending is a halt-after decided where a child flow ended, which
 	// applies at the run's next start (pendingHalt); haltMu guards it, and
 	// the first one decided is kept.
@@ -275,6 +277,11 @@ const (
 	// halted (H8); the completion check still ranks a latch or the
 	// cancellation first.
 	endHalted
+	// endUnreadable: a collapsed loop whose children's results the backend
+	// cannot read back (readFailed): the module stays in progress, and the
+	// flow fails at once with the read's error, carried, with no retry,
+	// continue_on_error or failure module.
+	endUnreadable
 )
 
 // failed reports whether the module is Failure: what H7 and Windmill's
@@ -314,9 +321,24 @@ type outcome struct {
 	aborted bool
 	last    *carry
 	// failedChild and lastChild are, for a container, its last child job
-	// that failed and its last child job, which a retry of the container
-	// starts from and records as the failed attempt (CF-22).
+	// that failed and its last child job to complete, which a retry of the
+	// container starts from and records as the failed attempt (CF-22).
 	failedChild, lastChild *childJob
+	// parallel: the module, a parallel loop or a parallel branchall,
+	// completed through the parallel path, after its children ran. That
+	// path writes no list of failed attempts and never advances the
+	// cursor past the module, so continue_on_error never tolerates its
+	// failure.
+	parallel bool
+	// forwarded: the module, a sequential container, failed on an error
+	// stop that a child flow forwarded. That completion turns the module's
+	// continue_on_error off, wherever the module stands in its list.
+	forwarded bool
+	// unreported: the module, a container, stays in progress because a
+	// child flow ended without telling its flow, or its flow waits after a
+	// failed read of its children (readFailed). The flow then waits too,
+	// until the run ends (flowEnd.unreported).
+	unreported bool
 }
 
 // pendingHalt is a halt-after (H8) decided at the module whose trace
@@ -387,16 +409,47 @@ type decision struct {
 	result jsonval.Value
 	origin Origin
 	nested []string
+	// abort is set, for nextEnd, when the decision re-entered a failed
+	// parallel container, which cannot start again: the flow aborts with
+	// result, an InternalError, and hands the container's value to its
+	// parent, as a chaining error at a later transition does.
+	abort bool
 }
 
-// decide is Windmill's continue decision for module m of fr (FX-2
+// continueOnError reports whether the continue_on_error of module m
+// applies to its completion o: a completion that carries an error stop a
+// child flow forwarded turns it off ([CF-12] item 4), and a collapsed
+// iteration's body takes its loop's, not its own, so its failure fails
+// the iteration ([CF-8] item 5).
+//
+// [CF-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-12
+// [CF-8]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-8
+func continueOnError(fr *frame, m *ir.Module, o outcome) bool {
+	return m.ContinueOnError && !o.forwarded && fr.collapsed == nil
+}
+
+// decide is Windmill's continue decision for module m of fr ([FX-2]
 // completion steps 3, 7 and 8) when no retry is due (decideRetry decides
 // that):
-// continue_on_error (FX-30), the error stops (FX-19, FX-V4), the
-// unrecoverable failure of a throwing stop_after_if (FX-21, FX-44) and the
-// failure module (FX-31). last says that m is the flow's last module. A
-// collapsed iteration's body takes its loop's continue_on_error, not its
-// own: its failure fails the iteration (CF-8 item 5).
+// continue_on_error ([FX-30]), the error stops ([FX-19], [FX-V4]), the
+// unrecoverable failure of a throwing stop_after_if ([FX-21], [FX-44]) and the
+// failure module ([FX-31]). last says that m is the flow's last module.
+//
+// A failed parallel container is never tolerated, since its completion
+// leaves the cursor on it. Under continue_on_error the decision re-enters
+// it, which cannot start from a failure, so the flow aborts with an
+// InternalError ([CF-7]); its failure module does not run, handled mark
+// or not ([CF-16] item 8).
+//
+// [FX-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-2
+// [FX-30]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-30
+// [FX-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-19
+// [FX-V4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-v4
+// [FX-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-21
+// [FX-44]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-44
+// [FX-31]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-31
+// [CF-7]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-7
+// [CF-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-16
 func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 	// A container's failure that a child's copy of the failure module
 	// handled does not run it again: the flow decides as if it had none
@@ -407,7 +460,11 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 	}
 	// A failure is tolerated by continue_on_error unless it is
 	// unrecoverable (FX-30, FX-44); the cursor then advances.
-	tolerated := m.ContinueOnError && o.end != endUnrecoverable && fr.collapsed == nil
+	coe := continueOnError(fr, m, o) && o.end != endUnrecoverable
+	tolerated := coe && !o.parallel
+	if coe && o.parallel && o.end == endFailed {
+		return decision{next: nextEnd, status: conformance.RunFailure, result: engineError("InternalError", unrecognizedStatus(m)), origin: OriginEngine, abort: true}
+	}
 	switch o.end {
 	case endSucceeded:
 		// Rule 3: continue unless this was the last module.
@@ -419,7 +476,7 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 		return ends(conformance.RunSuccess)
 	case endStoppedSkipped:
 		return ends(conformance.RunSkipped)
-	case endChained:
+	case endChained, endUnreadable:
 		return ends(conformance.RunFailure)
 	case endErrorStop:
 		// Rule 1: a stop continues only when it is an error stop and the
@@ -472,6 +529,22 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 		result: engineError("InternalErr", "windmill-lite: a module was interrupted with no latch or cancellation")}
 }
 
+// unrecognizedStatus is the message of the InternalError that aborts a flow
+// whose continue_on_error re-enters m, a failed parallel loop or parallel
+// branchall ([CF-7]). Windmill prints the module's Failure status after
+// the opening brace in Rust debug notation, with its children's job ids,
+// start times and durations; windmill-lite writes the same opening and
+// leaves the status out, and comparisons with the oracle mask the message.
+//
+// [CF-7]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-7
+func unrecognizedStatus(m *ir.Module) string {
+	kind := "ForloopFlow"
+	if m.Kind == ir.KindBranchAll {
+		kind = "BranchAll"
+	}
+	return "Bad request: Unrecognized module status for " + kind + " Failure { .. }"
+}
+
 // carry is a value a flow carries on, with who produced it when it is an
 // error and the pointers of the errors windmill-lite generated inside it
 // (outcome.carried, outcome.origin and outcome.nested).
@@ -513,13 +586,24 @@ type flowEnd struct {
 	// args are a collapsed iteration's body job's stored arguments, the
 	// input of its job (CF-22 rule 3).
 	args jsonval.Value
-	// lastJobOK: the job whose completion ended the flow succeeded, the
-	// last module's or the failure module's, which is when a flow job
-	// stores its result in the result cache, before and whatever the
-	// recover check decides (FX-40). cached: the result cache answered
-	// the flow job, and no module ran.
-	lastJobOK bool
-	cached    bool
+	// stores: the flow job stores its result in the result cache, which it
+	// does when its completion counts as a success before the recover
+	// check: its last module succeeded, a clean stop ended it, its last
+	// module's failure or error stop was tolerated, or its failure module
+	// succeeded, whatever recover decides. An error stop or a failure that
+	// ends the flow, a failed failure module, a chaining error and a
+	// cancellation store nothing ([FX-40]'s store table). cached: the
+	// result cache answered the flow job, and no module ran.
+	//
+	// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+	stores bool
+	cached bool
+	// unreported: the flow job ended without telling its parent, which
+	// keeps the container that runs it in progress and waits
+	// (unreportedJob, unreportedChildren): a child flow failed by a failed
+	// read of its collapsed loop's iterations, or a flow that waited
+	// because a module of its own stayed in progress (outcome.unreported).
+	unreported bool
 }
 
 // carried is the value a parent that takes the value delivered with the
@@ -550,9 +634,12 @@ func (r *run) run(ctx context.Context) {
 // runList runs a frame's flow job: its modules (runModules), or, for the
 // root or a subflow whose flow has a cache_ttl, the result cache's entry
 // for the flow and its input, which completes the job successfully at once
-// with no module run; a flow job whose last job succeeded stores its
-// result until now plus the TTL, a failed flow's included when its failure
-// module's job succeeded (FX-40).
+// with no module run. A flow job whose completion counts as a success
+// stores its result until now plus a positive TTL (flowEnd.stores), under
+// its key computed again at the completion, since an S3 object its input
+// names may have new content by then ([FX-40]).
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 	if fr != r.root && fr.collapsed == nil {
 		// A child flow (a loop iteration, a branch, a subflow) is a flow
@@ -562,10 +649,11 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		// registered yet.
 		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path})()
 	}
-	if fr.cacheTTL <= 0 {
+	if !fr.cacheTTL.set {
 		return r.runModules(ctx, fr)
 	}
-	key, ok := r.e.cacheKey(cacheKindFlow, fr.def.Path, fr.input)
+	ignoreS3Path := isTrue(fr.def.CacheIgnoreS3Path)
+	key, ok := r.e.cacheKey(ctx, cacheKindFlow, fr.def.Path, fr.input, ignoreS3Path)
 	if ok {
 		// A hit is the flow job's start and completion at once, so the
 		// host's checks of both apply (ADR 0008, H4, H5; FX-38): a latch,
@@ -580,12 +668,15 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 			if st, end := r.hostEnd(ctx, false); end {
 				return flowEnd{status: st}
 			}
-			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, lastJobOK: true, cached: true}
+			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, cached: true}
 		}
 	}
 	e := r.runModules(ctx, fr)
-	if ok && e.lastJobOK && !ended(e.status) {
-		r.store(ctx, key, fr.cacheTTL, e.result, e.origin, e.nested)
+	if !e.stores || ended(e.status) || !fr.cacheTTL.stores() {
+		return e
+	}
+	if key, ok := r.e.cacheKey(ctx, cacheKindFlow, fr.def.Path, fr.input, ignoreS3Path); ok {
+		r.store(ctx, key, fr.cacheTTL.duration(), e.result, e.origin, e.nested)
 		// The store comes before the flow job's completion, so a latch or
 		// the cancellation that arrives while it runs ends the flow too.
 		if st, end := r.hostEnd(ctx, false); end {
@@ -677,7 +768,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 		if !ok {
 			// A collapsed iteration's job keeps its result, the killed
 			// step's when a cancellation ended it (CF-28).
-			return flowEnd{status: st, result: o.carried, origin: o.origin}
+			return flowEnd{status: st, result: o.carried, origin: o.origin, unreported: o.unreported}
 		}
 		if o.end == endHalted {
 			return flowEnd{status: conformance.RunHalted}
@@ -711,7 +802,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 			attempt++
 			in = carry{value: p}
 			if o, idx, st, ok = r.complete(ctx, fr, i, p, prevID, nb); !ok {
-				return flowEnd{status: st}
+				return flowEnd{status: st, unreported: o.unreported}
 			}
 		}
 		canceled := ctx.Err() != nil
@@ -720,12 +811,18 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
 			errorStop: stop && d.status == conformance.RunFailure,
 			handled:   o.handled && d.status == conformance.RunFailure,
-			lastJobOK: o.rec.Status == conformance.StepSuccess || o.rec.Status == conformance.StepSkipped}
+			stores:    d.status == conformance.RunSuccess || d.status == conformance.RunSkipped}
 		if o.end == endChained && o.aborted {
 			end.delivered = &in
 			if o.last != nil {
 				end.delivered = o.last
 			}
+		}
+		if d.abort {
+			// The re-entry of a failed parallel container aborts the flow
+			// as a chaining error does: the container's value is the last
+			// carried one, and the flow did not end in its failure module.
+			end.delivered, end.handled = &carry{o.carried, o.origin, o.nested}, false
 		}
 		// haltAfter (H8): when the flow starts its next module, the run halts
 		// now; when a child flow ends, the halt is pending until the run's
@@ -746,6 +843,9 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 		continues = canceled
 		switch d.next {
 		case nextEnd:
+			// A child flow that fails this way does not tell its parent,
+			// which waits (readFailed).
+			end.unreported = o.end == endUnreadable && fr.child
 			return end
 		case nextFailure:
 			// Start step 6: previous_result stays the failing value; the
@@ -765,7 +865,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 	if st, end := Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
 		return flowEnd{status: st}
 	}
-	return flowEnd{status: conformance.RunSuccess, result: prev, lastJobOK: true}
+	return flowEnd{status: conformance.RunSuccess, result: prev, stores: true}
 }
 
 // failure runs fr's failure module (FX-31) with the failing value as its
@@ -793,7 +893,7 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 	in := failing
 	o, idx, st, ok := r.complete(ctx, fr, i, failing.value, prevID, begin{})
 	if !ok {
-		return flowEnd{status: st}
+		return flowEnd{status: st, unreported: o.unreported}
 	}
 	for attempt := 0; o.end == endFailed && m.Retry != nil; {
 		// FX-2 completion rule 7.6: a retry due re-enters the failure
@@ -826,14 +926,14 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 		// (restored).
 		in = carry{p, o.origin, o.nested}
 		if o, idx, st, ok = r.complete(ctx, fr, i, p, prevID, nb); !ok {
-			return flowEnd{status: st}
+			return flowEnd{status: st, unreported: o.unreported}
 		}
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, lastJobOK: true}
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, stores: true}
 	case o.end == endSucceeded:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, lastJobOK: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, stores: true}
 	case o.end == endChained && o.aborted:
 		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, delivered: &in}
 	case o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
@@ -857,7 +957,8 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 func (r *run) decideRetry(ctx context.Context, fr *frame, i int, o *outcome, idx int, last bool) (decision, *flowEnd) {
 	m := fr.moduleAt(i)
 	hasFailure := fr.failure != nil
-	if m.Retry != nil && (o.end == endFailed || o.end == endErrorStop && m.ContinueOnError) {
+	coe := m.ContinueOnError && !o.forwarded
+	if m.Retry != nil && (o.end == endFailed || o.end == endErrorStop && coe) {
 		allowed, err := r.retryAllowed(ctx, fr, i, o.carried)
 		switch {
 		case err != nil && ctx.Err() != nil:
@@ -872,7 +973,7 @@ func (r *run) decideRetry(ctx context.Context, fr *frame, i int, o *outcome, idx
 			return decision{next: nextRetry}, nil
 		}
 	}
-	if m.Retry != nil && o.end == endErrorStop && !m.ContinueOnError && hasFailure {
+	if m.Retry != nil && o.end == endErrorStop && !coe && hasFailure {
 		return decision{next: nextRetry}, nil
 	}
 	return r.decide(fr, m, *o, last), nil
@@ -949,10 +1050,25 @@ func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, att
 		args = jsonObj
 	}
 	b := begin{attempt: attempt + 1, reuse: &args, due: r.clock.Now().Add(delay)}
-	if o.failedChild != nil && isLoop(m.Kind) {
-		b.base = o.failedChild.input
+	if j := retryBase(o); j != nil && isLoop(m.Kind) {
+		b.base = j.input
 	}
 	return b, r.restored(fr, i, o.carried), true, nil
+}
+
+// retryBase is the child job of a failed container, its completion o,
+// whose stored input a retry of the container starts from ([CF-22]): a
+// sequential container's last child job that failed, and a parallel
+// container's last child job to complete, whatever its outcome, since the
+// completion that finished the container names that child. It is nil when
+// no child completed.
+//
+// [CF-22]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-22
+func retryBase(o outcome) *childJob {
+	if o.parallel {
+		return o.lastChild
+	}
+	return o.failedChild
 }
 
 // attempt records the failed attempt o of the module at cursor i of fr,
@@ -964,7 +1080,10 @@ func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, att
 // job (CF-22, recorded by the cf-22 fixture): a child flow's record, with
 // its modules below the attempt's site, or a collapsed iteration's body
 // job's; what else the attempt ran is superseded. A branchall has no job
-// of its own, so its attempt has no site. A flow step's job is its
+// of its own, so its attempt has no site, and neither has a parallel
+// loop's: the parallel path writes the loop's status with no list of
+// failed attempts, so the walker reaches none (recorded by the
+// cf-22-retried fixture). A flow step's job is its
 // subflow's (CF-17), which moves to the attempt's site with everything it
 // ran, its own retried modules' attempts included (milestone N5, recorded
 // by the control-flow/subflow-retry fixture), even when its input
@@ -982,7 +1101,7 @@ func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.Sit
 	defer r.mu.Unlock()
 	rec := &r.trace.Steps[idx]
 	switch {
-	case m.Kind == ir.KindBranchAll:
+	case m.Kind == ir.KindBranchAll, o.parallel:
 		rec.Superseded = true
 		r.supersedeLocked(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
 		return false
@@ -1156,9 +1275,10 @@ func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value
 	}
 	o.rec.Attempt = b.attempt
 	// A module's Success or Failure status lists the flow's failed
-	// attempts as its own (FX-27); a Success clears them, and the counter
+	// attempts as its own (FX-27), except a parallel container's, whose
+	// path writes an empty list; a Success clears them, and the counter
 	// (FX-2 completion step 5, FX-29).
-	if o.rec.Module == conformance.ModuleSuccess || o.rec.Module == conformance.ModuleFailure {
+	if (o.rec.Module == conformance.ModuleSuccess || o.rec.Module == conformance.ModuleFailure) && !o.parallel {
 		o.rec.FailedRetries = slices.Clone(fr.failed)
 	}
 	fr.succeeded[i] = o.rec.Module == conformance.ModuleSuccess && o.end != endInterrupted
@@ -1167,8 +1287,12 @@ func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value
 	}
 	r.span(site.Path, SpanModule, start)
 	r.setRecord(idx, o.rec)
-	if err := r.hooks.OnModuleEnd(ctx, r, site, o.rec); err != nil {
-		r.Latch(HookLatchError(ctx, err))
+	// A module that stays in progress never completes on Windmill, so it
+	// has no end to observe (readFailed).
+	if o.rec.Module != conformance.ModuleInProgress {
+		if err := r.hooks.OnModuleEnd(ctx, r, site, o.rec); err != nil {
+			r.Latch(HookLatchError(ctx, err))
+		}
 	}
 	fatal := o.end.failed() && r.hooks.FatalErrorName(errorName(o.carried))
 	v := Completion(CompletionSignals{
@@ -1384,6 +1508,17 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			reason, canceler := cancellationOf(ctx)
 			v := canceledError(reason, canceler)
 			o.rec.Ran, o.rec.Start = true, r.clock.Now()
+			if m.Kind == ir.KindSubflow {
+				// A flow step's job is its subflow's flow job, which fails
+				// at pickup before any of its modules starts, while its own
+				// status still lists them all as waiting, so the run shows
+				// them as never started ([FX-38]).
+				//
+				// [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
+				c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
+				r.addChild(c)
+				o.rec.Job = c.id
+			}
 			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginEngine
 			o.end, o.carried, o.origin = endInterrupted, v, OriginEngine
 			r.recordJob(fr, i, v)
@@ -1440,10 +1575,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		}
 	}
 	var job string // the id of the leaf's job, once it ran
-	// The key and TTL of the leaf's job in the result cache, when a TTL
-	// applies (FX-40).
+	// The key and TTL of the leaf's job in the result cache, when it has a
+	// TTL (FX-40).
 	var cacheKey string
-	var cacheTTL time.Duration
+	var cacheTTL jobTTL
 	switch {
 	case intercepted:
 	case identity:
@@ -1458,7 +1593,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	default:
 		// FX-40: once the job is picked up, before it runs, the result
 		// cache may answer it.
-		if cacheKey, cacheTTL = r.leafCache(fr, m, stored); cacheTTL > 0 {
+		if cacheKey, cacheTTL = r.leafCache(ctx, fr, m, stored); cacheKey != "" {
 			if c, hit := r.lookup(ctx, cacheKey); hit {
 				return r.cachedJob(ctx, fr, i, site.Path, o, c)
 			}
@@ -1543,9 +1678,9 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	}
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, st.Value, st.Value
 	o.carried = st.Value
-	if cacheTTL > 0 {
+	if cacheKey != "" && cacheTTL.stores() {
 		// The job succeeded: its result is cached (FX-40).
-		r.store(ctx, cacheKey, cacheTTL, st.Value, st.Origin, nil)
+		r.store(ctx, cacheKey, cacheTTL.duration(), st.Value, st.Origin, nil)
 	}
 	if skipped {
 		// An intercepted identity is classified as its identity job would

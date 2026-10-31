@@ -37,7 +37,7 @@ deferred:
     checked_in: none
   - case: JE-42/k
     reason: serde's texts for a `$jsonvar:` value holding a JSON object cut short (`{"a":1,`, `{"a":1` and `{"a":1,}`), which fail `b` before its script runs as JE-42/i's do; source-derived in the semantics reference's revision SC5 (2026-10-30), and no recording holds it yet; docs/design/README.md requests it from the next run of batch E3f (section "Recording requests for a future batch E3f (SC5)"), in the style of je/je-20-providers' i runs
-    checked_in: PF2's `$jsonvar:` resolution, with the flow fixture je/je-20-providers once batch E3f records the case (its JE-42/i runs, i1 to i5, run on windmill-lite); not encoded yet
+    checked_in: the `$jsonvar:` resolution cases of internal/platform/testdata/interpolation.json (JE-42/k), one for each text; with the flow fixture je/je-20-providers once batch E3f records the case (its JE-42/i runs, i1 to i5, run on windmill-lite)
   - case: JE-44/f
     reason: after an identity job, `previous_result` is jsonb's printed text, quoted here by a javascript `timeout`'s parse error; the semantics reference added the case on 2026-10-29 and no recording holds it yet
     checked_in: N1b, whose identity job reads its argument back in jsonb's printed form (internal/engine), end to end with N2's javascript timeout; not encoded yet

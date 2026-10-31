@@ -1,7 +1,7 @@
 finding: WA-12
 scope: core
 note: >-
-  Milestone PF2: resources/get_value_interpolated, the client interpolated
+  resources/get_value_interpolated, the client interpolated
   read of WA-40's contract (b), whose walker resolves $var:, $jsonvar: and
   nested $res: strings and leaves $WM_* literal without a job id
   (ADR 0007). Each script reads the platform as the stock client does, by fetch at BASE_URL with its token, so the cases need no client: the same reads go through the intercepted fetch (warm) and over loopback TCP (fresh), and the case's setup is what the facade serves. The stock client's own handling of the answers (its prefixes and error wrapping) is checked with windmill-client@1.767.0 by internal/platform/facade's TestProvidersOnTheClient, and the walker's rules at unit level by internal/platform/testdata/interpolation.json.
@@ -97,3 +97,33 @@ cases:
           - {at: /status, equals: success}
           - {at: /result/status, equals: 500}
           - {at: /result/body, prefix: "Internal: Invalid resource path: single"}
+  - spec: WA-12/g
+    provenance: oracle-observed
+    scope: later
+    title: "job_id is used only for a $WM_* string: a value without one ignores any UUID; for one, a UUID that names no live job is the 404 and the step's own job resolves; a job_id that is not a UUID is refused with 400 for either value. A completed job's id, which a step case cannot name, is checked by internal/platform/facade's TestReadWithAJobID"
+    setup:
+      resources:
+        - {path: u/x/plain, resource_type: object, value: {"a": 1}}
+        - {path: u/x/ctx, resource_type: object, value: {"j": "$WM_JOB_ID"}}
+    script: |
+      export async function main() {
+        const e = process.env;
+        const random = "00000000-0000-4000-8000-0000000000ff";
+        const read = async (path: string, id: string) => {
+          const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources/get_value_interpolated/${path}?job_id=${id}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+          return { status: res.status, body: (await res.text()).replaceAll(e.WM_JOB_ID, "<self>") };
+        };
+        return {
+          plain: [await read("u/x/plain", random), await read("u/x/plain", e.WM_JOB_ID)],
+          ctx: [await read("u/x/ctx", random), await read("u/x/ctx", e.WM_JOB_ID)],
+          nope: [(await read("u/x/plain", "nope")).status, (await read("u/x/ctx", "nope")).status],
+        };
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result:
+            plain: [{status: 200, body: '{"a":1}'}, {status: 200, body: '{"a":1}'}]
+            ctx: [{status: 404, body: "Not found: Job not found at name 00000000-0000-4000-8000-0000000000ff"}, {status: 200, body: '{"j":"<self>"}'}]
+            nope: [400, 400]

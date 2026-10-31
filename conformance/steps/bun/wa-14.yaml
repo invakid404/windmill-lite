@@ -1,8 +1,8 @@
 finding: WA-14
 scope: core
 note: >-
-  Milestone PF3: flow user state, which the facade answers from the job
-  registry (ADR 0007). A flow step's case runs in the flow run of its
+  Flow user state, which the facade answers from the job registry
+  (ADR 0007). A flow step's case runs in the flow run of its
   case, a live flow job while the case runs, so a later run of the case
   reads what an earlier one wrote, in warm and in fresh mode alike; with
   step_id "" the case is a script job, its own root, which has no flow
@@ -57,3 +57,32 @@ cases:
       - args: '{}'
         expect: {status: success, result: {own_root: true, set: [404, "Not found: Flow job not found"], get: null}}
         calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "404 POST /w/{ws}/jobs/flow/user_states/{id}/{key}", "200 GET /w/{ws}/jobs/flow/user_states/{id}/{key}"]
+  - spec: WA-14/d
+    provenance: oracle-observed
+    scope: later
+    title: "the web framework's rejections come before the handler: an id that is not a UUID, then a body that is not JSON or one without the JSON content type, each 400 or 415 typed text/plain; charset=utf-8, and nothing is stored"
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        const root = await (await fetch(`${base}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: auth })).json();
+        const state = `${base}/jobs/flow/user_states`;
+        const show = async (res: Response) => ({ status: res.status, type: res.headers.get("content-type"), body: await res.text() });
+        return [
+          await show(await fetch(`${state}/abc/k`, { headers: auth })),
+          await show(await fetch(`${state}/${root}/d`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "hello" })),
+          await show(await fetch(`${state}/${root}/d`, { method: "POST", headers: auth, body: "1" })),
+          await (await fetch(`${state}/${root}/d`, { headers: auth })).json(),
+        ];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result:
+            - {status: 400, type: "text/plain; charset=utf-8", body: "Invalid URL: Cannot parse `job_id` with value `abc`: UUID parsing failed: invalid length: found 3"}
+            - {status: 400, type: "text/plain; charset=utf-8", body: "Failed to parse the request body as JSON: expected value at line 1 column 1"}
+            - {status: 415, type: "text/plain; charset=utf-8", body: "Expected request with `Content-Type: application/json`"}
+            - null
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "400 GET /w/{ws}/jobs/flow/user_states/{id}/{key}", "400 POST /w/{ws}/jobs/flow/user_states/{id}/{key}", "415 POST /w/{ws}/jobs/flow/user_states/{id}/{key}", "200 GET /w/{ws}/jobs/flow/user_states/{id}/{key}"]

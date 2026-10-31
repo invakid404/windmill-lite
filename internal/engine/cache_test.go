@@ -284,12 +284,20 @@ func TestCacheFlowJob(t *testing.T) {
 		t.Fatalf("%d invocations, want 2", n)
 	}
 
+	// The store table: a flow stores when its completion counts as a
+	// success before the recover check, and only then.
+	halt := `"stop_after_if":{"expr":"true","skip_if_stopped":false,"error_message":"halt"}`
 	for _, c := range []struct {
 		name, child string
+		stored      bool
+		status      conformance.StepStatus
 	}{
-		{"no failure module", withTTL(flowOf(mod("a", "fail", "", "")), 60)},
-		{"a failing failure module", withTTL(withFailure(handler("fail", "", ""), mod("a", "fail", "", "")), 60)},
-		{"a tolerated failure at the last module", withTTL(flowOf(mod("a", "fail", "", `"continue_on_error":true`)), 60)},
+		{"no failure module", withTTL(flowOf(mod("a", "fail", "", "")), 60), false, conformance.StepFailure},
+		{"a failing failure module", withTTL(withFailure(handler("fail", "", ""), mod("a", "fail", "", "")), 60), false, conformance.StepFailure},
+		{"an error stop", withTTL(flowOf(mod("a", "value", inputs("v", static("1")), halt)), 60), false, conformance.StepFailure},
+		{"a tolerated failure at the last module", withTTL(flowOf(mod("a", "fail", "", `"continue_on_error":true`)), 60), true, conformance.StepSuccess},
+		{"a tolerated error stop at the last module", withTTL(flowOf(mod("a", "value", inputs("v", static("1")), halt+`,"continue_on_error":true`)), 60), true, conformance.StepSuccess},
+		{"a clean stop", withTTL(flowOf(mod("a", "value", inputs("v", static("1")), `"stop_after_if":{"expr":"true","skip_if_stopped":true}`), mod("b", "value", "", "")), 60), true, conformance.StepSkipped},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := mustOpen(t, map[string]string{
@@ -300,10 +308,23 @@ func TestCacheFlowJob(t *testing.T) {
 				),
 			}, &idSteps{})
 			tr := runIt(t, e, `{}`, nil)
-			if at(t, tr, "m:s2").Cached {
-				t.Fatal("the second call hit an entry")
+			s1, s2 := at(t, tr, "m:s1"), at(t, tr, "m:s2")
+			if s1.Status != c.status {
+				t.Fatalf("the first call %+v", s1)
 			}
-			at(t, tr, "m:s2/m:a")
+			if s2.Cached != c.stored {
+				t.Fatalf("the second call hit an entry: %v, want %v", s2.Cached, c.stored)
+			}
+			if !c.stored {
+				at(t, tr, "m:s2/m:a")
+				return
+			}
+			// The hit is a success, whatever the stored run's status.
+			if s2.Status != conformance.StepSuccess {
+				t.Fatalf("the hit %+v", s2)
+			}
+			sameJSON(t, "the hit's result", s2.Result, string(s1.Result.Producer()))
+			noRecord(t, tr, "m:s2/m:a")
 		})
 	}
 }
@@ -480,11 +501,15 @@ func TestCacheHostChecks(t *testing.T) {
 	}
 }
 
-// ADR 0007 (PF3), FX-40: a job the result cache completes is still a job,
+// ADR 0007, [FX-40]: a job the result cache completes is still a job,
 // which the job registry knows while its root lives, with its identity,
-// as it knows one that ran; once the root has ended, both are forgotten.
-// Here the run's jobs share an outer root that a dispatch tracked in its
-// parent gives them, which lives on after the run.
+// as it knows one that ran; once the root has ended, neither is live, and
+// both keep only their root ([WA-19]). Here the run's jobs share an outer
+// root that a dispatch tracked in its parent gives them, which lives on
+// after the run.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func TestCacheHitRegistersJob(t *testing.T) {
 	p := &platform.Services{}
 	end := p.JobRegistry().Begin(platform.Job{ID: "outer", Kind: platform.JobFlow, Root: "outer"})
@@ -506,8 +531,11 @@ func TestCacheHitRegistersJob(t *testing.T) {
 		t.Fatalf("the hit's job variables %v (%v)", env, ok)
 	}
 	end()
-	if _, known := p.RootJob(jobs[1]); known {
+	if _, live, _ := p.JobRegistry().Job(jobs[1]); live {
 		t.Fatal("the hit's job outlived its root")
+	}
+	if _, ok := p.JobEnv(jobs[1]); ok {
+		t.Fatal("the hit's job variables outlived its root")
 	}
 
 	// A script root's hit, dispatched tracked in its parent, is known as
@@ -530,7 +558,7 @@ func TestCacheHitRegistersJob(t *testing.T) {
 	}
 	end()
 	for _, id := range ids {
-		if _, known := p.RootJob(id); known {
+		if _, live, _ := p.JobRegistry().Job(id); live {
 			t.Fatalf("job %s outlived its root", id)
 		}
 	}
@@ -553,4 +581,185 @@ func (x registering) Execute(ctx context.Context, inv Invocation) (StepOutcome, 
 	end := x.p.JobRegistry().Begin(platform.Job{ID: inv.ID, Kind: platform.JobScript, Root: inv.Env["WM_ROOT_JOB_ID"], Path: inv.Env["WM_JOB_PATH"], Env: inv.Env})
 	defer end()
 	return x.inner.Execute(ctx, inv)
+}
+
+// [FX-40]/m: a job whose cache_ttl is 0 still looks the cache up, since a
+// lookup tests only the stored entry's own expiry: it never hits its own
+// entries, which expire as they are stored, but it hits an entry that a
+// job with a positive TTL stored under the same key.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func TestCacheZeroTTL(t *testing.T) {
+	x := &idSteps{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(cachedInline("a", inputs("v", static("1")), `"cache_ttl":0`))}, x)
+	runIt(t, e, `{}`, nil)
+	if tr := runIt(t, e, `{}`, nil); at(t, tr, "m:a").Cached || x.count("inline") != 2 {
+		t.Fatalf("a zero TTL hit its own entry: %d invocations", x.count("inline"))
+	}
+	var id string
+	for _, s := range e.prog.Scripts {
+		if s.Kind != ir.PathScript {
+			id = s.ID
+		}
+	}
+	ctx := context.Background()
+	key, ok := e.cacheKey(ctx, cacheKindFlowScript, id, jsonval.FromProducer([]byte(`{"v":1}`)), false)
+	if !ok {
+		t.Fatal("no key")
+	}
+	if err := e.cachePut(ctx, key, time.Now(), time.Minute, jsonval.FromProducer([]byte(`"stored"`)), OriginNone, nil); err != nil {
+		t.Fatal(err)
+	}
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, `"stored"`)
+	if !at(t, tr, "m:a").Cached || x.count("inline") != 2 {
+		t.Fatalf("the zero TTL missed a positive TTL's entry: %d invocations", x.count("inline"))
+	}
+}
+
+// An entry's expiry ([FX-40]) is its store time in whole seconds plus the
+// TTL, and it is valid while the current time, in whole seconds, is
+// earlier: an entry stored at 12:00:00.9 with a TTL of 60 s is valid at
+// 12:00:59.95 and gone at 12:01:00.1.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func TestCacheExpiryWholeSeconds(t *testing.T) {
+	x := &idSteps{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "cached", inputs("v", static("1")), ""))}, x)
+	t0 := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	c := &testClock{now: t0.Add(900 * time.Millisecond)}
+	runAt(t, e, `{}`, c)
+	for _, step := range []struct {
+		at     time.Duration
+		cached bool
+	}{{59950 * time.Millisecond, true}, {60100 * time.Millisecond, false}} {
+		c.set(t0.Add(step.at))
+		if a := at(t, runAt(t, e, `{}`, c), "m:a"); a.Cached != step.cached {
+			t.Fatalf("at %v: cached %v", step.at, a.Cached)
+		}
+	}
+}
+
+// [FX-40]/k, [FX-40]: an argument whose whole value is an S3 object record is
+// hashed with the object's ETag when the object store holds the object,
+// and its text follows unless cache_ignore_s3_path is set. Without an ETag
+// (no object store, no such object, another storage, a record nested in
+// the argument) it is hashed as its text, and the flag has no effect.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func TestCacheS3Objects(t *testing.T) {
+	ctx := context.Background()
+	step := func(ignore bool) string {
+		return flowOf(cachedInline("a", inputs("f", js("flow_input.f")), `"cache_ttl":60,"cache_ignore_s3_path":`+strconv.FormatBool(ignore)))
+	}
+	type call struct {
+		input string
+		hit   bool
+	}
+	s3 := func(key string) string { return `{"f":{"s3":"` + key + `"}}` }
+	run := func(t *testing.T, e *Engine, x *idSteps, calls []call) {
+		t.Helper()
+		for k, c := range calls {
+			if got := at(t, runIt(t, e, c.input, nil), "m:a").Cached; got != c.hit {
+				t.Fatalf("call %d with %s: hit %v, want %v", k, c.input, got, c.hit)
+			}
+		}
+	}
+
+	t.Run("no object store", func(t *testing.T) {
+		x := &idSteps{}
+		e := mustOpen(t, map[string]string{"f/t/main": step(true)}, x)
+		run(t, e, x, []call{{s3("t/a.txt"), false}, {s3("t/a.txt"), true}, {s3("t/b.txt"), false}})
+	})
+
+	objects, err := platform.NewDirObjects(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(key, content string) {
+		t.Helper()
+		if err := objects.Put(ctx, platform.DefaultStorage, key, platform.Object{Content: []byte(content)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("t/a.txt", "x")
+	put("t/b.txt", "x")
+	put("t/c.txt", "y")
+
+	t.Run("the path hashed", func(t *testing.T) {
+		x := &idSteps{}
+		e := openWithPlatform(t, map[string]string{"f/t/main": step(false)}, x, &platform.Services{Objects: objects})
+		run(t, e, x, []call{{s3("t/a.txt"), false}, {s3("t/a.txt"), true}, {s3("t/b.txt"), false}})
+		// New content under the same key misses.
+		put("t/a.txt", "x2")
+		defer put("t/a.txt", "x")
+		run(t, e, x, []call{{s3("t/a.txt"), false}, {s3("t/a.txt"), true}})
+	})
+
+	t.Run("the path ignored", func(t *testing.T) {
+		x := &idSteps{}
+		e := openWithPlatform(t, map[string]string{"f/t/main": step(true)}, x, &platform.Services{Objects: objects})
+		run(t, e, x, []call{
+			{s3("t/a.txt"), false},
+			// The same content under another key, with other members.
+			{`{"f":{"s3":"t/b.txt","filename":"b.txt","extra":1}}`, true},
+			{s3("t/c.txt"), false},
+			// No such object, another storage, a member of the wrong type,
+			// a nested record: each is hashed as its text.
+			{s3("t/none"), false},
+			{s3("t/none2"), false},
+			{`{"f":{"s3":"t/a.txt","storage":"other"}}`, false},
+			{`{"f":{"s3":"t/a.txt","storage":1}}`, false},
+			{`{"f":{"x":{"s3":"t/b.txt"}}}`, false},
+			{`{"f":{"x":{"s3":"t/c.txt"}}}`, false},
+		})
+	})
+
+	t.Run("a flow's own flag", func(t *testing.T) {
+		x := &idSteps{}
+		flow := withTTL(flowOf(mod("a", "echo", inputs("f", js("flow_input.f")), "")), 60)
+		flow = strings.TrimSuffix(flow, "}") + `,"cache_ignore_s3_path":true}`
+		e := openWithPlatform(t, map[string]string{"f/t/main": flow}, x, &platform.Services{Objects: objects})
+		for k, c := range []call{{s3("t/a.txt"), false}, {s3("t/b.txt"), true}, {s3("t/c.txt"), false}} {
+			if got := runIt(t, e, c.input, nil).Cached; got != c.hit {
+				t.Fatalf("call %d with %s: hit %v, want %v", k, c.input, got, c.hit)
+			}
+		}
+	})
+}
+
+// [FX-40]/i: arguments share a key when they are equal as jsonb values:
+// member order and whitespace do not matter, a number's spelling does where
+// jsonb keeps it (1 and 1.0 differ, 1e3 and 1000 do not), and a $var:
+// reference is hashed as its literal text.
+//
+// [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+func TestCacheArgumentEquality(t *testing.T) {
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf()}, &scripts{})
+	ctx := context.Background()
+	key := func(args string) string {
+		t.Helper()
+		k, ok := e.cacheKey(ctx, cacheKindFlow, "f/t/main", jsonval.FromProducer([]byte(args)), false)
+		if !ok {
+			t.Fatalf("no key for %s", args)
+		}
+		return k
+	}
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{`{"o":{"b":1,"a":2}}`, `{"o": {"a": 2, "b": 1}}`, true},
+		{`{"x":1,"y":2}`, `{"y":2,"x":1}`, true},
+		{`{"n":1}`, `{"n":1.0}`, false},
+		{`{"n":1e3}`, `{"n":1000}`, true},
+		{`{"v":"$var:u/test/v"}`, `{"v":"$var:u/test/w"}`, false},
+	} {
+		if got := key(c.a) == key(c.b); got != c.same {
+			t.Errorf("%s and %s: same key %v, want %v", c.a, c.b, got, c.same)
+		}
+	}
+	if _, ok := e.cacheKey(ctx, cacheKindFlow, "f/t/main", jsonval.FromProducer([]byte(`[1]`)), false); ok {
+		t.Error("arguments that are not an object have a key")
+	}
 }

@@ -13,4 +13,5 @@ expect:
         error:
           name: InternalError
           message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"
+      carried: 1
     "m:b/b:default/m:r": {status: success, result: 1}

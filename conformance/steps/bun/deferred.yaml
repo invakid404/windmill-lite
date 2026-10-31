@@ -50,23 +50,6 @@ deferred:
       Batch E3f has since recorded it on the oracle:
       conformance/flows/languages/wr-40, run wr40_i_bunnative.
     expected_in: C3n (the native boundary mode, with wr-40.yaml)
-  - spec: WR-43/e
-    reason: >-
-      later: the native runtime fails a job whose entrypoint's promise never
-      settles once nothing else is pending; in a shared event loop the
-      harness cannot know that the realm has nothing pending (an untracked
-      web API call may still be), so such a step runs until its timeout
-    expected_in: not planned; ADR 0001 D5 lists it
-  - spec: WR-43/i
-    reason: >-
-      later: JavaScriptCore keeps a thrown error's frames only in its stack
-      text, so a stack replaced by a non-string leaves no source line; the
-      step case WR-43/replaced-stack pins windmill-lite's null. The
-      semantics revision SC5 corrected the case to that null on Windmill
-      too, from batch E3f's recording (conformance/flows/languages/wr-43,
-      runs wr43_i_bunnative and wr43_i_nativets, oracle run 40990751153);
-      ADR 0001 D5 still lists it as a difference
-    expected_in: ADR 0001 D5 (a difference of the native boundary mode)
   - spec: WR-44/c
     reason: >-
       later: native realms share the harness's JavaScriptCore heap, which
@@ -182,30 +165,6 @@ deferred:
       both once the root's completion is committed (WA-14, After the run;
       Q-WA-10 answered); internal/platform's TestFlowUserState checks both
     expected_in: PF3 (internal/platform TestFlowUserState)
-  - spec: WA-14/d
-    reason: >-
-      later: CE's user-state routes refuse an id that is not a UUID
-      (400), a body that is not JSON (400) and a POST without the JSON
-      content type (415), the id before the body, with the web
-      framework's texts, which need a request-extraction layer that
-      emulates the framework's rejections (ADR 0007, PF3's follow-up
-      FU8). The facade answers a GET of an id that is not a UUID with
-      200 and null, as for any id that is not a live flow job; it reads
-      a POST's body before its id, so a body that is not JSON answers
-      400 with windmill-lite's text whatever the id and the content type
-      (SetFlowUserState in internal/platform), and a JSON body sent to an
-      id that is not a UUID answers 404 `Not found: Flow job not found`.
-      Of the case's three requests only the second, the body `hello` sent
-      with the JSON content type, gets CE's status; without that content
-      type it gets 400 where CE answers 415, and a JSON body sent so is
-      stored. A token of another
-      workspace gets the 401 first, as on CE (internal/platform/facade
-      TestTokenWorkspace). The semantics reference added the case on
-      2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f.
-      Batch E3f has since recorded it on the oracle:
-      conformance/flows/client-api/facade-answers, run answers.
-    expected_in: a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-14/e
     reason: >-
       the case is a flow: three steps around a parallel loop whose
@@ -239,12 +198,14 @@ deferred:
     expected_in: PF3 (internal/platform/facade TestObjectsOnTheClient, on windmill-client@1.767.0)
   - spec: WA-16/d
     reason: >-
-      an observation of a CE server with no workspace storage (Q-WA-3);
-      windmill-lite's object store is the host's, which the client
-      contract does not settle, so there is nothing of windmill-lite's to
-      compare with it; with none configured the job helpers answer 501
-      (internal/platform/facade TestObjectRoutes)
-    expected_in: none (a CE observation for the reference)
+      an upload on a CE server with no workspace storage answers HTTP 500,
+      so the stock client throws "Internal Server Error". With no object
+      store configured, the facade's job helpers answer 500 too
+      (internal/platform/facade TestObjectRoutes, and
+      TestNoObjectStoreOnTheClient on windmill-client@1.767.0), but every
+      step case runs with an object store, so no step case can have none.
+      CE's body was not recorded, and windmill-lite's is its own
+    expected_in: internal/platform/facade TestObjectRoutes and TestNoObjectStoreOnTheClient
   - spec: WA-16/e
     reason: >-
       later: loadS3File of a missing object on CE, whose status and body
@@ -259,6 +220,15 @@ deferred:
       Batch E3f could not record it; its manifest gives the reason
       (internal/oracle/testdata/batches/e3f.json).
     expected_in: none (a CE observation for the reference), as for WA-16/d
+  - spec: WA-19/d
+    reason: >-
+      getResult of a job that has not completed needs a run the step
+      dispatched, and a step case's bundle has no dispatch target. The
+      facade's 404 `Not found: Completed Job not found at name <id>`,
+      without CE's location (ADR 0001 D14), for a running, an unknown and
+      another workspace's job is checked by internal/platform/facade's
+      TestResultRoutes
+    expected_in: internal/platform/facade TestResultRoutes
   - spec: WA-31/a
     reason: >-
       a parallel for-loop of 8 steps run 50 times is a flow; the step
@@ -284,8 +254,7 @@ deferred:
       (createVariable, POST …/variables/create), which has no handler and
       answers 501, so the 501 policy fails the step. Its second call, the
       update (POST …/variables/update/{path} with {"value":"w"}), is
-      served since milestone F1, and internal/platform/facade's
-      TestVariableUpdate checks it; an update with already_encrypted=true
+      served, and internal/platform/facade's TestVariableUpdate checks it; an update with already_encrypted=true
       or a rename, and any update when the variable service is read-only,
       answer 501
     expected_in: a later milestone that implements createVariable (none in ADR 0012 yet; ADR 0007, Variables)
@@ -325,40 +294,22 @@ deferred:
     expected_in: the shape check, a later milestone that implements createVariable (none in ADR 0012 yet); the failed read, none (ADR 0007, Secrets)
   - spec: WA-11/e
     reason: >-
-      later: CE's answers to a variable create and update (201, 400, 200
-      and 404, text/plain, with its texts) and setVariable's null. The
-      create has no handler (501, as for WA-11/b); the update has been
-      served since F1, with its own 200 text, which the reference did not
-      give before this case. The semantics reference added the case on
-      2026-10-29 (SC4), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f.
-      Batch E3f has since recorded it on the oracle:
-      conformance/flows/client-api/facade-answers, run answers.
-    expected_in: a later milestone that implements createVariable and aligns the update's texts (ADR 0007, Variables)
+      the case's create (201 `variable <path> created`, then 400 for the
+      same path) has no handler: createVariable answers 501, as for
+      WA-11/b. Its update half is aligned and is the WA-11 step case
+      update-answers: 200 `variable <path> updated (npath: "<path>")`
+      typed text/plain; charset=utf-8, and the 404 `Not found: Variable
+      not found at name <path>` typed text/plain, without CE's location
+      (ADR 0001 D14). setVariable on an existing variable, which asks
+      variables/exists, updates and resolves to undefined, is checked on
+      windmill-client@1.767.0 by internal/platform/facade's
+      TestSetVariableOnTheClient
+    expected_in: a later milestone that implements createVariable (ADR 0007, Variables); the update half, the WA-11 step case update-answers
   - spec: WA-12/f
     reason: >-
       a resource of 1001 items is generated by the walker's unit cases
       rather than written out in a step file
     expected_in: internal/platform/testdata/interpolation.json (WA-12/f, and 1000 items walked)
-  - spec: WA-12/g
-    reason: >-
-      the job id of a job that completed in the workspace is not one a
-      step case has, and job_id=nope is refused by CE's web framework
-      with a 400 before the handler, whose request-extraction texts need
-      a layer that emulates the framework (ADR 0007, PF3's follow-up
-      FU8). The rest is aligned since FU8 and checked by
-      internal/platform/facade's TestReadWithAJobID: the job is looked up
-      only for a $WM_* string, so u/x/plain gives {"a":1} for any job_id,
-      and for u/x/ctx a random UUID, a job that has ended and a job of
-      another workspace answer 404 `Not found: Job not found at name
-      <id>` (without CE's location, ADR 0001 D14), the step's own job
-      resolves; windmill-lite answers job_id=nope as any unknown id, 200
-      for u/x/plain and the 404 for u/x/ctx. The semantics reference
-      added the case on 2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f.
-      Batch E3f has since recorded it on the oracle:
-      conformance/flows/client-api/facade-answers, run answers.
-    expected_in: internal/platform/facade TestReadWithAJobID (FU8); the 400 for a job_id that is not a UUID, a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-12/h
     reason: >-
       a CUSTOM_INSTANCE_DB/ resource is read from Windmill's own database
@@ -375,38 +326,20 @@ deferred:
   - spec: WA-42/a
     reason: a rendering of each error variant is a unit check of the API's error type, not a step's behaviour
     expected_in: internal/platform/facade TestErrorVariants
-  - spec: WA-V2/c
-    reason: >-
-      a result poll whose id is not a UUID answers 400 with the web
-      framework's text, which starts `Invalid URL: Cannot parse`. The facade
-      answers 400 too, with a text of windmill-lite's own (badJobID in
-      internal/platform/facade), written when the reference gave none.
-      The framework's texts need a request-extraction layer that emulates
-      its rejections, for every route keyed by a UUID at once (ADR 0007,
-      PF3's follow-up FU8). The semantics reference added the case on
-      2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f.
-      Batch E3f has since recorded it on the oracle:
-      conformance/flows/client-api/facade-answers, run answers.
-    expected_in: a later milestone with a request-extraction layer (no milestone in ADR 0012 yet)
   - spec: WA-V2/d
     reason: >-
       the first request needs a job token issued for another workspace,
-      which makes the caller anonymous; every token windmill-lite issues
-      is its invocation's, of the one workspace its jobs run in, so no
-      caller of windmill-lite is anonymous and that request cannot arise.
-      The second is aligned since FU8: a result poll in a workspace other
-      than the caller's finds no job and answers as for an unknown id
-      (internal/platform/facade TestResultRoutes), and an authenticated
-      route there answers 401 `Not authorized: Unauthorized`
-      (TestTokenWorkspace). A step case cannot name a completed job of
-      its workspace. The semantics reference added the case on
-      2026-10-29 (SC3), and no recording holds it yet;
-      docs/design/README.md requests one from a future batch E3f if its
-      bootstrap can create a second workspace.
-      Batch E3f could not record it; its manifest gives the reason
-      (internal/oracle/testdata/batches/e3f.json).
-    expected_in: none for the anonymous read; internal/platform/facade TestResultRoutes (FU8) for the second request
+      which makes the caller anonymous on Windmill. windmill-lite
+      attributes every platform call to the invocation that made it (ADR
+      0007, transports): in warm and host mode by the invocation the
+      harness names, without reading the token, and over TCP by a token
+      that only that invocation holds. A call that names no live
+      invocation answers 401 before any route, so no caller of
+      windmill-lite is anonymous and that request cannot arise. The second
+      request is a step case, the WA-V2 variant another-workspace: a job
+      looked up under another workspace's path reads as unknown
+      (internal/platform/facade TestResultRoutes too)
+    expected_in: none for the anonymous read; the WA-V2 step case another-workspace for the second request
   - spec: WA-V3/a
     reason: >-
       the argument side needs the engine's resolution of a leaf's

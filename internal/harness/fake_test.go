@@ -242,7 +242,7 @@ func TestFreshExitWithAnUnreadPong(t *testing.T) {
 }
 
 // Every kill but the watchdog's, which says why on its own, is named in the
-// diagnostics, so a step that ends as killed by SIGKILL says by what (FU8).
+// diagnostics, so a step that ends as killed by SIGKILL says by what.
 func TestKillIsNamed(t *testing.T) {
 	cfg, diag := fakeConfig(t, "ok")
 	p := spawn(t, cfg)
@@ -271,9 +271,9 @@ func (w *blockedWriter) Write(b []byte) (int, error) {
 
 func (w *blockedWriter) open() { w.once.Do(func() { close(w.opened) }) }
 
-// Naming a kill never holds it up (FU8 review): with the diagnostics writer
-// blocked, Kill returns and the process ends, its line still waiting for
-// the writer.
+// Naming a kill never holds it up: with the diagnostics writer blocked,
+// Kill returns and the process ends, its line still waiting for the
+// writer.
 func TestKillWithBlockedDiagnostics(t *testing.T) {
 	cfg, _ := fakeConfig(t, "ok")
 	w := newBlockedWriter()
@@ -298,10 +298,64 @@ func TestKillWithBlockedDiagnostics(t *testing.T) {
 	waitFor(t, "the kill's line to reach the writer", func() bool { return w.writes.Load() > 0 })
 }
 
+// The kill lines that wait for blocked diagnostics writers are bounded
+// across processes, not only to one for each process: past the bound a
+// kill's line is dropped, Kill still returns at once, and the next line
+// that is written reports how many were dropped. Every process shares one
+// bound unless its config names another.
+func TestKillLinesAreBoundedAcrossProcesses(t *testing.T) {
+	cfg, _ := fakeConfig(t, "ok")
+	if p := spawn(t, cfg); p.killLines != runtimeKillLines {
+		t.Fatal("a process with no budget in its config does not share the program's budget")
+	}
+
+	budget := &killLineBudget{max: 2}
+	w := newBlockedWriter()
+	t.Cleanup(w.open)
+	var procs []*Process
+	for range 5 {
+		cfg, _ := fakeConfig(t, "ok")
+		cfg.Diagnostics = w
+		cfg.killLines = budget
+		procs = append(procs, spawn(t, cfg))
+	}
+	for _, p := range procs {
+		killed := make(chan struct{})
+		go func() {
+			p.Kill()
+			close(killed)
+		}()
+		select {
+		case <-killed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Kill waited for the blocked diagnostics writer")
+		}
+		<-p.Done()
+	}
+	if got, dropped := budget.pending.Load(), budget.dropped.Load(); got != 2 || dropped != 3 {
+		t.Fatalf("with every writer blocked: %d kill lines waiting and %d dropped, want 2 and 3", got, dropped)
+	}
+
+	w.open()
+	waitFor(t, "the waiting kill lines to be written", func() bool { return budget.pending.Load() == 0 })
+	cfg, diag := fakeConfig(t, "ok")
+	cfg.killLines = budget
+	p := spawn(t, cfg)
+	p.Kill()
+	<-p.Done()
+	waitFor(t, "the next kill line, with the count of dropped lines", func() bool {
+		return strings.Contains(diag.String(), "killing the harness: killed by the engine (3 earlier kill lines were dropped while 2 waited for blocked diagnostics writers)")
+	})
+	if n := budget.dropped.Load(); n != 0 {
+		t.Fatalf("%d dropped lines are still counted after the count was reported", n)
+	}
+}
+
 // A fresh invocation's cancellation kills its process, whose kill is named,
-// and returns at once, never waiting for the diagnostics writer (FU8
-// review; WR-37: Windmill kills a job's process at once on a timeout or a
-// cancellation).
+// and returns at once, never waiting for the diagnostics writer ([WR-37]:
+// Windmill kills a job's process at once on a timeout or a cancellation).
+//
+// [WR-37]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-37
 func TestFreshCancelWithBlockedDiagnostics(t *testing.T) {
 	cfg, _ := fakeConfig(t, "fresh-hang")
 	cfg.ModuleState = engine.ModuleStateFresh

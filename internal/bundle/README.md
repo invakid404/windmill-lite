@@ -36,7 +36,7 @@ runtime.
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
 | `esbuild.go` | `CodebaseSettings` (a codebases entry, WR-47), `CLIOptions` and `CLIBundle` (the pinned CLI's build), `BuildCodebase`, assets |
-| `outside.go` | `BuildOutside`: host-provided modules outside the folder; `OutsideID` |
+| `outside.go` | `BuildEsbuildHostModules`: the host-provided modules esbuild builds (those outside the folder, and listed codebase scripts); `OutsideID` |
 | `meta.go` | `ScriptMeta` and the other result types, problems and warnings; `SharedMeta` and the fallback reasons of shared code |
 | `sharedcode.go` | Shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)): the codebase groups, their closures and shared-layout modules, the dependency plugin and inject proxies, the fallbacks, the closure wrapper, `ClosureRegistry` |
 
@@ -73,7 +73,7 @@ supplies secrets (PF2).
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
 | `shared_code`, `closures` | set for a bundle built with shared code, and the ids of its closures ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Such a bundle in `warm` mode also lists [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations), the differences of shared code, among its `deviations`, and `ModeDeviations` swaps it as it swaps the mode's other deviations |
-| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
+| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13, D19), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
 | `contract` | the host contract compiled against; with none, every flow and script of the folder is a root |
 | `host_modules` | the host-provided modules (D12), `key` and `id`, in registration order: a module after the modules it imports |
 | `harness_runtimes` | by harness class, the `TreeDigest` of the harness runtime the bundle was built for |
@@ -130,13 +130,20 @@ change with what runs. `dir` itself may be a link.
    `OutsideID`'s (`outside/1/lib/ctx.ts`); a script that fails to read is
    refused with its load error, and an entry that leaves the root but
    names no such file with `host_module_unknown`;
-4. runs `BuildBun` for every script of the inventory that is not a
-   codebase script, with every `.ts` script of the folder available to
-   workspace imports, then `BuildOutside` for the modules outside the
-   folder, then `BuildCodebase` for the codebase scripts, each with the
-   settings of the `codebases` entry that selects it
-   ([SY-8](../../docs/semantics/openflow.md#sy-8)) and the shims the scan
-   and `BuildOutside` wrote;
+4. runs three builds in this order, each with the shims that the earlier
+   ones wrote:
+   - `BuildBun` for every script of the inventory that is not a codebase
+     script, and for the listed modules that are neither codebase scripts
+     nor outside the folder, with every `.ts` script of the folder
+     available to workspace imports;
+   - `BuildEsbuildHostModules` for the other listed modules;
+   - `BuildCodebase` for the codebase scripts, each with the settings of
+     the `codebases` entry that selects it
+     ([SY-8](../../docs/semantics/openflow.md#sy-8)).
+
+   A Bun script or a module of the Bun build that imports a listed codebase
+   script is refused with `unsupported_feature`: the Bun build has no shim
+   for it, so it would inline a second instance;
 5. checks each script's metadata: workflow-as-code by any detection path is
    refused with `unsupported_feature`, `unsupported: workflow_as_code`
    ([ADR 0001](../../docs/design/0001-equivalence-contract.md) §3;
@@ -149,7 +156,10 @@ change with what runs. `dir` itself may be a link.
    package imports builds. A codebase script has no lock: esbuild inlines
    its packages from the folder's `node_modules`, as the CLI does
    ([WR-47](../../docs/semantics/languages.md#wr-47));
-6. writes `ir.json` and `data/`, then the manifest, last.
+6. warns `host_module_shared_dependency` for each codebase script that
+   imports a package directly that a listed module it uses also imports,
+   as `BuildBun` warns for Bun scripts (below);
+7. writes `ir.json` and `data/`, then the manifest, last.
 
 Before bundling it refuses, with `unsupported_feature`, a host-provided
 module that is neither a script of the folder nor outside it: a
@@ -452,24 +462,48 @@ harness registers the bundled copies from `scripts/bun/provided/`, in
 imports (W1, C3a). Export names are sorted; a name that is not an ASCII
 identifier is written as a string export name.
 
-`BuildOutside(ctx, OutsideConfig)` builds the listed modules outside the
-folder (milestone F3h), which only codebase scripts can import. The
-helper's `parse` op reads each source, with the syntax of the loader
-esbuild bundles it with (`loaderFor`, which picks it as esbuild 0.28.0
-does: the longest suffix of the name that starts at a dot, over esbuild's
-own loaders with the entry's `loader` map on top; so TSX and JSX parse,
-and a file of another loader is not parsed), for
-`host_module_live_binding` (`export let` or `export var`); a first
-esbuild build of each, with the
-outside modules' shims as CommonJS placeholders that take any import name,
-records which listed modules it imports, which orders them
-(`host_module_cycle`); then each is bundled in that order, as an ES module
-with its codebase entry's settings, the env rewrite and the other modules'
-shims, into `scripts/bun/provided/<id>.mjs`, and its shim is generated from
-the export names of that bundle's metafile (`host_module_commonjs` when the
-entry is CommonJS source). The manifest registers them after the modules
-inside the folder, which cannot import them, and `Build` adds the files of
-the folder the copies read (`OutsideResult.Inputs`) to the sources.
+`BuildEsbuildHostModules(ctx, EsbuildHostConfig)` builds the listed
+modules that esbuild bundles, as it bundles the codebase scripts that
+import them, and which only codebase scripts can import:
+
+- each file outside the folder, in a codebase entry's `relative_path`;
+- each codebase script of the folder, so that its shared copy has its
+  entry's `define`, `loader`, `inject` and `banner`, and resolves packages
+  from the folder's `node_modules`, as the script's own bundle does
+  ([WR-47](../../docs/semantics/languages.md#wr-47)).
+
+The copy takes no `assets` from its entry. A step's working directory
+holds the assets of the scripts the bundle runs (D10). On Windmill, the
+bundle of a script that imports the module carries the importing
+script's entry's assets, not the module's entry's
+([WR-49](../../docs/semantics/languages.md#wr-49)). So a module that
+reads an asset of its own entry finds it only when that entry's scripts
+are in the bundle, or when the importing script's entry lists the asset
+too.
+
+The build has these steps:
+
+1. The helper's `parse` op reads each source for
+   `host_module_live_binding` (`export let` or `export var`), with the
+   syntax of the loader esbuild bundles it with. `loaderFor` picks it as
+   esbuild 0.28.0 does: the longest suffix of the name that starts at a
+   dot, over esbuild's own loaders with the entry's `loader` map on top.
+   - TSX and JSX parse; another loader's file is not read.
+   - A file with no loader (no suffix has one, or its loader is `default`)
+     is not read either: esbuild's refusal, `No loader is configured`, is
+     its problem.
+2. A first esbuild build of each, with the shims of these modules as
+   CommonJS placeholders that take any import name, records which listed
+   modules it imports, which orders them (`host_module_cycle`).
+3. Each is bundled in that order, as an ES module with its codebase
+   entry's settings, the env rewrite and the other modules' shims, into
+   `scripts/bun/provided/<id>.mjs`. Its shim is generated from the export
+   names of that bundle's metafile (`host_module_commonjs` when the entry
+   is CommonJS source).
+
+The manifest registers these modules after the Bun build's, which cannot
+import them, and `Build` adds the files of the folder the copies read
+(`EsbuildHostResult.Inputs`) to the sources.
 
 ## BuildBun
 
@@ -564,22 +598,33 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
 
 - `TestConformanceBuild` runs every case of
   [conformance/build](../../conformance/README.md): it writes the case's
-  folder, builds it and checks what the build recorded or refused. Cases with
-  a `run` import the built modules on the pinned Bun, with `process.env`
-  replaced as a harness's view does and host-provided copies registered, and
-  check what their exports return. Synthetic npm packages come from a
-  registry the test serves, with an install cache of its own.
+  folder, builds it and checks what the build recorded or refused.
   `TestConformanceBuildCatalogue` fails unless every catalogue case of a
   finding with a case file is a case or listed in `deferred.json`.
-  Whole-folder cases (`given.folder`) run `Build` instead, and list every
-  problem it must report: workflow-as-code (WA-33/c, WR-32), the missing
-  lock (WR-26), the codebase refusals (WR-47, WR-49). A clean one can check
-  what it recorded for each script, its assets and warnings, and run its
-  modules: the codebase cases of WR-47 (the CLI's settings), WR-49 (assets),
-  WA-31 (the env rewrite in CommonJS and ESM output) and D12 (shims, a
-  listed codebase script that is itself a root, and modules outside the
-  folder, TSX and JSX among them, whose files a case gives in
-  `given.outside`).
+  - Cases with a `run` import the built modules on the pinned Bun, with
+    `process.env` replaced as a harness's view does and host-provided
+    copies registered, and check what their exports return.
+  - Synthetic npm packages come from a registry the test serves, with an
+    install cache of its own. A package's `package.json` dependencies are
+    installed with it.
+  - The [WR-27](../../docs/semantics/languages.md#wr-27) cases check that a
+    module that a `sideEffects: false` package re-exports stays in the
+    bundle behind an ordinary package import, and behind a bare import that
+    ends in `.ts` (deviation D19).
+  - Whole-folder cases (`given.folder`) run `Build` instead, and list every
+    problem it must report: workflow-as-code (WA-33/c, WR-32), the missing
+    lock (WR-26), the codebase refusals (WR-47, WR-49). A clean one can
+    check what it recorded for each script, its assets and warnings, and
+    run its modules.
+  - The whole-folder cases cover the codebase settings of WR-47 (the CLI's
+    settings), WR-49 (assets) and WA-31 (the env rewrite in CommonJS and
+    ESM output).
+  - The whole-folder D12 cases cover shims and a listed codebase script
+    that is itself a root. They cover the shared copy of a listed codebase
+    script with its entry's settings, a Bun script's refused import of one,
+    and the shared-dependency warning for codebase scripts. They also
+    cover modules outside the folder, whose files a case gives in
+    `given.outside`: TSX and JSX modules, and one with no loader.
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's

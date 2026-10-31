@@ -263,9 +263,10 @@ and JE-11/e as an input transform's failure), since milestone FU6. Batch
 E3f recorded JE-11/c and /e, JE-15/j and /k, JE-20/c and /d, JE-21/b,
 JE-42/i and /j, JE-49/d, JE-50/a to JE-52/a and JE-2/b end to end in the
 flow fixtures under `flows/je`; JE-49/e crashed the
-oracle's server and stays deferred, JE-44/f is not encoded yet, JE-42/k,
-which the reference's revision SC5 added, waits for the next run of batch
-E3f, and JE-19/e and /f need a restarted run, which is outside the
+oracle's server and stays deferred, JE-44/f is not encoded yet, JE-42/k
+is checked by the `$jsonvar:` resolution cases of
+[internal/platform](../internal/platform/README.md) and waits for the next
+run of batch E3f end to end, and JE-19/e and /f need a restarted run, which is outside the
 contract and which the CE image cannot make (SC5 re-scoped both to `EE`).
 
 ## Claims and unit cases
@@ -747,21 +748,32 @@ while every other member keeps its text and place, as the script's
 parameters see it too. WR-5's catalogue cases need the engine's argument resolution and
 are checked at the flow level.
 
-**The services of milestone PF3.** `wa-14.yaml` checks flow user state
-([WA-14](../docs/semantics/client-api.md#wa-14)/a): a flow step's case
-runs in its case's flow run, which the job registry knows while the case
-runs, so a later run reads what an earlier one wrote, and a script job's
-case (`step_id: ""`) is its own root, with no flow status. `wa-16.yaml`
-checks the object store's job helpers for explicit keys
-([WA-16](../docs/semantics/client-api.md#wa-16)/a, /c), each case with a
-store of its own, and the 501 of an upload that asks the server for a
-key. `wa-15.yaml` holds the dispatch-target restriction of
-[ADR 0001](../docs/design/0001-equivalence-contract.md) §5a: a step case's
-bundle has no root to dispatch, so every dispatch is refused with
-`dispatch target not in bundle: <path>`, which fails the step as
-`UnsupportedPlatformCall`, also when the step waits on it as
-`runScriptByPath` does. `wa-v2.yaml` checks the result poll of a UUID that
-names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b).
+**The job, object and dispatch services.**
+
+- `wa-14.yaml` checks flow user state
+  ([WA-14](../docs/semantics/client-api.md#wa-14)). A flow step's case
+  runs in its case's flow run, which the job registry knows while the case
+  runs, so a later run reads what an earlier one wrote. A script job's
+  case (`step_id: ""`) is its own root, with no flow status.
+- `wa-14.yaml` also checks the web framework's rejections, which come
+  before the handler: an id that is not a UUID, a body that is not JSON,
+  and one sent without the JSON content type.
+- `wa-19.yaml` checks the root lookup
+  ([WA-19](../docs/semantics/client-api.md#wa-19)): a step's own job, an
+  id with no job, and an id that is not a UUID.
+- `wa-16.yaml` checks the object store's job helpers for explicit keys
+  ([WA-16](../docs/semantics/client-api.md#wa-16)), each case with a store
+  of its own, and the 501 of an upload that asks the server for a key.
+- `wa-15.yaml` holds the dispatch-target restriction of
+  [ADR 0001](../docs/design/0001-equivalence-contract.md) §5a. A step
+  case's bundle has no root to dispatch, so every dispatch is refused with
+  `dispatch target not in bundle: <path>`. That fails the step as
+  `UnsupportedPlatformCall`, also when the step waits on it as
+  `runScriptByPath` does.
+- `wa-v2.yaml` checks the result poll
+  ([WA-V2](../docs/semantics/client-api.md#wa-v2)): of a UUID that names
+  no job, of an id that is not a UUID, and of the step's own job under
+  another workspace's path, which reads as unknown.
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step
@@ -850,12 +862,20 @@ imports a package without a lock
 | `expect.shared` | for a build with shared code. `scripts` gives each script's record by id: `closure:<label>`, one label for each closure, `fallback:<reason>`, or `none` for a script in no group. `closures` gives, by label, the dependency modules each closure names `once`, and text it `contains` or `not_contains`. The manifest must have `shared_code`, the shared-code deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations) and the closures of the records |
 | `expect.shared.modules`, `expect.shared.per_script_identical` | by script id, text its shared-layout module `contains` or `not_contains`; and a check of every file but the metadata against a build without shared code, with another bundle digest |
 
-The codebase cases are whole-folder cases: `wr-47.json` (how the pinned
-CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
-`customBundler` leaves the bundle to esbuild, WR-48/b), `wr-49.json`
-(assets, WR-49), and the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
-output) and `d12.json` (host-provided modules through their shims, those
-outside the folder included).
+The codebase cases are whole-folder cases:
+
+- `wr-47.json`: how the pinned CLI bundles a codebase script
+  ([WR-47](../docs/semantics/languages.md#wr-47));
+- `wr-48.json`: a falsy `customBundler` leaves the bundle to esbuild
+  ([WR-48](../docs/semantics/languages.md#wr-48));
+- `wr-49.json`: assets ([WR-49](../docs/semantics/languages.md#wr-49));
+- the codebase variants of `wa-31.json`: the env rewrite in CommonJS and
+  ESM output;
+- the codebase variants of `d12.json`: host-provided modules through their
+  shims, those outside the folder included. They also cover the shared
+  copy of a listed codebase script, built with its entry's settings, the
+  refused import of one by a Bun script, and the shared-dependency warning
+  for codebase scripts.
 
 `d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
 membership and the `import.meta` parameter, build groups, installations

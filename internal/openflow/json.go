@@ -156,13 +156,17 @@ func (p *parser) object(n *node) error {
 		return nil
 	}
 	for {
+		// serde's wording: "an object" for the unclosed object, and "a
+		// value" for the end of the input after a comma, where a key was
+		// due; a "}" there is a trailing comma.
 		switch {
 		case p.pos >= len(p.data) && len(n.members) == 0:
-			// serde's wording for an unclosed container. The reference
-			// does not give it for the end of the input after a comma,
-			// which keeps this parser's own refusal.
 			return p.fail("EOF while parsing an object")
-		case p.pos >= len(p.data) || p.data[p.pos] != '"':
+		case p.pos >= len(p.data):
+			return p.fail("EOF while parsing a value")
+		case p.data[p.pos] == '}' && len(n.members) > 0:
+			return p.fail("trailing comma")
+		case p.data[p.pos] != '"':
 			return p.fail("key must be a string")
 		}
 		key, err := p.string()

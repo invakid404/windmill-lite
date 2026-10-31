@@ -886,7 +886,6 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"failure module branchone": `{"modules":[],"failure_module":{"id":"f","value":{"type":"branchone","branches":[],"default":[]}}}`,
 		"failure module loop":      `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
 		"ai sleep":                 flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
-		"cache_ignore_s3_path":     flowOf(mod("a", "echo", "", `"cache_ttl":60,"cache_ignore_s3_path":true`)),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {

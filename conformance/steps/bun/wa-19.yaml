@@ -1,0 +1,52 @@
+finding: WA-19
+scope: core
+note: >-
+  The root lookup, GET /w/{ws}/jobs_u/get_root_job_id/{id}, the request
+  getRootJobId makes, which the facade answers from the job registry
+  (ADR 0007). Each script makes the request by fetch at BASE_URL with its
+  token, so the cases need no client; the same requests go through the
+  intercepted fetch (warm) and over loopback TCP (fresh). The root of a
+  job of a run that has ended, which Windmill keeps until its job
+  retention removes the job, is checked by internal/platform/facade's
+  TestRootLookupFromTheRegistry.
+cases:
+  - spec: WA-19/a
+    provenance: oracle-observed
+    title: the root lookup of a direct flow step's own job answers the flow's job id, WM_ROOT_JOB_ID
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), root_is_env: (await res.json()) === e.WM_ROOT_JOB_ID };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {status: 200, type: application/json, root_is_env: true}}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}"]
+  - spec: WA-19/b
+    provenance: oracle-observed
+    title: "an id with no job answers the database's no-row error as SqlErr, 400 typed text/plain, without Windmill's Rust location (ADR 0001 D14)"
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_root_job_id/00000000-0000-0000-0000-000000000001`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {status: 400, type: text/plain, body: "SqlErr: no rows returned by a query that expected to return at least one row"}}
+        calls: ["400 GET /w/{ws}/jobs_u/get_root_job_id/{id}"]
+  - spec: WA-19/c
+    provenance: oracle-observed
+    scope: later
+    title: "an id that is not a UUID is refused by the web framework: 400, typed text/plain; charset=utf-8, with the UUID parser's reason"
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_root_job_id/abc`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {status: 400, type: "text/plain; charset=utf-8", body: "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3"}}
+        calls: ["400 GET /w/{ws}/jobs_u/get_root_job_id/{id}"]

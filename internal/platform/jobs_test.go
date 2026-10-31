@@ -10,9 +10,13 @@ import (
 )
 
 // The registry knows a run and its jobs while the run lives (D3): a script
-// job's parent flow, innermost scope and root become known with it, a job
-// that ended stays known while its root runs, and the tree is forgotten
-// once the root and every job of it have ended.
+// job's parent flow, innermost scope and root become known with it, and a
+// job that ended stays live while its root runs. Once the root and every
+// job of it have ended, the tree's jobs are no longer live but stay known
+// with their kind, root and path, without a script job's variables, as
+// Windmill keeps completed jobs' rows ([WA-19]).
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func TestRegistryLifetime(t *testing.T) {
 	r := NewRegistry()
 	endRun := r.Begin(Job{ID: "run", Kind: JobFlow, Root: "run", Path: "f/x"})
@@ -34,13 +38,55 @@ func TestRegistryLifetime(t *testing.T) {
 		t.Errorf("an ended step of a live run: live %v known %v", live, ok)
 	}
 	endRun()
-	for _, id := range []string{"run", "step", "child", "inner"} {
-		if _, _, ok := r.Job(id); ok {
-			t.Errorf("%s is known after its run ended", id)
+	for _, c := range []struct {
+		id         string
+		kind       JobKind
+		root, path string
+	}{{"run", JobFlow, "run", "f/x"}, {"step", JobScript, "run", "f/x/forloop-0/a"}, {"child", JobFlow, "run", "f/x/forloop-0"}, {"inner", JobFlow, "run", ""}} {
+		j, live, ok := r.Job(c.id)
+		if !ok || live || j.Kind != c.kind || j.Root != c.root || j.Path != c.path || j.Env != nil {
+			t.Errorf("%s after its run ended: %+v live %v known %v", c.id, j, live, ok)
 		}
 	}
 	if len(r.jobs) != 0 || len(r.trees) != 0 {
 		t.Errorf("left %d jobs, %d trees", len(r.jobs), len(r.trees))
+	}
+	// Registered again, an ended id is live again.
+	endAgain := r.Begin(Job{ID: "step", Kind: JobScript, Root: "run2"})
+	if j, live, ok := r.Job("step"); !ok || !live || j.Root != "run2" {
+		t.Errorf("an ended id registered again: %+v live %v known %v", j, live, ok)
+	}
+	endAgain()
+	if j, live, ok := r.Job("step"); !ok || live || j.Root != "run2" {
+		t.Errorf("that id ended again: %+v live %v known %v", j, live, ok)
+	}
+}
+
+// The registry keeps the latest keep jobs of ended trees: an older one is
+// forgotten, and its id is unknown again; a stale entry, an id registered
+// and ended again, does not evict the id's later entry early.
+func TestRegistryEndedBound(t *testing.T) {
+	r := NewRegistry()
+	if r.keep != endedJobs {
+		t.Fatalf("keep %d, want %d", r.keep, endedJobs)
+	}
+	r.keep = 3
+	run := func(id string) { r.Begin(Job{ID: id, Kind: JobFlow})() }
+	for _, id := range []string{"a", "b", "c"} {
+		run(id)
+	}
+	run("a") // a again: its first entry is stale
+	run("d") // evicts b, the oldest entry that is not stale
+	for id, want := range map[string]bool{"a": true, "b": false, "c": true, "d": true} {
+		if _, live, ok := r.Job(id); ok != want || live {
+			t.Errorf("%s: known %v live %v, want known %v", id, ok, live, want)
+		}
+	}
+	for i := range 100 {
+		run(fmt.Sprint("x", i))
+	}
+	if len(r.ended) != 3 || len(r.order) > 2*r.keep {
+		t.Errorf("kept %d ended jobs in an order of %d, want 3 in at most %d", len(r.ended), len(r.order), 2*r.keep)
 	}
 }
 

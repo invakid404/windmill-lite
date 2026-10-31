@@ -498,14 +498,24 @@ func TestBranchConcurrentRuns(t *testing.T) {
 	}
 }
 
-// CF-13, FX-2 completion rules 7.1 and 8: a clean stop_after_all_iters_if
-// stop of a failed container (a branchall, a while loop or a for loop)
-// keeps the failure and still stops the flow, so continue_on_error does
-// not start what follows, whatever skip_if_stopped says; at the last
-// module, a failure continue_on_error tolerates ends the flow successful,
-// and a predicate that does not hold leaves the failure to
+// A clean stop_after_all_iters_if stop of a failed container (a branchall,
+// a while loop or a for loop) keeps the failure and still stops the flow,
+// so continue_on_error does not start what follows, whatever
+// skip_if_stopped says ([CF-13], [FX-2] completion rules 7.1 and 8). At
+// the last module, a failure continue_on_error tolerates ends the flow
+// successful, and a predicate that does not hold leaves the failure to
 // continue_on_error. A child flow ended so forwards the stop to its
-// container, as an error stop does (CF-12 item 4).
+// container, as an error stop does ([CF-12] item 4).
+//
+// A parallel container's failure is never tolerated, since its completion
+// leaves the cursor on it: at the last module the flow fails, and with no
+// stop continue_on_error re-enters the failed container, which aborts the
+// flow with an InternalError ([CF-7]).
+//
+// [CF-13]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-13
+// [FX-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-2
+// [CF-12]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-12
+// [CF-7]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-7
 func TestContainerCleanStopAfterFailure(t *testing.T) {
 	failing := []string{branch(skipFailure(false), mod("b", "fail", "", "")), branch(skipFailure(true), value("c", "2", ""))}
 	boom := func(stepID string) string {
@@ -518,19 +528,33 @@ func TestContainerCleanStopAfterFailure(t *testing.T) {
 	forLoop := func(parallel bool, envelope string) string {
 		return loopOf("ba", []string{mod("b", "fail", "", "")}, fmt.Sprintf(`"iterator":{"type":"static","value":[0]},"parallel":%v,"skip_failures":false`, parallel), envelope)
 	}
+	aborted := func(kind string) string {
+		return `{"error":{"message":"Bad request: Unrecognized module status for ` + kind + ` Failure { .. }","name":"InternalError"}}`
+	}
 	// Each container fails, with the array it fails with; a collapsed
-	// iteration's error carries the loop's id (CF-8).
+	// iteration's error carries the loop's id. A parallel one's
+	// re-entry aborts the flow with abort.
 	for _, ct := range []struct {
-		name string
-		of   func(envelope string) string
-		arr  string
+		name  string
+		of    func(envelope string) string
+		arr   string
+		abort string
 	}{
-		{"sequential branchall", func(env string) string { return branchAllOf("ba", failing, false, env) }, "[" + boom("b") + "]"},
-		{"parallel branchall", func(env string) string { return branchAllOf("ba", failing, true, env) }, "[" + boom("b") + ",2]"},
-		{"while loop", func(env string) string { return whileOf("ba", []string{mod("b", "fail", "", "")}, false, env) }, "[" + boom("ba") + "]"},
-		{"sequential for loop", func(env string) string { return forLoop(false, env) }, "[" + boom("ba") + "]"},
-		{"parallel for loop", func(env string) string { return forLoop(true, env) }, "[" + boom("b") + "]"},
+		{"sequential branchall", func(env string) string { return branchAllOf("ba", failing, false, env) }, "[" + boom("b") + "]", ""},
+		{"parallel branchall", func(env string) string { return branchAllOf("ba", failing, true, env) }, "[" + boom("b") + ",2]", aborted("BranchAll")},
+		{"while loop", func(env string) string { return whileOf("ba", []string{mod("b", "fail", "", "")}, false, env) }, "[" + boom("ba") + "]", ""},
+		{"sequential for loop", func(env string) string { return forLoop(false, env) }, "[" + boom("ba") + "]", ""},
+		{"parallel for loop", func(env string) string { return forLoop(true, env) }, "[" + boom("b") + "]", aborted("ForloopFlow")},
 	} {
+		last, noStop := conformance.RunSuccess, struct {
+			status conformance.RunStatus
+			result string
+			tail   bool
+		}{conformance.RunSuccess, `"SHOULD_NOT_RUN"`, true}
+		if ct.abort != "" {
+			last = conformance.RunFailure
+			noStop.status, noStop.result, noStop.tail = conformance.RunFailure, ct.abort, false
+		}
 		for _, c := range []struct {
 			name   string
 			flow   string
@@ -540,8 +564,8 @@ func TestContainerCleanStopAfterFailure(t *testing.T) {
 		}{
 			{"clean stop", flowOf(ct.of(stopIf("true", false)), tail), conformance.RunFailure, ct.arr, false},
 			{"skip_if_stopped", flowOf(ct.of(stopIf("true", true)), tail), conformance.RunFailure, ct.arr, false},
-			{"the last module", flowOf(ct.of(stopIf("true", false))), conformance.RunSuccess, ct.arr, false},
-			{"no stop", flowOf(ct.of(stopIf("false", false)), tail), conformance.RunSuccess, `"SHOULD_NOT_RUN"`, true},
+			{"the last module", flowOf(ct.of(stopIf("true", false))), last, ct.arr, false},
+			{"no stop", flowOf(ct.of(stopIf("false", false)), tail), noStop.status, noStop.result, noStop.tail},
 		} {
 			t.Run(ct.name+", "+c.name, func(t *testing.T) {
 				e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &loopSteps{})
@@ -567,6 +591,31 @@ func TestContainerCleanStopAfterFailure(t *testing.T) {
 	wantStatus(t, tr, conformance.RunSuccess, `"after"`)
 	noRecord(t, tr, "m:l/i:0/m:y")
 	noRecord(t, tr, "m:l/i:1/m:ba")
+
+	// A parallel container completes through the parallel path, which
+	// never advances the cursor past it, so its continue_on_error does not
+	// tolerate an error stop that its own stop_after_all_iters_if raises
+	// after its children succeeded: at the last module the flow fails, and
+	// before a later module the flow's failure module runs.
+	errStop := `"continue_on_error":true,"stop_after_all_iters_if":{"expr":"true","skip_if_stopped":false,"error_message":"E"}`
+	succeeding := []string{branch(skipFailure(false), value("x", "1", "")), branch(skipFailure(false), value("y", "2", ""))}
+	for name, ba := range map[string]string{
+		"parallel branchall": branchAllOf("ba", succeeding, true, errStop),
+		"parallel for loop":  loopOf("ba", []string{value("b", "1", "")}, `"iterator":{"type":"static","value":[0,1]},"parallel":true,"skip_failures":false`, errStop),
+	} {
+		t.Run(name+", an error stop at the last module", func(t *testing.T) {
+			tr := runIt(t, mustOpen(t, map[string]string{"f/t/main": flowOf(ba)}, &loopSteps{}), `{}`, nil)
+			wantStatus(t, tr, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"E"}}`)
+		})
+		t.Run(name+", an error stop before a module, with a failure module", func(t *testing.T) {
+			tr := runIt(t, mustOpen(t, map[string]string{"f/t/main": withFailure(handler("value", inputs("v", static(`"H"`)), ""), ba, tail)}, &loopSteps{}), `{}`, nil)
+			wantStatus(t, tr, conformance.RunFailure, `"H"`)
+			noRecord(t, tr, "m:tail")
+			if f, ok := failureStep(tr); !ok || f.Status != conformance.StepSuccess {
+				t.Fatalf("the failure module %+v (%v)", f, ok)
+			}
+		})
+	}
 }
 
 // ADR 0008 H8: a body module's halt-after waits for its containers'
