@@ -19,16 +19,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/bench"
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/engine"
-	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/wl"
 )
 
-// The end-to-end benchmarks of milestone G1 (ADR 0005's benchmark plan,
-// ADR 0012 row G1) run synthetic flows on the real topologies, with the
-// engine in this process, so that they read each run's trace and the
-// engine's CPU time:
+// The end-to-end benchmarks of the step boundary (ADR 0005's benchmark
+// plan) run synthetic flows on the real topologies, with the engine in
+// this process, so that they read each run's trace and the engine's CPU
+// time:
 //
 //   - host: a warm Bun 1.3.10 host in host mode, testdata/benchhost/host.ts
 //     compiled with `bun build --compile`, which embeds the host SDK; the
@@ -41,35 +42,51 @@ import (
 //   - subprocess: the warm Bun harness the engine spawns (harnesses/bun/
 //     runtime), one process, as `windmill-lite run` uses it.
 //
-// The runs are submitted with Runtime.Run. Each benchmark reports, per
-// step: the time per step at its concurrency (ns/op); the step's elapsed
-// time, its module span in the trace, at p50 and p95; the harness span,
-// the engine's Execute of the step, at p50 (the round trip to the harness
-// and back, with the engine's invocation codec and args.json); the
-// engine's handling outside it (module span minus harness span) at p50;
-// the engine's CPU time (this process's, getrusage) and the harness's or
-// host's (process.cpuUsage(), read by the probe flow f/bench/cpu before
-// and after); and the one-minute load average when it started (load1),
-// since another workload on the machine moves every figure.
+// The runs are submitted with Runtime.Run. One iteration of a benchmark
+// is one run per worker, conc workers started together (bench.Workers), so
+// even b.N = 1 puts conc runs in flight at once. Each benchmark reports,
+// per step (report):
+//
+//   - ns/op, the wall time per step at its concurrency, and MB/s, the
+//     payload bytes the steps moved both ways per second;
+//   - the step's elapsed time, its module span in the trace, at p50, p95
+//     and its mean;
+//   - the stages of each step (stages), each the difference of two
+//     readings of the same invocation: the trace's module and harness
+//     spans, the engine side's clock (harness.SetTimesHook) and the
+//     harness's own (harnesses/bun README, Benchmark timings); each
+//     stage's mean and p50 over the steps, the means adding up to the
+//     step's mean;
+//   - the share of a run's module time spent at the boundary, its harness
+//     spans less its steps' own code, per run at p50 and over all runs;
+//     the same for the whole harness span; and the share of a run's
+//     elapsed time in its modules;
+//   - the engine's CPU time (this process's, getrusage) and the harness's
+//     or host's (process.cpuUsage(), read by the probe step f/bench/probe
+//     before and after), per step; for runs one at a time, also each run's
+//     engine CPU and, for a shape, its host CPU, at p50 and p95;
+//   - the concurrency reached (conc-peak, conc-mean: runs in flight) and
+//     the one-minute load average when the runs started (load1).
+//
+// The benchmarks:
 //
 //   - BenchmarkStepBoundary: item 2 of ADR 0005's plan, the per-step
-//     boundary cost for the payloads of jsonval.Synthetic from 26 B to
+//     boundary cost for the payloads of bench.Synthetic from 26 B to
 //     4 MiB, one run at a time and eight at once: f/bench/chain, eight
 //     steps that each return their argument, the first taking the flow
 //     input's member p and the others previous_result, both shortcuts that
-//     run no expression (JE-6, JE-7). internal/harness's benchmarks
-//     measure the parts of the harness span (the transport, the harness's
-//     parse and serialise, the engine's invocation codec, args.json).
+//     run no expression (JE-6, JE-7).
 //   - BenchmarkHostShapes: the shapes a host-mode embedder runs, in host
 //     mode: 50 to 600 steps per run, arguments and results of 1 to 50 KiB,
 //     0 to 3 log lines and 0 to 2 variable or resource reads through the
 //     platform facade per step, and an expression that binds the flow
-//     input in every step. Each run's engine and host CPU per step are
-//     reported at p50 and p95 over the runs, besides their mean.
+//     input in every step.
 //
 // They need the pinned Bun in WL_BUN and the build helper's dependencies,
 // and run only with -bench; the command and the recorded baseline are in
-// ADR 0005.
+// ADR 0005. WL_BENCH_TIMINGS=off leaves the stage readings out, which
+// measures what taking them costs. TestBenchSplit runs the measurement
+// once on each topology.
 
 // benchProxyEnv puts the test binary in engine-proxy mode: the path of
 // the benchmark's Unix socket.
@@ -142,7 +159,7 @@ func sizesName(sizes []int) string {
 	if len(sizes) > 1 {
 		return "mixed"
 	}
-	return strings.ToLower(jsonval.SizeLabel(sizes[0]))
+	return strings.ToLower(bench.SizeLabel(sizes[0]))
 }
 
 // benchFolder is the synthetic sync folder of the benchmarks.
@@ -154,15 +171,23 @@ export async function main(p: unknown) {
   return p;
 }
 `,
-		"f/bench/cpu.ts": `// The CPU time of the process the step runs in, in microseconds: the
-// host's in host mode, the harness's otherwise.
-export async function main() {
+		"f/bench/probe.ts": `// The benchmarks' probe: the CPU time of the process the step runs in, in
+// microseconds (the host's in host mode, the harness's otherwise), and the
+// harness's benchmark timings so far, which it drains. With timings, it
+// sets their sink, so that the runtime records the next invocations; else
+// it removes it.
+const sink = Symbol.for("windmill-lite.timings");
+
+export async function main(timings: boolean) {
+  const g = globalThis as Record<symbol, unknown>;
+  const got = Array.isArray(g[sink]) ? (g[sink] as unknown[]) : [];
+  g[sink] = timings ? [] : undefined;
   const c = process.cpuUsage();
-  return { user: c.user, system: c.system };
+  return { user: c.user, system: c.system, timings: got };
 }
 `,
-		"f/bench/work.ts":            benchWork,
-		"f/bench/cpu.flow/flow.yaml": "summary: The CPU probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/cpu, input_transforms: {}}\n",
+		"f/bench/work.ts":              benchWork,
+		"f/bench/probe.flow/flow.yaml": "summary: The benchmarks' probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/probe, input_transforms: {timings: {type: javascript, expr: flow_input.timings}}}\n",
 	}
 	var chain strings.Builder
 	chain.WriteString("summary: Steps that each return their argument\nvalue:\n  modules:\n")
@@ -209,7 +234,7 @@ func (s benchShape) flow() string {
 }
 
 // benchWork is the step of the shapes. Its result's data is a value of
-// about size bytes shaped like jsonval.Synthetic's, made once per size
+// about size bytes shaped like bench.Synthetic's, made once per size
 // and kept in the module's state (warm), so that the step's own work is
 // small next to what the platform does around it.
 const benchWork = `// The step of the host-mode shapes of milestone G1.
@@ -267,10 +292,13 @@ var (
 
 // benchSetup builds the benchmarks' bundle and compiles their host, once
 // per test binary, and returns the pinned Bun.
-func benchSetup(b *testing.B) string {
+func benchSetup(b testing.TB) string {
 	b.Helper()
 	bun := os.Getenv("WL_BUN")
 	if bun == "" {
+		if os.Getenv("WL_REQUIRE_BUN") != "" {
+			b.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
+		}
 		b.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
 	}
 	benchOnce.Do(func() {
@@ -314,7 +342,7 @@ func benchSetup(b *testing.B) string {
 }
 
 // benchRuntime opens the bundle on one topology, closed when b ends.
-func benchRuntime(b *testing.B, bun, topology string) *wl.Runtime {
+func benchRuntime(b testing.TB, bun, topology string) *wl.Runtime {
 	b.Helper()
 	// A short directory: Unix socket paths are limited to about 100 bytes.
 	dir, err := os.MkdirTemp("", "wl-b-")
@@ -362,7 +390,7 @@ func benchRuntime(b *testing.B, bun, topology string) *wl.Runtime {
 
 // benchHostConn starts the benchmark host with its working directory in
 // dir and returns the host connection its engine proxy handed over.
-func benchHostConn(b *testing.B, dir string, diag *os.File) *wl.Host {
+func benchHostConn(b testing.TB, dir string, diag *os.File) *wl.Host {
 	b.Helper()
 	workdir := filepath.Join(dir, "host")
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
@@ -504,21 +532,6 @@ func cpuOf(raw json.RawMessage) (time.Duration, error) {
 	return time.Duration(c.User+c.System) * time.Microsecond, nil
 }
 
-// harnessCPU runs the CPU probe and returns the harness's (or host's) CPU
-// time so far.
-func harnessCPU(b *testing.B, rt *wl.Runtime) time.Duration {
-	b.Helper()
-	res, err := rt.Run(context.Background(), "f/bench/cpu", json.RawMessage(`{}`), wl.RunOptions{})
-	if err != nil || res.Status != wl.StatusSuccess {
-		b.Fatalf("the CPU probe: %+v, %v", res, err)
-	}
-	d, err := cpuOf(res.Result)
-	if err != nil {
-		b.Fatalf("the CPU probe's result %s: %v", res.Result, err)
-	}
-	return d
-}
-
 // loadAverage is the one-minute load average, or -1 when it cannot be
 // read.
 func loadAverage() float64 {
@@ -536,162 +549,408 @@ func loadAverage() float64 {
 	return -1
 }
 
-// stepTimes are one step's spans.
-type stepTimes struct {
+// probe runs the probe step: it returns the harness's (or host's) CPU
+// time so far and the harness's benchmark timings it drained, and leaves
+// their sink set when timings is true.
+func probe(tb testing.TB, rt *wl.Runtime, timings bool) (time.Duration, []bunTiming) {
+	tb.Helper()
+	res, err := rt.Run(context.Background(), "f/bench/probe", fmt.Appendf(nil, `{"timings":%t}`, timings), wl.RunOptions{})
+	if err != nil || res.Status != wl.StatusSuccess {
+		tb.Fatalf("the probe: %+v, %v", res, err)
+	}
+	var out struct {
+		Timings []bunTiming `json:"timings"`
+	}
+	d, err := cpuOf(res.Result)
+	if err == nil {
+		err = json.Unmarshal(res.Result, &out)
+	}
+	if err != nil {
+		tb.Fatalf("the probe's result %.200s: %v", res.Result, err)
+	}
+	return d, out.Timings
+}
+
+// bunTiming is one invocation's readings in the harness, in nanoseconds
+// of Bun.nanoseconds() (harnesses/bun README, Benchmark timings).
+type bunTiming struct {
+	ID   string  `json:"id"`
+	Rx   float64 `json:"rx"`
+	Dec  float64 `json:"dec"`
+	Call float64 `json:"call"`
+	Ret  float64 `json:"ret"`
+	Ser  float64 `json:"ser"`
+	Sent float64 `json:"sent"`
+}
+
+// stages are the parts of a step, in the order an invocation goes
+// through them. Each is a difference of two readings of the same
+// invocation, so a step's stages add up to its module span.
+var stages = []struct{ name, meaning string }{
+	{"engine", "the engine outside its call of the executor: transforms, arguments and their storage, the trace (module span less harness span)"},
+	{"executor", "the executor around the harness process: the runtime's recorder and the pool's routing (harness span less Process's own time)"},
+	{"go-encode", "checks, the script's arguments and the invoke's payload"},
+	{"args-file", "args.json written, its lock's wait included"},
+	{"go-queue", "the invocation registered and its invoke queued, the process lock's wait included"},
+	{"transport", "from the invoke queued to the result read, less the harness's time: the writer, the socket both ways and the wake-ups, unattributed"},
+	{"bun-decode", "the invoke's last frame decoded in the harness"},
+	{"bun-dispatch", "from decoded to the entrypoint called: context, metadata, module and binding, and any wait behind other invocations"},
+	{"step", "the step's own code"},
+	{"bun-serialise", "the result serialised (resultText)"},
+	{"bun-send", "the result frame encoded and handed to the socket"},
+	{"go-decode", "the result's last frame decoded in the engine"},
+	{"go-handoff", "from decoded to the outcome back with the engine: settlement and the Reporter's calls"},
+}
+
+// stepSplit is one step's stages, by the index of stages.
+type stepSplit struct {
+	module, harness time.Duration
+	stage           []time.Duration
+}
+
+// runRecord is what one run left for the split: its steps' spans and job
+// ids, its expression time and its own elapsed time.
+type runRecord struct {
+	steps   []benchStep
+	expr    time.Duration
+	elapsed time.Duration
+}
+
+type benchStep struct {
+	job             string
 	module, harness time.Duration
 }
 
-// steps returns the spans of each step of a run's trace, by site, and the
-// run's expression time.
-func steps(tr *wl.Trace) (map[string]*stepTimes, time.Duration) {
-	out := map[string]*stepTimes{}
+// recordRun reads a run's trace: each step's module and harness spans,
+// matched by site, and its job id, the invocation's id.
+func recordRun(tr *wl.Trace, want int, elapsed time.Duration) (runRecord, error) {
+	spans := map[string]*benchStep{}
 	var expr time.Duration
-	at := func(site string) *stepTimes {
-		s := out[site]
-		if s == nil {
-			s = &stepTimes{}
-			out[site] = s
-		}
-		return s
-	}
 	for _, sp := range tr.Spans {
 		switch sp.Kind {
-		case engine.SpanModule:
-			at(sp.Site.String()).module += sp.Duration
-		case engine.SpanHarness:
-			at(sp.Site.String()).harness += sp.Duration
+		case engine.SpanModule, engine.SpanHarness:
+			s := spans[sp.Site.String()]
+			if s == nil {
+				s = &benchStep{}
+				spans[sp.Site.String()] = s
+			}
+			if sp.Kind == engine.SpanModule {
+				s.module += sp.Duration
+			} else {
+				s.harness += sp.Duration
+			}
 		case engine.SpanExpression:
 			expr += sp.Duration
 		}
 	}
-	return out, expr
-}
-
-// pct returns the q-quantile of ds in nanoseconds (nearest rank).
-func pct(ds []time.Duration, q float64) float64 {
-	if len(ds) == 0 {
-		return 0
+	rec := runRecord{expr: expr, elapsed: elapsed}
+	for _, st := range tr.Steps {
+		s := spans[st.Site.String()]
+		if s == nil || st.Job == "" {
+			continue
+		}
+		s.job = st.Job
+		rec.steps = append(rec.steps, *s)
 	}
-	s := slices.Clone(ds)
-	slices.Sort(s)
-	return float64(s[min(len(s)-1, int(q*float64(len(s))))])
+	if len(rec.steps) != want || len(spans) != want {
+		return rec, fmt.Errorf("%d steps with a job and %d sites with spans in the trace, %d wanted", len(rec.steps), len(spans), want)
+	}
+	return rec, nil
 }
 
-// benchOutcome is what a benchmark's runs measured.
-type benchOutcome struct {
-	mu        sync.Mutex
-	module    []time.Duration
-	harness   []time.Duration
-	outside   []time.Duration
-	expr      time.Duration
-	steps     int
-	runs      []time.Duration
-	runEngine []time.Duration // per run, divided by its steps (sequential only)
+// split matches each step of the runs with the engine side's and the
+// harness's readings of its invocation and returns its stages. Every step
+// must have both, unless timed is false, when it returns none.
+func split(runs []runRecord, goTimes map[string]harness.InvocationTimes, bunTimes []bunTiming, timed bool) ([]stepSplit, error) {
+	if !timed {
+		return nil, nil
+	}
+	bun := make(map[string]bunTiming, len(bunTimes))
+	for _, t := range bunTimes {
+		bun[t.ID] = t
+	}
+	ns := func(a, b float64) time.Duration { return time.Duration(b - a) }
+	var out []stepSplit
+	for _, r := range runs {
+		for _, s := range r.steps {
+			g, okG := goTimes[s.job]
+			h, okB := bun[s.job]
+			if !okG || !okB || h.Call == 0 || h.Ret == 0 || h.Ser == 0 {
+				return nil, fmt.Errorf("invocation %s: engine readings %t, harness readings %+v", s.job, okG, h)
+			}
+			inHarness := ns(h.Rx, h.Sent)
+			st := []time.Duration{
+				s.module - s.harness,
+				s.harness - g.Done.Sub(g.Start),
+				g.Encoded.Sub(g.Start),
+				g.ArgsWritten.Sub(g.Encoded),
+				g.Queued.Sub(g.ArgsWritten),
+				g.Received.Sub(g.Queued) - inHarness,
+				ns(h.Rx, h.Dec),
+				ns(h.Dec, h.Call),
+				ns(h.Call, h.Ret),
+				ns(h.Ret, h.Ser),
+				ns(h.Ser, h.Sent),
+				g.Decoded.Sub(g.Received),
+				g.Done.Sub(g.Decoded),
+			}
+			out = append(out, stepSplit{module: s.module, harness: s.harness, stage: st})
+		}
+	}
+	return out, nil
+}
+
+// benchCase is one benchmark's runs.
+type benchCase struct {
+	path  string
+	args  json.RawMessage
+	steps int
+	conc  int
+	warm  int
+	check func(*wl.Result) error
+	// hostCPU reads the host's CPU time that a run's result reports, for
+	// each run's own figure when runs go one at a time; nil for none.
+	hostCPU func(*wl.Result) (time.Duration, error)
+	// bytes is the payload a step moves, both ways, for MB/s; 0 for none.
+	bytes int
+}
+
+// benchResult is what measure measured.
+type benchResult struct {
+	conc      bench.Concurrency
+	runs      []runRecord
+	split     []stepSplit
+	engineCPU time.Duration
+	engineSys time.Duration
+	hostCPU   time.Duration
+	runEngine []time.Duration // per run and step, one run at a time only
 	runHost   []time.Duration // the same
+	load      float64
 }
 
-func (o *benchOutcome) add(tr *wl.Trace, want int) error {
-	st, expr := steps(tr)
-	if len(st) != want {
-		return fmt.Errorf("%d steps in the trace, %d wanted", len(st), want)
+// stepCount is the number of steps the measured runs ran.
+func (r *benchResult) stepCount() int {
+	n := 0
+	for _, run := range r.runs {
+		n += len(run.steps)
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	for _, s := range st {
-		o.module = append(o.module, s.module)
-		o.harness = append(o.harness, s.harness)
-		o.outside = append(o.outside, s.module-s.harness)
-	}
-	o.expr += expr
-	o.steps += len(st)
-	return nil
+	return n
 }
 
-// report reports the outcome's figures per step. engineSys is the part of
-// engineCPU that is system time.
-func (o *benchOutcome) report(b *testing.B, wall, engineCPU, engineSys, hostCPU time.Duration, load float64) {
-	steps := float64(o.steps)
-	b.ReportMetric(float64(wall)/steps, "ns/op")
-	b.ReportMetric(pct(o.module, 0.50), "step-p50-ns")
-	b.ReportMetric(pct(o.module, 0.95), "step-p95-ns")
-	b.ReportMetric(pct(o.harness, 0.50), "harness-p50-ns")
-	b.ReportMetric(pct(o.outside, 0.50), "engine-side-p50-ns")
-	b.ReportMetric(float64(engineCPU)/steps, "engine-cpu-ns/step")
-	b.ReportMetric(float64(engineSys)/steps, "engine-sys-ns/step")
-	b.ReportMetric(float64(hostCPU)/steps, "host-cpu-ns/step")
-	if o.expr > 0 {
-		b.ReportMetric(float64(o.expr)/steps, "expr-ns/step")
-	}
-	if len(o.runEngine) > 0 {
-		b.ReportMetric(pct(o.runEngine, 0.50), "engine-cpu-p50-ns/step")
-		b.ReportMetric(pct(o.runEngine, 0.95), "engine-cpu-p95-ns/step")
-		b.ReportMetric(pct(o.runHost, 0.50), "host-cpu-p50-ns/step")
-		b.ReportMetric(pct(o.runHost, 0.95), "host-cpu-p95-ns/step")
-	}
-	b.ReportMetric(load, "load1")
-}
+// benchTimed reports whether the stage readings are on (WL_BENCH_TIMINGS
+// is not off).
+func benchTimed() bool { return os.Getenv("WL_BENCH_TIMINGS") != "off" }
 
-// benchRuns runs b.N runs of path with args, conc at a time, after a
-// warm-up of warm runs, checking each with check, and reports the
-// figures per step.
-func benchRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, steps, conc, warm int, check func(*wl.Result) error) {
+// measure runs c on rt: c.warm runs first, then ops runs on each of c.conc
+// workers started together, between two probes, with the stage readings
+// on unless WL_BENCH_TIMINGS is off. timer, when not nil, is stopped
+// outside the measured runs.
+func measure(tb testing.TB, rt *wl.Runtime, c benchCase, ops int, timer interface {
+	StartTimer()
+	StopTimer()
+}) benchResult {
+	tb.Helper()
 	ctx := context.Background()
-	run := func() (*wl.Result, error) {
-		res, err := rt.Run(ctx, path, args, wl.RunOptions{})
+	run := func() (*wl.Result, time.Duration, error) {
+		t0 := time.Now()
+		res, err := rt.Run(ctx, c.path, c.args, wl.RunOptions{})
+		elapsed := time.Since(t0)
 		if err == nil && res.Status != wl.StatusSuccess {
-			err = fmt.Errorf("run %s: %s: %s", path, res.Status, res.Result)
+			err = fmt.Errorf("run %s: %s: %.300s", c.path, res.Status, res.Result)
 		}
 		if err == nil {
-			err = check(res)
+			err = c.check(res)
 		}
-		return res, err
+		return res, elapsed, err
 	}
-	for range warm {
-		if _, err := run(); err != nil {
-			b.Fatal(err)
+	for range c.warm {
+		if _, _, err := run(); err != nil {
+			tb.Fatal(err)
 		}
 	}
 	runtime.GC()
-	load := loadAverage()
-	o := &benchOutcome{}
-	hostBefore := harnessCPU(b, rt)
-	userBefore, sysBefore := engineCPUParts()
-	errs := make(chan error, conc)
-	var wg sync.WaitGroup
-	b.ResetTimer()
-	start := time.Now()
-	for k := range conc {
-		n := b.N / conc
-		if k < b.N%conc {
-			n++
-		}
-		wg.Go(func() {
-			for range n {
-				t0 := time.Now()
-				res, err := run()
-				if err == nil {
-					err = o.add(res.Trace, steps)
-				}
-				if err != nil {
-					errs <- err
-					return
-				}
-				o.mu.Lock()
-				o.runs = append(o.runs, time.Since(t0))
-				o.mu.Unlock()
-			}
+	timed := benchTimed()
+	out := benchResult{load: loadAverage()}
+	hostBefore, _ := probe(tb, rt, timed)
+	hostLast := hostBefore
+	var (
+		mu      sync.Mutex
+		goTimes = map[string]harness.InvocationTimes{}
+	)
+	if timed {
+		harness.SetTimesHook(func(t harness.InvocationTimes) {
+			mu.Lock()
+			goTimes[t.ID] = t
+			mu.Unlock()
 		})
 	}
-	wg.Wait()
-	wall := time.Since(start)
-	b.StopTimer()
-	user, sys := engineCPUParts()
-	hostSpent := harnessCPU(b, rt) - hostBefore
-	close(errs)
-	if err := <-errs; err != nil {
-		b.Fatal(err)
+	perRun := c.conc == 1
+	userBefore, sysBefore := engineCPUParts()
+	if timer != nil {
+		timer.StartTimer()
 	}
-	o.report(b, wall, user-userBefore+sys-sysBefore, sys-sysBefore, hostSpent, load)
+	conc, err := bench.Workers(c.conc, ops, func(int) error {
+		e0 := engineCPU()
+		res, elapsed, err := run()
+		e1 := engineCPU()
+		if err != nil {
+			return err
+		}
+		rec, err := recordRun(res.Trace, c.steps, elapsed)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		out.runs = append(out.runs, rec)
+		if perRun {
+			out.runEngine = append(out.runEngine, (e1-e0)/time.Duration(c.steps))
+			if c.hostCPU != nil {
+				host, err := c.hostCPU(res)
+				if err != nil {
+					return err
+				}
+				out.runHost = append(out.runHost, (host-hostLast)/time.Duration(c.steps))
+				hostLast = host
+			}
+		}
+		return nil
+	})
+	if timer != nil {
+		timer.StopTimer()
+	}
+	user, sys := engineCPUParts()
+	harness.SetTimesHook(nil)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	hostAfter, bunTimes := probe(tb, rt, false)
+	out.conc = conc
+	out.engineCPU, out.engineSys, out.hostCPU = user-userBefore+sys-sysBefore, sys-sysBefore, hostAfter-hostBefore
+	mu.Lock()
+	defer mu.Unlock()
+	if out.split, err = split(out.runs, goTimes, bunTimes, timed); err != nil {
+		tb.Fatal(err)
+	}
+	return out
+}
+
+// shares returns, for each run, the share of its module time spent at the
+// boundary (its steps' harness spans less their own code) and in the
+// harness (its harness spans), and the share of its elapsed time in its
+// modules; then the same over every run's steps together.
+func (r *benchResult) shares() (boundary, harnessShare, modules []float64, pooledBoundary, pooledHarness float64) {
+	var i int
+	var allModule, allHarness, allStep time.Duration
+	for _, run := range r.runs {
+		var module, harness, step time.Duration
+		for range run.steps {
+			if r.split != nil {
+				s := r.split[i]
+				module, harness, step = module+s.module, harness+s.harness, step+s.stage[8]
+			}
+			i++
+		}
+		if r.split == nil {
+			for _, s := range run.steps {
+				module, harness = module+s.module, harness+s.harness
+			}
+		}
+		if module > 0 {
+			boundary = append(boundary, float64(harness-step)/float64(module))
+			harnessShare = append(harnessShare, float64(harness)/float64(module))
+		}
+		if run.elapsed > 0 {
+			modules = append(modules, float64(module)/float64(run.elapsed))
+		}
+		allModule, allHarness, allStep = allModule+module, allHarness+harness, allStep+step
+	}
+	if allModule > 0 {
+		pooledBoundary, pooledHarness = float64(allHarness-allStep)/float64(allModule), float64(allHarness)/float64(allModule)
+	}
+	return
+}
+
+// fractionAt returns the nearest-rank q-quantile of fs, with the
+// convention of bench.Percentile.
+func fractionAt(fs []float64, q float64) float64 {
+	ds := make([]time.Duration, len(fs))
+	for i, f := range fs {
+		ds[i] = time.Duration(f * 1e9)
+	}
+	return float64(bench.Percentile(ds, q)) / 1e9
+}
+
+// report reports r's figures per step on b (the metrics listed at the top
+// of this file).
+func (r *benchResult) report(b *testing.B, c benchCase) {
+	steps := float64(r.stepCount())
+	var module, harnessSpan []time.Duration
+	for _, run := range r.runs {
+		for _, s := range run.steps {
+			module, harnessSpan = append(module, s.module), append(harnessSpan, s.harness)
+		}
+	}
+	b.ReportMetric(float64(r.conc.Wall)/steps, "ns/op")
+	if c.bytes > 0 {
+		b.ReportMetric(steps*float64(c.bytes)/r.conc.Wall.Seconds()/1e6, "MB/s")
+	}
+	b.ReportMetric(float64(bench.Percentile(module, 0.50)), "step-p50-ns")
+	b.ReportMetric(float64(bench.Percentile(module, 0.95)), "step-p95-ns")
+	b.ReportMetric(float64(bench.Mean(module)), "step-mean-ns")
+	b.ReportMetric(float64(bench.Percentile(harnessSpan, 0.50)), "harness-p50-ns")
+	for k, st := range stages {
+		if r.split == nil {
+			break
+		}
+		ds := make([]time.Duration, len(r.split))
+		for i, s := range r.split {
+			ds[i] = s.stage[k]
+		}
+		b.ReportMetric(float64(bench.Mean(ds)), st.name+"-mean-ns")
+		b.ReportMetric(float64(bench.Percentile(ds, 0.50)), st.name+"-p50-ns")
+	}
+	boundary, harnessShare, modules, pooledBoundary, pooledHarness := r.shares()
+	if r.split != nil {
+		b.ReportMetric(fractionAt(boundary, 0.50), "boundary-share-p50")
+		b.ReportMetric(pooledBoundary, "boundary-share")
+	}
+	b.ReportMetric(fractionAt(harnessShare, 0.50), "harness-share-p50")
+	b.ReportMetric(pooledHarness, "harness-share")
+	b.ReportMetric(fractionAt(modules, 0.50), "module-share-p50")
+	var expr time.Duration
+	for _, run := range r.runs {
+		expr += run.expr
+	}
+	b.ReportMetric(float64(expr)/steps, "expr-ns/step")
+	b.ReportMetric(float64(r.engineCPU)/steps, "engine-cpu-ns/step")
+	b.ReportMetric(float64(r.engineSys)/steps, "engine-sys-ns/step")
+	b.ReportMetric(float64(r.hostCPU)/steps, "host-cpu-ns/step")
+	if len(r.runEngine) > 0 {
+		b.ReportMetric(float64(bench.Percentile(r.runEngine, 0.50)), "engine-cpu-p50-ns/step")
+		b.ReportMetric(float64(bench.Percentile(r.runEngine, 0.95)), "engine-cpu-p95-ns/step")
+	}
+	if len(r.runHost) > 0 {
+		b.ReportMetric(float64(bench.Percentile(r.runHost, 0.50)), "host-cpu-p50-ns/step")
+		b.ReportMetric(float64(bench.Percentile(r.runHost, 0.95)), "host-cpu-p95-ns/step")
+	}
+	b.ReportMetric(float64(r.conc.Peak), "conc-peak")
+	b.ReportMetric(r.conc.Mean, "conc-mean")
+	b.ReportMetric(r.load, "load1")
+}
+
+// chainCase is f/bench/chain with the payload of size n, conc at a time.
+func chainCase(n, conc int) benchCase {
+	return benchCase{
+		path: "f/bench/chain", args: fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(n)),
+		steps: benchChainSteps, conc: conc, warm: 3, bytes: 2 * n,
+		check: func(res *wl.Result) error {
+			if len(res.Result) != n {
+				return fmt.Errorf("the chain's result has %d bytes, not %d", len(res.Result), n)
+			}
+			return nil
+		},
+	}
 }
 
 func BenchmarkStepBoundary(b *testing.B) {
@@ -700,16 +959,12 @@ func BenchmarkStepBoundary(b *testing.B) {
 		b.Run("topology="+topology, func(b *testing.B) {
 			rt := benchRuntime(b, bun, topology)
 			for _, conc := range []int{1, 8} {
-				for _, n := range jsonval.SyntheticSizes {
-					args := fmt.Appendf(nil, `{"p":%s}`, jsonval.Synthetic(n))
-					b.Run(fmt.Sprintf("conc=%d/size=%s", conc, jsonval.SizeLabel(n)), func(b *testing.B) {
-						benchRuns(b, rt, "f/bench/chain", args, benchChainSteps, conc, 3, func(res *wl.Result) error {
-							if len(res.Result) != n {
-								return fmt.Errorf("the chain's result has %d bytes, not %d", len(res.Result), n)
-							}
-							return nil
-						})
-						b.SetBytes(int64(2 * n))
+				for _, n := range bench.SyntheticSizes {
+					b.Run(fmt.Sprintf("conc=%d/size=%s", conc, bench.SizeLabel(n)), func(b *testing.B) {
+						c := chainCase(n, conc)
+						b.StopTimer()
+						r := measure(b, rt, c, b.N, b)
+						r.report(b, c)
 					})
 				}
 			}
@@ -717,88 +972,87 @@ func BenchmarkStepBoundary(b *testing.B) {
 	}
 }
 
+// shapeCase is the shape's runs.
+func shapeCase(s benchShape) benchCase {
+	return benchCase{
+		path:  s.path(),
+		args:  fmt.Appendf(nil, `{"tenant":"tenant-a","region":"eu-1","seed":%s}`, bench.Synthetic(s.sizes[0])),
+		steps: s.steps, conc: s.conc, warm: 1,
+		check: func(res *wl.Result) error {
+			var out struct {
+				N   int             `json:"n"`
+				CPU json.RawMessage `json:"cpu"`
+			}
+			if err := json.Unmarshal(res.Result, &out); err != nil || out.N != s.steps || out.CPU == nil {
+				return fmt.Errorf("shape %s: the result is not its last step's: %.200s (%v)", s.name, res.Result, err)
+			}
+			return nil
+		},
+		hostCPU: func(res *wl.Result) (time.Duration, error) {
+			var out struct{ CPU json.RawMessage }
+			if err := json.Unmarshal(res.Result, &out); err != nil {
+				return 0, err
+			}
+			return cpuOf(out.CPU)
+		},
+	}
+}
+
 func BenchmarkHostShapes(b *testing.B) {
 	bun := benchSetup(b)
 	rt := benchRuntime(b, bun, "host")
 	for _, s := range benchShapes {
-		args := fmt.Appendf(nil, `{"tenant":"tenant-a","region":"eu-1","seed":%s}`, jsonval.Synthetic(s.sizes[0]))
 		b.Run("shape="+s.name, func(b *testing.B) {
-			if s.conc > 1 {
-				benchRuns(b, rt, s.path(), args, s.steps, s.conc, 1, checkShape(s))
-				return
-			}
-			benchShapeRuns(b, rt, s, args)
+			c := shapeCase(s)
+			b.StopTimer()
+			r := measure(b, rt, c, b.N, b)
+			r.report(b, c)
 		})
 	}
 }
 
-// checkShape checks a shape's run: its result is its last step's.
-func checkShape(s benchShape) func(*wl.Result) error {
-	return func(res *wl.Result) error {
-		var out struct {
-			N   int             `json:"n"`
-			CPU json.RawMessage `json:"cpu"`
-		}
-		if err := json.Unmarshal(res.Result, &out); err != nil || out.N != s.steps || out.CPU == nil {
-			return fmt.Errorf("shape %s: the result is not its last step's: %.200s (%v)", s.name, res.Result, err)
-		}
-		return nil
+// TestBenchSplit runs the benchmarks' measurement once on each topology,
+// with two runs at once, so that a broken split fails the ordinary tests:
+// both runs were in flight together, every step was matched with both
+// sides' readings of its invocation, its stages add up to its module span
+// exactly, and the shares are fractions. It needs the pinned Bun.
+func TestBenchSplit(t *testing.T) {
+	if !benchTimed() {
+		t.Skip("WL_BENCH_TIMINGS is off")
 	}
-}
-
-// benchShapeRuns runs b.N runs of a sequential shape, one at a time, and
-// reports besides benchRuns's figures each run's engine and host CPU per
-// step at p50 and p95: the engine's from getrusage around the run, the
-// host's from the CPU time the run's last step reports, against the last
-// run's (or the probe's, for the first).
-func benchShapeRuns(b *testing.B, rt *wl.Runtime, s benchShape, args json.RawMessage) {
-	ctx := context.Background()
-	check := checkShape(s)
-	run := func() (*wl.Result, time.Duration, error) {
-		res, err := rt.Run(ctx, s.path(), args, wl.RunOptions{})
-		if err == nil && res.Status != wl.StatusSuccess {
-			err = fmt.Errorf("run %s: %s: %.300s", s.path(), res.Status, res.Result)
-		}
-		if err == nil {
-			err = check(res)
-		}
-		var host time.Duration
-		if err == nil {
-			var out struct{ CPU json.RawMessage }
-			_ = json.Unmarshal(res.Result, &out)
-			host, err = cpuOf(out.CPU)
-		}
-		return res, host, err
+	bun := benchSetup(t)
+	for _, topology := range []string{"host", "subprocess"} {
+		t.Run(topology, func(t *testing.T) {
+			rt := benchRuntime(t, bun, topology)
+			c := chainCase(1<<10, 2)
+			c.warm = 1
+			r := measure(t, rt, c, 1, nil)
+			if r.conc.Peak != 2 || len(r.runs) != 2 || len(r.split) != 2*benchChainSteps {
+				t.Fatalf("peak %d, %d runs, %d steps split", r.conc.Peak, len(r.runs), len(r.split))
+			}
+			for _, s := range r.split {
+				var sum time.Duration
+				for k, d := range s.stage {
+					// The transport is a difference of two processes' clocks
+					// and may read a little below zero; the others cannot.
+					if d < 0 && stages[k].name != "transport" {
+						t.Fatalf("stage %s is %v", stages[k].name, d)
+					}
+					sum += d
+				}
+				if sum != s.module {
+					t.Fatalf("the stages add up to %v, the module span is %v", sum, s.module)
+				}
+			}
+			boundary, harnessShare, modules, pooled, _ := r.shares()
+			for _, f := range slices.Concat(boundary, harnessShare, modules, []float64{pooled}) {
+				if f <= 0 || f > 1 {
+					t.Fatalf("a share of %v (boundary %v, harness %v, modules %v)", f, boundary, harnessShare, modules)
+				}
+			}
+			if r.hostCPU <= 0 || r.engineCPU <= 0 {
+				t.Fatalf("CPU: engine %v, host %v", r.engineCPU, r.hostCPU)
+			}
+		})
 	}
-	if _, _, err := run(); err != nil {
-		b.Fatal(err)
-	}
-	runtime.GC()
-	load := loadAverage()
-	o := &benchOutcome{}
-	hostLast := harnessCPU(b, rt)
-	hostBefore := hostLast
-	userBefore, sysBefore := engineCPUParts()
-	b.ResetTimer()
-	start := time.Now()
-	for range b.N {
-		t0, e0 := time.Now(), engineCPU()
-		res, host, err := run()
-		e1 := engineCPU()
-		if err == nil {
-			err = o.add(res.Trace, s.steps)
-		}
-		if err != nil {
-			b.Fatal(err)
-		}
-		o.runs = append(o.runs, time.Since(t0))
-		o.runEngine = append(o.runEngine, (e1-e0)/time.Duration(s.steps))
-		o.runHost = append(o.runHost, (host-hostLast)/time.Duration(s.steps))
-		hostLast = host
-	}
-	wall := time.Since(start)
-	b.StopTimer()
-	user, sys := engineCPUParts()
-	hostSpent := harnessCPU(b, rt) - hostBefore
-	o.report(b, wall, user-userBefore+sys-sysBefore, sys-sysBefore, hostSpent, load)
 }

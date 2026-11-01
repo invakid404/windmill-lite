@@ -7,6 +7,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/bench"
 )
 
 // An edgeCase is a canonicaliser input the conformance cases cannot hold
@@ -466,23 +468,13 @@ func (g *textGen) space(b *bytes.Buffer) {
 	}
 }
 
-// TestSynthetic checks the benchmark payloads (milestone G1): each has
-// exactly its size, is one JSON object the canonicaliser accepts, and the
-// canonicaliser and the test implementation agree on its stored text, so
-// the two sides of BenchmarkStored compute the same thing.
-func TestSynthetic(t *testing.T) {
-	for _, n := range append([]int{0, 63, 64, 65, 200, 1000}, SyntheticSizes...) {
-		text := Synthetic(n)
-		want := n
-		if n < 64 {
-			want = SyntheticMin
-		}
-		if len(text) != want {
-			t.Fatalf("Synthetic(%d) has %d bytes, want %d", n, len(text), want)
-		}
-		if !bytes.HasPrefix(text, []byte("{")) || !bytes.Equal(Synthetic(n), text) {
-			t.Fatalf("Synthetic(%d) is not one stable object: %.80s", n, text)
-		}
+// TestSyntheticStored checks the benchmark payloads (internal/bench) here:
+// the canonicaliser accepts each, and it and the test implementation agree
+// on its stored text, so the two sides of BenchmarkStored compute the same
+// thing.
+func TestSyntheticStored(t *testing.T) {
+	for _, n := range bench.SyntheticSizes {
+		text := bench.Synthetic(n)
 		got, err := canonicalise(text)
 		if err != nil {
 			t.Fatalf("Synthetic(%d): %v", n, err)
@@ -492,21 +484,16 @@ func TestSynthetic(t *testing.T) {
 			t.Fatalf("Synthetic(%d): the canonicaliser and the test implementation differ (%v)", n, err)
 		}
 	}
-	for n, want := range map[int]string{26: "26B", 1 << 10: "1KiB", 4 << 20: "4MiB", 1500: "1500B"} {
-		if got := SizeLabel(n); got != want {
-			t.Errorf("SizeLabel(%d) = %q, want %q", n, got, want)
-		}
-	}
 }
 
 // BenchmarkStored is item 1 of ADR 0005's benchmark plan (milestone G1):
 // the canonicaliser against the test implementation's decode, sort and
-// encode, on the step-result-shaped payloads of Synthetic from 26 B to
-// 4 MiB. Both compute the stored text (TestSynthetic).
+// encode, on the step-result-shaped payloads of bench.Synthetic from 26 B
+// to 4 MiB. Both compute the stored text (TestSyntheticStored).
 func BenchmarkStored(b *testing.B) {
-	for _, n := range SyntheticSizes {
-		text := Synthetic(n)
-		b.Run("size="+SizeLabel(n)+"/impl=canonicaliser", func(b *testing.B) {
+	for _, n := range bench.SyntheticSizes {
+		text := bench.Synthetic(n)
+		b.Run("size="+bench.SizeLabel(n)+"/impl=canonicaliser", func(b *testing.B) {
 			b.SetBytes(int64(len(text)))
 			for b.Loop() {
 				if _, err := canonicalise(text); err != nil {
@@ -514,7 +501,7 @@ func BenchmarkStored(b *testing.B) {
 				}
 			}
 		})
-		b.Run("size="+SizeLabel(n)+"/impl=decode-sort-encode", func(b *testing.B) {
+		b.Run("size="+bench.SizeLabel(n)+"/impl=decode-sort-encode", func(b *testing.B) {
 			b.SetBytes(int64(len(text)))
 			for b.Loop() {
 				if _, err := referenceStored(text); err != nil {

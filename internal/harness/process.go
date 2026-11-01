@@ -318,6 +318,10 @@ type invocation struct {
 	// later is killed at once. Guarded by Process.mu.
 	children       []*childGroup
 	childrenKilled bool
+	// times are its clock readings while a times hook is set
+	// (SetTimesHook), else nil. The reader fills Received and Decoded,
+	// under Process.mu, before it delivers the outcome.
+	times *InvocationTimes
 }
 
 // execResult is what an invocation's outcome channel delivers: an
@@ -734,6 +738,9 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 	}
 	switch inv.state {
 	case invPending:
+		if inv.times != nil {
+			inv.times.Received, inv.times.Decoded = p.conn.msgRead, p.conn.msgDecoded
+		}
 		out := stepOutcome(r)
 		if r.Settled && p.cfg.ModuleState == engine.ModuleStateFresh {
 			// WR-55: the job of a fresh process completes once the process
@@ -1583,6 +1590,10 @@ func platformAnswer(ctx context.Context, serve func(context.Context) PlatformRep
 // for the invocation (see invocation.fixed), but never for one that was
 // not dispatched.
 func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func()) (engine.StepOutcome, dispatch, error) {
+	var times *InvocationTimes
+	if timesHook.Load() != nil {
+		times = &InvocationTimes{ID: inv.ID, Start: time.Now()}
+	}
 	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.ModuleState, p.cfg.Facade); err != nil {
 		return engine.StepOutcome{}, notDispatched, err
 	}
@@ -1622,10 +1633,16 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if ctx.Err() != nil {
 		return engine.StepOutcome{}, notDispatched, context.Cause(ctx)
 	}
+	if times != nil {
+		times.Encoded = time.Now()
+	}
 	if err := p.writeArgs(args); err != nil {
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
 	}
-	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), fixed: fixed}
+	if times != nil {
+		times.ArgsWritten = time.Now()
+	}
+	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), fixed: fixed, times: times}
 	p.mu.Lock()
 	if p.state != stateServing || p.killReason != "" || p.ending {
 		p.mu.Unlock()
@@ -1647,6 +1664,9 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		}
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
 	}
+	if times != nil {
+		times.Queued = time.Now()
+	}
 	p.invs[inv.ID] = e
 	p.served = p.served || fresh
 	p.inFlight++
@@ -1654,6 +1674,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 
 	select {
 	case r := <-e.outcome:
+		reportTimes(times, r.err)
 		return r.out, completed, r.err
 	case <-ctx.Done():
 	}
@@ -1662,6 +1683,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		// The outcome won the race: it is in the channel or on its way.
 		p.mu.Unlock()
 		r := <-e.outcome
+		reportTimes(times, r.err)
 		return r.out, completed, r.err
 	}
 	e.state = invAbandoned
@@ -1698,6 +1720,19 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	}
 	<-freed
 	return engine.StepOutcome{}, abandoned, context.Cause(ctx)
+}
+
+// reportTimes hands an invocation's readings to the times hook, once its
+// outcome has reached exec: for an outcome the harness reported, not for
+// one that a lost host or connection made (err).
+func reportTimes(t *InvocationTimes, err error) {
+	if t == nil || err != nil || t.Received.IsZero() {
+		return
+	}
+	if f := timesHook.Load(); f != nil {
+		t.Done = time.Now()
+		(*f)(*t)
+	}
 }
 
 var entryName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
