@@ -53,6 +53,12 @@ type Pipeline struct {
 
 	mu       sync.Mutex
 	programs map[string]compiled
+
+	// paths says whether the engine evaluates member paths as the
+	// pipeline's own answer does (ExactMemberPaths), and pathOf holds each
+	// text's member path, or nil for a text that is not one.
+	paths  bool
+	pathOf sync.Map
 }
 
 // compiled is the Engine's answer for one source: its program, or the
@@ -64,7 +70,8 @@ type compiled struct {
 
 // NewPipeline returns a Pipeline that evaluates on engine.
 func NewPipeline(engine Engine) *Pipeline {
-	return &Pipeline{engine: engine, limits: engine.Limits(), attempts: 3, retryPause: 5 * time.Second, programs: map[string]compiled{}}
+	_, paths := engine.(ExactMemberPaths)
+	return &Pipeline{engine: engine, limits: engine.Limits(), attempts: 3, retryPause: 5 * time.Second, programs: map[string]compiled{}, paths: paths}
 }
 
 // Prepare compiles the programs of exprs on the engine, and the preludes,
@@ -129,8 +136,12 @@ func (p *Pipeline) program(source string) (Program, error) {
 // A context that ends while a shortcut reads the results context (JE-9) is
 // reported as its cause, not as the lookup's null.
 //
-// Otherwise the expression's program runs on the engine (see evaluate). A
-// failure is an *EvalError with Windmill's text; a context that ends during
+// Otherwise, on an engine that evaluates member paths exactly
+// (ExactMemberPaths), a text that only reads a member path of a JSON value,
+// such as flow_input.cfg.region, previous_result.items[0]?.id or
+// results.a?.b, is answered as the engine would answer it, without the
+// engine (memberPath). Anything else runs the expression's program on the
+// engine (see evaluate). A failure is an *EvalError with Windmill's text; a context that ends during
 // the evaluation gives its cause instead. The engine's text is returned as
 // it is, without a check that it is JSON: the user's code can replace
 // JSON.stringify and so return any string (JE-15).
@@ -157,11 +168,32 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 	if err := checkDepth(e, s, in); err != nil {
 		return jsonval.Value{}, err
 	}
+	if mp := p.memberPath(e); mp != nil {
+		if out, ok := mp.eval(ctx, &in); ok {
+			if err := context.Cause(ctx); err != nil {
+				return jsonval.Value{}, err
+			}
+			return jsonval.FromProducer(out), nil
+		}
+	}
 	out, err := p.evaluate(ctx, e, in)
 	if err != nil {
 		return jsonval.Value{}, err
 	}
 	return jsonval.FromProducer(out), nil
+}
+
+// memberPath returns e's member path when the pipeline answers it itself.
+func (p *Pipeline) memberPath(e *Expr) *memberPath {
+	if !p.paths {
+		return nil
+	}
+	if mp, ok := p.pathOf.Load(e.Trimmed); ok {
+		return mp.(*memberPath)
+	}
+	mp := parseMemberPath(e)
+	p.pathOf.Store(e.Trimmed, mp)
+	return mp
 }
 
 // evaluate runs e's program on the engine with the bindings in (ADR 0003),

@@ -131,8 +131,31 @@ it, and `Scope`'s documentation lists it. The flow input's members are in
 jsonb's printed form, which the engine writes with `DatabaseText`, and
 `previous_result` after a loop is a compact array with re-printed numbers.
 
-When no shortcut fires, the expression's program runs on the engine with
-these bindings (JE-10):
+When no shortcut fires, the bindings below are made and checked for depth
+(JE-49). Then a text that only reads a member path of a JSON value is
+answered in Go, on an engine that says it evaluates such paths exactly
+(`ExactMemberPaths`, which the QuickJS-ng engine implements). Its root is a
+bound context value or `results.<id>`; its reads are `.key`, `?.key`, `[n]`,
+`["key"]` or `['key']`, as in `previous_result.items[0]?.id`.
+
+The answer is what the program would give: the root parsed as
+`JSON.parse` parses it, the members read as JavaScript reads them, with
+optional chaining, and the result written as `JSON.stringify` writes it.
+That covers repeated keys, key order, number spelling and escapes.
+`results.<id>` reads the previous result from memory or makes the results
+lookup's one read, as the results prelude does. Anything else goes to the
+engine:
+
+- a property that `Object.prototype` or `Array.prototype` gives, or a
+  primitive's member;
+- a read of `null` or `undefined` that is not optional, which throws;
+- a bound value that is not JSON, nests deeper than 128, exceeds 1 MiB or
+  needs the rebuild of JE-16;
+- a failed lookup, whose answer the engine's read then gets, so the
+  database is read once.
+
+Otherwise the expression's program runs on the engine with these bindings
+(JE-10):
 
 | Binding | Kind | When |
 |---|---|---|
@@ -411,6 +434,19 @@ context-free case's recorded argument as its stored form.
   - the results lookup from memory or storage, and its errors;
   - the helpers;
   - concurrent use under `-race`.
+- `TestMemberPathsMatchEngine` is the differential test of the member
+  paths, with thousands of generated values and paths. Each is read
+  through `memberPath` and through the program on the real engine, and
+  wherever `memberPath` answers, the engine must give the same text. It
+  also checks the list of `Object.prototype`'s names against the engine.
+  - The values hold repeated, integer-like and inherited keys, escapes
+    and unpaired surrogates, edge numbers, and text that is not JSON.
+  - The paths read missing members, indexes past the end and `length`,
+    and chain optionally over `null` and `undefined`.
+- `TestMemberPathPipeline` checks that a member path does not reach an
+  engine that says it is exact and reaches any other. A failed results
+  read is made once either way, with the same error.
+- `BenchmarkEvalMemberPath` times three member paths through `Eval`.
 - `jsontext_test.go` checks the member lookup and the `#>` walk against
   an `encoding/json` implementation, on generated values. jsonb's text
   output is checked on fixed cases, and on generated values: it parses to

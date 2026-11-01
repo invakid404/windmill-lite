@@ -135,6 +135,19 @@ harness, which is (a) with its duplication.
    [JE-12](../semantics/expressions.md#je-12), statement-mode detection,
    binding analysis) run at bundle open where they depend only on the text,
    and at run time where they depend on the preceding id.
+   - **Member paths are answered in Go (PS1).** A text that only reads a
+     member path of a JSON value, such as `previous_result.items[0]?.id`,
+     gets the program's own answer without the engine. That is
+     `JSON.parse`, JavaScript's property reads and optional chaining, then
+     `JSON.stringify`.
+   - Wherever JavaScript would do more than read the value's own data, the
+     text goes to the engine. That covers an inherited property, a
+     primitive's member, a `TypeError`, and a value that needs JE-16's
+     rebuild.
+   - The engine declares that it evaluates such paths exactly
+     (`ExactMemberPaths`). A differential test against QuickJS-ng over
+     generated values and paths holds the two to each other. Such a path
+     takes about 0.6 µs instead of 26 to 48 µs on a runtime.
 3. **The engine is QuickJS-ng at revision `be664ca1`** (MIT), vendored as C
    source and embedded **natively through cgo**, behind a Go interface. Native
    wins because it scales about four times better with the bound input
