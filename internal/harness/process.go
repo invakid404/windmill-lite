@@ -206,12 +206,15 @@ func (s ExitStatus) String() string {
 // a process the engine spawned (Spawn), or in host mode the host the engine
 // is a child of (AttachHost). It is safe for concurrent use.
 type Process struct {
-	cfg        ProcessConfig
-	cmd        *exec.Cmd
-	host       *hostSide // nil for a spawned process
-	conn       *conn
-	dir        string
-	argsMu     sync.Mutex // orders the writes of args.json in dir
+	cfg    ProcessConfig
+	cmd    *exec.Cmd
+	host   *hostSide // nil for a spawned process
+	conn   *conn
+	dir    string
+	argsMu sync.Mutex // orders the writes of args.json in dir
+	// skipArgs leaves args.json out of dir: a host whose bundle has no
+	// script that reads it (HostConfig.SkipArgsFile).
+	skipArgs   bool
 	pid        int
 	killAfter  time.Duration
 	heartbeat  time.Duration
@@ -1925,7 +1928,7 @@ const ArgsFile = "args.json"
 // it half written. A process without a working directory of its own (a
 // host-mode connection) has none.
 func (p *Process) writeArgs(args jsonval.Value) error {
-	if p.dir == "" {
+	if p.dir == "" || p.skipArgs {
 		return nil
 	}
 	p.argsMu.Lock()

@@ -669,12 +669,15 @@ change:
    child, with its user) can write, and with `workdir_mismatch` when it is
    not the host's working directory once both are resolved without
    symbolic links. So a host that does not use the SDK is held to the same
-   rule; both sides run the cases of `conformance/protocol/host`. The
-   engine writes each invocation's `args.json` there, as in a warm
-   process's own directory (set before the welcome goes out, since the
-   host may submit a run as soon as it reads it), and since the host was
-   not spawned with the base environment, each invocation carries the
-   facade's origin as `BASE_URL`. An engine that cannot serve the host at all (the bundle
+   rule; both sides run the cases of `conformance/protocol/host`. For a
+   bundle with a script that reads `args.json` (the manifest's
+   `args_file`), the engine writes each invocation's `args.json` there, as
+   in a warm process's own directory. It knows the directory before the
+   welcome goes out, since the host may submit a run as soon as it reads
+   it. For any other bundle it writes none: the arguments travel in the
+   `invoke` frame. Since
+   the host was not spawned with the base environment, each invocation
+   carries the facade's origin as `BASE_URL`. An engine that cannot serve the host at all (the bundle
    does not open) refuses it in the handshake too, with `engine_refused`
    and its reason.
 
@@ -1126,6 +1129,14 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   result round-trip in 14 µs at p50, a 32 KiB one in 123 µs and a 4 MiB
   one in 33 ms, measured with the commands of
   [0005](0005-json-step-boundaries.md#baseline).
+
+- Host mode writes an invocation's `args.json` only for a bundle whose
+  build found a script that names the file (the manifest's `args_file`,
+  [0010](0010-packaging.md)), in item 7 of host mode. The file cost about
+  110 µs of a host-mode step's 200 µs floor on macOS, and in the host's
+  shared working directory it held only the latest invocation's arguments
+  anyway. A process the engine spawns still writes it for every
+  invocation ([WR-5](../semantics/languages.md#wr-5)).
 
 ## Spec IDs relied on
 

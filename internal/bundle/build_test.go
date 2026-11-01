@@ -469,3 +469,39 @@ func TestBuildCompileErrors(t *testing.T) {
 		t.Errorf("module state shared: %v", err)
 	}
 }
+
+// TestBuildArgsFile checks the manifest's args_file flag: unset for the
+// fixture, none of whose scripts names args.json, and set once a script
+// reads the file Windmill's worker leaves its arguments in (WR-5), so
+// host mode keeps writing it for that bundle (ADR 0004).
+func TestBuildArgsFile(t *testing.T) {
+	bun := bunPath(t)
+	cfg, dir := fixtureConfig(t, bun)
+	if res := build(t, cfg); res.Manifest.ArgsFile {
+		t.Fatal("args_file set for a bundle none of whose scripts names args.json")
+	}
+	report := filepath.Join(dir, "windmill", "f", "app", "report.ts")
+	src, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src = append(src, []byte("\nexport async function readArgs() {\n  return await Bun.file(\"args.json\").text();\n}\n")...)
+	if err := os.WriteFile(report, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Out = filepath.Join(t.TempDir(), "bundle")
+	res := build(t, cfg)
+	if !res.Manifest.ArgsFile {
+		t.Fatal("args_file not set for a bundle whose script reads args.json")
+	}
+	m, err := os.ReadFile(filepath.Join(cfg.Out, ManifestFile))
+	var onDisk struct {
+		ArgsFile bool `json:"args_file"`
+	}
+	if err == nil {
+		err = json.Unmarshal(m, &onDisk)
+	}
+	if err != nil || !onDisk.ArgsFile {
+		t.Fatalf("the manifest on disk: %s, %v", m, err)
+	}
+}

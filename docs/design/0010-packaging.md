@@ -530,6 +530,12 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   inventory and the env rewrite's binding check read only the inputs that
   are files.
 
+- The manifest records `args_file` when a built script names `args.json`
+  ([WR-5](../semantics/languages.md#wr-5)): the build reads every file
+  under `scripts/` for the name. Host mode writes an invocation's
+  `args.json` only for such a bundle
+  ([0004](0004-harness-protocol.md), host mode item 7).
+
 ## Spec IDs relied on
 
 WR-3, WR-6, WR-8, WR-25 to WR-32, WR-38 to WR-40, WR-43, WR-45, WA-31, WA-33,

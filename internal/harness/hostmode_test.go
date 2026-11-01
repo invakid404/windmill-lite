@@ -704,3 +704,37 @@ func TestPoolHostCall(t *testing.T) {
 		t.Fatal("a fresh pool asked a plugin")
 	}
 }
+
+// With SkipArgsFile (a bundle none of whose scripts reads args.json, ADR
+// 0004 host mode item 7), an invocation's arguments travel in the invoke
+// frame, without the internal keys as ever, and no args.json is written
+// into the host's working directory.
+func TestHostSkipArgsFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	hello := hostHello()
+	hello.Workdir = dir
+	h, _, err := attach(t, HostConfig{Workdir: dir, SkipArgsFile: true, Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
+		out, err := p.Execute(ctx, engine.Invocation{ID: "i", Run: r.ID, Script: "s", Entry: "main", Args: r.Args})
+		if err != nil {
+			return RunDone{Status: "failure"}
+		}
+		return RunDone{Status: "success", Result: out.Body}
+	}}, hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	h.send(RunRequest{ID: "r1", Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(`{"a":1,"_MODULES":{}}`))})
+	inv := h.expect(TypeInvoke).(Invoke)
+	if string(inv.Args.Producer()) != `{"a":1}` {
+		t.Fatalf("the invoke's arguments %s", inv.Args.Producer())
+	}
+	if _, err := os.Stat(filepath.Join(dir, ArgsFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("args.json in the host's working directory: %v", err)
+	}
+	h.send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+	if d := h.expect(TypeRunDone).(RunDone); d.Status != "success" {
+		t.Fatalf("run_done %+v", d)
+	}
+}

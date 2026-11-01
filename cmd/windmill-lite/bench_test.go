@@ -360,6 +360,10 @@ var (
 	benchResources = map[string]wl.Resource{"f/bench/config": {Type: "c_bench_config", Value: json.RawMessage(`{"endpoint":"https://bench.example.invalid","retries":3,"region":"eu-1"}`)}}
 )
 
+// benchWorkdirs holds each host-mode benchmark runtime's working
+// directory, the host's, for the tests that look into it.
+var benchWorkdirs sync.Map
+
 var (
 	benchOnce   sync.Once
 	benchDir    string
@@ -473,6 +477,9 @@ func benchRuntimeWith(b testing.TB, bun, topology string, edit func(*wl.Options)
 	rt, err := wl.Open(benchBundle, opts)
 	if err != nil {
 		b.Fatalf("wl.Open (%s): %v", topology, err)
+	}
+	if opts.Host != nil {
+		benchWorkdirs.Store(rt, opts.Host.Workdir)
 	}
 	b.Cleanup(func() { rt.Close() })
 	return rt

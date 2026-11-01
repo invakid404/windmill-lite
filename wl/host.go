@@ -94,8 +94,11 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 		Facade:        rt.fac.WarmOrigin(),
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
-		Check:         rt.hostCheck(opts),
-		Run:           rt.serveHost,
+		// The arguments travel in the invoke frame; the file only serves a
+		// script that reads it (ADR 0004 host mode item 7).
+		SkipArgsFile: !rt.manifest.ArgsFile,
+		Check:        rt.hostCheck(opts),
+		Run:          rt.serveHost,
 	})
 	if err != nil {
 		return err

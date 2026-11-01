@@ -290,8 +290,10 @@ script's parameters from that file, so the invoke frame carries the same
 text. A fresh process's file is its one invocation's; a warm
 process's working directory is every invocation's (D10), so its file is
 the latest invocation's. A host-mode connection writes it in the host's
-working directory, which the handshake checked (`HostConfig.Workdir`,
-F3a), and never removes that directory.
+working directory, which the handshake checked (`HostConfig.Workdir`),
+and never removes that directory. With `HostConfig.SkipArgsFile`, which
+`wl` sets for a bundle none of whose scripts names `args.json`, it writes
+none.
 
 ## Death and the watchdog
 
@@ -544,7 +546,7 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 - `hostmode_test.go` (F3a) runs the shared working-directory cases through
   `CheckWorkdir` and through the handshake, a hello without a working
   directory, a refused host, a host's invocation environment (`BASE_URL`)
-  and `args.json`, the host's drain (a run after it answered `draining`,
+  and `args.json`, which `SkipArgsFile` leaves out, the host's drain (a run after it answered `draining`,
   `bye` after the last `run_done`, also when idle, and behind two large
   outcomes sent in parts), `run_settled` after `run_done`, never before,
   and a run sent the moment the welcome arrives, whose invocation already
