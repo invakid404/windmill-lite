@@ -6,7 +6,8 @@ name: JSON library study
 #
 # The parts a run does are the words in the dispatch input `parts`, or, for
 # a push, in .github/json-study-parts: micro (the microbenchmarks), rss
-# (peak resident memory), exact (the exactness probes), sonic-tests
+# (peak resident memory), brief (the microbenchmarks and peak memory on
+# the workload brief's families F1 to F8), exact (the exactness probes), sonic-tests
 # (sonic's own suite on this Go), static (zig cc static builds), tests (the
 # repository's suites with each library swapped in) and e2e (G1's
 # end-to-end benchmarks with each swap).
@@ -23,10 +24,8 @@ on:
 permissions:
   contents: read
 
-# Runs queue rather than cancel: two complete runs show runner variance.
-concurrency:
-  group: json-study
-  cancel-in-progress: false
+# No concurrency group: a run that a later push starts must not cancel or
+# replace one in progress, since two complete runs show runner variance.
 
 env:
   # The microbenchmarks' rounds; each round runs every candidate once,
@@ -117,6 +116,74 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: micro-${{ matrix.arch }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/out
+
+  brief:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' brief ')
+    name: Brief families (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 240
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Record the machine
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          { uname -a; nproc; lscpu; free -m; go version; } > "$RUNNER_TEMP/out/machine.txt" 2>&1
+      - name: Build the benchmark binaries
+        run: |
+          go test -c -o "$RUNNER_TEMP/b-default.test" ./internal/jsonlib/bench
+          GOEXPERIMENT=nojsonv2 go test -c -o "$RUNNER_TEMP/b-classic.test" ./internal/jsonlib/bench
+      - name: Run the rounds
+        run: |
+          out="$RUNNER_TEMP/out"
+          for r in $(seq 1 "$ROUNDS"); do
+            if [ $((r % 2)) -eq 1 ]; then order="default classic"; else order="classic default"; fi
+            for b in $order; do
+              if [ "$b" = default ]; then filter="BenchmarkBrief/"; else filter="BenchmarkBrief/family=.*/tier=.*/op=.*/cand=v1classic\$"; fi
+              echo "round $r: $b, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
+              "$RUNNER_TEMP/b-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$BENCHTIME" -test.count 1 -test.timeout 0 >> "$out/brief-$b.txt"
+            done
+          done
+          grep -c '^BenchmarkBrief' "$out"/brief-*.txt
+      - name: Peak RSS on the worst tiers
+        run: |
+          mkdir -p "$RUNNER_TEMP/fx"
+          JSONLIB_BRIEF=worst,p90 JSONLIB_FIXTURES_OUT="$RUNNER_TEMP/fx" "$RUNNER_TEMP/b-default.test" -test.run '^TestWriteFixtures$'
+          out="$RUNNER_TEMP/out/brief-rss.jsonl"
+          for fx in "$RUNNER_TEMP"/fx/*-worst.json "$RUNNER_TEMP"/fx/F8-p90.json; do
+            for op in validate compact unmarshal-any marshal-any unmarshal-frame members rawmessage canonical; do
+              JSONLIB_RSS="v1classic,$op,$fx" "$RUNNER_TEMP/b-classic.test" -test.run '^TestPeakRSS$' 2>/dev/null | sed -n 's/^RSS //p' >> "$out" || true
+              for cand in v1 v2 gje sonicstd sonicfast sonicast jsonval jcs; do
+                JSONLIB_RSS="$cand,$op,$fx" "$RUNNER_TEMP/b-default.test" -test.run '^TestPeakRSS$' 2>/dev/null | sed -n 's/^RSS //p' >> "$out" || true
+              done
+            done
+          done
+          wc -l "$out"
+      - name: Compare with benchstat
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
+          cd "$RUNNER_TEMP/out"
+          cat brief-default.txt brief-classic.txt > brief-all.txt
+          "$(go env GOPATH)/bin/benchstat" -col '/cand@(v1 v1classic v2 gje sonicstd sonicfast sonicast jsonval jcs)' brief-all.txt > brief-benchstat.txt
+          head -60 brief-benchstat.txt
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: brief-${{ matrix.arch }}
           path: ${{ runner.temp }}/out
 
   rss:

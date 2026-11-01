@@ -19,11 +19,27 @@ import (
 
 // TestWriteFixtures writes each family's payload at each size of
 // JSONLIB_SIZES to JSONLIB_FIXTURES_OUT as <family>-<size>.json, for
-// TestPeakRSS to read.
+// TestPeakRSS to read; with JSONLIB_BRIEF (tiers such as worst,p90) it
+// writes the brief's families instead, as <family>-<tier>.json.
 func TestWriteFixtures(t *testing.T) {
 	dir := os.Getenv("JSONLIB_FIXTURES_OUT")
 	if dir == "" {
 		t.Skip("JSONLIB_FIXTURES_OUT is not set")
+	}
+	if os.Getenv("JSONLIB_BRIEF") != "" {
+		// The brief's families, at the tiers JSONLIB_BRIEF lists.
+		for _, f := range Brief {
+			for _, tier := range f.Tiers {
+				if !strings.Contains(","+os.Getenv("JSONLIB_BRIEF")+",", ","+tier.Name+",") {
+					continue
+				}
+				p := filepath.Join(dir, f.Name+"-"+tier.Name+".json")
+				if err := os.WriteFile(p, f.Make(tier.Size), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return
 	}
 	for _, n := range sizes(t) {
 		for _, f := range Families {

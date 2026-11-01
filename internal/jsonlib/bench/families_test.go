@@ -22,3 +22,37 @@ func TestFamilies(t *testing.T) {
 		}
 	}
 }
+
+// TestBrief checks the brief's families as TestFamilies checks the
+// generic ones.
+func TestBrief(t *testing.T) {
+	for _, f := range Brief {
+		for _, tier := range f.Tiers {
+			b := f.Make(tier.Size)
+			if len(b) != tier.Size || !json.Valid(b) || !utf8.Valid(b) || bytes.Contains(b, []byte(`\u0000`)) {
+				t.Errorf("%s %s: %d bytes of %d, valid %v", f.Name, tier.Name, len(b), tier.Size, json.Valid(b))
+			}
+			var v any
+			json.Unmarshal(b, &v)
+			t.Logf("%s %-7s %8d B  depth %d  top %c", f.Name, tier.Name, len(b), depth(v), b[0])
+		}
+	}
+}
+
+func depth(v any) int {
+	switch x := v.(type) {
+	case map[string]any:
+		d := 0
+		for _, e := range x {
+			d = max(d, depth(e))
+		}
+		return d + 1
+	case []any:
+		d := 0
+		for _, e := range x {
+			d = max(d, depth(e))
+		}
+		return d + 1
+	}
+	return 0
+}

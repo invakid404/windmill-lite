@@ -29,7 +29,8 @@ type Op struct {
 //     as harness.Decode does (map[string]json.RawMessage);
 //   - members: an object split into its members in order, duplicates kept,
 //     as engine.members (storeMembers, ManualFailure, flowInputText),
-//     harness.scriptArgs and platform's interpolation walk it;
+//     harness.scriptArgs and platform's interpolation walk it (a payload
+//     that is not an object is walked as an argument object's one member);
 //   - rawmessage: a host_call payload, a map holding the arguments as a
 //     json.RawMessage, marshalled as wl's plugin does for rewrite_args and
 //     intercept (on_run_end's trace holds every step's texts the same way);
@@ -98,7 +99,7 @@ var Ops = []Op{
 	{
 		Name:    "members",
 		Has:     func(c Cand) bool { return c.Members != nil },
-		Prepare: same,
+		Prepare: func(_ Cand, payload []byte) (any, error) { return AsArgs(payload), nil },
 		Do: func(c Cand, in any) (int, error) {
 			n := 0
 			if !c.Members(in.([]byte), func(_ []byte, _ string, v []byte) { n += len(v) }) {
@@ -128,6 +129,16 @@ var Ops = []Op{
 }
 
 func same(_ Cand, payload []byte) (any, error) { return payload, nil }
+
+// AsArgs is payload as the members operation walks it: an object as it
+// is, any other value as the one member of an argument object, which is
+// how a top-level array reaches engine.storeMembers.
+func AsArgs(payload []byte) []byte {
+	if len(payload) > 0 && payload[0] == '{' {
+		return payload
+	}
+	return append(append([]byte(`{"value":`), payload...), '}')
+}
 
 const (
 	frameHead = `{"t":"result","id":"inv-000001","outcome":"ok","body":`
