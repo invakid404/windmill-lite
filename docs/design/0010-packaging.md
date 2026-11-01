@@ -150,29 +150,43 @@ the host was a compiled Bun executable.
    its module registered. The build orders the listed modules of each
    bundler's build by these rules:
 
-   - **Load-time imports order modules:** static imports and re-exports
-     (`import`, `export … from`, `export * from`), `require()` calls, and an
+   - **A lazy import** is an `import()` of a listed module inside a
+     function body (a function, an arrow, a method or a class method), in
+     any module of the importer's bundle. It runs only when the function is
+     called, normally after every listed module has registered. It orders
+     modules only where it closes no cycle, so a list without such a cycle
+     keeps the order that counting every import gives.
+   - **Every other import of a listed module orders modules,** wherever its
+     module sits in the bundle. That is a static import or re-export
+     (`import`, `export … from`, `export * from`), a `require()` call, or an
      `import()` evaluated at module top level, outside every function, such
-     as a top-level `await import(…)`. They count in the listed module and
-     in every unlisted module that it loads at load time.
-   - **An `import()` inside a function body** (a function, an arrow, a
-     method or a class method) runs only when the function is called,
-     normally after every listed module has registered. It orders modules
-     only where it closes no cycle, so a list without such a cycle keeps the
-     order that counting every import gives.
+     as a top-level `await import(…)`.
+   - **That includes a module loaded lazily:** a module that is not listed,
+     which the bundle loads only through an `import()` inside a function,
+     still orders the listed modules it imports statically. It reads them
+     while it is initialised, and both bundlers initialise a module once, so
+     a read before their registration would leave its exports undefined for
+     every later import of it.
    - **A cycle of load-time imports** fails the build with
      `host_module_cycle`, which names the cycle by module ID.
-   - **Where the build cannot tell** where an `import()` sits, because its
-     module does not parse, or which module an import loads, it counts the
-     import as a load-time one. That reading can refuse a list or order it
-     more strictly, but it never lets a load-time import find its module
-     unregistered.
+   - **Where the build cannot tell,** it counts an import as a load-time
+     one. That covers an `import()` in a module that does not parse, and an
+     import that the bundler's records do not show. It also covers every
+     `import()` of a module with a top-level `import()` whose specifier is
+     not a literal, since a bundler can fold `"./" + "a.ts"` into any
+     module's specifier. That reading can refuse a list but never lets a
+     load-time import find its module unregistered.
    - **A lazy import set aside to break a cycle** resolves, in the
      importer's copy, to the imported module's late shim, which reads the
      registry each time one of its values is read. A function that runs
      before that module is registered then fails with
      `host-provided module not registered: <key> (…)` on every read, and
      works once the module is registered.
+   - **A module whose own loading awaits such a read** at its top level
+     fails to load, with the same error. The bundlers keep that failure, so
+     every later import of the module fails the same way, as an ES module
+     whose evaluation threw stays failed. No import of it gets undefined
+     exports.
    - **A late shim, not the plain one:** both bundlers run a module's
      initialisation once, so a plain shim that failed can never yield the
      registered values. On Bun 1.3.10 and esbuild, every later import of it
@@ -182,6 +196,11 @@ the host was a compiled Bun executable.
      through an `import()` in a function, such as a hook that loads a
      module lazily. A host then leaves those modules unlisted, and every
      step bundle holds its own copy of each.
+   - Rejected: guarding the `import()` of a lazily loaded module that
+     imports a listed one statically, so that it loads only once that
+     module is registered. The guard would have to load it synchronously,
+     which a module with top-level `await` cannot do. Another module that
+     imports it statically could still see it half initialised.
    - Rejected: following the functions that a module calls while it loads.
      That needs a call graph. An `import()` in such a function fails with
      the error above instead.

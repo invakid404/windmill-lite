@@ -12,19 +12,13 @@ import (
 	"testing"
 )
 
-// TestLoadTimeHostModules: an import of a listed module counts when the
-// module that holds it loads at load time and the import is not an
-// import() its module makes only from inside functions. Where the analysis
-// cannot tell, it counts.
+// TestLoadTimeHostModules: an import of a listed module is lazy only when
+// it is an import() of that module that its module makes only from inside
+// functions, in any module of the bundle; every other import, and a listed
+// module the graph shows no import of, counts as load-time.
 func TestLoadTimeHostModules(t *testing.T) {
-	static := func(from, to string) moduleImport {
-		return moduleImport{From: from, Kind: "import-statement", Specifier: "./" + to, To: to}
-	}
-	dynamic := func(from, to string) moduleImport {
-		return moduleImport{From: from, Kind: "dynamic-import", Specifier: "./" + to, To: to}
-	}
-	host := func(from, kind, key string) moduleImport {
-		return moduleImport{From: from, Kind: kind, Specifier: "./" + key, Host: key}
+	imp := func(from, kind, key string) hostImport {
+		return hostImport{From: from, Kind: kind, Specifier: "./" + key, Host: key}
 	}
 	for _, c := range []struct {
 		name string
@@ -34,58 +28,43 @@ func TestLoadTimeHostModules(t *testing.T) {
 		keys []string
 		want []string
 	}{
-		{"a static import of a listed module", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "import-statement", "k"),
+		{"a static import", importGraph{Imports: []hostImport{
+			imp("e", "import-statement", "k"),
 		}}, nil, []string{"k"}},
-		{"an import() of a listed module inside a function", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "dynamic-import", "k"),
+		{"an import() inside a function", importGraph{Imports: []hostImport{
+			imp("e", "dynamic-import", "k"),
 		}, Lazy: map[string][]string{"e": {"./k"}}}, nil, []string{}},
-		{"an import() of a listed module at top level", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "dynamic-import", "k"),
+		{"an import() at top level", importGraph{Imports: []hostImport{
+			imp("e", "dynamic-import", "k"),
 		}, Lazy: map[string][]string{"e": {}}}, nil, []string{"k"}},
-		{"an import() in a module that does not parse", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "dynamic-import", "k"),
+		{"an import() in a module that does not parse", importGraph{Imports: []hostImport{
+			imp("e", "dynamic-import", "k"),
 		}, Lazy: map[string][]string{"e": nil}}, nil, []string{"k"}},
-		{"a require() of a listed module", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "require-call", "k"),
+		{"a require()", importGraph{Imports: []hostImport{
+			imp("e", "require-call", "k"),
 		}, Lazy: map[string][]string{"e": {"./k"}}}, nil, []string{"k"}},
-		{"through a module loaded at load time", importGraph{Entry: "e", Imports: []moduleImport{
-			static("e", "m"), static("m", "n"), host("n", "import-statement", "k"),
+		{"an import() inside a function of another module of the bundle", importGraph{Imports: []hostImport{
+			imp("m", "dynamic-import", "k"),
+		}, Lazy: map[string][]string{"m": {"./k"}}}, nil, []string{}},
+		{"a static import in another module of the bundle, however it loads", importGraph{Imports: []hostImport{
+			imp("m", "import-statement", "k"),
 		}}, nil, []string{"k"}},
-		{"through a module loaded by a top-level import()", importGraph{Entry: "e", Imports: []moduleImport{
-			dynamic("e", "m"), host("m", "import-statement", "k"),
-		}, Lazy: map[string][]string{"e": {}}}, nil, []string{"k"}},
-		{"through a module loaded only by an import() inside a function", importGraph{Entry: "e", Imports: []moduleImport{
-			dynamic("e", "m"), static("m", "n"), host("n", "import-statement", "k"),
-		}, Lazy: map[string][]string{"e": {"./m"}}}, nil, []string{}},
-		{"a module loaded both ways loads at load time", importGraph{Entry: "e", Imports: []moduleImport{
-			dynamic("e", "m"), static("e", "n"), static("n", "m"), host("m", "import-statement", "k"),
-		}, Lazy: map[string][]string{"e": {"./m"}}}, nil, []string{"k"}},
-		{"a lazy import inside a lazily loaded module stays lazy", importGraph{Entry: "e", Imports: []moduleImport{
-			dynamic("e", "m"), host("m", "dynamic-import", "k"),
-		}, Lazy: map[string][]string{"e": {"./m"}, "m": {"./k"}}}, nil, []string{}},
-		{"an unknown module makes every module load at load time", importGraph{Entry: "e", Imports: []moduleImport{
-			{From: "e", Kind: "import-statement", Specifier: "./x"},
-			dynamic("e", "m"), host("m", "import-statement", "k"), host("m", "dynamic-import", "j"),
-		}, Lazy: map[string][]string{"e": {"./m"}, "m": {"./j"}}}, nil, []string{"k"}},
-		{"an unknown module behind a lazy import changes nothing", importGraph{Entry: "e", Imports: []moduleImport{
-			dynamic("e", "m"), {From: "m", Kind: "import-statement", Specifier: "./x"}, host("m", "import-statement", "k"),
-		}, Lazy: map[string][]string{"e": {"./m"}}}, nil, []string{}},
-		{"an entry the graph does not name makes every module load at load time", importGraph{Entry: "src/e.ts", Imports: []moduleImport{
-			dynamic("e", "m"), host("m", "import-statement", "k"), host("e", "dynamic-import", "j"),
-		}, Lazy: map[string][]string{"e": {"./m", "./j"}}}, nil, []string{"k"}},
-		{"several, sorted and once each", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "import-statement", "z"), static("e", "m"), host("m", "import-statement", "a"), host("m", "require-call", "z"),
-		}}, nil, []string{"a", "z"}},
-		{"a key the graph holds no import of is a load-time one", importGraph{Entry: "e", Imports: []moduleImport{
-			host("e", "dynamic-import", "k"),
+		{"one load-time import among lazy ones", importGraph{Imports: []hostImport{
+			imp("e", "dynamic-import", "k"), imp("m", "dynamic-import", "k"),
+		}, Lazy: map[string][]string{"e": {"./k"}, "m": {}}}, nil, []string{"k"}},
+		{"a key the graph holds no import of", importGraph{Imports: []hostImport{
+			imp("e", "dynamic-import", "k"),
 		}, Lazy: map[string][]string{"e": {"./k"}}}, []string{"j", "k"}, []string{"j"}},
+		{"several, sorted and once each", importGraph{Imports: []hostImport{
+			imp("e", "import-statement", "z"), imp("m", "import-statement", "a"), imp("m", "require-call", "z"),
+			imp("e", "dynamic-import", "l"),
+		}, Lazy: map[string][]string{"e": {"./l"}}}, nil, []string{"a", "z"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			keys := c.keys
 			if keys == nil {
 				for _, im := range c.g.Imports {
-					if im.Host != "" && !slices.Contains(keys, im.Host) {
+					if !slices.Contains(keys, im.Host) {
 						keys = append(keys, im.Host)
 					}
 				}
@@ -327,7 +306,9 @@ export class K { async m() { return import("./c"); } static async s() { return i
 		{"class body outside methods", "ts", `export class K { static { import("./a"); } static s = import("./b"); i = import("./c"); [import("./d")]() {} }`, []string{}},
 		{"decorator", "ts", `function d(_: unknown) {} export class K { @d(import("./a")) m() { return import("./b"); } }`, []string{"./b"}},
 		{"a call at load is not followed", "ts", `export async function later() { return import("./a"); } await later();`, []string{"./a"}},
-		{"a computed specifier is no specifier", "ts", `export const f = (n: string) => import("./" + n);`, []string{}},
+		{"a computed specifier inside a function", "ts", `export const f = (n: string) => import("./" + n); export const g = () => import("./a");`, []string{"./a"}},
+		{"a folded specifier at top level", "ts", `export const later = () => import("./a.ts"); export const early = await import("./" + "a.ts");`, []string{}},
+		{"a template with a substitution at top level", "ts", "export const later = () => import(`./a.ts`); const n = \"a\"; export const early = await import(`./${n}.ts`);", []string{}},
 		{"tsx", "tsx", `export const C = () => <div onClick={() => import("./a")} />;`, []string{"./a"}},
 		{"does not parse", "ts", `export function (`, nil},
 	}

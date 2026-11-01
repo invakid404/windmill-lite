@@ -519,23 +519,27 @@ import them, and `Build` adds the files of the folder the copies read
 A listed module registers after each listed module that it imports while
 it loads ([ADR 0010](../../docs/design/0010-packaging.md#host-provided-modules),
 item 1). `loadorder.go` decides the order for both bundlers' builds, from
-an `importGraph` per module: every import of every module of its bundled
-closure, with the bundler's kind and specifier, and the module or the
-listed module it resolves to.
+an `importGraph` per module: every import of a listed module in its
+bundle, with the module that holds it, the bundler's kind and the
+specifier.
 
 `loadTimeHostModules` returns the listed modules a module imports at load
-time (`HostModuleMeta.LoadHostModules`):
+time (`HostModuleMeta.LoadHostModules`). A listed module is lazy only when
+every import of it is lazy:
 
-- **Lazy:** an `import()` whose specifier its module imports only from
-  inside functions, as the helper's parse reports
-  ([build/](../../harnesses/bun/build/README.md)).
-- **Load time:** every other import (a static import or re-export, a
-  `require()`, a top-level `import()`), from the entry and from each module
-  that load-time imports reach.
-- **Unknown:** an `import()` in a module that does not parse is a
-  load-time one. A load-time import whose module the record does not name,
-  or a graph in which no import is the entry's, makes every module of the
-  closure count as loaded at load time.
+- **Lazy:** an `import()` of the listed module whose specifier its module
+  imports only from inside functions, as the helper's parse reports
+  ([build/](../../harnesses/bun/build/README.md)). Its module can be any
+  module of the bundle.
+- **Load time:** every other import, wherever its module sits: a static
+  import or re-export, a `require()`, a top-level `import()`. A module
+  that the bundle loads lazily still reads its static imports while it is
+  initialised, once, so they order too.
+- **Unknown:** an `import()` in a module that does not parse, and a listed
+  module that the bundle imports with no import the records show, count as
+  load-time. The parse gives a module with a top-level `import()` of a
+  specifier that is not a literal no lazy specifiers, since a bundler can
+  fold that specifier into any module's.
 
 `hostModuleOrder` orders the modules by a depth-first walk, in the
 configured order:
@@ -557,7 +561,9 @@ of the bundle holds one alone.
 
 - A read before the module registers throws
   `host-provided module not registered: <key> (…)`, and a read after it
-  gets the registered value.
+  gets the registered value. A module whose loading awaits such a read at
+  its top level fails to load, and both bundlers fail every later import of
+  it with the same error.
 - Both bundlers initialise a module once, so a plain shim that failed can
   never yield the registered values. On Bun 1.3.10 and esbuild, every later
   import gets its exports undefined.
@@ -691,9 +697,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
     `given.outside`: TSX and JSX modules, and one with no loader.
   - The D12 order cases cover cycles that close through a lazy import and
     through a load-time one: direct, through a module that is not listed,
-    and between listed packages, for both bundlers. They also cover a lazy
-    import that runs before its module registers, caught and uncaught
-    (`run.register_error`).
+    between listed packages, and through a folded specifier, for both
+    bundlers. They also cover a lazy import that runs before its module
+    registers, caught and uncaught (`run.register_error`), and a module
+    whose loading awaits one.
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's
@@ -764,12 +771,13 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `testdata/`; `go test ./internal/bundle -run Golden -args -update`
   rewrites them. `TestShimBehaviour` runs shims on Bun.
 - `TestLoadTimeHostModules` and `TestHostModuleOrder` need no Bun: they
-  check the load-time analysis of import graphs and the order, with its
+  check which imports of listed modules are lazy, and the order, with its
   late imports and cycle errors. `TestHostModuleOrderWithoutLazyCycles`
   orders 6,000 random lists of up to 8 modules: a list without lazy cycles
   gets the order that counting every import gives. `TestLazyImports` runs
   the helper's `lazy` request on sources whose `import()` calls sit in
-  functions, at top level and in class bodies.
+  functions, at top level and in class bodies, with literal and folded
+  specifiers.
 - `TestCLIParity` is the CLI parity check of
   [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 4
   ([Q-WR-24](../../docs/semantics/languages.md#q-wr-24)). With

@@ -1,24 +1,23 @@
 // What the Go build's load-order analysis of host-provided modules reads
-// (internal/bundle/loadorder.go, ADR 0010 item 1): the imports of every
-// module of a listed module's bundled closure, and, for a module that holds
-// an import(), the specifiers it imports only from inside functions. A
+// (internal/bundle/loadorder.go, ADR 0010 item 1): every import of a listed
+// module in a listed module's bundle, and, for a module that holds an
+// import() of one, the specifiers it imports only from inside functions. A
 // listed module that imports another while it loads needs that module
-// registered first; an import() inside a function runs only when the
+// registered first; an import() of it inside a function runs only when the
 // function is called, so it puts no constraint on the order.
 
 import { parse } from "@babel/parser";
-import { dirname, join, normalize } from "node:path";
 import type { Syntax } from "./signature.ts";
 
 type Node = { type?: unknown; [k: string]: unknown };
 
-// One import of one module of a bundle (moduleImport in Go): to is the
-// imported module, as the bundle names its input, or empty when it is a
-// listed module (host) or the bundler's record does not tell.
-export type ModuleImport = { from: string; kind: string; specifier: string; to?: string; host?: string };
+// One import of a listed module in a bundle (hostImport in Go): the module
+// that holds it, the bundler's kind of import, the specifier as that module
+// spells it, and the listed module's key.
+export type HostImport = { from: string; kind: string; specifier: string; host: string };
 
-// The import graph of a bundle (importGraph in Go).
-export type ImportGraph = { entry: string; imports: ModuleImport[]; lazy: Record<string, string[] | null> };
+// What the Go build reads of a bundle (importGraph in Go).
+export type ImportGraph = { imports: HostImport[]; lazy: Record<string, string[] | null> };
 
 // The nodes whose `params` and `body` run only when the function is called:
 // functions, arrows, and object and class methods (accessors and
@@ -53,6 +52,11 @@ function literalOf(n: unknown): string | undefined {
 // runs while the module loads. Its specifier is not one of them, even when
 // the module also imports it from a function. A function that the module
 // calls while it loads is not followed: its import() still counts as lazy.
+//
+// A top-level import() whose specifier is not a literal, such as
+// import("./" + "a.ts") or a template literal with a substitution, can name
+// any module once a bundler folds its specifier. The parse cannot tell which,
+// so a module that holds one imports nothing lazily.
 export function lazyImports(text: string, syntax: Syntax): string[] | null {
   const plugins: ("typescript" | "jsx" | "decorators-legacy" | "decoratorAutoAccessors")[] = ["decorators-legacy", "decoratorAutoAccessors"];
   if (syntax === "ts" || syntax === "tsx") plugins.push("typescript");
@@ -65,6 +69,7 @@ export function lazyImports(text: string, syntax: Syntax): string[] | null {
   }
   const inside = new Set<string>();
   const outside = new Set<string>();
+  let opaque = false;
   const stack: [unknown, boolean][] = [[ast.program, false]];
   while (stack.length > 0) {
     const [n, inFunction] = stack.pop()!;
@@ -74,68 +79,40 @@ export function lazyImports(text: string, syntax: Syntax): string[] | null {
     }
     if (n === null || typeof n !== "object") continue;
     const node = n as Node;
-    let spec: string | undefined;
-    if (node.type === "ImportExpression") spec = literalOf(node.source);
-    else if (node.type === "CallExpression" && (node.callee as Node | undefined)?.type === "Import") spec = literalOf((node.arguments as unknown[])[0]);
-    if (spec !== undefined) (inFunction ? inside : outside).add(spec);
+    const dynamic = node.type === "ImportExpression" || (node.type === "CallExpression" && (node.callee as Node | undefined)?.type === "Import");
+    if (dynamic) {
+      const spec = node.type === "ImportExpression" ? literalOf(node.source) : literalOf((node.arguments as unknown[])[0]);
+      if (spec !== undefined) (inFunction ? inside : outside).add(spec);
+      else if (!inFunction) opaque = true;
+    }
     const fn = typeof node.type === "string" && FUNCTIONS.has(node.type);
     for (const [k, v] of Object.entries(node)) {
       if (k === "loc" || k.endsWith("Comments") || v === null || typeof v !== "object") continue;
       stack.push([v, inFunction || (fn && (k === "params" || k === "body"))]);
     }
   }
+  if (opaque) return [];
   return [...inside].filter((s) => !outside.has(s)).sort();
 }
 
 // A metafile input's imports, as Bun records them.
 type MetaImport = { path: string; kind: string; original?: string; external?: boolean };
 
-// The imports of every module of a Bun bundle, from its metafile and from
-// what the build's plugin resolved. The file each import loads comes from
-// one of three places:
-//
-//   - for a bare specifier Bun resolved, the metafile's path, which names
-//     the file, with the specifier as original;
-//   - for an import the plugin resolved, whose path is the specifier,
-//     resolvedBy: what the plugin resolved, by importer, kind and specifier;
-//   - for a relative import the plugin left to Bun, whose path is the
-//     specifier too, the input at the specifier's path from its importer,
-//     when there is one.
-//
-// An import the plugin resolved to a listed module is external in the
-// bundle the scan makes; hostBy gives its key, by importer and specifier.
-// Other external imports (built-in modules, electron) load nothing of the
-// bundle and are left out.
-export function bundleImports(
-  metafile: Record<string, unknown>,
-  resolvedBy: Map<string, Map<string, string>>,
-  hostBy: Map<string, Map<string, string>>,
-): ModuleImport[] {
+// The imports of listed modules in a Bun bundle that the scan made, with
+// every listed module left external: the metafile gives each external
+// import's module, kind and specifier, and hostBy gives the key of the
+// listed module that the build's plugin resolved it to, by importer and
+// specifier. Other external imports (built-in modules, electron) are not of
+// a listed module.
+export function bundleImports(metafile: Record<string, unknown>, hostBy: Map<string, Map<string, string>>): HostImport[] {
   const inputs = (metafile.inputs ?? {}) as Record<string, { imports?: MetaImport[] }>;
-  const out: ModuleImport[] = [];
+  const out: HostImport[] = [];
   for (const [from, input] of Object.entries(inputs)) {
     for (const imp of input.imports ?? []) {
+      if (!imp.external) continue;
       const specifier = imp.original ?? imp.path;
-      if (imp.external) {
-        const host = hostBy.get(from)?.get(specifier);
-        if (host !== undefined) out.push({ from, kind: imp.kind, specifier, host });
-        continue;
-      }
-      let to: string | undefined;
-      if (imp.original !== undefined) {
-        to = imp.path;
-      } else {
-        const by = resolvedBy.get(from);
-        to = by?.get(`${imp.kind}\0${specifier}`);
-        if (to === undefined && by !== undefined) {
-          for (const [key, p] of by) if (key.slice(key.indexOf("\0") + 1) === specifier) to = p;
-        }
-        if (to === undefined && specifier.startsWith(".")) {
-          const at = normalize(join(dirname(from), specifier));
-          if (Object.hasOwn(inputs, at)) to = at;
-        }
-      }
-      out.push({ from, kind: imp.kind, specifier, to: to ?? "" });
+      const host = hostBy.get(from)?.get(specifier);
+      if (host !== undefined) out.push({ from, kind: imp.kind, specifier, host });
     }
   }
   return out;

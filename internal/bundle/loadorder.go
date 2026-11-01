@@ -9,19 +9,21 @@ import (
 // The order in which host-provided modules are registered (ADR 0010, item
 // 1). A shim takes its module's exports from the registry when it is
 // evaluated, so a listed module that imports another listed module while it
-// loads must find that module registered. An import() inside a function
-// runs only when the function is called, normally after every listed module
-// has registered, so it puts no constraint on the order.
+// loads must find that module registered. An import() of a listed module
+// inside a function runs only when the function is called, normally after
+// every listed module has registered, so it puts no constraint on the order.
 //
 // The analysis here tells the two apart for both bundlers. Each bundler
-// reports the imports of every module of a listed module's bundled closure
-// (moduleImport). The build helper's parse reports, for each module that
-// holds an import(), the specifiers it imports only from inside functions.
+// reports every import of a listed module in a listed module's bundle
+// (hostImport). The build helper's parse reports, for each module that
+// holds an import() of one, the specifiers it imports only from inside
+// functions.
 
-// moduleImport is one import of one module of a listed module's bundled
-// closure, as a bundler's metafile and plugin record it.
-type moduleImport struct {
-	// From is the importing module, as the bundle names its input.
+// hostImport is one import of a listed module in a listed module's bundle,
+// as a bundler's metafile and plugin record it.
+type hostImport struct {
+	// From is the module of the bundle that holds the import, as the bundle
+	// names its input.
 	From string `json:"from"`
 	// Kind is the bundler's kind of import: "import-statement",
 	// "dynamic-import", "require-call" and so on. Only "dynamic-import" can
@@ -29,85 +31,51 @@ type moduleImport struct {
 	Kind string `json:"kind"`
 	// Specifier is the import's specifier as From spells it.
 	Specifier string `json:"specifier"`
-	// To is the imported module, as the bundle names its input; empty when
-	// the import resolves to a listed module (Host) or when the bundler's
-	// record does not tell which module it is.
-	To string `json:"to,omitempty"`
 	// Host is the key of the listed module the import resolves to.
-	Host string `json:"host,omitempty"`
+	Host string `json:"host"`
 }
 
 // importGraph is what the load-order analysis reads of one listed module's
-// bundled closure.
+// bundle.
 type importGraph struct {
-	// Entry is the listed module's own source, as the bundle names it.
-	Entry   string         `json:"entry"`
-	Imports []moduleImport `json:"imports"`
-	// Lazy gives, for a module that holds an import(), the specifiers it
-	// imports only through import() calls inside functions (the build
-	// helper's lazyImports). A module that is absent, or whose value is
-	// null because it does not parse, has none.
+	Imports []hostImport `json:"imports"`
+	// Lazy gives, for a module that holds an import() of a listed module,
+	// the specifiers it imports only through import() calls inside functions
+	// (the build helper's lazyImports). A module that is absent, or whose
+	// value is null because it does not parse, has none.
 	Lazy map[string][]string `json:"lazy"`
 }
 
 // loadTimeHostModules returns those of keys, the listed modules that a
-// listed module's bundle imports, that it imports at load time, sorted:
-// those that some import reaches while the module and the modules it loads
-// with it are evaluated. g is the bundle's import graph.
+// listed module's bundle imports, that it imports at load time, sorted. g
+// is the bundle's import graph.
 //
-// An import is lazy when it is an import() whose specifier its module
-// imports only from inside functions (functions, methods, arrows and class
-// methods, whose bodies run when they are called). Every other import is a
-// load-time one: a static import or re-export, a require() call, and an
-// import() evaluated at module top level, outside every function.
+// An import of a listed module is lazy when it is an import() of that
+// module inside a function: an import() whose specifier its module imports
+// only from inside functions (functions, methods, arrows and class methods,
+// whose bodies run when they are called). Its module may be the listed
+// module or any module of its bundle. A key is lazy when g holds an import
+// of it and every import of it is lazy.
 //
-// The modules loaded at load time are those the entry reaches through
-// load-time imports. A key is lazy only when g holds an import of it, and
-// each of its imports is lazy or sits in a module not loaded at load time.
+// Every other import is a load-time one, wherever its module sits in the
+// bundle: a static import or re-export, a require() call, and an import()
+// evaluated at module top level.
 //
-// Where the analysis cannot tell, it takes the reading that orders more:
+// That includes the static import of a listed module by a module that the
+// bundle loads only through an import() inside a function. Such a module
+// reads what it imports while it is initialised, and both bundlers
+// initialise a module once: a read of an unregistered module there would
+// leave that module's exports undefined for every later import of it.
 //
-//   - a key of which g holds no import is a load-time one, since the
-//     bundler's records did not show how it is imported;
-//   - an import() whose module does not parse is a load-time one;
-//   - when a load-time import's module is unknown (a record that names no
-//     input), or no import is the entry's, every module of the closure
-//     counts as loaded at load time.
+// Where the analysis cannot tell, it takes the reading that orders more: a
+// key of which g holds no import is a load-time one, since the bundler's
+// records did not show how it is imported, and an import() whose module
+// does not parse is a load-time one.
 func loadTimeHostModules(g importGraph, keys []string) []string {
-	lazy := func(im moduleImport) bool {
-		return im.Kind == "dynamic-import" && slices.Contains(g.Lazy[im.From], im.Specifier)
-	}
-	byFrom := map[string][]moduleImport{}
-	for _, im := range g.Imports {
-		byFrom[im.From] = append(byFrom[im.From], im)
-	}
-	loaded := map[string]bool{g.Entry: true}
-	queue := []string{g.Entry}
-	// Every other module of a closure is there because the entry imports
-	// it. Imports none of which is the entry's mean that the graph names the
-	// entry otherwise, so the analysis cannot tell what loads with it.
-	unknown := len(g.Imports) > 0 && len(byFrom[g.Entry]) == 0
-	for len(queue) > 0 {
-		from := queue[0]
-		queue = queue[1:]
-		for _, im := range byFrom[from] {
-			switch {
-			case lazy(im) || im.Host != "":
-			case im.To == "":
-				unknown = true
-			case !loaded[im.To]:
-				loaded[im.To] = true
-				queue = append(queue, im.To)
-			}
-		}
-	}
 	seen, atLoad := map[string]bool{}, map[string]bool{}
 	for _, im := range g.Imports {
-		if im.Host == "" {
-			continue
-		}
 		seen[im.Host] = true
-		if !lazy(im) && (unknown || loaded[im.From]) {
+		if im.Kind != "dynamic-import" || !slices.Contains(g.Lazy[im.From], im.Specifier) {
 			atLoad[im.Host] = true
 		}
 	}

@@ -403,18 +403,22 @@ The Go build orders the listed modules by their load-time imports only
 The helper reports what that order needs:
 
 - **The import graph.** A scan of a module that imports another listed
-  module also returns its bundle's graph (`bundleImports`): every import of
-  every module, with Bun's kind and the specifier, and the module or listed
-  module it resolves to. That comes from the metafile and from what the
-  build's plugin resolved, by importer.
+  module also returns its bundle's imports of listed modules
+  (`bundleImports`): the module that holds each, Bun's kind and the
+  specifier. They come from the metafile's external imports, which the
+  build's plugin resolved to listed modules.
 - **Lazy imports.** `lazyImports` parses a module with Babel and returns
   the specifiers that it imports only through `import()` calls inside a
   function, an arrow or a method body. An `import()` in a class's static
   block, a field initialiser, a computed key or a decorator runs where the
   class is defined, so it is not lazy. A module that does not parse
   returns null.
+- **Folded specifiers.** A module with a top-level `import()` whose
+  specifier is not a literal (`"./" + "a.ts"`, a template literal with a
+  substitution) gets no lazy specifiers: a bundler can fold that specifier
+  into any module's.
 - **`lazy` request.** The scan parses the modules of its graph that hold an
-  `import()`. For a module that esbuild bundles, the Go build sends each
+  `import()` of a listed module. For a module that esbuild bundles, the Go build sends each
   file with its syntax, and the response gives each file's lazy
   specifiers.
 

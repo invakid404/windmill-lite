@@ -532,7 +532,7 @@ export class Builder {
       exports: exportScanner.scan(b.text).exports,
       host_modules: b.hostModules,
       packages: directPackages(parsed),
-      ...(b.hostModules.length > 0 ? { graph: importGraph(b, dir, entry) } : {}),
+      ...(b.hostModules.length > 0 ? { graph: importGraph(b, dir) } : {}),
     };
   }
 
@@ -1129,12 +1129,12 @@ function install(dir: string, lock: string): void {
   }
 }
 
-// The import graph of a scan's bundle of a host-provided module: its
-// entry, the imports of each of its modules, and, for each module that
-// imports with import(), the specifiers it imports only from inside
-// functions (lazyImports, read with the syntax of its extension).
-function importGraph(b: Bundled, dir: string, entry: string): ImportGraph {
-  const imports = bundleImports(b.metafile, b.resolvedBy, b.hostBy);
+// What the Go build reads of a scan's bundle of a host-provided module: its
+// imports of other listed modules, and, for each module that holds an
+// import() of one, the specifiers it imports only from inside functions
+// (lazyImports, read with the syntax of its extension).
+function importGraph(b: Bundled, dir: string): ImportGraph {
+  const imports = bundleImports(b.metafile, b.hostBy);
   const lazy: Record<string, string[] | null> = {};
   for (const im of imports) {
     if (im.kind !== "dynamic-import" || Object.hasOwn(lazy, im.from)) continue;
@@ -1146,7 +1146,7 @@ function importGraph(b: Bundled, dir: string, entry: string): ImportGraph {
     }
     lazy[im.from] = text === undefined ? null : lazyImports(text, syntaxOf(im.from));
   }
-  return { entry: relative(dir, entry), imports, lazy };
+  return { imports, lazy };
 }
 
 // The bundler's metafile with every path relative to the dependency set's

@@ -354,17 +354,17 @@ func latePlugin(helpers map[string]string) *api.Plugin {
 	}}
 }
 
-// esbuildGraph is the import graph of an esbuild bundle of the listed
-// module whose file is entry (relative to the folder), from the bundle's
-// metafile. esbuild names each file by its path relative to the folder,
-// and resolves each import to the file it names, with the specifier as
-// original when the two differ.
+// esbuildGraph is what the load-order analysis reads of an esbuild bundle
+// of the listed module whose file is entry (relative to the folder): its
+// imports of other listed modules, from the bundle's metafile. esbuild
+// names each file by its path relative to the folder, and resolves each
+// import to the file it names, with the specifier as original when the two
+// differ.
 //
-// An import resolves to a listed module when
-// it names that module's file (whose source the build's plugin replaced
-// with the module's shim) or its plugin path (host/<key>, a package).
-// Imports esbuild left external load nothing of the bundle and are left
-// out.
+// An import resolves to a listed module when it names that module's file
+// (whose source the build's plugin replaced with the module's shim) or its
+// plugin path (host/<key>, a package). The lazy imports are filled in by
+// lazyOfGraphs.
 func esbuildGraph(folder, entry string, metafile json.RawMessage, listed []CodebaseHostModule) (importGraph, error) {
 	var mf struct {
 		Inputs map[string]struct {
@@ -394,36 +394,32 @@ func esbuildGraph(folder, entry string, metafile json.RawMessage, listed []Codeb
 			byFile[p] = m.Key
 		}
 	}
-	g := importGraph{Entry: filepath.ToSlash(entry), Imports: []moduleImport{}, Lazy: map[string][]string{}}
+	g := importGraph{Imports: []hostImport{}, Lazy: map[string][]string{}}
 	for _, from := range slices.Sorted(maps.Keys(mf.Inputs)) {
-		if !strings.Contains(from, ":") && real(from) == own {
-			g.Entry = from
-		}
 		for _, im := range mf.Inputs[from].Imports {
 			if im.External {
+				continue
+			}
+			key, ok := byPlugin[im.Path]
+			if !ok && !strings.Contains(im.Path, ":") {
+				key, ok = byFile[real(im.Path)]
+			}
+			if !ok {
 				continue
 			}
 			spec := im.Original
 			if spec == "" {
 				spec = im.Path
 			}
-			mi := moduleImport{From: from, Kind: im.Kind, Specifier: spec}
-			if key, ok := byPlugin[im.Path]; ok {
-				mi.Host = key
-			} else if key, ok := byFile[real(im.Path)]; ok && !strings.Contains(im.Path, ":") {
-				mi.Host = key
-			} else {
-				mi.To = im.Path
-			}
-			g.Imports = append(g.Imports, mi)
+			g.Imports = append(g.Imports, hostImport{From: from, Kind: im.Kind, Specifier: spec, Host: key})
 		}
 	}
 	return g, nil
 }
 
 // lazyOfGraphs fills in each graph's lazy imports: the build helper parses
-// every module of the folder or its packages that holds an import(), with
-// the syntax of the loader esbuild read it with (that of the codebase entry
+// every module of the folder or its packages that holds an import() of a
+// listed module, with the syntax of the loader esbuild read it with (that of the codebase entry
 // whose settings built the graph's module).
 //
 // A module of another loader holds no JavaScript to parse. A module that
