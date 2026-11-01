@@ -1,11 +1,14 @@
 // A Bun host for the host-mode tests (cmd/windmill-lite/host_test.go,
 // milestones W1, F3a and F3h). It embeds the host SDK, registers its
-// instances of the host-provided modules f/host/scopes.ts and
-// ../hostlib/tenant.ts (outside the sync folder), connects the engine on a
-// bundle built from testdata/hostfolder, and serves its callers over HTTP
-// on a Unix socket. Each run is submitted inside the caller's tenant
-// scope, in both modules. The tests compile it with `bun build --compile` and run it under
-// a supervisor that only restarts it when it exits.
+// instances of the host-provided modules f/host/scopes.ts,
+// ../hostlib/tenant.ts (outside the sync folder), f/host/pool.ts, and
+// f/host/lazy/a.ts and f/host/lazy/b.ts (whose cycle closes only through a
+// lazy import), connects the engine on a bundle built from
+// testdata/hostfolder, and serves its callers over HTTP on a Unix socket.
+// Each run is submitted inside the caller's tenant scope, in both scope
+// modules (scopes.ts and tenant.ts). The tests compile it with `bun build
+// --compile` and run it under a supervisor that only restarts it when it
+// exits.
 //
 // Environment: WL_ENGINE (the engine binary), WL_BUNDLE, WL_HOST_SOCKET,
 // WL_KILL_AFTER_MS (the watchdog's threshold), WL_WORKDIR (the working
@@ -20,6 +23,8 @@
 import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
 import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
+import * as lazyA from "../hostfolder/f/host/lazy/a.ts";
+import * as lazyB from "../hostfolder/f/host/lazy/b.ts";
 import * as pool from "../hostfolder/f/host/pool.ts";
 import * as scopes from "../hostfolder/f/host/scopes.ts";
 import * as outside from "../hostlib/tenant.ts";
@@ -46,7 +51,13 @@ try {
     engine: env.WL_ENGINE!,
     bundle: env.WL_BUNDLE!,
     workdir: env.WL_WORKDIR ?? process.cwd(),
-    hostModules: { "f/host/scopes.ts": scopes, "f/host/pool.ts": pool, "../hostlib/tenant.ts": outside },
+    hostModules: {
+      "f/host/scopes.ts": scopes,
+      "f/host/pool.ts": pool,
+      "../hostlib/tenant.ts": outside,
+      "f/host/lazy/a.ts": lazyA,
+      "f/host/lazy/b.ts": lazyB,
+    },
     watchdog: { killAfter: Number(env.WL_KILL_AFTER_MS ?? "30000") },
     recycle:
       env.WL_RECYCLE_MODULES || env.WL_RECYCLE_RETIRED

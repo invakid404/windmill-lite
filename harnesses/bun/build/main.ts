@@ -8,12 +8,16 @@
 // the bundle directory and returning what the parse recorded. `parse`
 // returns only what each entry's source records, for codebase scripts,
 // which esbuild bundles in Go (C2b), and checks the source of each
-// host-provided module outside the folder (F3h). A request
+// host-provided module outside the folder (F3h). `lazy` reports, for the
+// modules of a host-provided module's bundle that esbuild built, the
+// specifiers each imports only from inside functions, which orders
+// host-provided modules (ADR 0010). A request
 // that cannot be served at all fails with exit code 2 and an `error` in the
 // response; a problem with one script or module is reported against it.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { Builder, BuildProblem } from "./build.ts";
+import { lazyImports } from "./loadorder.ts";
 import type { Request, Response } from "./protocol.ts";
 import { BUILTIN_SPECIFIERS, keptImports, namespaceImports, syntaxOf } from "./shared.ts";
 
@@ -37,7 +41,8 @@ try {
   response.error = { kind: "invalid_request", message: `cannot read the request: ${(e as Error).message}` };
   finish(2);
 }
-if (req.version !== 1 || (req.op !== "scan" && req.op !== "build" && req.op !== "parse" && req.op !== "native" && req.op !== "kept" && req.op !== "namespaces")) {
+const OPS = ["scan", "build", "parse", "native", "kept", "namespaces", "lazy"];
+if (req.version !== 1 || !OPS.includes(req.op)) {
   response.error = { kind: "invalid_request", message: `unsupported request version ${req.version} or op ${req.op}` };
   finish(2);
 }
@@ -91,6 +96,22 @@ if (req.op === "namespaces") {
       text = undefined;
     }
     response.namespaces[file] = text === undefined ? null : namespaceImports(text, syntaxOf(file));
+  }
+  finish(0);
+}
+
+// The lazy imports of modules of a host-provided module's bundle that
+// esbuild built, for the Go build's load-order analysis (ADR 0010).
+if (req.op === "lazy") {
+  response.lazy = {};
+  for (const m of req.lazy ?? []) {
+    let text: string | undefined;
+    try {
+      text = readFileSync(m.file, "utf8");
+    } catch {
+      text = undefined;
+    }
+    response.lazy[m.file] = text === undefined ? null : lazyImports(text, m.syntax);
   }
   finish(0);
 }

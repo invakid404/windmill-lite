@@ -32,9 +32,10 @@ runtime.
 | `sources.go` | the recording file system behind the source inventory; `TreeDigest` |
 | `archive.go` | `WriteArchive`, `WriteArchiveFile`, `Verify` and `Extract` |
 | `env.go` | `EnvRewrite`: the define table and support module of the env rewrite |
-| `shim.go` | `Shim`: the shim of a host-provided module; the registry key |
+| `shim.go` | `Shim`: the shim of a host-provided module; `LateShim`, its late shim; the registry key |
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
+| `loadorder.go` | The registration order of host-provided modules: which listed modules each imports at load time (`loadTimeHostModules`), and the order (`hostModuleOrder`) |
 | `esbuild.go` | `CodebaseSettings` (a codebases entry, WR-47), `CLIOptions` and `CLIBundle` (the pinned CLI's build), `BuildCodebase`, assets |
 | `outside.go` | `BuildEsbuildHostModules`: the host-provided modules esbuild builds (those outside the folder, and listed codebase scripts); `OutsideID` |
 | `meta.go` | `ScriptMeta` and the other result types, problems and warnings; `SharedMeta` and the fallback reasons of shared code |
@@ -494,16 +495,73 @@ The build has these steps:
      its problem.
 2. A first esbuild build of each, with the shims of these modules as
    CommonJS placeholders that take any import name, records which listed
-   modules it imports, which orders them (`host_module_cycle`).
+   modules it imports. Its metafile is the import graph that orders them
+   ([Registration order](#registration-order-of-host-provided-modules));
+   the helper's `lazy` op parses each module of it that holds an
+   `import()`.
 3. Each is bundled in that order, as an ES module with its codebase
    entry's settings, the env rewrite and the other modules' shims, into
    `scripts/bun/provided/<id>.mjs`. Its shim is generated from the export
    names of that bundle's metafile (`host_module_commonjs` when the entry
    is CommonJS source).
+4. A module that imports a later module lazily is bundled again once every
+   copy is: its first copy holds that module's placeholder. The second
+   holds the module's late shim, from the export names of the module's
+   copy, or its plain shim when it has no exports. The two copies must
+   export the same names (`host_module_exports_differ`).
 
 The manifest registers these modules after the Bun build's, which cannot
 import them, and `Build` adds the files of the folder the copies read
 (`EsbuildHostResult.Inputs`) to the sources.
+
+## Registration order of host-provided modules
+
+A listed module registers after each listed module that it imports while
+it loads ([ADR 0010](../../docs/design/0010-packaging.md#host-provided-modules),
+item 1). `loadorder.go` decides the order for both bundlers' builds, from
+an `importGraph` per module: every import of every module of its bundled
+closure, with the bundler's kind and specifier, and the module or the
+listed module it resolves to.
+
+`loadTimeHostModules` returns the listed modules a module imports at load
+time (`HostModuleMeta.LoadHostModules`):
+
+- **Lazy:** an `import()` whose specifier its module imports only from
+  inside functions, as the helper's parse reports
+  ([build/](../../harnesses/bun/build/README.md)).
+- **Load time:** every other import (a static import or re-export, a
+  `require()`, a top-level `import()`), from the entry and from each module
+  that load-time imports reach.
+- **Unknown:** an `import()` in a module that does not parse is a
+  load-time one. A load-time import whose module the record does not name,
+  or a graph in which no import is the entry's, makes every module of the
+  closure count as loaded at load time.
+
+`hostModuleOrder` orders the modules by a depth-first walk, in the
+configured order:
+
+- each module comes after every listed module that it imports at load
+  time; a cycle of these fails with `host_module_cycle`, naming the cycle by
+  module ID;
+- each module also comes after every listed module that it imports only
+  lazily, unless that closes a cycle. The first lazy import on such a cycle
+  is set aside, and the walk starts again;
+- a list without lazy cycles therefore gets the order it had when every
+  import ordered it, and builds the same bytes.
+
+An import set aside is late: its importer registers first. The importer's
+copy resolves it to the module's late shim (`LateShim`): an ES module that
+re-exports each name from a CommonJS module whose getters read the
+registry on every read. Late shims are inlined into the copies, and no file
+of the bundle holds one alone.
+
+- A read before the module registers throws
+  `host-provided module not registered: <key> (…)`, and a read after it
+  gets the registered value.
+- A plain shim that failed would leave its exports undefined for every
+  later import, since both bundlers initialise a module once.
+- A module without exports keeps its plain shim: it has no value to leave
+  undefined.
 
 ## BuildBun
 
@@ -513,10 +571,15 @@ of a bundle:
 1. **Scan**, when there are host-provided modules: the helper reports each
    module's export names, the listed modules it imports and the packages it
    imports, or `host_module_live_binding` for `export let` or `export var`,
-   or `host_module_commonjs` for a CommonJS module.
+   or `host_module_commonjs` for a CommonJS module. For a module that
+   imports another listed module, it also reports the import graph of the
+   scan's bundle.
    `BuildBun` writes `scripts/bun/provided/shims/<id>.mjs` for each and
-   orders them, failing on a cycle (`host_module_cycle`).
+   orders them
+   ([Registration order](#registration-order-of-host-provided-modules)).
 2. **Build**: the helper bundles the host-provided copies and every script.
+   A copy resolves its imports of a module it imports lazily and registers
+   before to that module's late shim, which the request carries.
    `BuildBun` checks each copy's exports against its scan
    (`host_module_exports_differ`), records the workspace scripts each copy
    inlined, and writes `scripts/bun/<id>.meta.json`, a `ScriptMeta` with the

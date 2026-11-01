@@ -35,6 +35,7 @@ import {
   namespaceImports,
   syntaxOf,
 } from "./shared.ts";
+import { bundleImports, type ImportGraph, lazyImports } from "./loadorder.ts";
 import { importSpecifiers, liveBindings, parseModule, signatures, type Syntax } from "./signature.ts";
 import { detectWorkflowAsCode } from "./wac.ts";
 
@@ -85,6 +86,10 @@ type Bundled = {
   // path relative to that directory.
   resolved: Map<string, string>;
   resolvedBy: Map<string, Map<string, string>>;
+  // The key of the listed module each import the plugin resolved to one
+  // resolved to, by importer (relative to the dependency set's directory)
+  // and specifier.
+  hostBy: Map<string, Map<string, string>>;
 };
 
 // What a bundle of the shared layout changes (ADR 0013): the output format,
@@ -124,6 +129,11 @@ type SharedRecord = { closure?: string; fallback?: string };
 // modules runs (ADR 0010 step 5).
 const ENV_SPECIFIER = "windmill-lite:env";
 
+// The start of the specifier by which a late shim's ES module imports its
+// CommonJS module, followed by the module's key (the Go build's
+// lateSpecifier, LateShim).
+const LATE_SPECIFIER = "windmill-lite:late/";
+
 // Which specifiers the plugin's onResolve callback sees: relative and
 // absolute ones, the env support module and listed packages, the only ones
 // it resolves. Bun 1.3.10 drops a module that a package marked
@@ -137,8 +147,9 @@ const ENV_SPECIFIER = "windmill-lite:env";
 // with a ReferenceError while windmill-lite's keeps it (deviation D19,
 // {@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-27 | WR-27}).
 function resolveFilter(packages: Iterable<string>): RegExp {
-  const exact = [ENV_SPECIFIER, ...packages].map((s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") + "$");
-  return new RegExp(`^(?:\\.|/|${exact.join("|")})`);
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const exact = [ENV_SPECIFIER, ...packages].map((s) => escape(s) + "$");
+  return new RegExp(`^(?:\\.|/|${escape(LATE_SPECIFIER)}|${exact.join("|")})`);
 }
 
 // The text of an entry that imports the env support module first, after a
@@ -153,14 +164,18 @@ function withEnvImport(text: string): string {
 // How imports of host-provided modules resolve in one bundle: to the shim
 // (build), or left external so the scan sees only the module's own exports.
 // A native bundle inlines them as any other import: it runs in a realm of
-// its own, which the process-wide registry does not reach (D5).
-type HostMapping = { shims: boolean; self?: string; inline?: boolean };
+// its own, which the process-wide registry does not reach (D5). With
+// shims, the imports of the modules whose keys late holds resolve to their
+// late shims (LateShim in the Go build): the bundled copy of a listed module
+// that imports them lazily and is registered before them.
+type HostMapping = { shims: boolean; self?: string; inline?: boolean; late?: Set<string> };
 
 export class Builder {
   private depDirs = new Map<string, string>();
   private transformed = new Map<string, string>();
   private hostByPackage = new Map<string, HostModuleRequest>();
   private hostByPath = new Map<string, HostModuleRequest>();
+  private hostByKey = new Map<string, HostModuleRequest>();
   private client: Promise<NativeModule> | undefined;
   private sharedEntries: SharedEntry[] = [];
   // namespaceImports by module file, parsed once per build, and the export
@@ -171,6 +186,7 @@ export class Builder {
   constructor(private readonly req: Request) {
     for (const hm of req.host_modules) {
       if (!validId(hm.id)) throw new BuildProblem("invalid_request", `host module id ${JSON.stringify(hm.id)}`);
+      this.hostByKey.set(hm.key, hm);
       if (hm.package !== undefined) this.hostByPackage.set(hm.package, hm);
       else if (hm.path !== undefined && hm.file !== undefined) this.hostByPath.set(hm.path, hm);
       else if (hm.source !== undefined && isAbsolute(hm.source) && req.op === "parse") continue;
@@ -236,6 +252,14 @@ export class Builder {
     return this.materialise(dir, join("host", hm.id + ".mjs"), readFileSync(hm.shim, "utf8"));
   }
 
+  // A module's late shim, its ES module (esm) or the CommonJS module that
+  // one imports (cjs), from the module's request.
+  private lateShimCopy(dir: string, hm: HostModuleRequest, part: "esm" | "cjs"): string {
+    const text = part === "esm" ? hm.late_esm : hm.late_cjs;
+    if (text === undefined) throw new BuildProblem("invalid_request", `host module ${hm.id} has no late shim`);
+    return this.materialise(dir, join("host", hm.id + (part === "esm" ? ".late.mjs" : ".late.cjs")), text);
+  }
+
   // A bundle of one entry. seeds names the workspace modules among its
   // files (absolute path to Windmill path), whose imports resolve from the
   // folder. With env, the entry imports the env support module, and the
@@ -285,6 +309,7 @@ export class Builder {
     const used = new Set<string>();
     const resolved = new Map<string, string>();
     const resolvedBy = new Map<string, Map<string, string>>();
+    const hostBy = new Map<string, Map<string, string>>();
     // Records what an import resolved to.
     const answer = <R extends { path: string; external?: boolean } | undefined>(args: { importer: string; kind: string; path: string }, r: R): R => {
       if (r === undefined || r.external) return r;
@@ -295,10 +320,14 @@ export class Builder {
       resolvedBy.get(by)!.set(key, relative(dir, r.path));
       return r;
     };
-    const host = (hm: HostModuleRequest) => {
+    const host = (hm: HostModuleRequest, args: { importer: string; path: string }) => {
       if (hosts.inline) return undefined;
       used.add(hm.key);
-      return hosts.shims ? { path: this.shimCopy(dir, hm) } : { path: hm.key, external: true };
+      const by = relative(dir, args.importer);
+      if (!hostBy.has(by)) hostBy.set(by, new Map());
+      hostBy.get(by)!.set(args.path, hm.key);
+      if (!hosts.shims) return { path: hm.key, external: true };
+      return { path: hosts.late?.has(hm.key) ? this.lateShimCopy(dir, hm, "esm") : this.shimCopy(dir, hm) };
     };
     const plugin: BunPlugin = {
       name: "windmill-lite",
@@ -310,8 +339,13 @@ export class Builder {
             if (envFile === undefined) throw new Error(`Could not resolve: "${spec}"`);
             return answer(args, { path: envFile });
           }
+          if (spec.startsWith(LATE_SPECIFIER)) {
+            const hm = this.hostByKey.get(spec.slice(LATE_SPECIFIER.length));
+            if (hm === undefined || !hosts.late?.has(hm.key)) throw new Error(`Could not resolve: "${spec}"`);
+            return answer(args, { path: this.lateShimCopy(dir, hm, "cjs") });
+          }
           const pkg = this.hostByPackage.get(spec);
-          if (pkg !== undefined && pkg.key !== hosts.self) return answer(args, host(pkg));
+          if (pkg !== undefined && pkg.key !== hosts.self) return answer(args, host(pkg, args));
           const importer = modules.get(args.importer);
           if (importer === undefined) return undefined;
           if (!spec.startsWith(".") && !spec.startsWith("/")) return undefined;
@@ -323,7 +357,7 @@ export class Builder {
             throw new Error(`Could not resolve: "${spec}"`);
           }
           const hm = this.hostByPath.get(path);
-          if (hm !== undefined && hm.key !== hosts.self && !hosts.inline) return answer(args, host(hm));
+          if (hm !== undefined && hm.key !== hosts.self && !hosts.inline) return answer(args, host(hm, args));
           if (own(this.req.scripts, path) === undefined) {
             throw new Error(`Could not resolve: "${spec}" from ${importer}: no script at ${path}`);
           }
@@ -393,6 +427,7 @@ export class Builder {
         binding,
         resolved,
         resolvedBy,
+        hostBy,
       },
       inputs,
     };
@@ -467,7 +502,9 @@ export class Builder {
 
   // Scan: the exports of each host-provided module, from its bundled copy
   // with other host-provided modules left external, after the live-binding
-  // check (ADR 0010).
+  // check (ADR 0010). When it imports another listed module, the import
+  // graph of that bundle too, from which the Go build learns which of those
+  // it imports at load time.
   async scanHostModule(hm: HostModuleRequest): Promise<HostModuleResult> {
     const { dir, entry, source, seeds } = await this.hostEntry(hm);
     const parsed = parse(source);
@@ -494,6 +531,7 @@ export class Builder {
       exports: exportScanner.scan(b.text).exports,
       host_modules: b.hostModules,
       packages: directPackages(parsed),
+      ...(b.hostModules.length > 0 ? { graph: importGraph(b, dir, entry) } : {}),
     };
   }
 
@@ -513,7 +551,7 @@ export class Builder {
           ((hm.exports ?? []).includes("default") ? `export { default } from ${target};\n` : ""),
       ),
     );
-    const b = await this.bundle(dir, wrapper, seeds, "bun", { shims: true, self: hm.key }, true);
+    const b = await this.bundle(dir, wrapper, seeds, "bun", { shims: true, self: hm.key, late: new Set(hm.late ?? []) }, true);
     const exports = exportScanner.scan(b.text).exports;
     this.writeOut(join("scripts", "bun", "provided", hm.id + ".mjs"), b.text);
     return { exports, host_modules: b.hostModules, packages: directPackages(parse(source)), imports: b.closure };
@@ -1092,6 +1130,26 @@ function install(dir: string, lock: string): void {
 
 // The bundler's metafile with every path relative to the dependency set's
 // directory, so that a bundle does not depend on where it was built.
+// The import graph of a scan's bundle of a host-provided module: its
+// entry, the imports of each of its modules, and, for each module that
+// imports with import(), the specifiers it imports only from inside
+// functions (lazyImports, read with the syntax of its extension).
+function importGraph(b: Bundled, dir: string, entry: string): ImportGraph {
+  const imports = bundleImports(b.metafile, b.resolvedBy, b.hostBy);
+  const lazy: Record<string, string[] | null> = {};
+  for (const im of imports) {
+    if (im.kind !== "dynamic-import" || Object.hasOwn(lazy, im.from)) continue;
+    let text: string | undefined;
+    try {
+      text = readFileSync(join(dir, im.from), "utf8");
+    } catch {
+      text = undefined;
+    }
+    lazy[im.from] = text === undefined ? null : lazyImports(text, syntaxOf(im.from));
+  }
+  return { entry: relative(dir, entry), imports, lazy };
+}
+
 function normaliseMetafile(m: unknown, dir: string): Record<string, unknown> {
   const roots = [...new Set([dir, realpathSync(dir)])].map((r) => r + sep);
   const rel = (p: unknown) => {

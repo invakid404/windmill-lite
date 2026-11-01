@@ -105,6 +105,12 @@ resolving the module to the generated shim, read the host's store in 16 of
 16 concurrent invocations on Bun 1.3.10 and 1.4.2, and the define table
 rewrote `Bun.env` in both outputs and `import.meta.env` in ESM only.
 
+The order in which the listed modules register (item 1 of
+[Host-provided modules](#host-provided-modules)) is decided once for both
+bundlers. The Bun helper's parse says which `import()` calls sit inside
+functions, and the Go build reads both bundlers' import records and orders
+the modules.
+
 ### Host-provided modules
 
 The host contract can list module paths (source files of the folder or its
@@ -136,8 +142,49 @@ the host was a compiled Bun executable.
    `export let` or `export var` is refused with `host_module_live_binding`;
    other ways of exporting a binding that is later reassigned are not
    detected, and the shim then sees the value as it was when the step's
-   module loaded. A listed module that imports another listed module is
-   registered after it; a cycle fails the build (`host_module_cycle`).
+   module loaded.
+
+   A listed module is registered after each listed module that it imports
+   while it loads. A shim takes its module's exports from the registry when
+   it is evaluated, so an import that runs while a module loads must find
+   its module registered. The build orders the listed modules of each
+   bundler's build by these rules:
+
+   - **Load-time imports order modules:** static imports and re-exports
+     (`import`, `export … from`, `export * from`), `require()` calls, and an
+     `import()` evaluated at module top level, outside every function, such
+     as a top-level `await import(…)`. They count in the listed module and
+     in every unlisted module that it loads at load time.
+   - **An `import()` inside a function body** (a function, an arrow, a
+     method or a class method) runs only when the function is called,
+     normally after every listed module has registered. It orders modules
+     only where it closes no cycle, so a list without such a cycle keeps the
+     order that counting every import gives.
+   - **A cycle of load-time imports** fails the build with
+     `host_module_cycle`, which names the cycle by module ID.
+   - **Where the build cannot tell** where an `import()` sits, because its
+     module does not parse, or which module an import loads, it counts the
+     import as a load-time one. That reading can refuse a list or order it
+     more strictly, but it never lets a load-time import find its module
+     unregistered.
+   - **A lazy import set aside to break a cycle** resolves, in the
+     importer's copy, to the imported module's late shim, which reads the
+     registry each time one of its values is read. A function that runs
+     before that module is registered then fails with
+     `host-provided module not registered: <key> (…)` on every read, and
+     works once the module is registered.
+   - **A late shim, not the plain one:** both bundlers run a module's
+     initialisation once, so a plain shim that failed would hand every later
+     import of it undefined exports. A module without exports has no value
+     to read, so it keeps its plain shim.
+   - Rejected: counting every import. It refuses a cycle that closes only
+     through an `import()` in a function, such as a hook that loads a
+     module lazily. A host then leaves those modules unlisted, and every
+     step bundle holds its own copy of each.
+   - Rejected: following the functions that a module calls while it loads.
+     That needs a call graph. An `import()` in such a function fails with
+     the error above instead.
+
    A module outside the folder is reached only by codebase scripts, since a
    Bun script's relative imports stay in the folder
    ([WR-28](../semantics/languages.md#wr-28)), so it is built as they are:

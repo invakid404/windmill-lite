@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -535,6 +536,30 @@ func TestHostScopesThroughAnOutsideModule(t *testing.T) {
 	}
 	if g := s.generations(); g != 1 {
 		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
+// A host lists two modules whose cycle closes only through an import()
+// inside a function (f/host/lazy/a.ts imports f/host/lazy/b.ts while it
+// loads, and f/host/lazy/b.ts imports it back from a function), which the
+// build orders by load-time imports only (ADR 0010). A script that reads
+// both through their shims gets ["ab", "ab"] from the host's instances, and
+// each module loaded once in the process: the step bundle inlines neither,
+// and the lazy import in the host's instance of f/host/lazy/b.ts finds the
+// host's instance of f/host/lazy/a.ts.
+func TestHostLazyImportCycle(t *testing.T) {
+	s := supervise(t, 30000)
+	r, err := s.post("/run", map[string]any{"path": "f/host/lazy_cycle", "kind": "script"})
+	if err != nil || r.Status != "success" {
+		t.Fatalf("%+v, %v", r, err)
+	}
+	var got []any
+	if err := json.Unmarshal(r.Result, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []any{"ab", "ab", map[string]any{"a": 1.0, "b": 1.0}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("result %s, want %v", r.Result, want)
 	}
 }
 

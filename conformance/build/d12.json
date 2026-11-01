@@ -404,6 +404,454 @@
     },
     {
       "spec": "D12",
+      "variant": "lazy-import-cycle",
+      "provenance": "policy",
+      "title": "listed modules whose cycle closes only through an import() inside a function are ordered by their load-time imports, and share one instance each",
+      "note": "a.ts imports b.ts while it loads; b.ts imports a.ts only when later() is called, which puts no constraint on the order. So b registers first, and a's copy takes b from its shim. b's copy resolves its lazy import of a to a's late shim, which reads the registry when a value is read; by the time the step calls later(), a is registered. The step bundle inlines neither module.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\n",
+          "f/repro/lib/a.ts": "import { b } from './b.ts';\nexport function a() { return 'a' + b(); }\n",
+          "f/repro/lib/b.ts": "export function b() { return 'b'; }\nexport async function later() { const { a } = await import('./a.ts'); return a(); }\n",
+          "f/repro/s.ts": "import { a } from './lib/a.ts';\nimport { later } from './lib/b.ts';\nexport async function main() { return [a(), await later()]; }\n"
+        },
+        "contract": "roots:\n  - script: f/repro/s\nhost_modules: [f/repro/lib/a.ts, f/repro/lib/b.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "f/repro/lib/b",
+          "f/repro/lib/a"
+        ],
+        "entries": {
+          "f/repro/s": {
+            "host_modules": [
+              "f/repro/lib/a.ts",
+              "f/repro/lib/b.ts"
+            ],
+            "bundle_contains": [
+              "host-provided module not registered: f/repro/lib/a.ts",
+              "host-provided module not registered: f/repro/lib/b.ts"
+            ],
+            "bundle_not_contains": [
+              "import("
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "f/repro/lib/b",
+            "f/repro/lib/a"
+          ],
+          "calls": [
+            {
+              "entry": "f/repro/s",
+              "result": [
+                "ab",
+                "ab"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-during-load",
+      "provenance": "policy",
+      "title": "a function-level import() whose function runs while its module loads, before the imported module registers, fails with the not-registered error naming its key, and works once the module is registered",
+      "note": "b.ts calls later() at top level and keeps the error. The import() inside it is not an ordering edge, so b still registers before a, and the read of a through a's late shim fails, naming a's contract key. The step's later call reads a after its registration and gets it, never an undefined export.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\n",
+          "f/repro/lib/a.ts": "import { b } from './b.ts';\nexport function a() { return 'a' + b(); }\n",
+          "f/repro/lib/b.ts": "export function b() { return 'b'; }\nexport async function later() { const { a } = await import('./a.ts'); return a(); }\nexport const early = await later().then(String, (e) => e.message);\n",
+          "f/repro/s.ts": "import { a } from './lib/a.ts';\nimport { early, later } from './lib/b.ts';\nexport async function main() { return [early, a(), await later()]; }\n"
+        },
+        "contract": "roots:\n  - script: f/repro/s\nhost_modules: [f/repro/lib/a.ts, f/repro/lib/b.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "f/repro/lib/b",
+          "f/repro/lib/a"
+        ],
+        "run": {
+          "register": [
+            "f/repro/lib/b",
+            "f/repro/lib/a"
+          ],
+          "calls": [
+            {
+              "entry": "f/repro/s",
+              "result": [
+                "host-provided module not registered: f/repro/lib/a.ts (a listed module registered before it imports it lazily, and read it before its registration)",
+                "ab",
+                "ab"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-during-load-uncaught",
+      "provenance": "policy",
+      "title": "the same import() left uncaught fails the registration of its module with the not-registered error naming the imported module's key",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\n",
+          "f/repro/lib/a.ts": "import { b } from './b.ts';\nexport function a() { return 'a' + b(); }\n",
+          "f/repro/lib/b.ts": "export function b() { return 'b'; }\nexport async function later() { const { a } = await import('./a.ts'); return a(); }\nawait later();\n",
+          "f/repro/s.ts": "import { a } from './lib/a.ts';\nimport { later } from './lib/b.ts';\nexport async function main() { return [a(), await later()]; }\n"
+        },
+        "contract": "roots:\n  - script: f/repro/s\nhost_modules: [f/repro/lib/a.ts, f/repro/lib/b.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "f/repro/lib/b",
+          "f/repro/lib/a"
+        ],
+        "run": {
+          "register": [
+            "f/repro/lib/b",
+            "f/repro/lib/a"
+          ],
+          "register_error": "Error: host-provided module not registered: f/repro/lib/a.ts",
+          "calls": []
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "top-level-import-cycle",
+      "provenance": "policy",
+      "title": "an import() evaluated at module top level orders listed modules, so a cycle it closes cannot be ordered",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "files": {
+          "f/shared/a.ts": "import { b } from \"./b.ts\";\nexport const a = () => \"a\" + b();\n",
+          "f/shared/b.ts": "const loaded = await import(\"./a.ts\");\nexport const b = () => \"b\" + typeof loaded;\n"
+        },
+        "host_modules": [
+          {
+            "id": "a",
+            "key": "f/shared/a.ts",
+            "file": "f/shared/a.ts"
+          },
+          {
+            "id": "b",
+            "key": "f/shared/b.ts",
+            "file": "f/shared/b.ts"
+          }
+        ]
+      },
+      "expect": {
+        "order_problem": {
+          "kind": "host_module_cycle",
+          "contains": [
+            "a → b → a"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-order",
+      "provenance": "policy",
+      "title": "a listed module that imports another only through an import() inside a function still comes after it when that closes no cycle",
+      "note": "The lazy import is honoured wherever it closes no cycle, so a list without such a cycle is ordered as when every import ordered it.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { viaK } from \"../shared/x.ts\";\nexport async function main() { return await viaK(); }",
+        "files": {
+          "f/shared/x.ts": "export async function viaK() { const { k } = await import(\"./k.ts\"); return \"x sees \" + k(); }\n",
+          "f/shared/k.ts": "export const k = () => \"k\";\n"
+        },
+        "host_modules": [
+          {
+            "id": "x",
+            "key": "f/shared/x.ts",
+            "file": "f/shared/x.ts"
+          },
+          {
+            "id": "k",
+            "key": "f/shared/k.ts",
+            "file": "f/shared/k.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "x": {
+            "exports": [
+              "viaK"
+            ],
+            "host_modules": [
+              "f/shared/k.ts"
+            ]
+          },
+          "k": {
+            "exports": [
+              "k"
+            ],
+            "host_modules": []
+          }
+        },
+        "host_module_order": [
+          "k",
+          "x"
+        ],
+        "run": {
+          "register": [
+            "k",
+            "x"
+          ],
+          "calls": [
+            {
+              "result": "x sees k"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-late-names",
+      "provenance": "policy",
+      "title": "a late shim gives a lazy import every export of the module it reads, a default export and a string-named one included",
+      "note": "k.ts imports x.ts while it loads and x.ts imports k.ts only from a function, so x registers first and its copy reads k through k's late shim.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { viaK } from \"../shared/x.ts\";\nexport async function main() { return await viaK(); }",
+        "files": {
+          "f/shared/x.ts": "export const tag = \"x\";\nexport async function viaK() { const m = await import(\"./k.ts\"); return [m.default, m[\"a-b\"], m.plain()]; }\n",
+          "f/shared/k.ts": "import { tag } from \"./x.ts\";\nexport default \"K-\" + tag;\nconst ab = \"AB\";\nexport { ab as \"a-b\" };\nexport const plain = () => \"plain\";\n"
+        },
+        "host_modules": [
+          {
+            "id": "x",
+            "key": "f/shared/x.ts",
+            "file": "f/shared/x.ts"
+          },
+          {
+            "id": "k",
+            "key": "f/shared/k.ts",
+            "file": "f/shared/k.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "x": {
+            "exports": [
+              "tag",
+              "viaK"
+            ],
+            "host_modules": [
+              "f/shared/k.ts"
+            ]
+          },
+          "k": {
+            "exports": [
+              "a-b",
+              "default",
+              "plain"
+            ],
+            "host_modules": [
+              "f/shared/x.ts"
+            ]
+          }
+        },
+        "host_module_order": [
+          "x",
+          "k"
+        ],
+        "run": {
+          "register": [
+            "x",
+            "k"
+          ],
+          "calls": [
+            {
+              "result": [
+                "K-x",
+                "AB",
+                "plain"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-cycle-outside",
+      "provenance": "policy",
+      "title": "host-provided modules outside the folder are ordered by their load-time imports too, and a lazy import that runs before its module registers fails the same way",
+      "note": "esbuild builds both copies. b's copy, registered first, is built again once a's copy gives a's export names, with a's late shim.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/s.ts": "import { a } from \"../../../lib/a.ts\";\nimport { early, later } from \"../../../lib/b.ts\";\nexport async function main() { return [early, a(), await later()]; }\n"
+        },
+        "outside": {
+          "../lib/a.ts": "import { b } from './b.ts';\nexport function a() { return 'a' + b(); }\n",
+          "../lib/b.ts": "export function b() { return 'b'; }\nexport async function later() { const { a } = await import('./a.ts'); return a(); }\nexport const early = await later().then(String, (e) => e.message);\n"
+        },
+        "contract": "roots:\n  - script: f/cb/s\nhost_modules: [../lib/a.ts, ../lib/b.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "outside/1/lib/b.ts",
+          "outside/1/lib/a.ts"
+        ],
+        "entries": {
+          "f/cb/s": {
+            "format": "cjs",
+            "host_modules": [
+              "../lib/a.ts",
+              "../lib/b.ts"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "outside/1/lib/b.ts",
+            "outside/1/lib/a.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/s",
+              "result": [
+                "host-provided module not registered: ../lib/a.ts (a listed module registered before it imports it lazily, and read it before its registration)",
+                "ab",
+                "ab"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-no-exports-outside",
+      "provenance": "policy",
+      "title": "a lazily imported module without exports keeps its plain shim, whose failure before the module registers leaves no export undefined",
+      "note": "x.ts registers first and calls load() while it loads, before k.ts is registered: the import fails with the not-registered error. A module without exports has no value a later import could find undefined, so x's copy takes k's plain shim, not esbuild's placeholder.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/s.ts": "import { early, load } from \"../../../lib/x.ts\";\nexport async function main() { return [early, await load()]; }\n"
+        },
+        "outside": {
+          "../lib/x.ts": "export async function load() { await import(\"./k.ts\"); return \"loaded\"; }\nexport const early = await load().then(String, (e) => e.message);\n",
+          "../lib/k.ts": "import \"./x.ts\";\nglobalThis.wlNoExportsLoads = (globalThis.wlNoExportsLoads ?? 0) + 1;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/s\nhost_modules: [../lib/x.ts, ../lib/k.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "outside/1/lib/x.ts",
+          "outside/1/lib/k.ts"
+        ],
+        "run": {
+          "register": [
+            "outside/1/lib/x.ts",
+            "outside/1/lib/k.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/s",
+              "result": [
+                "host-provided module not registered: ../lib/k.ts",
+                "loaded"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "top-level-import-cycle-outside",
+      "provenance": "policy",
+      "title": "host-provided modules outside the folder whose cycle closes through a top-level import() cannot be ordered",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/s.ts": "import { p } from \"../../../lib/p.ts\";\nexport function main() { return p(); }\n"
+        },
+        "outside": {
+          "../lib/p.ts": "import { q } from \"./q.ts\";\nexport const p = () => \"p\" + q();\n",
+          "../lib/q.ts": "const loaded = await import(\"./p.ts\");\nexport const q = () => typeof loaded;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/s\nhost_modules: [../lib/p.ts, ../lib/q.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host modules",
+            "kind": "host_module_cycle",
+            "contains": [
+              "outside/1/lib/p.ts → outside/1/lib/q.ts → outside/1/lib/p.ts"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-cycle-codebase",
+      "provenance": "policy",
+      "title": "listed codebase scripts are ordered by their load-time imports too",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/lib/a.ts": "import { b } from './b.ts';\nexport function a() { return 'a' + b(); }\n",
+          "f/cb/lib/b.ts": "export function b() { return 'b'; }\nexport async function later() { const { a } = await import('./a.ts'); return a(); }\n",
+          "f/cb/s.ts": "import { a } from './lib/a.ts';\nimport { later } from './lib/b.ts';\nexport async function main() { return [a(), await later()]; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/s\nhost_modules: [f/cb/lib/a.ts, f/cb/lib/b.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "f/cb/lib/b",
+          "f/cb/lib/a"
+        ],
+        "entries": {
+          "f/cb/s": {
+            "host_modules": [
+              "f/cb/lib/a.ts",
+              "f/cb/lib/b.ts"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "f/cb/lib/b",
+            "f/cb/lib/a"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/s",
+              "result": [
+                "ab",
+                "ab"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
       "variant": "star-reexport",
       "provenance": "policy",
       "title": "a listed module that re-exports another with export * is refused, since its scan cannot list those names",

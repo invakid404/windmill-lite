@@ -106,7 +106,7 @@ type BunResult struct {
 	Scripts map[string]*ScriptMeta
 	// HostModules holds every host-provided module scanned, by ID, and
 	// HostModuleOrder their IDs in registration order: a module after the
-	// modules it imports.
+	// modules it imports at load time (hostModuleOrder).
 	HostModules     map[string]*HostModuleMeta
 	HostModuleOrder []string
 	Warnings        []Warning
@@ -259,7 +259,15 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 				problems = append(problems, ItemProblem{hostItem(m.ID), *r.Error})
 				continue
 			}
-			res.HostModules[m.ID] = &HostModuleMeta{Key: m.Key, Exports: r.Exports, HostModules: r.HostModules, Packages: r.Packages}
+			hm := &HostModuleMeta{Key: m.Key, Exports: r.Exports, HostModules: nonNilStrings(r.HostModules), Packages: r.Packages}
+			hm.LoadHostModules = []string{}
+			if len(hm.HostModules) > 0 {
+				if r.Graph == nil {
+					return nil, fmt.Errorf("bundle: the scan of host module %s reported no import graph", m.ID)
+				}
+				hm.LoadHostModules = loadTimeHostModules(*r.Graph)
+			}
+			res.HostModules[m.ID] = hm
 			shim, err := Shim(m.Key, r.Exports)
 			if err != nil {
 				return nil, err
@@ -274,11 +282,14 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		if len(problems) > 0 {
 			return res, &BuildError{Problems: problems}
 		}
-		order, err := hostModuleOrder(cfg.HostModules, res.HostModules)
+		order, late, err := hostModuleOrder(cfg.HostModules, res.HostModules)
 		if err != nil {
 			return res, &BuildError{Problems: []ItemProblem{{"host modules", Problem{ProblemHostModuleCycle, err.Error()}}}}
 		}
 		res.HostModuleOrder = order
+		if err := addLateShims(req.HostModules, res.HostModules, late); err != nil {
+			return nil, err
+		}
 	}
 
 	req.Op = "build"
@@ -414,45 +425,33 @@ func decodeMeta(raw json.RawMessage) (*ScriptMeta, error) {
 	return &m, nil
 }
 
-// hostModuleOrder orders host-provided modules so that each comes after the
-// modules it imports, keeping the configured order otherwise.
-func hostModuleOrder(mods []HostModule, meta map[string]*HostModuleMeta) ([]string, error) {
-	byKey := map[string]string{}
-	for _, m := range mods {
-		byKey[m.Key] = m.ID
+// addLateShims gives each listed module of mods the late shims of the
+// modules it imports lazily and is registered before (late, by ID, from
+// hostModuleOrder): the build of its copy resolves its imports of each to
+// that module's late shim (LateShim), which the module's own request
+// carries. A module without exports keeps its plain shim.
+func addLateShims(mods []helperHostModule, meta map[string]*HostModuleMeta, late map[string][]string) error {
+	byKey := map[string]*helperHostModule{}
+	for i := range mods {
+		byKey[mods[i].Key] = &mods[i]
 	}
-	const (
-		visiting = 1
-		done     = 2
-	)
-	state := map[string]int{}
-	var order []string
-	var visit func(id string, chain []string) error
-	visit = func(id string, chain []string) error {
-		switch state[id] {
-		case done:
-			return nil
-		case visiting:
-			return fmt.Errorf("host-provided modules import each other: %s", strings.Join(append(chain, id), " → "))
-		}
-		state[id] = visiting
-		for _, k := range meta[id].HostModules {
-			if dep, ok := byKey[k]; ok {
-				if err := visit(dep, append(chain, id)); err != nil {
+	for i := range mods {
+		for _, k := range late[mods[i].ID] {
+			dep := byKey[k]
+			if dep.LateESM == "" {
+				esm, cjs, ok, err := LateShim(k, meta[dep.ID].Exports)
+				if err != nil {
 					return err
 				}
+				if !ok {
+					continue
+				}
+				dep.LateESM, dep.LateCJS = string(esm), string(cjs)
 			}
-		}
-		state[id] = done
-		order = append(order, id)
-		return nil
-	}
-	for _, m := range mods {
-		if err := visit(m.ID, nil); err != nil {
-			return nil, err
+			mods[i].Late = append(mods[i].Late, k)
 		}
 	}
-	return order, nil
+	return nil
 }
 
 // sharedDependencyWarnings reports each package that a Bun script imports
@@ -611,6 +610,16 @@ type helperRequest struct {
 	// Modules are the module files, by absolute path, the namespaces op
 	// parses.
 	Modules []string `json:"modules,omitempty"`
+	// Lazy are the module files, by absolute path, and the syntax of each,
+	// whose lazy imports the lazy op reports.
+	Lazy []helperLazyModule `json:"lazy,omitempty"`
+}
+
+// helperLazyModule is a module file the lazy op parses, with the syntax
+// it is read with: "ts", "tsx", "js" or "jsx".
+type helperLazyModule struct {
+	File   string `json:"file"`
+	Syntax string `json:"syntax"`
 }
 
 // helperClosure is a closure bundle the kept op parses, by its id.
@@ -638,6 +647,13 @@ type helperHostModule struct {
 	// Exports are the scan's export names (build only), which the bundled
 	// copy's entry re-exports.
 	Exports []string `json:"exports,omitempty"`
+	// Late are the keys of the listed modules whose late shims the build of
+	// this module's copy resolves its imports of them to; LateESM and LateCJS
+	// are this module's own late shim, when another module needs it (build
+	// only, LateShim).
+	Late    []string `json:"late,omitempty"`
+	LateESM string   `json:"late_esm,omitempty"`
+	LateCJS string   `json:"late_cjs,omitempty"`
 }
 
 type helperEntry struct {
@@ -676,6 +692,10 @@ type helperResponse struct {
 	// object the module takes (the namespaces op); null for a module the
 	// helper could not parse.
 	Namespaces map[string][]string `json:"namespaces"`
+	// Lazy holds, by module file, the specifiers it imports only through
+	// import() calls inside functions (the lazy op); null for a module the
+	// helper could not read or parse.
+	Lazy map[string][]string `json:"lazy"`
 }
 
 type helperHostResult struct {
@@ -684,6 +704,9 @@ type helperHostResult struct {
 	HostModules []string `json:"host_modules"`
 	Packages    []string `json:"packages"`
 	Imports     []string `json:"imports"`
+	// Graph is the import graph of the scan's bundle of the module, which
+	// the scan reports when it imports another listed module.
+	Graph *importGraph `json:"graph"`
 }
 
 type helperEntryRes struct {

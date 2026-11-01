@@ -117,7 +117,10 @@ type buildCase struct {
 		Run    *struct {
 			Env      map[string]string `json:"env"`
 			Register []string          `json:"register"`
-			Calls    []callWant        `json:"calls"`
+			// RegisterError is a text the error that ends the registration
+			// contains; empty means every module registers.
+			RegisterError string     `json:"register_error"`
+			Calls         []callWant `json:"calls"`
 		} `json:"run"`
 	} `json:"expect"`
 }
@@ -424,7 +427,9 @@ func runBuildCase(t *testing.T, bun, helper string, c buildCase) {
 			}
 			calls = append(calls, call{Module: filepath.Join(out, "scripts", "bun", entry+".mjs"), Export: exp, Args: cl.Args})
 		}
-		checkCalls(t, runModules(t, bun, r.Env, register, calls), r.Calls)
+		regErr, got := runModulesRegistering(t, bun, r.Env, register, calls)
+		checkRegistration(t, regErr, r.RegisterError)
+		checkCalls(t, got, r.Calls)
 	}
 }
 
@@ -586,6 +591,18 @@ type callWant struct {
 	Error  string          `json:"error"`
 }
 
+// checkRegistration checks the error that ended a case's registration of
+// host-provided modules: none when want is empty, else one containing want.
+func checkRegistration(t *testing.T, got *string, want string) {
+	t.Helper()
+	switch {
+	case want == "" && got != nil:
+		t.Errorf("registering the host-provided modules: %s", *got)
+	case want != "" && (got == nil || !strings.Contains(*got, want)):
+		t.Errorf("registration error %v, want one containing %q", got, want)
+	}
+}
+
 func checkCalls(t *testing.T, got []callResult, want []callWant) {
 	t.Helper()
 	for i, cl := range want {
@@ -731,7 +748,9 @@ func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
 			}
 			calls = append(calls, call{Module: builtModule(t, cfg.Out, cl.Entry), Export: exp, Args: cl.Args})
 		}
-		checkCalls(t, runModules(t, bun, r.Env, register, calls), r.Calls)
+		regErr, got := runModulesRegistering(t, bun, r.Env, register, calls)
+		checkRegistration(t, regErr, r.RegisterError)
+		checkCalls(t, got, r.Calls)
 	}
 }
 

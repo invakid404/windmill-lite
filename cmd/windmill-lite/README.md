@@ -193,14 +193,18 @@ on exit; the flow-suite half of F3b's gate is `cmd/wltest`'s).
 `testdata/hostfolder/` is a synthetic sync folder with its host contract
 (`contract.yaml`), which the test builds once with `bundle.Build`, and
 whose host-provided modules are `f/host/scopes.ts`, `f/host/pool.ts` (a
-pool of leases the host releases at a run's `onSettled`, F3b) and
-`../hostlib/tenant.ts`: `testdata/hostlib/` lies outside the sync root,
+pool of leases the host releases at a run's `onSettled`, F3b),
+`../hostlib/tenant.ts`, `f/host/lazy/a.ts` and `f/host/lazy/b.ts`.
+`testdata/hostlib/` lies outside the sync root,
 as the `relative_path` of a codebases entry whose script
-`f/hostout/read.ts` imports the module from there.
+`f/hostout/read.ts` imports the module from there. `f/host/lazy/a.ts`
+imports `f/host/lazy/b.ts` while it loads, and `f/host/lazy/b.ts` imports
+it back only from a function.
 `testdata/host/host.ts` is a Bun host that embeds the SDK, registers its
-instances of both modules, connects the engine on the bundle, and serves its
+instances of these modules, connects the engine on the bundle, and serves its
 callers over HTTP on a Unix socket, submitting each run inside the
-caller's tenant scope of both. The test compiles it with
+caller's tenant scope of both scope modules (`scopes.ts` and
+`tenant.ts`). The test compiles it with
 `bun build --compile`, and its engine is the test binary itself
 (`TestMain` runs the command when `WL_TEST_ENGINE` is set). A supervisor
 that only restarts the host when it exits runs it. The tests:
@@ -217,6 +221,7 @@ that only restarts the host when it exits runs it. The tests:
 | `TestHostDrainAfterALargeOutcome` | a drain that starts while a run with a 3 MiB outcome is in flight (`f/host/big`) ends only after that run's caller has its whole outcome |
 | `TestHostRunSettled` | a step that its timeout abandons runs on: the run's outcome comes at about 1 s and its `onSettled` at about 1.5 s, in the run's own tenant scope; a run that abandons nothing settles with its outcome |
 | `TestHostScriptRun` | a root script runs as a script job; a run of no target is refused |
+| `TestHostLazyImportCycle` | two host-provided modules whose cycle closes only through an `import()` inside a function build, and the root script `f/host/lazy_cycle.ts` reads both through their shims: it gets `["ab", "ab"]` from the host's instances, and each module loaded once in the process |
 | `TestHostFacade` | a step reads a variable of the bundle through the job API at the `BASE_URL` its invocation carries |
 | `TestHostRecycleModules` | the modules recycle trigger trips once a second module loads, in `health()` and `onRecycle` |
 | `TestHostRecycleRetired` | F3b: the retired-entry recycle trigger trips once the host's count of pooled entries retired and not released passes its maximum, in `health()` and `onRecycle`; the host lives on |

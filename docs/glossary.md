@@ -153,6 +153,14 @@ Windmill's unit of queued work: Windmill runs each step as a job.
 windmill-lite has no job queue, but it gives each step the job identity that
 scripts read, such as `WM_JOB_ID` ([internal/platform](../internal/platform/README.md)).
 
+### late shim
+
+A variant of a [shim](#shim) that reads the registry each time one of its
+values is read. A host-provided module's bundled copy imports another
+module through it when it imports that module only lazily and registers
+first, so a read before the other module registers fails, and a read after
+it works ([ADR 0010](design/0010-packaging.md#host-provided-modules)).
+
 ### Memoria
 
 The tool that ties each README to the files in its scope, and fails CI while
@@ -238,6 +246,14 @@ clears its timers, aborts its `fetch` requests, and drops its later logs and
 platform calls, but sockets that the script opened and CPU work run on
 ([D9](design/0001-equivalence-contract.md#5-named-deviations),
 [ADR 0004](design/0004-harness-protocol.md)).
+
+### shim
+
+The module that each bundler resolves imports of a host-provided module
+to. It takes every export of the module, by name, from the process-wide
+registry that the [host](#host) or the [harness](#harness) fills, so every
+script shares one instance
+([ADR 0010](design/0010-packaging.md#host-provided-modules)).
 
 ### step
 
