@@ -444,9 +444,15 @@ context-free case's recorded argument as its stored form.
     and unpaired surrogates, edge numbers, and text that is not JSON.
   - The paths read missing members, indexes past the end and `length`,
     and chain optionally over `null` and `undefined`.
-- `TestMemberPathPipeline` checks that a member path does not reach an
-  engine that says it is exact and reaches any other. A failed results
-  read is made once either way, with the same error.
+- `TestMemberPathPipeline` checks that a member path over a bound value
+  or the previous result does not reach an engine that says it is exact,
+  that one needing the results lookup does, and that any other engine
+  gets them all. The lookup is read once, with the same error either way.
+- `TestMemberPathHelperCallTexts` checks that a text JE-11 rewrites stays
+  the engine's: each helper spelling, in quoted keys and results ids,
+  rewritten into another key or into a syntax error.
+  `TestMemberPathLookupKeepsTheAttemptLimit` has a lookup slower than the
+  attempt limit fail with the limit's error, member paths on or off.
 - `BenchmarkEvalMemberPath` times three member paths through `Eval`.
 - `jsontext_test.go` checks the member lookup and the `#>` walk against
   an `encoding/json` implementation, on generated values. jsonb's text
