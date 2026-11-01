@@ -9,8 +9,9 @@ name: JSON library study
 # (peak resident memory), brief (the microbenchmarks and peak memory on
 # the workload brief's families F1 to F8), exact (the exactness probes), sonic-tests
 # (sonic's own suite on this Go), static (zig cc static builds), tests (the
-# repository's suites with each library swapped in) and e2e (G1's
-# end-to-end benchmarks with each swap).
+# repository's suites with each library swapped in), e2e (G1's
+# end-to-end benchmarks with each swap) and memory (the end-to-end memory
+# group alone).
 on:
   push:
     branches: [study/json-libraries]
@@ -42,6 +43,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       parts: ${{ steps.parts.outputs.parts }}
+      groups: ${{ steps.parts.outputs.groups }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,6 +56,14 @@ jobs:
           parts="${INPUT:-$(cat .github/json-study-parts)}"
           echo "parts: $parts"
           echo "parts= $parts " >> "$GITHUB_OUTPUT"
+          # The end-to-end groups: all of them for e2e, the memory group
+          # alone for memory.
+          groups='[]'
+          case " $parts " in
+            *" e2e "*) groups='["boundary","shapes","study","memory"]' ;;
+            *" memory "*) groups='["memory"]' ;;
+          esac
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
   micro:
     needs: plan
@@ -268,14 +278,14 @@ jobs:
 
   e2e:
     needs: plan
-    if: contains(needs.plan.outputs.parts, ' e2e ')
+    if: needs.plan.outputs.groups != '[]'
     name: End to end (${{ matrix.arch }}, ${{ matrix.group }})
     strategy:
       fail-fast: false
       max-parallel: 6
       matrix:
         arch: [amd64, arm64]
-        group: [boundary, shapes, study, memory]
+        group: ${{ fromJSON(needs.plan.outputs.groups) }}
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 300
     steps:

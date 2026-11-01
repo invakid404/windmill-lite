@@ -362,8 +362,12 @@ func BenchmarkStudyReplicatedList(b *testing.B) {
 // on a small input, a garbage collection and a reset of both peaks (Linux:
 // VmHWM, reset through /proc/<pid>/clear_refs). It reports each process's
 // resident size before the run (base), its peak, and the rise between
-// them, and the engine's live Go heap before the run. The runs: f/bench/chain2 (two steps that
-// return their argument) at 16, 32 and 64 MiB; f/bench/chain (eight
+// them, and the engine's live Go heap before the run. The sum of the two
+// peaks bounds their combined peak from above, since the two need not fall
+// at the same moment; a sampler that reads both resident sizes together
+// every millisecond gives a bound from below (combined-sampled-MiB). The
+// runs: f/bench/chain2 (two steps that return their argument) at 16, 32
+// and 64 MiB; f/bench/chain (eight
 // steps) at 16 MiB, whose trace keeps every step's values; and the
 // pass-through chain at its deepest and widest with its on_run_end payload
 // marshalled inside the window. The flow input is submitted from the
@@ -409,7 +413,7 @@ func BenchmarkStudyMemory(b *testing.B) {
 			}
 			run(c.warm)
 			args := c.args()
-			var peakE, peakH, baseE, baseH int64
+			var peakE, peakH, baseE, baseH, combined int64
 			var live uint64
 			for range b.N {
 				runtime.GC()
@@ -421,12 +425,14 @@ func BenchmarkStudyMemory(b *testing.B) {
 					b.Skip("cannot reset the peak resident size")
 				}
 				baseE, baseH = procKiB(0, "VmRSS:"), procKiB(host, "VmRSS:")
+				sampler := startCombined(host)
 				res := run(args)
 				if c.runEnd {
 					if _, err := wl.StudyRunEndPayload(res.Trace); err != nil {
 						b.Fatal(err)
 					}
 				}
+				combined = sampler.finish()
 				peakE, peakH = procKiB(0, "VmHWM:"), procKiB(host, "VmHWM:")
 				runtime.KeepAlive(res)
 			}
@@ -440,8 +446,94 @@ func BenchmarkStudyMemory(b *testing.B) {
 			b.ReportMetric(mib(peakH), "host-peak-MiB")
 			b.ReportMetric(mib(peakH-baseH), "host-rise-MiB")
 			b.ReportMetric(mib(peakE+peakH), "sum-peak-MiB")
+			b.ReportMetric(mib(combined), "combined-sampled-MiB")
 		})
 	}
+}
+
+// combinedSampler reads the engine's and the host's resident sizes
+// together every millisecond and keeps the largest sum it sees: a lower
+// bound on their combined peak, since a sample can miss the exact moment.
+// It reads /proc/<pid>/statm into a fixed buffer, so it allocates nothing
+// while it runs and does not add to the engine's own peak.
+type combinedSampler struct {
+	stop chan struct{}
+	done chan int64
+}
+
+func startCombined(host int) *combinedSampler {
+	s := &combinedSampler{stop: make(chan struct{}), done: make(chan int64, 1)}
+	self, err := os.Open(procPath(0, "statm"))
+	if err != nil {
+		s.done <- -1
+		return s
+	}
+	other, err := os.Open(procPath(host, "statm"))
+	if err != nil {
+		self.Close()
+		s.done <- -1
+		return s
+	}
+	go func() {
+		defer self.Close()
+		defer other.Close()
+		var buf [128]byte
+		page := int64(os.Getpagesize())
+		resident := func(f *os.File) int64 {
+			if _, err := f.Seek(0, 0); err != nil {
+				return -1
+			}
+			n, _ := f.Read(buf[:])
+			return statmResident(buf[:n])
+		}
+		var most int64
+		tick := time.NewTicker(time.Millisecond)
+		defer tick.Stop()
+		for {
+			if e, h := resident(self), resident(other); e >= 0 && h >= 0 && (e+h)*page/1024 > most {
+				most = (e + h) * page / 1024
+			}
+			select {
+			case <-s.stop:
+				s.done <- most
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+	return s
+}
+
+// finish stops the sampler and returns the largest combined resident size
+// it saw, in KiB (-1 when /proc could not be read).
+func (s *combinedSampler) finish() int64 {
+	close(s.stop)
+	return <-s.done
+}
+
+// statmResident is the second field of /proc/<pid>/statm: the resident
+// size in pages.
+func statmResident(b []byte) int64 {
+	i := 0
+	for i < len(b) && b[i] != ' ' {
+		i++
+	}
+	if i >= len(b) {
+		return -1
+	}
+	var n int64
+	digits := 0
+	for _, c := range b[i+1:] {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + int64(c-'0')
+		digits++
+	}
+	if digits == 0 {
+		return -1
+	}
+	return n
 }
 
 // resetPeak resets a process's peak resident size (0: this process).
