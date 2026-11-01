@@ -19,11 +19,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"runtime/pprof"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -447,6 +451,126 @@ func BenchmarkStudyMemory(b *testing.B) {
 			b.ReportMetric(mib(peakH-baseH), "host-rise-MiB")
 			b.ReportMetric(mib(peakE+peakH), "sum-peak-MiB")
 			b.ReportMetric(mib(combined), "combined-sampled-MiB")
+		})
+	}
+}
+
+// TestStudyRetention asks whether a long-lived runtime keeps finished
+// runs' values (JC1 §10.5). Measurement only: it asserts nothing, and runs
+// only when WL_STUDY_RETENTION names a directory for its output. One
+// runtime per variant, held as an embedder holds it, serves sequential
+// runs of f/bench/chain2 (two steps that return their argument), each
+// run's input built just before it and dropped after: 30 runs of a 16 MiB
+// value, then 500 of a 64 KiB value. After every 5th (every 50th) run it
+// collects twice and records the Go heap; at the end it writes an
+// inuse_space heap profile. The variants: the subprocess topology an
+// embedder gets by default, without a plugin and with a plugin whose
+// onRunEnd drops the trace; and host mode without a plugin, the topology
+// of the first memory benchmark, whose base grew with each run.
+func TestStudyRetention(t *testing.T) {
+	out := os.Getenv("WL_STUDY_RETENTION")
+	if out == "" {
+		t.Skip("WL_STUDY_RETENTION is not set; it names the directory for the probe's output")
+	}
+	runtime.MemProfileRate = 64 << 10
+	bun := benchSetup(t)
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	if err := os.WriteFile(plugin, []byte("export default {\n  onRunEnd(trace) { return []; },\n};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tsv, err := os.Create(filepath.Join(out, "retention.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tsv.Close()
+	fmt.Fprintln(tsv, "variant\tvalue\truns\theap_inuse_mib\theap_alloc_mib\theap_objects\tgoroutines\tresults_freed\ttraces_freed\truns_alive\tsettlements_alive\truns_started")
+	subprocess := func(t *testing.T, plugin string) *wl.Runtime {
+		rt, err := wl.Open(benchBundle, wl.Options{
+			EngineVersion:  resolveVersion(),
+			Diagnostics:    io.Discard,
+			Variables:      benchVariables,
+			Resources:      benchResources,
+			DataDir:        filepath.Join(out, "data-"+filepath.Base(t.Name())),
+			Bun:            bun,
+			HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
+			ModuleState:    wl.ModuleStateWarm,
+			Plugin:         plugin,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { rt.Close() })
+		return rt
+	}
+	variants := []struct {
+		name string
+		open func(t *testing.T) *wl.Runtime
+	}{
+		{"subprocess", func(t *testing.T) *wl.Runtime { return subprocess(t, "") }},
+		{"subprocess-onRunEnd", func(t *testing.T) *wl.Runtime { return subprocess(t, plugin) }},
+		{"host", func(t *testing.T) *wl.Runtime { return benchRuntime(t, bun, "host") }},
+	}
+	for _, v := range variants {
+		t.Run(v.name, func(t *testing.T) {
+			rt := v.open(t)
+			// Finalizers count the runs' results and traces the collector
+			// has freed: whether the runtime keeps the traces themselves.
+			var resultsFreed, tracesFreed atomic.Int64
+			record := func(value string, runs int) {
+				runtime.GC()
+				runtime.GC()
+				var ms runtime.MemStats
+				runtime.ReadMemStats(&ms)
+				alive, settles, started := engine.StudyRunsAlive()
+				fmt.Fprintf(tsv, "%s\t%s\t%d\t%.1f\t%.1f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", v.name, value, runs, float64(ms.HeapInuse)/(1<<20), float64(ms.HeapAlloc)/(1<<20), ms.HeapObjects, runtime.NumGoroutine(), resultsFreed.Load(), tracesFreed.Load(), alive, settles, started)
+			}
+			run := func(size int) {
+				args := fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(size))
+				res, err := rt.Run(context.Background(), "f/bench/chain2", args, wl.RunOptions{})
+				if err != nil || res.Status != wl.StatusSuccess {
+					t.Fatalf("run: %v %v", err, res)
+				}
+				runtime.SetFinalizer(res, func(*wl.Result) { resultsFreed.Add(1) })
+				if res.Trace != nil {
+					runtime.SetFinalizer(res.Trace, func(*wl.Trace) { tracesFreed.Add(1) })
+				}
+			}
+			run(64)
+			record("warm", 0)
+			for _, c := range []struct {
+				value       string
+				size, runs  int
+				recordEvery int
+			}{{"16MiB", 16 << 20, 30, 5}, {"64KiB", 64 << 10, 500, 50}} {
+				for i := 1; i <= c.runs; i++ {
+					run(c.size)
+					if i%c.recordEvery == 0 {
+						record(c.value, i)
+					}
+				}
+			}
+			runtime.GC()
+			runtime.GC()
+			f, err := os.Create(filepath.Join(out, "heap-"+v.name+".pb.gz"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := pprof.Lookup("heap").WriteTo(f, 0); err != nil {
+				t.Fatal(err)
+			}
+			g, err := os.Create(filepath.Join(out, "goroutines-"+v.name+".txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer g.Close()
+			if err := pprof.Lookup("goroutine").WriteTo(g, 1); err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }

@@ -99,6 +99,7 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 		r.trace.Deviations = []string{"D18"}
 	}
 	r.settle = NewRunSettlement(func() { hooks.OnRunSettled(r.snapshot()) })
+	studyTrack(r)
 	return r
 }
 
