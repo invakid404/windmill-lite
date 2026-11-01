@@ -171,7 +171,9 @@ so the paths a bundle's comments name are the same on every machine:
 ### The resolve filter
 
 The plugin's resolve filter matches only the specifiers it resolves:
-relative and absolute ones, the env support module and listed packages.
+relative and absolute ones, the env support module, listed packages, and
+`windmill-lite:late/<key>`, by which a late shim imports its CommonJS
+module.
 Bun 1.3.10 drops a module that a package marked `sideEffects: false`
 re-exports (`export { x } from "./x.js"`) whenever a resolve filter
 matches the import of that package, even when the callback resolves

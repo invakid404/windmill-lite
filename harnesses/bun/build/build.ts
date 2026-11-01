@@ -135,9 +135,10 @@ const ENV_SPECIFIER = "windmill-lite:env";
 const LATE_SPECIFIER = "windmill-lite:late/";
 
 // Which specifiers the plugin's onResolve callback sees: relative and
-// absolute ones, the env support module and listed packages, the only ones
-// it resolves. Bun 1.3.10 drops a module that a package marked
-// sideEffects:false re-exports (`export { x } from "./x.js"`) when an
+// absolute ones, the env support module, listed packages and the late
+// shims' CommonJS modules (LATE_SPECIFIER), the only ones it resolves.
+// Bun 1.3.10 drops a module that a package marked sideEffects:false
+// re-exports (`export { x } from "./x.js"`) when an
 // onResolve filter matches the import of that package, even one whose
 // callback resolves nothing, so the bundle references a binding it never
 // defines; every other package import is left to Bun without the callback.
