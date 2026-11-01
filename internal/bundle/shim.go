@@ -79,21 +79,21 @@ const lateSpecifier = "windmill-lite:late/"
 
 // LateShim returns the late shim of one host-provided module (ADR 0010):
 // what a listed module resolves its imports of the module to when it
-// imports it only lazily and is registered before it, which happens only
-// when the lazy import closes a cycle. Such an import can run before the
-// module is registered, while the earlier modules load. A plain shim would
-// then throw once, and the bundler's run-once module initialisation would
-// hand every later import of it the shim's exports undefined. The late shim
-// reads the registry each time one of its values is read instead: a read
-// before the module is registered throws `host-provided module not
-// registered: <key>`, every time, and a read after it gets the registered
-// value.
+// imports it only lazily and is registered before it. That happens only
+// when the lazy import closes a cycle, and such an import can run before
+// the module is registered, while the earlier modules load.
+//
+// A bundler initialises a module once, so a plain shim that threw there can
+// never yield the registered values later: on Bun 1.3.10 and esbuild, every
+// later import gets the shim's exports undefined. The late shim reads the
+// registry each time one of its values is read instead. A read before the
+// module is registered throws LateShimMessage, every time; a read after it
+// gets the registered value.
 //
 // It is two sources. esm, which imports resolve to, re-exports each export
 // by name from cjs; cjs defines one getter per export over the registry and
 // never throws while it is evaluated. A module without exports has no value
-// to read, so it gets no late shim, and ok is false: the plain shim's
-// run-once failure leaves no export undefined.
+// to read, so it gets no late shim, and ok is false.
 func LateShim(key string, exports []string) (esm, cjs []byte, ok bool, err error) {
 	if key == "" || !utf8.ValidString(key) {
 		return nil, nil, false, fmt.Errorf("bundle: invalid host-provided module key %q", key)

@@ -560,6 +560,275 @@
     },
     {
       "spec": "D12",
+      "variant": "top-level-import-cycle-through-module",
+      "provenance": "policy",
+      "title": "a load-time import through a module that is not listed orders listed modules too, so a cycle it closes cannot be ordered",
+      "note": "p.ts imports u.ts, which is not listed, and u.ts imports q.ts while it loads; q.ts imports p.ts at top level.",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "files": {
+          "f/shared/p.ts": "import { u } from \"./u.ts\";\nexport const p = () => \"p\" + u();\n",
+          "f/shared/u.ts": "import { q } from \"./q.ts\";\nexport const u = () => q();\n",
+          "f/shared/q.ts": "const loaded = await import(\"./p.ts\");\nexport const q = () => typeof loaded;\n"
+        },
+        "host_modules": [
+          {
+            "id": "p",
+            "key": "f/shared/p.ts",
+            "file": "f/shared/p.ts"
+          },
+          {
+            "id": "q",
+            "key": "f/shared/q.ts",
+            "file": "f/shared/q.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "p": {
+            "exports": [
+              "p"
+            ],
+            "host_modules": [
+              "f/shared/q.ts"
+            ]
+          },
+          "q": {
+            "exports": [
+              "q"
+            ],
+            "host_modules": [
+              "f/shared/p.ts"
+            ]
+          }
+        },
+        "order_problem": {
+          "kind": "host_module_cycle",
+          "contains": [
+            "p → q → p"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-through-module",
+      "provenance": "policy",
+      "title": "an import() inside a function of a module that loads a listed module through one that is not listed does not order them",
+      "note": "b.ts imports c.ts, which is not listed, only from later(); c.ts imports a.ts. So b registers first, and the import of a in b's copy, inside c's code, resolves to a's late shim.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { a } from \"../shared/a.ts\";\nimport { later } from \"../shared/b.ts\";\nexport async function main() { return [a(), await later()]; }",
+        "files": {
+          "f/shared/a.ts": "import { b } from \"./b.ts\";\nexport function a() { return \"a\" + b(); }\n",
+          "f/shared/b.ts": "export function b() { return \"b\"; }\nexport async function later() { const { viaC } = await import(\"./c.ts\"); return viaC(); }\n",
+          "f/shared/c.ts": "import { a } from \"./a.ts\";\nexport const viaC = () => \"c:\" + a();\n"
+        },
+        "host_modules": [
+          {
+            "id": "a",
+            "key": "f/shared/a.ts",
+            "file": "f/shared/a.ts"
+          },
+          {
+            "id": "b",
+            "key": "f/shared/b.ts",
+            "file": "f/shared/b.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "a": {
+            "exports": [
+              "a"
+            ],
+            "host_modules": [
+              "f/shared/b.ts"
+            ]
+          },
+          "b": {
+            "exports": [
+              "b",
+              "later"
+            ],
+            "host_modules": [
+              "f/shared/a.ts"
+            ]
+          }
+        },
+        "host_module_order": [
+          "b",
+          "a"
+        ],
+        "run": {
+          "register": [
+            "b",
+            "a"
+          ],
+          "calls": [
+            {
+              "result": [
+                "ab",
+                "c:ab"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "top-level-import-cycle-packages",
+      "provenance": "policy",
+      "title": "listed packages are ordered by their load-time imports, through a package's own files, so a top-level import() cycle between them cannot be ordered",
+      "note": "fixture-lp's entry imports its own inner.js, which imports fixture-lq while it loads; fixture-lq imports fixture-lp at top level.",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "packages": {
+          "fixture-lp@1.0.0": {
+            "index.js": "import { inner } from \"./inner.js\";\nexport const p = () => \"p\" + inner();\n",
+            "inner.js": "import { q } from \"fixture-lq\";\nexport const inner = () => q();\n"
+          },
+          "fixture-lq@1.0.0": {
+            "index.js": "const loaded = await import(\"fixture-lp\");\nexport const q = () => typeof loaded;\n"
+          }
+        },
+        "host_modules": [
+          {
+            "id": "lp",
+            "key": "fixture-lp",
+            "package": "fixture-lp",
+            "dependencies": {
+              "fixture-lp": "1.0.0",
+              "fixture-lq": "1.0.0"
+            }
+          },
+          {
+            "id": "lq",
+            "key": "fixture-lq",
+            "package": "fixture-lq",
+            "dependencies": {
+              "fixture-lp": "1.0.0",
+              "fixture-lq": "1.0.0"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "lp": {
+            "exports": [
+              "p"
+            ],
+            "host_modules": [
+              "fixture-lq"
+            ]
+          },
+          "lq": {
+            "exports": [
+              "q"
+            ],
+            "host_modules": [
+              "fixture-lp"
+            ]
+          }
+        },
+        "order_problem": {
+          "kind": "host_module_cycle",
+          "contains": [
+            "lp → lq → lp"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-cycle-packages",
+      "provenance": "policy",
+      "title": "listed packages whose cycle closes only through an import() inside a function are ordered by their load-time imports",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { p } from \"fixture-lp\";\nimport { later } from \"fixture-lq\";\nexport async function main() { return [p(), await later()]; }",
+        "dependencies": {
+          "fixture-lp": "1.0.0",
+          "fixture-lq": "1.0.0"
+        },
+        "packages": {
+          "fixture-lp@1.0.0": {
+            "index.js": "import { inner } from \"./inner.js\";\nexport const p = () => \"p\" + inner();\n",
+            "inner.js": "import { q } from \"fixture-lq\";\nexport const inner = () => q();\n"
+          },
+          "fixture-lq@1.0.0": {
+            "index.js": "export const q = () => \"q\";\nexport async function later() { const { p } = await import(\"fixture-lp\"); return p(); }\n"
+          }
+        },
+        "host_modules": [
+          {
+            "id": "lp",
+            "key": "fixture-lp",
+            "package": "fixture-lp",
+            "dependencies": {
+              "fixture-lp": "1.0.0",
+              "fixture-lq": "1.0.0"
+            }
+          },
+          {
+            "id": "lq",
+            "key": "fixture-lq",
+            "package": "fixture-lq",
+            "dependencies": {
+              "fixture-lp": "1.0.0",
+              "fixture-lq": "1.0.0"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "lp": {
+            "exports": [
+              "p"
+            ],
+            "host_modules": [
+              "fixture-lq"
+            ]
+          },
+          "lq": {
+            "exports": [
+              "later",
+              "q"
+            ],
+            "host_modules": [
+              "fixture-lp"
+            ]
+          }
+        },
+        "host_module_order": [
+          "lq",
+          "lp"
+        ],
+        "run": {
+          "register": [
+            "lq",
+            "lp"
+          ],
+          "calls": [
+            {
+              "result": [
+                "pq",
+                "pq"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
       "variant": "lazy-import-order",
       "provenance": "policy",
       "title": "a listed module that imports another only through an import() inside a function still comes after it when that closes no cycle",
@@ -803,6 +1072,75 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "top-level-import-cycle-outside-through-module",
+      "provenance": "policy",
+      "title": "host-provided modules outside the folder are ordered by load-time imports through a file that is not listed too",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/s.ts": "import { p } from \"../../../lib/p.ts\";\nexport function main() { return p(); }\n"
+        },
+        "outside": {
+          "../lib/p.ts": "import { u } from \"./u.ts\";\nexport const p = () => \"p\" + u();\n",
+          "../lib/u.ts": "import { q } from \"./q.ts\";\nexport const u = () => q();\n",
+          "../lib/q.ts": "const loaded = await import(\"./p.ts\");\nexport const q = () => typeof loaded;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/s\nhost_modules: [../lib/p.ts, ../lib/q.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host modules",
+            "kind": "host_module_cycle",
+            "contains": [
+              "outside/1/lib/p.ts → outside/1/lib/q.ts → outside/1/lib/p.ts"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "lazy-import-outside-through-module",
+      "provenance": "policy",
+      "title": "an import() inside a function of an outside module, which loads a listed module through a file that is not listed, does not order them",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/s.ts": "import { a } from \"../../../lib/a.ts\";\nimport { later } from \"../../../lib/b.ts\";\nexport async function main() { return [a(), await later()]; }\n"
+        },
+        "outside": {
+          "../lib/a.ts": "import { b } from \"./b.ts\";\nexport function a() { return \"a\" + b(); }\n",
+          "../lib/b.ts": "export function b() { return \"b\"; }\nexport async function later() { const { viaC } = await import(\"./c.ts\"); return viaC(); }\n",
+          "../lib/c.ts": "import { a } from \"./a.ts\";\nexport const viaC = () => \"c:\" + a();\n"
+        },
+        "contract": "roots:\n  - script: f/cb/s\nhost_modules: [../lib/a.ts, ../lib/b.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "outside/1/lib/b.ts",
+          "outside/1/lib/a.ts"
+        ],
+        "run": {
+          "register": [
+            "outside/1/lib/b.ts",
+            "outside/1/lib/a.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/s",
+              "result": [
+                "ab",
+                "c:ab"
+              ]
+            }
+          ]
+        }
       }
     },
     {

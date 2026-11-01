@@ -7,8 +7,8 @@
 // the host-provided copies and every Bun script, writing the modules into
 // the bundle directory and returning what the parse recorded. `parse`
 // returns only what each entry's source records, for codebase scripts,
-// which esbuild bundles in Go (C2b), and checks the source of each
-// host-provided module outside the folder (F3h). `lazy` reports, for the
+// which esbuild bundles in Go, and checks the source of each host-provided
+// module that esbuild bundles. `lazy` reports, for the
 // modules of a host-provided module's bundle that esbuild built, the
 // specifiers each imports only from inside functions, which orders
 // host-provided modules (ADR 0010). A request

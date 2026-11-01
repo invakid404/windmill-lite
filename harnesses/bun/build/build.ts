@@ -1128,8 +1128,6 @@ function install(dir: string, lock: string): void {
   }
 }
 
-// The bundler's metafile with every path relative to the dependency set's
-// directory, so that a bundle does not depend on where it was built.
 // The import graph of a scan's bundle of a host-provided module: its
 // entry, the imports of each of its modules, and, for each module that
 // imports with import(), the specifiers it imports only from inside
@@ -1150,6 +1148,8 @@ function importGraph(b: Bundled, dir: string, entry: string): ImportGraph {
   return { entry: relative(dir, entry), imports, lazy };
 }
 
+// The bundler's metafile with every path relative to the dependency set's
+// directory, so that a bundle does not depend on where it was built.
 function normaliseMetafile(m: unknown, dir: string): Record<string, unknown> {
   const roots = [...new Set([dir, realpathSync(dir)])].map((r) => r + sep);
   const rel = (p: unknown) => {

@@ -1,14 +1,15 @@
-// A Bun host for the host-mode tests (cmd/windmill-lite/host_test.go,
-// milestones W1, F3a and F3h). It embeds the host SDK, registers its
-// instances of the host-provided modules f/host/scopes.ts,
-// ../hostlib/tenant.ts (outside the sync folder), f/host/pool.ts, and
-// f/host/lazy/a.ts and f/host/lazy/b.ts (whose cycle closes only through a
-// lazy import), connects the engine on a bundle built from
-// testdata/hostfolder, and serves its callers over HTTP on a Unix socket.
+// A Bun host for the host-mode tests (cmd/windmill-lite/host_test.go). It
+// embeds the host SDK and registers its instances of the host-provided
+// modules f/host/scopes.ts, ../hostlib/tenant.ts (outside the sync folder),
+// f/host/pool.ts, and f/host/lazy/a.ts and f/host/lazy/b.ts (whose cycle
+// closes only through a lazy import). It connects the engine on a bundle
+// built from testdata/hostfolder, and serves its callers over HTTP on a
+// Unix socket.
+//
 // Each run is submitted inside the caller's tenant scope, in both scope
-// modules (scopes.ts and tenant.ts). The tests compile it with `bun build
-// --compile` and run it under a supervisor that only restarts it when it
-// exits.
+// modules (scopes.ts and tenant.ts). The tests compile the host with `bun
+// build --compile` and run it under a supervisor that only restarts it
+// when it exits.
 //
 // Environment: WL_ENGINE (the engine binary), WL_BUNDLE, WL_HOST_SOCKET,
 // WL_KILL_AFTER_MS (the watchdog's threshold), WL_WORKDIR (the working

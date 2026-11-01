@@ -240,7 +240,7 @@ func BuildEsbuildHostModules(ctx context.Context, cfg EsbuildHostConfig) (*Esbui
 		return nil, err
 	}
 	for id, g := range graphs {
-		res.HostModules[id].LoadHostModules = loadTimeHostModules(*g)
+		res.HostModules[id].LoadHostModules = loadTimeHostModules(*g, res.HostModules[id].HostModules)
 	}
 	order, late, err := hostModuleOrder(mods, res.HostModules)
 	if err != nil {
@@ -358,7 +358,9 @@ func latePlugin(helpers map[string]string) *api.Plugin {
 // module whose file is entry (relative to the folder), from the bundle's
 // metafile. esbuild names each file by its path relative to the folder,
 // and resolves each import to the file it names, with the specifier as
-// original when the two differ. An import resolves to a listed module when
+// original when the two differ.
+//
+// An import resolves to a listed module when
 // it names that module's file (whose source the build's plugin replaced
 // with the module's shim) or its plugin path (host/<key>, a package).
 // Imports esbuild left external load nothing of the bundle and are left
@@ -422,10 +424,11 @@ func esbuildGraph(folder, entry string, metafile json.RawMessage, listed []Codeb
 // lazyOfGraphs fills in each graph's lazy imports: the build helper parses
 // every module of the folder or its packages that holds an import(), with
 // the syntax of the loader esbuild read it with (that of the codebase entry
-// whose settings built the graph's module). A module of another loader
-// holds no JavaScript to parse, and one that two graphs read with two
-// syntaxes is parsed with the first: the other graph takes it as importing
-// nothing lazily, the reading that orders more.
+// whose settings built the graph's module).
+//
+// A module of another loader holds no JavaScript to parse. A module that
+// two graphs read with two syntaxes is parsed with the first: the other
+// graph takes it as importing nothing lazily, the reading that orders more.
 func lazyOfGraphs(ctx context.Context, bc *BunConfig, base *helperRequest, graphs map[string]*importGraph, settings map[string]*CodebaseSettings) error {
 	type use struct{ id, input, file string }
 	var uses []use

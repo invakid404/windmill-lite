@@ -174,9 +174,10 @@ the host was a compiled Bun executable.
      `host-provided module not registered: <key> (…)` on every read, and
      works once the module is registered.
    - **A late shim, not the plain one:** both bundlers run a module's
-     initialisation once, so a plain shim that failed would hand every later
-     import of it undefined exports. A module without exports has no value
-     to read, so it keeps its plain shim.
+     initialisation once, so a plain shim that failed can never yield the
+     registered values. On Bun 1.3.10 and esbuild, every later import of it
+     gets its exports undefined. A module without exports has no value to
+     read, so it keeps its plain shim.
    - Rejected: counting every import. It refuses a cycle that closes only
      through an `import()` in a function, such as a hook that loads a
      module lazily. A host then leaves those modules unlisted, and every

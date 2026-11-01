@@ -558,8 +558,9 @@ of the bundle holds one alone.
 - A read before the module registers throws
   `host-provided module not registered: <key> (…)`, and a read after it
   gets the registered value.
-- A plain shim that failed would leave its exports undefined for every
-  later import, since both bundlers initialise a module once.
+- Both bundlers initialise a module once, so a plain shim that failed can
+  never yield the registered values. On Bun 1.3.10 and esbuild, every later
+  import gets its exports undefined.
 - A module without exports keeps its plain shim: it has no value to leave
   undefined.
 

@@ -11,11 +11,12 @@ import (
 // evaluated, so a listed module that imports another listed module while it
 // loads must find that module registered. An import() inside a function
 // runs only when the function is called, normally after every listed module
-// has registered, so it puts no constraint on the order. The analysis here
-// tells the two apart for both bundlers: each reports the imports of every
-// module of a listed module's bundled closure (moduleImport), and the build
-// helper's parse reports, for each module that holds an import(), the
-// specifiers it imports only from inside functions.
+// has registered, so it puts no constraint on the order.
+//
+// The analysis here tells the two apart for both bundlers. Each bundler
+// reports the imports of every module of a listed module's bundled closure
+// (moduleImport). The build helper's parse reports, for each module that
+// holds an import(), the specifiers it imports only from inside functions.
 
 // moduleImport is one import of one module of a listed module's bundled
 // closure, as a bundler's metafile and plugin record it.
@@ -49,25 +50,30 @@ type importGraph struct {
 	Lazy map[string][]string `json:"lazy"`
 }
 
-// loadTimeHostModules returns the keys of the listed modules that a listed
-// module imports at load time, sorted: those that some import reaches while
-// the module and the modules it loads with it are evaluated.
+// loadTimeHostModules returns those of keys, the listed modules that a
+// listed module's bundle imports, that it imports at load time, sorted:
+// those that some import reaches while the module and the modules it loads
+// with it are evaluated. g is the bundle's import graph.
 //
 // An import is lazy when it is an import() whose specifier its module
 // imports only from inside functions (functions, methods, arrows and class
 // methods, whose bodies run when they are called). Every other import is a
 // load-time one: a static import or re-export, a require() call, and an
-// import() evaluated at module top level, outside every function. The
-// modules loaded at load time are those the entry reaches through load-time
-// imports; an import of a listed module from one of them is a load-time
-// import of that module.
+// import() evaluated at module top level, outside every function.
+//
+// The modules loaded at load time are those the entry reaches through
+// load-time imports. A key is lazy only when g holds an import of it, and
+// each of its imports is lazy or sits in a module not loaded at load time.
 //
 // Where the analysis cannot tell, it takes the reading that orders more:
-// an import() whose module does not parse is a load-time one, and when a
-// load-time import's module is unknown (a bundler's record that names no
-// input), or no import is the entry's, every module of the closure counts
-// as loaded at load time.
-func loadTimeHostModules(g importGraph) []string {
+//
+//   - a key of which g holds no import is a load-time one, since the
+//     bundler's records did not show how it is imported;
+//   - an import() whose module does not parse is a load-time one;
+//   - when a load-time import's module is unknown (a record that names no
+//     input), or no import is the entry's, every module of the closure
+//     counts as loaded at load time.
+func loadTimeHostModules(g importGraph, keys []string) []string {
 	lazy := func(im moduleImport) bool {
 		return im.Kind == "dynamic-import" && slices.Contains(g.Lazy[im.From], im.Specifier)
 	}
@@ -78,8 +84,8 @@ func loadTimeHostModules(g importGraph) []string {
 	loaded := map[string]bool{g.Entry: true}
 	queue := []string{g.Entry}
 	// Every other module of a closure is there because the entry imports
-	// it, so imports none of which is the entry's mean that the graph names
-	// the entry otherwise: the analysis cannot tell what loads with it.
+	// it. Imports none of which is the entry's mean that the graph names the
+	// entry otherwise, so the analysis cannot tell what loads with it.
 	unknown := len(g.Imports) > 0 && len(byFrom[g.Entry]) == 0
 	for len(queue) > 0 {
 		from := queue[0]
@@ -95,10 +101,20 @@ func loadTimeHostModules(g importGraph) []string {
 			}
 		}
 	}
-	var out []string
+	seen, atLoad := map[string]bool{}, map[string]bool{}
 	for _, im := range g.Imports {
-		if im.Host != "" && !lazy(im) && (unknown || loaded[im.From]) && !slices.Contains(out, im.Host) {
-			out = append(out, im.Host)
+		if im.Host == "" {
+			continue
+		}
+		seen[im.Host] = true
+		if !lazy(im) && (unknown || loaded[im.From]) {
+			atLoad[im.Host] = true
+		}
+	}
+	out := []string{}
+	for _, k := range keys {
+		if (atLoad[k] || !seen[k]) && !slices.Contains(out, k) {
+			out = append(out, k)
 		}
 	}
 	slices.Sort(out)
@@ -114,13 +130,15 @@ func loadTimeHostModules(g importGraph) []string {
 // ordered it.
 //
 // The order is a depth-first walk of mods, in their order, that visits a
-// module's imports of listed modules in the order of HostModules. A lazy
-// import of a module already on the walk's path is set aside: that module
-// cannot come first. When a load-time import closes a cycle through a lazy
-// import on the path, the first such lazy import on the cycle is set aside
-// and the walk starts again; each pass sets one more aside, so it ends. A
-// cycle of load-time imports alone fails, naming it: "host-provided modules
-// import each other: a → b → a", by ID.
+// module's imports of listed modules in the order of HostModules:
+//
+//   - a lazy import of a module already on the walk's path is set aside:
+//     that module cannot come first;
+//   - when a load-time import closes a cycle through a lazy import on the
+//     path, the first such lazy import on the cycle is set aside and the
+//     walk starts again. Each pass sets one more aside, so the walk ends;
+//   - a cycle of load-time imports alone fails, naming it by ID:
+//     "host-provided modules import each other: a → b → a".
 //
 // late gives, by module ID, the keys of the listed modules it imports lazily
 // that come after it in the order (sorted): the imports set aside. Every

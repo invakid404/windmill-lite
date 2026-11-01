@@ -1,8 +1,8 @@
 # The host contract of the host-mode tests (cmd/windmill-lite/host_test.go):
 # the flows the test host runs, one script it runs as a script job, and
 # the host-provided modules whose instances the host registers (ADR 0010,
-# D12), one of them outside the sync folder (milestone F3h), and two that
-# close a cycle only through an import() inside a function.
+# D12): one of them outside the sync folder, and two that close a cycle
+# only through an import() inside a function.
 roots:
   - flow: f/host/echo
   - flow: f/host/intercept

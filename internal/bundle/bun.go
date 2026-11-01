@@ -265,7 +265,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 				if r.Graph == nil {
 					return nil, fmt.Errorf("bundle: the scan of host module %s reported no import graph", m.ID)
 				}
-				hm.LoadHostModules = loadTimeHostModules(*r.Graph)
+				hm.LoadHostModules = loadTimeHostModules(*r.Graph, hm.HostModules)
 			}
 			res.HostModules[m.ID] = hm
 			shim, err := Shim(m.Key, r.Exports)

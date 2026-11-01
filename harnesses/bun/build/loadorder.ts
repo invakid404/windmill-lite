@@ -44,14 +44,15 @@ function literalOf(n: unknown): string | undefined {
 
 // The specifiers a module imports only through import() calls inside
 // functions, sorted: every import() of such a specifier has a function, an
-// arrow or a method around it, whose body runs when it is called. An
-// import() evaluated at module top level, outside every function (a
+// arrow or a method around it, whose body runs when it is called. null when
+// the module does not parse, which the Go build reads as importing nothing
+// lazily.
+//
+// An import() evaluated at module top level, outside every function (a
 // top-level await import(...), or one in a class's static block or field),
-// runs while the module loads, so its specifier is not one of them, even
-// when the module also imports it from a function. A function that the
-// module calls while it loads is not followed: its import() still counts
-// as lazy. null when the module does not parse, which the Go build reads
-// as importing nothing lazily.
+// runs while the module loads. Its specifier is not one of them, even when
+// the module also imports it from a function. A function that the module
+// calls while it loads is not followed: its import() still counts as lazy.
 export function lazyImports(text: string, syntax: Syntax): string[] | null {
   const plugins: ("typescript" | "jsx" | "decorators-legacy" | "decoratorAutoAccessors")[] = ["decorators-legacy", "decoratorAutoAccessors"];
   if (syntax === "ts" || syntax === "tsx") plugins.push("typescript");
@@ -90,17 +91,21 @@ export function lazyImports(text: string, syntax: Syntax): string[] | null {
 type MetaImport = { path: string; kind: string; original?: string; external?: boolean };
 
 // The imports of every module of a Bun bundle, from its metafile and from
-// what the build's plugin resolved. Bun names in an import's path the file
-// it resolved a bare specifier to, with the specifier as original; for an
-// import the plugin resolved, or a relative one it left to Bun, it names the
-// specifier itself. So the file of the first comes from the metafile, that
-// of the second from resolvedBy (what the plugin resolved, by importer,
-// kind and specifier), and that of the third is the input at the
-// specifier's path from its importer, when there is one. An import the
-// plugin resolved to a listed module is external in the bundle the scan
-// makes; hostBy gives its key, by importer and specifier. Other external
-// imports (built-in modules, electron) load nothing of the bundle and are
-// left out.
+// what the build's plugin resolved. The file each import loads comes from
+// one of three places:
+//
+//   - for a bare specifier Bun resolved, the metafile's path, which names
+//     the file, with the specifier as original;
+//   - for an import the plugin resolved, whose path is the specifier,
+//     resolvedBy: what the plugin resolved, by importer, kind and specifier;
+//   - for a relative import the plugin left to Bun, whose path is the
+//     specifier too, the input at the specifier's path from its importer,
+//     when there is one.
+//
+// An import the plugin resolved to a listed module is external in the
+// bundle the scan makes; hostBy gives its key, by importer and specifier.
+// Other external imports (built-in modules, electron) load nothing of the
+// bundle and are left out.
 export function bundleImports(
   metafile: Record<string, unknown>,
   resolvedBy: Map<string, Map<string, string>>,
