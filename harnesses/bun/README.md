@@ -907,7 +907,8 @@ the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
 sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
-`test/plugin.test.ts` host plugins: the declaration, each hook's answer
+`test/plugin.test.ts` host plugins: the declaration (its run-end trace
+detail included), each hook's answer
 and the `unknown_hook` and `plugin_error` refusals, and the runtime
 answering a `host_call` in the run's scope; and `test/host.test.ts` the
 SDK: the shared working-directory cases of

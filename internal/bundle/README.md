@@ -732,7 +732,9 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   asset) and checks that the digest changes, and that a secret's file and
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
-  directory and the refusals.
+  directory and the refusals. `TestBuildArgsFile` checks the manifest's
+  `args_file`: set when a bundled script names `args.json`, left out
+  otherwise.
 - `TestLoaderFor` checks the loader picks: compound suffixes over shorter
   ones from either map, `default`, a name without a dot, the CLI's `.node`
   default; the D12 `codebase-outside-compound-*` cases check them against

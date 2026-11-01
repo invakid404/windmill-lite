@@ -267,6 +267,9 @@ The tests:
 | `TestHostStaticIntercept` | H1's static form through the run frame |
 | `TestHostStepLatency` | reports the per-step latency of host mode |
 | `TestHostReadCacheOption` | the SDK's `readCache` reaches the engine: the run lists deviation D21, and without the option it does not |
+| `TestReadCacheHostCalls` | on the plugin host, D21's cache makes one call of the plugin's hook per (run, path), and every step sees the first read's value; without it each read is a call, as on Windmill. A value holding `$WM_JOB_ID` resolves for each step's own job either way |
+| `TestHostArgsFileLeftOut` | the benchmarks' bundle has no script that names `args.json`, so a host-mode run writes none into the host's working directory, and its steps still get their arguments |
+| `TestPluginTraceDetailHost` | the plugin host's `onRunEnd` gets the trace it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, its id and status for `none` |
 | `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
 
 They need the pinned Bun in `WL_BUN` too, and the build helper's

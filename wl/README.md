@@ -482,7 +482,9 @@ declaration's hooks as `host_call`s (an interception by index, a
 decline, `around`'s matches, a timeout latching and a run's own end not),
 `mergeHooks`'s order, and that a hook's call holds its run's settlement
 while in flight and is not made for a settled run
-(`TestPluginCallsHoldSettlement`). `plugincases_test.go` runs the cases of
+(`TestPluginCallsHoldSettlement`). `TestPluginTraceDetail` checks each
+run-end trace detail's payload against the full trace, and the
+declarations refused. `plugincases_test.go` runs the cases of
 `conformance/plugins/hooks.yaml` on a bundle built from them, through
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
 through Go callbacks built from the same plugins, each of a case's runs
