@@ -137,6 +137,10 @@ export async function main(p: unknown) {
 // studyPassDepths are the pass-through chain's sub-flow levels.
 const studyPassDepths = 4
 
+// studyPassVariants are the pass-through chain's depth and fan-out pairs:
+// every depth forwarding into 3 steps, and depth 4 into 1 and 5.
+var studyPassVariants = [][2]int{{0, 3}, {1, 3}, {2, 3}, {3, 3}, {4, 3}, {4, 1}, {4, 5}}
+
 // studyExprs are the expressions of f/bench/expr, by step: the brief's
 // access patterns on the F1 result r and the F5 flow input.
 var studyExprs = []struct{ id, expr string }{
@@ -166,9 +170,10 @@ func studyFolder() map[string]string {
 		files[fmt.Sprintf("f/bench/pt_l%d.flow/flow.yaml", k)] = fmt.Sprintf("summary: Returns its sub-flow's result\nvalue:\n  modules:\n"+
 			"    - id: x\n      value: {type: flow, path: f/bench/pt_l%d, %s}\n", k-1, sizeIn)
 	}
-	for d := 0; d <= studyPassDepths; d++ {
+	for _, v := range studyPassVariants {
+		d, fan := v[0], v[1]
 		var b strings.Builder
-		fmt.Fprintf(&b, "summary: The pass-through chain at depth %d\nvalue:\n  modules:\n", d)
+		fmt.Fprintf(&b, "summary: The pass-through chain at depth %d, forwarded into %d steps\nvalue:\n  modules:\n", d, fan)
 		src := "x"
 		if d == 0 {
 			b.WriteString("    - id: m\n      value: {type: script, path: f/bench/big, input_transforms: {kind: {type: static, value: F2}, size: {type: javascript, expr: flow_input.size}}}\n")
@@ -176,11 +181,11 @@ func studyFolder() map[string]string {
 		} else {
 			fmt.Fprintf(&b, "    - id: x\n      value: {type: flow, path: f/bench/pt_l%d, %s}\n", d-1, sizeIn)
 		}
-		for _, s := range []string{"s1", "s2", "s3"} {
-			fmt.Fprintf(&b, "    - id: %s\n      value: {type: script, path: f/bench/sink, input_transforms: {p: {type: javascript, expr: results.%s}}}\n", s, src)
+		for k := 1; k <= fan; k++ {
+			fmt.Fprintf(&b, "    - id: s%d\n      value: {type: script, path: f/bench/sink, input_transforms: {p: {type: javascript, expr: results.%s}}}\n", k, src)
 		}
 		fmt.Fprintf(&b, "    - id: ids\n      value: {type: script, path: f/bench/sink, input_transforms: {p: {type: javascript, expr: 'results.%s.map((r) => r.id)'}}}\n", src)
-		files[fmt.Sprintf("f/bench/pt_d%d.flow/flow.yaml", d)] = b.String()
+		files[fmt.Sprintf("f/bench/pt_d%d_f%d.flow/flow.yaml", d, fan)] = b.String()
 	}
 	var e strings.Builder
 	e.WriteString("summary: Expressions on large values\nvalue:\n  modules:\n")
@@ -219,6 +224,7 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 	var expr time.Duration
 	site := map[string]time.Duration{}
 	steps := 0
+	var last *wl.Trace
 	b.ResetTimer()
 	start := time.Now()
 	for range b.N {
@@ -229,9 +235,24 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 		st, e := steps2(res.Trace, site)
 		steps += st
 		expr += e
+		last = res.Trace
 	}
 	wall := time.Since(start)
 	b.StopTimer()
+	// The on_run_end payload of the last run's trace, as a plugin's
+	// onRunEnd would be sent it: marshalled three times after the runs,
+	// the median reported, so the runs' own figures leave it out.
+	var payload int
+	var marshal []time.Duration
+	for range 3 {
+		t0 := time.Now()
+		p, err := wl.StudyRunEndPayload(last)
+		if err != nil {
+			b.Fatal(err)
+		}
+		marshal = append(marshal, time.Since(t0))
+		payload = len(p)
+	}
 	runtime.ReadMemStats(&ms1)
 	user, sys := engineCPUParts()
 	host := harnessCPU(b, rt) - hostBefore
@@ -243,6 +264,8 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 	b.ReportMetric(float64(expr)/n, "expr-ns/run")
 	b.ReportMetric(float64(ms1.TotalAlloc-ms0.TotalAlloc)/n, "engine-alloc-B/run")
 	b.ReportMetric(float64(steps)/n, "steps/run")
+	b.ReportMetric(pct(marshal, 0.5), "runend-marshal-ns")
+	b.ReportMetric(float64(payload), "runend-B")
 	b.ReportMetric(load, "load1")
 	if perSite {
 		for _, x := range studyExprs {
@@ -275,9 +298,9 @@ func BenchmarkStudyPassThrough(b *testing.B) {
 	bun := benchSetup(b)
 	rt := benchRuntime(b, bun, "host")
 	for _, size := range []int{64 << 10, 2150 << 10} {
-		for d := 0; d <= studyPassDepths; d++ {
-			b.Run(fmt.Sprintf("size=%s/depth=%d", jsonval.SizeLabel(size), d), func(b *testing.B) {
-				studyRuns(b, rt, fmt.Sprintf("f/bench/pt_d%d", d), fmt.Appendf(nil, `{"size":%d}`, size), 2, false)
+		for _, v := range studyPassVariants {
+			b.Run(fmt.Sprintf("size=%s/depth=%d/fan=%d", jsonval.SizeLabel(size), v[0], v[1]), func(b *testing.B) {
+				studyRuns(b, rt, fmt.Sprintf("f/bench/pt_d%d_f%d", v[0], v[1]), fmt.Appendf(nil, `{"size":%d}`, size), 2, false)
 			})
 		}
 	}
