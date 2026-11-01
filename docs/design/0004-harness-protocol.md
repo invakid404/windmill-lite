@@ -669,13 +669,23 @@ change:
    child, with its user) can write, and with `workdir_mismatch` when it is
    not the host's working directory once both are resolved without
    symbolic links. So a host that does not use the SDK is held to the same
-   rule; both sides run the cases of `conformance/protocol/host`. For a
-   bundle with a script that reads `args.json` (the manifest's
-   `args_file`), the engine writes each invocation's `args.json` there, as
-   in a warm process's own directory. It knows the directory before the
-   welcome goes out, since the host may submit a run as soon as it reads
-   it. For any other bundle it writes none: the arguments travel in the
-   `invoke` frame. Since
+   rule; both sides run the cases of `conformance/protocol/host`. The
+   engine writes each invocation's `args.json` there, as in a warm
+   process's own directory, unless the build cleared the invocation's
+   script (the manifest's `no_args_file`) and no `around` wrapper runs
+   with the step. It knows the directory before the welcome goes out,
+   since the host may submit a run as soon as it reads it.
+   - **Which scripts are cleared.** Whether code reads a file cannot be
+     decided, so the build clears a script only when its built code holds
+     no way to a file, a process or code made at run time. That rules out
+     the file's name, `Bun`, `fetch`, `import(`, `require`, `process`
+     beyond `process.env`, `eval`, `Function`, a constructor, the global
+     object, reflection, and any `[` other than `[]` or `[<digits>]`.
+   - It also rules out a host-provided module, a shared closure, a
+     codebase bundle and the native boundary, whose code the build cannot
+     read. A cleared script's arguments travel only in the `invoke` frame;
+     every other script keeps its file, so no script that can read it
+     loses it. Since
    the host was not spawned with the base environment, each invocation
    carries the facade's origin as `BASE_URL`. An engine that cannot serve the host at all (the bundle
    does not open) refuses it in the handshake too, with `engine_refused`
@@ -1141,12 +1151,13 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   one in 33 ms, measured with the commands of
   [0005](0005-json-step-boundaries.md#baseline).
 
-- Host mode writes an invocation's `args.json` only for a bundle whose
-  build found a script that names the file (the manifest's `args_file`,
+- Host mode leaves an invocation's `args.json` out only for a script
+  whose code the build cleared (the manifest's `no_args_file`,
   [0010](0010-packaging.md)), in item 7 of host mode. The file cost about
-  110 µs of a host-mode step's 200 µs floor on macOS, and in the host's
-  shared working directory it held only the latest invocation's arguments
-  anyway. A process the engine spawns still writes it for every
+  110 µs of a host-mode step's 200 µs floor on macOS. The clearing is
+  conservative: a script that fetches, or reads any property by a built
+  name, keeps the file. So the saving goes to steps that do no I/O of
+  their own. A process the engine spawns still writes it for every
   invocation ([WR-5](../semantics/languages.md#wr-5)).
 
 ## Spec IDs relied on

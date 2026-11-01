@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -414,7 +413,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	argsFile, err := readsArgsFile(stage, bundleFiles)
+	free, err := noArgsFile(stage, bundleFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +427,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		NonconformantRuntime: bres.NonconformantRuntime || cres.NonconformantRuntime,
 		ModuleState:          cfg.ModuleState,
 		SharedCode:           cfg.SharedCode,
-		ArgsFile:             argsFile,
+		NoArgsFile:           free,
 		Deviations:           manifestDeviations(prog.Deviations, cfg.ModuleState, cfg.SharedCode),
 		Contract:             prog.Contract,
 		HostModules:          []HostModuleEntry{},
@@ -470,31 +469,6 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	res.Manifest, res.Digest = m, Digest(manifest)
 	return res, nil
 }
-
-// readsArgsFile reports whether a built script of the bundle in dir, one
-// of files under scripts/, names args.json, the file in which Windmill's
-// worker leaves a job's arguments (WR-5): its bundled code, its shared
-// closure or a codebase asset. Host mode writes the file only then
-// (Manifest.ArgsFile).
-func readsArgsFile(dir string, files map[string]string) (bool, error) {
-	for _, rel := range slices.Sorted(maps.Keys(files)) {
-		if !strings.HasPrefix(rel, "scripts/") {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
-		if err != nil {
-			return false, err
-		}
-		if bytes.Contains(b, []byte(ArgsFileName)) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// ArgsFileName is the file in which Windmill's worker leaves a job's
-// arguments in its working directory (WR-5).
-const ArgsFileName = "args.json"
 
 // checkOut refuses an output path that holds anything.
 func checkOut(out string) error {

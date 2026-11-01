@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -705,17 +706,30 @@ func TestPoolHostCall(t *testing.T) {
 	}
 }
 
-// With SkipArgsFile (a bundle none of whose scripts reads args.json, ADR
-// 0004 host mode item 7), an invocation's arguments travel in the invoke
-// frame, without the internal keys as ever, and no args.json is written
-// into the host's working directory.
-func TestHostSkipArgsFile(t *testing.T) {
+// With NoArgsFile (the scripts a bundle's build cleared, ADR 0004 host
+// mode item 7), a cleared script's invocation gets its arguments in the
+// invoke frame only, without the internal keys as ever, and no args.json
+// in the host's working directory. Any other script's invocation gets its
+// args.json, and so does a cleared script's when around wrappers, the
+// host plugin's code, run with it.
+func TestHostNoArgsFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	hello := hostHello()
 	hello.Workdir = dir
-	h, _, err := attach(t, HostConfig{Workdir: dir, SkipArgsFile: true, Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
-		out, err := p.Execute(ctx, engine.Invocation{ID: "i", Run: r.ID, Script: "s", Entry: "main", Args: r.Args})
+	hello.Plugin = jsonval.FromProducer([]byte(`{"around":[{"selector":{"script":"s"}}]}`))
+	cleared := func(script string) bool { return script == "s" }
+	h, _, err := attach(t, HostConfig{Workdir: dir, NoArgsFile: cleared, Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
+		var a struct {
+			Script string `json:"script"`
+			Around bool   `json:"around"`
+		}
+		json.Unmarshal(r.Args.Producer(), &a)
+		inv := engine.Invocation{ID: r.ID + "-i", Run: r.ID, Script: a.Script, Entry: "main", Args: r.Args}
+		if a.Around {
+			inv.Around = []int{0}
+		}
+		out, err := p.Execute(ctx, inv)
 		if err != nil {
 			return RunDone{Status: "failure"}
 		}
@@ -725,16 +739,32 @@ func TestHostSkipArgsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.expect(TypeWelcome)
-	h.send(RunRequest{ID: "r1", Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(`{"a":1,"_MODULES":{}}`))})
-	inv := h.expect(TypeInvoke).(Invoke)
-	if string(inv.Args.Producer()) != `{"a":1}` {
-		t.Fatalf("the invoke's arguments %s", inv.Args.Producer())
-	}
-	if _, err := os.Stat(filepath.Join(dir, ArgsFile)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("args.json in the host's working directory: %v", err)
-	}
-	h.send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
-	if d := h.expect(TypeRunDone).(RunDone); d.Status != "success" {
-		t.Fatalf("run_done %+v", d)
+	for i, c := range []struct {
+		args string
+		file bool
+	}{
+		{`{"script":"s","around":false,"_MODULES":{}}`, false},
+		{`{"script":"t","around":false,"_MODULES":{}}`, true},
+		{`{"script":"s","around":true,"_MODULES":{}}`, true},
+	} {
+		os.Remove(filepath.Join(dir, ArgsFile))
+		id := fmt.Sprintf("r%d", i)
+		h.send(RunRequest{ID: id, Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(c.args))})
+		inv := h.expect(TypeInvoke).(Invoke)
+		want := strings.Replace(c.args, `,"_MODULES":{}`, "", 1)
+		if string(inv.Args.Producer()) != want {
+			t.Fatalf("%s: the invoke's arguments %s", c.args, inv.Args.Producer())
+		}
+		b, err := os.ReadFile(filepath.Join(dir, ArgsFile))
+		switch {
+		case c.file && (err != nil || string(b) != want):
+			t.Fatalf("%s: args.json %q, %v; want the invoke's arguments", c.args, b, err)
+		case !c.file && !errors.Is(err, os.ErrNotExist):
+			t.Fatalf("%s: args.json in the host's working directory: %v", c.args, err)
+		}
+		h.send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+		if d := h.expect(TypeRunDone).(RunDone); d.Status != "success" {
+			t.Fatalf("%s: run_done %+v", c.args, d)
+		}
 	}
 }

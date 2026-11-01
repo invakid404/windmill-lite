@@ -530,11 +530,15 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   inventory and the env rewrite's binding check read only the inputs that
   are files.
 
-- The manifest records `args_file` when a built script names `args.json`
-  ([WR-5](../semantics/languages.md#wr-5)): the build reads every file
-  under `scripts/` for the name. Host mode writes an invocation's
-  `args.json` only for such a bundle
+- The manifest lists in `no_args_file` the scripts whose built code
+  cannot read `args.json` ([WR-5](../semantics/languages.md#wr-5)). Host
+  mode leaves their invocations' file out
   ([0004](0004-harness-protocol.md), host mode item 7).
+  - The search is conservative. It reads the script's built module after
+    the build's own leading sections, and clears it only when the module
+    holds no way to a file, a process or code made at run time.
+  - Scripts calling a host-provided module, a shared closure, codebase
+    scripts and native ones are never cleared.
 
 ## Spec IDs relied on
 

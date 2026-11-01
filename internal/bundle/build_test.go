@@ -470,38 +470,44 @@ func TestBuildCompileErrors(t *testing.T) {
 	}
 }
 
-// TestBuildArgsFile checks the manifest's args_file flag: unset for the
-// fixture, none of whose scripts names args.json, and set once a script
-// reads the file Windmill's worker leaves its arguments in (WR-5), so
-// host mode keeps writing it for that bundle (ADR 0004).
-func TestBuildArgsFile(t *testing.T) {
+// TestBuildNoArgsFile checks the manifest's no_args_file list, the scripts
+// whose invocations host mode gives no args.json. The fixture's scripts
+// call its host-provided module, so none is listed. Once the flow's inline
+// step is a plain one, which reaches no file and calls nothing, it is
+// listed; the report script, also reading the file by a name it builds at
+// run time, stays out.
+func TestBuildNoArgsFile(t *testing.T) {
 	bun := bunPath(t)
 	cfg, dir := fixtureConfig(t, bun)
-	if res := build(t, cfg); res.Manifest.ArgsFile {
-		t.Fatal("args_file set for a bundle none of whose scripts names args.json")
+	if res := build(t, cfg); len(res.Manifest.NoArgsFile) != 0 {
+		t.Fatalf("no_args_file %v for scripts that call a host-provided module", res.Manifest.NoArgsFile)
+	}
+	greet := filepath.Join(dir, "windmill", "f", "app", "main.flow", "greet.ts")
+	if err := os.WriteFile(greet, []byte("export async function main(name: string) {\n  return \"hello, \" + name + process.env.WM_JOB_ID;\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	report := filepath.Join(dir, "windmill", "f", "app", "report.ts")
 	src, err := os.ReadFile(report)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src = append(src, []byte("\nexport async function readArgs() {\n  return await Bun.file(\"args.json\").text();\n}\n")...)
+	src = append(src, []byte("\nexport async function readArgs() {\n  return await Bun.file([\"args\", \"json\"].join(\".\")).text();\n}\n")...)
 	if err := os.WriteFile(report, src, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg.Out = filepath.Join(t.TempDir(), "bundle")
 	res := build(t, cfg)
-	if !res.Manifest.ArgsFile {
-		t.Fatal("args_file not set for a bundle whose script reads args.json")
+	if len(res.Manifest.NoArgsFile) != 1 || !strings.HasPrefix(res.Manifest.NoArgsFile[0], "inline-") {
+		t.Fatalf("no_args_file %v, want the plain inline step alone", res.Manifest.NoArgsFile)
 	}
 	m, err := os.ReadFile(filepath.Join(cfg.Out, ManifestFile))
 	var onDisk struct {
-		ArgsFile bool `json:"args_file"`
+		NoArgsFile []string `json:"no_args_file"`
 	}
 	if err == nil {
 		err = json.Unmarshal(m, &onDisk)
 	}
-	if err != nil || !onDisk.ArgsFile {
+	if err != nil || !slices.Equal(onDisk.NoArgsFile, res.Manifest.NoArgsFile) {
 		t.Fatalf("the manifest on disk: %s, %v", m, err)
 	}
 }

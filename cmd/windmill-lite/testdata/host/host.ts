@@ -1,8 +1,9 @@
 // A Bun host for the host-mode tests (cmd/windmill-lite/host_test.go). It
 // embeds the host SDK and registers its instances of the host-provided
 // modules f/host/scopes.ts, ../hostlib/tenant.ts (outside the sync folder),
-// f/host/pool.ts, and f/host/lazy/a.ts and f/host/lazy/b.ts (whose cycle
-// closes only through a lazy import). It connects the engine on a bundle
+// f/host/pool.ts, f/host/lazy/a.ts and f/host/lazy/b.ts (whose cycle
+// closes only through a lazy import), and f/host/argsfile.ts (which reads
+// the invocation's args.json). It connects the engine on a bundle
 // built from testdata/hostfolder, and serves its callers over HTTP on a
 // Unix socket.
 //
@@ -25,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
 import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
+import * as argsfile from "../hostfolder/f/host/argsfile.ts";
 import * as lazyA from "../hostfolder/f/host/lazy/a.ts";
 import * as lazyB from "../hostfolder/f/host/lazy/b.ts";
 import * as pool from "../hostfolder/f/host/pool.ts";
@@ -59,6 +61,7 @@ try {
       "../hostlib/tenant.ts": outside,
       "f/host/lazy/a.ts": lazyA,
       "f/host/lazy/b.ts": lazyB,
+      "f/host/argsfile.ts": argsfile,
     },
     watchdog: { killAfter: Number(env.WL_KILL_AFTER_MS ?? "30000") },
     recycle:

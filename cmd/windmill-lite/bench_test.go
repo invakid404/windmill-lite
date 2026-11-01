@@ -146,6 +146,12 @@ type benchShape struct {
 	// of the bare shape's nothing: flow_input.cfg.region,
 	// previous_result.data.items[0].id and results.s<k-1>?.n.
 	paths bool
+	// plain runs the bare shape's steps with f/bench/plain, which returns
+	// the same result and holds no I/O code, so that host mode leaves its
+	// args.json out (ADR 0004 host mode item 7). f/bench/work can fetch, so
+	// its invocations keep the file. Its runs report no host CPU of their
+	// own; the probe's before and after give the total.
+	plain bool
 }
 
 // plugin reports whether the shape runs on the plugin host.
@@ -161,6 +167,7 @@ var benchShapes = []benchShape{
 	{name: "s600-50KiB", steps: 600, sizes: []int{50 << 10}, conc: 1},
 	{name: "s600-mixed", steps: 600, sizes: benchMixed, conc: 1},
 	{name: "s200-mixed-conc8", steps: 200, sizes: benchMixed, conc: 8},
+	{name: "plain-s600-1KiB", steps: 600, sizes: []int{1 << 10}, bare: true, plain: true, conc: 1},
 	{name: "pathsA-s50", steps: 50, sizes: []int{1 << 10}, bare: true, paths: true, conc: 1},
 	{name: "resA-s50", steps: 50, sizes: []int{1 << 10}, conc: 1, res: "f/bench"},
 	{name: "resA-s50-1ms", steps: 50, sizes: []int{1 << 10}, conc: 1, res: "f/bench/slow"},
@@ -175,6 +182,9 @@ func (s benchShape) path() string {
 	}
 	if s.paths {
 		return fmt.Sprintf("f/bench/paths_s%d_%s", s.steps, sizesName(s.sizes))
+	}
+	if s.plain {
+		return fmt.Sprintf("f/bench/plain_s%d_%s", s.steps, sizesName(s.sizes))
 	}
 	if s.bare {
 		return fmt.Sprintf("f/bench/bare_s%d_%s", s.steps, sizesName(s.sizes))
@@ -219,6 +229,7 @@ export async function main(timings: boolean) {
 }
 `,
 		"f/bench/work.ts":              benchWork,
+		"f/bench/plain.ts":             benchPlain,
 		"f/bench/resstep.ts":           benchResStep,
 		"f/bench/cachestep.ts":         benchCacheStep,
 		"f/bench/probe.flow/flow.yaml": "summary: The benchmarks' probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/probe, input_transforms: {timings: {type: javascript, expr: flow_input.timings}}}\n",
@@ -242,8 +253,47 @@ export async function main(timings: boolean) {
 	for _, s := range benchShapes {
 		files[s.path()+".flow/flow.yaml"] = s.flow()
 	}
+	// WL_BENCH_ARGS_FILE=1 makes every script name args.json, so that the
+	// build clears none and host mode writes every invocation's file: the
+	// before side of the args file's measurement, on the same code.
+	if os.Getenv("WL_BENCH_ARGS_FILE") == "1" {
+		for name, body := range files {
+			if strings.HasSuffix(name, ".ts") {
+				files[name] = body + "\nexport const argsFile = \"args.json\";\n"
+			}
+		}
+	}
 	return files
 }
+
+// benchPlain is the plain shape's step: f/bench/work's result for no log
+// lines and no reads, from code that holds no I/O at all, nor a property
+// read by a built name, so that the build clears it (no_args_file).
+const benchPlain = `// The step of the plain shape: work's result, with no I/O code.
+const made = new Map<number, unknown>();
+
+function data(size: number): unknown {
+  let v = made.get(size);
+  if (v === undefined) {
+    const items: unknown[] = [];
+    let len = 21;
+    for (let i = 0; ; i++) {
+      const rec = { id: i, name: "item " + (100000 + i), note: "line one\nline two", tags: "alpha beta".split(" "), price: (i % 1000) + 0.25, active: true, meta: { zone: "eu-1", score: 0.5, ref: null } };
+      const n = JSON.stringify(rec).length;
+      if (len + n + 1 > size) break;
+      items.push(rec);
+      len += n + 1;
+    }
+    v = { items, pad: "x".repeat(Math.max(0, size - len - 2)) };
+    made.set(size, v);
+  }
+  return v;
+}
+
+export async function main(prev: unknown, n: number, size: number) {
+  return { n, key: null, given: prev === undefined ? 0 : 1, data: data(size) };
+}
+`
 
 // flow is the shape's flow: step k (from 1) takes the previous result
 // (the flow input's seed for the first), its size, log lines and reads as
@@ -256,6 +306,17 @@ func (s benchShape) flow() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "summary: G1 shape %s\nvalue:\n  modules:\n", s.name)
+	if s.plain {
+		for k := 1; k <= s.steps; k++ {
+			prev := "previous_result"
+			if k == 1 {
+				prev = "flow_input.seed"
+			}
+			fmt.Fprintf(&b, "    - id: s%d\n      value:\n        type: script\n        path: f/bench/plain\n        input_transforms:\n", k)
+			fmt.Fprintf(&b, "          prev: {type: javascript, expr: %s}\n          n: {type: static, value: %d}\n          size: {type: static, value: %d}\n", prev, k, s.sizes[0])
+		}
+		return b.String()
+	}
 	for k := 1; k <= s.steps; k++ {
 		prev := "previous_result"
 		if k == 1 {
@@ -1142,6 +1203,22 @@ func shapeArgs(s benchShape) json.RawMessage {
 
 // shapeCase is the shape's runs.
 func shapeCase(s benchShape) benchCase {
+	if s.plain {
+		return benchCase{
+			path:  s.path(),
+			args:  shapeArgs(s),
+			steps: s.steps, conc: s.conc, warm: 1,
+			check: func(res *wl.Result) error {
+				var out struct {
+					N int `json:"n"`
+				}
+				if err := json.Unmarshal(res.Result, &out); err != nil || out.N != s.steps {
+					return fmt.Errorf("shape %s: the result is not its last step's: %.200s (%v)", s.name, res.Result, err)
+				}
+				return nil
+			},
+		}
+	}
 	return benchCase{
 		path:  s.path(),
 		args:  shapeArgs(s),

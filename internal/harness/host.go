@@ -63,14 +63,17 @@ type HostConfig struct {
 	// failure model, item 5); the handshake refuses the host otherwise,
 	// with RejectWorkdirNotWritable or RejectWorkdirMismatch
 	// (CheckWorkdir). Each invocation's args.json is written there
-	// (ArgsFile), as in a warm process's own directory, unless SkipArgsFile
-	// is set. Empty skips the checks and writes no args.json.
+	// (ArgsFile), as in a warm process's own directory, unless
+	// NoArgsFile clears its script. Empty skips the checks and writes no
+	// args.json.
 	Workdir string
-	// SkipArgsFile leaves each invocation's args.json out of Workdir: the
-	// arguments travel in the invoke frame, and the file only serves a
-	// script that reads it, which a bundle's manifest records (args_file,
-	// ADR 0004 host mode item 7).
-	SkipArgsFile bool
+	// NoArgsFile, when not nil, reports a script whose invocations cannot
+	// read args.json, which the bundle's manifest lists (no_args_file, ADR
+	// 0004 host mode item 7): their arguments travel only in the invoke
+	// frame. An invocation with around wrappers gets its args.json
+	// whatever its script, since the host plugin's code runs with the
+	// step.
+	NoArgsFile func(script string) bool
 	// Refuse, when not nil, refuses the host in the handshake with this
 	// reason, whatever its hello says: the engine cannot serve it (the
 	// bundle did not open) and tells the host why before it exits. Run is
@@ -277,7 +280,7 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		return nil, err
 	}
 	p.host = &hostSide{run: cfg.Run, workdir: cfg.Workdir, refuse: cfg.Refuse, check: cfg.Check, getppid: cfg.getppid, signal: cfg.signal}
-	p.skipArgs = cfg.SkipArgsFile
+	p.noArgs = cfg.NoArgsFile
 	if cfg.Workdir != "" {
 		if p.host.dir, err = filepath.Abs(cfg.Workdir); err != nil {
 			cfg.Conn.Close()

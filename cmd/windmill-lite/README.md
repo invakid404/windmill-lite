@@ -268,7 +268,8 @@ The tests:
 | `TestHostStepLatency` | reports the per-step latency of host mode |
 | `TestHostReadCacheOption` | the SDK's `readCache` reaches the engine: the run lists deviation D21, and without the option it does not |
 | `TestReadCacheHostCalls` | on the plugin host, D21's cache makes one call of the plugin's hook per (run, path), and every step sees the first read's value; without it each read is a call, as on Windmill. A value holding `$WM_JOB_ID` resolves for each step's own job either way |
-| `TestHostArgsFileLeftOut` | the benchmarks' bundle has no script that names `args.json`, so a host-mode run writes none into the host's working directory, and its steps still get their arguments |
+| `TestHostArgsFileLeftOut` | the build clears `f/bench/echo`, which reaches no file, and not `f/bench/work`, which can fetch; a host-mode run of `f/bench/chain` writes no `args.json` into the host's working directory, and its steps still get their arguments |
+| `TestHostArgsFileReaders` | steps that read `args.json` through a host-provided module (`f/host/argsfile.ts`) or by a file name they build read their own arguments back in host mode |
 | `TestPluginTraceDetailHost` | the plugin host's `onRunEnd` gets the trace it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, its id and status for `none` |
 | `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
 
@@ -349,6 +350,7 @@ The benchmarks run on two topologies:
 |---|---|
 | `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
 | `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
+| `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, so host mode leaves its `args.json` out. The bare shape's `f/bench/work` can fetch, so it keeps the file. `WL_BENCH_ARGS_FILE=1` makes every script name `args.json`, which keeps every file: the file's cost on the same code |
 | `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
 | `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
 

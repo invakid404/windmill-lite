@@ -72,7 +72,7 @@ supplies secrets (PF2).
 | `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
 | `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
-| `args_file` | set when a built script names `args.json`, the file in which Windmill's worker leaves a job's arguments ([WR-5](../../docs/semantics/languages.md#wr-5)): host mode writes the file only for such a bundle ([ADR 0004](../../docs/design/0004-harness-protocol.md), host mode item 7) |
+| `no_args_file` | the scripts, sorted, whose built code cannot read `args.json`, the file in which Windmill's worker leaves a job's arguments ([WR-5](../../docs/semantics/languages.md#wr-5)): host mode leaves their invocations' file out ([ADR 0004](../../docs/design/0004-harness-protocol.md), host mode item 7). The search (`argsfile.go`) clears a script only when its module, after the build's own leading sections, holds no way to a file, a process or code made at run time, and it calls no host-provided module, shared closure, codebase or native code |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
 | `shared_code`, `closures` | set for a bundle built with shared code, and the ids of its closures ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Such a bundle in `warm` mode also lists [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations), the differences of shared code, among its `deviations`, and `ModeDeviations` swaps it as it swaps the mode's other deviations |
 | `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13, D19), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
@@ -732,9 +732,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   asset) and checks that the digest changes, and that a secret's file and
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
-  directory and the refusals. `TestBuildArgsFile` checks the manifest's
-  `args_file`: set when a bundled script names `args.json`, left out
-  otherwise.
+  directory and the refusals. `TestBuildNoArgsFile` checks the manifest's
+  `no_args_file`: empty for scripts that call a host-provided module, a
+  plain step listed, a step reading the file by a built name left out.
+  `TestArgsFileFree` holds the search to its rule on code snippets.
 - `TestLoaderFor` checks the loader picks: compound suffixes over shorter
   ones from either map, `default`, a name without a dot, the CLI's `.node`
   default; the D12 `codebase-outside-compound-*` cases check them against

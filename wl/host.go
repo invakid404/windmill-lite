@@ -94,11 +94,12 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 		Facade:        rt.fac.WarmOrigin(),
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
-		// The arguments travel in the invoke frame; the file only serves a
-		// script that reads it (ADR 0004 host mode item 7).
-		SkipArgsFile: !rt.manifest.ArgsFile,
-		Check:        rt.hostCheck(opts),
-		Run:          rt.serveHost,
+		// The arguments travel in the invoke frame; the file is left out
+		// only for the scripts the build cleared (ADR 0004 host mode item
+		// 7).
+		NoArgsFile: noArgsFile(rt.manifest.NoArgsFile),
+		Check:      rt.hostCheck(opts),
+		Run:        rt.serveHost,
 	})
 	if err != nil {
 		return err
@@ -301,4 +302,17 @@ func (x interceptFirst) Intercept(ctx context.Context, r engine.Run, s engine.Si
 		return out, ok, err
 	}
 	return x.Hooks.Intercept(ctx, r, s, args)
+}
+
+// noArgsFile reports the scripts of a bundle's no_args_file list, or nil
+// when it lists none, so that every invocation's args.json is written.
+func noArgsFile(scripts []string) func(string) bool {
+	if len(scripts) == 0 {
+		return nil
+	}
+	free := make(map[string]bool, len(scripts))
+	for _, s := range scripts {
+		free[s] = true
+	}
+	return func(script string) bool { return free[script] }
 }

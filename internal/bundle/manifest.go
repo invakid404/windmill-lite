@@ -45,11 +45,15 @@ type Manifest struct {
 	// Closures are the ids of the bundle's closures under shared code,
 	// sorted; each is scripts/bun/closures/<id>.cjs.
 	Closures []string `json:"closures,omitempty"`
-	// ArgsFile is set when a script's built code names args.json, the
-	// file in which Windmill's worker leaves a job's arguments (WR-5). A
-	// host-mode runtime writes each invocation's args.json only for such a
-	// bundle; a process the engine spawns always writes it (ADR 0004).
-	ArgsFile bool `json:"args_file,omitempty"`
+	// NoArgsFile are the scripts, by inventory id and sorted, whose
+	// invocations cannot read args.json, the file in which Windmill's
+	// worker leaves a job's arguments (WR-5): the build finds no way to a
+	// file, a process or code made at run time in their code, and they
+	// call no code it cannot read. A host-mode runtime leaves their
+	// invocations' args.json out, unless a host plugin's around wrapper
+	// runs with the step; it writes every other invocation's, and a
+	// process the engine spawns writes them all (ADR 0004).
+	NoArgsFile []string `json:"no_args_file,omitempty"`
 	// Deviations are the named deviations of ADR 0001 in effect for the
 	// bundle, sorted by number: those its content puts in effect, those of
 	// its module-state mode, and those every bundle has. Deviations that

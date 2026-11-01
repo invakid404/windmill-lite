@@ -396,6 +396,21 @@ func (s *supervisor) getJSON(t *testing.T, path string, v any) {
 	}
 }
 
+// TestHostArgsFileReaders checks that no script that can read args.json
+// loses it in host mode (ADR 0004 host mode item 7): a step that reads it
+// through a host-provided module, whose host instance the build cannot
+// read, and a step that reads it by a file name it builds at run time,
+// which no search for the name finds, each read their own arguments back.
+func TestHostArgsFileReaders(t *testing.T) {
+	s := supervise(t, 30000)
+	for _, flow := range []string{"f/host/args_host", "f/host/args_built"} {
+		r, err := s.run(flow, "tenant-a", map[string]any{"p": map[string]any{"id": 7}}, nil)
+		if err != nil || r.Status != "success" || string(r.Result) != `{"p":{"id":7},"file":{"id":7}}` {
+			t.Fatalf("%s: %+v, %v", flow, r, err)
+		}
+	}
+}
+
 // W1's exit gate: "the host-provided-module ALS test 16/16 in a compiled
 // host" (ADR 0008 H11, ADR 0010, D12), on a built bundle (F3a). Sixteen
 // concurrent runs, each submitted inside its own tenant scope; the step
