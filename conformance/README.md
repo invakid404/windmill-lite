@@ -835,7 +835,7 @@ Case fields beyond those of the decode cases:
 | `expect.bundle_contains`, `expect.bundle_not_contains`, `expect.first_line` | text of the bundled module |
 | `expect.entries` | the same expectations for other scripts, by id |
 | `expect.provided`, `expect.host_module_order`, `expect.order_problem`, `expect.warnings` | host-provided modules: exports, imports or problem by id; the registration order or the cycle; warning codes |
-| `expect.run` | `env` (process.env is replaced by it), `register` (host-provided copies registered, in order) and `calls`, each an `entry`, an `export` (default `main`), positional `args` and the `result` or an `error` substring |
+| `expect.run` | `env` replaces process.env. `register` lists the host-provided copies to register, in order, and `register_error` is a substring of the error that ends the registration (empty: every copy registers). `calls` are each an `entry`, an `export` (default `main`), positional `args` and the `result` or an `error` substring. |
 
 A **whole-folder case** gives `given.folder` instead: a whole sync folder,
 `wmill.yaml` included, which the runner builds with `bundle.Build`, the
@@ -874,8 +874,8 @@ The codebase cases are whole-folder cases:
 - the codebase variants of `d12.json`: host-provided modules through their
   shims, those outside the folder included. They also cover the shared
   copy of a listed codebase script, built with its entry's settings, the
-  refused import of one by a Bun script, and the shared-dependency warning
-  for codebase scripts.
+  refused import of one by a Bun script, the shared-dependency warning
+  for codebase scripts, and the registration order by load-time imports.
 
 `d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
 membership and the `import.meta` parameter, build groups, installations

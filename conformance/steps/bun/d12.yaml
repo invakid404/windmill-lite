@@ -42,6 +42,64 @@ cases:
       - args: '{}'
         expect: {status: success, result: 2}
   - spec: D12
+    variant: lazy-import-cycle
+    provenance: policy
+    title: host-provided modules whose cycle closes only through an import() inside a function are registered by their load-time imports, once each
+    note: >-
+      lazy_a imports lazy_b while it loads; lazy_b imports lazy_a only when
+      later() is called. The harness registers lazy_b, then lazy_a; the
+      step and lazy_b's copy reach lazy_a through the registry, so each
+      module loads once in the process.
+    host_modules:
+      - path: f/wl_step/lazy_a
+        script: |
+          import { b } from "./lazy_b.ts";
+          const loads = (globalThis.wlLazyLoads ??= { a: 0, b: 0 });
+          loads.a++;
+          export function a() { return "a" + b(); }
+      - path: f/wl_step/lazy_b
+        script: |
+          const loads = (globalThis.wlLazyLoads ??= { a: 0, b: 0 });
+          loads.b++;
+          export function b() { return "b"; }
+          export async function later() { const { a } = await import("./lazy_a.ts"); return a(); }
+    script: |
+      import { a } from "./lazy_a.ts";
+      import { later } from "./lazy_b.ts";
+      export async function main() { return [a(), await later(), globalThis.wlLazyLoads]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [ab, ab, {a: 1, b: 1}]}
+  - spec: D12
+    variant: lazy-import-during-load
+    provenance: policy
+    title: a function-level import() that runs while its module registers, before the imported module does, fails naming that module's key, and works after
+    note: >-
+      early_b calls later() at top level, while the harness registers it
+      and before early_a is registered; the read of early_a fails with the
+      not-registered error, which early_b keeps. The step's call reads
+      early_a after its registration.
+    host_modules:
+      - path: f/wl_step/early_a
+        script: |
+          import { b } from "./early_b.ts";
+          export function a() { return "a" + b(); }
+      - path: f/wl_step/early_b
+        script: |
+          export function b() { return "b"; }
+          export async function later() { const { a } = await import("./early_a.ts"); return a(); }
+          export const early = await later().then(String, (e) => e.message);
+    script: |
+      import { early, later } from "./early_b.ts";
+      export async function main() { return [early, await later()]; }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result:
+            - "host-provided module not registered: f/wl_step/early_a.ts (a listed module registered before it imports it lazily, and used it before its registration)"
+            - ab
+  - spec: D12
     variant: pool-process-scope
     provenance: policy
     title: a host-provided pool that captures the process scope at load starts its maintenance through it, so a step that triggers it owns none of it

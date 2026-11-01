@@ -32,9 +32,10 @@ runtime.
 | `sources.go` | the recording file system behind the source inventory; `TreeDigest` |
 | `archive.go` | `WriteArchive`, `WriteArchiveFile`, `Verify` and `Extract` |
 | `env.go` | `EnvRewrite`: the define table and support module of the env rewrite |
-| `shim.go` | `Shim`: the shim of a host-provided module; the registry key |
+| `shim.go` | `Shim`: the shim of a host-provided module; `LateShim`, its late shim; the registry key |
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
+| `loadorder.go` | The registration order of host-provided modules: which listed modules each imports at load time (`loadTimeHostModules`), and the order (`hostModuleOrder`) |
 | `esbuild.go` | `CodebaseSettings` (a codebases entry, WR-47), `CLIOptions` and `CLIBundle` (the pinned CLI's build), `BuildCodebase`, assets |
 | `outside.go` | `BuildEsbuildHostModules`: the host-provided modules esbuild builds (those outside the folder, and listed codebase scripts); `OutsideID` |
 | `meta.go` | `ScriptMeta` and the other result types, problems and warnings; `SharedMeta` and the fallback reasons of shared code |
@@ -494,16 +495,82 @@ The build has these steps:
      its problem.
 2. A first esbuild build of each, with the shims of these modules as
    CommonJS placeholders that take any import name, records which listed
-   modules it imports, which orders them (`host_module_cycle`).
+   modules it imports. Its metafile is the import graph that orders them
+   ([Registration order](#registration-order-of-host-provided-modules));
+   the helper's `lazy` op parses each module of it that holds an
+   `import()`.
 3. Each is bundled in that order, as an ES module with its codebase
    entry's settings, the env rewrite and the other modules' shims, into
    `scripts/bun/provided/<id>.mjs`. Its shim is generated from the export
    names of that bundle's metafile (`host_module_commonjs` when the entry
    is CommonJS source).
+4. A module that imports a later module lazily is bundled again once every
+   copy is: its first copy holds that module's placeholder. The second
+   holds the module's late shim, from the export names of the module's
+   copy, or its plain shim when it has no exports. The two copies must
+   export the same names (`host_module_exports_differ`).
 
 The manifest registers these modules after the Bun build's, which cannot
 import them, and `Build` adds the files of the folder the copies read
 (`EsbuildHostResult.Inputs`) to the sources.
+
+## Registration order of host-provided modules
+
+A listed module registers after each listed module that it imports while
+it loads ([ADR 0010](../../docs/design/0010-packaging.md#host-provided-modules),
+item 1). `loadorder.go` decides the order for both bundlers' builds, from
+an `importGraph` per module: every import of a listed module in its
+bundle, with the module that holds it, the bundler's kind and the
+specifier.
+
+`loadTimeHostModules` returns the listed modules a module imports at load
+time (`HostModuleMeta.LoadHostModules`). A listed module is lazy only when
+every import of it is lazy:
+
+- **Lazy:** an `import()` of the listed module whose specifier its module
+  imports only from inside functions, as the helper's parse reports
+  ([build/](../../harnesses/bun/build/README.md)). Its module can be any
+  module of the bundle.
+- **Load time:** every other import, wherever its module sits: a static
+  import or re-export, a `require()`, a top-level `import()`. A module
+  that the bundle loads lazily still reads its static imports while it is
+  initialised, once, so they order too.
+- **Unknown:** an `import()` in a module that does not parse, and a listed
+  module that the bundle imports with no import the records show, count as
+  load-time. The parse gives a module with a top-level `import()` of a
+  specifier that is not a literal no lazy specifiers, since a bundler can
+  fold that specifier into any module's.
+
+`hostModuleOrder` orders the modules by a depth-first walk, in the
+configured order:
+
+- each module comes after every listed module that it imports at load
+  time; a cycle of these fails with `host_module_cycle`, naming the cycle by
+  module ID;
+- each module also comes after every listed module that it imports only
+  lazily, unless that closes a cycle. The first lazy import on such a cycle
+  is set aside, and the walk starts again;
+- a list without lazy cycles therefore gets the order it had when every
+  import ordered it, and builds the same bytes.
+
+An import set aside is late: its importer registers first. The importer's
+copy resolves it to the module's late shim (`LateShim`): an ES module that
+re-exports each name from a CommonJS module whose getters read the
+registry on every read. Late shims are inlined into the copies, and no file
+of the bundle holds one alone.
+
+- Before the module registers, an `import()` of it and a read of its
+  values throw `host-provided module not registered: <key> (…)`, every
+  time; after it, both work. A module whose loading awaits such an import
+  at its top level fails to load, and both bundlers fail every later import
+  of it with the same error.
+- The late shim always exports `then`, from the registry like its other
+  names. An `import()` reads `then` on the namespace it resolves to, so it
+  rejects before the module registers, a module without exports included.
+- Both bundlers initialise a module once, so a plain shim that failed can
+  never yield the registered values. On Bun 1.3.10 and esbuild, every later
+  import gets its exports undefined, or seems to succeed for a module
+  without exports.
 
 ## BuildBun
 
@@ -513,10 +580,15 @@ of a bundle:
 1. **Scan**, when there are host-provided modules: the helper reports each
    module's export names, the listed modules it imports and the packages it
    imports, or `host_module_live_binding` for `export let` or `export var`,
-   or `host_module_commonjs` for a CommonJS module.
+   or `host_module_commonjs` for a CommonJS module. For a module that
+   imports another listed module, it also reports the import graph of the
+   scan's bundle.
    `BuildBun` writes `scripts/bun/provided/shims/<id>.mjs` for each and
-   orders them, failing on a cycle (`host_module_cycle`).
+   orders them
+   ([Registration order](#registration-order-of-host-provided-modules)).
 2. **Build**: the helper bundles the host-provided copies and every script.
+   A copy resolves its imports of a module it imports lazily and registers
+   before to that module's late shim, which the request carries.
    `BuildBun` checks each copy's exports against its scan
    (`host_module_exports_differ`), records the workspace scripts each copy
    inlined, and writes `scripts/bun/<id>.meta.json`, a `ScriptMeta` with the
@@ -625,6 +697,13 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
     and the shared-dependency warning for codebase scripts. They also
     cover modules outside the folder, whose files a case gives in
     `given.outside`: TSX and JSX modules, and one with no loader.
+  - The D12 order cases cover cycles that close through a lazy import and
+    through a load-time one: direct, through a module that is not listed,
+    between listed packages, and through a folded specifier, for both
+    bundlers. They also cover a lazy import that runs before its module
+    registers, caught and uncaught (`run.register_error`), a module
+    whose loading awaits one, and an `import()` of a module without exports
+    attempted twice before its registration.
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's
@@ -690,9 +769,18 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   headers, links below a harness runtime's directory, and the canonical
   form. `TestFoldKey` checks the case-folding key against
   `strings.EqualFold`.
-- `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
-  support module and generated shims in `testdata/`; `go test ./internal/bundle -run
-  Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.
+- `TestEnvRewriteGolden`, `TestShimGolden` and `TestLateShimGolden` pin
+  the define tables, the support module, generated shims and late shims in
+  `testdata/`; `go test ./internal/bundle -run Golden -args -update`
+  rewrites them. `TestShimBehaviour` runs shims on Bun.
+- `TestLoadTimeHostModules` and `TestHostModuleOrder` need no Bun: they
+  check which imports of listed modules are lazy, and the order, with its
+  late imports and cycle errors. `TestHostModuleOrderWithoutLazyCycles`
+  orders 6,000 random lists of up to 8 modules: a list without lazy cycles
+  gets the order that counting every import gives. `TestLazyImports` runs
+  the helper's `lazy` request on sources whose `import()` calls sit in
+  functions, at top level and in class bodies, with literal and folded
+  specifiers.
 - `TestCLIParity` is the CLI parity check of
   [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 4
   ([Q-WR-24](../../docs/semantics/languages.md#q-wr-24)). With

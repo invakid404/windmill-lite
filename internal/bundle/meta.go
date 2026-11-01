@@ -229,8 +229,12 @@ type HostModuleMeta struct {
 	// Exports are its export names, from the scan; its shim takes these.
 	Exports []string
 	// HostModules are the keys of other host-provided modules it imports,
-	// which must be registered before it.
+	// lazily or not, sorted.
 	HostModules []string
+	// LoadHostModules are those of HostModules it imports at load time,
+	// which must be registered before it (loadTimeHostModules); the others
+	// it imports only through import() calls inside functions.
+	LoadHostModules []string
 	// Packages are the npm packages its own source imports.
 	Packages []string
 	// Imports is the closure of workspace scripts its bundled copy
@@ -266,8 +270,8 @@ const (
 	// other names than its scan found, which happens when it re-exports
 	// another host-provided module with `export *`.
 	ProblemExportsDiffer = "host_module_exports_differ"
-	// ProblemHostModuleCycle: host-provided modules import each other in a
-	// cycle, so none can be registered first.
+	// ProblemHostModuleCycle: host-provided modules import each other at
+	// load time in a cycle, so none can be registered first.
 	ProblemHostModuleCycle = "host_module_cycle"
 	// ProblemHostModuleCommonJS: a host-provided module is CommonJS. Its
 	// export names are its exports object's properties, known only when it

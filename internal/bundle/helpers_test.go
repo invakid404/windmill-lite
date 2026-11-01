@@ -250,13 +250,20 @@ type callResult struct {
 
 const runnerSource = `const spec = JSON.parse(await Bun.file(process.argv[2]).text());
 if (spec.env !== null) process.env = spec.env;
+// A registration that fails stops the registration, as a harness's start
+// fails; the calls still run.
+let registerError = null;
 if (spec.register !== null) {
   const reg = new Map();
   globalThis[Symbol.for("windmill-lite.hostModules")] = reg;
-  for (const [key, file] of spec.register) reg.set(key, await import(file));
+  try {
+    for (const [key, file] of spec.register) reg.set(key, await import(file));
+  } catch (e) {
+    registerError = String(e?.name) + ": " + String(e?.message);
+  }
 }
 const out = [];
-for (const c of spec.calls) {
+for (const c of spec.calls ?? []) {
   try {
     const ns = await import(c.module);
     const v = await ns[c.export](...(c.args ?? []));
@@ -265,7 +272,7 @@ for (const c of spec.calls) {
     out.push({ error: String(e?.name) + ": " + String(e?.message) });
   }
 }
-process.stdout.write("\n@@" + JSON.stringify(out) + "\n");
+process.stdout.write("\n@@" + JSON.stringify({ register_error: registerError, calls: out }) + "\n");
 `
 
 // runModules imports bundled modules in one Bun process and calls their
@@ -274,17 +281,42 @@ process.stdout.write("\n@@" + JSON.stringify(out) + "\n");
 // (key and module file, in order) when register is not nil.
 func runModules(t testing.TB, bun string, env map[string]string, register [][2]string, calls []call) []callResult {
 	t.Helper()
-	return runModulesAt(t, bun, "", env, register, calls)
+	return mustRegister(t, runModulesAt(t, bun, "", env, register, calls))
+}
+
+// runModulesRegistering runs calls as runModules does, and returns the
+// error that ended the registration ("<name>: <message>"), if one did,
+// instead of failing the test.
+func runModulesRegistering(t testing.TB, bun string, env map[string]string, register [][2]string, calls []call) (*string, []callResult) {
+	t.Helper()
+	r := runModulesAt(t, bun, "", env, register, calls)
+	return r.RegisterError, r.Calls
+}
+
+// mustRegister fails the test when the registration failed.
+func mustRegister(t testing.TB, r runnerOutput) []callResult {
+	t.Helper()
+	if r.RegisterError != nil {
+		t.Fatalf("registering the host-provided modules: %s", *r.RegisterError)
+	}
+	return r.Calls
+}
+
+// runnerOutput is what the runner prints: the error that ended the
+// registration, if one did, and each call's result.
+type runnerOutput struct {
+	RegisterError *string      `json:"register_error"`
+	Calls         []callResult `json:"calls"`
 }
 
 // runModulesIn runs calls as runModules does, in the working directory
 // cwd, where a harness extracts a bundle's assets.
 func runModulesIn(t testing.TB, bun, cwd string, calls []call) []callResult {
 	t.Helper()
-	return runModulesAt(t, bun, cwd, nil, nil, calls)
+	return mustRegister(t, runModulesAt(t, bun, cwd, nil, nil, calls))
 }
 
-func runModulesAt(t testing.TB, bun, cwd string, env map[string]string, register [][2]string, calls []call) []callResult {
+func runModulesAt(t testing.TB, bun, cwd string, env map[string]string, register [][2]string, calls []call) runnerOutput {
 	t.Helper()
 	dir := t.TempDir()
 	if cwd == "" {
@@ -314,7 +346,7 @@ func runModulesAt(t testing.TB, bun, cwd string, env map[string]string, register
 	if !ok {
 		t.Fatalf("the runner printed no results:\n%s", out)
 	}
-	var res []callResult
+	var res runnerOutput
 	if err := json.Unmarshal(bytes.TrimSpace(last), &res); err != nil {
 		t.Fatalf("runner output: %v\n%s", err, out)
 	}

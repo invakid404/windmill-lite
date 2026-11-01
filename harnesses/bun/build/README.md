@@ -63,7 +63,8 @@ A request it cannot serve at all (unreadable, another Bun) exits with code
 reported against it, and the rest are still built.
 
 Shared code adds two more requests, `kept` and `namespaces` (below,
-"Shared code").
+"Shared code"). The order of host-provided modules adds `lazy` (below,
+"Host-provided modules").
 
 ## What it does
 
@@ -78,6 +79,7 @@ Shared code adds two more requests, `kept` and `namespaces` (below,
 | `native.ts` | The native form of a module, the nativets transpile, the `//useragent` and `//proxy` header, the embedded client |
 | `text.ts` | Rust's line and whitespace rules, for the textual scans |
 | `shared.ts` | Shared code: the support module, dependency references and closure entry, the closure id, the runtime's built-in modules, the parse for kept `import()` |
+| `loadorder.ts` | What orders host-provided modules: the parse of where each `import()` sits (`lazyImports`), and the import graph of a bundle (`bundleImports`) |
 | `protocol.ts` | The request and response |
 
 ### Bundling each script
@@ -169,7 +171,9 @@ so the paths a bundle's comments name are the same on every machine:
 ### The resolve filter
 
 The plugin's resolve filter matches only the specifiers it resolves:
-relative and absolute ones, the env support module and listed packages.
+relative and absolute ones, the env support module, listed packages, and
+`windmill-lite:late/<key>`, by which a late shim imports its CommonJS
+module.
 Bun 1.3.10 drops a module that a package marked `sideEffects: false`
 re-exports (`export { x } from "./x.js"`) whenever a resolve filter
 matches the import of that package, even when the callback resolves
@@ -387,6 +391,36 @@ its source (`parse`, above).
   which the Go build adds to the bundle's sources. A copy whose
   exports differ from its scan (it re-exports another listed module with
   `export *`) is a problem in Go.
+- **Late shims.** A module's request may name, in `late`, listed modules
+  that it imports lazily and registers before. Its copy resolves its
+  imports of each to that module's late shim, whose two sources the
+  module's own request carries (`late_esm`, `late_cjs`). The resolve filter
+  matches `windmill-lite:late/<key>`, the specifier by which the ES module
+  imports the CommonJS one.
+
+The Go build orders the listed modules by their load-time imports only
+([internal/bundle](../../../internal/bundle/README.md#registration-order-of-host-provided-modules)).
+The helper reports what that order needs:
+
+- **The import graph.** A scan of a module that imports another listed
+  module also returns its bundle's imports of listed modules
+  (`bundleImports`): the module that holds each, Bun's kind and the
+  specifier. They come from the metafile's external imports, which the
+  build's plugin resolved to listed modules.
+- **Lazy imports.** `lazyImports` parses a module with Babel and returns
+  the specifiers that it imports only through `import()` calls inside a
+  function, an arrow or a method body. An `import()` in a class's static
+  block, a field initialiser, a computed key or a decorator runs where the
+  class is defined, so it is not lazy. A module that does not parse
+  returns null.
+- **Folded specifiers.** A module with a top-level `import()` whose
+  specifier is not a literal (`"./" + "a.ts"`, a template literal with a
+  substitution) gets no lazy specifiers: a bundler can fold that specifier
+  into any module's.
+- **`lazy` request.** The scan parses the modules of its graph that hold an
+  `import()` of a listed module. For a module that esbuild bundles, the Go build sends each
+  file with its syntax, and the response gives each file's lazy
+  specifiers.
 
 ## Readings of the reference
 

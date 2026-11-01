@@ -105,6 +105,12 @@ resolving the module to the generated shim, read the host's store in 16 of
 16 concurrent invocations on Bun 1.3.10 and 1.4.2, and the define table
 rewrote `Bun.env` in both outputs and `import.meta.env` in ESM only.
 
+The order in which the listed modules register (item 1 of
+[Host-provided modules](#host-provided-modules)) is decided once for both
+bundlers. The Bun helper's parse says which `import()` calls sit inside
+functions, and the Go build reads both bundlers' import records and orders
+the modules.
+
 ### Host-provided modules
 
 The host contract can list module paths (source files of the folder or its
@@ -136,8 +142,75 @@ the host was a compiled Bun executable.
    `export let` or `export var` is refused with `host_module_live_binding`;
    other ways of exporting a binding that is later reassigned are not
    detected, and the shim then sees the value as it was when the step's
-   module loaded. A listed module that imports another listed module is
-   registered after it; a cycle fails the build (`host_module_cycle`).
+   module loaded.
+
+   A listed module is registered after each listed module that it imports
+   while it loads. A shim takes its module's exports from the registry when
+   it is evaluated, so an import that runs while a module loads must find
+   its module registered. The build orders the listed modules of each
+   bundler's build by these rules:
+
+   - **A lazy import** is an `import()` of a listed module inside a
+     function body (a function, an arrow, a method or a class method), in
+     any module of the importer's bundle. It runs only when the function is
+     called, normally after every listed module has registered. It orders
+     modules only where it closes no cycle, so a list without such a cycle
+     keeps the order that counting every import gives.
+   - **Every other import of a listed module orders modules,** wherever its
+     module sits in the bundle. That is a static import or re-export
+     (`import`, `export … from`, `export * from`), a `require()` call, or an
+     `import()` evaluated at module top level, outside every function, such
+     as a top-level `await import(…)`.
+   - **That includes a module loaded lazily:** a module that is not listed,
+     which the bundle loads only through an `import()` inside a function,
+     still orders the listed modules it imports statically. It reads them
+     while it is initialised, and both bundlers initialise a module once, so
+     a read before their registration would leave its exports undefined for
+     every later import of it.
+   - **A cycle of load-time imports** fails the build with
+     `host_module_cycle`, which names the cycle by module ID.
+   - **Where the build cannot tell,** it counts an import as a load-time
+     one. That covers an `import()` in a module that does not parse, and an
+     import that the bundler's records do not show. It also covers every
+     `import()` of a module with a top-level `import()` whose specifier is
+     not a literal, since a bundler can fold `"./" + "a.ts"` into any
+     module's specifier. That reading can refuse a list but never lets a
+     load-time import find its module unregistered.
+   - **A lazy import set aside to break a cycle** resolves, in the
+     importer's copy, to the imported module's late shim, which reads the
+     registry each time one of its values is read. Before that module is
+     registered, every `import()` of it rejects with
+     `host-provided module not registered: <key> (…)`, and so does every
+     read of its values. Once it is registered, both work.
+   - **The late shim's `then`:** an `import()` reads `then` on the
+     namespace it resolves to, and the late shim answers it from the
+     registry: the module's own `then`, or none. So an `import()` made only
+     to wait for a module's load effects fails before they ran, a module
+     without exports included. The namespace an import gets therefore lists
+     a `then` key even when the module exports none.
+   - **A module whose own loading awaits such an import** at its top level
+     fails to load, with the same error. The bundlers keep that failure, so
+     every later import of the module fails the same way, as an ES module
+     whose evaluation threw stays failed. No import of it gets undefined
+     exports.
+   - **A late shim, not the plain one:** both bundlers run a module's
+     initialisation once, so a plain shim that failed can never yield the
+     registered values. On Bun 1.3.10 and esbuild, every later import of it
+     gets its exports undefined, or, for a module without exports, seems to
+     succeed although the module has not loaded.
+   - Rejected: counting every import. It refuses a cycle that closes only
+     through an `import()` in a function, such as a hook that loads a
+     module lazily. A host then leaves those modules unlisted, and every
+     step bundle holds its own copy of each.
+   - Rejected: guarding the `import()` of a lazily loaded module that
+     imports a listed one statically, so that it loads only once that
+     module is registered. The guard would have to load it synchronously,
+     which a module with top-level `await` cannot do. Another module that
+     imports it statically could still see it half initialised.
+   - Rejected: following the functions that a module calls while it loads.
+     That needs a call graph. An `import()` in such a function fails with
+     the error above instead.
+
    A module outside the folder is reached only by codebase scripts, since a
    Bun script's relative imports stay in the folder
    ([WR-28](../semantics/languages.md#wr-28)), so it is built as they are:

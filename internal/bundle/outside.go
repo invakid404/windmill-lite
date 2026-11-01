@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/evanw/esbuild/pkg/api"
 
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
@@ -211,51 +215,113 @@ func BuildEsbuildHostModules(ctx context.Context, cfg EsbuildHostConfig) (*Esbui
 	}
 	cc := &CodebaseConfig{Folder: cfg.Folder, HostModules: all}
 	mods := make([]HostModule, 0, len(cfg.Modules))
+	graphs := map[string]*importGraph{}
 	for _, m := range cfg.Modules {
-		_, _, used, _, p := cc.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, settings[m.ID], "", shims, nil)
+		out, _, used, _, p := cc.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, settings[m.ID], "", shims, nil)
 		if p != nil {
 			problems = append(problems, ItemProblem{item(m), *p})
 			continue
 		}
 		res.HostModules[m.ID].HostModules = nonNilStrings(used)
+		res.HostModules[m.ID].LoadHostModules = []string{}
+		if len(used) > 0 {
+			g, err := esbuildGraph(cfg.Folder, m.Key, out.metafile, all)
+			if err != nil {
+				return nil, err
+			}
+			graphs[m.ID] = &g
+		}
 		mods = append(mods, HostModule{ID: m.ID, Key: m.Key})
 	}
 	if len(problems) > 0 {
 		return res, &BuildError{Problems: problems}
 	}
-	order, err := hostModuleOrder(mods, res.HostModules)
+	if err := lazyOfGraphs(ctx, &bc, &req, graphs, settings); err != nil {
+		return nil, err
+	}
+	for id, g := range graphs {
+		res.HostModules[id].LoadHostModules = loadTimeHostModules(*g, res.HostModules[id].HostModules)
+	}
+	order, late, err := hostModuleOrder(mods, res.HostModules)
 	if err != nil {
 		return res, &BuildError{Problems: []ItemProblem{{"host modules", Problem{ProblemHostModuleCycle, err.Error()}}}}
 	}
 	res.Order = order
 
-	// Each copy, after the modules it imports, with their shims.
+	// Each copy, after the modules it imports at load time, with their
+	// shims. A module that imports a later one lazily is built again once
+	// every copy is: its first copy has that module's placeholder, and the
+	// second its late shim (LateShim), whose export names come from that
+	// module's copy.
 	byID := map[string]EsbuildHostModule{}
 	for _, m := range cfg.Modules {
 		byID[m.ID] = m
 	}
-	for _, id := range order {
+	copyOf := func(id string, shims map[string]string, extra *api.Plugin) (*esbuildOutput, bool) {
 		m := byID[id]
-		out, p := cc.esbuildCopy(m, settings[id], shims)
+		out, p := cc.esbuildCopy(m, settings[id], shims, extra)
 		if p != nil {
 			problems = append(problems, ItemProblem{item(m), *p})
-			continue
+			return nil, false
 		}
-		res.HostModules[id].Exports = out.exports
 		for _, p := range folderInputs(out.metafile) {
 			if !slices.Contains(res.Inputs, p) {
 				res.Inputs = append(res.Inputs, p)
 			}
 		}
-		shim, err := Shim(m.Key, out.exports)
+		return out, true
+	}
+	writeCopy := func(id string, out *esbuildOutput) error {
+		return writeFile(filepath.Join(cfg.Out, "scripts", "bun", "provided", filepath.FromSlash(id)+".mjs"), out.text)
+	}
+	for _, id := range order {
+		out, ok := copyOf(id, shims, nil)
+		if !ok {
+			continue
+		}
+		res.HostModules[id].Exports = out.exports
+		shim, err := Shim(byID[id].Key, out.exports)
 		if err != nil {
 			return nil, err
 		}
 		if err := writeFile(shimFile(cfg.Out, id), shim); err != nil {
 			return nil, err
 		}
-		shims[m.Key] = string(shim)
-		if err := writeFile(filepath.Join(cfg.Out, "scripts", "bun", "provided", filepath.FromSlash(id)+".mjs"), out.text); err != nil {
+		shims[byID[id].Key] = string(shim)
+		if err := writeCopy(id, out); err != nil {
+			return nil, err
+		}
+	}
+	if len(problems) > 0 {
+		return res, &BuildError{Problems: problems}
+	}
+	byKey := map[string]string{}
+	for _, m := range cfg.Modules {
+		byKey[m.Key] = m.ID
+	}
+	for _, id := range order {
+		if len(late[id]) == 0 {
+			continue
+		}
+		with := maps.Clone(shims)
+		helpers := map[string]string{}
+		for _, k := range late[id] {
+			esm, cjs, err := LateShim(k, res.HostModules[byKey[k]].Exports)
+			if err != nil {
+				return nil, err
+			}
+			with[k], helpers[k] = string(esm), string(cjs)
+		}
+		out, ok := copyOf(id, with, latePlugin(helpers))
+		if !ok {
+			continue
+		}
+		if !sameNames(out.exports, res.HostModules[id].Exports) {
+			problems = append(problems, ItemProblem{item(byID[id]), Problem{ProblemExportsDiffer, fmt.Sprintf(
+				"its copy with late shims exports %v, without them %v", out.exports, res.HostModules[id].Exports)}})
+			continue
+		}
+		if err := writeCopy(id, out); err != nil {
 			return nil, err
 		}
 	}
@@ -266,17 +332,153 @@ func BuildEsbuildHostModules(ctx context.Context, cfg EsbuildHostConfig) (*Esbui
 	return res, nil
 }
 
+// latePlugin resolves the specifier by which a late shim's ES module
+// imports its CommonJS module (lateSpecifier) to that module's source,
+// helpers, by the key of the host-provided module. It goes before the
+// build's own plugin, which resolves nothing that its modules import.
+func latePlugin(helpers map[string]string) *api.Plugin {
+	return &api.Plugin{Name: "windmill-lite-late", Setup: func(b api.PluginBuild) {
+		b.OnResolve(api.OnResolveOptions{Filter: "^" + regexp.QuoteMeta(lateSpecifier)}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
+			key := strings.TrimPrefix(a.Path, lateSpecifier)
+			if _, ok := helpers[key]; !ok {
+				return api.OnResolveResult{}, fmt.Errorf("no late shim of the host-provided module %s", key)
+			}
+			return api.OnResolveResult{Path: "late/" + key, Namespace: pluginNamespace}, nil
+		})
+		b.OnLoad(api.OnLoadOptions{Filter: "^late/", Namespace: pluginNamespace}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
+			text := helpers[strings.TrimPrefix(a.Path, "late/")]
+			return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
+		})
+	}}
+}
+
+// esbuildGraph is what the load-order analysis reads of an esbuild bundle
+// of the listed module whose file is entry (relative to the folder): its
+// imports of other listed modules, from the bundle's metafile. esbuild
+// names each file by its path relative to the folder, and resolves each
+// import to the file it names, with the specifier as original when the two
+// differ.
+//
+// An import resolves to a listed module when it names that module's file
+// (whose source the build's plugin replaced with the module's shim) or its
+// plugin path (host/<key>, a package). The lazy imports are filled in by
+// lazyOfGraphs.
+func esbuildGraph(folder, entry string, metafile json.RawMessage, listed []CodebaseHostModule) (importGraph, error) {
+	var mf struct {
+		Inputs map[string]struct {
+			Imports []struct {
+				Path     string `json:"path"`
+				Kind     string `json:"kind"`
+				Original string `json:"original"`
+				External bool   `json:"external"`
+			} `json:"imports"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal(metafile, &mf); err != nil {
+		return importGraph{}, fmt.Errorf("bundle: esbuild's metafile: %w", err)
+	}
+	real := func(p string) string {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(folder, filepath.FromSlash(p))
+		}
+		return realPath(p)
+	}
+	own := real(entry)
+	byFile, byPlugin := map[string]string{}, map[string]string{}
+	for _, m := range listed {
+		if m.Package != "" {
+			byPlugin[pluginNamespace+":host/"+m.Key] = m.Key
+		} else if p := real(m.File); p != own {
+			byFile[p] = m.Key
+		}
+	}
+	g := importGraph{Imports: []hostImport{}, Lazy: map[string][]string{}}
+	for _, from := range slices.Sorted(maps.Keys(mf.Inputs)) {
+		for _, im := range mf.Inputs[from].Imports {
+			if im.External {
+				continue
+			}
+			key, ok := byPlugin[im.Path]
+			if !ok && !strings.Contains(im.Path, ":") {
+				key, ok = byFile[real(im.Path)]
+			}
+			if !ok {
+				continue
+			}
+			spec := im.Original
+			if spec == "" {
+				spec = im.Path
+			}
+			g.Imports = append(g.Imports, hostImport{From: from, Kind: im.Kind, Specifier: spec, Host: key})
+		}
+	}
+	return g, nil
+}
+
+// lazyOfGraphs fills in each graph's lazy imports: the build helper parses
+// every module of the folder or its packages that holds an import() of a
+// listed module, with the syntax of the loader esbuild read it with (that of the codebase entry
+// whose settings built the graph's module).
+//
+// A module of another loader holds no JavaScript to parse. A module that
+// two graphs read with two syntaxes is parsed with the first: the other
+// graph takes it as importing nothing lazily, the reading that orders more.
+func lazyOfGraphs(ctx context.Context, bc *BunConfig, base *helperRequest, graphs map[string]*importGraph, settings map[string]*CodebaseSettings) error {
+	type use struct{ id, input, file string }
+	var uses []use
+	syntaxes := map[string]string{} // absolute path → the syntax it is parsed with
+	var mods []helperLazyModule
+	for _, id := range slices.Sorted(maps.Keys(graphs)) {
+		seen := map[string]bool{}
+		for _, im := range graphs[id].Imports {
+			if im.Kind != "dynamic-import" || seen[im.From] || strings.Contains(im.From, ":") {
+				continue
+			}
+			seen[im.From] = true
+			syntax := settings[id].loaderFor(im.From)
+			if syntax != "ts" && syntax != "tsx" && syntax != "js" && syntax != "jsx" {
+				continue
+			}
+			file := im.From
+			if !filepath.IsAbs(file) {
+				file = filepath.Join(bc.Folder, filepath.FromSlash(file))
+			}
+			switch had, ok := syntaxes[file]; {
+			case !ok:
+				syntaxes[file] = syntax
+				mods = append(mods, helperLazyModule{File: file, Syntax: syntax})
+			case had != syntax:
+				continue
+			}
+			uses = append(uses, use{id, im.From, file})
+		}
+	}
+	if len(mods) == 0 {
+		return nil
+	}
+	req := *base
+	req.Op, req.HostModules, req.Lazy = "lazy", []helperHostModule{}, mods
+	resp, err := runHelper(ctx, bc, &req)
+	if err != nil {
+		return err
+	}
+	for _, u := range uses {
+		graphs[u.id].Lazy[u.input] = resp.Lazy[u.file]
+	}
+	return nil
+}
+
 // esbuildCopy bundles the copy of one host-provided module that esbuild
 // builds: the module as the entry, with the env rewrite under the first
 // binding no input of the bundle spells, and the shims of the other listed
-// modules.
-func (cfg *CodebaseConfig) esbuildCopy(m EsbuildHostModule, s *CodebaseSettings, shims map[string]string) (*esbuildOutput, *Problem) {
+// modules (some of them late shims, which extra resolves the imports of).
+func (cfg *CodebaseConfig) esbuildCopy(m EsbuildHostModule, s *CodebaseSettings, shims map[string]string, extra *api.Plugin) (*esbuildOutput, *Problem) {
 	for n := 1; n <= 20; n++ {
 		binding := EnvBinding
 		if n > 1 {
 			binding = fmt.Sprintf("%s_%d", EnvBinding, n)
 		}
-		out, inputs, _, _, p := cfg.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, s, binding, shims, nil)
+		out, inputs, _, _, p := cfg.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, s, binding, shims, extra)
 		if p != nil {
 			return nil, p
 		}

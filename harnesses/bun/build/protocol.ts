@@ -2,6 +2,8 @@
 // (internal/bundle) writes a request file, runs the helper on the pinned
 // Bun, and reads the response file; the types there mirror these.
 
+import type { ImportGraph } from "./loadorder.ts";
+
 export type Problem = { kind: string; message: string };
 
 export type HostModuleRequest = {
@@ -27,6 +29,13 @@ export type HostModuleRequest = {
   // (build only).
   shim?: string;
   exports?: string[];
+  // The keys of the listed modules whose late shims the build of this
+  // module's copy resolves its imports of them to, and this module's own
+  // late shim, an ES module and the CommonJS module it imports, when
+  // another module's copy needs it (build only).
+  late?: string[];
+  late_esm?: string;
+  late_cjs?: string;
 };
 
 export type EntryRequest = {
@@ -54,7 +63,7 @@ export type Request = {
   // scan: the host-provided modules' exports; build: every module; parse:
   // only what the source of each entry records, for codebase scripts,
   // which esbuild bundles in Go (C2b).
-  op: "scan" | "build" | "parse" | "native" | "kept" | "namespaces";
+  op: "scan" | "build" | "parse" | "native" | "kept" | "namespaces" | "lazy";
   require_bun?: string;
   folder: string;
   work: string;
@@ -77,6 +86,9 @@ export type Request = {
   // The namespaces op: module files, by absolute path, whose namespace
   // imports it reports.
   modules?: string[];
+  // The lazy op: module files, by absolute path, and the syntax each is
+  // read with, whose lazy imports it reports.
+  lazy?: { file: string; syntax: "ts" | "tsx" | "js" | "jsx" }[];
 };
 
 export type HostModuleResult = {
@@ -87,6 +99,9 @@ export type HostModuleResult = {
   // The workspace scripts the bundled copy inlined, by Windmill path (build
   // only).
   imports?: string[];
+  // The import graph of the scan's bundle, when the module imports another
+  // listed module (scan only).
+  graph?: ImportGraph;
 };
 
 export type EntryResult = {
@@ -113,4 +128,8 @@ export type Response = {
   // The namespaces op: by module file, the specifiers whose namespace
   // object it takes, or null for one that does not parse.
   namespaces?: Record<string, string[] | null>;
+  // The lazy op: by module file, the specifiers it imports only through
+  // import() calls inside functions, or null for one that does not parse
+  // or read.
+  lazy?: Record<string, string[] | null>;
 };
