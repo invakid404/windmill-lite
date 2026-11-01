@@ -6,5 +6,6 @@ export {
   x2 as "a-b",
   x3 as default,
   x4 as if,
-  x5 as "ünï",
+  x5 as then,
+  x6 as "ünï",
 } from "windmill-lite:late/f/q\"uote.ts";

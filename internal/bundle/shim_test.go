@@ -38,28 +38,19 @@ func TestShimGolden(t *testing.T) {
 }
 
 // TestLateShimGolden pins the generated late shim (ADR 0010): an ES
-// module that re-exports each name, sorted and unique, from the CommonJS
-// module named by the late specifier and the key, whose getters read the
-// registry. A module without exports has none.
+// module that re-exports each name, sorted and unique, with then among
+// them, from the CommonJS module named by the late specifier and the key,
+// whose getters read the registry. A module without exports gets one too.
 func TestLateShimGolden(t *testing.T) {
 	for _, c := range shimCases {
 		t.Run(c.name, func(t *testing.T) {
-			esm, cjs, ok, err := LateShim(c.key, c.exports)
+			esm, cjs, err := LateShim(c.key, c.exports)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(c.exports) == 0 {
-				if ok || esm != nil || cjs != nil {
-					t.Errorf("a module without exports has a late shim: %s %s", esm, cjs)
-				}
-				return
-			}
-			if !ok {
-				t.Fatal("no late shim")
-			}
 			golden(t, filepath.Join("shim", c.name+".late.mjs"), esm)
 			golden(t, filepath.Join("shim", c.name+".late.cjs"), cjs)
-			esm2, cjs2, _, _ := LateShim(c.key, append([]string{}, c.exports...))
+			esm2, cjs2, _ := LateShim(c.key, append([]string{}, c.exports...))
 			if string(esm2) != string(esm) || string(cjs2) != string(cjs) {
 				t.Error("the late shim is not deterministic")
 			}
@@ -74,7 +65,7 @@ func TestLateShimGolden(t *testing.T) {
 		{"k", []string{""}},
 		{"k", []string{"bad\xff"}},
 	} {
-		if _, _, _, err := LateShim(c.key, c.exports); err == nil {
+		if _, _, err := LateShim(c.key, c.exports); err == nil {
 			t.Errorf("LateShim(%q, %q) succeeded", c.key, c.exports)
 		}
 	}

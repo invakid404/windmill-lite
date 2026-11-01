@@ -252,7 +252,7 @@ func BuildEsbuildHostModules(ctx context.Context, cfg EsbuildHostConfig) (*Esbui
 	// shims. A module that imports a later one lazily is built again once
 	// every copy is: its first copy has that module's placeholder, and the
 	// second its late shim (LateShim), whose export names come from that
-	// module's copy, or its plain shim when it has no exports.
+	// module's copy.
 	byID := map[string]EsbuildHostModule{}
 	for _, m := range cfg.Modules {
 		byID[m.ID] = m
@@ -306,13 +306,11 @@ func BuildEsbuildHostModules(ctx context.Context, cfg EsbuildHostConfig) (*Esbui
 		with := maps.Clone(shims)
 		helpers := map[string]string{}
 		for _, k := range late[id] {
-			esm, cjs, ok, err := LateShim(k, res.HostModules[byKey[k]].Exports)
+			esm, cjs, err := LateShim(k, res.HostModules[byKey[k]].Exports)
 			if err != nil {
 				return nil, err
 			}
-			if ok {
-				with[k], helpers[k] = string(esm), string(cjs)
-			}
+			with[k], helpers[k] = string(esm), string(cjs)
 		}
 		out, ok := copyOf(id, with, latePlugin(helpers))
 		if !ok {

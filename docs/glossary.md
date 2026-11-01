@@ -156,10 +156,11 @@ scripts read, such as `WM_JOB_ID` ([internal/platform](../internal/platform/READ
 ### late shim
 
 A variant of a [shim](#shim) that reads the registry each time one of its
-values is read. A host-provided module's bundled copy imports another
-module through it when it imports that module only lazily and registers
-first, so a read before the other module registers fails, and a read after
-it works ([ADR 0010](design/0010-packaging.md#host-provided-modules)).
+values is read, and each time an `import()` resolves to it. A host-provided
+module's bundled copy imports another module through it when it imports
+that module only lazily and registers first. An import or a read before
+the other module registers fails, and one after it works
+([ADR 0010](design/0010-packaging.md#host-provided-modules)).
 
 ### Memoria
 

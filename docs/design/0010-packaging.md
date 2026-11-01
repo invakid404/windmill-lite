@@ -178,11 +178,17 @@ the host was a compiled Bun executable.
      load-time import find its module unregistered.
    - **A lazy import set aside to break a cycle** resolves, in the
      importer's copy, to the imported module's late shim, which reads the
-     registry each time one of its values is read. A function that runs
-     before that module is registered then fails with
-     `host-provided module not registered: <key> (…)` on every read, and
-     works once the module is registered.
-   - **A module whose own loading awaits such a read** at its top level
+     registry each time one of its values is read. Before that module is
+     registered, every `import()` of it rejects with
+     `host-provided module not registered: <key> (…)`, and so does every
+     read of its values. Once it is registered, both work.
+   - **The late shim's `then`:** an `import()` reads `then` on the
+     namespace it resolves to, and the late shim answers it from the
+     registry: the module's own `then`, or none. So an `import()` made only
+     to wait for a module's load effects fails before they ran, a module
+     without exports included. The namespace an import gets therefore lists
+     a `then` key even when the module exports none.
+   - **A module whose own loading awaits such an import** at its top level
      fails to load, with the same error. The bundlers keep that failure, so
      every later import of the module fails the same way, as an ES module
      whose evaluation threw stays failed. No import of it gets undefined
@@ -190,8 +196,8 @@ the host was a compiled Bun executable.
    - **A late shim, not the plain one:** both bundlers run a module's
      initialisation once, so a plain shim that failed can never yield the
      registered values. On Bun 1.3.10 and esbuild, every later import of it
-     gets its exports undefined. A module without exports has no value to
-     read, so it keeps its plain shim.
+     gets its exports undefined, or, for a module without exports, seems to
+     succeed although the module has not loaded.
    - Rejected: counting every import. It refuses a cycle that closes only
      through an `import()` in a function, such as a hook that loads a
      module lazily. A host then leaves those modules unlisted, and every

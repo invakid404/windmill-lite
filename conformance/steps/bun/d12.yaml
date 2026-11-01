@@ -97,7 +97,7 @@ cases:
         expect:
           status: success
           result:
-            - "host-provided module not registered: f/wl_step/early_a.ts (a listed module registered before it imports it lazily, and read it before its registration)"
+            - "host-provided module not registered: f/wl_step/early_a.ts (a listed module registered before it imports it lazily, and used it before its registration)"
             - ab
   - spec: D12
     variant: pool-process-scope

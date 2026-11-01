@@ -559,16 +559,18 @@ re-exports each name from a CommonJS module whose getters read the
 registry on every read. Late shims are inlined into the copies, and no file
 of the bundle holds one alone.
 
-- A read before the module registers throws
-  `host-provided module not registered: <key> (…)`, and a read after it
-  gets the registered value. A module whose loading awaits such a read at
-  its top level fails to load, and both bundlers fail every later import of
-  it with the same error.
+- Before the module registers, an `import()` of it and a read of its
+  values throw `host-provided module not registered: <key> (…)`, every
+  time; after it, both work. A module whose loading awaits such an import
+  at its top level fails to load, and both bundlers fail every later import
+  of it with the same error.
+- The late shim always exports `then`, from the registry like its other
+  names. An `import()` reads `then` on the namespace it resolves to, so it
+  rejects before the module registers, a module without exports included.
 - Both bundlers initialise a module once, so a plain shim that failed can
   never yield the registered values. On Bun 1.3.10 and esbuild, every later
-  import gets its exports undefined.
-- A module without exports keeps its plain shim: it has no value to leave
-  undefined.
+  import gets its exports undefined, or seems to succeed for a module
+  without exports.
 
 ## BuildBun
 
@@ -699,8 +701,9 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
     through a load-time one: direct, through a module that is not listed,
     between listed packages, and through a folded specifier, for both
     bundlers. They also cover a lazy import that runs before its module
-    registers, caught and uncaught (`run.register_error`), and a module
-    whose loading awaits one.
+    registers, caught and uncaught (`run.register_error`), a module
+    whose loading awaits one, and an `import()` of a module without exports
+    attempted twice before its registration.
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's

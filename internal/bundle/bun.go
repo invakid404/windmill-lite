@@ -429,7 +429,7 @@ func decodeMeta(raw json.RawMessage) (*ScriptMeta, error) {
 // modules it imports lazily and is registered before (late, by ID, from
 // hostModuleOrder): the build of its copy resolves its imports of each to
 // that module's late shim (LateShim), which the module's own request
-// carries. A module without exports keeps its plain shim.
+// carries.
 func addLateShims(mods []helperHostModule, meta map[string]*HostModuleMeta, late map[string][]string) error {
 	byKey := map[string]*helperHostModule{}
 	for i := range mods {
@@ -439,12 +439,9 @@ func addLateShims(mods []helperHostModule, meta map[string]*HostModuleMeta, late
 		for _, k := range late[mods[i].ID] {
 			dep := byKey[k]
 			if dep.LateESM == "" {
-				esm, cjs, ok, err := LateShim(k, meta[dep.ID].Exports)
+				esm, cjs, err := LateShim(k, meta[dep.ID].Exports)
 				if err != nil {
 					return err
-				}
-				if !ok {
-					continue
 				}
 				dep.LateESM, dep.LateCJS = string(esm), string(cjs)
 			}

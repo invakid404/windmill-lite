@@ -85,29 +85,32 @@ const lateSpecifier = "windmill-lite:late/"
 //
 // A bundler initialises a module once, so a plain shim that threw there can
 // never yield the registered values later: on Bun 1.3.10 and esbuild, every
-// later import gets the shim's exports undefined. The late shim reads the
-// registry each time one of its values is read instead. A read before the
-// module is registered throws LateShimMessage, every time; a read after it
-// gets the registered value.
+// later import gets the shim's exports undefined, and a module without
+// exports seems imported although it has not loaded. The late shim reads
+// the registry each time one of its values is read instead. A read before
+// the module is registered throws LateShimMessage, every time; a read after
+// it gets the registered value.
+//
+// The late shim always has a then export, read from the registry like the
+// others: the module's own then when it exports one, undefined otherwise.
+// An import() reads then on the namespace it resolves to, so every import()
+// of the module before its registration rejects with LateShimMessage, a
+// module without exports included, and one after it resolves.
 //
 // It is two sources. esm, which imports resolve to, re-exports each export
 // by name from cjs; cjs defines one getter per export over the registry and
-// never throws while it is evaluated. A module without exports has no value
-// to read, so it gets no late shim, and ok is false.
-func LateShim(key string, exports []string) (esm, cjs []byte, ok bool, err error) {
+// never throws while it is evaluated.
+func LateShim(key string, exports []string) (esm, cjs []byte, err error) {
 	if key == "" || !utf8.ValidString(key) {
-		return nil, nil, false, fmt.Errorf("bundle: invalid host-provided module key %q", key)
+		return nil, nil, fmt.Errorf("bundle: invalid host-provided module key %q", key)
 	}
-	names := slices.Clone(exports)
+	names := append(slices.Clone(exports), "then")
 	slices.Sort(names)
 	names = slices.Compact(names)
 	for _, n := range names {
 		if n == "" || !utf8.ValidString(n) {
-			return nil, nil, false, fmt.Errorf("bundle: host-provided module %s: invalid export name %q", key, n)
+			return nil, nil, fmt.Errorf("bundle: host-provided module %s: invalid export name %q", key, n)
 		}
-	}
-	if len(names) == 0 {
-		return nil, nil, false, nil
 	}
 	var e, c bytes.Buffer
 	fmt.Fprintf(&e, "// windmill-lite: the late shim of the host-provided module %s (ADR 0010, D12).\n", jsString(key))
@@ -132,14 +135,15 @@ func LateShim(key string, exports []string) (esm, cjs []byte, ok bool, err error
 	for i, n := range names {
 		fmt.Fprintf(&c, "Object.defineProperty(exports, \"x%d\", { enumerable: true, get: () => found()[%s] });\n", i, jsString(n))
 	}
-	return e.Bytes(), c.Bytes(), true, nil
+	return e.Bytes(), c.Bytes(), nil
 }
 
-// LateShimMessage is the message of the error a late shim throws when one
-// of its values is read before its module is registered.
+// LateShimMessage is the message of the error a late shim throws when its
+// module is imported, or one of its values read, before the module is
+// registered.
 func LateShimMessage(key string) string {
 	return "host-provided module not registered: " + key +
-		" (a listed module registered before it imports it lazily, and read it before its registration)"
+		" (a listed module registered before it imports it lazily, and used it before its registration)"
 }
 
 // jsString is a JavaScript string literal for s.
