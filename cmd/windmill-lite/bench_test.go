@@ -65,6 +65,9 @@ import (
 //     or host's (process.cpuUsage(), read by the probe step f/bench/probe
 //     before and after), per step; for runs one at a time, also each run's
 //     engine CPU and, for a shape, its host CPU, at p50 and p95;
+//   - the host's or harness's peak resident set (host-peak-rss-mb) and,
+//     on the plugin host, its provider hooks' calls per run
+//     (host-calls/run);
 //   - the concurrency reached (conc-peak, conc-mean: runs in flight) and
 //     the one-minute load average when the runs started (load1).
 //
@@ -125,13 +128,24 @@ const benchChainSteps = 8
 // time. A bare shape writes no log line, reads nothing and binds no flow
 // input; the others do, step k writing k mod 4 log lines and making k mod
 // 3 platform reads, alternately a variable and a resource.
+//
+// A shape with res set is the brief's example A instead, on a host whose
+// plugin provides the resources (the topology host-plugin): step k takes
+// two resources as $res: arguments, res/r<k mod 4 + 1> and the next, and
+// three expressions: the previous result and an expression that binds the
+// flow input, as the other shapes, and results.s<k-1>.n, the previous
+// step's member. Its steps return small results; sizes is unused.
 type benchShape struct {
 	name  string
 	steps int
 	sizes []int
 	bare  bool
 	conc  int
+	res   string
 }
+
+// plugin reports whether the shape runs on the plugin host.
+func (s benchShape) plugin() bool { return s.res != "" }
 
 var benchShapes = []benchShape{
 	{name: "bare-s600-1KiB", steps: 600, sizes: []int{1 << 10}, bare: true, conc: 1},
@@ -143,12 +157,17 @@ var benchShapes = []benchShape{
 	{name: "s600-50KiB", steps: 600, sizes: []int{50 << 10}, conc: 1},
 	{name: "s600-mixed", steps: 600, sizes: benchMixed, conc: 1},
 	{name: "s200-mixed-conc8", steps: 200, sizes: benchMixed, conc: 8},
+	{name: "resA-s50", steps: 50, sizes: []int{1 << 10}, conc: 1, res: "f/bench"},
+	{name: "resA-s50-1ms", steps: 50, sizes: []int{1 << 10}, conc: 1, res: "f/bench/slow"},
 }
 
 // benchMixed are the result sizes of a mixed shape's steps, in turn.
 var benchMixed = []int{1 << 10, 5 << 10, 20 << 10, 50 << 10}
 
 func (s benchShape) path() string {
+	if s.plugin() {
+		return "f/bench/" + strings.ReplaceAll(strings.ToLower(s.name), "-", "_")
+	}
 	if s.bare {
 		return fmt.Sprintf("f/bench/bare_s%d_%s", s.steps, sizesName(s.sizes))
 	}
@@ -183,10 +202,16 @@ export async function main(timings: boolean) {
   const got = Array.isArray(g[sink]) ? (g[sink] as unknown[]) : [];
   g[sink] = timings ? [] : undefined;
   const c = process.cpuUsage();
-  return { user: c.user, system: c.system, timings: got };
+  // The peak resident set, in bytes: Bun gives it in bytes on macOS and
+  // in kilobytes on Linux, as getrusage does.
+  const peak = process.resourceUsage().maxRSS;
+  // A plugin host's count of its provider hooks' calls, by run and path.
+  const calls = g[Symbol.for("windmill-lite.bench.calls")] ?? {};
+  return { user: c.user, system: c.system, timings: got, rss_peak: process.platform === "darwin" ? peak : peak * 1024, calls };
 }
 `,
 		"f/bench/work.ts":              benchWork,
+		"f/bench/resstep.ts":           benchResStep,
 		"f/bench/probe.flow/flow.yaml": "summary: The benchmarks' probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/probe, input_transforms: {timings: {type: javascript, expr: flow_input.timings}}}\n",
 	}
 	var chain strings.Builder
@@ -211,6 +236,9 @@ export async function main(timings: boolean) {
 // the flow input; the last step reports the host's CPU time with its
 // result.
 func (s benchShape) flow() string {
+	if s.plugin() {
+		return s.resFlow()
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "summary: G1 shape %s\nvalue:\n  modules:\n", s.name)
 	for k := 1; k <= s.steps; k++ {
@@ -232,6 +260,36 @@ func (s benchShape) flow() string {
 	}
 	return b.String()
 }
+
+// resFlow is the flow of a shape with res: the brief's example A.
+func (s benchShape) resFlow() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "summary: Resource shape %s\nvalue:\n  modules:\n", s.name)
+	for k := 1; k <= s.steps; k++ {
+		prev, m := "previous_result", fmt.Sprintf("{type: javascript, expr: results.s%d.n}", k-1)
+		if k == 1 {
+			prev, m = "flow_input.seed", "{type: static, value: 0}"
+		}
+		fmt.Fprintf(&b, "    - id: s%d\n      value:\n        type: script\n        path: f/bench/resstep\n        input_transforms:\n", k)
+		fmt.Fprintf(&b, "          prev: {type: javascript, expr: %s}\n", prev)
+		fmt.Fprintf(&b, "          a: {type: static, value: '$res:%s/r%d'}\n          b: {type: static, value: '$res:%s/r%d'}\n", s.res, k%4+1, s.res, (k+1)%4+1)
+		fmt.Fprintf(&b, "          key: {type: javascript, expr: '`${flow_input.tenant}:s%d`'}\n", k)
+		fmt.Fprintf(&b, "          m: %s\n          n: {type: static, value: %d}\n          last: {type: static, value: %t}\n", m, k, k == s.steps)
+	}
+	return b.String()
+}
+
+// benchResStep is the step of the resource shapes.
+const benchResStep = `// The step of the resource shapes: it takes two resources as arguments.
+export async function main(prev: unknown, a: { host: string; workspace?: string }, b: { host: string; workspace?: string }, key: string, m: number, n: number, last: boolean) {
+  const out: Record<string, unknown> = { n, m, key, hosts: [a.host, b.host], workspace: a.workspace ?? b.workspace ?? null, given: prev === undefined ? 0 : 1 };
+  if (last) {
+    const c = process.cpuUsage();
+    out.cpu = { user: c.user, system: c.system };
+  }
+  return out;
+}
+`
 
 // benchWork is the step of the shapes. Its result's data is a value of
 // about size bytes shaped like bench.Synthetic's, made once per size
@@ -380,6 +438,8 @@ func benchRuntime(b testing.TB, bun, topology string) *wl.Runtime {
 		opts.Bun, opts.HarnessRuntime, opts.ModuleState = bun, filepath.Join(repo, "harnesses", "bun", "runtime"), wl.ModuleStateWarm
 	case "host":
 		opts.Host = benchHostConn(b, dir, diag)
+	case "host-plugin":
+		opts.Host = benchHostConn(b, dir, diag, "WL_BENCH_PLUGIN=1")
 	default:
 		b.Fatalf("topology %q", topology)
 	}
@@ -393,7 +453,7 @@ func benchRuntime(b testing.TB, bun, topology string) *wl.Runtime {
 
 // benchHostConn starts the benchmark host with its working directory in
 // dir and returns the host connection its engine proxy handed over.
-func benchHostConn(b testing.TB, dir string, diag *os.File) *wl.Host {
+func benchHostConn(b testing.TB, dir string, diag *os.File, env ...string) *wl.Host {
 	b.Helper()
 	workdir := filepath.Join(dir, "host")
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
@@ -411,7 +471,7 @@ func benchHostConn(b testing.TB, dir string, diag *os.File) *wl.Host {
 	defer ln.Close()
 	cmd := exec.Command(benchHost)
 	cmd.Dir = workdir
-	cmd.Env = append(os.Environ(), "WL_ENGINE="+self, "WL_BUNDLE="+benchBundle, benchProxyEnv+"="+sock)
+	cmd.Env = append(append(os.Environ(), "WL_ENGINE="+self, "WL_BUNDLE="+benchBundle, benchProxyEnv+"="+sock), env...)
 	cmd.Stdout, cmd.Stderr = diag, diag
 	if err := cmd.Start(); err != nil {
 		b.Fatal(err)
@@ -552,17 +612,29 @@ func loadAverage() float64 {
 	return -1
 }
 
-// probe runs the probe step: it returns the harness's (or host's) CPU
-// time so far and the harness's benchmark timings it drained, and leaves
-// their sink set when timings is true.
-func probe(tb testing.TB, rt *wl.Runtime, timings bool) (time.Duration, []bunTiming) {
+// probed is what the probe step read in the harness's (or host's)
+// process: its CPU time so far, the benchmark timings it drained, its peak
+// resident set in bytes, and a plugin host's count of its provider hooks'
+// calls by "<run> <path>".
+type probed struct {
+	cpu     time.Duration
+	timings []bunTiming
+	rssPeak int64
+	calls   map[string]int
+}
+
+// probe runs the probe step, which leaves the timings' sink set when
+// timings is true.
+func probe(tb testing.TB, rt *wl.Runtime, timings bool) probed {
 	tb.Helper()
 	res, err := rt.Run(context.Background(), "f/bench/probe", fmt.Appendf(nil, `{"timings":%t}`, timings), wl.RunOptions{})
 	if err != nil || res.Status != wl.StatusSuccess {
 		tb.Fatalf("the probe: %+v, %v", res, err)
 	}
 	var out struct {
-		Timings []bunTiming `json:"timings"`
+		Timings []bunTiming    `json:"timings"`
+		RSSPeak int64          `json:"rss_peak"`
+		Calls   map[string]int `json:"calls"`
 	}
 	d, err := cpuOf(res.Result)
 	if err == nil {
@@ -571,7 +643,7 @@ func probe(tb testing.TB, rt *wl.Runtime, timings bool) (time.Duration, []bunTim
 	if err != nil {
 		tb.Fatalf("the probe's result %.200s: %v", res.Result, err)
 	}
-	return d, out.Timings
+	return probed{cpu: d, timings: out.Timings, rssPeak: out.RSSPeak, calls: out.Calls}
 }
 
 // bunTiming is one invocation's readings in the harness, in nanoseconds
@@ -617,6 +689,7 @@ type stepSplit struct {
 // runRecord is what one run left for the split: its steps' spans and job
 // ids, its expression time and its own elapsed time.
 type runRecord struct {
+	id      string
 	steps   []benchStep
 	expr    time.Duration
 	elapsed time.Duration
@@ -649,7 +722,7 @@ func recordRun(tr *wl.Trace, want int, elapsed time.Duration) (runRecord, error)
 			expr += sp.Duration
 		}
 	}
-	rec := runRecord{expr: expr, elapsed: elapsed}
+	rec := runRecord{id: tr.RunID, expr: expr, elapsed: elapsed}
 	for _, st := range tr.Steps {
 		s := spans[st.Site.String()]
 		if s == nil || st.Job == "" {
@@ -732,6 +805,11 @@ type benchResult struct {
 	runEngine []time.Duration // per run and step, one run at a time only
 	runHost   []time.Duration // the same
 	load      float64
+	// rssPeak is the host's or harness's peak resident set after the
+	// runs, in bytes, and calls the plugin's provider calls the measured
+	// runs made.
+	rssPeak int64
+	calls   int
 }
 
 // stepCount is the number of steps the measured runs ran.
@@ -777,7 +855,7 @@ func measure(tb testing.TB, rt *wl.Runtime, c benchCase, ops int, timer interfac
 	runtime.GC()
 	timed := benchTimed()
 	out := benchResult{load: loadAverage()}
-	hostBefore, _ := probe(tb, rt, timed)
+	hostBefore := probe(tb, rt, timed).cpu
 	hostLast := hostBefore
 	var (
 		mu      sync.Mutex
@@ -830,12 +908,22 @@ func measure(tb testing.TB, rt *wl.Runtime, c benchCase, ops int, timer interfac
 	if err != nil {
 		tb.Fatal(err)
 	}
-	hostAfter, bunTimes := probe(tb, rt, false)
+	after := probe(tb, rt, false)
 	out.conc = conc
-	out.engineCPU, out.engineSys, out.hostCPU = user-userBefore+sys-sysBefore, sys-sysBefore, hostAfter-hostBefore
+	out.engineCPU, out.engineSys, out.hostCPU = user-userBefore+sys-sysBefore, sys-sysBefore, after.cpu-hostBefore
+	out.rssPeak = after.rssPeak
 	mu.Lock()
 	defer mu.Unlock()
-	if out.split, err = split(out.runs, goTimes, bunTimes, timed); err != nil {
+	measured := map[string]bool{}
+	for _, run := range out.runs {
+		measured[run.id] = true
+	}
+	for key, n := range after.calls {
+		if run, _, _ := strings.Cut(key, " "); measured[run] {
+			out.calls += n
+		}
+	}
+	if out.split, err = split(out.runs, goTimes, after.timings, timed); err != nil {
 		tb.Fatal(err)
 	}
 	return out
@@ -940,6 +1028,10 @@ func (r *benchResult) report(b *testing.B, c benchCase) {
 		b.ReportMetric(float64(bench.Percentile(r.runHost, 0.50)), "host-cpu-p50-ns/step")
 		b.ReportMetric(float64(bench.Percentile(r.runHost, 0.95)), "host-cpu-p95-ns/step")
 	}
+	if r.calls > 0 {
+		b.ReportMetric(float64(r.calls)/float64(len(r.runs)), "host-calls/run")
+	}
+	b.ReportMetric(float64(r.rssPeak)/(1<<20), "host-peak-rss-mb")
 	b.ReportMetric(float64(r.conc.Peak), "conc-peak")
 	b.ReportMetric(r.conc.Mean, "conc-mean")
 	b.ReportMetric(r.load, "load1")
@@ -978,6 +1070,16 @@ func BenchmarkStepBoundary(b *testing.B) {
 	}
 }
 
+// cleanupOn is a sub-benchmark whose cleanups run when its parent ends,
+// for a runtime the parent's later sub-benchmarks share; its failures
+// stay its own.
+type cleanupOn struct {
+	testing.TB
+	parent testing.TB
+}
+
+func (c cleanupOn) Cleanup(f func()) { c.parent.Cleanup(f) }
+
 // shapeCase is the shape's runs.
 func shapeCase(s benchShape) benchCase {
 	return benchCase{
@@ -1006,9 +1108,20 @@ func shapeCase(s benchShape) benchCase {
 
 func BenchmarkHostShapes(b *testing.B) {
 	bun := benchSetup(b)
-	rt := benchRuntime(b, bun, "host")
+	// Each topology's runtime opens when its first shape runs, so a shape
+	// run alone (-bench) has its host to itself.
+	runtimes, parent := map[string]*wl.Runtime{}, b
 	for _, s := range benchShapes {
 		b.Run("shape="+s.name, func(b *testing.B) {
+			topology := "host"
+			if s.plugin() {
+				topology = "host-plugin"
+			}
+			rt := runtimes[topology]
+			if rt == nil {
+				rt = benchRuntime(cleanupOn{TB: b, parent: parent}, bun, topology)
+				runtimes[topology] = rt
+			}
 			c := shapeCase(s)
 			b.StopTimer()
 			r := measure(b, rt, c, b.N, b)
