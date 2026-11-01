@@ -1,11 +1,9 @@
 # internal/jsonval
 
-**Current state:** implemented: the value type of milestone K1 and the jsonb
-canonicaliser of milestone A1
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers `internal/jsonval`. Other packages use the type in their contracts, but
-nothing computes stored text yet: the engine, which applies the routing
-table, does not exist.
+**Current state:** implemented: the value type and the jsonb canonicaliser.
+The engine applies the routing table of
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md) with it. This
+README covers `internal/jsonval`.
 
 ## The value type
 
@@ -28,10 +26,11 @@ three parts:
 - **JSON encoding.** `MarshalJSON` returns the producer text and refuses the
   zero `Value`; tag optional fields `json:",omitzero"`. `encoding/json` then
   compacts that text and escapes `<`, `>` and `&` (unless
-  `SetEscapeHTML(false)`), which keeps the parsed value but not the bytes. A
-  writer that must keep the producer's bytes, such as a harness frame or a
-  recording, writes `Producer()` itself. `UnmarshalJSON` keeps a copy of the
-  raw text, so a value read from a frame keeps its spelling.
+  `SetEscapeHTML(false)`), which keeps the parsed value but not the bytes.
+  So a harness frame or a recording, which must keep the producer's bytes,
+  writes `Producer()` itself.
+- **JSON decoding.** `UnmarshalJSON` keeps a copy of the raw text, so a
+  value read from a frame keeps its spelling.
 - **Concurrency.** A `Value` is immutable and safe for concurrent use.
 
 The engine applies ADR 0005's routing table, which decides whether each
@@ -91,9 +90,9 @@ PostgreSQL's rejection implies, is request 4 to the semantics team
 ([docs/design](../../docs/design/README.md)).
 
 Not reproduced: PostgreSQL's nesting limit, which depends on the server's
-stack size; `jsonb`'s limits on a string's length (256 MiB) and on a value's
-size; and PostgreSQL's own message for invalid UTF-8, which never reaches a
-cast because PostgreSQL refuses such text earlier.
+stack size; and `jsonb`'s limits on a string's length (256 MiB) and on a
+value's size. Nor is PostgreSQL's own message for invalid UTF-8, which
+never reaches a cast because PostgreSQL refuses such text earlier.
 
 ## Tests
 
@@ -112,11 +111,14 @@ ADR 0005 checks the canonicaliser three ways, and all three run in CI:
 3. **PostgreSQL itself.** `TestStoredMatchesPostgreSQL` casts every input of
    the other tests, and mutations of the generated text, to `jsonb` and back.
    It compares the stored text and, for valid JSON, PostgreSQL's message; for
-   text that is not one JSON value it checks that both reject. It runs only when
-   `WL_JSONB_PSQL` holds a `psql` command line (split on spaces) that reaches
-   a server. CI's `jsonb (PostgreSQL)` job sets it to `psql` inside the
-   oracle's PostgreSQL image, pinned by the digest in
-   [oracle.md](../../docs/semantics/oracle.md).
+   text that is not one JSON value it checks that both reject. It runs only
+   when `WL_JSONB_PSQL` holds a `psql` command line (split on spaces), which
+   CI's `jsonb (PostgreSQL)` job points at the oracle's PostgreSQL image
+   ([oracle.md](../../docs/semantics/oracle.md) pins its digest).
 
-`BenchmarkStored` compares the canonicaliser with the test implementation;
-milestone G1 records the baseline.
+`BenchmarkStored` compares the canonicaliser with the test implementation
+on the step-result-shaped payloads of
+[internal/bench](../bench/README.md), from 26 B to 4 MiB, and
+`TestSyntheticStored` checks that the two agree on each of them. The
+baseline is in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).

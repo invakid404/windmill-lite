@@ -54,7 +54,7 @@ cannot corrupt the protocol.
 |---|---|
 | `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, loads the host plugin `--plugin` names, connects to fd 3, starts the runtime |
 | `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
-| `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
+| `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
 | `runtime/context.ts` | The per-invocation context: the environment view, the fetch view, the timer fence, the log view, child-process wrapping, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
@@ -824,6 +824,36 @@ or unusable welcome, 3 for a protocol error by the engine, 4 when the
 bundle cannot be read, 5 when no frame that ends an invocation fits
 `max_message`. The invocation stays in flight until such a frame is queued,
 so the engine always learns how it ended, by that frame or by the exit.
+
+## Benchmark timings
+
+The runtime records when each invocation reaches the stages of its round
+trip, for the repository's step boundary benchmarks
+([cmd/windmill-lite](../../cmd/windmill-lite/README.md#benchmarks)). It
+records only while `globalThis[Symbol.for("windmill-lite.timings")]` holds
+an array, the sink, which nothing sets but a benchmark's own step. Unset,
+the runtime reads the sink once per frame and once per settled
+invocation, and records nothing.
+
+While the sink is set, the runtime appends one record for each
+invocation it settles with a `result` frame. Each reading is a
+`Bun.nanoseconds()` value:
+
+| Field | When |
+|---|---|
+| `id` | the invocation's id |
+| `rx` | the frame that completes its `invoke` was read |
+| `dec` | that `invoke` was decoded |
+| `call` | its entrypoint was called, after the module loaded and the arguments were bound |
+| `ret` | the entrypoint's promise settled with a value |
+| `ser` | the result was serialised |
+| `sent` | the `result` frame was handed to the socket |
+
+An invocation that did not reach a stage, such as one whose module failed
+to load, has no `call`, `ret` or `ser`. The benchmarks' probe step sets
+the sink before the measured runs and takes the records after them. The
+engine side reads its own clock for the same invocations
+([internal/harness](../../internal/harness/README.md#benchmarks)).
 
 ## Tests
 

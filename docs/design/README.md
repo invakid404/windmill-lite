@@ -171,9 +171,12 @@ The records are written by the build team under the clean-room rule of
 documentation, the Apache-2.0 parts of Windmill, and observed behaviour.
 Where a decision depends on a number, the number was measured with a
 throwaway prototype outside this repository, and the record states the
-hardware, versions and method. Milestone G1 turns those prototypes into
-in-repository benchmarks. The one exception so far is the native pool
-under load, measured by milestone B1a's own load test.
+hardware, versions and method.
+
+Two kinds of number come from the repository instead: the native pool
+under load, from the expression engine's own load test, and the step
+boundary, whose benchmarks have their baseline in
+[0005](0005-json-step-boundaries.md#baseline).
 
 ## The architecture in one paragraph
 
@@ -228,6 +231,8 @@ each record):
 | Native pool (milestone B1a), 8 slots, 8 callers with pauses, by bound value | 4 KB: 95 µs p50, 152 µs p95; 64 KB: 350 µs, 539 µs; 256 KB: 1.32 ms, 2.10 ms | 0003 |
 | The budget gate through the pipeline (milestone B2b), a predicate over a results value read from the database, 8 slots, 8 callers with pauses | 4 KB: 121 µs p50, 223 µs p95, 437 µs p99; 64 KB: 313 µs, 449 µs, 573 µs; 256 KB: 1.02 ms, 1.65 ms, 1.84 ms; all inside the gate | 0003 |
 | Static musl engine's pool (milestone F4), 8 callers back to back, CPU per evaluation, musl's `malloc` against mimalloc | `linux/arm64`: 2.27 ms and 189 µs at 4 KB, 12.9 ms and 1.46 ms at 256 KB; `linux/amd64`: 1.74 ms and 340 µs, 8.45 ms and 2.82 ms; glibc's `malloc`: 261 µs, 1.69 ms, 433 µs, 3.04 ms | 0003 |
+| The repository's step boundary benchmarks on Bun 1.3.10: one step that returns its argument, one run at a time, host mode | 147 µs p50 at 26 B, a mean of 152 µs of which writing `args.json` takes 113 µs; 986 µs at 32 KiB; 126 ms at 4 MiB. Transport alone: 14 µs at 26 B, 123 µs at 32 KiB | 0004, 0005 |
+| The jsonb canonicaliser against a decode, sort and encode in Go | 247 to 363 MB/s against 11 to 21 MB/s, from 26 B to 4 MiB | 0005 |
 | Normalising walk versus native JSON round trip in Bun | faster, but not equivalent (top-level functions and symbols, own `__proto__` keys) | 0005 |
 | Fresh module state per invocation in one process | 0.6–2.1 ms for 0.3–1.3 MB bundles; re-importing leaks module records | 0006 |
 | Step code reading a host scope through a separately bundled copy of the module, on Bun 1.3.10 | `undefined`; through a host-provided module, 16 of 16 isolated, compiled host included | 0010 |

@@ -19,9 +19,9 @@ go run ./cmd/windmill-lite            # windmill-lite (devel)
 go run ./cmd/windmill-lite version    # same; --version, -version and -v also work
 windmill-lite build <folder> -o <bundle> [flags]
 windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
-windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
+windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [-cpuprofile <file>] [flags]
 windmill-lite selfcheck
-windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [flags]
+windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [-cpuprofile <file>] [flags]
 ```
 
 Flags may come before or after the positional argument. A usage error exits
@@ -102,6 +102,7 @@ SIGINT and SIGTERM cancel the run.
 | `-variables` | a JSON file of the host's variables, keyed by path, as in a bundle's `data/variables.json` (`value`, `is_secret`, `encrypted`); secrets go here, since a bundle never holds one |
 | `-resources` | a JSON file of the host's resources, keyed by path, as in a bundle's `data/resources.json` (`resource_type`, `value`) |
 | `-trace` | print the trace summary with the outcome |
+| `-cpuprofile` | write a CPU profile of the engine to this file until the run ends ([Profiling](#profiling)) |
 
 The engine version (below) must be the one that built the bundle. With the
 fixture built as above:
@@ -154,6 +155,28 @@ connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
 | `-digest` | the bundle digest the bundle must have |
 | `-variables`, `-resources` | the host's variables and resources, as for `run` |
 | `-plugin-timeout` | how long a `host_call` to the host's plugin waits for its reply (default 1m; F2c) |
+| `-cpuprofile` | write a CPU profile of the engine to this file until the host's connection ends ([Profiling](#profiling)) |
+
+### Profiling
+
+`-cpuprofile <file>` on `run` and `host` writes a CPU profile of the
+engine process in Go's pprof format, which `go tool pprof` reads. It
+covers the engine only: the Bun harness or the host is another process.
+`run` writes the profile when the run ends. `host` writes it when the
+host's connection ends or the engine gets SIGTERM or SIGINT.
+
+A Bun host passes the flag through the SDK's `engineFlags`:
+
+```ts
+await connect({ engine, bundle, workdir, engineFlags: ["-cpuprofile", "/tmp/engine.pprof"] });
+```
+
+```sh
+go tool pprof -top /tmp/engine.pprof
+```
+
+A profile file that cannot be created fails the command before it opens
+the bundle; `host` then refuses the host with the reason.
 
 ## Version
 
@@ -176,13 +199,15 @@ which `verify` confirms against the release manifest, and a changed file
 fails verification. The build test needs the pinned Bun in `WL_BUN` and
 skips without it, unless `WL_REQUIRE_BUN` is set, as CI sets it.
 
-`runcmd_test.go` covers `run`: its usage errors, and arguments or a bundle
-that do not open, which exit with status 1 and print nothing on standard
-output; and, with the pinned Bun, a synthetic folder built as an archive
-whose flow reads a host's secret through argument resolution, run in
-`warm` and `fresh` mode: a successful run exits 0 with its result and
-trace summary, a failing one exits 1 with its error, and a run without the
-harness runtime the bundle was built for does not start.
+`runcmd_test.go` covers `run`: its usage errors, and arguments, a bundle
+or a CPU profile file that do not open, which exit with status 1 and print
+nothing on standard output.
+
+With the pinned Bun, `runcmd_test.go` builds a synthetic folder as an
+archive whose flow reads a host's secret through argument resolution, and
+runs it in `warm` and `fresh` mode. A successful run exits 0 with its
+result, trace summary and CPU profile; a failing one exits 1 with its
+error; a run without the bundle's harness runtime does not start.
 
 `host_test.go` runs host mode end to end: the host-mode half of W1's exit
 gate, the host-mode gate of milestone C2b, F3a's exit gate, F3h's
@@ -240,6 +265,7 @@ The tests:
 | `TestHostVersionPairing` | F3b: the SDK–engine version pairing (ADR 0009): a host whose SDK is stamped with another release (`bun run --define WL_RELEASE`) is refused with `version_mismatch` by the engine (stamped as `-X main.version` would, `WL_TEST_ENGINE_VERSION`), the SDK refuses a welcome from an engine of another release that does not check (`fakeEngine`), and the engine's own release is welcomed and runs |
 | `TestHostStaticIntercept` | H1's static form through the run frame |
 | `TestHostStepLatency` | reports the per-step latency of host mode |
+| `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
 
 They need the pinned Bun in `WL_BUN` too, and the build helper's
 dependencies.
@@ -289,3 +315,102 @@ With shared code, both tests assert the memory gate of [ADR 0013](../../docs/des
 `TestModuleMemory` allows at most 1.5 MiB per further module.
 `TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
 peak of at most 650 MiB after its soak.
+
+## Benchmarks
+
+`bench_test.go` holds the end-to-end benchmarks of the step boundary.
+Each runs synthetic flows with the engine in the benchmark's own process,
+so that it reads every run's trace and the engine's CPU time. The
+recorded baseline, with its machine, command and load, is in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
+
+The benchmarks run on two topologies:
+
+- **host**: `testdata/benchhost/host.ts`, compiled with `bun build
+  --compile`, is a warm Bun host that embeds the SDK and does nothing else.
+  The SDK starts its engine as its child, which is the test binary as an
+  engine proxy: it hands the host's socket and child channel to the
+  benchmark. The runtime is the one `host` opens, with the watchdog off.
+- **subprocess**: the warm Bun harness that the engine spawns, one process,
+  as `run` uses it.
+
+| Benchmark | What it runs |
+|---|---|
+| `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
+| `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
+
+One iteration is one run per worker, the workers started together, so
+even one iteration has every run of its concurrency in flight at once.
+
+### Stages
+
+Each step is split into stages, each the difference of two readings of the
+same invocation. The readings are the trace's module and harness spans,
+the engine side's clock
+([internal/harness](../../internal/harness/README.md#the-times-hook)) and
+the harness's own
+([harnesses/bun](../../harnesses/bun/README.md#benchmark-timings)). They are
+joined by the invocation's id, the step's job id. A step's stages add up
+to its module span exactly, so their means add up to the step's mean.
+
+| Stage | What it holds |
+|---|---|
+| `engine` | the engine outside its call of the executor: transforms, arguments and their storage, the trace |
+| `executor` | the executor around the harness process: the runtime's recorder and the pool's routing |
+| `go-encode` | checks, the script's arguments and the invoke's payload |
+| `args-file` | `args.json` written, the wait for its lock included |
+| `go-queue` | the invocation registered and its invoke queued |
+| `transport` | from the invoke queued to the result read, less the harness's time: the writer, the socket both ways and the wake-ups. It is not attributed further |
+| `bun-decode` | the invoke's last frame decoded in the harness |
+| `bun-dispatch` | from decoded to the entrypoint called: context, module, binding, and any wait behind other invocations |
+| `code` | the step's own code |
+| `bun-serialise` | the result serialised |
+| `bun-send` | the result frame encoded and handed to the socket |
+| `go-decode` | the result's last frame decoded in the engine |
+| `go-handoff` | from decoded to the outcome back with the engine: settlement and the `Reporter`'s calls |
+
+### Metrics
+
+Each benchmark reports these figures per step:
+
+| Metric | Meaning |
+|---|---|
+| `ns/op`, `MB/s` | wall time per step at the benchmark's concurrency, and the payload the steps moved, both ways, per second |
+| `step-p50-ns`, `step-p95-ns`, `step-mean-ns` | the step's module span |
+| `<stage>-mean-ns`, `<stage>-p50-ns` | each stage, over every step |
+| `boundary-share-p50`, `boundary-share` | the share of a run's module time spent at the boundary: its harness spans less its steps' own code, per run at p50, and over every run together |
+| `harness-share-p50`, `harness-share` | the same for the whole harness span |
+| `module-share-p50` | the share of a run's elapsed time spent in its modules |
+| `engine-cpu-ns/step`, `engine-sys-ns/step` | the engine process's CPU time, and its system part, from `getrusage` |
+| `host-cpu-ns/step` | the host's or harness's CPU time, from `process.cpuUsage()` |
+| `engine-cpu-p50-ns/step` and the like | per run, for runs one at a time; a shape's host CPU too |
+| `expr-ns/step` | the expression spans |
+| `conc-peak`, `conc-mean` | the most runs in flight at once, and the mean |
+| `load1` | the one-minute load average when the runs started |
+
+Percentiles are nearest-rank ([internal/bench](../../internal/bench/README.md#percentiles)).
+The probe step `f/bench/probe` reads the host's or harness's CPU time
+before and after the runs, and sets and drains the harness's timings. A
+shape's last step reports the host's CPU time with its result too, so each
+run has its own figure.
+
+`WL_BENCH_TIMINGS=off` leaves the stage readings out, which measures what
+taking them costs. `TestBenchSplit` runs the measurement once on each
+topology with two runs at once, so that a broken split fails the ordinary
+tests. It checks that both runs overlap, that every step is matched with
+its readings, and that its stages add up to its module span.
+
+They need the build helper's dependencies and the pinned Bun in `WL_BUN`,
+and run only with `-bench`. A benchmark fails without `WL_BUN`, rather
+than skip and report a pass with no figures, while `TestBenchSplit`
+skips. The baseline's exact commands, each part of
+`BenchmarkStepBoundary` in a test process of its own, are in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline). One
+run of both, in one process:
+
+```sh
+WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
+  -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 3s -count 3
+```
+
+`benchstat` (`golang.org/x/perf/cmd/benchstat`) compares two such outputs.

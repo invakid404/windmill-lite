@@ -43,6 +43,12 @@ type conn struct {
 	born     time.Time
 	lastRecv atomic.Int64 // nanoseconds since born
 
+	// msgRead and msgDecoded are, while a times hook is set
+	// (SetTimesHook), when the reader had read the last frame of the
+	// message it is handing to onMessage, and when it had decoded it.
+	// Only the reader goroutine reads and writes them, onMessage included.
+	msgRead, msgDecoded time.Time
+
 	mu         sync.Mutex
 	small      [][]byte // whole frames, length prefix included
 	streams    []*outStream
@@ -360,6 +366,10 @@ func (c *conn) readLoop() {
 			return
 		}
 		c.lastRecv.Store(int64(time.Since(c.born)))
+		timed := timesHook.Load() != nil
+		if timed {
+			c.msgRead = time.Now()
+		}
 		m, err := decodeFrame(payload, c.maxMessage)
 		if err == nil {
 			if p, ok := m.(Part); ok {
@@ -376,6 +386,9 @@ func (c *conn) readLoop() {
 		if err != nil {
 			c.onClose(err)
 			return
+		}
+		if timed {
+			c.msgDecoded = time.Now()
 		}
 		c.onMessage(m)
 	}

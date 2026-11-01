@@ -7,6 +7,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/bench"
 )
 
 // An edgeCase is a canonicaliser input the conformance cases cannot hold
@@ -466,25 +468,32 @@ func (g *textGen) space(b *bytes.Buffer) {
 	}
 }
 
-// The benchmarks compare the canonicaliser with the test implementation on
-// a value shaped like a step result. Milestone G1 records the baseline.
-func benchmarkText(n int) []byte {
-	var b strings.Builder
-	b.WriteByte('[')
-	for i := range n {
-		if i > 0 {
-			b.WriteByte(',')
+// TestSyntheticStored checks the benchmark payloads (internal/bench) here:
+// the canonicaliser accepts each, and it and the test implementation agree
+// on its stored text, so the two sides of BenchmarkStored compute the same
+// thing.
+func TestSyntheticStored(t *testing.T) {
+	for _, n := range bench.SyntheticSizes {
+		text := bench.Synthetic(n)
+		got, err := canonicalise(text)
+		if err != nil {
+			t.Fatalf("Synthetic(%d): %v", n, err)
 		}
-		fmt.Fprintf(&b, `{"id":%d,"name":"item %d","tags":["x","y\n"],"price":%d.50,"meta":{"zz":true,"a":null,"created":"2024-01-01T00:00:00Z"}}`, i, i, i)
+		ref, err := referenceStored(text)
+		if err != nil || !bytes.Equal(got, ref) {
+			t.Fatalf("Synthetic(%d): the canonicaliser and the test implementation differ (%v)", n, err)
+		}
 	}
-	b.WriteByte(']')
-	return []byte(b.String())
 }
 
+// BenchmarkStored is item 1 of ADR 0005's benchmark plan (milestone G1):
+// the canonicaliser against the test implementation's decode, sort and
+// encode, on the step-result-shaped payloads of bench.Synthetic from 26 B
+// to 4 MiB. Both compute the stored text (TestSyntheticStored).
 func BenchmarkStored(b *testing.B) {
-	for _, n := range []int{1, 32, 1024} {
-		text := benchmarkText(n)
-		b.Run(fmt.Sprintf("canonicaliser/%dB", len(text)), func(b *testing.B) {
+	for _, n := range bench.SyntheticSizes {
+		text := bench.Synthetic(n)
+		b.Run("size="+bench.SizeLabel(n)+"/impl=canonicaliser", func(b *testing.B) {
 			b.SetBytes(int64(len(text)))
 			for b.Loop() {
 				if _, err := canonicalise(text); err != nil {
@@ -492,7 +501,7 @@ func BenchmarkStored(b *testing.B) {
 				}
 			}
 		})
-		b.Run(fmt.Sprintf("decode-sort-encode/%dB", len(text)), func(b *testing.B) {
+		b.Run("size="+bench.SizeLabel(n)+"/impl=decode-sort-encode", func(b *testing.B) {
 			b.SetBytes(int64(len(text)))
 			for b.Loop() {
 				if _, err := referenceStored(text); err != nil {

@@ -46,6 +46,9 @@ import (
 // with the host command, and WL_TEST_ENGINE, which the supervisor sets,
 // reaches it through the host's environment.
 func TestMain(m *testing.M) {
+	if sock := os.Getenv(benchProxyEnv); sock != "" {
+		os.Exit(benchProxy(sock))
+	}
 	if v := os.Getenv("WL_TEST_FAKE_ENGINE"); v != "" {
 		os.Exit(fakeEngine(v))
 	}
@@ -63,6 +66,9 @@ func TestMain(m *testing.M) {
 	}
 	if memHostBin != "" {
 		os.RemoveAll(filepath.Dir(memHostBin))
+	}
+	if benchDir != "" {
+		os.RemoveAll(benchDir)
 	}
 	os.Exit(code)
 }
@@ -826,6 +832,31 @@ func TestHostStaticIntercept(t *testing.T) {
 	if err != nil || r.Status != "success" || string(r.Result) != `{"from_b":{"stood":"in"}}` {
 		t.Fatalf("%+v, %v", r, err)
 	}
+}
+
+// Milestone G1: `windmill-lite host -cpuprofile <file>`, which the SDK
+// passes among its engine flags, writes the engine's CPU profile once the
+// host's connection ends, on the real topology.
+func TestHostCPUProfile(t *testing.T) {
+	prof := filepath.Join(t.TempDir(), "engine.pprof")
+	s := supervise(t, 30000, "WL_ENGINE_FLAGS=-cpuprofile "+prof)
+	for i := range 20 {
+		if r, err := s.run("f/host/echo", "a", map[string]any{"x": i}, nil); err != nil || r.Status != "success" {
+			t.Fatalf("%+v, %v", r, err)
+		}
+	}
+	if err := checkCPUProfile(prof); err == nil {
+		t.Fatal("the profile was complete while the host was connected")
+	}
+	// The host exits; its engine sees the connection end and stops.
+	s.stop()
+	var err error
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if err = checkCPUProfile(prof); err == nil {
+			return
+		}
+	}
+	t.Fatalf("no CPU profile after the host exited: %v", err)
 }
 
 // W1's exit gate: "a first per-step latency figure", in host mode: a

@@ -64,6 +64,7 @@ is `engine.OriginHarness` (`process.go`, milestone FU5).
 | `target_linux.go`, `target_other.go` | What host mode's watchdog signals: a pidfd of the host on Linux, kill(2) elsewhere |
 | `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines, recent reporters, signal names |
+| `timings.go` | `SetTimesHook`, `InvocationTimes`: each invocation's clock readings, for benchmarks |
 
 ## The wire
 
@@ -667,4 +668,76 @@ The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and
 
 ```sh
 WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
+```
+
+## Benchmarks
+
+Two things here serve the step boundary benchmarks, whose recorded
+baseline is in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline): a
+hook that times every invocation, and microbenchmarks of the parts of a
+round trip on their own.
+
+### The times hook
+
+`SetTimesHook(f)` makes every `Process` of the program report each
+invocation that completes with an outcome to `f`, as an `InvocationTimes`.
+These are readings of one monotonic clock, taken on the invocation's own
+path:
+
+| Reading | When |
+|---|---|
+| `Start` | `Process` began the invocation |
+| `Encoded` | the invoke's payload was ready |
+| `ArgsWritten` | `args.json` was written |
+| `Queued` | the invoke was queued on the connection |
+| `Received` | the reader had read the result's last frame |
+| `Decoded` | the reader had decoded the result |
+| `Done` | the outcome had reached the caller of `Execute`, after its settlement and `Reporter` calls |
+
+The harness runtime records its own readings of the same invocation
+([harnesses/bun](../../harnesses/bun/README.md#benchmark-timings)), and
+[cmd/windmill-lite's](../../cmd/windmill-lite/README.md#benchmarks)
+benchmarks join both by the invocation's id to split each step into
+stages. While the hook is unset, a `Process` reads no clock for it: each
+invocation and each received frame cost one atomic load. `TestTimesHook`
+runs an invocation on the real Bun harness with the hook set, and checks
+that its readings are all taken and in order.
+
+### Microbenchmarks
+
+`bench_test.go` measures each part of a round trip on its own, as the
+mean of repeated calls, on the payloads of
+[internal/bench](../bench/README.md) from 26 B to 4 MiB. A step's
+argument is the payload, and its result is the payload again. These
+figures are not a split of a real step, whose stages the times hook
+measures.
+
+| Benchmark | What it measures |
+|---|---|
+| `BenchmarkGoInvocation` | The engine's side of the codec: `scriptArgs` and the invoke's payload (`encode-invoke`), and the result's payload decoded (`decode-result`) |
+| `BenchmarkArgsFile` | The `args.json` file that each invocation writes into the harness's working directory, written back to back |
+| `BenchmarkHarnessCodec` | The harness's parse and serialise on the pinned Bun: the invoke decoded, the result serialised by the runtime's `resultText`, and the result's payload encoded |
+| `BenchmarkTransport` | The transport alone, one invocation at a time and eight at once, against an echo |
+
+`testdata/bench.ts` is the Bun side of the last two. It imports the
+runtime's own `frame.ts` and `wrapper.ts`, so it runs the code a step's
+invocation runs. Its echo reads frames and reassembles part streams as the
+runtime does. It answers each invoke, without parsing it, with a result
+whose payload it encoded once, split into part frames above 1 MiB.
+
+`BenchmarkTransport` covers both writers, part streams in both
+directions, both readers and the socketpair, and the engine's decode of
+the result. One iteration is one round trip per worker, the workers
+started together, so even one iteration has eight in flight; it reports
+the concurrency reached. `TestBenchEcho` runs the echo with a whole frame
+and with part streams, two invocations at a time.
+
+`BenchmarkGoInvocation` and `BenchmarkArgsFile` need nothing else; the
+other two need the pinned Bun in `WL_BUN`, and fail without it rather
+than skip. They run only with `-bench`:
+
+```sh
+WL_BUN=/path/to/bun-1.3.10/bun go test ./internal/harness -run '^$' \
+  -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
 ```
