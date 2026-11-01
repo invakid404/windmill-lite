@@ -12,30 +12,47 @@ import (
 type Tier struct {
 	Name string
 	Size int
+	make func(size int) []byte
 }
 
-// BriefFamily is one of the eight shape families of the workload brief
-// (F1 to F8), at its three sizes. The shapes follow the brief's tables and
+// Payload is the tier's payload: exactly Size bytes.
+func (t Tier) Payload() []byte { return t.make(t.Size) }
+
+// BriefFamily is one of the shape families of the workload brief (F1 to
+// F8, and L, its replicated list of short strings), at its sizes. The shapes follow the brief's tables and
 // its suggested synthetic shapes; the sizes are the middle of each range,
 // or the suggested shape's size for the worst case.
 type BriefFamily struct {
 	Name  string
 	Tiers []Tier
-	Make  func(size int) []byte
 }
+
+// The sizes of the tiers that the brief's structure defines rather than a
+// size range: their natural size, rounded up to a whole KiB
+// (TestBriefStructure checks that the padding stays under 1 KiB).
+const (
+	F6OneSize       = 683 * kib
+	F6WorstSize     = 6821 * kib
+	F7TypicalSize   = 26 * kib
+	F7P90Size       = 461 * kib
+	F7WorstSize     = 3686 * kib
+	ListTypicalSize = 5 * kib
+	ListWorstSize   = 20 * kib
+)
 
 const kib = 1 << 10
 
 // Brief are the brief's families.
 var Brief = []BriefFamily{
-	{"F1", []Tier{{"typical", 96 * kib}, {"p90", 448 * kib}, {"worst", 2100 * kib}}, f1},
-	{"F2", []Tier{{"typical", 8 * kib}, {"p90", 64 * kib}, {"worst", 2150 * kib}}, f2},
-	{"F3", []Tier{{"typical", 8 * kib}, {"p90", 48 * kib}, {"worst", 256 * kib}}, f3},
-	{"F4", []Tier{{"typical", 24 * kib}, {"p90", 96 * kib}, {"worst", 1024 * kib}}, f4},
-	{"F5", []Tier{{"typical", 12 * kib}, {"p90", 48 * kib}, {"worst", 2048 * kib}}, f5},
-	{"F6", []Tier{{"typical", 128 * kib}, {"p90", 1024 * kib}, {"worst", 6144 * kib}}, f6},
-	{"F7", []Tier{{"typical", 32 * kib}, {"p90", 512 * kib}, {"worst", 4096 * kib}}, f7},
-	{"F8", []Tier{{"typical", 1024 * kib}, {"p90", 8192 * kib}, {"worst", 30720 * kib}}, f8},
+	{"F1", []Tier{{"typical", 96 * kib, f1}, {"p90", 448 * kib, f1}, {"worst", 2100 * kib, f1}}},
+	{"F2", []Tier{{"typical", 8 * kib, f2}, {"p90", 64 * kib, f2}, {"worst", 2150 * kib, f2}}},
+	{"F3", []Tier{{"typical", 8 * kib, f3}, {"p90", 48 * kib, f3}, {"worst", 256 * kib, f3}}},
+	{"F4", []Tier{{"typical", 24 * kib, f4}, {"p90", 96 * kib, f4}, {"worst", 1024 * kib, f4}}},
+	{"F5", []Tier{{"typical", 12 * kib, f5}, {"p90", 48 * kib, f5}, {"worst", 2048 * kib, f5}}},
+	{"F6", []Tier{{"typical", 128 * kib, f6Typical}, {"p90", F6OneSize, f6One}, {"worst", F6WorstSize, f6Worst}}},
+	{"F7", []Tier{{"typical", F7TypicalSize, f7Typical}, {"p90", F7P90Size, f7P90}, {"worst", F7WorstSize, f7Worst}}},
+	{"F8", []Tier{{"typical", 1024 * kib, f8}, {"p90", 8192 * kib, f8}, {"worst", 30720 * kib, f8}}},
+	{"L", []Tier{{"typical", ListTypicalSize, listTypical}, {"worst", ListWorstSize, listWorst}}},
 }
 
 // BriefNamed is the brief family called name.
@@ -76,6 +93,11 @@ func textOf(chunk string, n int) string {
 	}
 	return s + strings.Repeat(".", n-len(s))
 }
+
+// decodedText is JSON string content repeating chunk whose decoded length
+// is at least n bytes: escapes such as \n take two bytes of text for one
+// decoded byte, so it writes 5% more.
+func decodedText(chunk string, n int) string { return textOf(chunk, n+n/20) }
 
 // jw writes JSON text; long strings are added as content already escaped.
 type jw struct{ b []byte }
@@ -181,13 +203,20 @@ func f1(size int) []byte {
 // objects of 1 or 2 keys, two nested objects, 2 numbers, 2 booleans, a null
 // and the text field.
 func f2Record(w *jw, i int, text string) {
-	w.raw(`{"id":"rec-`).int(i).raw(`","external_id":"ext-`).int(100000 + i).raw(`","type":"conversation","title":"Follow-up on order `).int(5000 + i).raw(`",`)
+	w.raw("{")
+	f2Fields(w, i, text)
+	w.raw("}")
+}
+
+// f2Fields writes an F2 record's 24 members, without the braces.
+func f2Fields(w *jw, i int, text string) {
+	w.raw(`"id":"rec-`).int(i).raw(`","external_id":"ext-`).int(100000 + i).raw(`","type":"conversation","title":"Follow-up on order `).int(5000 + i).raw(`",`)
 	w.raw(`"author":{"id":"u-`).int(i % 7).raw(`","name":"Agent `).int(i % 7).raw(`","role":"agent"},"channel":{"id":"c-1","name":"support","kind":"email","region":"eu-1"},`)
 	w.raw(`"created_at":"2026-10-01T08:00:00Z","updated_at":"2026-10-02T09:30:00Z","score":0.82,"rank":`).int(i).raw(`,"is_read":true,"is_flagged":false,"parent_id":null,`)
 	w.raw(`"tags":[{"name":"billing"},{"name":"priority","weight":2}],"participants":[{"id":"u-1"},{"id":"u-2","role":"cc"}],"links":[{"href":"https://example.invalid/t/`).int(i).raw(`"}],`)
 	w.raw(`"labels":[{"k":"lang","v":"en"}],"mentions":[{"id":"u-3"},{"id":"u-4"},{"id":"u-5"}],"attachments_meta":[{"name":"a.pdf","size":"12 KB"}],`)
 	w.raw(`"status":"open","locale":"en","summary":"Customer asks about the invoice for order `).int(5000 + i).raw(`","source":"mail",`)
-	w.key("text").str(text).raw("}")
+	w.key("text").str(text)
 }
 
 // f2 is an array of N wide records with one derived-text field each: N is
@@ -274,18 +303,24 @@ func padStrings(b []byte, size int, close string) []byte {
 	return b
 }
 
-// f4 is one wide record merged with metadata: F2's record plus F1's header
-// map and small-record array, 30 keys, its text field taking the rest.
+// f4 is one wide record with one text field, flat: F2's 24 members at
+// the top level; above 32 KiB it is merged with metadata, three metadata
+// members, F1's header map and a small-record array beside them, 29 top-level
+// members. The text field takes the rest of the size.
 func f4(size int) []byte {
 	r := rand.New(rand.NewPCG(14, 1))
+	merged := size > 32*kib
 	var hdr jw
 	headerMap(&hdr, 12, r)
 	var att jw
 	smallRecords(&att, 4)
 	return exact(size, plainChunk, func(text string) []byte {
 		w := &jw{}
-		w.raw(`{"meta":{"run":"r-1","stage":"enrich","version":3},"headers":`).raw(string(hdr.b)).raw(`,"attachments":`).raw(string(att.b)).raw(`,"origin":"import","merged":true,"record":`)
-		f2Record(w, 1, text)
+		w.raw("{")
+		f2Fields(w, 1, text)
+		if merged {
+			w.raw(`,"meta_run":"r-1","meta_stage":"enrich","meta_version":3,"headers":`).raw(string(hdr.b)).raw(`,"attachments":`).raw(string(att.b))
+		}
 		return w.raw("}").b
 	})
 }
@@ -327,11 +362,12 @@ func f5(size int) []byte {
 	return padStrings(w.b, size, `]}`)
 }
 
-// f7Item is one extraction item at scale s (1 is the brief's suggested
-// item: 300 line records, a 60 KB text dump, a 100 KB markdown string and
-// 300 coordinate entries).
-func f7Item(w *jw, k int, s float64, r *rand.Rand, last string) {
-	lines := max(3, int(300*s))
+// f7Item writes one extraction item: a type tag, a structured object with
+// lines line records of 10 keys, a text dump of dump bytes, a markdown
+// string of md bytes and then extra, and lines coordinate entries aligned
+// with the line records. The brief's suggested item has 300 lines, a 60 KB
+// dump and a 100 KB markdown string.
+func f7Item(w *jw, k, lines, dump, md int, r *rand.Rand, extra string) {
 	w.raw(`{"type":"invoice","page_count":`).int(1 + k%3).raw(`,"data":{"vendor":"Example GmbH","currency":"EUR","items":[`)
 	for i := range lines {
 		if i > 0 {
@@ -340,13 +376,7 @@ func f7Item(w *jw, k int, s float64, r *rand.Rand, last string) {
 		w.raw(`{"line":`).int(i).raw(`,"sku":"P-`).int(1000 + i).raw(`","description":"Item `).int(i).raw(` description","qty":`).int(1 + i%5)
 		w.raw(`,"unit":"pcs","price":"`).int(10 + i%90).raw(`.50","tax":"19%","total":"`).int(20 + i%180).raw(`.00","account":"4400","note":null}`)
 	}
-	w.raw(`]},"text":`).str(textOf(plainChunk, int(60000*s))).raw(`,"markdown":`)
-	if last != "" {
-		w.str(last)
-	} else {
-		w.str(textOf(plainChunk, int(100000*s)))
-	}
-	w.raw(`,"items":[`)
+	w.raw(`]},"text":`).str(decodedText(plainChunk, dump)).raw(`,"markdown":`).str(decodedText(plainChunk, md) + extra).raw(`,"items":[`)
 	for i := range lines {
 		if i > 0 {
 			w.raw(",")
@@ -357,12 +387,10 @@ func f7Item(w *jw, k int, s float64, r *rand.Rand, last string) {
 	w.raw(`]}`)
 }
 
-// f7 is an array of extraction items, scaled to size (one small page at
-// the typical size, several full items at the worst).
-func f7(size int) []byte {
-	const item = 260 * kib // the suggested item's size, about
-	n := max(1, size/item)
-	s := float64(size) / float64(n*item) * 0.9
+// f7Items is an array of n extraction items of the given lines, dump and
+// markdown sizes, exactly size bytes: the last item's markdown takes what
+// is left.
+func f7Items(size, n, lines, dump, md int) []byte {
 	return exact(size, plainChunk, func(last string) []byte {
 		r := rand.New(rand.NewPCG(17, 1))
 		w := &jw{}
@@ -371,24 +399,34 @@ func f7(size int) []byte {
 			if k > 0 {
 				w.raw(",")
 			}
-			l := ""
+			extra := ""
 			if k == n-1 {
-				l = last + " "
+				extra = last
 			}
-			f7Item(w, k, s, r, l)
+			f7Item(w, k, lines, dump, md, r, extra)
 		}
 		return w.raw("]").b
 	})
 }
 
-// f6 is an array of composite documents: each a 25-key stored record with
-// a text field, classification arrays, a body string (header block and the
-// same text), a full text (the body plus every attachment's text) and two
-// extraction items; the suggested worst case is 10 items of about 600 KB.
-func f6(size int) []byte {
-	const item = 600 * kib
-	n := max(1, size/item)
-	s := float64(size) / float64(n*item) * 0.85
+// The F7 tiers: one page (one item of 40 lines); a long multi-page document
+// (two items at the suggested scale); several documents (16 items at it).
+func f7Typical(size int) []byte { return f7Items(size, 1, 40, 6000, 10000) }
+func f7P90(size int) []byte     { return f7Items(size, 2, 300, 60000, 100000) }
+func f7Worst(size int) []byte   { return f7Items(size, 16, 300, 60000, 100000) }
+
+// f6Docs is an array of n composite documents at scale s (1 is the
+// brief's suggested document), exactly size bytes: each a 25-key stored
+// record whose text field holds 30 KB, four classification arrays, a body
+// string (a 5 KB header block, then the same text: 35 KB), a full text (the
+// body, then 115 KB of attached documents' text: 150 KB) and two extraction
+// items of 300 lines, a 60 KB dump and a 100 KB markdown string. The last
+// document's full text takes what is left.
+func f6Docs(size, n int, s float64) []byte {
+	sc := func(v int) int { return max(1, int(float64(v)*s)) }
+	text := decodedText(plainChunk, sc(30000))
+	body := decodedText(`From: Ana Example\nTo: ops@example.invalid\nSubject: Quarterly report\nDate: 2026-10-30\n`, sc(5000)) + text
+	attached := decodedText(plainChunk, sc(115000))
 	return exact(size, plainChunk, func(last string) []byte {
 		r := rand.New(rand.NewPCG(16, 1))
 		w := &jw{}
@@ -397,25 +435,55 @@ func f6(size int) []byte {
 			if k > 0 {
 				w.raw(",")
 			}
-			text := textOf(plainChunk, int(30000*s))
-			w.raw(`{"record":`)
-			f2Record(w, k, text)
-			w.raw(`,"classes":[{"k":"invoice"}],"topics":[{"k":"billing"},{"k":"q3"}],"entities":[{"k":"org","v":"Example GmbH"}],"flags":[{"k":"reviewed"}],`)
-			w.raw(`"body":`).str(`From: Ana Example\nSubject: Quarterly report\n\n` + text).raw(`,"full_text":`)
+			w.raw(`{"record":{"doc_type":"conversation",`)
+			f2Fields(w, k, text)
+			w.raw(`},"classes":[{"k":"invoice"}],"topics":[{"k":"billing"},{"k":"q3"}],"entities":[{"k":"org","v":"Example GmbH"}],"flags":[{"k":"reviewed"}],`)
+			w.raw(`"body":`).str(body).raw(`,"full_text":`)
 			if k == n-1 {
-				w.str(textOf(plainChunk, int(150000*s)) + last)
+				w.str(body + attached + last)
 			} else {
-				w.str(textOf(plainChunk, int(150000*s)))
+				w.str(body + attached)
 			}
 			w.raw(`,"extractions":[`)
-			f7Item(w, 2*k, s/2.6, r, "")
+			f7Item(w, 2*k, sc(300), sc(60000), sc(100000), r, "")
 			w.raw(",")
-			f7Item(w, 2*k+1, s/2.6, r, "")
+			f7Item(w, 2*k+1, sc(300), sc(60000), sc(100000), r, "")
 			w.raw("]}")
 		}
 		return w.raw("]").b
 	})
 }
+
+// The F6 tiers: one document scaled to the typical size; one document at
+// the suggested scale (the brief gives no p90); the suggested composite of
+// ten documents.
+func f6Typical(size int) []byte { return f6Docs(size, 1, 0.17) }
+func f6One(size int) []byte     { return f6Docs(size, 1, 1) }
+func f6Worst(size int) []byte   { return f6Docs(size, 10, 1) }
+
+// shortList is the brief's replicated list: n short strings, which a run
+// copies into the arguments of 4 to 6 steps; exactly size bytes, the last
+// string taking what is left.
+func shortList(size, n int) []byte {
+	return exact(size, "x", func(last string) []byte {
+		w := &jw{}
+		w.raw("[")
+		for i := range n {
+			if i > 0 {
+				w.raw(",")
+			}
+			if i == n-1 {
+				w.str("group-member-" + strconv.Itoa(100000+i) + "@example.invalid" + last)
+			} else {
+				w.str("group-member-" + strconv.Itoa(100000+i) + "@example.invalid")
+			}
+		}
+		return w.raw("]").b
+	})
+}
+
+func listTypical(size int) []byte { return shortList(size, 128) }
+func listWorst(size int) []byte   { return shortList(size, 512) }
 
 // f8 is one object with one string: a multipart document whose binary part
 // is base64 in lines of 76 characters, line breaks escaped.

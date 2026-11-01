@@ -1,13 +1,13 @@
 package bench
 
 import (
-	"github.com/invakid404/windmill-lite/internal/jsonlib/shapes"
-
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
 	wlbench "github.com/invakid404/windmill-lite/internal/bench"
+	"github.com/invakid404/windmill-lite/internal/jsonlib/shapes"
 )
 
 // BenchmarkLib runs every operation for every candidate, family and size:
@@ -31,24 +31,40 @@ func BenchmarkBrief(b *testing.B) {
 	for _, f := range shapes.Brief {
 		b.Run("family="+f.Name, func(b *testing.B) {
 			for _, t := range f.Tiers {
-				b.Run("tier="+t.Name, func(b *testing.B) { runOps(b, f.Make(t.Size)) })
+				b.Run("tier="+t.Name, func(b *testing.B) { runOps(b, t.Payload()) })
 			}
 		})
 	}
 }
 
-// runOps runs each operation on payload, each candidate in turn.
+// runOps runs each operation on payload, each candidate in turn, the
+// order of the candidates rotated by the round number in JSONLIB_ROUND, so
+// that over the rounds each candidate runs in every position. Each
+// candidate does the operation once, untimed, before it is timed (b.Loop
+// resets the timer at its first call): sonic compiles its decoders and
+// encoders on first use, and every library warms its caches.
 func runOps(b *testing.B, payload []byte) {
+	round, _ := strconv.Atoi(os.Getenv("JSONLIB_ROUND"))
 	for _, op := range Ops {
 		b.Run("op="+op.Name, func(b *testing.B) {
+			var cands []Cand
 			for _, c := range Cands {
-				if !op.Has(c) {
-					continue
+				if op.Has(c) {
+					cands = append(cands, c)
 				}
+			}
+			if len(cands) > 0 {
+				k := round % len(cands)
+				cands = append(cands[k:], cands[:k]...)
+			}
+			for _, c := range cands {
 				b.Run("cand="+c.Name, func(b *testing.B) {
 					in, err := op.Prepare(c, payload)
 					if err != nil {
 						b.Fatalf("prepare: %v", err)
+					}
+					if _, err := op.Do(c, in); err != nil {
+						b.Fatalf("warm-up: %v", err)
 					}
 					b.SetBytes(int64(len(payload)))
 					b.ReportAllocs()

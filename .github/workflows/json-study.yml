@@ -32,6 +32,9 @@ env:
   # alternating which binary goes first.
   ROUNDS: "10"
   BENCHTIME: 100ms
+  # The engine builds the end-to-end rounds rotate (fix round 1: lever J1
+  # as recommended, beside today, the full v2 prototype and sonic).
+  E2E_BUILDS: "today j1 v2 sonic"
 
 jobs:
   plan:
@@ -100,7 +103,7 @@ jobs:
                 filter="BenchmarkLib/size=.*/family=($FAMILIES)\$/op=.*/cand=v1classic\$"
               fi
               echo "round $r: $b, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
-              "$RUNNER_TEMP/b-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$BENCHTIME" -test.count 1 -test.timeout 0 >> "$out/$b.txt"
+              JSONLIB_ROUND="$r" "$RUNNER_TEMP/b-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$BENCHTIME" -test.count 1 -test.timeout 0 >> "$out/$b.txt"
             done
           done
           grep -c '^BenchmarkLib' "$out"/*.txt
@@ -154,7 +157,7 @@ jobs:
             for b in $order; do
               if [ "$b" = default ]; then filter="BenchmarkBrief/"; else filter="BenchmarkBrief/family=.*/tier=.*/op=.*/cand=v1classic\$"; fi
               echo "round $r: $b, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
-              "$RUNNER_TEMP/b-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$BENCHTIME" -test.count 1 -test.timeout 0 >> "$out/brief-$b.txt"
+              JSONLIB_ROUND="$r" "$RUNNER_TEMP/b-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$BENCHTIME" -test.count 1 -test.timeout 0 >> "$out/brief-$b.txt"
             done
           done
           grep -c '^BenchmarkBrief' "$out"/brief-*.txt
@@ -195,7 +198,7 @@ jobs:
       max-parallel: 6
       matrix:
         arch: [amd64, arm64]
-        swap: [today, nojsonv2, jsonlib_v2, jsonlib_sonic, jsonlib_sonicfast]
+        swap: [today, jsonlib_j1, jsonlib_v2, jsonlib_sonic, jsonlib_sonicfast]
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 90
     steps:
@@ -248,8 +251,14 @@ jobs:
           esac
           set -o pipefail
           GOEXPERIMENT="$exp" go test -race -timeout 80m -tags "$tags" -count=1 \
-            ./internal/jsonval/... ./internal/harness/... ./internal/conformance/... ./internal/engine/... \
+            ./internal/jsonlib/... ./internal/jsonval/... ./internal/harness/... ./internal/conformance/... ./internal/engine/... \
             ./internal/platform/... ./wl/... ./cmd/wltest/... 2>&1 | tee "$RUNNER_TEMP/out/tests.txt" | grep -E '^(ok|FAIL|---|panic)'
+          # The study's equivalence tests again, verbose: they log each
+          # difference of a swap that does not claim encoding/json's
+          # behaviour.
+          GOEXPERIMENT="$exp" go test -tags "$tags" -count=1 -v -run 'TestEquivalence|TestStudy' \
+            ./internal/jsonlib ./internal/engine ./wl > "$RUNNER_TEMP/out/equivalence.txt" 2>&1
+          grep -E 'differences from|DIFF' "$RUNNER_TEMP/out/equivalence.txt" | head -40
       - name: Upload
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -266,7 +275,7 @@ jobs:
       max-parallel: 6
       matrix:
         arch: [amd64, arm64]
-        group: [boundary, shapes, study]
+        group: [boundary, shapes, study, memory]
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 300
     steps:
@@ -296,6 +305,7 @@ jobs:
           go test -c -o "$RUNNER_TEMP/e-today.test" ./cmd/windmill-lite
           GOEXPERIMENT=nojsonv2 go test -c -o "$RUNNER_TEMP/e-classic.test" ./cmd/windmill-lite
           go test -c -tags jsonlib_v2 -o "$RUNNER_TEMP/e-v2.test" ./cmd/windmill-lite
+          go test -c -tags jsonlib_j1 -o "$RUNNER_TEMP/e-j1.test" ./cmd/windmill-lite
           go test -c -tags jsonlib_sonic -o "$RUNNER_TEMP/e-sonic.test" ./cmd/windmill-lite
           go test -c -tags jsonlib_sonicfast -o "$RUNNER_TEMP/e-sonicfast.test" ./cmd/windmill-lite
       - name: Run the rounds
@@ -312,12 +322,15 @@ jobs:
             shapes)
               filter='BenchmarkHostShapes/shape=(s600-1KiB|s200-mixed|s20-256KiB|s10-1MiB|s8-4MiB|s4-16MiB)$'; bt=5x ;;
             study)
-              filter='BenchmarkStudyPassThrough|BenchmarkStudyExpressions'; bt=10x ;;
+              filter='BenchmarkStudyPassThrough|BenchmarkStudyExpressions|BenchmarkStudyReplicatedList'; bt=10x ;;
+            memory)
+              filter='BenchmarkStudyMemory'; bt=1x ;;
           esac
-          builds=(classic today v2 sonic sonicfast)
+          read -r -a builds <<< "$E2E_BUILDS"
+          nb=${#builds[@]}
           for r in $(seq 1 "$ROUNDS"); do
-            for i in 0 1 2 3 4; do
-              b=${builds[$(( (i + r) % 5 ))]}
+            for i in $(seq 0 $((nb - 1))); do
+              b=${builds[$(( (i + r) % nb ))]}
               echo "round $r: $b, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
               "$RUNNER_TEMP/e-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$bt" -test.count 1 -test.timeout 0 >> "$RUNNER_TEMP/out/e2e-$b.txt"
             done
@@ -333,9 +346,10 @@ jobs:
           case "$GROUP" in
             boundary) export WL_BENCH_SIZES=4MiB,16MiB; filter='BenchmarkStepBoundary/topology=host/conc=1/'; bt=3x ;;
             shapes) filter='BenchmarkHostShapes/shape=s8-4MiB$'; bt=3x ;;
-            study) filter='BenchmarkStudyPassThrough/size=2150KiB/depth=4$|BenchmarkStudyExpressions/tier=worst'; bt=5x ;;
+            study) filter='BenchmarkStudyPassThrough/size=2150KiB/depth=4/fan=3$|BenchmarkStudyExpressions/tier=worst'; bt=5x ;;
+            memory) exit 0 ;;
           esac
-          for b in today v2 sonic; do
+          for b in today j1 sonic; do
             "$RUNNER_TEMP/e-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$bt" -test.cpuprofile "$RUNNER_TEMP/out/prof-$GROUP-$b.cpu" > /dev/null
             go tool pprof -top -nodecount=60 "$RUNNER_TEMP/e-$b.test" "$RUNNER_TEMP/out/prof-$GROUP-$b.cpu" > "$RUNNER_TEMP/out/prof-$GROUP-$b-flat.txt" 2>&1
             go tool pprof -top -cum -nodecount=90 "$RUNNER_TEMP/e-$b.test" "$RUNNER_TEMP/out/prof-$GROUP-$b.cpu" > "$RUNNER_TEMP/out/prof-$GROUP-$b-cum.txt" 2>&1
@@ -344,7 +358,11 @@ jobs:
         run: |
           go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
           cd "$RUNNER_TEMP/out"
-          "$(go env GOPATH)/bin/benchstat" today=e2e-today.txt classic=e2e-classic.txt v2=e2e-v2.txt sonic=e2e-sonic.txt sonicfast=e2e-sonicfast.txt > e2e-benchstat.txt
+          args=(today=e2e-today.txt)
+          for b in $E2E_BUILDS; do
+            [ "$b" != today ] && args+=("$b=e2e-$b.txt")
+          done
+          "$(go env GOPATH)/bin/benchstat" "${args[@]}" > e2e-benchstat.txt
           head -120 e2e-benchstat.txt
       - name: Upload
         if: always()

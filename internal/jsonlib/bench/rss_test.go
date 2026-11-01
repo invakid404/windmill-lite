@@ -36,7 +36,7 @@ func TestWriteFixtures(t *testing.T) {
 					continue
 				}
 				p := filepath.Join(dir, f.Name+"-"+tier.Name+".json")
-				if err := os.WriteFile(p, f.Make(tier.Size), 0o644); err != nil {
+				if err := os.WriteFile(p, tier.Payload(), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

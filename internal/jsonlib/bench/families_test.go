@@ -30,7 +30,7 @@ func TestFamilies(t *testing.T) {
 func TestBrief(t *testing.T) {
 	for _, f := range shapes.Brief {
 		for _, tier := range f.Tiers {
-			b := f.Make(tier.Size)
+			b := tier.Payload()
 			if len(b) != tier.Size || !json.Valid(b) || !utf8.Valid(b) || bytes.Contains(b, []byte(`\u0000`)) {
 				t.Errorf("%s %s: %d bytes of %d, valid %v", f.Name, tier.Name, len(b), tier.Size, json.Valid(b))
 			}

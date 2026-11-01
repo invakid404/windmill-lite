@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,6 +136,13 @@ export async function main(p: unknown) {
 }
 `
 
+// studyListSteps are the steps the replicated list is copied into (the
+// brief: 4 to 6).
+const studyListSteps = 5
+
+// studyHostPID is the benchmark host's process, for BenchmarkStudyMemory.
+var studyHostPID int
+
 // studyPassDepths are the pass-through chain's sub-flow levels.
 const studyPassDepths = 4
 
@@ -187,6 +196,15 @@ func studyFolder() map[string]string {
 		fmt.Fprintf(&b, "    - id: ids\n      value: {type: script, path: f/bench/sink, input_transforms: {p: {type: javascript, expr: 'results.%s.map((r) => r.id)'}}}\n", src)
 		files[fmt.Sprintf("f/bench/pt_d%d_f%d.flow/flow.yaml", d, fan)] = b.String()
 	}
+	files["f/bench/chain2.flow/flow.yaml"] = "summary: Two steps that return their argument\nvalue:\n  modules:\n" +
+		"    - id: a\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: flow_input.p}}}\n" +
+		"    - id: b\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: previous_result}}}\n"
+	var lst strings.Builder
+	lst.WriteString("summary: A list of short strings copied into the arguments of five steps\nvalue:\n  modules:\n")
+	for k := 1; k <= studyListSteps; k++ {
+		fmt.Fprintf(&lst, "    - id: s%d\n      value: {type: script, path: f/bench/sink, input_transforms: {p: {type: javascript, expr: flow_input.list}}}\n", k)
+	}
+	files["f/bench/list.flow/flow.yaml"] = lst.String()
 	var e strings.Builder
 	e.WriteString("summary: Expressions on large values\nvalue:\n  modules:\n")
 	e.WriteString("    - id: r\n      value: {type: script, path: f/bench/big, input_transforms: {kind: {type: static, value: F1}, size: {type: javascript, expr: flow_input.f1size}}}\n")
@@ -316,10 +334,119 @@ func BenchmarkStudyExpressions(b *testing.B) {
 	f1, _ := shapes.BriefNamed("F1")
 	f5, _ := shapes.BriefNamed("F5")
 	for i, tier := range []string{"typical", "worst"} {
-		input := f5.Make(f5.Tiers[i*2].Size)
+		input := f5.Tiers[i*2].Payload()
 		args := append(fmt.Appendf(nil, `{"f1size":%d,`, f1.Tiers[i*2].Size), input[1:]...)
 		b.Run("tier="+tier, func(b *testing.B) {
 			studyRuns(b, rt, "f/bench/expr", args, 2, true)
 		})
 	}
+}
+
+// BenchmarkStudyReplicatedList is the brief's replicated list: its L
+// family (512 short strings, 20 KiB, and 128 strings, 5 KiB) as the flow
+// input, copied into the arguments of five steps.
+func BenchmarkStudyReplicatedList(b *testing.B) {
+	bun := benchSetup(b)
+	rt := benchRuntime(b, bun, "host")
+	l, _ := shapes.BriefNamed("L")
+	for _, t := range l.Tiers {
+		args := append(append([]byte(`{"list":`), t.Payload()...), '}')
+		b.Run("tier="+t.Name, func(b *testing.B) {
+			studyRuns(b, rt, "f/bench/list", args, 2, false)
+		})
+	}
+}
+
+// BenchmarkStudyMemory measures the peak resident memory of the engine
+// (this process) and of the Bun host while one run runs, after a warm run,
+// a garbage collection and a reset of both peaks (Linux: VmHWM, reset
+// through /proc/<pid>/clear_refs). The runs: f/bench/chain2 (two steps that
+// return their argument) at 16, 32 and 64 MiB; f/bench/chain (eight
+// steps) at 16 MiB, whose trace keeps every step's values; and the
+// pass-through chain at its deepest and widest with its on_run_end payload
+// marshalled inside the window. The flow input is submitted from the
+// engine's side, so the host does not hold it.
+func BenchmarkStudyMemory(b *testing.B) {
+	if runtime.GOOS != "linux" {
+		b.Skip("peak resident memory needs /proc")
+	}
+	bun := benchSetup(b)
+	rt := benchRuntime(b, bun, "host")
+	host := studyHostPID
+	type memCase struct {
+		name, path string
+		args       []byte
+		runEnd     bool
+	}
+	var cases []memCase
+	for _, n := range []int{16 << 20, 32 << 20, 64 << 20} {
+		cases = append(cases, memCase{"chain2/size=" + bench.SizeLabel(n), "f/bench/chain2", fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(n)), false})
+	}
+	cases = append(cases,
+		memCase{"chain8/size=16MiB", "f/bench/chain", fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(16<<20)), false},
+		memCase{"passthrough/size=2150KiB/depth=4/fan=5/runend", "f/bench/pt_d4_f5", fmt.Appendf(nil, `{"size":%d}`, 2150<<10), true},
+	)
+	for _, c := range cases {
+		b.Run(c.name, func(b *testing.B) {
+			run := func() *wl.Result {
+				res, err := rt.Run(context.Background(), c.path, c.args, wl.RunOptions{})
+				if err != nil || res.Status != wl.StatusSuccess {
+					b.Fatalf("run %s: %v %v", c.path, err, res)
+				}
+				return res
+			}
+			run()
+			var peakE, peakH, baseE, baseH int64
+			for range b.N {
+				runtime.GC()
+				debug.FreeOSMemory()
+				if !resetPeak(0) || !resetPeak(host) {
+					b.Skip("cannot reset the peak resident size")
+				}
+				baseE, baseH = procKiB(0, "VmRSS:"), procKiB(host, "VmRSS:")
+				res := run()
+				if c.runEnd {
+					if _, err := wl.StudyRunEndPayload(res.Trace); err != nil {
+						b.Fatal(err)
+					}
+				}
+				peakE, peakH = procKiB(0, "VmHWM:"), procKiB(host, "VmHWM:")
+				runtime.KeepAlive(res)
+			}
+			mib := func(kib int64) float64 { return float64(kib) / 1024 }
+			b.ReportMetric(mib(baseE), "engine-base-MiB")
+			b.ReportMetric(mib(peakE), "engine-peak-MiB")
+			b.ReportMetric(mib(baseH), "host-base-MiB")
+			b.ReportMetric(mib(peakH), "host-peak-MiB")
+			b.ReportMetric(mib(peakE+peakH), "sum-peak-MiB")
+		})
+	}
+}
+
+// resetPeak resets a process's peak resident size (0: this process).
+func resetPeak(pid int) bool {
+	return os.WriteFile(procPath(pid, "clear_refs"), []byte("5"), 0) == nil
+}
+
+// procKiB reads a field of a process's /proc status in KiB (0: this
+// process).
+func procKiB(pid int, field string) int64 {
+	b, err := os.ReadFile(procPath(pid, "status"))
+	if err != nil {
+		return -1
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, field); ok {
+			n, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(v), " kB"), 10, 64)
+			return n
+		}
+	}
+	return -1
+}
+
+func procPath(pid int, name string) string {
+	if pid == 0 {
+		return "/proc/self/" + name
+	}
+	return "/proc/" + strconv.Itoa(pid) + "/" + name
 }

@@ -418,6 +418,7 @@ func benchHostConn(b testing.TB, dir string, diag *os.File) *wl.Host {
 	if err := cmd.Start(); err != nil {
 		b.Fatal(err)
 	}
+	studyHostPID = cmd.Process.Pid
 	exited := make(chan struct{})
 	go func() {
 		_ = cmd.Wait()
