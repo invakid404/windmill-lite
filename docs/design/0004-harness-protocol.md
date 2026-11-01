@@ -764,6 +764,17 @@ answered by a `host_reply`.
    field of the engine's, the arguments before and after H2 and after
    resolution, the carried value, timings, deviations and the platform
    calls of the run's steps included.
+   - **Run-end trace detail (PS1).** The declaration's `trace_detail` may
+     ask less for `on_run_end` or `on_run_settled`. `summary` is the
+     run's own fields, its warnings and deviations, without its result,
+     records, child flows, spans or platform calls. `none` is the run's
+     id and status.
+   - The full trace stays the default, and a plugin that declares nothing
+     gets it. It costs about 3 µs per KB for every run, marshalled by the
+     engine and parsed by the host, and is 2 to 4 KB per step.
+   - The engine refuses, with `plugin_mismatch`, a level for a hook the
+     plugin does not declare, or a level other than `full`, `summary` or
+     `none`.
 5. **The step API.** Step code reaches its run's latch and signal through
    `wl` on `globalThis` (H4, H5), which needs no import, so a script that
    guards it (`globalThis.wl?.latch(e)`) still runs on Windmill.

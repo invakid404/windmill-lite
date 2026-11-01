@@ -21,7 +21,7 @@ import { exitProcess, realStderr } from "../runtime/context.ts";
 import type { Plugin, Selector } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
 
-export type { AroundCall, Call, Outcome, PlatformCall, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, Warning } from "../runtime/plugin.ts";
+export type { AroundCall, Call, Outcome, PlatformCall, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, TraceDetail, TraceNone, TraceSummary, Warning } from "../runtime/plugin.ts";
 
 /** The process-wide registry of host-provided modules: module path to the
  * module's namespace (ADR 0010). */

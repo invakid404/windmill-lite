@@ -586,6 +586,17 @@ contract's form; the engine matches them.
   hook gets (`plugin.ts`): the arguments before H2, as stored and as
   resolved, the carried value, timings, late output, child flows, spans,
   deviations and `PlatformCall`s.
+- **Run-end trace detail.** `traceDetail` names, for `onRunEnd` and
+  `onRunSettled`, the trace each takes: `"full"` (the default),
+  `"summary"` (`TraceSummary`, the run's own fields without its per-step
+  parts) or `"none"` (`TraceNone`, the run's id and status). The full
+  trace costs about 3 µs per KB for every run, 2 to 4 KB per step, so a
+  hook that reads little of it can declare less.
+  - A hook that declares less types its argument as `TraceSummary` or
+    `TraceNone`. The declaration leaves `"full"` out, so declaring it
+    changes nothing.
+  - `declaration` refuses a level for a hook the plugin lacks, and a key
+    or level that is not one.
 - **F2b's hooks.** A plugin may declare `writeCapable` selectors,
   `beforeFirstWrite` (a throw vetoes the write) and `fatalErrorNames`.
 - **Halts.** The plugin's `haltBefore` and `haltAfter` halt every run of

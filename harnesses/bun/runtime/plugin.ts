@@ -115,6 +115,17 @@ export type Trace = {
   platform_calls: PlatformCall[];
 };
 
+/** A run's trace without its per-step parts: what a run-end hook that
+ * declares "summary" gets (traceDetail). */
+export type TraceSummary = Omit<Trace, "result" | "result_nested" | "steps" | "children" | "spans" | "platform_calls">;
+
+/** What a run-end hook that declares "none" gets (traceDetail). */
+export type TraceNone = Pick<Trace, "run" | "status">;
+
+/** How much of a run's trace a run-end hook gets: "full", the default,
+ * "summary" (TraceSummary) or "none" (TraceNone). */
+export type TraceDetail = "full" | "summary" | "none";
+
 export type Warning = { code: string; message: string };
 
 type MaybePromise<T> = T | Promise<T>;
@@ -150,6 +161,11 @@ export type Plugin = {
   /** H9: warnings to append to the run's outcome. */
   onRunEnd?: (t: Trace) => MaybePromise<Warning[] | void>;
   onRunSettled?: (t: Trace) => MaybePromise<void>;
+  /** H9: how much of the trace each run-end hook gets; the full trace for
+   * a hook it does not name. The full trace costs the engine and the host
+   * about 3 µs per KB for every run, about 2 to 4 KB per step. A hook that
+   * declares less types its argument as TraceSummary or TraceNone. */
+  traceDetail?: { onRunEnd?: TraceDetail; onRunSettled?: TraceDetail };
   /** The named providers of mandatory host-provided sites (ADR 0002, ADR
    * 0008): an outcome, or undefined, which declines and fails the run
    * closed (provider_declined). */
@@ -233,6 +249,21 @@ export function declaration(p: Plugin): Record<string, unknown> {
     if (p[key] === undefined) continue;
     fn(key, p[key]);
     d[name] = true;
+  }
+  if (p.traceDetail !== undefined) {
+    if (!p.traceDetail || typeof p.traceDetail !== "object") throw new Error("windmill-lite plugin: traceDetail is an object");
+    const td: Record<string, TraceDetail> = {};
+    for (const key of Object.keys(p.traceDetail)) {
+      if (key !== "onRunEnd" && key !== "onRunSettled") throw new Error(`windmill-lite plugin: traceDetail.${key} is not a run-end hook`);
+      const v = p.traceDetail[key];
+      if (v === undefined) continue;
+      if (v !== "full" && v !== "summary" && v !== "none") throw new Error(`windmill-lite plugin: traceDetail.${key} is "full", "summary" or "none"`);
+      if (p[key] === undefined) throw new Error(`windmill-lite plugin: traceDetail.${key} without ${key}`);
+      if (v !== "full") td[key === "onRunEnd" ? "on_run_end" : "on_run_settled"] = v;
+    }
+    // The default is left out, so a plugin that declares only "full"
+    // declares what a plugin without traceDetail does.
+    if (Object.keys(td).length > 0) d.trace_detail = td;
   }
   if (p.providers) {
     const names = Object.keys(p.providers).sort();

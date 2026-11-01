@@ -14,13 +14,15 @@
 // as an API 1 ms away would. It counts the hooks' calls by run and path,
 // which the benchmarks' probe step reads
 // (globalThis[Symbol.for("windmill-lite.bench.calls")]), and its onRunEnd
-// hook takes every run's trace.
+// hook takes every run's trace: the full trace, or what WL_BENCH_TRACE
+// (summary or none) declares. With WL_BENCH_TRACE_KEYS=1, onRunEnd answers
+// the keys of the trace it got as a warning (code bench_trace).
 //
 // Environment: WL_ENGINE (the engine binary the SDK starts), WL_BUNDLE
-// (the bundle directory) and WL_BENCH_PLUGIN. Its working directory is the
-// one it passes.
+// (the bundle directory), WL_BENCH_PLUGIN, WL_BENCH_TRACE and
+// WL_BENCH_TRACE_KEYS. Its working directory is the one it passes.
 
-import { connect, type Plugin } from "../../../../harnesses/bun/host/index.ts";
+import { connect, type Plugin, type TraceDetail, type TraceNone } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
 
@@ -57,9 +59,11 @@ const plugin: Plugin = {
     return path === "f/bench/v1" ? { value: "synthetic-setting" } : undefined;
   },
   // Takes every run's trace, as a host that reports runs does.
-  onRunEnd: (t) => {
-    if (t.steps.length < 0) throw new Error("unreachable");
+  onRunEnd: (t: TraceNone) => {
+    if (env.WL_BENCH_TRACE_KEYS === "1") return [{ code: "bench_trace", message: Object.keys(t).sort().join(",") }];
+    if (t.status === "") throw new Error("unreachable");
   },
+  traceDetail: env.WL_BENCH_TRACE ? { onRunEnd: env.WL_BENCH_TRACE as TraceDetail } : undefined,
 };
 
 await connect({

@@ -310,6 +310,11 @@ bridge).
    whose context ends first is not latched. A failed `onRunEnd` adds a
    `plugin_error` warning; a failed `onRunSettled` is written to the
    diagnostics.
+   - **Run-end trace detail.** Each run-end hook gets the full trace
+     unless the declaration's `trace_detail` asks for a `summary` (the
+     run's own fields, without its per-step parts) or `none` (its id and
+     status), as ADR 0004 §Host plugins says. A Go hook always gets the
+     whole `Trace`.
 4. **H13.** A plugin that declares `resource` or `variable` answers them
    for each run, after the run's own (`RunOptions.Platform`) and before
    the runtime's, for the job API and argument resolution alike; the

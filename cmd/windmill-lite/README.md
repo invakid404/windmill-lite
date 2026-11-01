@@ -339,7 +339,8 @@ The benchmarks run on two topologies:
   (`WL_BENCH_PLUGIN=1`), as a host that keeps its resources elsewhere
   runs. Its `resource` and `variable` hooks answer synthetic resources,
   those under `f/bench/slow/` after 1 ms, and count their calls by run and
-  path; its `onRunEnd` hook takes every run's trace.
+  path; its `onRunEnd` hook takes every run's trace. `WL_BENCH_TRACE`
+  makes the hook declare a `summary` or `none` instead.
 
 | Benchmark | What it runs |
 |---|---|
