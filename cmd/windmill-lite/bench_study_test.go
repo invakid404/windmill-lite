@@ -358,9 +358,11 @@ func BenchmarkStudyReplicatedList(b *testing.B) {
 }
 
 // BenchmarkStudyMemory measures the peak resident memory of the engine
-// (this process) and of the Bun host while one run runs, after a warm run,
-// a garbage collection and a reset of both peaks (Linux: VmHWM, reset
-// through /proc/<pid>/clear_refs). The runs: f/bench/chain2 (two steps that
+// (this process) and of the Bun host while one run runs, after a warm run
+// on a small input, a garbage collection and a reset of both peaks (Linux:
+// VmHWM, reset through /proc/<pid>/clear_refs). It reports each process's
+// resident size before the run (base), its peak, and the rise between
+// them, and the engine's live Go heap before the run. The runs: f/bench/chain2 (two steps that
 // return their argument) at 16, 32 and 64 MiB; f/bench/chain (eight
 // steps) at 16 MiB, whose trace keeps every step's values; and the
 // pass-through chain at its deepest and widest with its on_run_end payload
@@ -371,40 +373,55 @@ func BenchmarkStudyMemory(b *testing.B) {
 		b.Skip("peak resident memory needs /proc")
 	}
 	bun := benchSetup(b)
-	rt := benchRuntime(b, bun, "host")
-	host := studyHostPID
+	// Each case opens its own runtime and Bun host, warms them on a small
+	// input, and only then builds its own input, so that what the engine
+	// keeps from earlier runs and the other cases' inputs stay out of its
+	// base: Go's collector lets the heap grow in proportion to what is
+	// live, so leftovers would inflate the peak too.
 	type memCase struct {
 		name, path string
-		args       []byte
+		warm       []byte
+		args       func() []byte
 		runEnd     bool
+	}
+	synthetic := func(n int) func() []byte {
+		return func() []byte { return fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(n)) }
 	}
 	var cases []memCase
 	for _, n := range []int{16 << 20, 32 << 20, 64 << 20} {
-		cases = append(cases, memCase{"chain2/size=" + bench.SizeLabel(n), "f/bench/chain2", fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(n)), false})
+		cases = append(cases, memCase{"chain2/size=" + bench.SizeLabel(n), "f/bench/chain2", []byte(`{"p":1}`), synthetic(n), false})
 	}
 	cases = append(cases,
-		memCase{"chain8/size=16MiB", "f/bench/chain", fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(16<<20)), false},
-		memCase{"passthrough/size=2150KiB/depth=4/fan=5/runend", "f/bench/pt_d4_f5", fmt.Appendf(nil, `{"size":%d}`, 2150<<10), true},
+		memCase{"chain8/size=16MiB", "f/bench/chain", []byte(`{"p":1}`), synthetic(16 << 20), false},
+		memCase{"passthrough/size=2150KiB/depth=4/fan=5/runend", "f/bench/pt_d4_f5", []byte(`{"size":1024}`),
+			func() []byte { return fmt.Appendf(nil, `{"size":%d}`, 2150<<10) }, true},
 	)
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
-			run := func() *wl.Result {
-				res, err := rt.Run(context.Background(), c.path, c.args, wl.RunOptions{})
+			rt := benchRuntime(b, bun, "host")
+			host := studyHostPID
+			run := func(args []byte) *wl.Result {
+				res, err := rt.Run(context.Background(), c.path, args, wl.RunOptions{})
 				if err != nil || res.Status != wl.StatusSuccess {
 					b.Fatalf("run %s: %v %v", c.path, err, res)
 				}
 				return res
 			}
-			run()
+			run(c.warm)
+			args := c.args()
 			var peakE, peakH, baseE, baseH int64
+			var live uint64
 			for range b.N {
 				runtime.GC()
 				debug.FreeOSMemory()
+				var ms runtime.MemStats
+				runtime.ReadMemStats(&ms)
+				live = ms.HeapAlloc
 				if !resetPeak(0) || !resetPeak(host) {
 					b.Skip("cannot reset the peak resident size")
 				}
 				baseE, baseH = procKiB(0, "VmRSS:"), procKiB(host, "VmRSS:")
-				res := run()
+				res := run(args)
 				if c.runEnd {
 					if _, err := wl.StudyRunEndPayload(res.Trace); err != nil {
 						b.Fatal(err)
@@ -413,11 +430,15 @@ func BenchmarkStudyMemory(b *testing.B) {
 				peakE, peakH = procKiB(0, "VmHWM:"), procKiB(host, "VmHWM:")
 				runtime.KeepAlive(res)
 			}
+			runtime.KeepAlive(args)
 			mib := func(kib int64) float64 { return float64(kib) / 1024 }
+			b.ReportMetric(float64(live)/(1<<20), "engine-live-MiB")
 			b.ReportMetric(mib(baseE), "engine-base-MiB")
 			b.ReportMetric(mib(peakE), "engine-peak-MiB")
+			b.ReportMetric(mib(peakE-baseE), "engine-rise-MiB")
 			b.ReportMetric(mib(baseH), "host-base-MiB")
 			b.ReportMetric(mib(peakH), "host-peak-MiB")
+			b.ReportMetric(mib(peakH-baseH), "host-rise-MiB")
 			b.ReportMetric(mib(peakE+peakH), "sum-peak-MiB")
 		})
 	}
