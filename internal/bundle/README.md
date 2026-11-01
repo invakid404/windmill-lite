@@ -689,6 +689,11 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
     and the shared-dependency warning for codebase scripts. They also
     cover modules outside the folder, whose files a case gives in
     `given.outside`: TSX and JSX modules, and one with no loader.
+  - The D12 order cases cover cycles that close through a lazy import and
+    through a load-time one: direct, through a module that is not listed,
+    and between listed packages, for both bundlers. They also cover a lazy
+    import that runs before its module registers, caught and uncaught
+    (`run.register_error`).
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's
@@ -754,9 +759,17 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   headers, links below a harness runtime's directory, and the canonical
   form. `TestFoldKey` checks the case-folding key against
   `strings.EqualFold`.
-- `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
-  support module and generated shims in `testdata/`; `go test ./internal/bundle -run
-  Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.
+- `TestEnvRewriteGolden`, `TestShimGolden` and `TestLateShimGolden` pin
+  the define tables, the support module, generated shims and late shims in
+  `testdata/`; `go test ./internal/bundle -run Golden -args -update`
+  rewrites them. `TestShimBehaviour` runs shims on Bun.
+- `TestLoadTimeHostModules` and `TestHostModuleOrder` need no Bun: they
+  check the load-time analysis of import graphs and the order, with its
+  late imports and cycle errors. `TestHostModuleOrderWithoutLazyCycles`
+  orders 6,000 random lists of up to 8 modules: a list without lazy cycles
+  gets the order that counting every import gives. `TestLazyImports` runs
+  the helper's `lazy` request on sources whose `import()` calls sit in
+  functions, at top level and in class bodies.
 - `TestCLIParity` is the CLI parity check of
   [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 4
   ([Q-WR-24](../../docs/semantics/languages.md#q-wr-24)). With
