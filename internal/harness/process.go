@@ -302,6 +302,11 @@ type invocation struct {
 	// Reporter neither stalls the frames of other invocations nor looks
 	// like silence to the watchdog.
 	calls serial
+	// drive, buffered, receives one value when the reader hands the calls
+	// that end with the outcome's delivery to the goroutine waiting for it
+	// in exec (await), which runs them itself: one goroutine fewer to
+	// start and wake for each result.
+	drive chan struct{}
 	// fixed, if set, runs once when the engine stops waiting for the
 	// invocation: first in calls when its outcome is fixed or it is
 	// abandoned, before any Reporter call. A pool frees the invocation's
@@ -679,10 +684,11 @@ func (p *Process) handleMessage(m Message) error {
 	}
 	var target *invocation
 	var calls []func()
+	var drive bool
 	var err error
 	switch m := m.(type) {
 	case Result:
-		target, calls, err = p.onResult(m)
+		target, calls, drive, err = p.onResult(m)
 	case Late:
 		target, calls, err = p.onLate(m)
 	case Log:
@@ -726,18 +732,28 @@ func (p *Process) handleMessage(m Message) error {
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())
 	}
 	p.mu.Unlock()
-	if target != nil {
+	switch {
+	case target == nil:
+	case drive:
+		// The calls end with the outcome's delivery, which exec waits for:
+		// exec runs them, unless calls queued before them are running.
+		if target.calls.claim(calls...) {
+			target.drive <- struct{}{}
+		}
+	default:
 		target.calls.do(calls...)
 	}
 	return err
 }
 
 // onResult handles a result frame. It returns the invocation and the
-// Reporter calls and deliveries to queue for it once p.mu is released.
-func (p *Process) onResult(r Result) (*invocation, []func(), error) {
+// Reporter calls and deliveries to queue for it once p.mu is released,
+// and drive when they end with the delivery of the outcome that exec
+// waits for (invocation.drive).
+func (p *Process) onResult(r Result) (*invocation, []func(), bool, error) {
 	inv := p.invs[r.ID]
 	if inv == nil {
-		return nil, nil, protoErr(CodeUnexpected, "result for invocation %q, which is not in flight", r.ID)
+		return nil, nil, false, protoErr(CodeUnexpected, "result for invocation %q, which is not in flight", r.ID)
 	}
 	switch inv.state {
 	case invPending:
@@ -753,7 +769,7 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 			// abandons it and kills the group (exec).
 			inv.held = &out
 			p.holding = true
-			return inv, nil, nil
+			return inv, nil, false, nil
 		}
 		p.inFlight--
 		var calls []func()
@@ -765,7 +781,7 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 		} else {
 			inv.state = invFixed
 		}
-		return inv, append(calls, func() { inv.outcome <- execResult{out: out} }), nil
+		return inv, append(calls, func() { inv.outcome <- execResult{out: out} }), inv.drive != nil, nil
 	case invAbandoned:
 		l := lateOf(r)
 		calls := []func(){func() { inv.report.Late(l) }}
@@ -773,9 +789,9 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 			p.abandoned--
 			calls = append(calls, p.settleLocked(inv), p.notifyFunc(), func() { inv.report.Settled(engine.SettleCompleted) })
 		}
-		return inv, calls, nil
+		return inv, calls, false, nil
 	default:
-		return nil, nil, protoErr(CodeUnexpected, "second result for invocation %q", r.ID)
+		return nil, nil, false, protoErr(CodeUnexpected, "second result for invocation %q", r.ID)
 	}
 }
 
@@ -1645,7 +1661,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if times != nil {
 		times.ArgsWritten = time.Now()
 	}
-	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), fixed: fixed, times: times}
+	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), drive: make(chan struct{}, 1), fixed: fixed, times: times}
 	p.mu.Lock()
 	if p.state != stateServing || p.killReason != "" || p.ending {
 		p.mu.Unlock()
@@ -1660,7 +1676,9 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		p.mu.Unlock()
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q: a fresh process serves one invocation", inv.ID)
 	}
-	if err := p.conn.sendPayload(payload, inv.ID); err != nil {
+	// The invoke is queued here, in dispatch order, and written below, once
+	// p.mu is released, by this goroutine when the writer is idle.
+	if err := p.conn.queuePayload(payload, inv.ID); err != nil {
 		p.mu.Unlock()
 		if errors.Is(err, net.ErrClosed) {
 			return engine.StepOutcome{}, notDispatched, errUnavailable
@@ -1674,18 +1692,29 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	p.served = p.served || fresh
 	p.inFlight++
 	p.mu.Unlock()
+	p.conn.flush()
 
 	select {
 	case r := <-e.outcome:
+		reportTimes(times, r.err)
+		return r.out, completed, r.err
+	case <-e.drive:
+		r := e.drain()
 		reportTimes(times, r.err)
 		return r.out, completed, r.err
 	case <-ctx.Done():
 	}
 	p.mu.Lock()
 	if e.state != invPending || p.invs[inv.ID] != e {
-		// The outcome won the race: it is in the channel or on its way.
+		// The outcome won the race: it is in the channel or on its way,
+		// or its calls are handed to this goroutine.
 		p.mu.Unlock()
-		r := <-e.outcome
+		var r execResult
+		select {
+		case r = <-e.outcome:
+		case <-e.drive:
+			r = e.drain()
+		}
 		reportTimes(times, r.err)
 		return r.out, completed, r.err
 	}
@@ -1723,6 +1752,16 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	}
 	<-freed
 	return engine.StepOutcome{}, abandoned, context.Cause(ctx)
+}
+
+// drain runs the invocation's calls that the reader handed to exec (drive),
+// in order and outside p.mu, until one of them has delivered the outcome,
+// and returns it. Calls queued behind them meanwhile, such as an unsettled
+// invocation's late output, go on on a goroutine of their own, so exec
+// returns when it would have.
+func (e *invocation) drain() execResult {
+	e.calls.runUntil(func() bool { return len(e.outcome) > 0 })
+	return <-e.outcome
 }
 
 // reportTimes hands an invocation's readings to the times hook, once its

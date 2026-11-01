@@ -85,6 +85,13 @@ milestone C1 fixed the details they left open.
   stream id of its own. The writer sends every queued whole frame before the
   next part frame and gives part streams turns, so a `cancel` or a `pong`
   waits behind at most one part frame.
+- **A sender's own write.** `Execute` queues its `invoke` and, once the
+  process's lock is released, writes it itself when the writer is idle and
+  nothing else is queued (`flush`). That spares a wake-up of the writer
+  goroutine for each step. The write does not block: what the socket does
+  not take at once goes back to the head of the queue, and the writer
+  sends it before anything queued after it, so the bytes on the wire are
+  the same.
 - **Order per invocation.** A message about an invocation (`invoke`,
   `cancel`, `result`, `late`, `log`, `warning`) queued while a part stream about the
   same invocation is open waits for that stream's last part, so a `cancel`
@@ -273,6 +280,13 @@ invocation's tail (the last `TailLength`, 600, characters) while it is in
 flight and become late output afterwards. The last `RecentLate` (4,096)
 settled invocations per process keep receiving late output of work they
 left running (D9).
+
+When a result's calls end with the outcome `Execute` waits for, and none
+of the invocation's calls is running, the reader hands them to the
+goroutine waiting in `Execute`. It runs them in the same order, outside
+the process's lock, up to the outcome; anything queued behind them goes on
+on a goroutine of its own. That saves starting and waking a goroutine for
+each step.
 
 **The arguments file** ([WR-5](../../docs/semantics/languages.md#wr-5),
 milestone PF2). Before it sends an invocation, a spawned process writes
@@ -653,7 +667,14 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   or by a fresh invocation's cancellation, whose call (mode `fresh-hang`)
   runs until its process is killed (`TestFreshCancelWithBlockedDiagnostics`).
 - `conn_test.go` checks the writer's ordering rules and the exchange
-  matcher.
+  matcher. `TestFlushWritesTheFrameItself` has a sender write a frame
+  whole and one the socket takes only part of, the rest ahead of the next
+  frame. `TestFlushKeepsFramesWholeAndInOrder` mixes senders' own writes
+  with the writer's under `-race`, on a 4 KiB socket buffer.
+- `TestResultHandOffRacesCancellation` (`fake_test.go`) races 120 results
+  against their contexts under `-race`. Every `Execute` returns, and each
+  invocation's Reporter calls keep their order without overlapping and
+  settle once.
 - `args_test.go` checks `scriptArgs`: the two internal keys dropped, a key
   written with an escape included, every other member's raw text and
   place kept, and arguments with nothing to drop, or that are not an
