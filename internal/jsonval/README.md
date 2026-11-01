@@ -1,11 +1,9 @@
 # internal/jsonval
 
-**Current state:** implemented: the value type of milestone K1 and the jsonb
-canonicaliser of milestone A1
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers `internal/jsonval`. Other packages use the type in their contracts, but
-nothing computes stored text yet: the engine, which applies the routing
-table, does not exist.
+**Current state:** implemented: the value type, the jsonb canonicaliser and
+the payloads of the boundary benchmarks. The engine applies the routing
+table of [ADR 0005](../../docs/design/0005-json-step-boundaries.md) with
+it. This README covers `internal/jsonval`.
 
 ## The value type
 
@@ -118,5 +116,21 @@ ADR 0005 checks the canonicaliser three ways, and all three run in CI:
    oracle's PostgreSQL image, pinned by the digest in
    [oracle.md](../../docs/semantics/oracle.md).
 
-`BenchmarkStored` compares the canonicaliser with the test implementation;
-milestone G1 records the baseline.
+`BenchmarkStored` compares the canonicaliser with the test implementation
+on the payloads of `Synthetic`, from 26 B to 4 MiB; the baseline is in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
+
+## Benchmark payloads
+
+`Synthetic(size)` in `synthetic.go` returns a compact JSON object of
+exactly `size` bytes, shaped like a step's result. It holds records with
+strings (one with an escaped newline), numbers, booleans, a list, a nested
+object and null, then a padding string. Below 64 bytes it returns the
+26-byte object `{"id":1,"name":"step-one"}`.
+
+`SyntheticSizes` lists the sizes the boundary benchmarks measure, and
+`SizeLabel` names them (`26B`, `4KiB`, `1MiB`). The same size always gives
+the same text, so the benchmarks of the canonicaliser, the frame codecs,
+the transport and whole runs measure the same bytes. `TestSynthetic`
+checks each size, and that the canonicaliser and the test implementation
+agree on each payload.

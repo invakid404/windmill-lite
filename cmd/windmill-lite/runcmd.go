@@ -34,18 +34,24 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	variables := fs.String("variables", "", "a JSON `file` of host variables, keyed by path, as in a bundle's data/variables.json; secrets go here")
 	resources := fs.String("resources", "", "a JSON `file` of host resources, keyed by path, as in a bundle's data/resources.json")
 	trace := fs.Bool("trace", false, "print the run's steps and platform calls with the outcome")
+	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof")
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
 	}
 	if len(pos) != 1 || *bundlePath == "" {
-		fmt.Fprintln(stderr, "usage: windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]")
+		fmt.Fprintln(stderr, "usage: windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [-cpuprofile <file>] [flags]")
 		return 2
 	}
 	fail := func(err error) int {
 		fmt.Fprintf(stderr, "windmill-lite run: %v\n", err)
 		return 1
 	}
+	stopProfile, err := startCPUProfile(*cpuprofile, stderr)
+	if err != nil {
+		return fail(err)
+	}
+	defer stopProfile()
 	input, err := argsOf(*argText)
 	if err != nil {
 		return fail(err)

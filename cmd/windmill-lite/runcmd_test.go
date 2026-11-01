@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,8 +56,9 @@ func TestRunCommand(t *testing.T) {
 	for _, mode := range []string{"warm", "fresh"} {
 		stdout.Reset()
 		stderr.Reset()
+		prof := filepath.Join(dir, mode+".pprof")
 		code := run([]string{"run", "f/t/greet", "--bundle", b, "--args", "@" + args, "-bun", bun, "-harness-runtime", runtime,
-			"-module-state", mode, "-variables", vars, "-trace"}, &stdout, &stderr)
+			"-module-state", mode, "-variables", vars, "-trace", "-cpuprofile", prof}, &stdout, &stderr)
 		var out runOutput
 		if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || code != 0 {
 			t.Fatalf("%s: exit code %d, stdout %s, stderr %s", mode, code, stdout.String(), stderr.String())
@@ -62,6 +66,10 @@ func TestRunCommand(t *testing.T) {
 		if out.Status != "success" || string(out.Result) != `"hi, x"` || out.Trace == nil || out.Trace.ModuleState != mode ||
 			len(out.Trace.Steps) != 1 || out.Trace.Steps[0].Site.String() != "m:a" || out.Trace.Steps[0].Job == "" {
 			t.Fatalf("%s: %s", mode, stdout.String())
+		}
+		// -cpuprofile (milestone G1) wrote the engine's CPU profile.
+		if err := checkCPUProfile(prof); err != nil {
+			t.Fatalf("%s: -cpuprofile: %v", mode, err)
 		}
 
 		stdout.Reset()
@@ -97,4 +105,32 @@ func TestRunCommandUsage(t *testing.T) {
 			t.Errorf("run(%q) exit code = %d, stdout %q, want 1 and nothing", c.args, code, stdout.String())
 		}
 	}
+	// A CPU profile that cannot be written fails the command before it
+	// opens the bundle.
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run", "f/t/a", "--bundle", "b", "-cpuprofile", filepath.Join(t.TempDir(), "none", "cpu.pprof")}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "the CPU profile") {
+		t.Errorf("run -cpuprofile into a missing directory: exit code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
+// checkCPUProfile checks that file holds a whole CPU profile in Go's pprof
+// format: a gzip stream, complete, whose profile names CPU time in
+// nanoseconds among its sample types.
+func checkCPUProfile(file string) error {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return fmt.Errorf("not gzip: %w", err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		return fmt.Errorf("an incomplete profile: %w", err)
+	}
+	if !bytes.Contains(raw, []byte("cpu")) || !bytes.Contains(raw, []byte("nanoseconds")) {
+		return fmt.Errorf("not a CPU profile (%d bytes)", len(raw))
+	}
+	return nil
 }

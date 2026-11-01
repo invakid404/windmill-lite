@@ -733,6 +733,19 @@ waits on an external gate except R1.
   `WL_MEMORY_PROBE`; F8b replaces their shared-code prototype with the real
   layout.
 
+- G1 put the benchmarks of [0004](0004-harness-protocol.md) and
+  [0005](0005-json-step-boundaries.md) beside the code they measure, as
+  Go benchmarks in `internal/jsonval`, `internal/harness` and
+  `cmd/windmill-lite`, with their Bun sides in those packages' `testdata`,
+  so it added no package. Its baseline is in 0005, which records why the
+  benchmarks run locally rather than in CI. `windmill-lite run` and `host`
+  gained `-cpuprofile`.
+- G1 read "run spans" as the spans the engine already records: a step's
+  module and harness spans give its engine part and the share of a run
+  spent at boundaries. The queue, serialise and platform spans stay
+  unfilled, because the step executor reports no timings; the parts
+  inside the harness call are measured on their own.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records

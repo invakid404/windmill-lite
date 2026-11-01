@@ -66,6 +66,125 @@ so a stateful `toJSON` changed the value between the two runs. Across the
 process boundary, a 3 KB step round trip costs 18.4 µs and a 100 KB one about
 250 µs ([0003](0003-semantics-placement.md)).
 
+### Baseline
+
+The benchmarks of the plan below (§Benchmark plan) are in the repository,
+and this is their first record. They ran on an Apple M4 (10 cores) with
+16 GiB, macOS 26.5.1, Go 1.27.3 and Bun 1.3.10. Each figure is the median
+of three runs (`-count 3`), taken while no other build or benchmark ran.
+
+The one-minute load average was 2.0 to 4.5 from the machine's own
+services. A first pass that overlapped another host-mode workload read
+within 3 % of these medians up to 1 MiB, and 21 % higher at 4 MiB in host
+mode. The commands, from the repository root, with
+`WL_BUN` naming Bun 1.3.10:
+
+```sh
+go test ./internal/jsonval -run '^$' -bench BenchmarkStored -benchtime 1s -count 3
+go test ./internal/harness -run '^$' -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
+go test ./cmd/windmill-lite -run '^$' -bench BenchmarkStepBoundary -benchtime 3s -count 3
+go test ./cmd/windmill-lite -run '^$' -bench BenchmarkHostShapes -benchtime 20x -count 3
+```
+
+The payloads are compact JSON objects of exactly their size, shaped like
+step results (`jsonval.Synthetic`). The canonicaliser against the test
+implementation's decode, sort and encode, per call:
+
+| Payload | Canonicaliser | Decode, sort and encode |
+|---|---|---|
+| 26 B | 0.1 µs (247 MB/s) | 1.8 µs (14 MB/s) |
+| 1 KiB | 3.2 µs (322 MB/s) | 49.7 µs (21 MB/s) |
+| 4 KiB | 12.1 µs (339 MB/s) | 255 µs (16 MB/s) |
+| 32 KiB | 92.9 µs (353 MB/s) | 3.0 ms (11 MB/s) |
+| 256 KiB | 735 µs (356 MB/s) | 24 ms (11 MB/s) |
+| 1 MiB | 2.9 ms (360 MB/s) | 97 ms (11 MB/s) |
+| 4 MiB | 12 ms (363 MB/s) | 383 ms (11 MB/s) |
+
+The step boundary end to end: a flow of eight steps that each return
+their argument, the payload, through shortcuts that run no expression.
+Elapsed is a step's module span in the trace. CPU is per step: the
+engine's from `getrusage`, the host's or harness's from
+`process.cpuUsage()`.
+
+| Payload | Host mode: elapsed p50 / p95 | Engine CPU | Host CPU | Spawned harness: elapsed p50 / p95 | Engine CPU | Harness CPU |
+|---|---|---|---|---|---|---|
+| 26 B | 145 µs / 169 µs | 155 µs | 16.5 µs | 147 µs / 174 µs | 158 µs | 15.2 µs |
+| 1 KiB | 178 µs / 207 µs | 198 µs | 24.4 µs | 180 µs / 210 µs | 204 µs | 23.5 µs |
+| 4 KiB | 266 µs / 298 µs | 277 µs | 47.8 µs | 272 µs / 315 µs | 290 µs | 46.9 µs |
+| 32 KiB | 980 µs / 1.2 ms | 877 µs | 257 µs | 996 µs / 1.2 ms | 890 µs | 255 µs |
+| 256 KiB | 6.5 ms / 7.2 ms | 5.5 ms | 1.9 ms | 7.0 ms / 49 ms | 6.6 ms | 2.1 ms |
+| 1 MiB | 31 ms / 33 ms | 24 ms | 10.0 ms | 31 ms / 200 ms | 31 ms | 10 ms |
+| 4 MiB | 124 ms / 139 ms | 98 ms | 43 ms | 142 ms / 681 ms | 120 ms | 42 ms |
+
+With eight runs at once, the time per step is the wall time divided by the
+steps of all eight:
+
+| Payload | Host mode: time per step | Elapsed p50 / p95 | Engine CPU | Spawned harness: time per step | Elapsed p50 / p95 | Engine CPU |
+|---|---|---|---|---|---|---|
+| 26 B | 122 µs | 926 µs / 1.1 ms | 164 µs | 128 µs | 952 µs / 1.2 ms | 163 µs |
+| 1 KiB | 123 µs | 948 µs / 1.1 ms | 200 µs | 129 µs | 968 µs / 1.2 ms | 206 µs |
+| 4 KiB | 131 µs | 989 µs / 1.4 ms | 287 µs | 143 µs | 1.0 ms / 1.5 ms | 294 µs |
+| 32 KiB | 331 µs | 2.4 ms / 3.7 ms | 938 µs | 311 µs | 2.3 ms / 3.2 ms | 944 µs |
+| 256 KiB | 2.2 ms | 17 ms / 20 ms | 5.8 ms | 2.4 ms | 18 ms / 23 ms | 6.0 ms |
+| 1 MiB | 14 ms | 103 ms / 135 ms | 27 ms | 14 ms | 105 ms / 144 ms | 28 ms |
+| 4 MiB | 160 ms | 471 ms / 1912 ms | 120 ms | 138 ms | 390 ms / 972 ms | 132 ms |
+
+The parts of a step in host mode, one run at a time. The engine's part
+outside the harness call is from the trace. The other parts are measured
+on their own, and the remainder is the step less all of them: the harness
+runtime's own work for an invocation. Above 256 KiB, the isolated
+`args.json` writes and transport exceed the step's own share, so the
+parts overlap and no remainder is given.
+
+| Payload | Step | Engine, outside the harness call | Invoke encode and result decode | `args.json` | Transport | Harness parse and serialise | Remainder |
+|---|---|---|---|---|---|---|---|
+| 26 B | 145 µs | 6.6 µs | 2.9 µs | 112 µs | 12.6 µs | 2.4 µs | 8.8 µs |
+| 1 KiB | 178 µs | 23.3 µs | 8.4 µs | 113 µs | 13.8 µs | 8.4 µs | 11.5 µs |
+| 4 KiB | 266 µs | 63.2 µs | 25.4 µs | 116 µs | 16.9 µs | 26.8 µs | 17 µs |
+| 32 KiB | 980 µs | 412 µs | 162 µs | 134 µs | 61.6 µs | 186 µs | 25.1 µs |
+| 256 KiB | 6.5 ms | 3.1 ms | 1.3 ms | 228 µs | 454 µs | 1.5 ms | – |
+| 1 MiB | 31 ms | 13 ms | 4.9 ms | 4.2 ms | 6.2 ms | 5.8 ms | – |
+| 4 MiB | 124 ms | 51 ms | 20 ms | 21 ms | 25 ms | 23 ms | – |
+
+Transport is the round trip of an invoke and its result between the
+engine's connection and the runtime's frame layer, less the result's
+decode, which the third column counts. The shapes a host-mode embedder
+runs, in host mode, one run at a time unless noted:
+
+| Steps | Results | Logs, reads, expression | Elapsed p50 / p95 | Engine CPU p50 / p95 | Host CPU p50 / p95 | Expression |
+|---|---|---|---|---|---|---|
+| 600 | 1 KiB | none | 191 µs / 229 µs | 206 µs / 223 µs | 27.6 µs / 38.6 µs | 0.7 µs |
+| 50 | 1 KiB | all | 313 µs / 421 µs | 366 µs / 714 µs | 63.2 µs / 153 µs | 44.2 µs |
+| 50 | 50 KiB | all | 2.1 ms / 2.5 ms | 2.0 ms / 2.4 ms | 459 µs / 617 µs | 537 µs |
+| 200 | 1 to 50 KiB | all | 947 µs / 1.3 ms | 775 µs / 898 µs | 213 µs / 252 µs | 50.5 µs |
+| 600 | 1 KiB | all | 304 µs / 384 µs | 413 µs / 425 µs | 65.7 µs / 86.8 µs | 44.5 µs |
+| 600 | 10 KiB | all | 665 µs / 773 µs | 710 µs / 764 µs | 143 µs / 171 µs | 134 µs |
+| 600 | 50 KiB | all | 2.1 ms / 2.4 ms | 2.0 ms / 2.1 ms | 453 µs / 476 µs | 549 µs |
+| 600 | 1 to 50 KiB | all | 947 µs / 1.3 ms | 789 µs / 841 µs | 207 µs / 234 µs | 48.4 µs |
+| 200, eight at once | 1 to 50 KiB | all | 1.8 ms / 3.8 ms | 883 µs (mean) | 243 µs (mean) | 76.5 µs |
+
+In the shapes, a step writes up to 3 log lines and makes up to 2 variable
+or resource reads through the platform facade. Every step evaluates an
+expression that binds the flow input, which holds a seed of the first
+step's result size. CPU is per step at p50 and p95 over 20 runs, and the
+expression column is the mean expression time per step.
+
+What the baseline shows, without changing anything:
+
+- A step's fixed cost is about 145 µs on both topologies, and writing
+  `args.json` takes 112 µs of it. At 26 B, the engine's CPU per step is
+  155 µs, of which 120 µs is system time.
+- The engine spends more CPU per step than the host at every size: 155 µs
+  against 17 µs at 26 B, and 98 ms against 43 ms at 4 MiB.
+- Eight runs at once gain little below 32 KiB: 122 µs of wall time per
+  step at 26 B, against 152 µs one at a time. Each process writes the
+  `args.json` of one invocation at a time, under a lock.
+- From 32 KiB, the engine's part outside the harness call is 40 to 50 % of
+  a step. An expression that binds a 50 KiB flow input costs about 540 µs
+  per step.
+- The spawned harness has slow outliers from 256 KiB (p95 49 ms against
+  7.2 ms in host mode) that host mode does not have.
+
 ## Decision
 
 ### Two texts per value, held in Go
@@ -202,9 +321,12 @@ walk's result and errors.
    [0011](0011-differential-testing.md), on the conformance flows and on any
    host workload a host provides.
 
-Results are recorded with the runtime versions and hardware; a regression of
-more than 20 % against the last recorded run fails the benchmark job, which
-runs on demand and nightly, never on every pull request.
+Results are recorded with the runtime versions, the hardware and the
+machine's load (§Baseline). The benchmarks run locally, on demand, and
+never in CI. A comparison runs both sides on one machine in one sitting,
+and `benchstat` compares their outputs. A shared CI runner's timings vary
+by more than the 20 % a regression gate would catch, and a scheduled job
+that fails on that noise would need a person to look at it.
 
 ## Consequences
 
@@ -257,6 +379,23 @@ runs on demand and nightly, never on every pull request.
   `-0.0`. Since milestone FU6 the engine writes a loop's result with the
   platform's writer of that rule (`platform.Reprint`), the one the
   argument resolution uses.
+
+- The benchmark plan is in the repository, with its baseline in
+  §Measurements. The benchmarks are Go benchmarks beside the
+  code they measure: `internal/jsonval`, `internal/harness` with a Bun
+  script that imports the runtime's frame codec, and `cmd/windmill-lite`
+  for whole runs. `windmill-lite run` and `host` take `-cpuprofile <file>`
+  for the engine.
+- Putting them there changed three points of the plan. They run locally, not
+  nightly in CI, for the reason in §Benchmark plan. Item 3's share of a
+  run spent at boundaries is the harness span against the module span, on
+  flows shaped like a host-mode embedder's. The conformance flows have too
+  few steps to measure more than start-up.
+- The third point is how item 2 splits a step. The trace declares queue,
+  serialise and platform spans that the engine does not fill, because the
+  step executor does not report its timings. So the parts inside the
+  harness call are measured on their own, with the same payloads, and the
+  engine's own part comes from the module and harness spans.
 
 ## Spec IDs relied on
 

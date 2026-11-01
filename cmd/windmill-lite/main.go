@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"runtime/pprof"
 )
 
 // version is set at link time with -ldflags "-X main.version=<version>".
@@ -27,9 +28,9 @@ func main() {
 const usage = `usage: windmill-lite [version]
        windmill-lite build <folder> -o <bundle> [flags]
        windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
-       windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
+       windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [-cpuprofile <file>] [flags]
        windmill-lite selfcheck
-       windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [flags]`
+       windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [-cpuprofile <file>] [flags]`
 
 // run executes the command with args (without the program name) and returns
 // the process exit code.
@@ -93,4 +94,30 @@ func newFlagSet(name string, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	return fs
+}
+
+// startCPUProfile writes a CPU profile of this process, the engine, into
+// file (Go's pprof format, for `go tool pprof`) until the returned stop is
+// called; with no file it does nothing. It is the -cpuprofile switch of
+// `run` and `host` (milestone G1), which profiles the engine on a real
+// workload: the harness or the host is another process, which it does not
+// cover.
+func startCPUProfile(file string, stderr io.Writer) (stop func(), err error) {
+	if file == "" {
+		return func() {}, nil
+	}
+	f, err := os.Create(file)
+	if err != nil {
+		return nil, fmt.Errorf("the CPU profile: %w", err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("the CPU profile: %w", err)
+	}
+	return func() {
+		pprof.StopCPUProfile()
+		if err := f.Close(); err != nil {
+			fmt.Fprintf(stderr, "windmill-lite: the CPU profile %s: %v\n", file, err)
+		}
+	}, nil
 }

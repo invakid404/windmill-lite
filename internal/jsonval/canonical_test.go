@@ -466,25 +466,47 @@ func (g *textGen) space(b *bytes.Buffer) {
 	}
 }
 
-// The benchmarks compare the canonicaliser with the test implementation on
-// a value shaped like a step result. Milestone G1 records the baseline.
-func benchmarkText(n int) []byte {
-	var b strings.Builder
-	b.WriteByte('[')
-	for i := range n {
-		if i > 0 {
-			b.WriteByte(',')
+// TestSynthetic checks the benchmark payloads (milestone G1): each has
+// exactly its size, is one JSON object the canonicaliser accepts, and the
+// canonicaliser and the test implementation agree on its stored text, so
+// the two sides of BenchmarkStored compute the same thing.
+func TestSynthetic(t *testing.T) {
+	for _, n := range append([]int{0, 63, 64, 65, 200, 1000}, SyntheticSizes...) {
+		text := Synthetic(n)
+		want := n
+		if n < 64 {
+			want = SyntheticMin
 		}
-		fmt.Fprintf(&b, `{"id":%d,"name":"item %d","tags":["x","y\n"],"price":%d.50,"meta":{"zz":true,"a":null,"created":"2024-01-01T00:00:00Z"}}`, i, i, i)
+		if len(text) != want {
+			t.Fatalf("Synthetic(%d) has %d bytes, want %d", n, len(text), want)
+		}
+		if !bytes.HasPrefix(text, []byte("{")) || !bytes.Equal(Synthetic(n), text) {
+			t.Fatalf("Synthetic(%d) is not one stable object: %.80s", n, text)
+		}
+		got, err := canonicalise(text)
+		if err != nil {
+			t.Fatalf("Synthetic(%d): %v", n, err)
+		}
+		ref, err := referenceStored(text)
+		if err != nil || !bytes.Equal(got, ref) {
+			t.Fatalf("Synthetic(%d): the canonicaliser and the test implementation differ (%v)", n, err)
+		}
 	}
-	b.WriteByte(']')
-	return []byte(b.String())
+	for n, want := range map[int]string{26: "26B", 1 << 10: "1KiB", 4 << 20: "4MiB", 1500: "1500B"} {
+		if got := SizeLabel(n); got != want {
+			t.Errorf("SizeLabel(%d) = %q, want %q", n, got, want)
+		}
+	}
 }
 
+// BenchmarkStored is item 1 of ADR 0005's benchmark plan (milestone G1):
+// the canonicaliser against the test implementation's decode, sort and
+// encode, on the step-result-shaped payloads of Synthetic from 26 B to
+// 4 MiB. Both compute the stored text (TestSynthetic).
 func BenchmarkStored(b *testing.B) {
-	for _, n := range []int{1, 32, 1024} {
-		text := benchmarkText(n)
-		b.Run(fmt.Sprintf("canonicaliser/%dB", len(text)), func(b *testing.B) {
+	for _, n := range SyntheticSizes {
+		text := Synthetic(n)
+		b.Run("size="+SizeLabel(n)+"/impl=canonicaliser", func(b *testing.B) {
 			b.SetBytes(int64(len(text)))
 			for b.Loop() {
 				if _, err := canonicalise(text); err != nil {
@@ -492,7 +514,7 @@ func BenchmarkStored(b *testing.B) {
 				}
 			}
 		})
-		b.Run(fmt.Sprintf("decode-sort-encode/%dB", len(text)), func(b *testing.B) {
+		b.Run("size="+SizeLabel(n)+"/impl=decode-sort-encode", func(b *testing.B) {
 			b.SetBytes(int64(len(text)))
 			for b.Loop() {
 				if _, err := referenceStored(text); err != nil {

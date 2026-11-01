@@ -28,12 +28,13 @@ func runHost(args []string, stderr io.Writer) int {
 	variables := fs.String("variables", "", "a JSON `file` of host variables, keyed by path, as in a bundle's data/variables.json; secrets go here")
 	resources := fs.String("resources", "", "a JSON `file` of host resources, keyed by path, as in a bundle's data/resources.json")
 	pluginTimeout := fs.Duration("plugin-timeout", 0, "how long a host_call to the host's plugin waits for its reply (default 1m)")
+	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof, until the host's connection ends")
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
 	}
 	if *bundlePath == "" || *workdir == "" || len(pos) != 0 || *killAfter < 0 {
-		fmt.Fprintln(stderr, "usage: windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [flags]")
+		fmt.Fprintln(stderr, "usage: windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [-cpuprofile <file>] [flags]")
 		return 2
 	}
 	fail := func(err error) int {
@@ -61,11 +62,17 @@ func runHost(args []string, stderr io.Writer) int {
 	if opts.Variables, err = hostVariables(*variables); err == nil {
 		opts.Resources, err = hostResources(*resources)
 	}
+	stopProfile := func() {}
+	if err == nil {
+		stopProfile, err = startCPUProfile(*cpuprofile, stderr)
+	}
 	if err != nil {
 		// The host waits for its welcome: it is told why there is none.
 		host.Refuse(resolveVersion(), stderr, err)
 		return fail(err)
 	}
+	// The profile is written once the host's connection has ended.
+	defer stopProfile()
 	// Open refuses the host itself when it fails.
 	rt, err := wl.Open(*bundlePath, opts)
 	if err != nil {

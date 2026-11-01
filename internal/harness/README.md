@@ -668,3 +668,41 @@ The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and
 ```sh
 WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
 ```
+
+## Benchmarks
+
+`bench_test.go` measures the parts of one step's round trip between the
+engine and its harness, each on its own, on the payloads of
+`jsonval.Synthetic` from 26 B to 4 MiB. A step's argument is the payload,
+and its result is the payload again. The end-to-end figures they divide
+are [cmd/windmill-lite's](../../cmd/windmill-lite/README.md#benchmarks),
+and the recorded baseline is in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
+
+| Benchmark | What it measures |
+|---|---|
+| `BenchmarkGoInvocation` | The engine's side of the codec: `scriptArgs` and the invoke's payload (`encode-invoke`), and the result's payload decoded (`decode-result`) |
+| `BenchmarkArgsFile` | The `args.json` file that each invocation writes into the harness's working directory |
+| `BenchmarkHarnessCodec` | The harness's parse and serialise on the pinned Bun: the invoke decoded, the result serialised by the runtime's `resultText`, and the result's payload encoded |
+| `BenchmarkTransport` | The transport alone, one invocation at a time and eight at once, against an echo |
+
+`testdata/bench.ts` is the Bun side of the last two. It imports the
+runtime's own `frame.ts` and `wrapper.ts`, so it runs the code a step's
+invocation runs. Its echo reads frames and reassembles part streams as the
+runtime does. It answers each invoke, without parsing it, with a result
+whose payload it encoded once, split into part frames above 1 MiB.
+
+`BenchmarkTransport` therefore covers both writers, part streams in both
+directions, both readers and the socketpair. It also covers the engine's
+decode of the result, which `decode-result` measures on its own.
+`TestBenchEcho` runs the echo once with a whole frame and once with part
+streams, so that a broken echo fails the ordinary tests.
+
+`BenchmarkGoInvocation` and `BenchmarkArgsFile` need nothing else; the
+other two need the pinned Bun in `WL_BUN`. They run only with `-bench`:
+
+```sh
+WL_BUN=/path/to/bun-1.3.10/bun go test ./internal/harness -run '^$' \
+  -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
+```
+
