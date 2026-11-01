@@ -695,8 +695,8 @@ whose payload it encoded once, split into part frames above 1 MiB.
 `BenchmarkTransport` therefore covers both writers, part streams in both
 directions, both readers and the socketpair. It also covers the engine's
 decode of the result, which `decode-result` measures on its own.
-`TestBenchEcho` runs the echo once with a whole frame and once with part
-streams, so that a broken echo fails the ordinary tests.
+`TestBenchEcho` runs the echo with a whole frame and with part streams,
+two invocations at a time, so that a broken echo fails the ordinary tests.
 
 `BenchmarkGoInvocation` and `BenchmarkArgsFile` need nothing else; the
 other two need the pinned Bun in `WL_BUN`. They run only with `-bench`:

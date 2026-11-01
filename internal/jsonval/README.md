@@ -26,10 +26,11 @@ three parts:
 - **JSON encoding.** `MarshalJSON` returns the producer text and refuses the
   zero `Value`; tag optional fields `json:",omitzero"`. `encoding/json` then
   compacts that text and escapes `<`, `>` and `&` (unless
-  `SetEscapeHTML(false)`), which keeps the parsed value but not the bytes. A
-  writer that must keep the producer's bytes, such as a harness frame or a
-  recording, writes `Producer()` itself. `UnmarshalJSON` keeps a copy of the
-  raw text, so a value read from a frame keeps its spelling.
+  `SetEscapeHTML(false)`), which keeps the parsed value but not the bytes.
+  So a harness frame or a recording, which must keep the producer's bytes,
+  writes `Producer()` itself.
+- **JSON decoding.** `UnmarshalJSON` keeps a copy of the raw text, so a
+  value read from a frame keeps its spelling.
 - **Concurrency.** A `Value` is immutable and safe for concurrent use.
 
 The engine applies ADR 0005's routing table, which decides whether each
@@ -89,9 +90,9 @@ PostgreSQL's rejection implies, is request 4 to the semantics team
 ([docs/design](../../docs/design/README.md)).
 
 Not reproduced: PostgreSQL's nesting limit, which depends on the server's
-stack size; `jsonb`'s limits on a string's length (256 MiB) and on a value's
-size; and PostgreSQL's own message for invalid UTF-8, which never reaches a
-cast because PostgreSQL refuses such text earlier.
+stack size; and `jsonb`'s limits on a string's length (256 MiB) and on a
+value's size. Nor is PostgreSQL's own message for invalid UTF-8, which
+never reaches a cast because PostgreSQL refuses such text earlier.
 
 ## Tests
 
@@ -110,11 +111,10 @@ ADR 0005 checks the canonicaliser three ways, and all three run in CI:
 3. **PostgreSQL itself.** `TestStoredMatchesPostgreSQL` casts every input of
    the other tests, and mutations of the generated text, to `jsonb` and back.
    It compares the stored text and, for valid JSON, PostgreSQL's message; for
-   text that is not one JSON value it checks that both reject. It runs only when
-   `WL_JSONB_PSQL` holds a `psql` command line (split on spaces) that reaches
-   a server. CI's `jsonb (PostgreSQL)` job sets it to `psql` inside the
-   oracle's PostgreSQL image, pinned by the digest in
-   [oracle.md](../../docs/semantics/oracle.md).
+   text that is not one JSON value it checks that both reject. It runs only
+   when `WL_JSONB_PSQL` holds a `psql` command line (split on spaces), which
+   CI's `jsonb (PostgreSQL)` job points at the oracle's PostgreSQL image
+   ([oracle.md](../../docs/semantics/oracle.md) pins its digest).
 
 `BenchmarkStored` compares the canonicaliser with the test implementation
 on the payloads of `Synthetic`, from 26 B to 4 MiB; the baseline is in
@@ -123,9 +123,9 @@ on the payloads of `Synthetic`, from 26 B to 4 MiB; the baseline is in
 ## Benchmark payloads
 
 `Synthetic(size)` in `synthetic.go` returns a compact JSON object of
-exactly `size` bytes, shaped like a step's result. It holds records with
-strings (one with an escaped newline), numbers, booleans, a list, a nested
-object and null, then a padding string. Below 64 bytes it returns the
+exactly `size` bytes, shaped like a step's result. It holds as many
+records as fit, each with strings (one with an escaped newline), numbers,
+booleans, a list, a nested object and null, then a padding string. Below 64 bytes it returns the
 26-byte object `{"id":1,"name":"step-one"}`.
 
 `SyntheticSizes` lists the sizes the boundary benchmarks measure, and
