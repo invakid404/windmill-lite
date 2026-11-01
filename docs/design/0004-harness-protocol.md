@@ -1123,8 +1123,9 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 - The repository's benchmarks measure the transport alone: the engine's
   connection against the runtime's frame layer over a socketpair, with
   part streams above 1 MiB. On an Apple M4, a 26 B step's invoke and
-  result round-trip in 13.5 µs at p50, a 32 KiB one in 124 µs and a 4 MiB
-  one in 33 ms ([0005](0005-json-step-boundaries.md#baseline)).
+  result round-trip in 14 µs at p50, a 32 KiB one in 123 µs and a 4 MiB
+  one in 33 ms, measured with the commands of
+  [0005](0005-json-step-boundaries.md#baseline).
 
 ## Spec IDs relied on
 

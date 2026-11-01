@@ -336,27 +336,69 @@ The benchmarks run on two topologies:
 
 | Benchmark | What it runs |
 |---|---|
-| `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of `jsonval.Synthetic`, from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
+| `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
 | `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
+
+One iteration is one run per worker, the workers started together, so
+even one iteration has every run of its concurrency in flight at once.
+
+### Stages
+
+Each step is split into stages, each the difference of two readings of the
+same invocation. The readings are the trace's module and harness spans,
+the engine side's clock
+([internal/harness](../../internal/harness/README.md#the-times-hook)) and
+the harness's own
+([harnesses/bun](../../harnesses/bun/README.md#benchmark-timings)). They are
+joined by the invocation's id, the step's job id. A step's stages add up
+to its module span exactly, so their means add up to the step's mean.
+
+| Stage | What it holds |
+|---|---|
+| `engine` | the engine outside its call of the executor: transforms, arguments and their storage, the trace |
+| `executor` | the executor around the harness process: the runtime's recorder and the pool's routing |
+| `go-encode` | checks, the script's arguments and the invoke's payload |
+| `args-file` | `args.json` written, the wait for its lock included |
+| `go-queue` | the invocation registered and its invoke queued |
+| `transport` | from the invoke queued to the result read, less the harness's time: the writer, the socket both ways and the wake-ups. It is not attributed further |
+| `bun-decode` | the invoke's last frame decoded in the harness |
+| `bun-dispatch` | from decoded to the entrypoint called: context, module, binding, and any wait behind other invocations |
+| `code` | the step's own code |
+| `bun-serialise` | the result serialised |
+| `bun-send` | the result frame encoded and handed to the socket |
+| `go-decode` | the result's last frame decoded in the engine |
+| `go-handoff` | from decoded to the outcome back with the engine: settlement and the `Reporter`'s calls |
+
+### Metrics
 
 Each benchmark reports these figures per step:
 
 | Metric | Meaning |
 |---|---|
-| `ns/op` | wall time per step at the benchmark's concurrency |
-| `step-p50-ns`, `step-p95-ns` | the step's module span in the trace |
-| `harness-p50-ns` | the harness span: the engine's call of the harness, round trip included |
-| `engine-side-p50-ns` | the module span less the harness span |
+| `ns/op`, `MB/s` | wall time per step at the benchmark's concurrency, and the payload the steps moved, both ways, per second |
+| `step-p50-ns`, `step-p95-ns`, `step-mean-ns` | the step's module span |
+| `<stage>-mean-ns`, `<stage>-p50-ns` | each stage, over every step |
+| `boundary-share-p50`, `boundary-share` | the share of a run's module time spent at the boundary: its harness spans less its steps' own code, per run at p50, and over every run together |
+| `harness-share-p50`, `harness-share` | the same for the whole harness span |
+| `module-share-p50` | the share of a run's elapsed time spent in its modules |
 | `engine-cpu-ns/step`, `engine-sys-ns/step` | the engine process's CPU time, and its system part, from `getrusage` |
 | `host-cpu-ns/step` | the host's or harness's CPU time, from `process.cpuUsage()` |
-| `engine-cpu-p50-ns/step` and the like | per run, for a shape that runs one at a time |
+| `engine-cpu-p50-ns/step` and the like | per run, for runs one at a time; a shape's host CPU too |
 | `expr-ns/step` | the expression spans |
-| `load1` | the one-minute load average when the benchmark started |
+| `conc-peak`, `conc-mean` | the most runs in flight at once, and the mean |
+| `load1` | the one-minute load average when the runs started |
 
-The step `f/bench/cpu` reads the host's or harness's CPU time before and
-after the runs. A shape's last step reports it with its result too, so
-each run has its own figure. The parts of the harness span are measured
-on their own in [internal/harness](../../internal/harness/README.md#benchmarks).
+Percentiles are nearest-rank ([internal/bench](../../internal/bench/README.md#percentiles)).
+The probe step `f/bench/probe` reads the host's or harness's CPU time
+before and after the runs, and sets and drains the harness's timings. A
+shape's last step reports the host's CPU time with its result too, so each
+run has its own figure.
+
+`WL_BENCH_TIMINGS=off` leaves the stage readings out, which measures what
+taking them costs. `TestBenchSplit` runs the measurement once on each
+topology with two runs at once, so that a broken split fails the ordinary
+tests. It checks that both runs overlap, that every step is matched with
+its readings, and that its stages add up to its module span.
 
 They need the pinned Bun in `WL_BUN` and the build helper's dependencies,
 and run only with `-bench`:

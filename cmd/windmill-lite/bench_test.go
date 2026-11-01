@@ -595,12 +595,15 @@ var stages = []struct{ name, meaning string }{
 	{"transport", "from the invoke queued to the result read, less the harness's time: the writer, the socket both ways and the wake-ups, unattributed"},
 	{"bun-decode", "the invoke's last frame decoded in the harness"},
 	{"bun-dispatch", "from decoded to the entrypoint called: context, metadata, module and binding, and any wait behind other invocations"},
-	{"step", "the step's own code"},
+	{"code", "the step's own code"},
 	{"bun-serialise", "the result serialised (resultText)"},
 	{"bun-send", "the result frame encoded and handed to the socket"},
 	{"go-decode", "the result's last frame decoded in the engine"},
 	{"go-handoff", "from decoded to the outcome back with the engine: settlement and the Reporter's calls"},
 }
+
+// stageCode is the index in stages of the step's own code.
+const stageCode = 8
 
 // stepSplit is one step's stages, by the index of stages.
 type stepSplit struct {
@@ -847,7 +850,7 @@ func (r *benchResult) shares() (boundary, harnessShare, modules []float64, poole
 		for range run.steps {
 			if r.split != nil {
 				s := r.split[i]
-				module, harness, step = module+s.module, harness+s.harness, step+s.stage[8]
+				module, harness, step = module+s.module, harness+s.harness, step+s.stage[stageCode]
 			}
 			i++
 		}
@@ -1019,6 +1022,16 @@ func BenchmarkHostShapes(b *testing.B) {
 func TestBenchSplit(t *testing.T) {
 	if !benchTimed() {
 		t.Skip("WL_BENCH_TIMINGS is off")
+	}
+	// A stage's metrics must not take the names of the step's own
+	// (report), which ReportMetric would overwrite.
+	if stages[stageCode].name != "code" {
+		t.Fatalf("stage %d is %q, not the step's own code", stageCode, stages[stageCode].name)
+	}
+	for _, st := range stages {
+		if st.name == "step" || st.name == "harness" {
+			t.Fatalf("stage %q shadows the step's own metrics", st.name)
+		}
 	}
 	bun := benchSetup(t)
 	for _, topology := range []string{"host", "subprocess"} {
