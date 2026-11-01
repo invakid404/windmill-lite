@@ -11,6 +11,10 @@ import (
 // Name is the library this build swaps in.
 const Name = "sonic Fastest"
 
+// V1Compatible reports whether this build keeps encoding/json\'s behaviour
+// at every site it routes: the equivalence tests are strict for it.
+const V1Compatible = false
+
 func Valid(b []byte) bool                                    { return sonicjson.Fastest.Valid(b) }
 func Unmarshal(b []byte, v any) error                        { return sonicjson.Fastest.Unmarshal(b, v) }
 func Marshal(v any) ([]byte, error)                          { return sonicjson.Fastest.Marshal(v) }

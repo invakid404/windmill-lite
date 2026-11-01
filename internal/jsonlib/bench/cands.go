@@ -23,6 +23,7 @@ type Cand struct {
 	Unmarshal func([]byte, any) error
 	Marshal   func(any) ([]byte, error)
 	RawObject func([]byte) (map[string]json.RawMessage, error)
+	RawArray  func([]byte) ([]json.RawMessage, error)
 	Members   func([]byte, func(key string, ks, ke, vs, ve int)) bool
 	Canonical func([]byte) ([]byte, error)
 }
@@ -33,8 +34,8 @@ type Cand struct {
 // default Go 1.27 build adds encoding/json/v2 and its RFC 8785 form
 // (cands_v2.go).
 var Cands = append([]Cand{
-	{Name: v1Name, Valid: std.Valid, Compact: std.Compact, Unmarshal: std.Unmarshal, Marshal: std.Marshal, RawObject: std.RawObject, Members: std.Members, Canonical: std.Canonical},
-	{Name: "gje", Valid: gje.Valid, Compact: gje.Compact, Unmarshal: gje.Unmarshal, Marshal: gje.Marshal, RawObject: gje.RawObject, Members: gje.Members, Canonical: gje.Canonical},
+	{Name: v1Name, Valid: std.Valid, Compact: std.Compact, Unmarshal: std.Unmarshal, Marshal: std.Marshal, RawObject: std.RawObject, RawArray: std.RawArray, Members: std.Members, Canonical: std.Canonical},
+	{Name: "gje", Valid: gje.Valid, Compact: gje.Compact, Unmarshal: gje.Unmarshal, Marshal: gje.Marshal, RawObject: gje.RawObject, RawArray: gje.RawArray, Members: gje.Members, Canonical: gje.Canonical},
 	sonicCand(sonicjson.Std),
 	sonicCand(sonicjson.Fastest),
 	{Name: "sonicast", Members: sonicjson.Members},
@@ -42,5 +43,5 @@ var Cands = append([]Cand{
 }, v2Cands...)
 
 func sonicCand(l sonicjson.Lib) Cand {
-	return Cand{Name: l.Name, Valid: l.Valid, Compact: l.Compact, Unmarshal: l.Unmarshal, Marshal: l.Marshal, RawObject: l.RawObject, Canonical: l.Canonical}
+	return Cand{Name: l.Name, Valid: l.Valid, Compact: l.Compact, Unmarshal: l.Unmarshal, Marshal: l.Marshal, RawObject: l.RawObject, RawArray: l.RawArray, Canonical: l.Canonical}
 }

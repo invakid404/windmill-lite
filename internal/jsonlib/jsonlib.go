@@ -4,7 +4,8 @@
 // tag picks the library behind it:
 //
 //	(none)             encoding/json, as today
-//	jsonlib_v2         encoding/json/v2 and encoding/json/jsontext
+//	jsonlib_j1         lever J1: jsontext at the raw-text decode sites only
+//	jsonlib_v2         encoding/json/v2 and encoding/json/jsontext everywhere
 //	jsonlib_sonic      github.com/bytedance/sonic, ConfigStd
 //	jsonlib_sonicfast  github.com/bytedance/sonic, ConfigFastest
 //

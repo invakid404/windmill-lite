@@ -1,4 +1,4 @@
-//go:build !jsonlib_v2 && !jsonlib_sonic && !jsonlib_sonicfast
+//go:build !jsonlib_v2 && !jsonlib_j1 && !jsonlib_sonic && !jsonlib_sonicfast
 
 package jsonlib
 
@@ -10,6 +10,10 @@ import (
 
 // Name is the library this build swaps in.
 const Name = "encoding/json"
+
+// V1Compatible reports whether this build keeps encoding/json's behaviour
+// at every site it routes: the equivalence tests are strict for it.
+const V1Compatible = true
 
 func Valid(b []byte) bool                                    { return std.Valid(b) }
 func Unmarshal(b []byte, v any) error                        { return std.Unmarshal(b, v) }

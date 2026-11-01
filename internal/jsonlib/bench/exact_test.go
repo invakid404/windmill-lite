@@ -60,6 +60,14 @@ var probes = []struct{ name, text string }{
 	{"depth-10001", strings.Repeat("[", 10001) + strings.Repeat("]", 10001)},
 	{"case-fields", `{"ERROR":{"NAME":"Fatal"},"Decline":true}`},
 	{"type-mismatch", `{"error":{"name":7}}`},
+	{"array-mixed", `[1,null,{"a":1},"x",[]]`},
+	{"array-trailing-comma", `[1,2,]`},
+	{"duplicate-null", `{"a":1,"a":null}`},
+	{"struct-dup-null-inner", `{"error":{"name":"Fatal","name":null}}`},
+	{"struct-dup-null-outer", `{"error":{"name":"Fatal"},"error":null}`},
+	{"struct-dash", `{"e-rror":{"name":"Fatal"},"de-cline":true}`},
+	{"struct-underscore", `{"error":{"n_ame":"Fatal"},"fail_ed":true}`},
+	{"struct-flag-dup-null", `{"decline":true,"decline":null,"failed":true,"failed":null}`},
 }
 
 // marshalProbes are Go values the exactness test marshals.
@@ -143,13 +151,22 @@ func TestExactness(t *testing.T) {
 						Name string `json:"name"`
 					} `json:"error"`
 					Decline bool `json:"decline"`
+					Failed  bool `json:"failed"`
 				}
 				err = c.Unmarshal(in, &e)
-				emit(p.name, "unmarshal-struct", c.Name, fmt.Sprintf("name=%q decline=%v err=%s", e.Error.Name, e.Decline, errText(err)))
+				emit(p.name, "unmarshal-struct", c.Name, fmt.Sprintf("name=%q decline=%v failed=%v err=%s", e.Error.Name, e.Decline, e.Failed, errText(err)))
 			}
 			if c.RawObject != nil {
 				m, err := c.RawObject(in)
 				emit(p.name, "rawobject", c.Name, showRaw(m, err))
+			}
+			if c.RawArray != nil {
+				a, err := c.RawArray(in)
+				if err != nil {
+					emit(p.name, "rawarray", c.Name, "error: "+err.Error())
+				} else {
+					emit(p.name, "rawarray", c.Name, fmt.Sprintf("%q", a))
+				}
 			}
 			if c.Members != nil {
 				var ms []string

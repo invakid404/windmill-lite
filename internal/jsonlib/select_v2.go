@@ -11,6 +11,10 @@ import (
 // Name is the library this build swaps in.
 const Name = "encoding/json/v2"
 
+// V1Compatible reports whether this build keeps encoding/json\'s behaviour
+// at every site it routes: the equivalence tests are strict for it.
+const V1Compatible = false
+
 func Valid(b []byte) bool                                    { return v2.Valid(b) }
 func Unmarshal(b []byte, v any) error                        { return v2.Unmarshal(b, v) }
 func Marshal(v any) ([]byte, error)                          { return v2.Marshal(v) }

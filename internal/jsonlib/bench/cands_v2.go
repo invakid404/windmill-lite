@@ -9,6 +9,6 @@ import v2 "github.com/invakid404/windmill-lite/internal/jsonlib/v2"
 const v1Name = "v1"
 
 var v2Cands = []Cand{
-	{Name: "v2", Valid: v2.Valid, Compact: v2.Compact, Unmarshal: v2.Unmarshal, Marshal: v2.Marshal, RawObject: v2.RawObject, Members: v2.Members, Canonical: v2.Canonical},
+	{Name: "v2", Valid: v2.Valid, Compact: v2.Compact, Unmarshal: v2.Unmarshal, Marshal: v2.Marshal, RawObject: v2.RawObject, RawArray: v2.RawArray, Members: v2.Members, Canonical: v2.Canonical},
 	{Name: "jcs", Canonical: v2.JCS},
 }
