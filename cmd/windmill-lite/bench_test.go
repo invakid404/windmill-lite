@@ -142,6 +142,10 @@ type benchShape struct {
 	bare  bool
 	conc  int
 	res   string
+	// paths gives every step three member paths over JSON values instead
+	// of the bare shape's nothing: flow_input.cfg.region,
+	// previous_result.data.items[0].id and results.s<k-1>?.n.
+	paths bool
 }
 
 // plugin reports whether the shape runs on the plugin host.
@@ -157,6 +161,7 @@ var benchShapes = []benchShape{
 	{name: "s600-50KiB", steps: 600, sizes: []int{50 << 10}, conc: 1},
 	{name: "s600-mixed", steps: 600, sizes: benchMixed, conc: 1},
 	{name: "s200-mixed-conc8", steps: 200, sizes: benchMixed, conc: 8},
+	{name: "pathsA-s50", steps: 50, sizes: []int{1 << 10}, bare: true, paths: true, conc: 1},
 	{name: "resA-s50", steps: 50, sizes: []int{1 << 10}, conc: 1, res: "f/bench"},
 	{name: "resA-s50-1ms", steps: 50, sizes: []int{1 << 10}, conc: 1, res: "f/bench/slow"},
 }
@@ -167,6 +172,9 @@ var benchMixed = []int{1 << 10, 5 << 10, 20 << 10, 50 << 10}
 func (s benchShape) path() string {
 	if s.plugin() {
 		return "f/bench/" + strings.ReplaceAll(strings.ToLower(s.name), "-", "_")
+	}
+	if s.paths {
+		return fmt.Sprintf("f/bench/paths_s%d_%s", s.steps, sizesName(s.sizes))
 	}
 	if s.bare {
 		return fmt.Sprintf("f/bench/bare_s%d_%s", s.steps, sizesName(s.sizes))
@@ -263,6 +271,14 @@ func (s benchShape) flow() string {
 		fmt.Fprintf(&b, "          logs: {type: static, value: %d}\n          reads: {type: static, value: %d}\n          last: {type: static, value: %t}\n", logs, reads, k == s.steps)
 		if !s.bare {
 			fmt.Fprintf(&b, "          key: {type: javascript, expr: '`${flow_input.tenant}:${flow_input.region}:s%d`'}\n", k)
+		}
+		if s.paths {
+			first, prevn := "{type: static, value: 0}", "{type: static, value: 0}"
+			if k > 1 {
+				first = "{type: javascript, expr: 'previous_result.data.items[0].id'}"
+				prevn = fmt.Sprintf("{type: javascript, expr: 'results.s%d?.n'}", k-1)
+			}
+			fmt.Fprintf(&b, "          region: {type: javascript, expr: flow_input.cfg.region}\n          first: %s\n          prevn: %s\n", first, prevn)
 		}
 	}
 	return b.String()
@@ -1114,11 +1130,21 @@ type cleanupOn struct {
 
 func (c cleanupOn) Cleanup(f func()) { c.parent.Cleanup(f) }
 
+// shapeArgs is a shape's flow input: a tenant, a region and a seed of
+// its first step's size, and for a paths shape the object its first
+// member path reads.
+func shapeArgs(s benchShape) json.RawMessage {
+	if s.paths {
+		return fmt.Appendf(nil, `{"tenant":"tenant-a","region":"eu-1","cfg":{"region":"eu-1","tier":2},"seed":%s}`, bench.Synthetic(s.sizes[0]))
+	}
+	return fmt.Appendf(nil, `{"tenant":"tenant-a","region":"eu-1","seed":%s}`, bench.Synthetic(s.sizes[0]))
+}
+
 // shapeCase is the shape's runs.
 func shapeCase(s benchShape) benchCase {
 	return benchCase{
 		path:  s.path(),
-		args:  fmt.Appendf(nil, `{"tenant":"tenant-a","region":"eu-1","seed":%s}`, bench.Synthetic(s.sizes[0])),
+		args:  shapeArgs(s),
 		steps: s.steps, conc: s.conc, warm: 1,
 		check: func(res *wl.Result) error {
 			var out struct {
