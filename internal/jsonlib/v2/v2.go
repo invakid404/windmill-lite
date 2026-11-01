@@ -36,8 +36,12 @@ func Compact(dst, b []byte) ([]byte, error) {
 	return append(out[:len(dst)], v...), nil
 }
 
-// Unmarshal is json.Unmarshal with v2's defaults and the two v1 allowances.
-func Unmarshal(b []byte, v any) error { return json.Unmarshal(b, v, compat) }
+// Unmarshal is json.Unmarshal with v2's defaults, the two v1 allowances,
+// and struct fields matched without regard to case, as v1 matches them
+// (engine.errorName and wl's plugin answers rely on it).
+func Unmarshal(b []byte, v any) error {
+	return json.Unmarshal(b, v, compat, json.MatchCaseInsensitiveNames(true))
+}
 
 // Marshal is json.Marshal with map keys sorted (Deterministic), as v1
 // sorts them; v2 does not escape <, > and & as v1 does.
@@ -59,8 +63,8 @@ func RawArray(b []byte) ([]v1.RawMessage, error) {
 }
 
 // Members is std.Members with a jsontext.Decoder, which reads obj in place
-// (a bytes.Buffer is not copied), so rawKey and value alias obj.
-func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok bool) {
+// (a bytes.Buffer is not copied).
+func Members(obj []byte, fn func(key string, ks, ke, vs, ve int)) (ok bool) {
 	dec := jsontext.NewDecoder(bytes.NewBuffer(obj), compat)
 	if t, err := dec.ReadToken(); err != nil || t.Kind() != '{' {
 		return false
@@ -70,7 +74,7 @@ func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok b
 		if err != nil {
 			return false
 		}
-		rawKey := k
+		ke := int(dec.InputOffset())
 		key, ok := unquote(k)
 		if !ok {
 			return false
@@ -79,7 +83,8 @@ func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok b
 		if err != nil {
 			return false
 		}
-		fn(rawKey, key, v)
+		ve := int(dec.InputOffset())
+		fn(key, ke-len(k), ke, ve-len(v), ve)
 	}
 	if t, err := dec.ReadToken(); err != nil || t.Kind() != '}' {
 		return false

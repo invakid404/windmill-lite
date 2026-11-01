@@ -13,6 +13,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/ir"
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -200,7 +201,7 @@ func (o Outcome) step() (engine.StepOutcome, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		body = json.RawMessage("null")
 	}
-	if !json.Valid(body) {
+	if !jsonlib.Valid(body) {
 		return engine.StepOutcome{}, errors.New("wl: an outcome whose result is not JSON")
 	}
 	kind := engine.OutcomeOK
@@ -229,7 +230,7 @@ func engineHooks(h *Hooks, prog *ir.Program) (*hooks, error) {
 		if (x.Static == nil) == (x.Func == nil) {
 			return nil, fmt.Errorf("Hooks.Intercept[%d]: give exactly one of Static and Func", i)
 		}
-		if x.Static != nil && !json.Valid(x.Static) {
+		if x.Static != nil && !jsonlib.Valid(x.Static) {
 			return nil, fmt.Errorf("Hooks.Intercept[%d].Static: not JSON", i)
 		}
 	}
@@ -454,7 +455,7 @@ func (x *hooks) RewriteArgs(ctx context.Context, r engine.Run, s engine.Site, ar
 		if err != nil {
 			return args, err
 		}
-		if !json.Valid(out) {
+		if !jsonlib.Valid(out) {
 			return args, errors.New("wl: H2 returned arguments that are not JSON")
 		}
 		args = jsonval.FromProducer(out)

@@ -1,3 +1,8 @@
+// Package bench holds the JSON-library study's microbenchmarks, peak-RSS
+// probe and exactness probes (branch study/json-libraries, never merged).
+// Every candidate runs in the same test binary, so one -bench run
+// interleaves them case by case; the classic encoding/json engine needs its
+// own binary, built with GOEXPERIMENT=nojsonv2.
 package bench
 
 import (
@@ -18,7 +23,7 @@ type Cand struct {
 	Unmarshal func([]byte, any) error
 	Marshal   func(any) ([]byte, error)
 	RawObject func([]byte) (map[string]json.RawMessage, error)
-	Members   func([]byte, func([]byte, string, []byte)) bool
+	Members   func([]byte, func(key string, ks, ke, vs, ve int)) bool
 	Canonical func([]byte) ([]byte, error)
 }
 

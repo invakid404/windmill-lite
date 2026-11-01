@@ -1,6 +1,8 @@
 package bench
 
 import (
+	"github.com/invakid404/windmill-lite/internal/jsonlib/shapes"
+
 	"os"
 	"strings"
 	"testing"
@@ -15,8 +17,8 @@ import (
 func BenchmarkLib(b *testing.B) {
 	for _, n := range sizes(b) {
 		b.Run("size="+jsonval.SizeLabel(n), func(b *testing.B) {
-			for _, f := range Families {
-				b.Run("family="+f, func(b *testing.B) { runOps(b, Make(f, n)) })
+			for _, f := range shapes.Families {
+				b.Run("family="+f, func(b *testing.B) { runOps(b, shapes.Make(f, n)) })
 			}
 		})
 	}
@@ -26,7 +28,7 @@ func BenchmarkLib(b *testing.B) {
 // brief's families at their typical, p90 and worst sizes:
 // BenchmarkBrief/family=F/tier=T/op=O/cand=C.
 func BenchmarkBrief(b *testing.B) {
-	for _, f := range Brief {
+	for _, f := range shapes.Brief {
 		b.Run("family="+f.Name, func(b *testing.B) {
 			for _, t := range f.Tiers {
 				b.Run("tier="+t.Name, func(b *testing.B) { runOps(b, f.Make(t.Size)) })
@@ -61,15 +63,15 @@ func runOps(b *testing.B, payload []byte) {
 	}
 }
 
-// sizes are Sizes, or the labels JSONLIB_SIZES lists.
+// sizes are shapes.Sizes, or the labels JSONLIB_SIZES lists.
 func sizes(tb testing.TB) []int {
 	env := os.Getenv("JSONLIB_SIZES")
 	if env == "" {
-		return Sizes
+		return shapes.Sizes
 	}
 	var out []int
 	for _, l := range strings.Split(env, ",") {
-		n, ok := ParseSize(l)
+		n, ok := shapes.ParseSize(l)
 		if !ok {
 			tb.Fatalf("JSONLIB_SIZES: bad size %q", l)
 		}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -896,17 +897,17 @@ func Decode(payload []byte) (Message, error) {
 	}
 	trimmed := bytes.TrimLeft(payload, " \t\r\n")
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		if json.Valid(payload) {
+		if jsonlib.Valid(payload) {
 			return nil, protoErr(CodeNotObject, "payload is not a JSON object")
 		}
 		return nil, protoErr(CodeInvalidJSON, "payload is not JSON")
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil {
+	fields, err := jsonlib.RawObject(payload)
+	if err != nil {
 		return nil, protoErr(CodeInvalidJSON, "%v", err)
 	}
 	var t string
-	if raw, ok := fields["t"]; !ok || json.Unmarshal(raw, &t) != nil || raw[0] != '"' {
+	if raw, ok := fields["t"]; !ok || jsonlib.Unmarshal(raw, &t) != nil || raw[0] != '"' {
 		return nil, protoErr(CodeMissingType, "object has no string field t")
 	}
 	var derr error
@@ -1257,7 +1258,7 @@ func (d *decoder) optBytes(name string) []byte {
 func (d *decoder) str(name string) string {
 	raw := d.field(name)
 	var s string
-	if raw != nil && (raw[0] != '"' || json.Unmarshal(raw, &s) != nil) {
+	if raw != nil && (raw[0] != '"' || jsonlib.Unmarshal(raw, &s) != nil) {
 		d.badType(name)
 	}
 	return s
@@ -1293,7 +1294,7 @@ func (d *decoder) ints(name string) []int {
 		return nil
 	}
 	var items []json.RawMessage
-	if raw[0] != '[' || json.Unmarshal(raw, &items) != nil {
+	if raw[0] != '[' || jsonlib.Unmarshal(raw, &items) != nil {
 		d.badType(name)
 		return nil
 	}
@@ -1334,7 +1335,7 @@ func (d *decoder) object(name string) *decoder {
 		return nil
 	}
 	var f map[string]json.RawMessage
-	if raw[0] != '{' || json.Unmarshal(raw, &f) != nil {
+	if raw[0] != '{' || jsonlib.Unmarshal(raw, &f) != nil {
 		d.badType(name)
 		return nil
 	}
@@ -1348,13 +1349,13 @@ func (d *decoder) strings(name string) []string {
 		return nil
 	}
 	var elems []json.RawMessage
-	if raw[0] != '[' || json.Unmarshal(raw, &elems) != nil {
+	if raw[0] != '[' || jsonlib.Unmarshal(raw, &elems) != nil {
 		d.badType(name)
 		return nil
 	}
 	out := make([]string, len(elems))
 	for i, e := range elems {
-		if e[0] != '"' || json.Unmarshal(e, &out[i]) != nil {
+		if e[0] != '"' || jsonlib.Unmarshal(e, &out[i]) != nil {
 			d.badType(name)
 			return nil
 		}
@@ -1370,14 +1371,14 @@ func (d *decoder) env(name string) map[string]string {
 		return nil
 	}
 	var vals map[string]json.RawMessage
-	if raw[0] != '{' || json.Unmarshal(raw, &vals) != nil {
+	if raw[0] != '{' || jsonlib.Unmarshal(raw, &vals) != nil {
 		d.badType(name)
 		return nil
 	}
 	out := make(map[string]string, len(vals))
 	for k, v := range vals {
 		var s string
-		if v[0] != '"' || json.Unmarshal(v, &s) != nil {
+		if v[0] != '"' || jsonlib.Unmarshal(v, &s) != nil {
 			d.badType(name)
 			return nil
 		}

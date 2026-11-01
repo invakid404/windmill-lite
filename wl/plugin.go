@@ -17,6 +17,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
@@ -175,7 +176,7 @@ func (p *plugin) doHeld(ctx, held context.Context, hook, run string, site *engin
 		path = site.Path.String()
 		payload["site"] = siteJSON(*site)
 	}
-	b, err := json.Marshal(payload)
+	b, err := jsonlib.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("wl: host_call %s: %w", hook, err)
 	}
@@ -205,7 +206,7 @@ func (p *plugin) doHeld(ctx, held context.Context, hook, run string, site *engin
 	if out == nil {
 		return nil
 	}
-	if err := json.Unmarshal(ans.Producer(), out); err != nil {
+	if err := jsonlib.Unmarshal(ans.Producer(), out); err != nil {
 		return fmt.Errorf("wl: the host plugin's answer to %s: %w", hook, err)
 	}
 	return nil

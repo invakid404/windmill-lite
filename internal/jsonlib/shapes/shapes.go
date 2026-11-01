@@ -1,9 +1,9 @@
-// Package bench holds the JSON-library study's microbenchmarks, peak-RSS
-// probe and exactness probes (branch study/json-libraries, never merged).
-// Every candidate runs in the same test binary, so one -bench run
-// interleaves them case by case; the classic encoding/json engine needs its
-// own binary, built with GOEXPERIMENT=nojsonv2.
-package bench
+// Package shapes makes the JSON-library study's synthetic payloads: eight
+// generic families from 1 KiB to 64 MiB, and the workload brief's families
+// F1 to F8 at their typical, p90 and worst sizes (branch
+// study/json-libraries, never merged). It depends on no JSON library, so
+// that end-to-end benchmarks can use it with any of them.
+package shapes
 
 import (
 	"encoding/base64"

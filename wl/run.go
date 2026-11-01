@@ -12,6 +12,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
@@ -305,7 +306,7 @@ func (f resolver) ResolveValue(ctx context.Context, path string, resource bool, 
 	if err != nil {
 		return jsonval.Value{}, err
 	}
-	if !json.Valid(out) {
+	if !jsonlib.Valid(out) {
 		return jsonval.Value{}, fmt.Errorf("wl: the resolver returned a value for %s that is not JSON", path)
 	}
 	return jsonval.FromProducer(out), nil

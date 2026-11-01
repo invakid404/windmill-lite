@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -177,6 +178,7 @@ export async function main() {
 	for _, s := range benchShapes {
 		files[s.path()+".flow/flow.yaml"] = s.flow()
 	}
+	maps.Copy(files, studyFolder())
 	return files
 }
 
@@ -700,7 +702,7 @@ func BenchmarkStepBoundary(b *testing.B) {
 		b.Run("topology="+topology, func(b *testing.B) {
 			rt := benchRuntime(b, bun, topology)
 			for _, conc := range []int{1, 8} {
-				for _, n := range jsonval.SyntheticSizes {
+				for _, n := range studyStepSizes(b) {
 					args := fmt.Appendf(nil, `{"p":%s}`, jsonval.Synthetic(n))
 					b.Run(fmt.Sprintf("conc=%d/size=%s", conc, jsonval.SizeLabel(n)), func(b *testing.B) {
 						benchRuns(b, rt, "f/bench/chain", args, benchChainSteps, conc, 3, func(res *wl.Result) error {

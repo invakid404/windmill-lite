@@ -186,6 +186,173 @@ jobs:
           name: brief-${{ matrix.arch }}
           path: ${{ runner.temp }}/out
 
+  tests:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' tests ')
+    name: Tests with ${{ matrix.swap }} (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        arch: [amd64, arm64]
+        swap: [today, nojsonv2, jsonlib_v2, jsonlib_sonic, jsonlib_sonicfast]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - name: Install the build helper's dependencies
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20.20.2
+      - name: Fetch windmill-client 1.767.0
+        run: |
+          dir="$RUNNER_TEMP/windmill-client"
+          mkdir -p "$dir/node_modules/windmill-client"
+          curl -sSfL --retry 3 -o "$dir/client.tgz" https://registry.npmjs.org/windmill-client/-/windmill-client-1.767.0.tgz
+          echo "7eaa7609e5926052d874e1d086f317b6050da112dddd3dd33c39a7cf9b2a62a127ffc0e4fae1903f440a20b3359d266ef719f551d81c11cfd452bdaadb80c8c3  $dir/client.tgz" | shasum -a 512 -c -
+          tar -xzf "$dir/client.tgz" -C "$dir/node_modules/windmill-client" --strip-components=1
+          echo "WL_WINDMILL_CLIENT=$dir" >> "$GITHUB_ENV"
+          echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
+      - name: Test
+        # The suites a swap reaches: jsonval, the harness, the conformance
+        # packages and the flow suite (cmd/wltest), and the engine, wl and
+        # platform that call the swapped sites; with -race, as CI runs them.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_REQUIRE_BUN: "1"
+          WL_REQUIRE_NODE: "1"
+          SWAP: ${{ matrix.swap }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          tags=""; exp=""
+          case "$SWAP" in
+            today) ;;
+            nojsonv2) exp=nojsonv2 ;;
+            *) tags="$SWAP" ;;
+          esac
+          set -o pipefail
+          GOEXPERIMENT="$exp" go test -race -timeout 80m -tags "$tags" -count=1 \
+            ./internal/jsonval/... ./internal/harness/... ./internal/conformance/... ./internal/engine/... \
+            ./internal/platform/... ./wl/... ./cmd/wltest/... 2>&1 | tee "$RUNNER_TEMP/out/tests.txt" | grep -E '^(ok|FAIL|---|panic)'
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tests-${{ matrix.swap }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out
+
+  e2e:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' e2e ')
+    name: End to end (${{ matrix.arch }}, ${{ matrix.group }})
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        arch: [amd64, arm64]
+        group: [boundary, shapes, study]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 300
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - name: Install the build helper's dependencies
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+      - name: Record the machine
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          { uname -a; nproc; lscpu; free -m; go version; "${{ steps.bun.outputs.bun-path }}" --version; } > "$RUNNER_TEMP/out/machine.txt" 2>&1
+      - name: Build the engine with each library
+        run: |
+          go test -c -o "$RUNNER_TEMP/e-today.test" ./cmd/windmill-lite
+          GOEXPERIMENT=nojsonv2 go test -c -o "$RUNNER_TEMP/e-classic.test" ./cmd/windmill-lite
+          go test -c -tags jsonlib_v2 -o "$RUNNER_TEMP/e-v2.test" ./cmd/windmill-lite
+          go test -c -tags jsonlib_sonic -o "$RUNNER_TEMP/e-sonic.test" ./cmd/windmill-lite
+          go test -c -tags jsonlib_sonicfast -o "$RUNNER_TEMP/e-sonicfast.test" ./cmd/windmill-lite
+      - name: Run the rounds
+        # Each round runs every build once, the order rotating.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          GROUP: ${{ matrix.group }}
+        run: |
+          cd cmd/windmill-lite
+          case "$GROUP" in
+            boundary)
+              export WL_BENCH_SIZES=26B,1KiB,256KiB,1MiB,4MiB,16MiB
+              filter='BenchmarkStepBoundary/topology=host/conc=1/'; bt=3s ;;
+            shapes)
+              filter='BenchmarkHostShapes/shape=(s600-1KiB|s200-mixed|s20-256KiB|s10-1MiB|s8-4MiB|s4-16MiB)$'; bt=5x ;;
+            study)
+              filter='BenchmarkStudyPassThrough|BenchmarkStudyExpressions'; bt=10x ;;
+          esac
+          builds=(classic today v2 sonic sonicfast)
+          for r in $(seq 1 "$ROUNDS"); do
+            for i in 0 1 2 3 4; do
+              b=${builds[$(( (i + r) % 5 ))]}
+              echo "round $r: $b, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
+              "$RUNNER_TEMP/e-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$bt" -test.count 1 -test.timeout 0 >> "$RUNNER_TEMP/out/e2e-$b.txt"
+            done
+          done
+          grep -c '^Benchmark' "$RUNNER_TEMP"/out/e2e-*.txt
+      - name: Profile today, v2 and sonic
+        # One profiled run per build, outside the rounds.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          GROUP: ${{ matrix.group }}
+        run: |
+          cd cmd/windmill-lite
+          case "$GROUP" in
+            boundary) export WL_BENCH_SIZES=4MiB,16MiB; filter='BenchmarkStepBoundary/topology=host/conc=1/'; bt=3x ;;
+            shapes) filter='BenchmarkHostShapes/shape=s8-4MiB$'; bt=3x ;;
+            study) filter='BenchmarkStudyPassThrough/size=2150KiB/depth=4$|BenchmarkStudyExpressions/tier=worst'; bt=5x ;;
+          esac
+          for b in today v2 sonic; do
+            "$RUNNER_TEMP/e-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$bt" -test.cpuprofile "$RUNNER_TEMP/out/prof-$GROUP-$b.cpu" > /dev/null
+            go tool pprof -top -nodecount=60 "$RUNNER_TEMP/e-$b.test" "$RUNNER_TEMP/out/prof-$GROUP-$b.cpu" > "$RUNNER_TEMP/out/prof-$GROUP-$b-flat.txt" 2>&1
+            go tool pprof -top -cum -nodecount=90 "$RUNNER_TEMP/e-$b.test" "$RUNNER_TEMP/out/prof-$GROUP-$b.cpu" > "$RUNNER_TEMP/out/prof-$GROUP-$b-cum.txt" 2>&1
+          done
+      - name: Compare with benchstat
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
+          cd "$RUNNER_TEMP/out"
+          "$(go env GOPATH)/bin/benchstat" today=e2e-today.txt classic=e2e-classic.txt v2=e2e-v2.txt sonic=e2e-sonic.txt sonicfast=e2e-sonicfast.txt > e2e-benchstat.txt
+          head -120 e2e-benchstat.txt
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-${{ matrix.arch }}-${{ matrix.group }}
+          path: ${{ runner.temp }}/out
+
   rss:
     needs: plan
     if: contains(needs.plan.outputs.parts, ' rss ')

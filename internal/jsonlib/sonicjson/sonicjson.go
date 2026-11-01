@@ -127,14 +127,14 @@ func (l Lib) Canonical(b []byte) ([]byte, error) {
 // obj. The key's text as written is what lies between the previous value
 // (or the opening brace) and the value, less the comma, the colon and white
 // space. Both configurations walk alike.
-func (l Lib) Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok bool) {
+func (l Lib) Members(obj []byte, fn func(key string, ks, ke, vs, ve int)) (ok bool) {
 	return Members(obj, fn)
 }
 
 var errNotSlice = errors.New("sonicjson: a raw value is not a slice of the input")
 
 // Members is Lib.Members.
-func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok bool) {
+func Members(obj []byte, fn func(key string, ks, ke, vs, ve int)) (ok bool) {
 	if len(obj) == 0 {
 		return false
 	}
@@ -171,14 +171,23 @@ func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok b
 		if err != nil {
 			return false
 		}
-		k := bytes.TrimSpace(obj[prev:vs])
-		k = bytes.TrimSpace(bytes.TrimSuffix(k, []byte(":")))
-		k = bytes.TrimSpace(bytes.TrimPrefix(k, []byte(",")))
-		fn(k, p.Key, obj[vs:vs+len(raw)])
+		// Between the previous value and this one: white space, a comma
+		// (but before the first), the key, white space, a colon, white
+		// space.
+		ks, ke := prev, vs
+		for ks < ke && (isSpace(obj[ks]) || obj[ks] == ',') {
+			ks++
+		}
+		for ke > ks && (isSpace(obj[ke-1]) || obj[ke-1] == ':') {
+			ke--
+		}
+		fn(p.Key, ks, ke, vs, vs+len(raw))
 		prev = vs + len(raw)
 	}
 	return true
 }
+
+func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
 
 // offset is where s starts in the n bytes at base, or an error when s is
 // not a slice of them.

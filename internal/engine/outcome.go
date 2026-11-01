@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -96,7 +97,7 @@ func StoreOutcome(out StepOutcome, stepID string) Stored {
 // {"error":{"message":"Non serializable error: <text>"}}.
 func FailureValue(raw []byte) jsonval.Value {
 	raw = bytes.TrimSpace(raw)
-	if !json.Valid(raw) {
+	if !jsonlib.Valid(raw) {
 		return wrapped(struct {
 			Message string `json:"message"`
 		}{"Non serializable error: " + string(raw)})
@@ -105,9 +106,9 @@ func FailureValue(raw []byte) jsonval.Value {
 	// encoding/json matches struct fields without regard to case.
 	var top, inner map[string]json.RawMessage
 	var name string
-	if json.Unmarshal(raw, &top) == nil && top != nil &&
-		json.Unmarshal(top["error"], &inner) == nil && inner != nil &&
-		json.Unmarshal(inner["name"], &name) == nil && name == "ManualFailure" {
+	if jsonlib.Unmarshal(raw, &top) == nil && top != nil &&
+		jsonlib.Unmarshal(top["error"], &inner) == nil && inner != nil &&
+		jsonlib.Unmarshal(inner["name"], &name) == nil && name == "ManualFailure" {
 		return jsonval.FromProducer(append([]byte(nil), raw...))
 	}
 	return jsonval.FromProducer(append(append([]byte(`{"error":`), raw...), '}'))
@@ -134,7 +135,7 @@ func ManualFailure(result []byte) (jsonval.Value, bool) {
 		switch m.key {
 		case "wm_failure":
 			var s *string
-			if json.Unmarshal(v, &s) != nil {
+			if jsonlib.Unmarshal(v, &s) != nil {
 				return jsonval.Value{}, false
 			}
 			message = s
@@ -142,12 +143,12 @@ func ManualFailure(result []byte) (jsonval.Value, bool) {
 			// An array of strings, or null for none; a null element is
 			// not a string, so it disables both markers.
 			var labels []json.RawMessage
-			if json.Unmarshal(v, &labels) != nil {
+			if jsonlib.Unmarshal(v, &labels) != nil {
 				return jsonval.Value{}, false
 			}
 			for _, l := range labels {
 				var label string
-				if l = bytes.TrimSpace(l); len(l) == 0 || l[0] != '"' || json.Unmarshal(l, &label) != nil {
+				if l = bytes.TrimSpace(l); len(l) == 0 || l[0] != '"' || jsonlib.Unmarshal(l, &label) != nil {
 					return jsonval.Value{}, false
 				}
 			}
@@ -250,8 +251,8 @@ var entrypointName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // wrapper runs, with an error wrapping ErrInvalidEntrypoint, whose text
 // begins as Windmill's does.
 func Entrypoint(args jsonval.Value) (entry string, override bool, err error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(args.Producer(), &top); err != nil || top == nil {
+	top, err := jsonlib.RawObject(args.Producer())
+	if err != nil || top == nil {
 		return "", false, fmt.Errorf("engine: the arguments are not a JSON object")
 	}
 	raw, ok := top[EntrypointOverride]
@@ -259,7 +260,7 @@ func Entrypoint(args jsonval.Value) (entry string, override bool, err error) {
 		return "main", false, nil
 	}
 	var name string
-	if json.Unmarshal(raw, &name) != nil || !entrypointName.MatchString(name) {
+	if jsonlib.Unmarshal(raw, &name) != nil || !entrypointName.MatchString(name) {
 		return "", true, fmt.Errorf("%w: %s", ErrInvalidEntrypoint, raw)
 	}
 	return name, true, nil

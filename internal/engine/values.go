@@ -11,6 +11,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr"
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -58,36 +59,16 @@ func orNull(raw []byte) []byte {
 
 func isObject(v jsonval.Value) bool {
 	t := bytes.TrimSpace(v.Producer())
-	return len(t) > 0 && t[0] == '{' && json.Valid(t)
+	return len(t) > 0 && t[0] == '{' && jsonlib.Valid(t)
 }
 
 // members splits a JSON object's text into its top-level members, each
 // key and value as written. ok is false for text that is not one JSON
 // object.
 func members(obj []byte) (ms []rawMember, ok bool) {
-	dec := json.NewDecoder(bytes.NewReader(obj))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return nil, false
-	}
-	for dec.More() {
-		start := dec.InputOffset()
-		var key string
-		if t, err := dec.Token(); err != nil {
-			return nil, false
-		} else if key, ok = t.(string); !ok {
-			return nil, false
-		}
-		keyEnd := dec.InputOffset()
-		var v json.RawMessage
-		if err := dec.Decode(&v); err != nil {
-			return nil, false
-		}
-		ms = append(ms, rawMember{key: key, rawKey: bytes.TrimLeft(bytes.TrimSpace(obj[start:keyEnd]), ","), value: v})
-	}
-	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
-		return nil, false
-	}
-	if _, err := dec.Token(); err == nil {
+	if !jsonlib.Members(obj, func(key string, ks, ke, vs, ve int) {
+		ms = append(ms, rawMember{key: key, rawKey: obj[ks:ke:ke], value: obj[vs:ve:ve]})
+	}) {
 		return nil, false
 	}
 	return ms, true
@@ -249,7 +230,7 @@ func recovers(result jsonval.Value) bool {
 		}
 	case len(t) > 0 && t[0] == '[':
 		var elems []json.RawMessage
-		if json.Unmarshal(t, &elems) != nil || len(elems) != 1 {
+		if jsonlib.Unmarshal(t, &elems) != nil || len(elems) != 1 {
 			return false
 		}
 		field = elems[0]
@@ -285,7 +266,7 @@ func errorName(v jsonval.Value) string {
 			Name string `json:"name"`
 		} `json:"error"`
 	}
-	if v.IsZero() || json.Unmarshal(v.Producer(), &top) != nil {
+	if v.IsZero() || jsonlib.Unmarshal(v.Producer(), &top) != nil {
 		return ""
 	}
 	return top.Error.Name

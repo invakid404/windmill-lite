@@ -153,7 +153,7 @@ func TestExactness(t *testing.T) {
 			}
 			if c.Members != nil {
 				var ms []string
-				ok := c.Members(in, func(rk []byte, k string, v []byte) { ms = append(ms, fmt.Sprintf("%q|%q|%q", rk, k, v)) })
+				ok := c.Members(in, func(k string, ks, ke, vs, ve int) { ms = append(ms, fmt.Sprintf("%q|%q|%q", in[ks:ke], k, in[vs:ve])) })
 				emit(p.name, "members", c.Name, fmt.Sprintf("%v %s", ok, strings.Join(ms, " ")))
 			}
 			if c.Marshal != nil {

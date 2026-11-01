@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -20,11 +21,11 @@ import (
 // written. ok is false for text that is not one JSON array.
 func elements(text []byte) (items [][]byte, ok bool) {
 	t := bytes.TrimSpace(text)
-	if len(t) == 0 || t[0] != '[' || !json.Valid(t) {
+	if len(t) == 0 || t[0] != '[' || !jsonlib.Valid(t) {
 		return nil, false
 	}
-	var raw []json.RawMessage
-	if err := json.Unmarshal(t, &raw); err != nil {
+	raw, err := jsonlib.RawArray(t)
+	if err != nil {
 		return nil, false
 	}
 	items = make([][]byte, len(raw))

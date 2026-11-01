@@ -102,7 +102,7 @@ var Ops = []Op{
 		Prepare: func(_ Cand, payload []byte) (any, error) { return AsArgs(payload), nil },
 		Do: func(c Cand, in any) (int, error) {
 			n := 0
-			if !c.Members(in.([]byte), func(_ []byte, _ string, v []byte) { n += len(v) }) {
+			if !c.Members(in.([]byte), func(_ string, _, _, vs, ve int) { n += ve - vs }) {
 				return 0, errors.New("not one object")
 			}
 			return n, nil

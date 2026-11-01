@@ -2,10 +2,8 @@ package harness
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
-	"io"
 
+	"github.com/invakid404/windmill-lite/internal/jsonlib"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -28,36 +26,16 @@ func scriptArgs(args jsonval.Value) jsonval.Value {
 	if !bytes.Contains(text, []byte("_MODULES")) && !bytes.Contains(text, []byte("_TEMP_SCRIPT_REFS")) && !bytes.Contains(text, []byte(`\`)) {
 		return args
 	}
-	dec := json.NewDecoder(bytes.NewReader(text))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return args
-	}
 	var kept [][]byte
 	dropped := false
-	for dec.More() {
-		start := dec.InputOffset()
-		t, err := dec.Token()
-		key, ok := t.(string)
-		if err != nil || !ok {
-			return args
-		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			return args
-		}
+	if !jsonlib.Members(text, func(key string, ks, _, _, ve int) {
 		if internalArgs[key] {
 			dropped = true
-			continue
+			return
 		}
-		// The member's text from its key to its value's end, without the
-		// comma and the whitespace before it.
-		m := bytes.TrimLeft(text[start:dec.InputOffset()], " \t\r\n")
-		kept = append(kept, bytes.TrimLeft(bytes.TrimPrefix(m, []byte(",")), " \t\r\n"))
-	}
-	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
-		return args
-	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		// The member's text from its key to its value's end.
+		kept = append(kept, text[ks:ve])
+	}) {
 		return args
 	}
 	if !dropped {

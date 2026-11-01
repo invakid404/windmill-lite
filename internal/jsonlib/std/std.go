@@ -47,11 +47,12 @@ func RawArray(b []byte) ([]json.RawMessage, error) {
 }
 
 // Members calls fn for each top-level member of the JSON object obj, in
-// order and duplicates included: the key's text as written (quotes
-// included), the key decoded, and the value's text. ok is false when obj
-// is not exactly one JSON object; fn may have been called by then. It is
-// engine.members' walk, with a json.Decoder.
-func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok bool) {
+// order and duplicates included, with the key decoded and where the key's
+// text (quotes included) and the value's text lie in obj: obj[ks:ke] and
+// obj[vs:ve]. ok is false when obj is not exactly one JSON object; fn may
+// have been called by then. It is engine.members' walk, with a
+// json.Decoder.
+func Members(obj []byte, fn func(key string, ks, ke, vs, ve int)) (ok bool) {
 	dec := json.NewDecoder(bytes.NewReader(obj))
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return false
@@ -68,8 +69,10 @@ func Members(obj []byte, fn func(rawKey []byte, key string, value []byte)) (ok b
 		if err := dec.Decode(&v); err != nil {
 			return false
 		}
-		raw := bytes.TrimLeft(bytes.TrimSpace(obj[start:keyEnd]), ",")
-		fn(bytes.TrimSpace(raw), key, v)
+		raw := bytes.TrimSpace(bytes.TrimLeft(bytes.TrimSpace(obj[start:keyEnd]), ","))
+		ke := int(keyEnd)
+		ve := int(dec.InputOffset())
+		fn(key, ke-len(raw), ke, ve-len(v), ve)
 	}
 	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
 		return false

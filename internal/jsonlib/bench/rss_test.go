@@ -1,6 +1,8 @@
 package bench
 
 import (
+	"github.com/invakid404/windmill-lite/internal/jsonlib/shapes"
+
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -28,7 +30,7 @@ func TestWriteFixtures(t *testing.T) {
 	}
 	if os.Getenv("JSONLIB_BRIEF") != "" {
 		// The brief's families, at the tiers JSONLIB_BRIEF lists.
-		for _, f := range Brief {
+		for _, f := range shapes.Brief {
 			for _, tier := range f.Tiers {
 				if !strings.Contains(","+os.Getenv("JSONLIB_BRIEF")+",", ","+tier.Name+",") {
 					continue
@@ -42,9 +44,9 @@ func TestWriteFixtures(t *testing.T) {
 		return
 	}
 	for _, n := range sizes(t) {
-		for _, f := range Families {
+		for _, f := range shapes.Families {
 			p := filepath.Join(dir, f+"-"+jsonval.SizeLabel(n)+".json")
-			if err := os.WriteFile(p, Make(f, n), 0o644); err != nil {
+			if err := os.WriteFile(p, shapes.Make(f, n), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}
