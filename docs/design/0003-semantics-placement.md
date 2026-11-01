@@ -144,6 +144,11 @@ harness, which is (a) with its duplication.
      text goes to the engine. That covers an inherited property, a
      primitive's member, a `TypeError`, and a value that needs JE-16's
      rebuild.
+   - Only values already bound are read: context values, and the previous
+     result that the results prelude answers from memory. A read through
+     the results lookup is a host call, which stays under the engine's
+     attempt limit, cancellation and retries (JE-2). A text that JE-11's
+     helper-call rewrite changes stays the engine's too.
    - The engine declares that it evaluates such paths exactly
      (`ExactMemberPaths`). A differential test against QuickJS-ng over
      generated values and paths holds the two to each other. Such a path

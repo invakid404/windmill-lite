@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -155,7 +156,7 @@ func (c pathCase) check(t *testing.T, p *Pipeline) pathResult {
 	if err := checkDepth(e, s, in); err != nil {
 		t.Fatalf("%s over %s: %v", c.expr(), c.text, err)
 	}
-	got, ok := mp.eval(ctx, &in)
+	got, ok := mp.eval(in)
 	want, err := p.evaluate(ctx, e, bind(e, c.scope()))
 	switch {
 	case !ok && err != nil:
@@ -184,8 +185,11 @@ func genPathCase(rng *rand.Rand) pathCase {
 	default:
 		c.root = "results"
 		c.spell = []string{"results.st", "results?.st", `results["st"]`}[rng.IntN(3)]
-		c.memory = rng.IntN(4) == 0
-		c.fail = !c.memory && rng.IntN(20) == 0
+		// A results.<id> read is answered only from memory, the previous
+		// result; a read through the lookup stays the engine's, so a few
+		// cases check that it is declined.
+		c.memory = rng.IntN(5) > 0
+		c.fail = !c.memory && rng.IntN(4) == 0
 	}
 	c.unbound = c.root == "previous_result" && rng.IntN(30) == 0
 	// A context value with a \u escape is rebuilt (JE-16), which memberPath
@@ -230,6 +234,8 @@ var genKeys = []string{
 	"a", "b", "id", "items", "name", "data", "n", "x_1", "$k", "0", "1", "2", "10", "007", "-1", "1.5", "4294967294", "4294967295",
 	"2147483647", "2147483648", "length", "constructor", "toString", "hasOwnProperty", "valueOf", "__proto__", "", "with space",
 	"ü", "😀", "quo\"te", "back\\slash", "tab\t", "a-b",
+	// Helper-call texts, which JE-11 rewrites inside quoted keys too.
+	"variable(x)", "resource(x)", "flow_user_state(x)", "(await resource(x))", "resource(",
 }
 
 func genPathValue(rng *rand.Rand, depth int, escapes bool) *genValue {
@@ -436,10 +442,10 @@ func spellStep(rng *rand.Rand, key string, opt bool) string {
 }
 
 // TestMemberPathPipeline holds the pipeline to its use of member paths: on
-// an engine that evaluates them exactly, a member path does not reach the
-// engine, and a results lookup that fails is read once, by the shortcut,
-// with the engine's evaluation getting its answer; on any other engine,
-// every such path reaches it.
+// an engine that evaluates them exactly, a member path over a bound value
+// or the previous result does not reach the engine, while one that needs
+// the results lookup does, and the lookup is read once, by the engine; on
+// any other engine, every such path reaches it.
 func TestMemberPathPipeline(t *testing.T) {
 	ctx := context.Background()
 	real := realEngine(t, DefaultLimits(), 0)
@@ -457,9 +463,10 @@ func TestMemberPathPipeline(t *testing.T) {
 	}{
 		{"flow_input.cfg.region", `"eu-1"`, false},
 		{"previous_result.items[0]?.id", `7`, false},
-		{`results["a"].n`, `1`, false},
-		{"results.a?.missing?.x", `null`, false},
+		{`results["a"].n`, `1`, true},
+		{"results.a?.missing?.x", `null`, true},
 		{"results.b.items.length", `1`, false},
+		{`results["b"]?.items[0].id`, `7`, false},
 		{"flow_input.cfg.toString", `null`, true},
 		{"flow_input.cfg.region.length", `4`, true},
 		{"flow_input.missing.x", "", true},
@@ -518,6 +525,79 @@ func TestMemberPathPipeline(t *testing.T) {
 	}
 	if msgs[0] != msgs[1] {
 		t.Fatalf("the failed read's error with the shortcut %q, without %q", msgs[0], msgs[1])
+	}
+}
+
+// A text that JE-11 rewrites is the engine's, whichever helper it spells
+// and wherever: in a quoted key, in a results id, rewritten into another
+// key or into a syntax error. The pipeline gives what it gives with member
+// paths off.
+func TestMemberPathHelperCallTexts(t *testing.T) {
+	ctx := context.Background()
+	p := NewPipeline(realEngine(t, DefaultLimits(), 0))
+	prev := `{"variable(x)":1,"(await variable(x))":2,"resource(x)":3,"(await resource(x))":4,"flow_user_state(x)":5,"(await flow_user_state(x))":6,"a":{"resource(x)":7}}`
+	for _, text := range []string{
+		`previous_result["variable(x)"]`, `previous_result["resource(x)"]`, `previous_result["flow_user_state(x)"]`,
+		`previous_result?.['resource(x)']`, `previous_result.a["resource(x)"]`, `flow_input["variable(x)"]`,
+		`previous_result["resource("]`, `results["resource(x)"].a`, `results["variable(x)"]?.a`,
+	} {
+		t.Run(text, func(t *testing.T) {
+			e := Compile(SiteInputTransform, text)
+			if parseMemberPath(e) != nil {
+				t.Fatalf("a text JE-11 rewrites to %q is taken as a member path", e.Source)
+			}
+			for _, prevID := range []string{"b", "resource(x)", "variable(x)"} {
+				s := &Scope{
+					PreviousID: prevID,
+					Context:    []Named{{Name: "previous_result", Value: jsonval.FromProducer([]byte(prev))}},
+					FlowInput:  jsonval.FromProducer([]byte(prev)),
+					Results:    &fakeResults{stored: map[string]string{"resource(x)": prev, "variable(x)": prev}},
+				}
+				p.paths = true
+				on, onErr := p.Eval(ctx, e, s)
+				p.paths = false
+				off, offErr := p.Eval(ctx, e, s)
+				p.paths = true
+				if string(on.Producer()) != string(off.Producer()) || fmt.Sprint(onErr) != fmt.Sprint(offErr) {
+					t.Fatalf("previous id %q: %s, %v with member paths; %s, %v without", prevID, on.Producer(), onErr, off.Producer(), offErr)
+				}
+			}
+		})
+	}
+}
+
+// A results.<id> read through the lookup stays under the evaluation's
+// attempt limit and retries (JE-2): a lookup slower than the limit fails
+// the evaluation with the time-limit error, member paths on or off.
+func TestMemberPathLookupKeepsTheAttemptLimit(t *testing.T) {
+	l := DefaultLimits()
+	l.Attempt = 20 * time.Millisecond
+	p := NewPipeline(realEngine(t, l, 1))
+	setRetry(p, 1, 0)
+	e := Compile(SiteInputTransform, "results.st?.n")
+	s := &Scope{PreviousID: "other", Results: slowResults{}}
+	for _, paths := range []bool{true, false} {
+		p.paths = paths
+		_, err := p.Eval(context.Background(), e, s)
+		if !errors.Is(err, ErrAttemptTimeout) {
+			t.Fatalf("member paths %t: %v, want the attempt limit's error", paths, err)
+		}
+	}
+}
+
+// slowResults answers every lookup after 100 ms, or when its context ends.
+type slowResults struct{}
+
+func (slowResults) Stored(context.Context, string) (jsonval.Value, bool) {
+	return jsonval.Value{}, false
+}
+
+func (slowResults) Lookup(ctx context.Context, _ string) (jsonval.Value, error) {
+	select {
+	case <-time.After(100 * time.Millisecond):
+		return jsonval.FromProducer([]byte(`{"n":7}`)), nil
+	case <-ctx.Done():
+		return jsonval.Value{}, context.Cause(ctx)
 	}
 }
 

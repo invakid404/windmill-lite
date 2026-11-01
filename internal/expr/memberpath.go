@@ -2,12 +2,10 @@ package expr
 
 import (
 	"bytes"
-	"context"
 	"math"
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -31,9 +29,10 @@ const (
 )
 
 // memberPath is an expression that only reads a member path of a JSON
-// value: a bound context value (flow_input, previous_result, ...) or a
-// step's result (results.<id>, which JE-12 rewrites into an awaited read),
-// then members and indexes, optionally chained. The engine would parse the
+// value: a bound context value (flow_input, previous_result, ...) or the
+// previous step's result read as results.<id> (which JE-12 rewrites into an
+// awaited read, and the results prelude answers from memory), then members
+// and indexes, optionally chained. The engine would parse the
 // value's text, read the members as JavaScript does and serialise what it
 // finds (JE-15); the pipeline does the same without the engine, and
 // declines (nil, or ok false from eval) wherever JavaScript would do more
@@ -60,6 +59,12 @@ func parseMemberPath(e *Expr) *memberPath {
 		return nil
 	}
 	t := e.Trimmed
+	// JE-11 rewrites helper calls anywhere in the text, inside quoted keys
+	// and ids too, so the program may read another key than the text
+	// spells: a text it changes is the engine's.
+	if code, _ := rewriteCalls(t); code != t {
+		return nil
+	}
 	matches := resultsRead.FindAllStringIndex(t, -1)
 	mp := &memberPath{}
 	var rest string
@@ -186,12 +191,12 @@ func canonicalIndex(s string) bool {
 // or reports false to leave it to the engine. The engine's context prelude
 // parses every bound value before the path is read, so each must be JSON
 // that parses exactly, and none may need the prelude's rebuild (JE-16).
-// The root of results.<id> is the previous result when the results prelude
-// answers it from memory (JE-18 rule 1), and otherwise the results
-// lookup's answer, read once: when eval declines after the read, the
-// engine's read of the same id gets that answer (in is changed so), as the
-// engine would have made the only read.
-func (mp *memberPath) eval(ctx context.Context, in *Input) ([]byte, bool) {
+// The root of results.<id> is answered only when the results prelude
+// answers it from memory, the previous result (JE-18 rule 1). Any other
+// id is a read through the results lookup, a host call the engine makes
+// under the evaluation's attempt limit, cancellation and retries (JE-2),
+// so it stays the engine's.
+func (mp *memberPath) eval(in Input) ([]byte, bool) {
 	rootName := mp.root
 	if rootName == "" {
 		var prev []byte
@@ -200,9 +205,10 @@ func (mp *memberPath) eval(ctx context.Context, in *Input) ([]byte, bool) {
 				prev = s.Text
 			}
 		}
-		if prev != nil && string(prev) == mp.step {
-			rootName = "previous_result"
+		if prev == nil || string(prev) != mp.step {
+			return nil, false // a read through the results lookup
 		}
+		rootName = "previous_result"
 	}
 	var root []byte
 	rootBound := false
@@ -219,30 +225,10 @@ func (mp *memberPath) eval(ctx context.Context, in *Input) ([]byte, bool) {
 			}
 		}
 	}
-	if rootName != "" {
-		if !rootBound {
-			return nil, false // a ReferenceError
-		}
-		return walkPath(root, mp.steps)
+	if !rootBound {
+		return nil, false // a ReferenceError
 	}
-	lookup := slices.IndexFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults })
-	if lookup < 0 {
-		return nil, false // results is not defined
-	}
-	call := in.Funcs[lookup].Call
-	text, err := call(ctx, mp.step)
-	var used atomic.Bool
-	in.Funcs = slices.Clone(in.Funcs)
-	in.Funcs[lookup].Call = func(ctx context.Context, id string) ([]byte, error) {
-		if id == mp.step && used.CompareAndSwap(false, true) {
-			return text, err
-		}
-		return call(ctx, id)
-	}
-	if err != nil {
-		return nil, false // the read's Error, which the engine throws
-	}
-	return walkPath(text, mp.steps)
+	return walkPath(root, mp.steps)
 }
 
 // validJSON reports whether t is UTF-8 JSON text no deeper than

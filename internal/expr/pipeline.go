@@ -137,10 +137,10 @@ func (p *Pipeline) program(source string) (Program, error) {
 // reported as its cause, not as the lookup's null.
 //
 // Otherwise, on an engine that evaluates member paths exactly
-// (ExactMemberPaths), a text that only reads a member path of a JSON value,
-// such as flow_input.cfg.region, previous_result.items[0]?.id or
-// results.a?.b, is answered as the engine would answer it, without the
-// engine (memberPath). Anything else runs the expression's program on the
+// (ExactMemberPaths), a text that only reads a member path of a bound JSON
+// value, such as flow_input.cfg.region, previous_result.items[0]?.id or
+// results.<previous id>?.b, is answered as the engine would answer it,
+// without the engine (memberPath). Anything else runs the expression's program on the
 // engine (see evaluate). A failure is an *EvalError with Windmill's text; a context that ends during
 // the evaluation gives its cause instead. The engine's text is returned as
 // it is, without a check that it is JSON: the user's code can replace
@@ -169,7 +169,7 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 		return jsonval.Value{}, err
 	}
 	if mp := p.memberPath(e); mp != nil {
-		if out, ok := mp.eval(ctx, &in); ok {
+		if out, ok := mp.eval(in); ok {
 			if err := context.Cause(ctx); err != nil {
 				return jsonval.Value{}, err
 			}

@@ -10,9 +10,9 @@ import (
 // BenchmarkEvalMemberPath evaluates member paths over JSON values, the
 // expressions that read a context value's or a step's member, which the
 // shortcuts of JE-6 to JE-9 do not answer: a nested flow input key, an
-// index into the previous result, and an optional member of an earlier
-// step's result. It is the per-expression cost the engine pays at an
-// input transform, on the real engine.
+// index into the previous result, and an optional member of the previous
+// step's result read as results.<id>. It is the per-expression cost the
+// engine pays at an input transform, on the real engine.
 func BenchmarkEvalMemberPath(b *testing.B) {
 	p := NewPipeline(realEngine(b, DefaultLimits(), 0))
 	s := &Scope{
@@ -21,7 +21,7 @@ func BenchmarkEvalMemberPath(b *testing.B) {
 		FlowInput:  jsonval.FromProducer([]byte(`{"tenant":"tenant-a","cfg":{"region":"eu-1","tier":2}}`)),
 		Results:    &fakeResults{stored: map[string]string{"a": `{"n":1}`}},
 	}
-	for _, text := range []string{"flow_input.cfg.region", "previous_result.data.items[0].id", "results.a?.n"} {
+	for _, text := range []string{"flow_input.cfg.region", "previous_result.data.items[0].id", "results.b?.n"} {
 		e := Compile(SiteInputTransform, text)
 		p.Prepare(e)
 		want, err := p.Eval(context.Background(), e, s)
