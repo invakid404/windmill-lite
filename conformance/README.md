@@ -874,8 +874,8 @@ The codebase cases are whole-folder cases:
 - the codebase variants of `d12.json`: host-provided modules through their
   shims, those outside the folder included. They also cover the shared
   copy of a listed codebase script, built with its entry's settings, the
-  refused import of one by a Bun script, and the shared-dependency warning
-  for codebase scripts.
+  refused import of one by a Bun script, the shared-dependency warning
+  for codebase scripts, and the registration order by load-time imports.
 
 `d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
 membership and the `import.meta` parameter, build groups, installations
