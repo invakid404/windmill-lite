@@ -29,13 +29,16 @@ const calls: Record<string, number> = {};
 (globalThis as Record<symbol, unknown>)[Symbol.for("windmill-lite.bench.calls")] = calls;
 
 // The synthetic resources. r4 holds a $WM_ string, which the engine
-// substitutes for each job after the read.
+// substitutes for each job after the read, and so does f/bench/jobres;
+// f/bench/counter answers how many times the run has read it, so a read
+// that is not repeated shows.
 const resources: Record<string, { type: string; value: unknown }> = {};
 for (let k = 1; k <= 4; k++) {
   const value = { host: `db-${k}.bench.example.invalid`, port: 5430 + k, user: "bench", pool: { min: 1, max: 4 * k } };
   resources[`f/bench/r${k}`] = { type: "c_bench_db", value: k === 4 ? { ...value, workspace: "$WM_WORKSPACE" } : value };
   resources[`f/bench/slow/r${k}`] = resources[`f/bench/r${k}`];
 }
+resources["f/bench/jobres"] = { type: "c_bench_job", value: { job: "$WM_JOB_ID" } };
 
 function count(run: string, path: string) {
   const key = `${run} ${path}`;
@@ -46,6 +49,7 @@ const plugin: Plugin = {
   resource: async (path, e) => {
     count(e.run, path);
     if (path.startsWith("f/bench/slow/")) await Bun.sleep(1);
+    if (path === "f/bench/counter") return { type: "c_bench_counter", value: { seen: calls[`${e.run} ${path}`] } };
     return resources[path];
   },
   variable: async (path, e) => {

@@ -661,6 +661,11 @@ func (rt *Runtime) pluginServices(run *runBinding, own *platform.Store, resolver
 		}
 	}
 	res, vars = append(res, rt.store), append(vars, rt.store)
+	if rt.readCache {
+		// One cache per run, over the whole chain (deviation D21).
+		c := platform.NewReadCache(res, vars)
+		return rt.services.WithProviders(platform.Providers{Resources: c, Variables: c, Resolvers: resolvers})
+	}
 	return rt.services.WithProviders(platform.Providers{Resources: res, Variables: vars, Resolvers: resolvers})
 }
 

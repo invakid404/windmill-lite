@@ -212,6 +212,7 @@ export async function main(timings: boolean) {
 `,
 		"f/bench/work.ts":              benchWork,
 		"f/bench/resstep.ts":           benchResStep,
+		"f/bench/cachestep.ts":         benchCacheStep,
 		"f/bench/probe.flow/flow.yaml": "summary: The benchmarks' probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/probe, input_transforms: {timings: {type: javascript, expr: flow_input.timings}}}\n",
 	}
 	var chain strings.Builder
@@ -224,6 +225,12 @@ export async function main(timings: boolean) {
 		fmt.Fprintf(&chain, "    - id: %c\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: %s}}}\n", 'a'+k, from)
 	}
 	files["f/bench/chain.flow/flow.yaml"] = chain.String()
+	var cache strings.Builder
+	cache.WriteString("summary: Steps that read the same resources and variable\nvalue:\n  modules:\n")
+	for k := range 3 {
+		fmt.Fprintf(&cache, "    - id: c%d\n      value: {type: script, path: f/bench/cachestep, input_transforms: {counter: {type: static, value: '$res:f/bench/counter'}, job: {type: static, value: '$res:f/bench/jobres'}}}\n", k+1)
+	}
+	files["f/bench/cachecheck.flow/flow.yaml"] = cache.String()
 	for _, s := range benchShapes {
 		files[s.path()+".flow/flow.yaml"] = s.flow()
 	}
@@ -288,6 +295,19 @@ export async function main(prev: unknown, a: { host: string; workspace?: string 
     out.cpu = { user: c.user, system: c.system };
   }
   return out;
+}
+`
+
+// benchCacheStep is the step of f/bench/cachecheck: it takes two
+// resources as arguments, reads a resource and a variable through the job
+// API, and returns what it saw.
+const benchCacheStep = `// Reads resources and a variable as arguments and through the job API.
+export async function main(counter: { seen: number }, job: { job: string }) {
+  const base = process.env.BASE_URL + "/api/w/" + process.env.WM_WORKSPACE;
+  const auth = { headers: { Authorization: "Bearer " + process.env.WM_TOKEN } };
+  const r3 = await (await fetch(base + "/resources/get_value_interpolated/f/bench/r3", auth)).json();
+  const v1 = await (await fetch(base + "/variables/get_value/f/bench/v1", auth)).json();
+  return { seen: counter.seen, job: job.job, own_job: process.env.WM_JOB_ID, r3: r3.host, v1 };
 }
 `
 
@@ -403,7 +423,13 @@ func benchSetup(b testing.TB) string {
 }
 
 // benchRuntime opens the bundle on one topology, closed when b ends.
+// WL_BENCH_READ_CACHE=on turns the read cache on (wl.Options.ReadCache).
 func benchRuntime(b testing.TB, bun, topology string) *wl.Runtime {
+	return benchRuntimeWith(b, bun, topology, func(o *wl.Options) { o.ReadCache = os.Getenv("WL_BENCH_READ_CACHE") == "on" })
+}
+
+// benchRuntimeWith is benchRuntime with the options edit sets.
+func benchRuntimeWith(b testing.TB, bun, topology string, edit func(*wl.Options)) *wl.Runtime {
 	b.Helper()
 	// A short directory: Unix socket paths are limited to about 100 bytes.
 	dir, err := os.MkdirTemp("", "wl-b-")
@@ -443,6 +469,7 @@ func benchRuntime(b testing.TB, bun, topology string) *wl.Runtime {
 	default:
 		b.Fatalf("topology %q", topology)
 	}
+	edit(&opts)
 	rt, err := wl.Open(benchBundle, opts)
 	if err != nil {
 		b.Fatalf("wl.Open (%s): %v", topology, err)

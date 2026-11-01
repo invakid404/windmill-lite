@@ -81,6 +81,9 @@ and `halted`. Traces, hooks and observations therefore share one vocabulary.
   - H11 (host scopes) lives in the Bun harness.
 - **H13** (per-run platform providers) reaches the engine as
   `RunRequest.Platform`, below.
+- **Run-time deviations** that a host's setting turns on for a run, such
+  as D21's read cache, reach the engine as `RunRequest.Deviations`, which
+  the trace lists among its own.
 - **Hosts** get these seams as Go callbacks with selectors through `wl`
   (F2a): wl's `Hooks` implements this interface over them.
 

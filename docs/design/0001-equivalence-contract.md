@@ -150,8 +150,8 @@ remotely.
 
 Each deviation has an id and a conformance case that shows the difference.
 A deviation fixed at build time is listed in the bundle manifest. One that
-depends on a runtime setting the host chooses (D15, and D2's watchdog), or
-on what a run meets (D20), is recorded in each run's trace.
+depends on a runtime setting the host chooses (D15, D21, and D2's
+watchdog), or on what a run meets (D20), is recorded in each run's trace.
 
 | Id | Deviation | Why | Record |
 |---|---|---|---|
@@ -175,6 +175,19 @@ on what a run meets (D20), is recorded in each run's trace.
 | D18 | With shared code, a `warm` or host-mode process compiles a group's dependency modules once and gives each step module its own instance of them, so module state stays per script. Three things differ from the per-script bundle: the stack text, names and source text of dependency code; when an ES module dependency's default export is read; and unused code that another script of the group uses can run. A host opts in at build, and `fresh` runs the per-script bundles | a process that loads many step modules carrying one large dependency closure would otherwise hold a copy of the closure per module: a host measured about 59 MiB per module against a 650 MiB budget | [0013](0013-shared-module-code.md) |
 | D19 | A bundled Bun script keeps a module that a `sideEffects: false` package re-exports when the package is reached through a bare import that ends in `.ts` (a package named `*.ts`, or a deep `pkg/index.ts`). Windmill's Bun build drops that module, and the step fails with a `ReferenceError` ([WR-27](../semantics/languages.md#wr-27)/c). Cases: `conformance/build/wr-27.json` | Bun 1.3.10 drops such a module whenever a build plugin's resolve filter matches the import that reaches the package. Windmill's import plugin filters every specifier that ends in `.ts`; windmill-lite's build helper filters only the specifiers it resolves itself, so that host-provided modules keep their load effects (D12). Reproducing the drop would mean adding a filter whose only effect is to lose code | [0010](0010-packaging.md) |
 | D20 | A flow left waiting for a transition that never comes, after a container's children's results cannot be read back ([FX-42](../semantics/execution.md#fx-42) rule 9), is canceled by the monitor at once. Windmill's zombie-flow monitor cancels it once its last progress is older than `FLOW_ZOMBIE_TRANSITION_TIMEOUT`, 60 s by default. So steps of the run that are still in flight, such as a parallel sibling, are canceled with it, where Windmill can let them finish. The run's trace lists D20 when this happens | the waiting flow makes no progress in the meantime. Waiting would only delay the same cancel by 60 s in every run that meets it, the conformance runs included. With the monitor disabled (`TransitionTimeout` negative), the flow waits until the host cancels the run | §7, the JE-2 row (the monitor's cancel) |
+| D21 | Opt-in: with the host's read cache, a flow run reads each resource and variable from its providers once, and answers its later reads of it from that read. Windmill reads them for each job and each call, so a value that changes during a run reaches its later steps there, and here only the next run (**D21, the read cache**, below) | a host whose resources come from an API pays a round trip per read, about 1.5 ms when the API is 1 ms away | [0007](0007-platform-interface.md) |
+
+**D21, the read cache.** A host turns it on with `wl.Options.ReadCache`,
+the host SDK's `readCache` or `windmill-lite host -read-cache`; it is off
+by default. It covers a step's `$res:` and `$var:` arguments, `flow_env`,
+and the step's reads through the job API. The value is kept as stored, so
+`$WM_*` strings and nested references still resolve for each job, and a
+variable a step updates is read again.
+
+The run's trace lists D21. `TestReadCacheHostCalls` (cmd/windmill-lite)
+shows the difference: with the cache, three steps that read a resource
+whose value changes at every read all see its first value, and the host's
+provider is called once per path and run.
 
 **D5, the native boundary mode** (milestone C3n). A native invocation runs
 in a `node:vm` context of the harness process, made for it and released

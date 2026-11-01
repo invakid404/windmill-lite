@@ -67,6 +67,15 @@ export type ConnectOptions = {
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
   watchdog?: { killAfter: number };
+  /** The read cache (deviation D21 of ADR 0001), off by default: each run
+   * reads each resource and variable once, the plugin's resource and
+   * variable hooks included, and answers its later reads of it, its
+   * steps' $res: and $var: arguments and their reads through the job API
+   * alike, from that read. Windmill reads them again for each job, so a
+   * value that changes during a run reaches its later steps there, and
+   * here only the next run. $WM_* strings still resolve for each job, and
+   * a variable a step updates is read again. */
+  readCache?: boolean;
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
    * "retired"). A host that sees one drains and exits, and its supervisor
@@ -269,7 +278,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // overtake, and the step may block the event loop right after.
   const child = spawn(
     o.engine,
-    [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`, ...(o.engineFlags ?? [])],
+    [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`, ...(o.readCache ? ["-read-cache"] : []), ...(o.engineFlags ?? [])],
     { stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"] },
   );
   let settle: { resolve: () => void; reject: (e: Error) => void };

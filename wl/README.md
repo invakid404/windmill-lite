@@ -132,6 +132,14 @@ of a step that settled without awaiting one and of a step that the run's
 cancellation abandoned included; a call answered after the run ended, and
 the calls of the runs the dispatcher starts, are not in it.
 
+`Options.ReadCache`, off by default, gives each flow run a read cache
+(deviation D21 of
+[ADR 0001](../docs/design/0001-equivalence-contract.md#5-named-deviations)).
+The run reads each resource and variable from its providers once, the
+plugin's included, and answers its later reads of it from that read. This
+covers its steps' `$res:` and `$var:` arguments, `flow_env` and their reads
+through the job API (`platform.ReadCache`). The run's trace lists D21.
+
 `Run` is safe for concurrent use: runs of one runtime share its harness
 pool, its services and its expression engine. A run latched by a hook, a
 provider or the engine (H5) has status `latched` and its error in

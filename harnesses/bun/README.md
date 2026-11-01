@@ -483,6 +483,13 @@ It returns a `Host`:
 - `close()` ends the connection and resolves once the engine has exited;
   the host lives on.
 
+The connect option `readCache`, off by default, gives each run a read
+cache (deviation D21 of
+[ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations)):
+the SDK starts the engine with `-read-cache`. A run then calls the
+plugin's `resource` and `variable` hooks once per path, and answers its
+later reads of the path from that call.
+
 The connect option `recycle` sets recycle triggers, none by default: `rss`
 trips when the resident set is at least that many bytes on `samples`
 consecutive heartbeats (default 2), `modules` when more script modules

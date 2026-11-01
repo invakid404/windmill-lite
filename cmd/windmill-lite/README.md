@@ -155,6 +155,7 @@ connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
 | `-digest` | the bundle digest the bundle must have |
 | `-variables`, `-resources` | the host's variables and resources, as for `run` |
 | `-plugin-timeout` | how long a `host_call` to the host's plugin waits for its reply (default 1m; F2c) |
+| `-read-cache` | give each run a read cache, deviation D21 of [ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations): each resource and variable is read once per run (`wl.Options.ReadCache`, the host SDK's `readCache`) |
 | `-cpuprofile` | write a CPU profile of the engine to this file until the host's connection ends ([Profiling](#profiling)) |
 
 ### Profiling
@@ -265,6 +266,7 @@ The tests:
 | `TestHostVersionPairing` | F3b: the SDK–engine version pairing (ADR 0009): a host whose SDK is stamped with another release (`bun run --define WL_RELEASE`) is refused with `version_mismatch` by the engine (stamped as `-X main.version` would, `WL_TEST_ENGINE_VERSION`), the SDK refuses a welcome from an engine of another release that does not check (`fakeEngine`), and the engine's own release is welcomed and runs |
 | `TestHostStaticIntercept` | H1's static form through the run frame |
 | `TestHostStepLatency` | reports the per-step latency of host mode |
+| `TestHostReadCacheOption` | the SDK's `readCache` reaches the engine: the run lists deviation D21, and without the option it does not |
 | `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
 
 They need the pinned Bun in `WL_BUN` too, and the build helper's

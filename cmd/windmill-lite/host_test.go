@@ -824,6 +824,27 @@ func TestHostWatchdogFiniteCPU(t *testing.T) {
 	})
 }
 
+// The SDK's readCache option reaches the engine (`host -read-cache`):
+// a run on a host connected with it lists deviation D21, the read cache,
+// among its deviations, and one on a host without it does not.
+// TestReadCacheHostCalls shows what the cache does.
+func TestHostReadCacheOption(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		env := "WL_READ_CACHE=0"
+		if on {
+			env = "WL_READ_CACHE=1"
+		}
+		s := supervise(t, 30000, env)
+		r, err := s.run("f/host/echo", "a", map[string]any{"x": 1}, nil)
+		if err != nil || r.Status != "success" {
+			t.Fatalf("%+v, %v", r, err)
+		}
+		if got := slices.Contains(r.Deviations, "D21"); got != on {
+			t.Fatalf("readCache %t: the run's deviations %v", on, r.Deviations)
+		}
+	}
+}
+
 // H1's no-code form through host mode: the run frame carries a static
 // stand-in for module b, whose script would throw.
 func TestHostStaticIntercept(t *testing.T) {

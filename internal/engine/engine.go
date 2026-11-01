@@ -491,6 +491,10 @@ type RunRequest struct {
 	// settlement through the context (HoldSettlement). The context ends
 	// when the run's outcome is decided.
 	Started func(ctx context.Context, r Run)
+	// Deviations are the deviations of ADR 0001 that a runtime setting of
+	// the host turns on for the run, such as D21's read cache, which the
+	// trace lists among its own.
+	Deviations []string
 }
 
 // ErrPreWriteDeadline is the cause of a run's context when its pre-write
@@ -565,6 +569,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r.root.scope = cmp.Or(req.RootJob, id)
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
 	r.root.envSrc = flowEnv(f)
+	r.trace.Deviations = append(r.trace.Deviations, req.Deviations...)
 	if _, real := clock.(RealClock); !real {
 		r.trace.Deviations = append(r.trace.Deviations, "H10")
 	}
