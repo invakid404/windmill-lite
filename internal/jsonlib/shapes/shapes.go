@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/bench"
 )
 
 // Families are the payload shapes, by name. Each makes a compact JSON
@@ -40,7 +40,7 @@ func Make(family string, size int) []byte {
 	case "mixed":
 		return mixed(size)
 	case "synthetic":
-		return jsonval.Synthetic(size)
+		return bench.Synthetic(size)
 	}
 	panic("bench: no family " + family)
 }
@@ -284,7 +284,7 @@ func mixed(size int) []byte {
 // 64 MiB, dense from 1 to 16 MiB.
 var Sizes = []int{1 << 10, 16 << 10, 256 << 10, 1 << 20, 2 << 20, 3 << 20, 4 << 20, 6 << 20, 8 << 20, 12 << 20, 16 << 20, 32 << 20, 64 << 20}
 
-// ParseSize reads a size label as jsonval.SizeLabel writes it.
+// ParseSize reads a size label as bench.SizeLabel writes it.
 func ParseSize(l string) (int, bool) {
 	for _, u := range []struct {
 		suffix string

@@ -107,6 +107,25 @@ export const EXIT = {
   unreportable: 5,
 } as const;
 
+/** The benchmark timings' sink (harnesses/bun README, Benchmark timings):
+ * while globalThis holds an array under this key, the runtime appends to
+ * it one record of Bun.nanoseconds() readings for each invocation it
+ * settles with a result frame. A benchmark's own step sets and drains it;
+ * otherwise it is unset, and the runtime reads it once per frame and once
+ * per settled invocation. */
+export const TIMINGS = Symbol.for("windmill-lite.timings");
+
+/** One invocation's readings: its frame read in full, decoded, the
+ * entrypoint called and returned, its result serialised, and its result
+ * frame handed to the socket. A stage the invocation did not reach, such
+ * as the call of one that failed to load, is absent. */
+export type InvocationTiming = { id: string; rx: number; dec: number; call?: number; ret?: number; ser?: number; sent: number };
+
+function timingSink(): InvocationTiming[] | undefined {
+  const sink = (globalThis as Record<symbol, unknown>)[TIMINGS];
+  return Array.isArray(sink) ? (sink as InvocationTiming[]) : undefined;
+}
+
 export type Transport = {
   /** Writes bytes; returns how many were accepted, or -1 when closed. */
   write(b: Uint8Array): number;
@@ -288,6 +307,9 @@ export class Runtime {
   private onBye: (() => void) | undefined;
   private diag: (line: string) => void;
   private native: Native;
+  /** The benchmark timings of the invocations in flight, by id, while
+   * the sink is set (TIMINGS). */
+  private timed = new Map<string, Partial<InvocationTiming>>();
 
   constructor(private opts: Options) {
     this.sender = new Sender((b) => opts.transport.write(b));
@@ -356,12 +378,16 @@ export class Runtime {
     if (this.stopped) return;
     try {
       for (const payload of this.reader.push(data)) {
+        // The benchmark timings, when their sink is set: when the frame
+        // that completes a message was read, and when it was decoded.
+        const rx = timingSink() ? Bun.nanoseconds() : 0;
         let m = decodeFrame(payload, this.assembler.maxMessage);
         if (m.t === "part") {
           const full = this.assembler.add(m);
           if (!full) continue;
           m = decodeAssembled(full);
         }
+        if (rx > 0 && m.t === "invoke") this.timed.set(m.id, { id: m.id, rx, dec: Bun.nanoseconds() });
         this.handle(m);
       }
     } catch (e) {
@@ -680,19 +706,24 @@ export class Runtime {
       sig = { params: [] };
     }
     let value: unknown;
+    const timed = this.timed.get(m.id);
     try {
       // The export check happens where the wrapper makes it, after the
       // import (ADR 0004, entrypoints), in the wrapper-catch shape.
       if (typeof fn !== "function") throw new Error(`${m.entry} function is missing`);
       const argv = bind(sig!.params!, m.args as Record<string, unknown>);
       patchBigInt();
+      if (timed) timed.call = Bun.nanoseconds();
       value = await fn(...argv);
+      if (timed) timed.ret = Bun.nanoseconds();
     } catch (e) {
       if (e instanceof ProcessExit) return exited(e.status);
       return caught(e);
     }
     try {
-      return { outcome: "ok", body: resultText(value) };
+      const body = resultText(value);
+      if (timed) timed.ser = Bun.nanoseconds();
+      return { outcome: "ok", body };
     } catch (e) {
       return caught(e);
     }
@@ -1211,6 +1242,8 @@ export class Runtime {
    * is closed. A fresh process then ends, as the job's process ends right
    * after the wrapper writes its result (WR-2). */
   private finish(inv: Invocation, o: Outcome) {
+    const timed = this.timed.get(inv.id);
+    this.timed.delete(inv.id);
     if (this.closing() || this.invocations.get(inv.id) !== inv) return;
     const tail = this.endLog(inv, o);
     const left = inv.resources.pending();
@@ -1235,9 +1268,11 @@ export class Runtime {
         this.diag(`windmill-lite harness: ${describe(e)}`);
       }
     }
+    const running = inv.state === "running";
     for (const msg of this.terminalFrames(inv, o, tail)) {
       try {
         this.sender.send(msg);
+        if (timed && running) timingSink()?.push({ ...timed, sent: Bun.nanoseconds() } as InvocationTiming);
         this.invocations.delete(inv.id);
         inv.resources.settle();
         inv.log.close();

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/invakid404/windmill-lite/internal/jsonval"
+	wlbench "github.com/invakid404/windmill-lite/internal/bench"
 )
 
 // BenchmarkLib runs every operation for every candidate, family and size:
@@ -16,7 +16,7 @@ import (
 // sizes; -bench narrows the rest. ns/op and MB/s are per payload byte.
 func BenchmarkLib(b *testing.B) {
 	for _, n := range sizes(b) {
-		b.Run("size="+jsonval.SizeLabel(n), func(b *testing.B) {
+		b.Run("size="+wlbench.SizeLabel(n), func(b *testing.B) {
 			for _, f := range shapes.Families {
 				b.Run("family="+f, func(b *testing.B) { runOps(b, shapes.Make(f, n)) })
 			}

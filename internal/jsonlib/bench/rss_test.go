@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/invakid404/windmill-lite/internal/jsonval"
+	wlbench "github.com/invakid404/windmill-lite/internal/bench"
 )
 
 // TestWriteFixtures writes each family's payload at each size of
@@ -45,7 +45,7 @@ func TestWriteFixtures(t *testing.T) {
 	}
 	for _, n := range sizes(t) {
 		for _, f := range shapes.Families {
-			p := filepath.Join(dir, f+"-"+jsonval.SizeLabel(n)+".json")
+			p := filepath.Join(dir, f+"-"+wlbench.SizeLabel(n)+".json")
 			if err := os.WriteFile(p, shapes.Make(f, n), 0o644); err != nil {
 				t.Fatal(err)
 			}

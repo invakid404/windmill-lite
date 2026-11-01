@@ -7,12 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/bench"
+	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
@@ -20,7 +21,7 @@ import (
 // The boundary benchmarks of milestone G1 (ADR 0005, benchmark plan item
 // 2) split one step's round trip between the engine and its harness into
 // the parts this package and the harness runtime own, each measured on its
-// own, on the payloads of jsonval.Synthetic from 26 B to 4 MiB. A step's
+// own, on the payloads of bench.Synthetic from 26 B to 4 MiB. A step's
 // argument is the payload ({"p": <payload>}) and its result is the
 // payload again, as the echo step of cmd/windmill-lite's end-to-end
 // benchmarks returns it:
@@ -40,14 +41,15 @@ import (
 //     socketpair, one invocation at a time and eight at once, the harness
 //     answering without parsing the invoke (testdata/bench.ts echo).
 //
-// cmd/windmill-lite's BenchmarkStepBoundary measures the whole round trip
-// on the real topologies, from which these parts are subtracted (the
-// baseline in ADR 0005). They need the pinned Bun in WL_BUN, except the
-// first two, and run only with -bench.
+// They are microbenchmarks of each part on its own, means of repeated
+// calls; they do not divide a real step, whose stages cmd/windmill-lite's
+// BenchmarkStepBoundary measures on the same invocations with the times
+// hook (SetTimesHook) and the runtime's benchmark timings. They need the
+// pinned Bun in WL_BUN, except the first two, and run only with -bench.
 
 // benchArgs is a step's arguments around the payload of size n.
 func benchArgs(n int) jsonval.Value {
-	return jsonval.FromProducer(fmt.Appendf(nil, `{"p":%s}`, jsonval.Synthetic(n)))
+	return jsonval.FromProducer(fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(n)))
 }
 
 // benchInvoke is the invoke the engine sends for an echo step with the
@@ -64,7 +66,7 @@ func benchInvoke(id string, args jsonval.Value) Invoke {
 // benchResult is the result frame's payload of an echo step with the
 // payload of size n.
 func benchResult(id string, n int) []byte {
-	b, err := Encode(Result{ID: id, Outcome: "ok", Body: jsonval.FromProducer(jsonval.Synthetic(n)), Settled: true})
+	b, err := Encode(Result{ID: id, Outcome: "ok", Body: jsonval.FromProducer(bench.Synthetic(n)), Settled: true})
 	if err != nil {
 		panic(err)
 	}
@@ -72,10 +74,10 @@ func benchResult(id string, n int) []byte {
 }
 
 func BenchmarkGoInvocation(b *testing.B) {
-	for _, n := range jsonval.SyntheticSizes {
+	for _, n := range bench.SyntheticSizes {
 		args := benchArgs(n)
 		inv := benchInvoke("b0", args)
-		b.Run("size="+jsonval.SizeLabel(n)+"/part=encode-invoke", func(b *testing.B) {
+		b.Run("size="+bench.SizeLabel(n)+"/part=encode-invoke", func(b *testing.B) {
 			b.SetBytes(int64(n))
 			for b.Loop() {
 				m := inv
@@ -86,7 +88,7 @@ func BenchmarkGoInvocation(b *testing.B) {
 			}
 		})
 		payload := benchResult("b0", n)
-		b.Run("size="+jsonval.SizeLabel(n)+"/part=decode-result", func(b *testing.B) {
+		b.Run("size="+bench.SizeLabel(n)+"/part=decode-result", func(b *testing.B) {
 			b.SetBytes(int64(n))
 			for b.Loop() {
 				if _, err := Decode(payload); err != nil {
@@ -98,9 +100,9 @@ func BenchmarkGoInvocation(b *testing.B) {
 }
 
 func BenchmarkArgsFile(b *testing.B) {
-	for _, n := range jsonval.SyntheticSizes {
+	for _, n := range bench.SyntheticSizes {
 		args := benchArgs(n)
-		b.Run("size="+jsonval.SizeLabel(n), func(b *testing.B) {
+		b.Run("size="+bench.SizeLabel(n), func(b *testing.B) {
 			p := &Process{dir: b.TempDir()}
 			b.SetBytes(int64(n))
 			for b.Loop() {
@@ -124,17 +126,29 @@ func benchFiles(b *testing.B, dir string, n int) (invoke, body string) {
 	if err := os.WriteFile(invoke, payload, 0o644); err != nil {
 		b.Fatal(err)
 	}
-	if err := os.WriteFile(body, jsonval.Synthetic(n), 0o644); err != nil {
+	if err := os.WriteFile(body, bench.Synthetic(n), 0o644); err != nil {
 		b.Fatal(err)
 	}
 	return invoke, body
 }
 
+// benchBun returns the pinned Bun for a benchmark, and fails the benchmark
+// when WL_BUN does not name it: a benchmark run asks for figures, so a
+// skip, which go test reports as a pass with no rows, would hide that it
+// measured nothing.
+func benchBun(b *testing.B) string {
+	b.Helper()
+	if os.Getenv("WL_BUN") == "" {
+		b.Fatal("WL_BUN is not set: export it, naming the pinned Bun " + PinnedBun + ", to run this benchmark")
+	}
+	return bunPath(b)
+}
+
 func BenchmarkHarnessCodec(b *testing.B) {
-	bun := bunPath(b)
+	bun := benchBun(b)
 	script := repoPath(b, "internal/harness/testdata/bench.ts")
-	for _, n := range jsonval.SyntheticSizes {
-		b.Run("size="+jsonval.SizeLabel(n), func(b *testing.B) {
+	for _, n := range bench.SyntheticSizes {
+		b.Run("size="+bench.SizeLabel(n), func(b *testing.B) {
 			invoke, body := benchFiles(b, b.TempDir(), n)
 			out, err := exec.Command(bun, script, "codec", invoke, body, strconv.Itoa(b.N)).Output()
 			if err != nil {
@@ -160,11 +174,11 @@ func BenchmarkHarnessCodec(b *testing.B) {
 }
 
 func BenchmarkTransport(b *testing.B) {
-	bun := bunPath(b)
+	bun := benchBun(b)
 	script := repoPath(b, "internal/harness/testdata/bench.ts")
 	for _, conc := range []int{1, 8} {
-		for _, n := range jsonval.SyntheticSizes {
-			b.Run(fmt.Sprintf("conc=%d/size=%s", conc, jsonval.SizeLabel(n)), func(b *testing.B) {
+		for _, n := range bench.SyntheticSizes {
+			b.Run(fmt.Sprintf("conc=%d/size=%s", conc, bench.SizeLabel(n)), func(b *testing.B) {
 				benchTransport(b, bun, script, conc, n)
 			})
 		}
@@ -181,11 +195,13 @@ type echo struct {
 	closed   chan error
 }
 
-// startEcho starts the echo with conc invoke ids, b0 to b<conc-1>.
+// startEcho starts the echo with conc invoke ids, b0 to b<conc-1>. Its
+// cleanup closes the connection, waits up to 5 s for the echo to exit,
+// and then kills it, and is registered as soon as the echo has started.
 func startEcho(tb testing.TB, bun, script string, conc, n int) *echo {
 	tb.Helper()
 	dir := tb.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "body.json"), jsonval.Synthetic(n), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "body.json"), bench.Synthetic(n), 0o644); err != nil {
 		tb.Fatal(err)
 	}
 	parent, child, err := socketpair()
@@ -201,17 +217,34 @@ func startEcho(tb testing.TB, bun, script string, conc, n int) *echo {
 		parent.Close()
 		tb.Fatal(err)
 	}
+	e := &echo{answered: make(map[string]chan struct{}, conc), closed: make(chan error, 1)}
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	tb.Cleanup(func() {
+		if e.c != nil {
+			e.c.close()
+		}
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			cmd.Process.Kill()
+			<-exited
+		}
+	})
 	nc, err := net.FileConn(parent)
 	parent.Close()
 	if err != nil {
 		tb.Fatal(err)
 	}
-	e := &echo{answered: make(map[string]chan struct{}, conc), closed: make(chan error, 1)}
 	args := benchArgs(n)
 	for i := range conc {
 		id := "b" + strconv.Itoa(i)
 		payload, err := Encode(benchInvoke(id, args))
 		if err != nil {
+			nc.Close()
 			tb.Fatal(err)
 		}
 		e.ids, e.payloads = append(e.ids, id), append(e.payloads, payload)
@@ -228,10 +261,6 @@ func startEcho(tb testing.TB, bun, script string, conc, n int) *echo {
 		onClose: func(err error) { e.closed <- err },
 	})
 	e.c.run()
-	tb.Cleanup(func() {
-		e.c.close()
-		_ = cmd.Wait()
-	})
 	return e
 }
 
@@ -251,9 +280,11 @@ func (e *echo) trip(k int) (time.Duration, error) {
 	}
 }
 
-// benchTransport runs b.N round trips of an invoke and its result of size
-// n against the echo, conc at a time, and reports the round trip's
-// latency (p50, p95) besides the time per round trip at that concurrency.
+// benchTransport runs b.N rounds of conc round trips of an invoke and its
+// result of size n against the echo, one per worker, the workers started
+// together (bench.Workers), so even b.N = 1 has conc in flight at once. It
+// reports the time per round trip at that concurrency (ns/op), the round
+// trip's latency at p50 and p95, and the concurrency reached.
 func benchTransport(b *testing.B, bun, script string, conc, n int) {
 	e := startEcho(b, bun, script, conc, n)
 	// Warm-up: the echo's JIT and both sides' buffers.
@@ -262,46 +293,26 @@ func benchTransport(b *testing.B, bun, script string, conc, n int) {
 			b.Fatal(err)
 		}
 	}
-	lat := make([][]time.Duration, conc)
-	var wg sync.WaitGroup
-	errs := make(chan error, conc)
 	b.ResetTimer()
-	for k := range conc {
-		ops := b.N / conc
-		if k < b.N%conc {
-			ops++
-		}
-		wg.Go(func() {
-			for range ops {
-				d, err := e.trip(k)
-				if err != nil {
-					errs <- err
-					return
-				}
-				lat[k] = append(lat[k], d)
-			}
-		})
-	}
-	wg.Wait()
+	c, err := bench.Workers(conc, b.N, func(k int) error {
+		_, err := e.trip(k)
+		return err
+	})
 	b.StopTimer()
-	close(errs)
-	if err := <-errs; err != nil {
+	if err != nil {
 		b.Fatal(err)
 	}
-	all := slices.Concat(lat...)
-	b.ReportMetric(quantile(all, 0.50), "p50-ns")
-	b.ReportMetric(quantile(all, 0.95), "p95-ns")
-	b.SetBytes(int64(2 * n))
-}
-
-// quantile returns the q-quantile of ds in nanoseconds (nearest rank).
-func quantile(ds []time.Duration, q float64) float64 {
-	if len(ds) == 0 {
-		return 0
+	var all []time.Duration
+	for _, w := range c.Ops {
+		all = append(all, w...)
 	}
-	s := slices.Clone(ds)
-	slices.Sort(s)
-	return float64(s[min(len(s)-1, int(q*float64(len(s))))])
+	trips := float64(conc * b.N)
+	b.ReportMetric(float64(c.Wall)/trips, "ns/op")
+	b.ReportMetric(float64(bench.Percentile(all, 0.50)), "p50-ns")
+	b.ReportMetric(float64(bench.Percentile(all, 0.95)), "p95-ns")
+	b.ReportMetric(float64(c.Peak), "conc-peak")
+	b.ReportMetric(c.Mean, "conc-mean")
+	b.ReportMetric(trips*float64(2*n)/c.Wall.Seconds()/1e6, "MB/s")
 }
 
 // TestBenchEcho checks the transport benchmark's echo once per payload
@@ -310,8 +321,8 @@ func quantile(ds []time.Duration, q float64) float64 {
 func TestBenchEcho(t *testing.T) {
 	bun := bunPath(t)
 	script := repoPath(t, "internal/harness/testdata/bench.ts")
-	for _, n := range []int{jsonval.SyntheticMin, 2 << 20} {
-		t.Run(jsonval.SizeLabel(n), func(t *testing.T) {
+	for _, n := range []int{bench.SyntheticMin, 2 << 20} {
+		t.Run(bench.SizeLabel(n), func(t *testing.T) {
 			e := startEcho(t, bun, script, 2, n)
 			var wg sync.WaitGroup
 			for k := range 2 {
@@ -326,5 +337,46 @@ func TestBenchEcho(t *testing.T) {
 			}
 			wg.Wait()
 		})
+	}
+}
+
+// TestTimesHook runs one invocation on the real Bun harness with the times
+// hook set and checks its readings: one report, for that invocation, with
+// every reading taken and in the order of the invocation's stages.
+func TestTimesHook(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	p := spawn(t, cfg)
+	var mu sync.Mutex
+	var got []InvocationTimes
+	SetTimesHook(func(tm InvocationTimes) {
+		mu.Lock()
+		got = append(got, tm)
+		mu.Unlock()
+	})
+	t.Cleanup(func() { SetTimesHook(nil) })
+	inv := newInvocation("echo", `{"value":"timed"}`, newRecorder())
+	out, err := execute(t, p, inv, 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	SetTimesHook(nil)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0].ID != inv.ID {
+		t.Fatalf("reports %+v, want one for %s", got, inv.ID)
+	}
+	tm := got[0]
+	stages := []time.Time{tm.Start, tm.Encoded, tm.ArgsWritten, tm.Queued, tm.Received, tm.Decoded, tm.Done}
+	for i, at := range stages {
+		if at.IsZero() || i > 0 && at.Before(stages[i-1]) {
+			t.Fatalf("reading %d of %+v is missing or out of order", i, tm)
+		}
+	}
+	// Without the hook, nothing is reported.
+	if _, err := execute(t, p, newInvocation("echo", `{"value":"untimed"}`, newRecorder()), 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("%d reports after the hook was cleared", len(got))
 	}
 }

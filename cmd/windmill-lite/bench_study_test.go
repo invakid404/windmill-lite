@@ -25,9 +25,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/bench"
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/jsonlib/shapes"
-	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/wl"
 )
 
@@ -35,7 +35,7 @@ import (
 func studyStepSizes(b *testing.B) []int {
 	env := os.Getenv("WL_BENCH_SIZES")
 	if env == "" {
-		return jsonval.SyntheticSizes
+		return bench.SyntheticSizes
 	}
 	var out []int
 	for _, l := range strings.Split(env, ",") {
@@ -217,7 +217,7 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 	}
 	runtime.GC()
 	load := loadAverage()
-	hostBefore := harnessCPU(b, rt)
+	hostBefore, _ := probe(b, rt, false)
 	userBefore, sysBefore := engineCPUParts()
 	var ms0, ms1 runtime.MemStats
 	runtime.ReadMemStats(&ms0)
@@ -239,9 +239,14 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 	}
 	wall := time.Since(start)
 	b.StopTimer()
+	runtime.ReadMemStats(&ms1)
+	user, sys := engineCPUParts()
+	hostAfter, _ := probe(b, rt, false)
+	host := hostAfter - hostBefore
 	// The on_run_end payload of the last run's trace, as a plugin's
-	// onRunEnd would be sent it: marshalled three times after the runs,
-	// the median reported, so the runs' own figures leave it out.
+	// onRunEnd would be sent it: marshalled three times once the runs' CPU
+	// and memory are read, the median reported, so that the runs' own
+	// figures leave it out.
 	var payload int
 	var marshal []time.Duration
 	for range 3 {
@@ -253,9 +258,6 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 		marshal = append(marshal, time.Since(t0))
 		payload = len(p)
 	}
-	runtime.ReadMemStats(&ms1)
-	user, sys := engineCPUParts()
-	host := harnessCPU(b, rt) - hostBefore
 	n := float64(b.N)
 	b.ReportMetric(float64(wall)/n, "ns/op")
 	b.ReportMetric(float64(user-userBefore+sys-sysBefore)/n, "engine-cpu-ns/run")
@@ -264,7 +266,7 @@ func studyRuns(b *testing.B, rt *wl.Runtime, path string, args json.RawMessage, 
 	b.ReportMetric(float64(expr)/n, "expr-ns/run")
 	b.ReportMetric(float64(ms1.TotalAlloc-ms0.TotalAlloc)/n, "engine-alloc-B/run")
 	b.ReportMetric(float64(steps)/n, "steps/run")
-	b.ReportMetric(pct(marshal, 0.5), "runend-marshal-ns")
+	b.ReportMetric(float64(bench.Percentile(marshal, 0.5)), "runend-marshal-ns")
 	b.ReportMetric(float64(payload), "runend-B")
 	b.ReportMetric(load, "load1")
 	if perSite {
@@ -299,7 +301,7 @@ func BenchmarkStudyPassThrough(b *testing.B) {
 	rt := benchRuntime(b, bun, "host")
 	for _, size := range []int{64 << 10, 2150 << 10} {
 		for _, v := range studyPassVariants {
-			b.Run(fmt.Sprintf("size=%s/depth=%d/fan=%d", jsonval.SizeLabel(size), v[0], v[1]), func(b *testing.B) {
+			b.Run(fmt.Sprintf("size=%s/depth=%d/fan=%d", bench.SizeLabel(size), v[0], v[1]), func(b *testing.B) {
 				studyRuns(b, rt, fmt.Sprintf("f/bench/pt_d%d_f%d", v[0], v[1]), fmt.Appendf(nil, `{"size":%d}`, size), 2, false)
 			})
 		}

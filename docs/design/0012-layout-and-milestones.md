@@ -41,6 +41,7 @@ internal/host/              gRPC and HTTP adapters (0009)
 internal/gen/               typed client generation (0009)
 internal/conformance/       fixture loading, observation, comparison, identity encoding (0003, 0011)
 internal/oracle/            the oracle harness (0011)
+internal/bench/             what the benchmarks share: payloads, percentiles, concurrent workers (0005)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
@@ -736,15 +737,17 @@ waits on an external gate except R1.
 - G1 put the benchmarks of [0004](0004-harness-protocol.md) and
   [0005](0005-json-step-boundaries.md) beside the code they measure, as
   Go benchmarks in `internal/jsonval`, `internal/harness` and
-  `cmd/windmill-lite`, with their Bun sides in those packages' `testdata`,
-  so it added no package. Its baseline is in 0005, which records why the
-  benchmarks run locally rather than in CI. `windmill-lite run` and `host`
-  gained `-cpuprofile`.
-- G1 read "run spans" as the spans the engine already records: a step's
-  module and harness spans give its engine part and the share of a run
-  spent at boundaries. The queue, serialise and platform spans stay
-  unfilled, because the step executor reports no timings; the parts
-  inside the harness call are measured on their own.
+  `cmd/windmill-lite`, with their Bun sides in those packages' `testdata`.
+  What they share (payloads, percentiles, concurrent workers) is in
+  `internal/bench`, a package only test files use. Its baseline is in
+  0005, which records why the benchmarks run locally rather than in CI.
+  `windmill-lite run` and `host` gained `-cpuprofile`.
+- G1 read "run spans" as the spans the engine already records, module and
+  harness, with readings of each invocation's clock on both sides for the
+  stages inside the harness call. `harness.SetTimesHook` and the runtime's
+  benchmark timings take those readings, off unless a benchmark turns them
+  on. The trace's queue, serialise and platform spans stay unfilled,
+  because the step executor reports no timings to the engine.
 
 ## Spec IDs relied on
 
