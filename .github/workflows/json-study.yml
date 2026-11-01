@@ -1,0 +1,309 @@
+name: JSON library study
+
+# Temporary: the JSON-library study (sonic, encoding/json/v2) of branch
+# study/json-libraries. It runs only on pushes to that branch and by hand,
+# never on main or on pull requests, and is never merged.
+#
+# The parts a run does are the words in the dispatch input `parts`, or, for
+# a push, in .github/json-study-parts: micro (the microbenchmarks), rss
+# (peak resident memory), exact (the exactness probes), sonic-tests
+# (sonic's own suite on this Go), static (zig cc static builds), tests (the
+# repository's suites with each library swapped in) and e2e (G1's
+# end-to-end benchmarks with each swap).
+on:
+  push:
+    branches: [study/json-libraries]
+  workflow_dispatch:
+    inputs:
+      parts:
+        description: "Parts to run, space-separated (empty: .github/json-study-parts)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Runs queue rather than cancel: two complete runs show runner variance.
+concurrency:
+  group: json-study
+  cancel-in-progress: false
+
+env:
+  # The microbenchmarks' rounds; each round runs every candidate once,
+  # alternating which binary goes first.
+  ROUNDS: "10"
+  BENCHTIME: 100ms
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      parts: ${{ steps.parts.outputs.parts }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: parts
+        env:
+          INPUT: ${{ inputs.parts }}
+        run: |
+          parts="${INPUT:-$(cat .github/json-study-parts)}"
+          echo "parts: $parts"
+          echo "parts= $parts " >> "$GITHUB_OUTPUT"
+
+  micro:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' micro ')
+    name: Micro (${{ matrix.arch }}, ${{ matrix.families }})
+    strategy:
+      fail-fast: false
+      # Leaves runners for the repository's other CI.
+      max-parallel: 6
+      matrix:
+        arch: [amd64, arm64]
+        families: ["records|strings", "floats|base64", "deep|wide", "mixed|synthetic"]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 240
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Record the machine
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          { uname -a; nproc; lscpu; free -m; go version; go env GOEXPERIMENT GOAMD64 GOARM64; } > "$RUNNER_TEMP/out/machine.txt" 2>&1
+          cat "$RUNNER_TEMP/out/machine.txt"
+      - name: Build the benchmark binaries
+        # Go 1.27's default engine (v1 API on the v2 implementation, plus
+        # every other candidate), and the classic engine.
+        run: |
+          go test -c -o "$RUNNER_TEMP/b-default.test" ./internal/jsonlib/bench
+          GOEXPERIMENT=nojsonv2 go test -c -o "$RUNNER_TEMP/b-classic.test" ./internal/jsonlib/bench
+      - name: Run the rounds
+        env:
+          FAMILIES: ${{ matrix.families }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          for r in $(seq 1 "$ROUNDS"); do
+            if [ $((r % 2)) -eq 1 ]; then order="default classic"; else order="classic default"; fi
+            for b in $order; do
+              if [ "$b" = default ]; then
+                filter="BenchmarkLib/size=.*/family=($FAMILIES)\$/"
+              else
+                filter="BenchmarkLib/size=.*/family=($FAMILIES)\$/op=.*/cand=v1classic\$"
+              fi
+              echo "round $r: $b, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
+              "$RUNNER_TEMP/b-$b.test" -test.run '^$' -test.bench "$filter" -test.benchtime "$BENCHTIME" -test.count 1 -test.timeout 0 >> "$out/$b.txt"
+            done
+          done
+          grep -c '^BenchmarkLib' "$out"/*.txt
+      - name: Compare with benchstat
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
+          cd "$RUNNER_TEMP/out"
+          cat default.txt classic.txt > all.txt
+          "$(go env GOPATH)/bin/benchstat" -col '/cand@(v1 v1classic v2 gje sonicstd sonicfast sonicast jsonval jcs)' all.txt > benchstat.txt
+          head -100 benchstat.txt
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: micro-${{ matrix.arch }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/out
+
+  rss:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' rss ')
+    name: Peak RSS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build and write the fixtures
+        run: |
+          go test -c -o "$RUNNER_TEMP/b-default.test" ./internal/jsonlib/bench
+          GOEXPERIMENT=nojsonv2 go test -c -o "$RUNNER_TEMP/b-classic.test" ./internal/jsonlib/bench
+          mkdir -p "$RUNNER_TEMP/fx" "$RUNNER_TEMP/out"
+          JSONLIB_SIZES=16MiB,32MiB,64MiB JSONLIB_FIXTURES_OUT="$RUNNER_TEMP/fx" "$RUNNER_TEMP/b-default.test" -test.run '^TestWriteFixtures$'
+          ls -la "$RUNNER_TEMP/fx"
+      - name: Measure
+        # One process per candidate, operation and fixture; a pair the
+        # candidate has no way of doing prints nothing.
+        run: |
+          out="$RUNNER_TEMP/out/rss.jsonl"
+          for fx in "$RUNNER_TEMP"/fx/*.json; do
+            for op in validate compact unmarshal-any marshal-any unmarshal-frame members rawmessage canonical; do
+              JSONLIB_RSS="v1classic,$op,$fx" "$RUNNER_TEMP/b-classic.test" -test.run '^TestPeakRSS$' 2>/dev/null | sed -n 's/^RSS //p' >> "$out" || true
+              for cand in v1 v2 gje sonicstd sonicfast sonicast jsonval jcs; do
+                JSONLIB_RSS="$cand,$op,$fx" "$RUNNER_TEMP/b-default.test" -test.run '^TestPeakRSS$' 2>/dev/null | sed -n 's/^RSS //p' >> "$out" || true
+              done
+            done
+          done
+          wc -l "$out"
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rss-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out
+
+  exact:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' exact ')
+    name: Exactness (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Probe
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          JSONLIB_EXACT_OUT="$RUNNER_TEMP/out/exact.jsonl" go test -count=1 -run 'TestExactness|TestFamilies' ./internal/jsonlib/bench
+          GOEXPERIMENT=nojsonv2 JSONLIB_EXACT_OUT="$RUNNER_TEMP/out/exact.jsonl" go test -count=1 -run 'TestExactness|TestFamilies' ./internal/jsonlib/bench
+          wc -l "$RUNNER_TEMP/out/exact.jsonl"
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exact-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out
+
+  sonic-tests:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' sonic-tests ')
+    name: sonic's own tests on this Go (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Run sonic v1.15.5's tests with the repository's Go
+        # The release's own suite (Apache-2.0), cloned outside the
+        # repository and never committed.
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go version
+          git clone --quiet --depth 1 --branch v1.15.5 https://github.com/bytedance/sonic.git "$RUNNER_TEMP/sonic"
+          cd "$RUNNER_TEMP/sonic"
+          git log -1 --format='%H %cs'
+          mkdir -p "$RUNNER_TEMP/out"
+          set +e
+          go test -count=1 ./... > "$RUNNER_TEMP/out/sonic-tests.txt" 2>&1
+          echo "exit $?" >> "$RUNNER_TEMP/out/sonic-tests.txt"
+          grep -E '^(ok|FAIL|---|panic|exit)' "$RUNNER_TEMP/out/sonic-tests.txt" | head -150
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sonic-tests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out
+
+  static:
+    needs: plan
+    if: contains(needs.plan.outputs.parts, ' static ')
+    name: Static zig build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-linux-musl
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      STATIC_LDFLAGS: -linkmode=external -extldflags=-static
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+      - name: Build static binaries with each library
+        env:
+          CGO_ENABLED: "1"
+          CC: zig cc -target ${{ matrix.target }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          for tags in "" jsonlib_v2 jsonlib_sonic jsonlib_sonicfast; do
+            name="windmill-lite${tags:+-$tags}"
+            go build -tags "$tags" -o "$RUNNER_TEMP/$name" -ldflags "$STATIC_LDFLAGS" ./cmd/windmill-lite
+            go build -tags "$tags" -o "$RUNNER_TEMP/$name-stripped" -ldflags "$STATIC_LDFLAGS -s -w" ./cmd/windmill-lite
+          done
+          GOEXPERIMENT=nojsonv2 go build -o "$RUNNER_TEMP/windmill-lite-nojsonv2" -ldflags "$STATIC_LDFLAGS" ./cmd/windmill-lite
+          go test -c -o "$RUNNER_TEMP/bench.test" -ldflags "$STATIC_LDFLAGS" ./internal/jsonlib/bench
+          cd "$RUNNER_TEMP"
+          for bin in windmill-lite* bench.test; do
+            if readelf --program-headers "$bin" | grep -q INTERP || readelf --dynamic "$bin" | grep -q NEEDED; then
+              echo "$bin is not static" >&2
+              exit 1
+            fi
+          done
+          ls -l windmill-lite* bench.test | tee "$RUNNER_TEMP/out/sizes.txt"
+          go version -m windmill-lite-jsonlib_sonic | grep -E 'sonic|go-json|build' >> "$RUNNER_TEMP/out/sizes.txt"
+      - name: Run the static bench binary
+        run: |
+          "$RUNNER_TEMP/bench.test" -test.run 'TestExactness|TestFamilies' -test.count 1 | tail -3
+          JSONLIB_SIZES=1MiB "$RUNNER_TEMP/bench.test" -test.run '^$' -test.bench 'BenchmarkLib/size=1MiB/family=records/op=(validate|unmarshal-frame|members)/' -test.benchtime 50ms | tee "$RUNNER_TEMP/out/static-bench.txt"
+          "$RUNNER_TEMP/windmill-lite-jsonlib_sonic" version || "$RUNNER_TEMP/windmill-lite-jsonlib_sonic" --version || true
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: static-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out
