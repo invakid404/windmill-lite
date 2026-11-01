@@ -734,7 +734,8 @@ the concurrency reached. `TestBenchEcho` runs the echo with a whole frame
 and with part streams, two invocations at a time.
 
 `BenchmarkGoInvocation` and `BenchmarkArgsFile` need nothing else; the
-other two need the pinned Bun in `WL_BUN`. They run only with `-bench`:
+other two need the pinned Bun in `WL_BUN`, and fail without it rather
+than skip. They run only with `-bench`:
 
 ```sh
 WL_BUN=/path/to/bun-1.3.10/bun go test ./internal/harness -run '^$' \

@@ -75,16 +75,30 @@ of three runs (`-count 3`) of its benchmark, taken while no other build or
 benchmark ran.
 
 A run that overlapped another build or benchmark on the machine was
-repeated, and the boundary benchmarks ran in four parts so that each could
-be repeated alone. The one-minute load average was 2 to 6.5, from the
-machine's own services and the benchmarks themselves. The commands, from
-the repository root, with `WL_BUN` naming Bun 1.3.10:
+repeated. The boundary benchmark ran in four parts, one test process for
+each topology and concurrency, so that each part could be repeated alone.
+The one-minute load average was 2 to 6.5, from the machine's own services
+and the benchmarks themselves.
+
+The commands below produced the baseline, from the repository root. They
+need the build helper's dependencies
+([harnesses/bun/build](../../harnesses/bun/build/README.md#running)) and
+`WL_BUN` exported, naming Bun 1.3.10; a benchmark fails without it. The
+last command measures what the stage readings cost:
 
 ```sh
+export WL_BUN=/path/to/bun-1.3.10/bun
+(cd harnesses/bun/build && "$WL_BUN" install --frozen-lockfile)
 go test ./internal/jsonval -run '^$' -bench BenchmarkStored -benchtime 1s -count 3
 go test ./internal/harness -run '^$' -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
-go test ./cmd/windmill-lite -run '^$' -bench BenchmarkStepBoundary -benchtime 3s -count 3
+for topology in host subprocess; do
+  for conc in 1 8; do
+    go test ./cmd/windmill-lite -run '^$' -bench "BenchmarkStepBoundary/topology=$topology/conc=$conc/" -benchtime 3s -count 3
+  done
+done
 go test ./cmd/windmill-lite -run '^$' -bench BenchmarkHostShapes -benchtime 20x -count 3
+WL_BENCH_TIMINGS=off go test ./cmd/windmill-lite -run '^$' \
+  -bench 'BenchmarkStepBoundary/topology=host/conc=1/size=(26B|32KiB|4MiB)$' -benchtime 3s -count 3
 ```
 
 Percentiles are nearest-rank
@@ -139,7 +153,8 @@ Each step is split into stages, each the difference of two readings of
 that step's own invocation: the trace's module and harness spans, and the
 clocks of both processes ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#stages)).
 A step's stages add up to its module span, so their means add up to its
-mean. Taking the readings moves a step's p50 by under 2 %.
+mean. Taking the readings moved a step's p50 by under 2 % where that was
+measured: in host mode, one run at a time, at 26 B, 32 KiB and 4 MiB.
 
 The tables group the stages:
 

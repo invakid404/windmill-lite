@@ -400,8 +400,13 @@ topology with two runs at once, so that a broken split fails the ordinary
 tests. It checks that both runs overlap, that every step is matched with
 its readings, and that its stages add up to its module span.
 
-They need the pinned Bun in `WL_BUN` and the build helper's dependencies,
-and run only with `-bench`:
+They need the build helper's dependencies and the pinned Bun in `WL_BUN`,
+and run only with `-bench`. A benchmark fails without `WL_BUN`, rather
+than skip and report a pass with no figures, while `TestBenchSplit`
+skips. The baseline's exact commands, each part of
+`BenchmarkStepBoundary` in a test process of its own, are in
+[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline). One
+run of both, in one process:
 
 ```sh
 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \

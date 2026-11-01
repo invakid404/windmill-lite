@@ -132,8 +132,20 @@ func benchFiles(b *testing.B, dir string, n int) (invoke, body string) {
 	return invoke, body
 }
 
+// benchBun returns the pinned Bun for a benchmark, and fails the benchmark
+// when WL_BUN does not name it: a benchmark run asks for figures, so a
+// skip, which go test reports as a pass with no rows, would hide that it
+// measured nothing.
+func benchBun(b *testing.B) string {
+	b.Helper()
+	if os.Getenv("WL_BUN") == "" {
+		b.Fatal("WL_BUN is not set: export it, naming the pinned Bun " + PinnedBun + ", to run this benchmark")
+	}
+	return bunPath(b)
+}
+
 func BenchmarkHarnessCodec(b *testing.B) {
-	bun := bunPath(b)
+	bun := benchBun(b)
 	script := repoPath(b, "internal/harness/testdata/bench.ts")
 	for _, n := range bench.SyntheticSizes {
 		b.Run("size="+bench.SizeLabel(n), func(b *testing.B) {
@@ -162,7 +174,7 @@ func BenchmarkHarnessCodec(b *testing.B) {
 }
 
 func BenchmarkTransport(b *testing.B) {
-	bun := bunPath(b)
+	bun := benchBun(b)
 	script := repoPath(b, "internal/harness/testdata/bench.ts")
 	for _, conc := range []int{1, 8} {
 		for _, n := range bench.SyntheticSizes {

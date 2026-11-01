@@ -291,13 +291,16 @@ var (
 )
 
 // benchSetup builds the benchmarks' bundle and compiles their host, once
-// per test binary, and returns the pinned Bun.
+// per test binary, and returns the pinned Bun. Without WL_BUN a benchmark
+// fails and a test skips, unless WL_REQUIRE_BUN is set.
 func benchSetup(b testing.TB) string {
 	b.Helper()
 	bun := os.Getenv("WL_BUN")
 	if bun == "" {
-		if os.Getenv("WL_REQUIRE_BUN") != "" {
-			b.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
+		// A benchmark run asks for figures: a skip, which go test reports
+		// as a pass with no rows, would hide that it measured nothing.
+		if _, benchmark := b.(*testing.B); benchmark || os.Getenv("WL_REQUIRE_BUN") != "" {
+			b.Fatal("WL_BUN is not set: export it, naming the pinned Bun 1.3.10")
 		}
 		b.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
 	}
