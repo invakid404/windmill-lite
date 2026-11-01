@@ -109,7 +109,9 @@ var decodeTargets = []struct {
 // site with encoding/json, on every probe: Valid, RawObject, RawArray,
 // Members, and Unmarshal into each Go value a routed site decodes into. A
 // build that claims encoding/json's behaviour (jsonlib.V1Compatible) must
-// match it exactly; for the others the differences are logged.
+// match it exactly, error texts included, since two sites pass a decode
+// error's text on (a protocol error, the host's refusal of an intercept);
+// for the others the differences are logged, error texts left out.
 func TestEquivalence(t *testing.T) {
 	diffs := 0
 	report := func(format string, args ...any) {
@@ -119,6 +121,14 @@ func TestEquivalence(t *testing.T) {
 		} else {
 			t.Logf("DIFF "+format, args...)
 		}
+	}
+	// sameErr: whether both fail or both succeed and, for a build that
+	// claims encoding/json's behaviour, with the same text.
+	sameErr := func(g, w error) bool {
+		if (g == nil) != (w == nil) {
+			return false
+		}
+		return g == nil || !jsonlib.V1Compatible || g.Error() == w.Error()
 	}
 	for _, p := range equivalenceProbes {
 		in := j(p)
@@ -131,17 +141,21 @@ func TestEquivalence(t *testing.T) {
 		}
 		gm, gerr := jsonlib.RawObject(in)
 		wm, werr := std.RawObject(in)
-		if (gerr == nil) != (werr == nil) || gerr == nil && !rawMapsEqual(gm, wm) {
+		if !sameErr(gerr, werr) || gerr == nil && !rawMapsEqual(gm, wm) {
 			report("RawObject(%q) = %s, %v; encoding/json %s, %v", name, showMap(gm), gerr, showMap(wm), werr)
 		}
 		ga, gerr := jsonlib.RawArray(in)
 		wa, werr := std.RawArray(in)
-		if (gerr == nil) != (werr == nil) || gerr == nil && !rawSlicesEqual(ga, wa) {
+		if !sameErr(gerr, werr) || gerr == nil && !rawSlicesEqual(ga, wa) {
 			report("RawArray(%q) = %q, %v; encoding/json %q, %v", name, ga, gerr, wa, werr)
 		}
 		var gms, wms []string
-		gok := jsonlib.Members(in, func(k string, ks, ke, vs, ve int) { gms = append(gms, fmt.Sprintf("%q|%q|%q", k, in[ks:ke], in[vs:ve])) })
-		wok := std.Members(in, func(k string, ks, ke, vs, ve int) { wms = append(wms, fmt.Sprintf("%q|%q|%q", k, in[ks:ke], in[vs:ve])) })
+		gok := jsonlib.Members(in, func(k string, ks, ke, vs, ve int) {
+			gms = append(gms, fmt.Sprintf("%q|%q|%q", k, in[ks:ke], in[vs:ve]))
+		})
+		wok := std.Members(in, func(k string, ks, ke, vs, ve int) {
+			wms = append(wms, fmt.Sprintf("%q|%q|%q", k, in[ks:ke], in[vs:ve]))
+		})
 		// A walk that fails may have reported members before it failed; the
 		// callers discard them, so only a walk that succeeds must match.
 		if gok != wok || gok && !reflect.DeepEqual(gms, wms) {
@@ -153,7 +167,7 @@ func TestEquivalence(t *testing.T) {
 			// Whether it fails must match; what a failed decode left behind
 			// is never read by a routed site, so values are compared when
 			// both succeed.
-			if (gerr == nil) != (werr == nil) || gerr == nil && !reflect.DeepEqual(g, w) {
+			if !sameErr(gerr, werr) || gerr == nil && !reflect.DeepEqual(g, w) {
 				report("Unmarshal(%q) into %s = %+v, %v; encoding/json %+v, %v", name, target.site, reflect.ValueOf(g).Elem(), gerr, reflect.ValueOf(w).Elem(), werr)
 			}
 		}
