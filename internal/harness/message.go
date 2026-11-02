@@ -901,8 +901,10 @@ func Decode(payload []byte) (Message, error) {
 		}
 		return nil, protoErr(CodeInvalidJSON, "payload is not JSON")
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil {
+	// The members' texts, read in place (jsonval.RawObject); its error is
+	// encoding/json's.
+	fields, err := jsonval.RawObject(payload)
+	if err != nil {
 		return nil, protoErr(CodeInvalidJSON, "%v", err)
 	}
 	var t string

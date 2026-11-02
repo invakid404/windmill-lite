@@ -64,30 +64,17 @@ func isObject(v jsonval.Value) bool {
 // members splits a JSON object's text into its top-level members, each
 // key and value as written. ok is false for text that is not one JSON
 // object.
+//
+// The walk reads obj in place (jsonval.Members): each member's key and
+// value text are slices of obj, capped at their ends. As encoding/json's
+// token walk did, it refuses an object that a JSON token follows, and
+// accepts one that the end of the text, or text that cannot start a
+// token, follows.
 func members(obj []byte) (ms []rawMember, ok bool) {
-	dec := json.NewDecoder(bytes.NewReader(obj))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return nil, false
-	}
-	for dec.More() {
-		start := dec.InputOffset()
-		var key string
-		if t, err := dec.Token(); err != nil {
-			return nil, false
-		} else if key, ok = t.(string); !ok {
-			return nil, false
-		}
-		keyEnd := dec.InputOffset()
-		var v json.RawMessage
-		if err := dec.Decode(&v); err != nil {
-			return nil, false
-		}
-		ms = append(ms, rawMember{key: key, rawKey: bytes.TrimLeft(bytes.TrimSpace(obj[start:keyEnd]), ","), value: v})
-	}
-	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
-		return nil, false
-	}
-	if _, err := dec.Token(); err == nil {
+	rest, ok := jsonval.Members(obj, func(key string, ks, ke, vs, ve int) {
+		ms = append(ms, rawMember{key: key, rawKey: obj[ks:ke:ke], value: obj[vs:ve:ve]})
+	})
+	if !ok || rest == jsonval.RestValue {
 		return nil, false
 	}
 	return ms, true
@@ -140,19 +127,30 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 // beyond numeric's range, FX-51), or arguments whose text is not JSON (a
 // replaced JSON.stringify, JE-15), fail the push of the job, whose error
 // is the push's database error (pushError, FX-48 case 2, FX-50).
-func storeMembers(args jsonval.Value) (jsonval.Value, error) {
+//
+// held are the values the arguments were written from, in their order,
+// when the caller has them (argsOf): a member whose text is exactly held
+// value k's producer text, where k is the member's index, takes that
+// value's stored text, which a forwarded result already has (its step
+// stored it), instead of canonicalising the same bytes again. The stored
+// text depends on the bytes alone, so the outcome is the same either way.
+func storeMembers(args jsonval.Value, held ...jsonval.Value) (jsonval.Value, error) {
 	ms, ok := members(args.Producer())
 	if !ok {
 		return jsonval.Value{}, errors.New(sqlErr + "error returned from database: invalid input syntax for type json")
 	}
 	var out []rawMember
 	at := map[string]int{}
-	for _, m := range ms {
+	for i, m := range ms {
 		k, err := jsonval.FromProducer(m.rawKey).Stored()
 		if err != nil {
 			return jsonval.Value{}, pushError(err)
 		}
-		v, err := jsonval.FromProducer(m.value).Stored()
+		mv := jsonval.FromProducer(m.value)
+		if i < len(held) && !held[i].IsZero() && bytes.Equal(m.value, held[i].Producer()) {
+			mv = held[i]
+		}
+		v, err := mv.Stored()
 		if err != nil {
 			return jsonval.Value{}, pushError(err)
 		}

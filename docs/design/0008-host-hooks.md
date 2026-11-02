@@ -92,6 +92,18 @@ apply around the provided value exactly as around a real module.
   run's host scope and can call any code in the bundle. Platform calls it
   makes are attributed to the site it is serving
   ([0007](0007-platform-interface.md)).
+- **The payload of a `host_call`** (amendment) is JSON whose escapes may
+  differ from `encoding/json`'s; the values a plugin's `JSON.parse` reads
+  are the same.
+  - Arguments, results and carried values are their stored texts
+    ([0005](0005-json-step-boundaries.md)). The engine writes them into
+    the payload as they are, without checking, compacting or escaping
+    them again.
+  - Inside a stored text, `<`, `>`, `&`, U+2028 and U+2029 are therefore
+    written as themselves, not as `\u003c` and the like.
+  - The rest of the payload, and a value without a stored text (one
+    `jsonb` refuses), is written as `encoding/json` writes it, map keys
+    sorted.
 
 **Where the seams live.** The contracts milestone K1 and the first engine
 milestone N1a define the internal hook interface with no-op defaults, the

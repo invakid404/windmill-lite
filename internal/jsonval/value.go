@@ -50,6 +50,18 @@ func FromProducer(text []byte) Value {
 	return Value{r: &rep{producer: text, nul: hasNULEscape(text)}}
 }
 
+// FromPrinted returns the Value FromProducer(printed) would return, with
+// its stored text already known to be stored: stored is a stored text
+// (what Stored returns, or a value inside one), and printed is that text
+// with whitespace added outside its strings, as jsonb prints it. The
+// stored text of such a text is stored itself, so no canonicalising is
+// needed. Neither text is copied or checked; the caller hands them over.
+func FromPrinted(printed, stored []byte) Value {
+	r := &rep{producer: printed, nul: hasNULEscape(printed)}
+	r.storedOnce.Do(func() { r.stored = stored })
+	return Value{r: r}
+}
+
 // IsZero reports whether v holds no value. It lets struct fields tagged
 // `json:",omitzero"` drop absent values.
 func (v Value) IsZero() bool { return v.r == nil }

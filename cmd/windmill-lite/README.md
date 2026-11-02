@@ -358,10 +358,14 @@ The benchmarks run on these topologies:
 |---|---|
 | `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
 | `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
-| `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode. It reads the engine's Go heap after two collections before and after the runs, with its own input kept alive through both readings, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
+| `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode and on the plugin host, whose plugin provides resources and variables. It reads the engine's Go heap after two collections before and after the runs, with its own input kept alive through both readings, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
 | `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, on the host-plain topology: its bundle has no reader of `args.json`, so the file is left out. `WL_BENCH_ARGS_FILE=1` keeps it, which measures its cost on the same code. The bare shape's `f/bench/work` can fetch, so its bundle is a reader and keeps the file |
 | `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
 | `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
+| `BenchmarkHostShapes`, the large shapes | 20 steps of 256 KiB, 10 of 1 MiB, 8 of 4 MiB and 4 of 16 MiB (`s20-256KiB` to `s4-16MiB`). Each step works as in the 1 KiB shapes. Its template reads two short fields of a flow input whose `seed` is as large as the results |
+| `BenchmarkPassThrough` | A large value passed on unchanged (`bench_large_test.go`): an array of wide records with one text field each, of 64 KiB and about 2.1 MB. A step returns it through 0 to 4 nested sub-flows; the flow forwards it into 1, 3 or 5 steps and maps it to its ids. It runs on the host and on the plugin host, whose `onRunEnd` takes the whole trace. Per run: time, engine CPU and bytes allocated, host CPU |
+| `BenchmarkExpressions` | A step returns a wide object with a long markup string and its plain-text form, of 96 KiB and 2 MiB. Eight steps each evaluate one expression on it, or on the same value as the flow input's `v`: a short read, an optional-chained read, a null test, an object of three fields and a map. Each expression's time is reported per run (`expr-e<k>-ns`) |
+| `BenchmarkRunPeaks` | Linux only, with `-benchtime 1x`: the peak resident memory of the engine and of the host over one run, two steps that return their argument at 16 and 32 MiB, and eight at 16 MiB. Each case runs on its own runtime and host, after a warm run. It reports each peak, their sum, and the largest sum of the two resident sizes read together every millisecond (`combined-sampled-MiB`) |
 
 One iteration is one run per worker, the workers started together, so
 even one iteration has every run of its concurrency in flight at once.
@@ -447,14 +451,62 @@ WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
 
 `benchstat` (`golang.org/x/perf/cmd/benchstat`) compares two such outputs.
 
+`WL_BENCH_SIZES` gives `BenchmarkStepBoundary` other payload sizes, as
+labels separated by commas (`26B,1KiB,16MiB`); without it the sizes are
+those of [internal/bench](../../internal/bench/README.md), up to 4 MiB.
+
+### Comparing builds on GitHub's runners
+
+The workflow `Benchmarks` (`.github/workflows/bench.yml`) compares builds
+of the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
+is started by hand and gates nothing. It takes the builds as `name=ref`
+pairs, the benchmark groups and the number of rounds.
+
+Each job runs one group on one architecture:
+
+1. It builds every ref's test binary in a worktree of its own.
+2. It runs the rounds; each round runs every build once, in a rotating
+   order.
+3. It compares each build with the one before it, and the last with the
+   first, with `benchstat`.
+
+Its artifacts hold the outputs, the comparisons and the machine. The
+groups:
+
+| Group | What it runs |
+|---|---|
+| `boundary` | `BenchmarkStepBoundary` in host mode, one run at a time, 256 KiB to 16 MiB, `-benchtime 3s` |
+| `shapes` | the large shapes of `BenchmarkHostShapes`, `-benchtime 5x` |
+| `passthrough` | `BenchmarkPassThrough`, `-benchtime 10x` |
+| `expressions` | `BenchmarkExpressions`, `-benchtime 10x` |
+| `peaks` | `BenchmarkRunPeaks`, `-benchtime 1x` |
+| `retained` | `BenchmarkRetainedHeap`, `-benchtime 1x` |
+| `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
+
+```sh
+gh workflow run bench.yml -f builds="main=origin/main head=my-branch" -f groups="boundary small" -f rounds=10
+```
+
 ### One process per shape
 
 With `WL_BENCH_FRESH=1`, each shape of `BenchmarkHostShapes` and each
 configuration of `BenchmarkStepBoundary` runs in a test process of its
 own (`benchfresh_test.go`). The process `go test` starts sets nothing up.
 For each of them it runs the test binary again, for that benchmark alone,
-with the same `-benchtime` and `-timeout`, and reports the child's figures
-as its own.
+and reports the child's figures as its own.
+
+The child gets the test flags this process was given, such as
+`-benchtime`, `-timeout`, `-benchmem`, `-short` and `-v`. It gets `-cpu`
+at the GOMAXPROCS of each `-cpu` value, so `-cpu 1,4` runs each benchmark
+in a child per value. A profile or trace flag gives each child a file of
+its own: the name, then the benchmark's, its `-cpu` and the child's number
+(`cpu.out.BenchmarkHostShapes_shape-s600-1KiB.cpu4.3`).
+
+With more than one `-cpu` value, each benchmark starts one more child,
+whose figures go unused: the testing package calls a benchmark once
+before it sets GOMAXPROCS to the first value.
+The flags this process acts on itself stay its own: `-run`, `-bench`,
+`-count`, `-list`, `-skip`, `-shuffle`, fuzzing and coverage.
 
 The output keeps its form, so `benchstat` reads it as before. The
 iteration count printed is the parent's: with `-benchtime 10x` it is 10,

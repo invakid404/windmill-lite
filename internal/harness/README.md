@@ -313,6 +313,10 @@ the latest invocation's. A host-mode connection writes it in the host's
 working directory, which the handshake checked (`HostConfig.Workdir`),
 and never removes that directory.
 
+`scriptArgs` walks the arguments (`jsonval.Members`) only when their text
+holds one of the two names or a `\u` escape, the only ways a key can
+spell them; otherwise nothing can be dropped.
+
 `HostConfig.SkipArgsFile` leaves every invocation's file out in host
 mode. `wl` sets it only for a bundle none of whose scripts can read the
 file (`no_args_file_reader`) whose host opted in.
@@ -329,6 +333,18 @@ with `ECONNRESET` when its peer closed it with data it had not read. A
 fresh harness does that when it exits right after its result while a pong
 to its heartbeat is on its way, so taking `ECONNRESET` for a failure would
 discard the job's held result as killed by `SIGKILL`.
+
+A child of the harness may hold its socket open and keep writing to it.
+So once the harness has exited, the reader waits for more bytes at most
+`exitReadGrace` (one second), in one read and in all (`conn.endReads`).
+Reading bytes already in the socket takes almost nothing from that
+second, and handling them takes nothing.
+
+So the frames the harness wrote before it exited are read however long
+the reader takes; a single deadline at the exit would cut off those
+still in the socket's buffer, which holds about 200 KiB on Linux. A kill
+after the exit, such as a drain that timed out, ends the reader at once
+(`conn.stopReads`).
 
 Every kill but the watchdog's, which reports its own, is named in the
 diagnostics (`killing the harness: <reason>`). The line is written after
@@ -674,6 +690,17 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   blocked diagnostics writer, by `Kill` (`TestKillWithBlockedDiagnostics`)
   or by a fresh invocation's cancellation, whose call (mode `fresh-hang`)
   runs until its process is killed (`TestFreshCancelWithBlockedDiagnostics`).
+- `TestFramesWrittenBeforeTheExitAreRead` (`fake_test.go`) holds the
+  reader on a fake fresh harness's first log frame (the test hook
+  `messageRead`) while the harness writes 20 more and exits. It lets the
+  reader go once the grace after the exit has passed, and checks that the
+  escaped outcome's tail holds every line, in order.
+- In mode `fresh-drip-exit` the fake harness exits and leaves a child, in
+  a session of its own, that writes a log frame to the socket every 50 ms
+  for 20 s. `TestAChildWritingAfterTheExitDoesNotHoldTheReader` checks
+  that the invocation still ends about a second after the exit.
+  `TestADrainEndsTheReaderOfAnExitedProcess` lengthens the grace to an
+  hour and checks that a drain that times out ends the reader at once.
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher. `TestFlushWritesTheFrameItself` has a sender write a frame
   whole and one the socket takes only part of, the rest ahead of the next

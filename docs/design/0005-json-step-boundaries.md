@@ -296,6 +296,50 @@ time. In the counts with the longest tails, the `args-file` stage's mean
 was 0.7 to 1.2 ms against a p50 of about 130 µs. Their p50s and CPU
 figures are steady across counts.
 
+#### Large values
+
+The large-value benchmarks of the plan (items 4 to 7 below) were
+recorded on GitHub's hosted runners, through the workflow `Benchmarks`:
+Go 1.27.3, Bun 1.3.10, `ubuntu-24.04` and `ubuntu-24.04-arm`, 4 vCPUs
+each. Each figure is the median of 10 rounds, the builds rotating within
+one job.
+
+Each job draws its own CPU. On amd64 the step boundary ran on an AMD EPYC
+9V74 and the rest on an EPYC 7763; on arm64 every job ran on a
+Neoverse-N2. The command, from a checkout:
+
+```sh
+gh workflow run bench.yml -f builds="main=<base> head=<head>" \
+  -f groups="boundary shapes passthrough expressions peaks small" -f rounds=10
+```
+
+Time is per step for the boundary and the shapes, per run for the
+pass-through chain and per evaluation for the expressions. CPU is per
+step or per run, as the time is. The pass-through chain forwards a 2.1 MB
+array of records; on the plugin host its `onRunEnd` takes the whole
+trace.
+
+| | amd64 | arm64 |
+|---|---|---|
+| step boundary, host mode, 256 KiB: step / engine CPU / host CPU | 6.93ms / 4.37ms / 3.56ms | 7.88ms / 4.73ms / 4.71ms |
+| step boundary, host mode, 1 MiB: step / engine CPU / host CPU | 30.89ms / 20.62ms / 16.37ms | 36.69ms / 21.31ms / 21.02ms |
+| step boundary, host mode, 4 MiB: step / engine CPU / host CPU | 117.73ms / 71.80ms / 77.22ms | 138.36ms / 75.15ms / 93.90ms |
+| step boundary, host mode, 16 MiB: step / engine CPU / host CPU | 492.87ms / 275.23ms / 328.67ms | 547.11ms / 286.96ms / 376.92ms |
+| host shape s20-256KiB: step / engine CPU / host CPU | 16.26ms / 14.39ms / 6.45ms | 15.06ms / 11.71ms / 6.89ms |
+| host shape s10-1MiB: step / engine CPU / host CPU | 69.51ms / 60.97ms / 25.49ms | 61.90ms / 48.02ms / 25.38ms |
+| host shape s8-4MiB: step / engine CPU / host CPU | 273.47ms / 235.03ms / 136.08ms | 239.24ms / 183.80ms / 120.45ms |
+| host shape s4-16MiB: step / engine CPU / host CPU | 1.193s / 973.07ms / 598.47ms | 1.031s / 784.86ms / 501.11ms |
+| pass-through 2.1 MB, depth 4, fan-out 3, host: run / engine CPU / bytes allocated | 198.77ms / 171.27ms / 73.2MiB | 164.92ms / 128.79ms / 73.2MiB |
+| pass-through 2.1 MB, depth 4, fan-out 3, host-plugin: run / engine CPU / bytes allocated | 527.26ms / 299.42ms / 170.7MiB | 433.33ms / 232.43ms / 170.7MiB |
+| 2 MiB result: short read / null test / object of three fields | 12.30ms / 12.34ms / 16.66ms | 10.20ms / 10.11ms / 12.64ms |
+| whole run, two steps, 16 MiB: engine / host / paired sample, MiB | 264.9 / 277.2 / 531.6 | 260.4 / 280.1 / 529 |
+| whole run, two steps, 32 MiB: engine / host / paired sample, MiB | 497.3 / 464.9 / 887 | 494.2 / 483.2 / 951.6 |
+| whole run, eight steps, 16 MiB: engine / host / paired sample, MiB | 612 / 297 / 875 | 604.6 / 295.1 / 870.4 |
+
+A long-lived engine keeps about 2 KiB per finished run on every
+topology (`BenchmarkRetainedHeap`,
+[cmd/windmill-lite](../../cmd/windmill-lite/README.md#benchmarks)).
+
 #### What the baseline shows
 
 These are facts of the measurements; nothing was changed to obtain them.
@@ -461,6 +505,43 @@ never in CI. A comparison runs both sides on one machine in one sitting,
 and `benchstat` compares their outputs. A shared CI runner's timings vary
 by more than the 20 % a regression gate would catch, and a scheduled job
 that fails on that noise would need a person to look at it.
+
+**Large values (amendment).** The plan gains the size-dependent cost of
+the step path. It measures values below Windmill's result-size limit,
+which windmill-lite applies as Windmill does
+([OR-7](../semantics/oracle.md#or-7),
+[WR-15](../semantics/languages.md#wr-15)). The values are synthetic,
+shaped like a real workload's large ones: wide objects with long strings,
+and arrays of wide records, tens of KB to several MiB
+([cmd/windmill-lite](../../cmd/windmill-lite/README.md#benchmarks)):
+
+4. the step boundary at 256 KiB, 1, 4 and 16 MiB (`WL_BENCH_SIZES`), and
+   host shapes whose steps return 256 KiB to 16 MiB;
+5. a pass-through chain: a 2.1 MB array of records returned unchanged
+   through 0 to 4 nested sub-flows, then forwarded whole into 1 to 5
+   steps' arguments. It runs with and without a plugin that takes the
+   run-end trace, and reports the engine's CPU and bytes allocated per
+   run;
+6. expressions that read short fields out of a 2 MiB result: a short read,
+   a null test and an object of three fields, each timed on its own;
+7. the peak resident memory of the engine and of the Bun host over one run
+   of 16 and 32 MiB, each process's own and an approximate paired sample of
+   both together.
+
+Their figures, unlike item 2's, come from GitHub's hosted runners
+(linux/amd64 and linux/arm64), through the workflow `Benchmarks`. It is
+started by hand and gates nothing. It rotates the builds it compares on
+one runner, round after round, and compares them with `benchstat` (at
+least ten rounds, p < 0.05).
+
+At these sizes a change moves a step by tens of percent, far above the
+runners' noise. The figures then hold on both architectures an embedder
+deploys to, which one laptop cannot show.
+
+Its `small` group runs item 2's payloads of 1 KiB and below the same
+way, each in a process of its own. It checks that a change does not slow
+them beyond the runners' noise; item 2's recorded baseline stays the
+local one above.
 
 ## Consequences
 

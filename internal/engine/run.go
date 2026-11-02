@@ -1417,7 +1417,8 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// an identity module launches its own identity job, which they do
 	// (ADR 0008).
 	var args jsonval.Value
-	var preRun error // an input transform's failure (FX-14)
+	var held []jsonval.Value // the values args was written from (storeMembers)
+	var preRun error         // an input transform's failure (FX-14)
 	identity, answered, reused := false, false, false
 	switch {
 	case m.Mock != nil && m.Mock.Enabled:
@@ -1437,10 +1438,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		args = fr.input
 	case skipped || m.Kind == ir.KindIdentity:
 		identity, answered = true, skipped
-		args = objectOf(member{"previous_result", prev.Producer()})
+		args, held = objectOf(member{"previous_result", prev.Producer()}), []jsonval.Value{prev}
 	default:
 		var err error
-		if args, err = r.args(ctx, fr, i, inputsOf(m), site.Path, prev, prevID); err != nil {
+		if args, held, err = r.args(ctx, fr, i, inputsOf(m), site.Path, prev, prevID); err != nil {
 			if ctx.Err() != nil {
 				return notLaunched()
 			}
@@ -1473,7 +1474,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		}
 		if !bytes.Equal(rewritten.Producer(), args.Producer()) {
 			o.rec.ArgsBeforeRewrite, o.rec.Hooks = args, append(o.rec.Hooks, "H2")
-			args = rewritten
+			args, held = rewritten, nil
 		}
 	}
 	// Start step 9: the module's own timeout (its loop's in a collapsed
@@ -1489,7 +1490,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// The storage boundary: each argument becomes its stored text; one
 	// that jsonb refuses, by a key or a value, fails the push, a chaining
 	// error (ADR 0005 step 3, FX-48, FX-51).
-	stored, err := storeMembers(args)
+	stored, err := storeMembers(args, held...)
 	if err != nil {
 		return chaining(err.Error())
 	}
@@ -1598,7 +1599,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				return r.cachedJob(ctx, fr, i, site.Path, o, c)
 			}
 		}
-		entry, _, err := Entrypoint(stored)
+		entry, _, err := storedEntrypoint(stored)
 		if err != nil {
 			// WR-12: the job fails before any wrapper runs.
 			o.rec.Ran = true
@@ -2142,7 +2143,10 @@ func (r *run) predicate(ctx context.Context, fr *frame, x *expr.Expr, site confo
 // first error; the object's top-level keys come in that order too (ADR
 // 0005 step 2). A static value is copied verbatim (JE-40), an ai input
 // left out.
-func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site conformance.SitePath, prev jsonval.Value, prevID string) (jsonval.Value, error) {
+//
+// held are the evaluated values, by member, for storeMembers: a static
+// value has none.
+func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site conformance.SitePath, prev jsonval.Value, prevID string) (args jsonval.Value, held []jsonval.Value, err error) {
 	var ms []member
 	var scope *expr.Scope
 	for _, k := range fr.rng.Perm(len(ins)) {
@@ -2150,18 +2154,20 @@ func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site c
 		switch in.Transform.Type {
 		case ir.Static:
 			ms = append(ms, member{in.Name, orNull(in.Transform.Value)})
+			held = append(held, jsonval.Value{})
 		case ir.Javascript:
 			if scope == nil {
 				scope = r.transformScope(fr, i, prev, prevID)
 			}
 			v, err := r.evaluate(ctx, fr, in.Transform.Expr, site, scope)
 			if err != nil {
-				return jsonval.Value{}, &transformFailure{text: in.Transform.Expr.Text, err: err}
+				return jsonval.Value{}, nil, &transformFailure{text: in.Transform.Expr.Text, err: err}
 			}
 			ms = append(ms, member{in.Name, v.Producer()})
+			held = append(held, v)
 		}
 	}
-	return objectOf(ms...), nil
+	return objectOf(ms...), held, nil
 }
 
 // moduleTimeout evaluates the module's own timeout, start step 9 (FX-24,

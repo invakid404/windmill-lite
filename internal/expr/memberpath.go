@@ -101,6 +101,21 @@ func parseMemberPath(e *Expr) *memberPath {
 		}
 		mp.root, rest = t[:n], t[n:]
 	}
+	steps, n, ok := parseSteps(rest)
+	if !ok || n != len(rest) {
+		return nil
+	}
+	mp.steps = steps
+	return mp
+}
+
+// parseSteps reads the reads of a member path at the start of s: .key,
+// ?.key, [index], ["key"], ['key'] and their optional forms. It stops at
+// the first character that starts none of them and returns the steps and
+// how much of s they take; ok is false for a read it cannot take, which
+// leaves the text to the engine.
+func parseSteps(s string) (steps []pathStep, n int, ok bool) {
+	rest := s
 	for rest != "" {
 		var m pathStep
 		if r, ok := strings.CutPrefix(rest, "?."); ok {
@@ -108,45 +123,45 @@ func parseMemberPath(e *Expr) *memberPath {
 			if !strings.HasPrefix(rest, "[") {
 				n := identPrefix(rest)
 				if n == 0 {
-					return nil
+					return nil, 0, false
 				}
 				m.key, rest = rest[:n], rest[n:]
-				mp.steps = append(mp.steps, m)
+				steps = append(steps, m)
 				continue
 			}
 		} else if r, ok := strings.CutPrefix(rest, "."); ok {
 			n := identPrefix(r)
 			if n == 0 {
-				return nil
+				return nil, 0, false
 			}
 			m.key, rest = r[:n], r[n:]
-			mp.steps = append(mp.steps, m)
+			steps = append(steps, m)
 			continue
 		}
 		// [index], ["key"] or ['key'].
 		if !strings.HasPrefix(rest, "[") {
-			return nil
+			break
 		}
 		end := strings.IndexByte(rest, ']')
 		if end < 0 {
-			return nil
+			return nil, 0, false
 		}
 		in := rest[1:end]
 		switch {
 		case len(in) >= 2 && (in[0] == '"' || in[0] == '\'') && in[len(in)-1] == in[0]:
 			if !plainString(in[1:len(in)-1], in[0]) {
-				return nil
+				return nil, 0, false
 			}
 			m.key = in[1 : len(in)-1]
 		case canonicalIndex(in) && len(in) <= 15:
 			m.key = in
 		default:
-			return nil
+			return nil, 0, false
 		}
 		rest = rest[end+1:]
-		mp.steps = append(mp.steps, m)
+		steps = append(steps, m)
 	}
-	return mp
+	return steps, len(s) - len(rest), true
 }
 
 // identPrefix returns the length of the ASCII identifier at the start of
@@ -197,6 +212,16 @@ func canonicalIndex(s string) bool {
 // under the evaluation's attempt limit, cancellation and retries (JE-2),
 // so it stays the engine's.
 func (mp *memberPath) eval(in Input) ([]byte, bool) {
+	root, ok := mp.rootText(in)
+	if !ok {
+		return nil, false
+	}
+	return walkPath(root, mp.steps)
+}
+
+// rootText returns the text of mp's root from the values the evaluation
+// binds, or false when eval leaves mp to the engine whatever its steps.
+func (mp *memberPath) rootText(in Input) ([]byte, bool) {
 	rootName := mp.root
 	if rootName == "" {
 		var prev []byte
@@ -228,7 +253,7 @@ func (mp *memberPath) eval(in Input) ([]byte, bool) {
 	if !rootBound {
 		return nil, false // a ReferenceError
 	}
-	return walkPath(root, mp.steps)
+	return root, true
 }
 
 // validJSON reports whether t is UTF-8 JSON text no deeper than
@@ -254,9 +279,44 @@ func walkPath(text []byte, steps []pathStep) ([]byte, bool) {
 	if !validJSON(text) {
 		return nil, false
 	}
+	v, undefined, ok := pathValue(text, steps)
+	switch {
+	case !ok:
+		return nil, false
+	case undefined:
+		return []byte("null"), true
+	}
+	return v.appendJSON(nil), true
+}
+
+// pathValue reads steps from the value JSON.parse makes of text, which
+// validJSON has checked, and returns the value it ends on, or undefined.
+// ok is false where JavaScript would do more than read a JSON value's own
+// data.
+func pathValue(text []byte, steps []pathStep) (v *jsValue, undefined, ok bool) {
+	at, length, undefined, ok := pathEnd(text, steps)
+	switch {
+	case !ok:
+		return nil, false, false
+	case length >= 0:
+		return &jsValue{kind: jsNumber, n: float64(length)}, false, true
+	case undefined:
+		return nil, true, true
+	}
+	sc := &pathScanner{s: text, i: at}
+	v, ok = sc.value(0)
+	return v, false, ok
+}
+
+// pathEnd follows steps through text, which validJSON has checked: it
+// returns where the value the path ends on starts, or that it is
+// undefined, or, for an array's length, the count (length is -1
+// otherwise). ok is false where JavaScript would do more than read a JSON
+// value's own data.
+func pathEnd(text []byte, steps []pathStep) (at, length int, undefined, ok bool) {
 	sc := &pathScanner{s: text}
 	sc.space()
-	at, undefined := sc.i, false
+	at = sc.i
 	for n, m := range steps {
 		if undefined || text[at] == 'n' {
 			if m.optional {
@@ -264,7 +324,7 @@ func walkPath(text []byte, steps []pathStep) ([]byte, bool) {
 				undefined = true
 				break
 			}
-			return nil, false // a TypeError, whose text is the engine's
+			return 0, -1, false, false // a TypeError, whose text is the engine's
 		}
 		switch text[at] {
 		case '{':
@@ -272,38 +332,30 @@ func walkPath(text []byte, steps []pathStep) ([]byte, bool) {
 			at, found = sc.member(at, m.key)
 			if !found {
 				if slices.Contains(objectProtoNames, m.key) {
-					return nil, false // inherited from Object.prototype
+					return 0, -1, false, false // inherited from Object.prototype
 				}
 				undefined = true
 			}
 		case '[':
 			if m.key == "length" {
 				if n != len(steps)-1 {
-					return nil, false // a number's member
+					return 0, -1, false, false // a number's member
 				}
-				return strconv.AppendInt(nil, int64(sc.count(at)), 10), true
+				return 0, sc.count(at), false, true
 			}
 			i, ok := arrayIndex(m.key)
 			if !ok {
-				return nil, false // a property of Array.prototype, or none
+				return 0, -1, false, false // a property of Array.prototype, or none
 			}
 			var found bool
 			if at, found = sc.element(at, i); !found {
 				undefined = true
 			}
 		default:
-			return nil, false // a primitive's member
+			return 0, -1, false, false // a primitive's member
 		}
 	}
-	if undefined {
-		return []byte("null"), true
-	}
-	sc.i = at
-	v, ok := sc.value(0)
-	if !ok {
-		return nil, false
-	}
-	return v.appendJSON(nil), true
+	return at, -1, undefined, true
 }
 
 // pathScanner reads JSON text: it checks and skips values, finds an object's
@@ -378,6 +430,58 @@ func (sc *pathScanner) skip(depth int) bool {
 	}
 	_, ok := sc.rawNumber()
 	return ok
+}
+
+// skipChecked skips one value of text that validJSON has checked, without
+// checking it again: a string to its closing quote, found with
+// bytes.IndexByte, and a container to the bracket that closes it, jumping
+// between the quotes and brackets in it.
+func (sc *pathScanner) skipChecked() {
+	s := sc.s
+	switch s[sc.i] {
+	case '"':
+		sc.i = stringEnd(s, sc.i+1)
+	case '{', '[':
+		depth := 0
+		for {
+			j := bytes.IndexAny(s[sc.i:], `"{}[]`)
+			sc.i += j
+			switch s[sc.i] {
+			case '"':
+				sc.i = stringEnd(s, sc.i+1)
+				continue
+			case '{', '[':
+				depth++
+			default:
+				depth--
+			}
+			sc.i++
+			if depth == 0 {
+				return
+			}
+		}
+	default:
+		for sc.i < len(s) && !strings.ContainsRune(",}] \t\n\r", rune(s[sc.i])) {
+			sc.i++
+		}
+	}
+}
+
+// stringEnd returns the index after the closing quote of the checked
+// string whose text starts at i, after its opening quote: the first quote
+// that an odd number of backslashes does not escape.
+func stringEnd(s []byte, i int) int {
+	for {
+		q := i + bytes.IndexByte(s[i:], '"')
+		n := 0
+		for k := q - 1; k >= i && s[k] == '\\'; k-- {
+			n++
+		}
+		if n%2 == 0 {
+			return q + 1
+		}
+		i = q + 1
+	}
 }
 
 // rawString checks and skips a JSON string, and returns its text between
@@ -472,7 +576,7 @@ func (sc *pathScanner) member(at int, key string) (int, bool) {
 		if pathKeyIs(raw, key) {
 			found, pos = true, sc.i
 		}
-		sc.skip(0)
+		sc.skipChecked()
 		sc.space()
 		sc.lit(",")
 	}
@@ -500,7 +604,7 @@ func (sc *pathScanner) element(at int, i uint64) (int, bool) {
 		if n == i {
 			return sc.i, true
 		}
-		sc.skip(0)
+		sc.skipChecked()
 		sc.space()
 		sc.lit(",")
 	}
@@ -515,7 +619,7 @@ func (sc *pathScanner) count(at int) int {
 		if sc.lit("]") {
 			return n
 		}
-		sc.skip(0)
+		sc.skipChecked()
 		sc.space()
 		sc.lit(",")
 	}

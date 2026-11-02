@@ -123,7 +123,24 @@ func FailureValue(raw []byte) jsonval.Value {
 // type (a wm_failure that is not a string, a wm_labels that is not null or
 // an array of strings, a null element included) disables both markers, so
 // the result stays a success. ok is false when the result stays one.
+//
+// Only an object's wm_failure member marks a failure, and a key is
+// wm_failure only when the text spells it, as itself or with \u escapes
+// (no other escape writes a letter or an underscore). A result that is not
+// an object, or whose text holds neither, is not walked, nor scanned past
+// its first character.
 func ManualFailure(result []byte) (jsonval.Value, bool) {
+	if t := bytes.TrimSpace(result); len(t) == 0 || t[0] != '{' {
+		return jsonval.Value{}, false
+	}
+	if !bytes.Contains(result, []byte("wm_failure")) && !bytes.Contains(result, []byte(`\u`)) {
+		return jsonval.Value{}, false
+	}
+	return manualFailure(result)
+}
+
+// manualFailure is ManualFailure's walk.
+func manualFailure(result []byte) (jsonval.Value, bool) {
 	ms, ok := members(bytes.TrimSpace(result))
 	if !ok {
 		return jsonval.Value{}, false
@@ -241,6 +258,17 @@ var ErrInvalidEntrypoint = errors.New("Invalid entrypoint override")
 
 var entrypointName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// storedEntrypoint is Entrypoint for stored arguments, the object
+// storeMembers writes. Its keys are stored strings, which spell a letter or
+// an underscore only as itself, never as an escape, so arguments without
+// the key's quoted text anywhere carry no override, and need no walk.
+func storedEntrypoint(stored jsonval.Value) (entry string, override bool, err error) {
+	if !bytes.Contains(stored.Producer(), []byte(`"`+EntrypointOverride+`"`)) {
+		return "main", false, nil
+	}
+	return Entrypoint(stored)
+}
+
 // Entrypoint returns the export a step's invocation calls (ADR 0004,
 // entrypoints): the value of _ENTRYPOINT_OVERRIDE when the argument object
 // carries one, which the flow preprocessor step always does (WR-12), and
@@ -249,13 +277,23 @@ var entrypointName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // not a string matching ^[A-Za-z_][A-Za-z0-9_]*$ is refused before any
 // wrapper runs, with an error wrapping ErrInvalidEntrypoint, whose text
 // begins as Windmill's does.
+//
+// It walks the object in place (jsonval.Members) for the last member of
+// that key, as a decode into a map of members finds it, and refuses text
+// that such a decode refuses: anything but one object, with only
+// whitespace after it.
 func Entrypoint(args jsonval.Value) (entry string, override bool, err error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(args.Producer(), &top); err != nil || top == nil {
+	text := args.Producer()
+	var raw []byte
+	rest, ok := jsonval.Members(text, func(key string, _, _, vs, ve int) {
+		if key == EntrypointOverride {
+			raw = text[vs:ve]
+		}
+	})
+	if !ok || rest != jsonval.RestNone {
 		return "", false, fmt.Errorf("engine: the arguments are not a JSON object")
 	}
-	raw, ok := top[EntrypointOverride]
-	if !ok {
+	if raw == nil {
 		return "main", false, nil
 	}
 	var name string

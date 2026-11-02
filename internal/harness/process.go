@@ -35,9 +35,12 @@ const (
 	// DefaultRecentLate is how many settled invocations keep receiving
 	// late output (D9) per process.
 	DefaultRecentLate = 4096
-	// exitReadGrace is how long the reader keeps draining the socket after
-	// the process exited: a child the step started may hold the socket
-	// open, so the end of the stream cannot be waited for.
+	// exitReadGrace is how long the reader waits for more of the socket
+	// once the process has exited, in one read and in all: a child the
+	// step started may hold the socket open, so the end of the stream
+	// cannot be waited for. Reading what is already in the socket takes
+	// almost nothing from it, so what the process wrote before it exited
+	// is read however long that takes.
 	exitReadGrace = time.Second
 	// rejectGrace is how long a rejected harness gets to exit by itself.
 	rejectGrace = 2 * time.Second
@@ -229,6 +232,10 @@ type Process struct {
 	group     bool
 	groupGone atomic.Bool
 
+	// exitGrace bounds the reader once the process has exited
+	// (conn.endReads): exitReadGrace, which a test lengthens. p.mu guards it.
+	exitGrace time.Duration
+
 	waitDone chan struct{} // closed when cmd.Wait has returned
 	outR     *os.File      // the read ends of stdout and stderr
 	errR     *os.File
@@ -361,6 +368,7 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 		killAfter:  cfg.KillAfter,
 		heartbeat:  cfg.Heartbeat,
 		maxMessage: cfg.MaxMessage,
+		exitGrace:  exitReadGrace,
 		waitDone:   make(chan struct{}),
 		exited:     make(chan struct{}),
 		helloCh:    make(chan Hello, 1),
@@ -495,6 +503,7 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("harness: socket: %w", err)
 	}
+	p.conn = newConn(nc, connConfig{maxMessage: p.maxMessage, onMessage: p.handle, onClose: p.readerDone})
 	go func() {
 		cmd.Wait()
 		p.mu.Lock()
@@ -504,15 +513,14 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 		// A fresh process writes nothing after its settled result, so the
 		// reader stops at once; the result waits for the group, not for a
 		// child that holds the socket.
-		grace := exitReadGrace
+		grace := p.exitGrace
 		if p.holding {
 			grace = 0
 		}
 		p.mu.Unlock()
 		close(p.waitDone)
-		nc.SetReadDeadline(time.Now().Add(grace))
+		p.conn.endReads(grace)
 	}()
-	p.conn = newConn(nc, connConfig{maxMessage: p.maxMessage, onMessage: p.handle, onClose: p.readerDone})
 	p.conn.run()
 
 	if err := p.handshake(ctx, timeout); err != nil {
@@ -1908,6 +1916,14 @@ func (p *Process) kill(reason string) {
 			// would have to be reused by a new group leader.
 			syscall.Kill(-p.pid, syscall.SIGKILL)
 		}
+	}
+	// Once the process has exited, its socket can only be held by a child
+	// it left, still writing: a kill ends the reader there and then, so a
+	// drain that timed out, or a cancellation, does not wait for it.
+	select {
+	case <-p.waitDone:
+		p.conn.stopReads()
+	default:
 	}
 }
 

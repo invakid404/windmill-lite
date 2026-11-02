@@ -33,9 +33,31 @@ func TestScriptArgs(t *testing.T) {
 		{`{"_MODULES":1} true`, `{"_MODULES":1} true`},
 		{`{"_MODULES":1}{}`, `{"_MODULES":1}{}`},
 		{`{"a":1,"_MODULES":1} x`, `{"a":1,"_MODULES":1} x`},
+		// Keys spelled with \u escapes are internal keys too.
+		{`{"_MOD\u0055LES":1,"a":2}`, `{"a":2}`},
+		{`{"a":"x","\u005fTEMP_SCRIPT_REFS":[1],"b":"\n"}`, `{"a":"x","b":"\n"}`},
+		{`{"_TEMP_SCRIPT_REF\u0053":null}`, `{}`},
+		// Other escapes spell no letter or underscore: kept as they are.
+		{`{"a":"q\"x\\y\n\t\/","b":{"c":"\\u005fMODULES"}}`, `{"a":"q\"x\\y\n\t\/","b":{"c":"\\u005fMODULES"}}`},
+		{`{"a\nb":1, "_MODULESx":2}`, `{"a\nb":1, "_MODULESx":2}`},
 	} {
 		if got := string(scriptArgs(jsonval.FromProducer([]byte(c.in))).Producer()); got != c.want {
 			t.Errorf("%s: %s, want %s", c.in, got, c.want)
+		}
+	}
+}
+
+// scriptArgs' pre-check skips only arguments its walk
+// would keep whole: on every probe it answers as the walk does.
+func TestScriptArgsSkip(t *testing.T) {
+	for _, in := range []string{
+		`{"a":"\n"}`, `{"a":"\"","b":"\\"}`, `{"a\tb":1}`, `{"_MODULES":1,"a":"\n"}`, `{"\u005fMODULES":1}`,
+		`{"a":"\\u005fMODULES"}`, `{"a":1} x`, `{"a":"\/"}`, `[1,"\n"]`, `{"a":"\b\f\r"}`,
+	} {
+		got := string(scriptArgs(jsonval.FromProducer([]byte(in))).Producer())
+		want := string(walkedArgs(jsonval.FromProducer([]byte(in))).Producer())
+		if got != want {
+			t.Errorf("%s: %s; the walk %s", in, got, want)
 		}
 	}
 }

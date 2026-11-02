@@ -315,6 +315,17 @@ bridge).
    whose context ends first is not latched. A failed `onRunEnd` adds a
    `plugin_error` warning; a failed `onRunSettled` is written to the
    diagnostics.
+   - **The payload** (`marshalPayload`) is written as `json.Marshal`
+     writes it, map keys sorted, but the stored texts of arguments,
+     results, carried values and late bodies (`spliced`) go in as they
+     are. Its escapes may therefore differ from `encoding/json`'s inside
+     a stored text (`<`, `>`, `&`, U+2028 and U+2029); the plugin parses
+     the same values ([ADR 0008](../docs/design/0008-host-hooks.md),
+     §Where hooks run).
+   - A value without a stored text, and the arguments a rewrite gets
+     before storage, are written by `encoding/json`, its errors included.
+     `TestPayloadSplice` holds the payloads to `json.Marshal`'s: the same
+     parsed values, and the same bytes but for those escapes.
    - **Run-end trace detail.** Each run-end hook gets the full trace
      unless the declaration's `trace_detail` asks for a `summary` (the
      run's own fields, without its per-step parts) or `none` (its id and

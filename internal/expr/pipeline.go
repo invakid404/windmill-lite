@@ -34,6 +34,11 @@ const (
 	// the evaluation binds previous_result: the previous id, whose read the
 	// results prelude answers from memory (JE-18 rule 1).
 	hostPreviousID = "__wl_previous_id"
+	// hostSharedRead is a host string, bound with the results lookup only
+	// for a text whose reads of one step's result can be one read
+	// (pathExpr.sharedRead): that step's id, which the results prelude then
+	// reads once.
+	hostSharedRead = "__wl_shared_read"
 )
 
 var jsonNull = []byte("null")
@@ -55,10 +60,11 @@ type Pipeline struct {
 	programs map[string]compiled
 
 	// paths says whether the engine evaluates member paths as the
-	// pipeline's own answer does (ExactMemberPaths), and pathOf holds each
-	// text's member path, or nil for a text that is not one.
+	// pipeline's own answer does (ExactMemberPaths), and exprOf holds each
+	// text's pathExpr, a member path or a null test or object of them, or
+	// nil for a text that is not one.
 	paths  bool
-	pathOf sync.Map
+	exprOf sync.Map
 }
 
 // compiled is the Engine's answer for one source: its program, or the
@@ -140,7 +146,9 @@ func (p *Pipeline) program(source string) (Program, error) {
 // (ExactMemberPaths), a text that only reads a member path of a bound JSON
 // value, such as flow_input.cfg.region, previous_result.items[0]?.id or
 // results.<previous id>?.b, is answered as the engine would answer it,
-// without the engine (memberPath). Anything else runs the expression's program on the
+// without the engine (memberPath), and so is a null test or an object
+// literal of such paths over one root (pathExpr):
+// previous_result.x == null ? null : previous_result.x.id. Anything else runs the expression's program on the
 // engine (see evaluate). A failure is an *EvalError with Windmill's text; a context that ends during
 // the evaluation gives its cause instead. The engine's text is returned as
 // it is, without a check that it is JSON: the user's code can replace
@@ -168,13 +176,16 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 	if err := checkDepth(e, s, in); err != nil {
 		return jsonval.Value{}, err
 	}
-	if mp := p.memberPath(e); mp != nil {
-		if out, ok := mp.eval(in); ok {
+	if x := p.pathExpr(e); x != nil && p.paths {
+		if out, ok := x.eval(in); ok {
 			if err := context.Cause(ctx); err != nil {
 				return jsonval.Value{}, err
 			}
 			return jsonval.FromProducer(out), nil
 		}
+	}
+	if id := p.pathExpr(e).sharedRead(); id != "" && slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
+		in.Strings = append(in.Strings, HostString{hostSharedRead, []byte(id)})
 	}
 	out, err := p.evaluate(ctx, e, in)
 	if err != nil {
@@ -183,17 +194,22 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 	return jsonval.FromProducer(out), nil
 }
 
-// memberPath returns e's member path when the pipeline answers it itself.
-func (p *Pipeline) memberPath(e *Expr) *memberPath {
-	if !p.paths {
-		return nil
+// exprKey is what parsePathExpr reads of an Expr besides what its text
+// decides: its mode.
+type exprKey struct {
+	mode Mode
+	text string
+}
+
+// pathExpr returns e's pathExpr, or nil.
+func (p *Pipeline) pathExpr(e *Expr) *pathExpr {
+	key := exprKey{e.Mode, e.Trimmed}
+	if x, ok := p.exprOf.Load(key); ok {
+		return x.(*pathExpr)
 	}
-	if mp, ok := p.pathOf.Load(e.Trimmed); ok {
-		return mp.(*memberPath)
-	}
-	mp := parseMemberPath(e)
-	p.pathOf.Store(e.Trimmed, mp)
-	return mp
+	x := parsePathExpr(e)
+	p.exprOf.Store(key, x)
+	return x
 }
 
 // evaluate runs e's program on the engine with the bindings in (ADR 0003),
@@ -287,7 +303,7 @@ func shortcut(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, route) {
 		}
 	}
 	if rp := sc.ResultsPath; rp != nil && !rp.Declines && s.Results != nil {
-		return jsonval.FromProducer(lookupPath(ctx, s.Results, rp)), routeResultsPath
+		return lookupPath(ctx, s.Results, rp), routeResultsPath
 	}
 	return jsonval.Value{}, routeEngine
 }
@@ -295,15 +311,18 @@ func shortcut(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, route) {
 // lookupPath is JE-9's lenient lookup: the step's stored result, with the
 // optional index and the segments applied, in jsonb's text output. A
 // missing step, an unusable stored text, a missing key, a type mismatch and
-// a null intermediate all give null.
-func lookupPath(ctx context.Context, r Results, rp *ResultsPath) []byte {
+// a null intermediate all give null. The value it finds is a part of a
+// stored text, so it keeps that part as its stored text (jsonval.FromPrinted):
+// a step that takes it as an argument stores it without canonicalising it
+// again.
+func lookupPath(ctx context.Context, r Results, rp *ResultsPath) jsonval.Value {
 	v, ok := r.Stored(ctx, rp.Step)
 	if !ok || v.IsZero() {
-		return jsonNull
+		return jsonval.FromProducer(jsonNull)
 	}
 	stored, err := v.Stored()
 	if err != nil {
-		return jsonNull
+		return jsonval.FromProducer(jsonNull)
 	}
 	path := rp.Segments
 	if rp.Index != "" {
@@ -311,9 +330,9 @@ func lookupPath(ctx context.Context, r Results, rp *ResultsPath) []byte {
 	}
 	sub, ok := walk(stored, path)
 	if !ok {
-		return jsonNull
+		return jsonval.FromProducer(jsonNull)
 	}
-	return databaseText(sub)
+	return jsonval.FromPrinted(databaseText(sub), sub)
 }
 
 // context returns the scope's context value name; the first of repeated

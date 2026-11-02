@@ -45,6 +45,19 @@ type Call struct {
 	Run  RunHandle
 	Site Site
 	Args json.RawMessage
+	// args is the value Args was taken from, when the runtime made the
+	// call, so that a plugin's payload can splice its stored text
+	// (payloadText).
+	args jsonval.Value
+}
+
+// payloadArgs is Args as a host_call payload carries it: the stored text
+// of the value it was taken from, spliced, or Args itself.
+func (c Call) payloadArgs() any {
+	if !c.args.IsZero() {
+		return payloadText(c.args)
+	}
+	return c.Args
 }
 
 // Outcome is what an interception or a provider answers for a site in
@@ -185,7 +198,7 @@ func provide(providers map[string]Provider) engine.ProvideFunc {
 		if p == nil {
 			return engine.StepOutcome{}, false, nil
 		}
-		out, ok, err := p(ctx, Call{Run: r, Site: s, Args: storedText(args)})
+		out, ok, err := p(ctx, Call{Run: r, Site: s, Args: storedText(args), args: args})
 		if err != nil || !ok {
 			return engine.StepOutcome{}, ok, err
 		}
@@ -435,7 +448,7 @@ func (x *hooks) Intercept(ctx context.Context, r engine.Run, s engine.Site, args
 			out, err := Outcome{Result: in.Static}.step()
 			return out, err == nil, err
 		}
-		out, ok, err := in.Func(ctx, Call{Run: r, Site: s, Args: storedText(args)})
+		out, ok, err := in.Func(ctx, Call{Run: r, Site: s, Args: storedText(args), args: args})
 		if err != nil || !ok {
 			return engine.StepOutcome{}, false, err
 		}

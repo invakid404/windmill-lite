@@ -2,9 +2,6 @@ package harness
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
-	"io"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -24,43 +21,32 @@ var internalArgs = map[string]bool{"_MODULES": true, "_TEMP_SCRIPT_REFS": true}
 // internal key was dropped would come out valid.
 func scriptArgs(args jsonval.Value) jsonval.Value {
 	text := args.Producer()
-	// A key can only match with an underscore or an escape in its text.
-	if !bytes.Contains(text, []byte("_MODULES")) && !bytes.Contains(text, []byte("_TEMP_SCRIPT_REFS")) && !bytes.Contains(text, []byte(`\`)) {
+	// A key is an internal one only when the text spells it, as itself or
+	// with \u escapes: no other JSON escape writes a letter or an
+	// underscore. Without either, nothing is dropped and the arguments
+	// stay as they are.
+	if !bytes.Contains(text, []byte("_MODULES")) && !bytes.Contains(text, []byte("_TEMP_SCRIPT_REFS")) && !bytes.Contains(text, []byte(`\u`)) {
 		return args
 	}
-	dec := json.NewDecoder(bytes.NewReader(text))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return args
-	}
+	return walkedArgs(args)
+}
+
+// walkedArgs is scriptArgs' walk: the arguments without their internal
+// members, or the arguments as they are when none is there or the text is
+// not one object.
+func walkedArgs(args jsonval.Value) jsonval.Value {
+	text := args.Producer()
 	var kept [][]byte
 	dropped := false
-	for dec.More() {
-		start := dec.InputOffset()
-		t, err := dec.Token()
-		key, ok := t.(string)
-		if err != nil || !ok {
-			return args
-		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			return args
-		}
+	rest, ok := jsonval.Members(text, func(key string, ks, _, _, ve int) {
 		if internalArgs[key] {
 			dropped = true
-			continue
+			return
 		}
-		// The member's text from its key to its value's end, without the
-		// comma and the whitespace before it.
-		m := bytes.TrimLeft(text[start:dec.InputOffset()], " \t\r\n")
-		kept = append(kept, bytes.TrimLeft(bytes.TrimPrefix(m, []byte(",")), " \t\r\n"))
-	}
-	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
-		return args
-	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return args
-	}
-	if !dropped {
+		// The member's text from its key to its value's end.
+		kept = append(kept, text[ks:ve])
+	})
+	if !ok || rest != jsonval.RestNone || !dropped {
 		return args
 	}
 	out := append([]byte{'{'}, bytes.Join(kept, []byte(","))...)

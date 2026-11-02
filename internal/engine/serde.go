@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -23,8 +24,8 @@ func elements(text []byte) (items [][]byte, ok bool) {
 	if len(t) == 0 || t[0] != '[' || !json.Valid(t) {
 		return nil, false
 	}
-	var raw []json.RawMessage
-	if err := json.Unmarshal(t, &raw); err != nil {
+	raw, err := jsonval.RawArray(t)
+	if err != nil {
 		return nil, false
 	}
 	items = make([][]byte, len(raw))

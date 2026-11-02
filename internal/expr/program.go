@@ -113,9 +113,13 @@ var preludeContext = `{
 //     code made gives the read its return value, and a __proto__ key is an
 //     own property (JE-16). A failed read rejects with the read's text as
 //     an Error thrown from __throwOrParse.
+//   - The id the host string hostSharedRead names, bound only for a text
+//     that cannot tell one read from two (pathExpr.sharedRead), is read
+//     through the lookup once: every read of it in the evaluation awaits
+//     the first read's promise.
 const preludeResults = `const results = (() => {
-  const apply = Reflect.apply, then = Promise.prototype.then, lookupResult = globalThis.` + hostResults + `, previousId = globalThis.` + hostPreviousID + `;
-  delete globalThis.` + hostResults + `; delete globalThis.` + hostPreviousID + `;
+  const apply = Reflect.apply, then = Promise.prototype.then, lookupResult = globalThis.` + hostResults + `, previousId = globalThis.` + hostPreviousID + `; const shared = globalThis.` + hostSharedRead + ` ?? null, reads = { __proto__: null };
+  delete globalThis.` + hostResults + `; delete globalThis.` + hostPreviousID + `; delete globalThis.` + hostSharedRead + `;
   function __throwOrParse(readOutcome) {
     if (typeof readOutcome !== "string") { throw new Error(readOutcome[0]); }
     return JSON.parse(readOutcome);
@@ -126,7 +130,7 @@ const preludeResults = `const results = (() => {
     return __throwOrParse(await settleLookup(lookupResult(key)));
   }
   const fromMemory = async () => globalThis.previous_result;
-  return new Proxy({}, { get: (_, key) => (typeof key === "symbol" ? undefined : key === previousId ? fromMemory() : __getResult(key)) });
+  return new Proxy({}, { get: (_, key) => (typeof key === "symbol" ? undefined : key === previousId ? fromMemory() : key === shared ? (reads[key] ??= __getResult(key)) : __getResult(key)) });
 })();
 `
 
