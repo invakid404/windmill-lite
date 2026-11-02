@@ -1274,13 +1274,26 @@ func chainCase(n, conc int) benchCase {
 }
 
 func BenchmarkStepBoundary(b *testing.B) {
-	bun := benchSetup(b)
+	// With WL_BENCH_FRESH=1 each configuration runs in a process of its
+	// own (benchInChild), and this one sets up nothing.
+	fresh := benchFresh()
+	var bun string
+	if !fresh {
+		bun = benchSetup(b)
+	}
 	for _, topology := range []string{"host", "subprocess"} {
 		b.Run("topology="+topology, func(b *testing.B) {
-			rt := benchRuntime(b, bun, topology)
+			var rt *wl.Runtime
+			if !fresh {
+				rt = benchRuntime(b, bun, topology)
+			}
 			for _, conc := range []int{1, 8} {
 				for _, n := range bench.SyntheticSizes {
 					b.Run(fmt.Sprintf("conc=%d/size=%s", conc, bench.SizeLabel(n)), func(b *testing.B) {
+						if fresh {
+							benchInChild(b)
+							return
+						}
 						c := chainCase(n, conc)
 						b.StopTimer()
 						r := measure(b, rt, c, b.N, b)
@@ -1407,12 +1420,22 @@ func shapeCase(s benchShape) benchCase {
 }
 
 func BenchmarkHostShapes(b *testing.B) {
-	bun := benchSetup(b)
+	// With WL_BENCH_FRESH=1 each shape runs in a process of its own
+	// (benchInChild), and this one sets up nothing.
+	fresh := benchFresh()
+	var bun string
+	if !fresh {
+		bun = benchSetup(b)
+	}
 	// Each topology's runtime opens when its first shape runs, so a shape
 	// run alone (-bench) has its host to itself.
 	runtimes, parent := map[string]*wl.Runtime{}, b
 	for _, s := range benchShapes {
 		b.Run("shape="+s.name, func(b *testing.B) {
+			if fresh {
+				benchInChild(b)
+				return
+			}
 			topology := "host"
 			switch {
 			case s.plugin():

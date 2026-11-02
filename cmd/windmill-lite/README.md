@@ -446,3 +446,37 @@ WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
 ```
 
 `benchstat` (`golang.org/x/perf/cmd/benchstat`) compares two such outputs.
+
+### One process per shape
+
+With `WL_BENCH_FRESH=1`, each shape of `BenchmarkHostShapes` and each
+configuration of `BenchmarkStepBoundary` runs in a test process of its
+own (`benchfresh_test.go`). The process `go test` starts sets nothing up.
+For each of them it runs the test binary again, for that benchmark alone,
+with the same `-benchtime` and `-timeout`, and reports the child's figures
+as its own.
+
+The output keeps its form, so `benchstat` reads it as before. The
+iteration count printed is the parent's: with `-benchtime 10x` it is 10,
+as the child's, and with a duration it is 1. `-count` starts a child for
+each count.
+
+Use this mode to compare revisions and to record a baseline. In one
+process, a shape runs on the heap that the shapes before it left, so how
+often the Go collector runs depends on which shapes ran first. The
+engine's CPU and the slowest steps move with it. A change to what the
+engine keeps in memory then moves the figures of every later shape, not
+only its own.
+
+One process is quicker, and is enough for a quick look, or for a single
+shape or configuration, which `-bench` already runs alone:
+
+```sh
+WL_BENCH_FRESH=1 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
+  -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 10x -count 3
+```
+
+`TestBenchFresh` runs one boundary configuration in this mode and checks
+that it ran in a child process and reports the usual figures.
+`BenchmarkRetainedHeap` has no such mode: it measures one long-lived
+runtime on purpose.
