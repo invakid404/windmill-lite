@@ -1,3 +1,4 @@
-groups=none
-builds=
+groups=boundary shapes passthrough expressions peaks small
+builds=main=a22b77278fe9 j1=c52555138340 j2a=73c79a0b0edc j2b=11588b2ffee6 j2c=e443b5811015 j2d=0d4952d68c94 j3a=7f736a237754 j3b=fc0bd124edde j4=e771ce3dab2c ps2=e294ff8c7e8b
+small_builds=main=a22b77278fe9 ps2=e294ff8c7e8b
 rounds=10

@@ -23,6 +23,8 @@ name: Benchmarks
 #                    the eight-concurrent shape, each in a process of its
 #                    own (WL_BENCH_FRESH=1)
 #   - rounds: the rounds per job.
+#   - small_builds: the builds of the small group, when it compares others
+#     (empty: builds).
 #
 # During PS2's pull request only, a push to its branch also runs it, with
 # the inputs written in .github/bench-ps2 ("none" for groups runs nothing).
@@ -42,6 +44,10 @@ on:
         description: "Rounds per job"
         required: true
         default: "10"
+      small_builds:
+        description: "Builds of the small group, when not the builds above"
+        required: false
+        default: ""
   push:
     branches: [feat/ps2-large-payloads]
 
@@ -57,6 +63,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       builds: ${{ steps.plan.outputs.builds }}
+      small_builds: ${{ steps.plan.outputs.small_builds }}
       groups: ${{ steps.plan.outputs.groups }}
       rounds: ${{ steps.plan.outputs.rounds }}
     steps:
@@ -70,10 +77,11 @@ jobs:
           IN_BUILDS: ${{ inputs.builds }}
           IN_GROUPS: ${{ inputs.groups }}
           IN_ROUNDS: ${{ inputs.rounds }}
+          IN_SMALL: ${{ inputs.small_builds }}
         run: |
           if [ "$EVENT" = push ]; then
             field() { sed -n "s/^$1=//p" .github/bench-ps2 2>/dev/null | head -1; }
-            IN_BUILDS=$(field builds); IN_GROUPS=$(field groups); IN_ROUNDS=$(field rounds)
+            IN_BUILDS=$(field builds); IN_GROUPS=$(field groups); IN_ROUNDS=$(field rounds); IN_SMALL=$(field small_builds)
           fi
           groups='[]'
           if [ -n "$IN_GROUPS" ] && [ "$IN_GROUPS" != none ]; then
@@ -83,6 +91,7 @@ jobs:
           echo "groups: $groups"
           {
             echo "builds=$IN_BUILDS"
+            echo "small_builds=${IN_SMALL:-$IN_BUILDS}"
             echo "groups=$groups"
             echo "rounds=${IN_ROUNDS:-10}"
           } >> "$GITHUB_OUTPUT"
@@ -99,7 +108,7 @@ jobs:
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 350
     env:
-      BUILDS: ${{ needs.plan.outputs.builds }}
+      BUILDS: ${{ matrix.group == 'small' && needs.plan.outputs.small_builds || needs.plan.outputs.builds }}
       ROUNDS: ${{ needs.plan.outputs.rounds }}
       GROUP: ${{ matrix.group }}
     steps:
