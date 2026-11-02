@@ -1,3 +1,4 @@
-groups=retained
-builds=before=9c19436e6507 j6=ac10f09e3dd5
-rounds=3
+groups=boundary shapes passthrough expressions peaks small retained
+builds=main=a22b77278fe9 ps2=e294ff8c7e8b head=HEAD
+small_builds=main=a22b77278fe9 head=HEAD
+rounds=10
