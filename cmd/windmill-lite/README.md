@@ -498,8 +498,13 @@ and reports the child's figures as its own.
 The child gets the test flags this process was given, such as
 `-benchtime`, `-timeout`, `-benchmem`, `-short` and `-v`. It gets `-cpu`
 at the GOMAXPROCS of each `-cpu` value, so `-cpu 1,4` runs each benchmark
-in two children. A profile or trace flag gives each child a file of its
-own: the name, then the benchmark's (`cpu.out.BenchmarkHostShapes_shape-s600-1KiB`).
+in a child per value. A profile or trace flag gives each child a file of
+its own: the name, then the benchmark's, its `-cpu` and the child's number
+(`cpu.out.BenchmarkHostShapes_shape-s600-1KiB.cpu4.3`).
+
+With more than one `-cpu` value, each benchmark starts one more child,
+whose figures go unused: the testing package calls a benchmark once
+before it sets GOMAXPROCS to the first value.
 The flags this process acts on itself stay its own: `-run`, `-bench`,
 `-count`, `-list`, `-skip`, `-shuffle`, fuzzing and coverage.
 
