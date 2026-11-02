@@ -257,14 +257,17 @@ Every call is attributed to the invocation that made it, never inferred
 from the token in the request. An invocation is registered (`Register`,
 which `Executor` does) before it runs, with its id, its run and its job
 environment, and its registration ends when it settles (`Session.End`).
-The Reporter `Executor` hands the step then lets go of its session
-(milestone PS2, lever J6): a harness keeps the Reporters of its last
-settled invocations for their late output, and the session's record holds
-the run's own platform services, which a host plugin's providers tie to
-the whole run. A call the facade admitted before settlement keeps its own
-pointer to the record and is answered by the same providers as before;
-a repeated `Settled` is passed on and does nothing else
-(`TestSessionReporterLetsGo`).
+
+The Reporter `Executor` hands the step then lets go of its session. A
+harness keeps the Reporters of its last settled invocations for their
+late output. The session's record holds the run's own platform services,
+which a host plugin's providers tie to the whole finished run.
+
+- A call the facade admitted before settlement keeps its own pointer to
+  the record, and the same providers answer it.
+- A repeated `Settled` is passed on and does nothing else
+  (`TestSessionReporterLetsGo`).
+
 `New` opens two loopback origins, and a process gets one as `BASE_URL`
 ([internal/harness](../../harness/README.md)):
 

@@ -1,4 +1,0 @@
-groups=boundary shapes passthrough expressions peaks small retained
-builds=main=a22b77278fe9 ps2=e294ff8c7e8b head=HEAD
-small_builds=main=a22b77278fe9 head=HEAD
-rounds=10

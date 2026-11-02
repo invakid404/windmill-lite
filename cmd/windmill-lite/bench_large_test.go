@@ -1,6 +1,6 @@
 package main
 
-// The large-payload benchmarks of milestone PS2 (ADR 0005's benchmark plan,
+// The large-payload benchmarks (ADR 0005's benchmark plan,
 // "Large values"): the size-dependent cost of the step path, from the
 // JSON-library study's benchmarks and the workload brief's shapes, all
 // synthetic.
@@ -94,7 +94,7 @@ func init() { benchShapes = append(benchShapes, largeShapes...) }
 
 // benchBig is the step that makes the brief's F1 and F2 values in the host,
 // once per kind and size, kept in the module's state (a warm process).
-const benchBig = `// The large values of the PS2 benchmarks, from the workload brief's
+const benchBig = `// The large values of the large-payload benchmarks, from the workload brief's
 // families: F1, one wide object with a markup string and its plain-text
 // form, and F2, an array of wide records with one text field each, of
 // about size bytes. Synthetic text only.

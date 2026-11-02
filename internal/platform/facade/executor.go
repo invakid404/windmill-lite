@@ -92,8 +92,7 @@ func unsupportedOutcome(message string, calls []string) engine.StepOutcome {
 // passing Settled on: whoever hears Settled after Execute returned finds
 // the record released.
 //
-// It then lets go of the session and of its release (milestone PS2, lever
-// J6). A harness keeps the Reporter of each of its last settled
+// It then lets go of the session and of its release. A harness keeps the Reporter of each of its last settled
 // invocations for their late output (D9); through the session's record,
 // the run's own platform services and a host plugin's providers, the
 // session would keep the whole finished run reachable. A call the facade

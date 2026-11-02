@@ -64,7 +64,7 @@ func TestParsePathExpr(t *testing.T) {
 	}
 }
 
-// TestSharedRead holds the shared read (lever J3, item 1) to the reads it
+// TestSharedRead holds the shared read to the reads it
 // replaces: on the real engine, a text that reads one step's result
 // through the lookup more than once gives the same answer, or the same
 // error, with one lookup as with one per read. Texts that could tell one
@@ -163,9 +163,9 @@ func TestSharedRead(t *testing.T) {
 }
 
 // TestPathExprsMatchEngine is the differential test of the null tests and
-// objects of member paths that the pipeline answers itself (lever J3,
-// item 2), as TestMemberPathsMatchEngine is for single paths: generated
-// JSON values, and generated tests (==, !=, ===, !== against null and
+// objects of member paths that the pipeline answers itself, as
+// TestMemberPathsMatchEngine is for single paths: generated JSON values,
+// and generated tests (==, !=, ===, !== against null and
 // undefined, alone or choosing between paths, null and undefined) and
 // object literals of paths over them, each read by pathExpr and by the
 // expression's program on the real engine. Wherever pathExpr answers, the

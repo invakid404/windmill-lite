@@ -7,8 +7,7 @@ import (
 )
 
 // pathExpr is an expression that only reads member paths of one JSON
-// value and compares them with null or undefined (milestone PS2, lever
-// J3):
+// value and compares them with null or undefined:
 //
 //   - a member path, as memberPath reads it;
 //   - a null test: a member path compared with null or undefined by ==,

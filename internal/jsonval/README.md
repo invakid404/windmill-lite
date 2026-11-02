@@ -64,15 +64,17 @@ its own stack, so deep nesting cannot overflow Go's.
 ## Raw-text reads
 
 `RawObject`, `RawArray` and `Members` read an object's members or an
-array's elements as the texts they are written as, for the sites that keep
-a value as text (milestone PS2, lever J1): the harness's frame decode
-(`harness.Decode`), the engine's member walk (`storeMembers`,
-`ManualFailure`, the flow input, identity results, the cache and loops),
-`harness.scriptArgs`, `engine.Entrypoint`, the host's intercept map and
-`engine.elements`. They read with `encoding/json/jsontext`, which reads
-the text in place, where `encoding/json` copies every value it passes and
-its member walk copied each member again. The values they decode into, and
-every other decode and every marshal, stay on `encoding/json`.
+array's elements as the texts they are written as. They read with
+`encoding/json/jsontext`, which reads the text in place; `encoding/json`
+copies every value it passes. Every other decode and every marshal stays
+on `encoding/json`.
+
+The sites that keep a value as text call them:
+
+- the harness's frame decode (`harness.Decode`) and `harness.scriptArgs`;
+- the engine's member walk, behind `storeMembers`, `ManualFailure`, the
+  flow input, identity results, the cache and loops;
+- `engine.Entrypoint`, `engine.elements` and the host's intercept map.
 
 | Read | It is | Allocates |
 |---|---|---|
@@ -83,14 +85,18 @@ every other decode and every marshal, stay on `encoding/json`.
 They accept what `encoding/json` accepts: duplicate keys, invalid UTF-8
 in strings, and nesting up to 10,000 levels. A key is decoded as
 `encoding/json` decodes it, invalid UTF-8 and unpaired surrogates becoming
-U+FFFD. When a read fails, the text is read again with `encoding/json` and
-its error is returned, so error texts stay `encoding/json`'s and the same
-in every process: `encoding/json/v2` words a type mismatch at random once
-per process. `TestEquivalence` holds the three reads to the code they
-replaced on 106 probes (numbers beyond `float64`, `-0`, HTML, U+2028,
-invalid UTF-8, unpaired surrogates, control characters, duplicate keys,
-trailing text, deep nesting), error texts included, and fails on any
-difference.
+U+FFFD.
+
+When a read fails, the text is read again with `encoding/json` and its
+error is returned. So error texts stay `encoding/json`'s, and the same in
+every process: `encoding/json/v2` words a type mismatch at random once per
+process.
+
+`TestEquivalence` holds the three reads to `encoding/json`'s map and slice
+decodes and its token walks on 106 probes, error texts included, and fails
+on any difference. The probes hold numbers beyond `float64`, `-0`, HTML,
+U+2028, invalid UTF-8, unpaired surrogates, control characters, duplicate
+keys, trailing text and deep nesting.
 
 `encoding/json/jsontext` and `encoding/json/v2` are part of Go 1.27's
 default build; the engine does not build with `GOEXPERIMENT=nojsonv2`.

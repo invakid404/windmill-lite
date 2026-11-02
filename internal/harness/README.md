@@ -313,6 +313,10 @@ the latest invocation's. A host-mode connection writes it in the host's
 working directory, which the handshake checked (`HostConfig.Workdir`),
 and never removes that directory.
 
+`scriptArgs` walks the arguments (`jsonval.Members`) only when their text
+holds one of the two names or a `\u` escape, the only ways a key can
+spell them; otherwise nothing can be dropped.
+
 `HostConfig.SkipArgsFile` leaves every invocation's file out in host
 mode. `wl` sets it only for a bundle none of whose scripts can read the
 file (`no_args_file_reader`) whose host opted in.
@@ -330,12 +334,12 @@ fresh harness does that when it exits right after its result while a pong
 to its heartbeat is on its way, so taking `ECONNRESET` for a failure would
 discard the job's held result as killed by `SIGKILL`.
 
-A child of the harness may hold its socket open, so once the harness has
-exited each read of the socket waits at most `exitReadGrace` (one second)
-for more (`conn.endReads`). The frames the harness wrote before it exited
-are read however long the reader takes to come to them: a single deadline
-a second after the exit cut off log frames still in the socket's buffer
-(Linux's holds about 200 KiB) when the reader was slow.
+A child of the harness may hold its socket open. So once the harness has
+exited, each read of the socket waits at most `exitReadGrace` (one
+second) for more bytes (`conn.endReads`). The frames the harness wrote
+before it exited are read however long the reader takes. A single
+deadline at the exit would cut off those still in the socket's buffer,
+which holds about 200 KiB on Linux.
 
 Every kill but the watchdog's, which reports its own, is named in the
 diagnostics (`killing the harness: <reason>`). The line is written after
@@ -675,15 +679,17 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   re-entrant Reporter, an abandoned call that settles the moment its
   cancel arrives, and a fresh process that exits right after its result
   with a pong still unread (`TestFreshExitWithAnUnreadPong`, which fails on
-  Linux when `ECONNRESET` is taken for a failed connection), and one whose
-  last log frames are still in the socket when the grace after its exit has
-  passed, the reader held on its first frame by a test hook
-  (`messageRead`; `TestFramesWrittenBeforeTheExitAreRead`). It checks that
+  Linux when `ECONNRESET` is taken for a failed connection). It checks that
   the pool hears of an abandonment and of a death before any Reporter does,
   and that a kill is named (`TestKillIsNamed`) without waiting for a
   blocked diagnostics writer, by `Kill` (`TestKillWithBlockedDiagnostics`)
   or by a fresh invocation's cancellation, whose call (mode `fresh-hang`)
   runs until its process is killed (`TestFreshCancelWithBlockedDiagnostics`).
+- `TestFramesWrittenBeforeTheExitAreRead` (`fake_test.go`) holds the
+  reader on a fake fresh harness's first log frame (the test hook
+  `messageRead`) while the harness writes 20 more and exits. It lets the
+  reader go once the grace after the exit has passed, and checks that the
+  escaped outcome's tail holds every line, in order.
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher. `TestFlushWritesTheFrameItself` has a sender write a frame
   whole and one the socket takes only part of, the rest ahead of the next

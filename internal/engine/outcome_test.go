@@ -174,7 +174,7 @@ func TestEntrypoint(t *testing.T) {
 }
 
 // storedEntrypoint answers as Entrypoint does on every stored argument
-// object (lever J2, item 2), whose keys spell the override's name only
+// object, whose keys spell the override's name only
 // as itself: escaped spellings, look-alike keys and values, and keys that
 // store alike included.
 func TestStoredEntrypoint(t *testing.T) {
@@ -220,7 +220,7 @@ func TestTimeoutError(t *testing.T) {
 }
 
 // Entrypoint's walk answers as the decode into a map of members it
-// replaced (lever J2, item 2), on texts of every kind: escaped and
+// replaced, on texts of every kind: escaped and
 // duplicate keys, trailing text, invalid UTF-8, deep nesting.
 func TestEntrypointWalk(t *testing.T) {
 	ref := func(args []byte) (string, bool, error) {
@@ -253,7 +253,7 @@ func TestEntrypointWalk(t *testing.T) {
 	}
 }
 
-// ManualFailure's pre-check (lever J2, item 3) skips only results its walk
+// ManualFailure's pre-check skips only results its walk
 // leaves successes: on every probe it answers as the walk does.
 func TestManualFailureSkip(t *testing.T) {
 	for _, r := range []string{

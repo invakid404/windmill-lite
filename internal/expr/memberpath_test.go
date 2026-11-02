@@ -478,7 +478,7 @@ func TestMemberPathPipeline(t *testing.T) {
 		{"flow_input.cfg.region.length", `4`, true},
 		{"flow_input.missing.x", "", true},
 		{"results.f?.n", "", true},
-		// Null tests and objects of member paths (lever J3, item 2).
+		// Null tests and objects of member paths.
 		{"previous_result.items == null ? null : previous_result.items[0].id", `7`, false},
 		{"flow_input.cfg.missing !== undefined ? flow_input.cfg : null", `null`, false},
 		{"flow_input.cfg === null", `false`, false},

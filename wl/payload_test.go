@@ -15,7 +15,7 @@ import (
 )
 
 // TestPayloadSplice holds the host_call payloads written by splicing
-// stored texts (lever J4) to json.Marshal's: the plugin's JSON.parse reads
+// stored texts to json.Marshal's: the plugin's JSON.parse reads
 // the same values from both, and the bytes differ only in the escapes
 // encoding/json adds inside the stored texts (<, >, &, U+2028, U+2029).
 // A value whose producer text jsonb refuses is written as encoding/json

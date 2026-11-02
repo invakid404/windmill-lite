@@ -12,14 +12,14 @@ import (
 	"github.com/invakid404/windmill-lite/wl"
 )
 
-// TestSettledRunLetsGoOfItsValuesOnHosts carries J5's proof
-// (internal/engine's TestSettledRunLetsGoOfItsValues) to the real host
-// topologies, where the harness keeps its last settled invocations for
-// their late output (D9): the plain host, and the host whose plugin
-// provides resources and variables (host-plugin), whose runs read through
-// their own platform services and the plugin's binding to the run (lever
-// J6). Once a run has settled, its step results are unreachable, while
-// the runtime and its host go on. It needs the pinned Bun.
+// TestSettledRunLetsGoOfItsValuesOnHosts carries internal/engine's
+// TestSettledRunLetsGoOfItsValues to the real host topologies, where the
+// harness keeps its last settled invocations for their late output (D9):
+// the plain host, and the host whose plugin provides resources and
+// variables (host-plugin), whose runs read through their own platform
+// services and the plugin's binding to the run. Once a run has settled,
+// its step results are unreachable, while the runtime and its host go
+// on. It needs the pinned Bun.
 func TestSettledRunLetsGoOfItsValuesOnHosts(t *testing.T) {
 	bun := benchSetup(t)
 	for _, topology := range []string{"host", "host-plugin"} {

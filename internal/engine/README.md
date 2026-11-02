@@ -160,6 +160,13 @@ override`, before any wrapper runs; the engine fails the step with it as a
 pre-run error (below). The harness selects WR-V1's fallback from the same
 argument.
 
+`Entrypoint` walks the argument object in place for the last member of
+that key (`jsonval.Members`). A step's stored arguments spell a letter or
+an underscore in a key only as itself, so on them `storedEntrypoint`
+walks only when the key's quoted text is there. `ManualFailure` walks a
+result only when its text holds `wm_failure` or a `\u` escape, the only
+ways a key can spell it.
+
 `outcome_test.go` checks every row, the bypass's edges, the
 `wm_failure` marker's, the tail and the entrypoint's rules.
 
@@ -457,6 +464,12 @@ latched or halted run has no result.
   are the recorded ones (O2); the resolved ones (O3) are the script's,
   which the job's pickup resolves (below), and are the recorded ones for an
   identity job or a launch a hook answers.
+- A member whose text is exactly the producer text of the value it was
+  written from takes that value's stored text (`storeMembers`' held
+  values). A forwarded result already has one, so its bytes are not
+  canonicalised again. Arguments H2 rewrote are canonicalised from their
+  bytes; the stored text depends on the bytes alone, so the stored
+  arguments are the same either way.
 
 **Expression scopes** ([JE-22](../../docs/semantics/expressions.md#je-22),
 [FX-8](../../docs/semantics/execution.md#fx-8)), P being the previous

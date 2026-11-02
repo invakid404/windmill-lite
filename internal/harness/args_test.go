@@ -47,7 +47,7 @@ func TestScriptArgs(t *testing.T) {
 	}
 }
 
-// scriptArgs' pre-check (lever J2, item 4) skips only arguments its walk
+// scriptArgs' pre-check skips only arguments its walk
 // would keep whole: on every probe it answers as the walk does.
 func TestScriptArgsSkip(t *testing.T) {
 	for _, in := range []string{

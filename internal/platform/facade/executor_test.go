@@ -9,7 +9,7 @@ import (
 )
 
 // The Reporter the executor hands the step lets go of its session once the
-// invocation has settled (lever J6): a harness keeps it for late output
+// invocation has settled: a harness keeps it for late output
 // (D9), and the session reaches the run's own services. A repeated Settled
 // is passed on, as before, and ends and releases nothing again; output
 // after settlement still reaches the run's Reporter.

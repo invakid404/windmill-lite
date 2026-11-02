@@ -6,7 +6,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// storeMembers' held values (lever J2, item 1): a member whose text is its
+// storeMembers' held values: a member whose text is its
 // held value's producer text takes that value's stored text; any other
 // member is canonicalised from its bytes; the stored arguments and the
 // errors are the same either way.

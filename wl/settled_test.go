@@ -42,7 +42,7 @@ func (h *heldProvider) Variable(context.Context, string) (platform.Variable, boo
 	return platform.Variable{}, false, nil
 }
 
-// Calls in flight when a run settles (lever J6). A step's resource and
+// Calls in flight when a run settles. A step's resource and
 // variable reads, admitted by the facade on its TCP path and on its
 // intercepted path, are held in the run's own provider until the
 // invocation has been cancelled, has settled, and the run has settled.

@@ -279,6 +279,11 @@ one session for each other oracle configuration a fixture names
 unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
 
+The [benchmark workflow](.github/workflows/bench.yml) compares builds of
+the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
+runs only when started by hand and gates nothing
+([cmd/windmill-lite](cmd/windmill-lite/README.md#comparing-builds-on-githubs-runners)).
+
 On macOS, the Go tests run as three parallel jobs, split by complementary
 `-run` and `-skip` patterns: the packages without the flow suite, the flow
 suite's warm and fresh modes, and its host modes. The required check

@@ -27,10 +27,6 @@ name: Benchmarks
 #   - rounds: the rounds per job.
 #   - small_builds: the builds of the small group, when it compares others
 #     (empty: builds).
-#
-# During PS2's pull request only, a push to its branch also runs it, with
-# the inputs written in .github/bench-ps2 ("none" for groups runs nothing).
-# That trigger and the file are removed before the merge.
 on:
   workflow_dispatch:
     inputs:
@@ -50,14 +46,12 @@ on:
         description: "Builds of the small group, when not the builds above"
         required: false
         default: ""
-  push:
-    branches: [feat/ps2-large-payloads]
 
 permissions:
   contents: read
 
-# No concurrency group: a run that a later push starts must not cancel one
-# in progress.
+# No concurrency group: a run started later must not cancel one in
+# progress.
 
 jobs:
   plan:
@@ -69,22 +63,13 @@ jobs:
       groups: ${{ steps.plan.outputs.groups }}
       rounds: ${{ steps.plan.outputs.rounds }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - id: plan
         env:
-          EVENT: ${{ github.event_name }}
           IN_BUILDS: ${{ inputs.builds }}
           IN_GROUPS: ${{ inputs.groups }}
           IN_ROUNDS: ${{ inputs.rounds }}
           IN_SMALL: ${{ inputs.small_builds }}
         run: |
-          if [ "$EVENT" = push ]; then
-            field() { sed -n "s/^$1=//p" .github/bench-ps2 2>/dev/null | head -1; }
-            IN_BUILDS=$(field builds); IN_GROUPS=$(field groups); IN_ROUNDS=$(field rounds); IN_SMALL=$(field small_builds)
-          fi
           groups='[]'
           if [ -n "$IN_GROUPS" ] && [ "$IN_GROUPS" != none ]; then
             groups=$(printf '%s\n' $IN_GROUPS | jq -R . | jq -sc .)
