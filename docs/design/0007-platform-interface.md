@@ -587,6 +587,13 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
       admins, so a `CUSTOM_INSTANCE_DB/` resource path (WA-12/h) is looked
       up as any other path.
 
+- A host may put a read cache in front of a run's resource and variable
+  providers (`wl.Options.ReadCache`, off by default). Each run then reads
+  each path once and answers its later reads from that read, which is
+  deviation D21 of [0001](0001-equivalence-contract.md). The cache holds
+  the providers' values as stored, below the interpolation walker, so
+  `$WM_*` strings still resolve for each job.
+
 ## Spec IDs relied on
 
 WA-1 to WA-6, WA-8, WA-9, WA-11, WA-12, WA-14 to WA-16, WA-19, WA-30,

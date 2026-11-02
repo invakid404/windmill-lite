@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -199,6 +200,18 @@ func fakeHarness(mode string) int {
 		case "heartbeat-and-answer":
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 			send(Late{ID: inv.ID, Kind: LateError, Body: jsonval.FromProducer([]byte(`{"message":"timer"}`))})
+		case "warn-then-answer":
+			// Concurrently: a warning, then the result after the arguments'
+			// after_us microseconds.
+			var a struct {
+				AfterUS int `json:"after_us"`
+			}
+			json.Unmarshal(inv.Args.Producer(), &a)
+			go func() {
+				send(Warning{ID: inv.ID, Code: WarningUnattributed, Message: "first"})
+				time.Sleep(time.Duration(a.AfterUS) * time.Microsecond)
+				send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			}()
 		case "fresh-unread-pong":
 			// A fresh process whose step outlasts a heartbeat: it pings, the
 			// engine answers with a pong, which this process never reads,
@@ -718,6 +731,76 @@ type blockingReporter struct {
 func (b *blockingReporter) Late(l engine.Late) {
 	<-b.release
 	b.recorder.Late(l)
+}
+
+// The reader hands a result's Reporter calls and outcome to the goroutine
+// waiting in Execute when none of the invocation's calls is running
+// (invocation.drive), and queues them behind those that are. Under -race,
+// 120 invocations at once, each answered with a warning and then a result
+// about when its context ends, as measured from a round trip: every
+// Execute returns, each Reporter's calls never overlap and keep their
+// order (the warning before Settled), and each invocation settles once:
+// completed whether its result or its cancellation won, or not started
+// when its context ended before its dispatch.
+func TestResultHandOffRacesCancellation(t *testing.T) {
+	cfg, _ := fakeConfig(t, "warn-then-answer")
+	p := spawn(t, cfg)
+	start := time.Now()
+	for range 5 {
+		if _, err := execute(t, p, newInvocation("x", `{"after_us":0}`, newRecorder()), 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rtt := time.Since(start) / 5
+	const n = 120
+	var wg sync.WaitGroup
+	var won, lost, unsent atomic.Int32
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			after := rtt * time.Duration(1+i%4)
+			rep := newRecorder()
+			inv := newInvocation("x", fmt.Sprintf(`{"after_us":%d}`, after.Microseconds()), rep)
+			ctx, cancel := context.WithTimeout(context.Background(), after+rtt*time.Duration(i%7)/3)
+			defer cancel()
+			out, err := p.Execute(ctx, inv)
+			settle := engine.SettleCompleted
+			switch {
+			case err == nil && out.Kind == engine.OutcomeOK:
+				won.Add(1)
+			case errors.Is(err, context.DeadlineExceeded) && strings.Contains(rep.log(), string(engine.SettleNotStarted)):
+				unsent.Add(1)
+				settle = engine.SettleNotStarted
+			case errors.Is(err, context.DeadlineExceeded):
+				lost.Add(1)
+			default:
+				t.Errorf("%s: %+v, %v", inv.ID, out, err)
+				return
+			}
+			if k := rep.waitSettled(t, 10*time.Second); k != settle {
+				t.Errorf("%s settled %s, want %s", inv.ID, k, settle)
+			}
+			calls := rep.log()
+			if strings.Contains(calls, "CONCURRENT") || !strings.HasSuffix(calls, "settled "+string(settle)) || strings.Count(calls, "settled") != 1 {
+				t.Errorf("%s: calls %s", inv.ID, calls)
+			}
+			if err == nil && !strings.HasPrefix(calls, "warning "+WarningUnattributed) {
+				t.Errorf("%s: calls %s, want the warning first", inv.ID, calls)
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("an Execute did not return")
+	}
+	t.Logf("round trip %s; results won %d, cancellations %d, not started %d", rtt, won.Load(), lost.Load(), unsent.Load())
 }
 
 // A Reporter may call the executor, for example to start a run when one

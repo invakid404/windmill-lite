@@ -483,6 +483,22 @@ It returns a `Host`:
 - `close()` ends the connection and resolves once the engine has exited;
   the host lives on.
 
+The connect option `readCache`, off by default, gives each run a read
+cache (deviation D21 of
+[ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations)):
+the SDK starts the engine with `-read-cache`. A run then calls the
+plugin's `resource` and `variable` hooks once per path, and answers its
+later reads of the path from that call.
+
+The connect option `skipArgsFile`, off by default, states that the
+host's own code, its plugin's hooks included, never reads `args.json` in
+its working directory. The SDK then starts the engine with
+`-skip-args-file`. For a bundle none of whose scripts can read the file
+(the manifest's `no_args_file_reader`), the engine writes no `args.json`
+([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7).
+For any other bundle, or without the option, it writes every
+invocation's file, as Windmill's worker does.
+
 The connect option `recycle` sets recycle triggers, none by default: `rss`
 trips when the resident set is at least that many bytes on `samples`
 consecutive heartbeats (default 2), `modules` when more script modules
@@ -579,6 +595,17 @@ contract's form; the engine matches them.
   hook gets (`plugin.ts`): the arguments before H2, as stored and as
   resolved, the carried value, timings, late output, child flows, spans,
   deviations and `PlatformCall`s.
+- **Run-end trace detail.** `traceDetail` names, for `onRunEnd` and
+  `onRunSettled`, the trace each takes: `"full"` (the default),
+  `"summary"` (`TraceSummary`, the run's own fields without its per-step
+  parts) or `"none"` (`TraceNone`, the run's id and status). The full
+  trace costs about 3 µs per KB for every run, 2 to 4 KB per step, so a
+  hook that reads little of it can declare less.
+  - A hook that declares less types its argument as `TraceSummary` or
+    `TraceNone`. The declaration leaves `"full"` out, so declaring it
+    changes nothing.
+  - `declaration` refuses a level for a hook the plugin lacks, and a key
+    or level that is not one.
 - **F2b's hooks.** A plugin may declare `writeCapable` selectors,
   `beforeFirstWrite` (a throw vetoes the write) and `fatalErrorNames`.
 - **Halts.** The plugin's `haltBefore` and `haltAfter` halt every run of
@@ -889,7 +916,8 @@ the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
 sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
-`test/plugin.test.ts` host plugins: the declaration, each hook's answer
+`test/plugin.test.ts` host plugins: the declaration (its run-end trace
+detail included), each hook's answer
 and the `unknown_hook` and `plugin_error` refusals, and the runtime
 answering a `host_call` in the run's scope; and `test/host.test.ts` the
 SDK: the shared working-directory cases of

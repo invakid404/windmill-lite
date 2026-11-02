@@ -1,10 +1,18 @@
 package harness
 
 import (
+	"bufio"
+	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -287,4 +295,175 @@ func TestBarrierWithoutStreams(t *testing.T) {
 	if got := strings.Join(readTypes(t, peer, 2), " "); got != "run_done bye" {
 		t.Fatalf("frames %s", got)
 	}
+}
+
+// countFlushes counts flush's writes while the test runs: whole frames,
+// frames the socket took only part of, and frames it took nothing of.
+func countFlushes(t *testing.T) (whole, partial, none *atomic.Int64) {
+	whole, partial, none = new(atomic.Int64), new(atomic.Int64), new(atomic.Int64)
+	count := func(n, total int) {
+		switch {
+		case n == total:
+			whole.Add(1)
+		case n > 0:
+			partial.Add(1)
+		default:
+			none.Add(1)
+		}
+	}
+	flushWritten.Store(&count)
+	t.Cleanup(func() { flushWritten.Store(nil) })
+	return whole, partial, none
+}
+
+// smallSendBuffer makes the conn's socket take about 4 KiB at a time.
+func smallSendBuffer(t *testing.T, c *conn) {
+	t.Helper()
+	if c.raw == nil {
+		t.Fatal("a socket pair has no raw connection")
+	}
+	c.raw.Control(func(fd uintptr) {
+		if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_SNDBUF, 4096); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+// logReader reads log frames from the peer's end, part streams
+// reassembled.
+type logReader struct {
+	r   io.Reader
+	asm *assembler
+}
+
+func newLogReader(r io.Reader) *logReader {
+	return &logReader{r: bufio.NewReaderSize(r, 1024), asm: newAssembler(DefaultMaxMessage)}
+}
+
+func (lr *logReader) next(t *testing.T) Log {
+	t.Helper()
+	for {
+		p, err := readFrame(lr.r, MaxFrame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := decodeFrame(p, DefaultMaxMessage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if part, ok := m.(Part); ok {
+			full, done, err := lr.asm.add(part)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !done {
+				continue
+			}
+			if m, err = decodeAssembled(full); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return m.(Log)
+	}
+}
+
+func queueAndFlush(t *testing.T, c *conn, m Message, about string) {
+	t.Helper()
+	payload, err := Encode(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.queuePayload(payload, about); err != nil {
+		t.Fatal(err)
+	}
+	c.flush()
+}
+
+// With the writer idle, flush writes a sender's frame itself: whole when
+// the socket takes it all, and otherwise the part the socket takes, the
+// rest going out through the writer ahead of what is sent after it.
+func TestFlushWritesTheFrameItself(t *testing.T) {
+	whole, partial, _ := countFlushes(t)
+	c, peer := connPair(t)
+	smallSendBuffer(t, c)
+	lr := newLogReader(peer)
+	queueAndFlush(t, c, Log{ID: "a", Lines: []string{"0"}}, "a")
+	if got := lr.next(t).Lines[0]; got != "0" || whole.Load() != 1 {
+		t.Fatalf("read %q; flush wrote %d frames whole", got, whole.Load())
+	}
+	big := "1:" + strings.Repeat("x", 200<<10)
+	queueAndFlush(t, c, Log{ID: "a", Lines: []string{big}}, "a")
+	if partial.Load() != 1 {
+		t.Fatalf("flush wrote %d frames in part, want 1 (the socket takes 4 KiB)", partial.Load())
+	}
+	if err := c.send(Log{ID: "a", Lines: []string{"2"}}); err != nil {
+		t.Fatal(err)
+	}
+	if first, second := lr.next(t).Lines[0], lr.next(t).Lines[0]; first != big || second != "2" {
+		t.Fatalf("read %d bytes and %q, want the large frame whole, then 2", len(first), second)
+	}
+}
+
+// A sender's own write (queuePayload, then flush) keeps every rule the
+// writer keeps, under -race. On a socket whose buffer takes 4 KiB at a
+// time, read with pauses, four goroutines send small frames, frames larger
+// than the buffer and two part streams, half through flush and half
+// through send, pausing now and then so that the writer is sometimes idle.
+// Each one's frames arrive whole and in its order.
+func TestFlushKeepsFramesWholeAndInOrder(t *testing.T) {
+	whole, partial, none := countFlushes(t)
+	c, peer := connPair(t)
+	smallSendBuffer(t, c)
+	const senders, each = 4, 120
+	var wg sync.WaitGroup
+	for g := range senders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rng := rand.New(rand.NewPCG(uint64(g), 1))
+			id := fmt.Sprintf("g%d", g)
+			for k := range each {
+				size := rng.IntN(1000)
+				switch {
+				case g < 2 && k == 40+20*g:
+					size = MaxFrame + rng.IntN(1000) // a part stream
+				case rng.IntN(12) == 0:
+					size = 5000 + rng.IntN(15000) // more than the buffer takes
+				}
+				m := Log{ID: id, Lines: []string{fmt.Sprintf("%d:%s", k, strings.Repeat("x", size))}}
+				if rng.IntN(2) == 0 {
+					payload, err := Encode(m)
+					if err == nil {
+						err = c.queuePayload(payload, id)
+					}
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					c.flush()
+				} else if err := c.send(m); err != nil {
+					t.Error(err)
+					return
+				}
+				if rng.IntN(2) == 0 {
+					time.Sleep(time.Duration(rng.IntN(300)) * time.Microsecond)
+				}
+			}
+		}()
+	}
+	next := map[string]int{}
+	lr := newLogReader(peer)
+	for got := 0; got < senders*each; got++ {
+		if got%120 == 119 {
+			time.Sleep(time.Millisecond)
+		}
+		l := lr.next(t)
+		seq, _, _ := strings.Cut(l.Lines[0], ":")
+		if want := strconv.Itoa(next[l.ID]); seq != want {
+			t.Fatalf("%s: frame %s, want %s", l.ID, seq, want)
+		}
+		next[l.ID]++
+	}
+	wg.Wait()
+	t.Logf("flush wrote %d frames whole, %d in part, %d not at all", whole.Load(), partial.Load(), none.Load())
 }

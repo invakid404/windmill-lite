@@ -29,6 +29,8 @@ func runHost(args []string, stderr io.Writer) int {
 	resources := fs.String("resources", "", "a JSON `file` of host resources, keyed by path, as in a bundle's data/resources.json")
 	pluginTimeout := fs.Duration("plugin-timeout", 0, "how long a host_call to the host's plugin waits for its reply (default 1m)")
 	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof, until the host's connection ends")
+	readCache := fs.Bool("read-cache", false, "read each resource and variable once per run (deviation D21 of ADR 0001)")
+	skipArgsFile := fs.Bool("skip-args-file", false, "the host's own code never reads args.json: write none for a bundle none of whose scripts can read it")
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
@@ -50,7 +52,7 @@ func runHost(args []string, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	host := &wl.Host{Conn: conn, Workdir: *workdir, KillAfter: *killAfter}
+	host := &wl.Host{Conn: conn, Workdir: *workdir, KillAfter: *killAfter, SkipArgsFile: *skipArgsFile}
 	if *killAfter == 0 {
 		host.KillAfter = -1
 	}
@@ -58,7 +60,7 @@ func runHost(args []string, stderr io.Writer) int {
 		defer children.Close()
 		host.Children = children
 	}
-	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout}
+	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout, ReadCache: *readCache}
 	if opts.Variables, err = hostVariables(*variables); err == nil {
 		opts.Resources, err = hostResources(*resources)
 	}

@@ -11,12 +11,21 @@ import (
 // ADR 0004 host mode item 5). The engine calls Hooks.OnRunSettled from its
 // callback, and releases there the resources that step code can reach,
 // never on a timer. A RunSettlement is safe for concurrent use.
+//
+// Once the run has settled, its trace is never read again: OnRunSettled has
+// had it. The Reporters it handed out (Track) then let go of the run, so
+// that an executor that keeps a settled invocation for its late output
+// (D9: the harness's last settled invocations) no longer keeps the run's
+// values reachable; late output that still comes goes nowhere, as it went
+// to a trace nobody reads.
 type RunSettlement struct {
 	mu        sync.Mutex
 	open      int
 	ended     bool
 	fired     bool
 	onSettled func()
+	// tracked are the Reporters Track handed out, until the run settles.
+	tracked []*trackedReporter
 }
 
 // NewRunSettlement returns a tracker that calls onSettled once, from the
@@ -37,7 +46,10 @@ func (s *RunSettlement) Track(next Reporter) Reporter {
 		panic("engine: invocation started after the run ended")
 	}
 	s.open++
-	return &trackedReporter{run: s, next: next}
+	r := &trackedReporter{run: s}
+	r.next.Store(&next)
+	s.tracked = append(s.tracked, r)
+	return r
 }
 
 // End records that the run's outcome is decided. The run settles once End
@@ -48,7 +60,21 @@ func (s *RunSettlement) End() {
 	fire := s.settleLocked()
 	s.mu.Unlock()
 	if fire {
-		s.onSettled()
+		s.fire()
+	}
+}
+
+// fire calls the settlement callback, then lets go of the run: each
+// Reporter Track handed out drops the one it passes on to, and the
+// callback, which holds the run, is dropped too.
+func (s *RunSettlement) fire() {
+	s.onSettled()
+	s.mu.Lock()
+	tracked := s.tracked
+	s.tracked, s.onSettled = nil, nil
+	s.mu.Unlock()
+	for _, r := range tracked {
+		r.next.Store(nil)
 	}
 }
 
@@ -99,7 +125,7 @@ func (s *RunSettlement) settleOne() {
 	fire := s.settleLocked()
 	s.mu.Unlock()
 	if fire {
-		s.onSettled()
+		s.fire()
 	}
 }
 
@@ -113,18 +139,30 @@ func (s *RunSettlement) settleLocked() bool {
 }
 
 type trackedReporter struct {
-	run     *RunSettlement
-	next    Reporter
+	run *RunSettlement
+	// next is the Reporter calls pass on to, nil once the run has settled.
+	next    atomic.Pointer[Reporter]
 	settled atomic.Bool
 }
 
-func (r *trackedReporter) Late(l Late)       { r.next.Late(l) }
-func (r *trackedReporter) Warning(w Warning) { r.next.Warning(w) }
+func (r *trackedReporter) Late(l Late) {
+	if n := r.next.Load(); n != nil {
+		(*n).Late(l)
+	}
+}
+
+func (r *trackedReporter) Warning(w Warning) {
+	if n := r.next.Load(); n != nil {
+		(*n).Warning(w)
+	}
+}
 
 func (r *trackedReporter) Settled(k SettleKind) {
 	if !r.settled.CompareAndSwap(false, true) {
 		return
 	}
-	r.next.Settled(k)
+	if n := r.next.Load(); n != nil {
+		(*n).Settled(k)
+	}
 	r.run.settleOne()
 }

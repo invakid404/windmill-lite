@@ -31,6 +31,16 @@ describe("declaration", () => {
     });
   });
 
+  test("declares the run-end trace each hook takes, leaving out the default", () => {
+    const hooks = { onRunEnd: () => [], onRunSettled: () => undefined };
+    expect(declaration({ ...hooks, traceDetail: { onRunEnd: "summary", onRunSettled: "none" } })).toEqual({ on_run_end: true, on_run_settled: true, trace_detail: { on_run_end: "summary", on_run_settled: "none" } });
+    expect(declaration({ ...hooks, traceDetail: { onRunEnd: "full" } })).toEqual({ on_run_end: true, on_run_settled: true });
+    expect(declaration({ ...hooks, traceDetail: {} })).toEqual(declaration(hooks));
+    expect(() => declaration({ ...hooks, traceDetail: { onRunEnd: "some" as never } })).toThrow('"full", "summary" or "none"');
+    expect(() => declaration({ ...hooks, traceDetail: { onModuleEnd: "none" } as never })).toThrow("not a run-end hook");
+    expect(() => declaration({ onRunEnd: () => [], traceDetail: { onRunSettled: "none" } })).toThrow("without onRunSettled");
+  });
+
   test("refuses an interception with both or neither of static and fn, and a hook that is no function", () => {
     expect(() => declaration({ intercept: [{ selector: { script: "s" }, static: 1, fn: () => undefined }] })).toThrow("exactly one");
     expect(() => declaration({ intercept: [{ selector: { script: "s" } }] })).toThrow("exactly one");

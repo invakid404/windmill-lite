@@ -21,6 +21,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 |---|---|
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
 | `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services`, `Providers` and `Services.WithProviders` (H13) |
+| `readcache.go` | `ReadCache`: a run's read cache, deviation D21 of ADR 0001 |
 | `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState`; `JSONSyntaxError`, the backend JSON library's text for a body that is not JSON, which the facade's JSON-body routes answer |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
@@ -173,6 +174,21 @@ starts.
   `Resolvers`, in order, which may replace markers of the host's own. A
   raw read is not passed through them. windmill-lite defines no marker of
   its own.
+
+### The read cache
+
+`ReadCache` is one run's read cache, which a host turns on (deviation D21
+of [ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations)).
+It sits in front of a run's resource and variable providers and asks them
+once per path, at the run's first read of it. It answers every later read
+from that answer: a path the providers do not have too, but not an error,
+which the next read asks again.
+
+The cache keeps the value as stored, so the walker still interpolates it
+at each read: a `$WM_*` string resolves for the job that reads it, and a
+nested reference is read through the cache. Reads of one path that
+overlap share one provider read. `UpdateVariable` updates through the
+provider and drops the path's answer, so the run reads the new value.
 
 ## The job registry and flow user state
 
@@ -363,6 +379,12 @@ One walker implements resolution for the three contracts of
   first, as the API reads it from its column.
 
 ## Tests
+
+- `readcache_test.go` checks the read cache. Each path is one provider
+  read, through the walker, a variable read or a missing path; an error is
+  not kept; 16 overlapping reads share one, and a reader whose context
+  ends leaves. An update is read again, `$WM_*` strings resolve for each of
+  two jobs from one read, and an update over a read-only provider fails.
 
 - `identity_test.go` checks the state path's branches (WA-5/a and WA-5/c
   among them), the variables `Env` sets with and without a host

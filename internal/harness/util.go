@@ -177,7 +177,8 @@ func (r *recentInvocations) get(id string) (*invocation, bool) {
 }
 
 // serial runs functions one at a time, in the order they were queued, on a
-// goroutine that exists only while there is work.
+// goroutine that exists only while there is work: one do starts, or one
+// that claim's caller provides.
 type serial struct {
 	mu      sync.Mutex
 	queue   []func()
@@ -185,18 +186,67 @@ type serial struct {
 }
 
 func (s *serial) do(fs ...func()) {
-	if len(fs) == 0 {
-		return
+	if len(fs) > 0 && s.claim(fs...) {
+		go s.run()
 	}
+}
+
+// claim queues fs as do does, but starts no goroutine: when none is
+// running it reports true, and the caller must then see that run is
+// called, on a goroutine of its choosing, which runs fs and whatever is
+// queued until the queue is empty. Otherwise the running goroutine runs
+// fs after what is queued before them.
+func (s *serial) claim(fs ...func()) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.queue = append(s.queue, fs...)
 	if s.running {
-		s.mu.Unlock()
-		return
+		return false
 	}
 	s.running = true
-	s.mu.Unlock()
-	go s.run()
+	return true
+}
+
+// runUntil runs the queue as run does, on the caller's goroutine, but
+// only until done reports true after one of the functions: what is queued
+// then goes on, in order, on a goroutine of its own.
+func (s *serial) runUntil(done func() bool) {
+	for {
+		s.mu.Lock()
+		if len(s.queue) == 0 {
+			s.running = false
+			s.mu.Unlock()
+			return
+		}
+		f := s.take()
+		s.mu.Unlock()
+		f()
+		if done() {
+			s.mu.Lock()
+			rest := len(s.queue) > 0
+			s.running = rest
+			s.mu.Unlock()
+			if rest {
+				go s.run()
+			}
+			return
+		}
+	}
+}
+
+// take removes the first queued function and returns it, with s.mu held.
+// The queue's array keeps no function it has handed out, and an empty
+// queue keeps no array: a function's closure, an invocation's outcome
+// among them, must not stay reachable for as long as the invocation is
+// kept for its late output (D9).
+func (s *serial) take() func() {
+	f := s.queue[0]
+	s.queue[0] = nil
+	s.queue = s.queue[1:]
+	if len(s.queue) == 0 {
+		s.queue = nil
+	}
+	return f
 }
 
 func (s *serial) run() {
@@ -207,8 +257,7 @@ func (s *serial) run() {
 			s.mu.Unlock()
 			return
 		}
-		f := s.queue[0]
-		s.queue = s.queue[1:]
+		f := s.take()
 		s.mu.Unlock()
 		f()
 	}

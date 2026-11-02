@@ -228,7 +228,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	}
 	var services *platform.Services
 	bind := &runBinding{id: id}
-	if opts.Platform != nil || rt.answersPlatform() {
+	if opts.Platform != nil || rt.answersPlatform() || rt.readCache {
 		if services, err = rt.runServices(opts.Platform, bind); err != nil {
 			return nil, err
 		}
@@ -237,6 +237,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	defer rt.exec.end(id)
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
 		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started}
+	if rt.readCache {
+		req.Deviations = []string{"D21"}
+	}
 	switch {
 	case h != nil && extra != nil:
 		// Host mode's static intercepts answer first, then the hooks.
@@ -276,7 +279,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 // runServices are the services of a run with its own providers (H13): its
 // resources and variables, when p is not nil, then the host plugin's
 // (F2c), which reach the run through run, over the runtime's, and its
-// resolver.
+// resolver; behind the run's read cache when the runtime has one
+// (Options.ReadCache).
 func (rt *Runtime) runServices(p *RunPlatform, run *runBinding) (*platform.Services, error) {
 	var store *platform.Store
 	var resolvers []platform.ValueResolver

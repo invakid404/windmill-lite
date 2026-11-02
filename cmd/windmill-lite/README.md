@@ -155,6 +155,8 @@ connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
 | `-digest` | the bundle digest the bundle must have |
 | `-variables`, `-resources` | the host's variables and resources, as for `run` |
 | `-plugin-timeout` | how long a `host_call` to the host's plugin waits for its reply (default 1m; F2c) |
+| `-read-cache` | give each run a read cache, deviation D21 of [ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations): each resource and variable is read once per run (`wl.Options.ReadCache`, the host SDK's `readCache`) |
+| `-skip-args-file` | the host states that its own code never reads `args.json`: for a bundle none of whose scripts can read it (`no_args_file_reader`), write none ([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7; `wl.Host.SkipArgsFile`, the host SDK's `skipArgsFile`) |
 | `-cpuprofile` | write a CPU profile of the engine to this file until the host's connection ends ([Profiling](#profiling)) |
 
 ### Profiling
@@ -232,7 +234,8 @@ host-provided modules are:
 `testdata/host/host.ts` is a Bun host that embeds the SDK, registers its
 instances of these modules, connects the engine on the bundle, and serves
 its callers over HTTP on a Unix socket. It submits each run inside the
-caller's tenant scope, in `scopes.ts` and in `tenant.ts`.
+caller's tenant scope, in `scopes.ts` and in `tenant.ts`. With
+`WL_SKIP_ARGS_FILE=1` it connects with `skipArgsFile`.
 
 The test compiles the host with `bun build --compile`, and its engine is
 the test binary itself (`TestMain` runs the command when `WL_TEST_ENGINE`
@@ -265,6 +268,14 @@ The tests:
 | `TestHostVersionPairing` | F3b: the SDK–engine version pairing (ADR 0009): a host whose SDK is stamped with another release (`bun run --define WL_RELEASE`) is refused with `version_mismatch` by the engine (stamped as `-X main.version` would, `WL_TEST_ENGINE_VERSION`), the SDK refuses a welcome from an engine of another release that does not check (`fakeEngine`), and the engine's own release is welcomed and runs |
 | `TestHostStaticIntercept` | H1's static form through the run frame |
 | `TestHostStepLatency` | reports the per-step latency of host mode |
+| `TestHostReadCacheOption` | the SDK's `readCache` reaches the engine: the run lists deviation D21, and without the option it does not |
+| `TestReadCacheHostCalls` | on the plugin host, D21's cache makes one call of the plugin's hook per (run, path), and every step sees the first read's value; without it each read is a call, as on Windmill. A value holding `$WM_JOB_ID` resolves for each step's own job either way |
+| `TestHostArgsFileSharedReader` | with the default, a step reading `args.json` while the eight-step chain runs reads the latest invocation's arguments, the chain's |
+| `TestHostArgsFileHookReader` | with the default, a host plugin's `onRunEnd` reading `args.json` after a run reads the run's last invocation's arguments |
+| `TestHostSkipArgsFile` | the file is left out only for a bundle with no reader (`f/bench/plain`'s) whose host opted in; with the option off, or for the benchmarks' bundle, which has readers, it is written |
+| `TestHostSkipArgsFileOption` | the host SDK's `skipArgsFile` reaches the engine: the test host on the plain bundle writes no `args.json` with it, and writes it without |
+| `TestHostArgsFileReaders` | steps that read `args.json` through a host-provided module (`f/host/argsfile.ts`) or by a file name they build read their own arguments back in host mode |
+| `TestPluginTraceDetailHost` | the plugin host's `onRunEnd` gets the trace it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, its id and status for `none` |
 | `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
 
 They need the pinned Bun in `WL_BUN` too, and the build helper's
@@ -324,7 +335,7 @@ so that it reads every run's trace and the engine's CPU time. The
 recorded baseline, with its machine, command and load, is in
 [ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
 
-The benchmarks run on two topologies:
+The benchmarks run on these topologies:
 
 - **host**: `testdata/benchhost/host.ts`, compiled with `bun build
   --compile`, is a warm Bun host that embeds the SDK and does nothing else.
@@ -333,11 +344,24 @@ The benchmarks run on two topologies:
   benchmark. The runtime is the one `host` opens, with the watchdog off.
 - **subprocess**: the warm Bun harness that the engine spawns, one process,
   as `run` uses it.
+- **host-plugin**: the same host with a plugin
+  (`WL_BENCH_PLUGIN=1`), as a host that keeps its resources elsewhere
+  runs. Its `resource` and `variable` hooks answer synthetic resources,
+  those under `f/bench/slow/` after 1 ms, and count their calls by run and
+  path; its `onRunEnd` hook takes every run's trace. `WL_BENCH_TRACE`
+  makes the hook declare a `summary` or `none` instead.
+- **host-plain**: the same host on the plain shape's bundle, which has no
+  reader of `args.json`, opted in to leaving it out
+  (`wl.Host.SkipArgsFile`) unless `WL_BENCH_ARGS_FILE=1`.
 
 | Benchmark | What it runs |
 |---|---|
 | `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
 | `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
+| `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode. It reads the engine's Go heap after two collections before and after the runs, with its own input kept alive through both readings, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
+| `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, on the host-plain topology: its bundle has no reader of `args.json`, so the file is left out. `WL_BENCH_ARGS_FILE=1` keeps it, which measures its cost on the same code. The bare shape's `f/bench/work` can fetch, so its bundle is a reader and keeps the file |
+| `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
+| `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
 
 One iteration is one run per worker, the workers started together, so
 even one iteration has every run of its concurrency in flight at once.
@@ -385,14 +409,22 @@ Each benchmark reports these figures per step:
 | `host-cpu-ns/step` | the host's or harness's CPU time, from `process.cpuUsage()` |
 | `engine-cpu-p50-ns/step` and the like | per run, for runs one at a time; a shape's host CPU too |
 | `expr-ns/step` | the expression spans |
+| `host-calls/run` | on the plugin host, the calls of its `resource` and `variable` hooks per run |
+| `host-peak-rss-mb` | the host's or harness's peak resident set after the runs, in MiB |
 | `conc-peak`, `conc-mean` | the most runs in flight at once, and the mean |
 | `load1` | the one-minute load average when the runs started |
 
 Percentiles are nearest-rank ([internal/bench](../../internal/bench/README.md#percentiles)).
 The probe step `f/bench/probe` reads the host's or harness's CPU time
-before and after the runs, and sets and drains the harness's timings. A
+before and after the runs, its peak resident set and the plugin's call
+counts, and sets and drains the harness's timings. A
 shape's last step reports the host's CPU time with its result too, so each
 run has its own figure.
+
+The plain shape's bundle has no probe step, which would read the process
+and so make the bundle a reader. Its host writes its CPU time and peak
+resident set to `bench-probe.json` on `SIGUSR1` instead, and the shape
+reports no stages.
 
 `WL_BENCH_TIMINGS=off` leaves the stage readings out, which measures what
 taking them costs. `TestBenchSplit` runs the measurement once on each
@@ -403,10 +435,10 @@ its readings, and that its stages add up to its module span.
 They need the build helper's dependencies and the pinned Bun in `WL_BUN`,
 and run only with `-bench`. A benchmark fails without `WL_BUN`, rather
 than skip and report a pass with no figures, while `TestBenchSplit`
-skips. The baseline's exact commands, each part of
-`BenchmarkStepBoundary` in a test process of its own, are in
-[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline). One
-run of both, in one process:
+skips. The baseline's exact commands, each shape and configuration in a
+test process of its own ([One process per shape](#one-process-per-shape)),
+are in [ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
+One run of both, in one process:
 
 ```sh
 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
@@ -414,3 +446,39 @@ WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
 ```
 
 `benchstat` (`golang.org/x/perf/cmd/benchstat`) compares two such outputs.
+
+### One process per shape
+
+With `WL_BENCH_FRESH=1`, each shape of `BenchmarkHostShapes` and each
+configuration of `BenchmarkStepBoundary` runs in a test process of its
+own (`benchfresh_test.go`). The process `go test` starts sets nothing up.
+For each of them it runs the test binary again, for that benchmark alone,
+with the same `-benchtime` and `-timeout`, and reports the child's figures
+as its own.
+
+The output keeps its form, so `benchstat` reads it as before. The
+iteration count printed is the parent's: with `-benchtime 10x` it is 10,
+as the child's, and with a duration it is 1. `-count` starts a child for
+each count.
+
+Use this mode to compare revisions and to record a baseline. In one
+process, a shape runs on the heap that the shapes before it left, so how
+often the Go collector runs depends on which shapes ran first. The
+engine's CPU and the slowest steps move with it. A change to what the
+engine keeps in memory then moves the figures of every later shape, not
+only its own.
+
+One process is quicker, and is enough for a quick look, or for a single
+shape or configuration, which `-bench` already runs alone. `go test`'s
+`-timeout` covers the whole process, children included, so a full run
+needs more than its default 10 minutes:
+
+```sh
+WL_BENCH_FRESH=1 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
+  -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 10x -count 3 -timeout 60m
+```
+
+`TestBenchFresh` runs one boundary configuration in this mode and checks
+that it ran in a child process and reports the usual figures.
+`BenchmarkRetainedHeap` has no such mode: it measures one long-lived
+runtime on purpose.

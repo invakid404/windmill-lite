@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -702,5 +703,53 @@ func TestPoolHostCall(t *testing.T) {
 	}
 	if _, err := fresh.HostCall(context.Background(), "on_module_start", "r1", "", jsonval.FromProducer([]byte(`{}`))); err == nil {
 		t.Fatal("a fresh pool asked a plugin")
+	}
+}
+
+// With SkipArgsFile (a bundle none of whose scripts can read args.json,
+// whose host stated that its own code does not either, ADR 0004 host mode
+// item 7), an invocation's arguments travel in the invoke frame, without
+// the internal keys as ever, and no args.json is written into the host's
+// working directory, for any script. Without it, every invocation's
+// args.json is written.
+func TestHostSkipArgsFile(t *testing.T) {
+	for _, skip := range []bool{true, false} {
+		t.Run(fmt.Sprintf("skip=%t", skip), func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			hello := hostHello()
+			hello.Workdir = dir
+			h, _, err := attach(t, HostConfig{Workdir: dir, SkipArgsFile: skip, Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
+				out, err := p.Execute(ctx, engine.Invocation{ID: r.ID + "-i", Run: r.ID, Script: "s" + r.ID, Entry: "main", Args: r.Args})
+				if err != nil {
+					return RunDone{Status: "failure"}
+				}
+				return RunDone{Status: "success", Result: out.Body}
+			}}, hello)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.expect(TypeWelcome)
+			for _, id := range []string{"r1", "r2"} {
+				args := `{"a":"` + id + `","_MODULES":{}}`
+				h.send(RunRequest{ID: id, Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(args))})
+				inv := h.expect(TypeInvoke).(Invoke)
+				want := `{"a":"` + id + `"}`
+				if string(inv.Args.Producer()) != want {
+					t.Fatalf("the invoke's arguments %s", inv.Args.Producer())
+				}
+				b, err := os.ReadFile(filepath.Join(dir, ArgsFile))
+				switch {
+				case skip && !errors.Is(err, os.ErrNotExist):
+					t.Fatalf("args.json in the host's working directory: %q, %v", b, err)
+				case !skip && (err != nil || string(b) != want):
+					t.Fatalf("args.json %q, %v; want the invoke's arguments", b, err)
+				}
+				h.send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+				if d := h.expect(TypeRunDone).(RunDone); d.Status != "success" {
+					t.Fatalf("run_done %+v", d)
+				}
+			}
+		})
 	}
 }

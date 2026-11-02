@@ -102,6 +102,17 @@ type Options struct {
 	// within it fails with ErrHostCallTimeout, which latches the run. Zero
 	// means DefaultPluginTimeout.
 	PluginTimeout time.Duration
+	// ReadCache, when true, gives each flow run a read cache (deviation D21
+	// of ADR 0001): the run reads each resource and variable from its
+	// providers once, at its first use, and answers every later read of it
+	// from that answer, its steps' $res: and $var: arguments, flow_env and
+	// their reads through the job API alike. Windmill reads them again for
+	// each job and each call, so a value that changes during a run reaches
+	// its later steps there, and here only the next run. The values are
+	// held as stored, so $WM_* strings still resolve for each job, and a
+	// variable a step updates is read again. Off by default; the trace of
+	// a run with it lists D21.
+	ReadCache bool
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -170,6 +181,7 @@ type Runtime struct {
 	store     *platform.Store
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
+	readCache bool // Options.ReadCache
 
 	// plugin is the host plugin, once its harness declared it (F2c);
 	// providers are the Go host's and the plugin's named providers, and
@@ -242,7 +254,7 @@ func Version() string {
 // store under the data directory, and the default dispatcher over the
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
-	rt := &Runtime{version: opts.EngineVersion}
+	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache}
 	rt.stop, rt.cancelStop = context.WithCancelCause(context.Background())
 	if rt.version == "" {
 		rt.version = Version()

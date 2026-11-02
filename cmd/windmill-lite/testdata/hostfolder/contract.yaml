@@ -20,6 +20,8 @@ roots:
   - flow: f/host/outside
   - flow: f/host/compute
   - flow: f/host/lease
+  - flow: f/host/args_host
+  - flow: f/host/args_built
   - script: f/host/sleep
   - script: f/host/lazy_cycle
-host_modules: [f/host/scopes.ts, f/host/pool.ts, ../hostlib/tenant.ts, f/host/lazy/a.ts, f/host/lazy/b.ts]
+host_modules: [f/host/scopes.ts, f/host/pool.ts, ../hostlib/tenant.ts, f/host/lazy/a.ts, f/host/lazy/b.ts, f/host/argsfile.ts]

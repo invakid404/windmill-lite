@@ -530,6 +530,18 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   inventory and the env rewrite's binding check read only the inputs that
   are files.
 
+- The manifest sets `no_args_file_reader` when no script of the bundle
+  can read `args.json` ([WR-5](../semantics/languages.md#wr-5)). Host
+  mode leaves the file out only for such a bundle, and only when its host
+  opts in ([0004](0004-harness-protocol.md), host mode item 7).
+  - The search is conservative. It reads each script's built module after
+    the build's own leading sections, and counts the script as no reader
+    only when the module holds no way to a file, a process or code made
+    at run time. One script that does not qualify makes the bundle a
+    reader.
+  - A script calling a host-provided module, a shared closure, a codebase
+    script or a native one always makes the bundle a reader.
+
 ## Spec IDs relied on
 
 WR-3, WR-6, WR-8, WR-25 to WR-32, WR-38 to WR-40, WR-43, WR-45, WA-31, WA-33,

@@ -182,6 +182,9 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   bye: {},
 };
 
+/** REQUIRED's fields of each type as [field, check] pairs, made once. */
+const REQUIRED_ENTRIES: Record<string, [string, Check][]> = Object.fromEntries(Object.entries(REQUIRED).map(([t, req]) => [t, Object.entries(req)]));
+
 function checkField(t: string, o: Record<string, unknown>, k: string, c: Check) {
   const v = o[k];
   // A raw value may be JSON null (a step that returned null); any other
@@ -194,8 +197,15 @@ function checkField(t: string, o: Record<string, unknown>, k: string, c: Check) 
     (c === "bool" && typeof v === "boolean") ||
     (c === "object" && typeof v === "object" && !Array.isArray(v)) ||
     (c === "strings" && Array.isArray(v) && v.every((x) => typeof x === "string")) ||
-    (c === "env" && typeof v === "object" && !Array.isArray(v) && Object.values(v as object).every((x) => typeof x === "string"));
+    (c === "env" && typeof v === "object" && !Array.isArray(v) && ownValuesAreStrings(v as Record<string, unknown>));
   if (!ok) throw new ProtocolError("bad_field", `field ${JSON.stringify(k)} has the wrong type`);
+}
+
+/** Whether every own enumerable value of o is a string, as
+ * Object.values(o).every(...) says, without the array. */
+function ownValuesAreStrings(o: Record<string, unknown>): boolean {
+  for (const k in o) if (Object.hasOwn(o, k) && typeof o[k] !== "string") return false;
+  return true;
 }
 
 function checkNested(t: string, o: Record<string, unknown>, k: string, fields: Record<string, Check>) {
@@ -224,7 +234,7 @@ export function decode(payload: Uint8Array): Message {
   // Own properties only: "constructor" or "__proto__" is not a type.
   const req = Object.hasOwn(REQUIRED, m.t) ? REQUIRED[m.t] : undefined;
   if (!req) throw new ProtocolError("unknown_type", `message type ${JSON.stringify(m.t)}`);
-  for (const [k, c] of Object.entries(req)) checkField(m.t, m, k, c);
+  for (const [k, c] of REQUIRED_ENTRIES[m.t]) checkField(m.t, m, k, c);
   switch (m.t) {
     case "hello":
       checkNested(m.t, m, "harness", { kind: "string", version: "string" });

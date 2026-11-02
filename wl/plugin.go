@@ -71,6 +71,11 @@ type pluginDecl struct {
 	Providers        []string   `json:"providers"`
 	Resource         bool       `json:"resource"`
 	Variable         bool       `json:"variable"`
+
+	// TraceDetail is how much of the trace each run-end hook gets, by its
+	// name (on_run_end, on_run_settled): full, the default, summary or none
+	// (tracePayload).
+	TraceDetail map[string]string `json:"trace_detail"`
 }
 
 // hostCaller sends one host_call: the pool's or the host's.
@@ -135,6 +140,18 @@ func newPlugin(decl jsonval.Value, prog *ir.Program, call hostCaller, timeout ti
 	for i, s := range p.decl.WriteCapable {
 		if err := check(fmt.Sprintf("writeCapable[%d]", i), s); err != nil {
 			return nil, err
+		}
+	}
+	declared := map[string]bool{"on_run_end": p.decl.OnRunEnd, "on_run_settled": p.decl.OnRunSettled}
+	for _, hook := range slices.Sorted(maps.Keys(p.decl.TraceDetail)) {
+		on, ok := declared[hook]
+		switch d := p.decl.TraceDetail[hook]; {
+		case !ok:
+			return nil, fmt.Errorf("the host plugin's trace_detail names %q, which is not a run-end hook", hook)
+		case !on:
+			return nil, fmt.Errorf("the host plugin's trace_detail names %s, which it does not declare", hook)
+		case d != traceFull && d != traceSummary && d != traceNone:
+			return nil, fmt.Errorf("the host plugin's trace_detail for %s is %q, not full, summary or none", hook, d)
 		}
 	}
 	p.hooks = p.goHooks()
@@ -302,7 +319,7 @@ func (p *plugin) goHooks() *Hooks {
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
-			if err := p.do(context.WithoutCancel(ctx), "on_run_end", t.RunID, nil, map[string]any{"trace": traceJSON(t)}, &r); err != nil {
+			if err := p.do(context.WithoutCancel(ctx), "on_run_end", t.RunID, nil, p.tracePayload("on_run_end", t), &r); err != nil {
 				// The run's outcome is decided: a failed onRunEnd can only
 				// say so.
 				return []Warning{{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: " + err.Error()}}
@@ -316,7 +333,7 @@ func (p *plugin) goHooks() *Hooks {
 	}
 	if p.decl.OnRunSettled {
 		h.OnRunSettled = func(t *Trace) {
-			if err := p.do(context.Background(), "on_run_settled", t.RunID, nil, map[string]any{"trace": traceJSON(t)}, nil); err != nil {
+			if err := p.do(context.Background(), "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
 				p.diag(fmt.Sprintf("windmill-lite: run %s: the host plugin's onRunSettled: %v", t.RunID, err))
 			}
 		}
@@ -483,21 +500,64 @@ func recordJSON(rec StepRecord) map[string]any {
 	return m
 }
 
-// traceJSON is a run's trace as onRunEnd and onRunSettled see it (H9):
-// every field of the Go Trace, in snake_case, with its records
-// (recordJSON), the child flows, timings, deviations and the platform
-// calls its steps made (ADR 0007). Superseded records and child flows are
-// left out, as Trace.Step leaves them out.
+// The levels of a run-end hook's trace detail (ADR 0004 §Host plugins).
+const (
+	traceFull    = "full"
+	traceSummary = "summary"
+	traceNone    = "none"
+)
+
+// tracePayload is the payload of a run-end hook's host_call: the trace
+// as the hook declares it (H9). By default it is the full trace
+// (traceJSON); summary is the trace without its per-step parts
+// (traceSummaryJSON); none is the run's id and status alone. The default
+// costs about 3 µs per KB of trace, marshalled here and parsed in the
+// host, for every run; a hook that reads none of it can say so.
+func (p *plugin) tracePayload(hook string, t *Trace) map[string]any {
+	switch p.decl.TraceDetail[hook] {
+	case traceSummary:
+		return map[string]any{"trace": traceSummaryJSON(t)}
+	case traceNone:
+		return map[string]any{"trace": map[string]any{"run": t.RunID, "status": t.Status}}
+	}
+	return map[string]any{"trace": traceJSON(t)}
+}
+
+// traceSummaryJSON is a run's trace without its per-step parts: the run's
+// own fields (its id, bundle, module state, shared code, status, the
+// origin of its result, whether it may have mutated, whether it was
+// cached, its latch), its warnings and its deviations; not its result,
+// its records, its child flows, its spans or its platform calls.
+func traceSummaryJSON(t *Trace) map[string]any {
+	ws := []any{}
+	for _, w := range t.Warnings {
+		ws = append(ws, map[string]string{"code": w.Code, "message": w.Message})
+	}
+	m := map[string]any{
+		"run": t.RunID, "bundle": t.Bundle, "module_state": t.ModuleState, "shared_code": t.SharedCode, "status": t.Status, "may_have_mutated": t.MayHaveMutated, "cached": t.Cached,
+		"warnings": ws, "deviations": append([]string{}, t.Deviations...),
+	}
+	if t.ResultOrigin != "" {
+		m["result_origin"] = t.ResultOrigin
+	}
+	if t.Latched != nil {
+		m["latched"] = t.Latched.Error()
+	}
+	return m
+}
+
+// traceJSON is a run's trace as onRunEnd and onRunSettled see it by
+// default (H9): every field of the Go Trace, in snake_case, with its
+// records (recordJSON), the child flows, timings, deviations and the
+// platform calls its steps made (ADR 0007). Superseded records and child
+// flows are left out, as Trace.Step leaves them out.
 func traceJSON(t *Trace) map[string]any {
+	m := traceSummaryJSON(t)
 	steps := []any{}
 	for _, s := range t.Steps {
 		if !s.Superseded {
 			steps = append(steps, recordJSON(s))
 		}
-	}
-	ws := []any{}
-	for _, w := range t.Warnings {
-		ws = append(ws, map[string]string{"code": w.Code, "message": w.Message})
 	}
 	children := []any{}
 	for _, c := range t.Children {
@@ -517,21 +577,12 @@ func traceJSON(t *Trace) map[string]any {
 		}
 		calls = append(calls, e)
 	}
-	m := map[string]any{
-		"run": t.RunID, "bundle": t.Bundle, "module_state": t.ModuleState, "shared_code": t.SharedCode, "status": t.Status, "may_have_mutated": t.MayHaveMutated, "cached": t.Cached,
-		"steps": steps, "children": children, "warnings": ws, "deviations": append([]string{}, t.Deviations...), "spans": spans, "platform_calls": calls,
-	}
+	m["steps"], m["children"], m["spans"], m["platform_calls"] = steps, children, spans, calls
 	if r := storedText(t.Result); r != nil {
 		m["result"] = r
 	}
-	if t.ResultOrigin != "" {
-		m["result_origin"] = t.ResultOrigin
-	}
 	if len(t.ResultNested) > 0 {
 		m["result_nested"] = t.ResultNested
-	}
-	if t.Latched != nil {
-		m["latched"] = t.Latched.Error()
 	}
 	return m
 }
@@ -661,6 +712,11 @@ func (rt *Runtime) pluginServices(run *runBinding, own *platform.Store, resolver
 		}
 	}
 	res, vars = append(res, rt.store), append(vars, rt.store)
+	if rt.readCache {
+		// One cache per run, over the whole chain (deviation D21).
+		c := platform.NewReadCache(res, vars)
+		return rt.services.WithProviders(platform.Providers{Resources: c, Variables: c, Resolvers: resolvers})
+	}
 	return rt.services.WithProviders(platform.Providers{Resources: res, Variables: vars, Resolvers: resolvers})
 }
 
