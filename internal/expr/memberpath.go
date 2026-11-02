@@ -101,6 +101,21 @@ func parseMemberPath(e *Expr) *memberPath {
 		}
 		mp.root, rest = t[:n], t[n:]
 	}
+	steps, n, ok := parseSteps(rest)
+	if !ok || n != len(rest) {
+		return nil
+	}
+	mp.steps = steps
+	return mp
+}
+
+// parseSteps reads the reads of a member path at the start of s: .key,
+// ?.key, [index], ["key"], ['key'] and their optional forms. It stops at
+// the first character that starts none of them and returns the steps and
+// how much of s they take; ok is false for a read it cannot take, which
+// leaves the text to the engine.
+func parseSteps(s string) (steps []pathStep, n int, ok bool) {
+	rest := s
 	for rest != "" {
 		var m pathStep
 		if r, ok := strings.CutPrefix(rest, "?."); ok {
@@ -108,45 +123,45 @@ func parseMemberPath(e *Expr) *memberPath {
 			if !strings.HasPrefix(rest, "[") {
 				n := identPrefix(rest)
 				if n == 0 {
-					return nil
+					return nil, 0, false
 				}
 				m.key, rest = rest[:n], rest[n:]
-				mp.steps = append(mp.steps, m)
+				steps = append(steps, m)
 				continue
 			}
 		} else if r, ok := strings.CutPrefix(rest, "."); ok {
 			n := identPrefix(r)
 			if n == 0 {
-				return nil
+				return nil, 0, false
 			}
 			m.key, rest = r[:n], r[n:]
-			mp.steps = append(mp.steps, m)
+			steps = append(steps, m)
 			continue
 		}
 		// [index], ["key"] or ['key'].
 		if !strings.HasPrefix(rest, "[") {
-			return nil
+			break
 		}
 		end := strings.IndexByte(rest, ']')
 		if end < 0 {
-			return nil
+			return nil, 0, false
 		}
 		in := rest[1:end]
 		switch {
 		case len(in) >= 2 && (in[0] == '"' || in[0] == '\'') && in[len(in)-1] == in[0]:
 			if !plainString(in[1:len(in)-1], in[0]) {
-				return nil
+				return nil, 0, false
 			}
 			m.key = in[1 : len(in)-1]
 		case canonicalIndex(in) && len(in) <= 15:
 			m.key = in
 		default:
-			return nil
+			return nil, 0, false
 		}
 		rest = rest[end+1:]
-		mp.steps = append(mp.steps, m)
+		steps = append(steps, m)
 	}
-	return mp
+	return steps, len(s) - len(rest), true
 }
 
 // identPrefix returns the length of the ASCII identifier at the start of

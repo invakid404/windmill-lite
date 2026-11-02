@@ -34,6 +34,11 @@ const (
 	// the evaluation binds previous_result: the previous id, whose read the
 	// results prelude answers from memory (JE-18 rule 1).
 	hostPreviousID = "__wl_previous_id"
+	// hostSharedRead is a host string, bound with the results lookup only
+	// for a text whose reads of one step's result can be one read
+	// (pathExpr.sharedRead): that step's id, which the results prelude then
+	// reads once.
+	hostSharedRead = "__wl_shared_read"
 )
 
 var jsonNull = []byte("null")
@@ -59,6 +64,9 @@ type Pipeline struct {
 	// text's member path, or nil for a text that is not one.
 	paths  bool
 	pathOf sync.Map
+	// exprOf holds each text's pathExpr, or nil for a text that is not
+	// one.
+	exprOf sync.Map
 }
 
 // compiled is the Engine's answer for one source: its program, or the
@@ -176,11 +184,32 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 			return jsonval.FromProducer(out), nil
 		}
 	}
+	if id := p.pathExpr(e).sharedRead(); id != "" && slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
+		in.Strings = append(in.Strings, HostString{hostSharedRead, []byte(id)})
+	}
 	out, err := p.evaluate(ctx, e, in)
 	if err != nil {
 		return jsonval.Value{}, err
 	}
 	return jsonval.FromProducer(out), nil
+}
+
+// exprKey is what parsePathExpr reads of an Expr besides what its text
+// decides: its mode.
+type exprKey struct {
+	mode Mode
+	text string
+}
+
+// pathExpr returns e's pathExpr, or nil.
+func (p *Pipeline) pathExpr(e *Expr) *pathExpr {
+	key := exprKey{e.Mode, e.Trimmed}
+	if x, ok := p.exprOf.Load(key); ok {
+		return x.(*pathExpr)
+	}
+	x := parsePathExpr(e)
+	p.exprOf.Store(key, x)
+	return x
 }
 
 // memberPath returns e's member path when the pipeline answers it itself.

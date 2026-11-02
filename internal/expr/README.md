@@ -232,6 +232,22 @@ context:
    `__throwOrParse`, called from `__getResult`. The `resource` and
    `flow_user_state` helpers parse the same way; `variable` answers a
    string, which Windmill does not parse.
+
+   **One read for a text that cannot tell (milestone PS2, lever J3).**
+   Each read through the lookup fetches and parses the result again, so
+   two reads of one step give two equal objects, and a write through one
+   does not show through the other (JE-18 rule 2, JE-16); windmill-lite
+   keeps that. A text that only reads member paths of one step's result,
+   tests one against `null` or `undefined` (`==`, `!=`, `===`, `!==`),
+   alone or choosing with `?:` between member paths, `null` and
+   `undefined`, or builds an object literal from member paths
+   (`pathExpr`), runs no code: no call, no assignment, no comparison of
+   two values that could be objects. It cannot tell one read from two, so
+   when it reads the step through the lookup more than once, the host
+   string `__wl_shared_read` names the step, and every read of it awaits
+   the first read's promise: one fetch and one parse per evaluation,
+   instead of one per read. `results.r == null ? null : results.r.id`
+   parses `r` once; `results.a === results.a` is still `false`.
 3. **The error prelude**, when the text mentions `error`. It declares the
    lexical `error` with `let`, so the expression may assign it (JE-10),
    derived from `previous_result` by
