@@ -163,9 +163,9 @@ argument.
 `Entrypoint` walks the argument object in place for the last member of
 that key (`jsonval.Members`). A step's stored arguments spell a letter or
 an underscore in a key only as itself, so on them `storedEntrypoint`
-walks only when the key's quoted text is there. `ManualFailure` walks a
-result only when its text holds `wm_failure` or a `\u` escape, the only
-ways a key can spell it.
+walks only when the key's quoted text is there. `ManualFailure` walks
+only an object, and only when its text holds `wm_failure` or a `\u`
+escape, the only ways a key can spell it.
 
 `outcome_test.go` checks every row, the bypass's edges, the
 `wm_failure` marker's, the tail and the entrypoint's rules.
