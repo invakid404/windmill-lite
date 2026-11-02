@@ -64,30 +64,17 @@ func isObject(v jsonval.Value) bool {
 // members splits a JSON object's text into its top-level members, each
 // key and value as written. ok is false for text that is not one JSON
 // object.
+//
+// The walk reads obj in place (jsonval.Members): each member's key and
+// value text are slices of obj, capped at their ends. As encoding/json's
+// token walk did, it refuses an object that a JSON token follows, and
+// accepts one that the end of the text, or text that cannot start a
+// token, follows.
 func members(obj []byte) (ms []rawMember, ok bool) {
-	dec := json.NewDecoder(bytes.NewReader(obj))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return nil, false
-	}
-	for dec.More() {
-		start := dec.InputOffset()
-		var key string
-		if t, err := dec.Token(); err != nil {
-			return nil, false
-		} else if key, ok = t.(string); !ok {
-			return nil, false
-		}
-		keyEnd := dec.InputOffset()
-		var v json.RawMessage
-		if err := dec.Decode(&v); err != nil {
-			return nil, false
-		}
-		ms = append(ms, rawMember{key: key, rawKey: bytes.TrimLeft(bytes.TrimSpace(obj[start:keyEnd]), ","), value: v})
-	}
-	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
-		return nil, false
-	}
-	if _, err := dec.Token(); err == nil {
+	rest, ok := jsonval.Members(obj, func(key string, ks, ke, vs, ve int) {
+		ms = append(ms, rawMember{key: key, rawKey: obj[ks:ke:ke], value: obj[vs:ve:ve]})
+	})
+	if !ok || rest == jsonval.RestValue {
 		return nil, false
 	}
 	return ms, true

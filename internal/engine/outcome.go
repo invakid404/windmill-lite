@@ -250,8 +250,8 @@ var entrypointName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // wrapper runs, with an error wrapping ErrInvalidEntrypoint, whose text
 // begins as Windmill's does.
 func Entrypoint(args jsonval.Value) (entry string, override bool, err error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(args.Producer(), &top); err != nil || top == nil {
+	top, err := jsonval.RawObject(args.Producer())
+	if err != nil || top == nil {
 		return "", false, fmt.Errorf("engine: the arguments are not a JSON object")
 	}
 	raw, ok := top[EntrypointOverride]

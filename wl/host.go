@@ -149,8 +149,8 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 	rt.hostProc.Store(p)
 	var hooks engine.Hooks = engine.NoHooks{}
 	if !r.Intercept.IsZero() {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(r.Intercept.Producer(), &raw); err != nil {
+		raw, err := jsonval.RawObject(r.Intercept.Producer())
+		if err != nil {
 			return refused(fmt.Errorf("the run's intercept is not a JSON object: %w", err))
 		}
 		results := make(map[string]jsonval.Value, len(raw))

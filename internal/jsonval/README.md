@@ -1,6 +1,7 @@
 # internal/jsonval
 
-**Current state:** implemented: the value type and the jsonb canonicaliser.
+**Current state:** implemented: the value type, the jsonb canonicaliser and
+the raw-text reads.
 The engine applies the routing table of
 [ADR 0005](../../docs/design/0005-json-step-boundaries.md) with it. This
 README covers `internal/jsonval`.
@@ -59,6 +60,40 @@ the worst case is the text's size times the number of reordered objects on
 one path; Windmill fails context values nested deeper than 127 levels
 ([JE-49](../../docs/semantics/expressions.md#je-49)). The canonicaliser keeps
 its own stack, so deep nesting cannot overflow Go's.
+
+## Raw-text reads
+
+`RawObject`, `RawArray` and `Members` read an object's members or an
+array's elements as the texts they are written as, for the sites that keep
+a value as text (milestone PS2, lever J1): the harness's frame decode
+(`harness.Decode`), the engine's member walk (`storeMembers`,
+`ManualFailure`, the flow input, identity results, the cache and loops),
+`harness.scriptArgs`, `engine.Entrypoint`, the host's intercept map and
+`engine.elements`. They read with `encoding/json/jsontext`, which reads
+the text in place, where `encoding/json` copies every value it passes and
+its member walk copied each member again. The values they decode into, and
+every other decode and every marshal, stay on `encoding/json`.
+
+| Read | It is | Allocates |
+|---|---|---|
+| `RawObject` | `json.Unmarshal` into a `map[string]json.RawMessage`: the members' texts by decoded key, the last of duplicate keys kept | the map and one copy of the members' texts |
+| `RawArray` | `json.Unmarshal` into a `[]json.RawMessage` | the slice and one copy of the elements' texts |
+| `Members` | `encoding/json`'s token walk over an object: each member in order, duplicates included, its decoded key and the offsets of its key's and value's texts, and what follows the object (`Rest`), as `Decoder.Token` reads it | the keys that hold escapes; the texts are slices of the input |
+
+They accept what `encoding/json` accepts: duplicate keys, invalid UTF-8
+in strings, and nesting up to 10,000 levels. A key is decoded as
+`encoding/json` decodes it, invalid UTF-8 and unpaired surrogates becoming
+U+FFFD. When a read fails, the text is read again with `encoding/json` and
+its error is returned, so error texts stay `encoding/json`'s and the same
+in every process: `encoding/json/v2` words a type mismatch at random once
+per process. `TestEquivalence` holds the three reads to the code they
+replaced on 106 probes (numbers beyond `float64`, `-0`, HTML, U+2028,
+invalid UTF-8, unpaired surrogates, control characters, duplicate keys,
+trailing text, deep nesting), error texts included, and fails on any
+difference.
+
+`encoding/json/jsontext` and `encoding/json/v2` are part of Go 1.27's
+default build; the engine does not build with `GOEXPERIMENT=nojsonv2`.
 
 ## Rejections
 
