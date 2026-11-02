@@ -435,10 +435,10 @@ its readings, and that its stages add up to its module span.
 They need the build helper's dependencies and the pinned Bun in `WL_BUN`,
 and run only with `-bench`. A benchmark fails without `WL_BUN`, rather
 than skip and report a pass with no figures, while `TestBenchSplit`
-skips. The baseline's exact commands, each part of
-`BenchmarkStepBoundary` in a test process of its own, are in
-[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline). One
-run of both, in one process:
+skips. The baseline's exact commands, each shape and configuration in a
+test process of its own ([One process per shape](#one-process-per-shape)),
+are in [ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
+One run of both, in one process:
 
 ```sh
 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
@@ -469,11 +469,13 @@ engine keeps in memory then moves the figures of every later shape, not
 only its own.
 
 One process is quicker, and is enough for a quick look, or for a single
-shape or configuration, which `-bench` already runs alone:
+shape or configuration, which `-bench` already runs alone. `go test`'s
+`-timeout` covers the whole process, children included, so a full run
+needs more than its default 10 minutes:
 
 ```sh
 WL_BENCH_FRESH=1 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
-  -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 10x -count 3
+  -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 10x -count 3 -timeout 60m
 ```
 
 `TestBenchFresh` runs one boundary configuration in this mode and checks
