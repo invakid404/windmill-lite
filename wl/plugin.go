@@ -192,7 +192,7 @@ func (p *plugin) doHeld(ctx, held context.Context, hook, run string, site *engin
 		path = site.Path.String()
 		payload["site"] = siteJSON(*site)
 	}
-	b, err := json.Marshal(payload)
+	b, err := marshalPayload(payload)
 	if err != nil {
 		return fmt.Errorf("wl: host_call %s: %w", hook, err)
 	}
@@ -263,7 +263,7 @@ func (p *plugin) goHooks() *Hooks {
 		} else {
 			in.Func = func(ctx context.Context, c Call) (Outcome, bool, error) {
 				var r outcomeReply
-				if err := p.do(ctx, "intercept", c.Run.ID(), &c.Site, map[string]any{"index": i, "args": c.Args}, &r); err != nil {
+				if err := p.do(ctx, "intercept", c.Run.ID(), &c.Site, map[string]any{"index": i, "args": c.payloadArgs()}, &r); err != nil {
 					return Outcome{}, false, err
 				}
 				o, ok := r.outcome()
@@ -346,7 +346,7 @@ func (p *plugin) goHooks() *Hooks {
 func (p *plugin) provider(name string) Provider {
 	return func(ctx context.Context, c Call) (Outcome, bool, error) {
 		var r outcomeReply
-		if err := p.do(ctx, "provide", c.Run.ID(), &c.Site, map[string]any{"name": name, "args": c.Args}, &r); err != nil {
+		if err := p.do(ctx, "provide", c.Run.ID(), &c.Site, map[string]any{"name": name, "args": c.payloadArgs()}, &r); err != nil {
 			return Outcome{}, false, err
 		}
 		o, ok := r.outcome()
@@ -459,7 +459,8 @@ func (v pluginVariables) Variable(ctx context.Context, path string) (platform.Va
 // recordJSON is a site's record as the plugin's hooks see it (H6, H9):
 // every field of the Go StepRecord, in snake_case, so that a TypeScript
 // hook has the evidence a Go hook has. Arguments and results are in stored
-// form; Start is RFC 3339 and Duration is in milliseconds.
+// form, spliced into the payload as they are (payloadText); Start is RFC
+// 3339 and Duration is in milliseconds.
 func recordJSON(rec StepRecord) map[string]any {
 	m := map[string]any{
 		"site": rec.Site.String(), "attempt": rec.Attempt, "status": rec.Status, "ran": rec.Ran, "skipped": rec.Skipped,
@@ -472,7 +473,7 @@ func recordJSON(rec StepRecord) map[string]any {
 		}
 	}
 	for k, v := range map[string]jsonval.Value{"args_before_rewrite": rec.ArgsBeforeRewrite, "args": rec.RecordedArgs, "resolved_args": rec.ResolvedArgs, "result": rec.Result, "carried": rec.Carried} {
-		if t := storedText(v); t != nil {
+		if t := payloadText(v); t != nil {
 			m[k] = t
 		}
 	}
@@ -491,7 +492,7 @@ func recordJSON(rec StepRecord) map[string]any {
 	late := []any{}
 	for _, l := range rec.Late {
 		e := map[string]any{"kind": l.Kind, "final": l.Final}
-		if t := storedText(l.Body); t != nil {
+		if t := payloadText(l.Body); t != nil {
 			e["body"] = t
 		}
 		late = append(late, e)
@@ -578,7 +579,7 @@ func traceJSON(t *Trace) map[string]any {
 		calls = append(calls, e)
 	}
 	m["steps"], m["children"], m["spans"], m["platform_calls"] = steps, children, spans, calls
-	if r := storedText(t.Result); r != nil {
+	if r := payloadText(t.Result); r != nil {
 		m["result"] = r
 	}
 	if len(t.ResultNested) > 0 {

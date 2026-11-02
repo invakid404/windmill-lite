@@ -794,8 +794,10 @@ answered by a `host_reply`.
      records, child flows, spans or platform calls. `none` is the run's
      id and status.
    - The full trace stays the default, and a plugin that declares nothing
-     gets it. It costs about 3 µs per KB for every run, marshalled by the
-     engine and parsed by the host, and is 2 to 4 KB per step.
+     gets it. It costs about 3 µs per KB for every run, written by the
+     engine and parsed by the host, and is 2 to 4 KB per step. Since PS2
+     the engine writes the stored texts it holds into the payload as they
+     are ([0008](0008-host-hooks.md), §Where hooks run).
    - The engine refuses, with `plugin_mismatch`, a level for a hook the
      plugin does not declare, or a level other than `full`, `summary` or
      `none`.
