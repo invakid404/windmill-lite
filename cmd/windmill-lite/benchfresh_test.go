@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,7 +44,7 @@ type benchMetric struct {
 }
 
 // benchInChild runs the leaf benchmark b in a child test process, with this
-// process's -benchtime and -timeout, and reports the child's figures as
+// process's test flags (freshChildArgs), and reports the child's figures as
 // b's, ns/op included. It logs the child's process ID. The iteration count
 // printed is this process's: with -benchtime Nx it is N, as the child's;
 // with a duration it is 1.
@@ -53,12 +56,14 @@ func benchInChild(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		args := []string{"-test.run=^$", "-test.bench=" + benchPattern(name), "-test.count=1"}
+		set := map[string]string{}
+		flag.Visit(func(f *flag.Flag) { set[f.Name] = f.Value.String() })
 		for _, f := range []string{"test.benchtime", "test.timeout"} {
 			if fl := flag.Lookup(f); fl != nil {
-				args = append(args, "-"+f+"="+fl.Value.String())
+				set[f] = fl.Value.String()
 			}
 		}
+		args := freshChildArgs(name, runtime.GOMAXPROCS(0), set)
 		cmd := exec.Command(exe, args...)
 		cmd.Env = append(os.Environ(), benchFreshChildEnv+"=1")
 		out, err := cmd.CombinedOutput()
@@ -68,12 +73,44 @@ func benchInChild(b *testing.B) {
 		if err != nil {
 			b.Fatalf("%s in its own process: %v\n%s", name, err, out)
 		}
-		b.Logf("ran in process %d", cmd.Process.Pid)
+		b.Logf("ran in process %d: %s", cmd.Process.Pid, strings.Join(args, " "))
 		benchFreshResults[b] = metrics
 	}
 	for _, m := range metrics {
 		b.ReportMetric(m.value, m.unit)
 	}
+}
+
+// freshChildArgs are the arguments of the child process that runs the
+// benchmark named name alone: its -test.bench pattern, one count, and
+// -test.cpu at procs, the GOMAXPROCS the testing package set for this run
+// of it (one per -cpu value); then this process's test flags that set, as
+// set holds them (benchtime and timeout always), each as it was given, but
+// for the ones this process acts on itself (run, bench, count, cpu, list,
+// skip, shuffle, fuzzing, coverage, the test log). A profile or trace
+// goes to a file of the child's own, the name followed by the
+// benchmark's, so that children do not write over each other.
+func freshChildArgs(name string, procs int, set map[string]string) []string {
+	args := []string{"-test.run=^$", "-test.bench=" + benchPattern(name), "-test.count=1", "-test.cpu=" + strconv.Itoa(procs)}
+	own := map[string]bool{
+		"test.run": true, "test.bench": true, "test.count": true, "test.cpu": true, "test.list": true, "test.skip": true,
+		"test.shuffle": true, "test.paniconexit0": true, "test.testlogfile": true, "test.gocoverdir": true, "test.coverprofile": true,
+		"test.fuzz": true, "test.fuzztime": true, "test.fuzzminimizetime": true, "test.fuzzcachedir": true, "test.fuzzworker": true,
+		"test.artifacts": true,
+	}
+	profiles := map[string]bool{"test.cpuprofile": true, "test.memprofile": true, "test.blockprofile": true, "test.mutexprofile": true, "test.trace": true}
+	leaf := strings.NewReplacer("/", "_", "=", "-", " ", "_").Replace(name)
+	for _, f := range slices.Sorted(maps.Keys(set)) {
+		v := set[f]
+		switch {
+		case !strings.HasPrefix(f, "test.") || own[f]:
+			continue
+		case profiles[f] && v != "":
+			v += "." + leaf
+		}
+		args = append(args, "-"+f+"="+v)
+	}
+	return args
 }
 
 // benchPattern is the -test.bench pattern that selects exactly the
@@ -118,6 +155,17 @@ func TestBenchFresh(t *testing.T) {
 	if got, want := benchPattern("BenchmarkHostShapes/shape=s200-mixed-conc8"), `^BenchmarkHostShapes$/^shape=s200-mixed-conc8$`; got != want {
 		t.Fatalf("pattern %q, want %q", got, want)
 	}
+	// The child gets the flags this process was given, -cpu at the
+	// GOMAXPROCS of this run of the benchmark, and a profile of its own.
+	got := freshChildArgs("BenchmarkX/a=1", 4, map[string]string{
+		"test.benchtime": "10x", "test.timeout": "1h0m0s", "test.benchmem": "true", "test.short": "true", "test.cpu": "1,4",
+		"test.run": "^$", "test.bench": "X", "test.count": "3", "test.cpuprofile": "cpu.out", "test.v": "true", "test.memprofilerate": "1",
+	})
+	want := []string{"-test.run=^$", "-test.bench=^BenchmarkX$/^a=1$", "-test.count=1", "-test.cpu=4", "-test.benchmem=true",
+		"-test.benchtime=10x", "-test.cpuprofile=cpu.out.BenchmarkX_a-1", "-test.memprofilerate=1", "-test.short=true", "-test.timeout=1h0m0s", "-test.v=true"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("freshChildArgs:\n%q\nwant\n%q", got, want)
+	}
 	ms, err := benchLine([]byte("goos: darwin\nBenchmarkX/a=1-10   \t       2\t  12.5 step-p50-ns\t 3 load1\n"), "BenchmarkX/a=1")
 	if err != nil || len(ms) != 2 || ms[0] != (benchMetric{12.5, "step-p50-ns"}) {
 		t.Fatalf("benchLine: %v, %v", ms, err)
@@ -128,7 +176,7 @@ func TestBenchFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "BenchmarkStepBoundary/topology=subprocess/conc=1/size=26B"
-	cmd := exec.Command(exe, "-test.run=^$", "-test.bench="+benchPattern(name), "-test.benchtime=2x", "-test.v")
+	cmd := exec.Command(exe, "-test.run=^$", "-test.bench="+benchPattern(name), "-test.benchtime=2x", "-test.cpu=2", "-test.v")
 	cmd.Env = append(os.Environ(), benchFreshEnv+"=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -138,9 +186,12 @@ func TestBenchFresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	m := regexp.MustCompile(`ran in process (\d+)`).FindSubmatch(out)
+	m := regexp.MustCompile(`ran in process (\d+): (.*)`).FindSubmatch(out)
 	if m == nil || string(m[1]) == strconv.Itoa(cmd.Process.Pid) {
 		t.Fatalf("the configuration did not run in a child process\n%s", out)
+	}
+	if !strings.Contains(string(m[2]), "-test.cpu=2") || !strings.Contains(string(m[2]), "-test.benchtime=2x") {
+		t.Fatalf("the child did not get -cpu and -benchtime: %s", m[2])
 	}
 	units := map[string]float64{}
 	for _, m := range ms {

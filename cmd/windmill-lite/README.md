@@ -486,8 +486,14 @@ With `WL_BENCH_FRESH=1`, each shape of `BenchmarkHostShapes` and each
 configuration of `BenchmarkStepBoundary` runs in a test process of its
 own (`benchfresh_test.go`). The process `go test` starts sets nothing up.
 For each of them it runs the test binary again, for that benchmark alone,
-with the same `-benchtime` and `-timeout`, and reports the child's figures
-as its own.
+and reports the child's figures as its own. The child gets the test flags
+this process was given (`-benchtime`, `-timeout`, `-benchmem`, `-short`,
+`-v`, the profile rates and the like), and `-cpu` at the GOMAXPROCS of
+each `-cpu` value this process runs, so `-cpu 1,4` runs each benchmark in
+two children. A profile or trace flag gives each child a file of its own,
+its name followed by the benchmark's (`cpu.out.BenchmarkHostShapes_shape-s600-1KiB`).
+It does not pass the flags this process acts on itself: `-run`, `-bench`,
+`-count`, `-list`, `-skip`, `-shuffle`, fuzzing and coverage.
 
 The output keeps its form, so `benchstat` reads it as before. The
 iteration count printed is the parent's: with `-benchtime 10x` it is 10,
