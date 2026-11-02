@@ -1331,6 +1331,10 @@ func BenchmarkRetainedHeap(b *testing.B) {
 						run()
 					}
 					after := heap()
+					// The input is the benchmark's own: it stays alive
+					// through both readings, so that its collection does not
+					// count as memory the runs released.
+					runtime.KeepAlive(args)
 					b.ReportMetric(float64(int64(after)-int64(before))/float64(runs)/(1<<20), "heap-mib/run")
 					b.ReportMetric(float64(after)/(1<<20), "heap-mib")
 					b.ReportMetric(float64(runs), "runs")
