@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -159,4 +160,119 @@ func TestSharedRead(t *testing.T) {
 			t.Errorf("%s shares the read of %s", text, id)
 		}
 	}
+}
+
+// TestPathExprsMatchEngine is the differential test of the null tests and
+// objects of member paths that the pipeline answers itself (lever J3,
+// item 2), as TestMemberPathsMatchEngine is for single paths: generated
+// JSON values, and generated tests (==, !=, ===, !== against null and
+// undefined, alone or choosing between paths, null and undefined) and
+// object literals of paths over them, each read by pathExpr and by the
+// expression's program on the real engine. Wherever pathExpr answers, the
+// engine must give the same text and no error. The values and paths are
+// TestMemberPathsMatchEngine's: undefined against null, missing keys, null
+// on the way, arrays and their lengths, keys Object.prototype has, and
+// repeated, integer-like and quoted keys in the literals.
+func TestPathExprsMatchEngine(t *testing.T) {
+	p := NewPipeline(realEngine(t, DefaultLimits(), 0))
+	rng := rand.New(rand.NewPCG(3, 5))
+	const n = 6000
+	count := map[pathResult]int{}
+	kinds := map[pathExprKind]int{}
+	for range n {
+		c, text := genFormCase(rng)
+		r, kind := c.checkForm(t, p, text)
+		count[r]++
+		if r == pathAnswered {
+			kinds[kind]++
+		}
+		if t.Failed() {
+			return
+		}
+	}
+	t.Logf("%d cases: %v; answered by kind %v", n, count, kinds)
+	if count[pathAnswered] < n/3 || count[pathDeclinedEngineOK] == 0 || count[pathDeclinedEngineErr] == 0 || kinds[pathTest] == 0 || kinds[pathCond] == 0 || kinds[pathObject] == 0 {
+		t.Fatalf("the cases do not cover answers, declines and engine errors enough: %v, %v", count, kinds)
+	}
+}
+
+// genFormCase makes a case and a test, a conditional or an object literal
+// of paths over its value.
+func genFormCase(rng *rand.Rand) (pathCase, string) {
+	c, v := genPathBase(rng)
+	sp := func() string { return []string{"", " ", " ", "  ", "\n"}[rng.IntN(5)] }
+	path := func() string {
+		root := c.root
+		if root == "results" {
+			root = []string{"results.st", "results?.st", `results["st"]`}[rng.IntN(3)]
+		}
+		return root + genPath(rng, v)
+	}
+	lit := func() string { return []string{"null", "undefined"}[rng.IntN(2)] }
+	term := func() string {
+		if rng.IntN(3) == 0 {
+			return lit()
+		}
+		return path()
+	}
+	op := []string{"==", "!=", "===", "!=="}[rng.IntN(4)]
+	switch rng.IntN(3) {
+	case 0:
+		return c, path() + sp() + op + sp() + lit()
+	case 1:
+		return c, path() + sp() + op + sp() + lit() + sp() + "?" + sp() + term() + sp() + ":" + sp() + term()
+	}
+	keys := []string{"a", "b", "id", "n", "0", "1", "10", "007", "x y", "length", "toString", "ü", "a"}
+	var b strings.Builder
+	b.WriteString("({" + sp())
+	for i := range 1 + rng.IntN(4) {
+		if i > 0 {
+			b.WriteString("," + sp())
+		}
+		k := keys[rng.IntN(len(keys))]
+		switch {
+		case isIdent(k) && rng.IntN(2) == 0:
+			b.WriteString(k)
+		case rng.IntN(2) == 0:
+			b.WriteString(`"` + k + `"`)
+		default:
+			b.WriteString("'" + k + "'")
+		}
+		b.WriteString(sp() + ":" + sp() + path())
+	}
+	if rng.IntN(5) == 0 {
+		b.WriteString(",")
+	}
+	b.WriteString(sp() + "})")
+	return c, b.String()
+}
+
+// checkForm runs a form both ways and fails t when pathExpr answers what
+// the engine does not.
+func (c pathCase) checkForm(t *testing.T, p *Pipeline, text string) (pathResult, pathExprKind) {
+	t.Helper()
+	ctx := context.Background()
+	e := Compile(SiteInputTransform, text)
+	x := parsePathExpr(e)
+	if x == nil {
+		return pathNotPath, 0
+	}
+	s := c.scope()
+	in := bind(e, s)
+	if err := checkDepth(e, s, in); err != nil {
+		t.Fatalf("%s over %s: %v", text, c.text, err)
+	}
+	got, ok := x.eval(in)
+	want, err := p.evaluate(ctx, e, bind(e, c.scope()))
+	switch {
+	case !ok && err != nil:
+		return pathDeclinedEngineErr, x.kind
+	case !ok:
+		return pathDeclinedEngineOK, x.kind
+	case err != nil:
+		t.Errorf("%s over %s (%+v): pathExpr answered %s, the engine failed: %v", text, c.text, c, got, err)
+	case string(got) != string(want):
+		t.Errorf("%s over %s (%+v): pathExpr answered %s, the engine %s", text, c.text, c, got, want)
+	}
+	return pathAnswered, x.kind
 }

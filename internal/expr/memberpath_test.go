@@ -174,6 +174,14 @@ func (c pathCase) check(t *testing.T, p *Pipeline) pathResult {
 // genPathCase makes a case: a root, a value, and a path that mostly
 // follows the value's members and sometimes leaves them.
 func genPathCase(rng *rand.Rand) pathCase {
+	c, v := genPathBase(rng)
+	c.path = genPath(rng, v)
+	return c
+}
+
+// genPathBase makes a case's root and value, and returns the value for
+// paths to follow (nil for text that is not JSON).
+func genPathBase(rng *rand.Rand) (pathCase, *genValue) {
 	c := pathCase{}
 	switch rng.IntN(6) {
 	case 0:
@@ -202,8 +210,7 @@ func genPathCase(rng *rand.Rand) pathCase {
 		v = genPathValue(rng, 0, escapes)
 		c.text = v.write(rng)
 	}
-	c.path = genPath(rng, v)
-	return c
+	return c, v
 }
 
 // notJSON are texts JSON.parse rejects, or reads differently from a
@@ -471,6 +478,15 @@ func TestMemberPathPipeline(t *testing.T) {
 		{"flow_input.cfg.region.length", `4`, true},
 		{"flow_input.missing.x", "", true},
 		{"results.f?.n", "", true},
+		// Null tests and objects of member paths (lever J3, item 2).
+		{"previous_result.items == null ? null : previous_result.items[0].id", `7`, false},
+		{"flow_input.cfg.missing !== undefined ? flow_input.cfg : null", `null`, false},
+		{"flow_input.cfg === null", `false`, false},
+		{"({ id: flow_input.cfg.region, n: flow_input.cfg.missing, 'x y': flow_input.cfg })", `{"id":"eu-1","x y":{"region":"eu-1"}}`, false},
+		{`({ a: results.b.items.length, "0": results.b.items[0].id })`, `{"0":7,"a":1}`, false},
+		{"results.a == null ? null : results.a.n", `1`, true},
+		{"({ n: results.a.n, m: results.a?.m })", `{"n":1}`, true},
+		{"flow_input.missing.x == null ? 1 : 2", "", true},
 	}
 	for _, exact := range []bool{true, false} {
 		for _, c := range cases {

@@ -2,6 +2,7 @@ package expr
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -312,4 +313,80 @@ func (x *pathExpr) sharedRead() string {
 		return ""
 	}
 	return x.step
+}
+
+// eval answers x from the values the evaluation binds, as the engine
+// would: JSON.stringify(v ?? null) of its value. It reports false to leave
+// x to the engine wherever memberPath would leave one of its paths to it:
+// a root it does not answer, a text it cannot read exactly, or a read
+// JavaScript would do more for. Only the paths the engine would evaluate
+// are read: a conditional's chosen branch, and every member of an object.
+func (x *pathExpr) eval(in Input) ([]byte, bool) {
+	first := x.path
+	if x.kind == pathObject {
+		first = x.vals[0]
+	}
+	root, ok := first.rootText(in)
+	if !ok || !validJSON(root) {
+		return nil, false
+	}
+	switch x.kind {
+	case pathSingle:
+		return walkPath(root, x.path.steps)
+	case pathTest, pathCond:
+		at, length, undefined, ok := pathEnd(root, x.path.steps)
+		if !ok {
+			return nil, false
+		}
+		isNull := !undefined && length < 0 && root[at] == 'n'
+		var holds bool
+		switch x.op {
+		case "==", "!=":
+			// null and undefined are loosely equal to each other only.
+			holds = undefined || isNull
+		case "===", "!==":
+			holds = x.lit == "null" && isNull || x.lit == "undefined" && undefined
+		}
+		if x.op == "!=" || x.op == "!==" {
+			holds = !holds
+		}
+		if x.kind == pathTest {
+			return strconv.AppendBool(nil, holds), true
+		}
+		t := x.other
+		if holds {
+			t = x.then
+		}
+		if t.path == nil {
+			return []byte("null"), true // null or undefined, ?? null
+		}
+		return walkPath(root, t.path.steps)
+	}
+	// An object literal: its members in JavaScript's order, an undefined
+	// value left out, as JSON.stringify leaves it.
+	o := &jsObject{}
+	for i, p := range x.vals {
+		v, undefined, ok := pathValue(root, p.steps)
+		if !ok {
+			return nil, false
+		}
+		if undefined {
+			v = nil
+		}
+		o.keys, o.vals = append(o.keys, x.keys[i]), append(o.vals, v)
+	}
+	keys, vals := o.members()
+	b := []byte{'{'}
+	for i, k := range keys {
+		if vals[i] == nil {
+			continue
+		}
+		if len(b) > 1 {
+			b = append(b, ',')
+		}
+		b = appendJSString(b, k)
+		b = append(b, ':')
+		b = vals[i].appendJSON(b)
+	}
+	return append(b, '}'), true
 }

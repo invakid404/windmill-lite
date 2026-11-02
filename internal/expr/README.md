@@ -139,6 +139,21 @@ bound context value, or `results.<id>` when the results prelude answers it
 from memory, the previous result (JE-18 rule 1). Its reads are `.key`,
 `?.key`, `[n]`, `["key"]` or `['key']`, as in `previous_result.items[0]?.id`.
 
+Since milestone PS2 (lever J3), two more forms of such paths over one
+root are answered the same way (`pathExpr`):
+
+- **a null test**: a path compared with `null` or `undefined` by `==`,
+  `!=`, `===` or `!==`, alone (`true` or `false`), or choosing with `?:`
+  between two terms, each a path, `null` or `undefined`, as in
+  `previous_result.x == null ? null : previous_result.x.id`. Only the
+  chosen branch is read, as JavaScript reads it;
+- **an object literal of paths**, in parentheses, each key an identifier
+  or a quoted string other than `__proto__`, as in
+  `({ id: flow_input.v.id, text: flow_input.v.text })`. Its keys come in
+  JavaScript's order (array indexes first, ascending), a repeated key
+  keeps its first place and its last value, and an `undefined` value is
+  left out, as `JSON.stringify` leaves it.
+
 The answer is what the program would give: the root parsed as
 `JSON.parse` parses it, the members read as JavaScript reads them, with
 optional chaining, and the result written as `JSON.stringify` writes it.
@@ -460,6 +475,13 @@ context-free case's recorded argument as its stored form.
     and unpaired surrogates, edge numbers, and text that is not JSON.
   - The paths read missing members, indexes past the end and `length`,
     and chain optionally over `null` and `undefined`.
+- `TestPathExprsMatchEngine` is the same differential test for null tests
+  and object literals of paths: thousands of generated tests (each
+  operator against `null` and `undefined`, alone or choosing between
+  paths, `null` and `undefined`) and literals (repeated, integer-like and
+  quoted keys) over the generated values, read through `pathExpr` and on
+  the real engine. `TestParsePathExpr` checks what the grammar takes and
+  refuses, and `TestSharedRead` the shared read of a step's result.
 - `TestMemberPathPipeline` checks that a member path over a bound value
   or the previous result does not reach an engine that says it is exact,
   that one needing the results lookup does, and that any other engine

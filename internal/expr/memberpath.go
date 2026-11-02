@@ -212,6 +212,16 @@ func canonicalIndex(s string) bool {
 // under the evaluation's attempt limit, cancellation and retries (JE-2),
 // so it stays the engine's.
 func (mp *memberPath) eval(in Input) ([]byte, bool) {
+	root, ok := mp.rootText(in)
+	if !ok {
+		return nil, false
+	}
+	return walkPath(root, mp.steps)
+}
+
+// rootText returns the text of mp's root from the values the evaluation
+// binds, or false when eval leaves mp to the engine whatever its steps.
+func (mp *memberPath) rootText(in Input) ([]byte, bool) {
 	rootName := mp.root
 	if rootName == "" {
 		var prev []byte
@@ -243,7 +253,7 @@ func (mp *memberPath) eval(in Input) ([]byte, bool) {
 	if !rootBound {
 		return nil, false // a ReferenceError
 	}
-	return walkPath(root, mp.steps)
+	return root, true
 }
 
 // validJSON reports whether t is UTF-8 JSON text no deeper than
@@ -269,9 +279,44 @@ func walkPath(text []byte, steps []pathStep) ([]byte, bool) {
 	if !validJSON(text) {
 		return nil, false
 	}
+	v, undefined, ok := pathValue(text, steps)
+	switch {
+	case !ok:
+		return nil, false
+	case undefined:
+		return []byte("null"), true
+	}
+	return v.appendJSON(nil), true
+}
+
+// pathValue reads steps from the value JSON.parse makes of text, which
+// validJSON has checked, and returns the value it ends on, or undefined.
+// ok is false where JavaScript would do more than read a JSON value's own
+// data.
+func pathValue(text []byte, steps []pathStep) (v *jsValue, undefined, ok bool) {
+	at, length, undefined, ok := pathEnd(text, steps)
+	switch {
+	case !ok:
+		return nil, false, false
+	case length >= 0:
+		return &jsValue{kind: jsNumber, n: float64(length)}, false, true
+	case undefined:
+		return nil, true, true
+	}
+	sc := &pathScanner{s: text, i: at}
+	v, ok = sc.value(0)
+	return v, false, ok
+}
+
+// pathEnd follows steps through text, which validJSON has checked: it
+// returns where the value the path ends on starts, or that it is
+// undefined, or, for an array's length, the count (length is -1
+// otherwise). ok is false where JavaScript would do more than read a JSON
+// value's own data.
+func pathEnd(text []byte, steps []pathStep) (at, length int, undefined, ok bool) {
 	sc := &pathScanner{s: text}
 	sc.space()
-	at, undefined := sc.i, false
+	at = sc.i
 	for n, m := range steps {
 		if undefined || text[at] == 'n' {
 			if m.optional {
@@ -279,7 +324,7 @@ func walkPath(text []byte, steps []pathStep) ([]byte, bool) {
 				undefined = true
 				break
 			}
-			return nil, false // a TypeError, whose text is the engine's
+			return 0, -1, false, false // a TypeError, whose text is the engine's
 		}
 		switch text[at] {
 		case '{':
@@ -287,38 +332,30 @@ func walkPath(text []byte, steps []pathStep) ([]byte, bool) {
 			at, found = sc.member(at, m.key)
 			if !found {
 				if slices.Contains(objectProtoNames, m.key) {
-					return nil, false // inherited from Object.prototype
+					return 0, -1, false, false // inherited from Object.prototype
 				}
 				undefined = true
 			}
 		case '[':
 			if m.key == "length" {
 				if n != len(steps)-1 {
-					return nil, false // a number's member
+					return 0, -1, false, false // a number's member
 				}
-				return strconv.AppendInt(nil, int64(sc.count(at)), 10), true
+				return 0, sc.count(at), false, true
 			}
 			i, ok := arrayIndex(m.key)
 			if !ok {
-				return nil, false // a property of Array.prototype, or none
+				return 0, -1, false, false // a property of Array.prototype, or none
 			}
 			var found bool
 			if at, found = sc.element(at, i); !found {
 				undefined = true
 			}
 		default:
-			return nil, false // a primitive's member
+			return 0, -1, false, false // a primitive's member
 		}
 	}
-	if undefined {
-		return []byte("null"), true
-	}
-	sc.i = at
-	v, ok := sc.value(0)
-	if !ok {
-		return nil, false
-	}
-	return v.appendJSON(nil), true
+	return at, -1, undefined, true
 }
 
 // pathScanner reads JSON text: it checks and skips values, finds an object's

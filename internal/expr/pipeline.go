@@ -60,12 +60,10 @@ type Pipeline struct {
 	programs map[string]compiled
 
 	// paths says whether the engine evaluates member paths as the
-	// pipeline's own answer does (ExactMemberPaths), and pathOf holds each
-	// text's member path, or nil for a text that is not one.
+	// pipeline's own answer does (ExactMemberPaths), and exprOf holds each
+	// text's pathExpr, a member path or a null test or object of them, or
+	// nil for a text that is not one.
 	paths  bool
-	pathOf sync.Map
-	// exprOf holds each text's pathExpr, or nil for a text that is not
-	// one.
 	exprOf sync.Map
 }
 
@@ -148,7 +146,9 @@ func (p *Pipeline) program(source string) (Program, error) {
 // (ExactMemberPaths), a text that only reads a member path of a bound JSON
 // value, such as flow_input.cfg.region, previous_result.items[0]?.id or
 // results.<previous id>?.b, is answered as the engine would answer it,
-// without the engine (memberPath). Anything else runs the expression's program on the
+// without the engine (memberPath), and so is a null test or an object
+// literal of such paths over one root (pathExpr):
+// previous_result.x == null ? null : previous_result.x.id. Anything else runs the expression's program on the
 // engine (see evaluate). A failure is an *EvalError with Windmill's text; a context that ends during
 // the evaluation gives its cause instead. The engine's text is returned as
 // it is, without a check that it is JSON: the user's code can replace
@@ -176,8 +176,8 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 	if err := checkDepth(e, s, in); err != nil {
 		return jsonval.Value{}, err
 	}
-	if mp := p.memberPath(e); mp != nil {
-		if out, ok := mp.eval(in); ok {
+	if x := p.pathExpr(e); x != nil && p.paths {
+		if out, ok := x.eval(in); ok {
 			if err := context.Cause(ctx); err != nil {
 				return jsonval.Value{}, err
 			}
@@ -210,19 +210,6 @@ func (p *Pipeline) pathExpr(e *Expr) *pathExpr {
 	x := parsePathExpr(e)
 	p.exprOf.Store(key, x)
 	return x
-}
-
-// memberPath returns e's member path when the pipeline answers it itself.
-func (p *Pipeline) memberPath(e *Expr) *memberPath {
-	if !p.paths {
-		return nil
-	}
-	if mp, ok := p.pathOf.Load(e.Trimmed); ok {
-		return mp.(*memberPath)
-	}
-	mp := parseMemberPath(e)
-	p.pathOf.Store(e.Trimmed, mp)
-	return mp
 }
 
 // evaluate runs e's program on the engine with the bindings in (ADR 0003),
