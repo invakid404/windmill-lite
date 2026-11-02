@@ -28,6 +28,11 @@ import (
 //     prefix: a host-mode bye goes out only once every run_done queued
 //     before it has gone out whole, while unrelated small frames keep
 //     their priority.
+//   - A sender that queues a whole frame while the writer is idle and
+//     nothing else is queued may write it itself, without blocking
+//     (queuePayload, flush): one goroutine wake-up fewer for the frame.
+//     What the socket does not take at once goes back to the head of the
+//     queue for the writer, so the bytes on the wire are the same.
 //   - The reader reassembles part streams and hands each message to
 //     onMessage, in arrival order, on the reader goroutine. It records when
 //     it last received a frame, which is what the watchdog measures; that
@@ -57,6 +62,13 @@ type conn struct {
 	closed     bool
 	nextStream uint64
 	wake       chan struct{}
+	// writing is set while a goroutine writes frames it took from the
+	// queue: the writer, or a sender in flush. The writer waits while a
+	// sender writes.
+	writing bool
+	// raw is the socket's raw connection, through which flush writes
+	// without blocking; nil when the socket has none.
+	raw syscall.RawConn
 }
 
 type outStream struct {
@@ -115,6 +127,11 @@ func newConn(nc net.Conn, cfg connConfig) *conn {
 	if c.maxMessage == 0 {
 		c.maxMessage = DefaultMaxMessage
 	}
+	if sc, ok := nc.(syscall.Conn); ok {
+		if rc, err := sc.SyscallConn(); err == nil {
+			c.raw = rc
+		}
+	}
 	return c
 }
 
@@ -171,6 +188,18 @@ func invocationOf(m Message) string {
 
 // sendPayload queues a payload; about is the invocation it is about, or "".
 func (c *conn) sendPayload(payload []byte, about string) error {
+	return c.enqueue(payload, about, true)
+}
+
+// queuePayload queues a payload as sendPayload does, but does not wake the
+// writer: the caller must call flush once it can, which writes the frame
+// or wakes the writer. Until then another send may wake the writer, which
+// then writes it in its turn.
+func (c *conn) queuePayload(payload []byte, about string) error {
+	return c.enqueue(payload, about, false)
+}
+
+func (c *conn) enqueue(payload []byte, about string, wake bool) error {
 	if int64(len(payload)) > c.maxMessage {
 		return protoErr(CodeMessageTooLarge, "%s message of %d bytes exceeds %d", typeOf(payload), len(payload), c.maxMessage)
 	}
@@ -197,11 +226,80 @@ func (c *conn) sendPayload(payload []byte, about string) error {
 		}
 		c.latest[about] = q.stream
 	}
+	if wake || q.stream != nil {
+		c.wakeWriter()
+	}
+	return nil
+}
+
+func (c *conn) wakeWriter() {
 	select {
 	case c.wake <- struct{}{}:
 	default:
 	}
-	return nil
+}
+
+// flush writes, on the caller's goroutine, the one whole frame queued,
+// when the writer is idle and nothing else is queued: as much of it as the
+// socket takes at once, without blocking. The rest goes back to the head
+// of the queue, and the writer, woken, writes it before anything queued
+// after it. In any other case flush only wakes the writer.
+func (c *conn) flush() {
+	c.mu.Lock()
+	if c.closed || len(c.small) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	if c.writing || c.raw == nil || len(c.small) != 1 || len(c.streams) != 0 {
+		c.mu.Unlock()
+		c.wakeWriter()
+		return
+	}
+	f := c.small[0]
+	c.small = nil
+	c.writing = true
+	c.mu.Unlock()
+	n := c.writeNow(f)
+	if h := flushWritten.Load(); h != nil {
+		(*h)(n, len(f))
+	}
+	c.mu.Lock()
+	c.writing = false
+	if n < len(f) && !c.closed {
+		c.small = append([][]byte{f[n:]}, c.small...)
+	}
+	more := len(c.small) > 0 || len(c.streams) > 0
+	c.mu.Unlock()
+	if more {
+		c.wakeWriter()
+	}
+}
+
+// flushWritten, when set, is called after every write flush makes, with
+// the bytes the socket took and the frame's length; tests count them.
+var flushWritten atomic.Pointer[func(n, total int)]
+
+// writeNow writes b to the socket without waiting for it to accept more,
+// and returns how many bytes it took: all, some, or none when the socket's
+// buffer is full or the write fails, which the writer then meets itself.
+func (c *conn) writeNow(b []byte) int {
+	written := 0
+	c.raw.Write(func(fd uintptr) bool {
+		for written < len(b) {
+			n, err := syscall.Write(int(fd), b[written:])
+			if n > 0 {
+				written += n
+			}
+			if err == syscall.EINTR {
+				continue
+			}
+			if err != nil || n <= 0 {
+				break
+			}
+		}
+		return true
+	})
+	return written
 }
 
 // sendAfter encodes m and queues it behind every message about a key that
@@ -296,7 +394,7 @@ func (c *conn) writeLoop() {
 	var scratch []byte
 	for {
 		c.mu.Lock()
-		for len(c.small) == 0 && len(c.streams) == 0 && !c.closed {
+		for (c.writing || len(c.small) == 0 && len(c.streams) == 0) && !c.closed {
 			c.mu.Unlock()
 			<-c.wake
 			c.mu.Lock()
@@ -333,8 +431,13 @@ func (c *conn) writeLoop() {
 			}
 			bufs = net.Buffers{frame}
 		}
+		c.writing = true
 		c.mu.Unlock()
-		if _, err := bufs.WriteTo(c.nc); err != nil {
+		_, err := bufs.WriteTo(c.nc)
+		c.mu.Lock()
+		c.writing = false
+		c.mu.Unlock()
+		if err != nil {
 			// The reader sees the same failure (or the peer's exit) and
 			// reports it; the writer only stops.
 			c.close()

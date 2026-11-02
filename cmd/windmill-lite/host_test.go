@@ -396,6 +396,21 @@ func (s *supervisor) getJSON(t *testing.T, path string, v any) {
 	}
 }
 
+// TestHostArgsFileReaders checks that no script that can read args.json
+// loses it in host mode (ADR 0004 host mode item 7): a step that reads it
+// through a host-provided module, whose host instance the build cannot
+// read, and a step that reads it by a file name it builds at run time,
+// which no search for the name finds, each read their own arguments back.
+func TestHostArgsFileReaders(t *testing.T) {
+	s := supervise(t, 30000)
+	for _, flow := range []string{"f/host/args_host", "f/host/args_built"} {
+		r, err := s.run(flow, "tenant-a", map[string]any{"p": map[string]any{"id": 7}}, nil)
+		if err != nil || r.Status != "success" || string(r.Result) != `{"p":{"id":7},"file":{"id":7}}` {
+			t.Fatalf("%s: %+v, %v", flow, r, err)
+		}
+	}
+}
+
 // W1's exit gate: "the host-provided-module ALS test 16/16 in a compiled
 // host" (ADR 0008 H11, ADR 0010, D12), on a built bundle (F3a). Sixteen
 // concurrent runs, each submitted inside its own tenant scope; the step
@@ -822,6 +837,27 @@ func TestHostWatchdogFiniteCPU(t *testing.T) {
 			t.Fatalf("the host was restarted: %d generations", g)
 		}
 	})
+}
+
+// The SDK's readCache option reaches the engine (`host -read-cache`):
+// a run on a host connected with it lists deviation D21, the read cache,
+// among its deviations, and one on a host without it does not.
+// TestReadCacheHostCalls shows what the cache does.
+func TestHostReadCacheOption(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		env := "WL_READ_CACHE=0"
+		if on {
+			env = "WL_READ_CACHE=1"
+		}
+		s := supervise(t, 30000, env)
+		r, err := s.run("f/host/echo", "a", map[string]any{"x": 1}, nil)
+		if err != nil || r.Status != "success" {
+			t.Fatalf("%+v, %v", r, err)
+		}
+		if got := slices.Contains(r.Deviations, "D21"); got != on {
+			t.Fatalf("readCache %t: the run's deviations %v", on, r.Deviations)
+		}
+	}
 }
 
 // H1's no-code form through host mode: the run frame carries a static

@@ -115,6 +115,12 @@ func New(opts Options) (*Engine, error) {
 // Limits returns the per-evaluation limits the Engine applies.
 func (e *Engine) Limits() expr.Limits { return e.limits }
 
+// ExactMemberPaths says that the engine evaluates a member path over JSON
+// values as package expr's own answer does (expr.ExactMemberPaths), so the
+// pipeline answers such paths without it. expr's TestMemberPathsMatchEngine
+// holds the two to each other.
+func (e *Engine) ExactMemberPaths() {}
+
 // Compile compiles source as a global script named eval_script, the name
 // Windmill's engine frames carry (JE-21), and returns its bytecode as the
 // Program. A source that does not compile returns an *expr.Exception with

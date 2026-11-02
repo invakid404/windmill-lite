@@ -295,9 +295,12 @@ func TestRunSettlementIgnoresDuplicatesAndLateOutput(t *testing.T) {
 	if fired.Load() != 1 || run.Open() != 0 {
 		t.Fatalf("a duplicate Settled changed the run: fired %d, open %d", fired.Load(), run.Open())
 	}
-	want := []string{"settled completed", "late log final=false"}
+	// Once the run has settled, nothing reads its trace (OnRunSettled has
+	// had it), and its Reporters let go of it (lever J5): the duplicate is
+	// dropped, and so is later output.
+	want := []string{"settled completed"}
 	if got := rec.get(); fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("forwarded %v, want %v: the duplicate is dropped, later output still reaches the trace", got, want)
+		t.Errorf("forwarded %v, want %v: after settlement neither the duplicate nor late output reaches the run", got, want)
 	}
 }
 

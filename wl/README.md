@@ -132,6 +132,14 @@ of a step that settled without awaiting one and of a step that the run's
 cancellation abandoned included; a call answered after the run ended, and
 the calls of the runs the dispatcher starts, are not in it.
 
+`Options.ReadCache`, off by default, gives each flow run a read cache
+(deviation D21 of
+[ADR 0001](../docs/design/0001-equivalence-contract.md#5-named-deviations)).
+The run reads each resource and variable from its providers once, the
+plugin's included, and answers its later reads of it from that read. This
+covers its steps' `$res:` and `$var:` arguments, `flow_env` and their reads
+through the job API (`platform.ReadCache`). The run's trace lists D21.
+
 `Run` is safe for concurrent use: runs of one runtime share its harness
 pool, its services and its expression engine. A run latched by a hook, a
 provider or the engine (H5) has status `latched` and its error in
@@ -261,6 +269,11 @@ The bundle must be a directory, which the host loads too; steps run warm
    `fetch`: each invocation carries the facade's origin as `BASE_URL`,
    since the host was not spawned with the base environment, and its
    arguments go to `args.json` in the host's working directory (WR-5).
+   - **Leaving the file out.** Only for a bundle none of whose scripts can
+     read it (the manifest's `no_args_file_reader`) whose host opted in
+     with `Host.SkipArgsFile` (ADR 0004 host mode item 7). The option,
+     off by default, states that the host's own code, its plugin's hooks
+     included, never reads the file.
 4. **Drain.** A host's `drain` is answered by the harness side: later runs
    are refused `draining`, and `bye` follows once none is in flight.
 5. **The watchdog.** `Host.KillAfter` (default 30 s, negative disables it)
@@ -302,6 +315,11 @@ bridge).
    whose context ends first is not latched. A failed `onRunEnd` adds a
    `plugin_error` warning; a failed `onRunSettled` is written to the
    diagnostics.
+   - **Run-end trace detail.** Each run-end hook gets the full trace
+     unless the declaration's `trace_detail` asks for a `summary` (the
+     run's own fields, without its per-step parts) or `none` (its id and
+     status), as ADR 0004 §Host plugins says. A Go hook always gets the
+     whole `Trace`.
 4. **H13.** A plugin that declares `resource` or `variable` answers them
    for each run, after the run's own (`RunOptions.Platform`) and before
    the runtime's, for the job API and argument resolution alike; the
@@ -469,7 +487,9 @@ declaration's hooks as `host_call`s (an interception by index, a
 decline, `around`'s matches, a timeout latching and a run's own end not),
 `mergeHooks`'s order, and that a hook's call holds its run's settlement
 while in flight and is not made for a settled run
-(`TestPluginCallsHoldSettlement`). `plugincases_test.go` runs the cases of
+(`TestPluginCallsHoldSettlement`). `TestPluginTraceDetail` checks each
+run-end trace detail's payload against the full trace, and the
+declarations refused. `plugincases_test.go` runs the cases of
 `conformance/plugins/hooks.yaml` on a bundle built from them, through
 the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
 through Go callbacks built from the same plugins, each of a case's runs

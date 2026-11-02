@@ -413,6 +413,10 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	noReader, err := noArgsFileReader(stage, bundleFiles)
+	if err != nil {
+		return nil, err
+	}
 	m := &Manifest{
 		Format: FormatVersion,
 		Engine: Engine{
@@ -423,6 +427,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		NonconformantRuntime: bres.NonconformantRuntime || cres.NonconformantRuntime,
 		ModuleState:          cfg.ModuleState,
 		SharedCode:           cfg.SharedCode,
+		NoArgsFileReader:     noReader,
 		Deviations:           manifestDeviations(prog.Deviations, cfg.ModuleState, cfg.SharedCode),
 		Contract:             prog.Contract,
 		HostModules:          []HostModuleEntry{},

@@ -72,6 +72,7 @@ supplies secrets (PF2).
 | `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
 | `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
+| `no_args_file_reader` | set when no script of the bundle can read `args.json`, the job's arguments ([WR-5](../../docs/semantics/languages.md#wr-5)). Host mode leaves the file out only for such a bundle, when its host opts in ([ADR 0004](../../docs/design/0004-harness-protocol.md), host mode item 7). The search (`argsfile.go`) reads each script's module after the build's own leading sections. A script is no reader only when its module holds no way to a file, a process or code made at run time, and calls no host-provided module, shared closure, codebase or native code |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
 | `shared_code`, `closures` | set for a bundle built with shared code, and the ids of its closures ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Such a bundle in `warm` mode also lists [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations), the differences of shared code, among its `deviations`, and `ModeDeviations` swaps it as it swaps the mode's other deviations |
 | `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13, D19), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
@@ -731,7 +732,11 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   asset) and checks that the digest changes, and that a secret's file and
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
-  directory and the refusals.
+  directory and the refusals. `TestBuildNoArgsFileReader` checks the
+  manifest's `no_args_file_reader`: unset for the fixture, whose scripts
+  call a host-provided module, set for a bundle of plain steps, and unset
+  once one step reads the file by a built name. `TestArgsFileFree` holds
+  the search to its rule on code snippets.
 - `TestLoaderFor` checks the loader picks: compound suffixes over shorter
   ones from either map, `default`, a name without a dot, the CLI's `.node`
   default; the D12 `codebase-outside-compound-*` cases check them against

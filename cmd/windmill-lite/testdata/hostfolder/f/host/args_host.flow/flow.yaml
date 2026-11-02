@@ -1,0 +1,5 @@
+summary: A step reads its arguments from args.json through a host-provided module
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/args_host, input_transforms: {p: {type: javascript, expr: flow_input.p}}}

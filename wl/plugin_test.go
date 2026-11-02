@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -216,5 +219,81 @@ func TestPluginCallsHoldSettlement(t *testing.T) {
 	}
 	if err := p.do(runCtx, "variable", res.ID, nil, map[string]any{"path": "u/x/v"}, nil); !errors.Is(err, errRunSettled) || calls.Load() != 1 {
 		t.Fatalf("%v, %d calls: a hook of a settled run must not be called", err, calls.Load())
+	}
+}
+
+// A run-end hook gets the trace its plugin declares (trace_detail): the
+// full trace by default, the run's own fields without its per-step parts
+// for summary, the run's id and status alone for none. A declaration
+// that names a hook it lacks, or a level that is not one, is refused.
+func TestPluginTraceDetail(t *testing.T) {
+	prog := &ir.Program{Flows: map[string]*ir.Flow{}}
+	tr := &Trace{
+		RunID: "r1", Bundle: "b1", Status: "success", Deviations: []string{"D21"},
+		Warnings: []Warning{{Code: "c", Message: "m"}},
+		Result:   jsonval.FromProducer([]byte(`{"big":"result"}`)),
+	}
+	full := map[string]any{}
+	for _, tc := range []struct {
+		detail string
+		keys   []string
+	}{
+		{"", nil},
+		{`"full"`, nil},
+		{`"summary"`, []string{"bundle", "cached", "deviations", "may_have_mutated", "module_state", "run", "shared_code", "status", "warnings"}},
+		{`"none"`, []string{"run", "status"}},
+	} {
+		decl := `{"on_run_end":true,"on_run_settled":true}`
+		if tc.detail != "" {
+			decl = `{"on_run_end":true,"on_run_settled":true,"trace_detail":{"on_run_end":` + tc.detail + `,"on_run_settled":` + tc.detail + `}}`
+		}
+		got := map[string]map[string]any{}
+		call := func(_ context.Context, hook, _, _ string, payload jsonval.Value) (jsonval.Value, error) {
+			var m struct {
+				Trace map[string]any `json:"trace"`
+			}
+			if err := json.Unmarshal(payload.Producer(), &m); err != nil {
+				t.Fatal(err)
+			}
+			got[hook] = m.Trace
+			return jsonval.FromProducer([]byte(`{}`)), nil
+		}
+		p, err := newPlugin(jsonval.FromProducer([]byte(decl)), prog, call, 0, func(string) {})
+		if err != nil {
+			t.Fatalf("%s: %v", decl, err)
+		}
+		p.hooks.OnRunEnd(context.Background(), tr)
+		p.hooks.OnRunSettled(tr)
+		for _, hook := range []string{"on_run_end", "on_run_settled"} {
+			m := got[hook]
+			if tc.keys == nil {
+				if _, ok := m["steps"]; !ok || m["result"] == nil {
+					t.Fatalf("%s %s: the full trace has no steps or result: %v", tc.detail, hook, m)
+				}
+				if len(full) == 0 {
+					full = m
+				} else if !maps.EqualFunc(full, m, func(a, b any) bool { return fmt.Sprint(a) == fmt.Sprint(b) }) {
+					t.Fatalf("%s %s: %v, the default gave %v", tc.detail, hook, m, full)
+				}
+				continue
+			}
+			if k := slices.Sorted(maps.Keys(m)); !slices.Equal(k, tc.keys) {
+				t.Fatalf("%s %s: keys %v, want %v", tc.detail, hook, k, tc.keys)
+			}
+			for _, k := range tc.keys {
+				if fmt.Sprint(m[k]) != fmt.Sprint(full[k]) {
+					t.Fatalf("%s %s: %s is %v, the full trace's %v", tc.detail, hook, k, m[k], full[k])
+				}
+			}
+		}
+	}
+	for decl, want := range map[string]string{
+		`{"on_run_end":true,"trace_detail":{"on_run_settled":"none"}}`: "does not declare",
+		`{"on_run_end":true,"trace_detail":{"on_module_end":"none"}}`:  "not a run-end hook",
+		`{"on_run_end":true,"trace_detail":{"on_run_end":"some"}}`:     "not full, summary or none",
+	} {
+		if _, err := newPlugin(jsonval.FromProducer([]byte(decl)), prog, nil, 0, func(string) {}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", decl, err, want)
+		}
 	}
 }

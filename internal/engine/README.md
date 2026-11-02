@@ -81,6 +81,9 @@ and `halted`. Traces, hooks and observations therefore share one vocabulary.
   - H11 (host scopes) lives in the Bun harness.
 - **H13** (per-run platform providers) reaches the engine as
   `RunRequest.Platform`, below.
+- **Run-time deviations** that a host's setting turns on for a run, such
+  as D21's read cache, reach the engine as `RunRequest.Deviations`, which
+  the trace lists among its own.
 - **Hosts** get these seams as Go callbacks with selectors through `wl`
   (F2a): wl's `Hooks` implements this interface over them.
 
@@ -198,12 +201,24 @@ An invocation settles when its entrypoint call can run no more code, and
   that whatever serves it holds it with `HoldSettlement(ctx)`, and
   `RunRequest.Started` hands what serves the run outside its hooks (a
   plugin's H13 providers) that context and the run's handle.
+- **Letting go of a settled run.** Once the run has settled, nothing reads
+  its trace again (`OnRunSettled` has had it), so the Reporters `Track`
+  handed out drop the run's own, and the settlement drops its callback.
+  An executor that keeps settled invocations for their late output (D9)
+  then keeps no run's values reachable. Late output that still comes goes
+  nowhere, as it went before to a trace nobody read.
 - **Tests.** `settle_test.go` drives a fake executor through completion,
   abandonment with a late end, a non-final late error, a process exit, a
   never-dispatched invocation, and an `escaped` outcome fixed while the call
   is still pending, which settles only when the call ends or its process
   exits; and holds, before and after `End`, released once, and in a run's
   context.
+- **Tests of letting go.** `TestSettledRunLetsGoOfItsValues`
+  (`retain_test.go`) keeps every Reporter, as the harness does, and checks
+  with weak pointers that a settled run's step results become unreachable.
+  A run that has ended with an invocation still open gets that
+  invocation's late output, in the trace `OnRunSettled` receives, and keeps
+  its values until it settles.
 
 ## The engine core
 

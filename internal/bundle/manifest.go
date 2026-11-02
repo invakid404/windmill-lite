@@ -45,6 +45,14 @@ type Manifest struct {
 	// Closures are the ids of the bundle's closures under shared code,
 	// sorted; each is scripts/bun/closures/<id>.cjs.
 	Closures []string `json:"closures,omitempty"`
+	// NoArgsFileReader is set when no script of the bundle can read
+	// args.json, the file in which Windmill's worker leaves a job's
+	// arguments (WR-5): the build finds no way to a file, a process or code
+	// made at run time in any script's code, and no script calls code it
+	// cannot read. A host-mode runtime leaves args.json out only for such
+	// a bundle, and only when its host opts in (wl.Host.SkipArgsFile); a
+	// process the engine spawns always writes it (ADR 0004).
+	NoArgsFileReader bool `json:"no_args_file_reader,omitempty"`
 	// Deviations are the named deviations of ADR 0001 in effect for the
 	// bundle, sorted by number: those its content puts in effect, those of
 	// its module-state mode, and those every bundle has. Deviations that
