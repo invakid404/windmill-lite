@@ -1599,7 +1599,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				return r.cachedJob(ctx, fr, i, site.Path, o, c)
 			}
 		}
-		entry, _, err := Entrypoint(stored)
+		entry, _, err := storedEntrypoint(stored)
 		if err != nil {
 			// WR-12: the job fails before any wrapper runs.
 			o.rec.Ran = true

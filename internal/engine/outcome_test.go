@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +143,13 @@ func TestEntrypoint(t *testing.T) {
 		{`{"_ENTRYPOINT_OVERRIDE":""}`, "", true, true},
 		{`{"_ENTRYPOINT_OVERRIDE":7}`, "", true, true},
 		{`{"_ENTRYPOINT_OVERRIDE":null}`, "", true, true},
+		// A key spelled with escapes is the same key; of duplicates the
+		// last counts; nested keys and values that look alike do not.
+		{`{"_ENTRYPOINT\u005fOVERRIDE":"alt"}`, "alt", true, false},
+		{`{"_ENTRYPOINT_OVERRIDE":"a","b":1,"_ENTRYPOINT_OVERRIDE":"b2"}`, "b2", true, false},
+		{`{"_ENTRYPOINT_OVERRIDE":"a","_ENTRYPOINT_OVERRIDE":7}`, "", true, true},
+		{`{"a":{"_ENTRYPOINT_OVERRIDE":"x"},"b":"_ENTRYPOINT_OVERRIDE"}`, "main", false, false},
+		{` {"_ENTRYPOINT_OVERRIDE" : "sp"} `, "sp", true, false},
 	} {
 		entry, override, err := Entrypoint(text(tc.args))
 		if entry != tc.entry || override != tc.override || errors.Is(err, ErrInvalidEntrypoint) != tc.invalid {
@@ -150,8 +159,33 @@ func TestEntrypoint(t *testing.T) {
 			t.Errorf("Entrypoint(%s): %v", tc.args, err)
 		}
 	}
-	if _, _, err := Entrypoint(text(`[1]`)); err == nil || errors.Is(err, ErrInvalidEntrypoint) {
-		t.Errorf("arguments that are not an object: %v", err)
+	for _, args := range []string{`[1]`, `null`, `{"a":1} x`, `{"a":1}{}`, `{"a":1} 2`, `{"a":`, ``} {
+		if _, _, err := Entrypoint(text(args)); err == nil || errors.Is(err, ErrInvalidEntrypoint) {
+			t.Errorf("arguments %q that are not an object: %v", args, err)
+		}
+	}
+}
+
+// storedEntrypoint answers as Entrypoint does on every stored argument
+// object (lever J2, item 2), whose keys spell the override's name only
+// as itself: escaped spellings, look-alike keys and values, and keys that
+// store alike included.
+func TestStoredEntrypoint(t *testing.T) {
+	for _, args := range []string{
+		`{"a":1}`, `{}`, `{"_ENTRYPOINT_OVERRIDE":"pre"}`, `{"_ENTRYPOINT\u005fOVERRIDE":"pre"}`,
+		`{"\u005fENTRYPOINT_OVERRIDE":"x9","a":"\n"}`, `{"_ENTRYPOINT_OVERRIDE":"bad-name"}`,
+		`{"a":"_ENTRYPOINT_OVERRIDE"}`, `{"a":{"_ENTRYPOINT_OVERRIDE":"x"}}`, `{"_ENTRYPOINT_OVERRIDEx":"y"}`,
+		`{"_ENTRYPOINT_OVERRIDE":"a","_ENTRYPOINT\u005fOVERRIDE":"b"}`, `{"_entrypoint_override":"x"}`,
+	} {
+		stored, err := storeMembers(text(args))
+		if err != nil {
+			t.Fatalf("%s: %v", args, err)
+		}
+		ge, go_, gerr := storedEntrypoint(stored)
+		we, wo, werr := Entrypoint(stored)
+		if ge != we || go_ != wo || (gerr == nil) != (werr == nil) || gerr != nil && gerr.Error() != werr.Error() {
+			t.Errorf("%s (stored %s): %q %v %v; Entrypoint %q %v %v", args, stored.Producer(), ge, go_, gerr, we, wo, werr)
+		}
 	}
 }
 
@@ -174,6 +208,40 @@ func TestTimeoutError(t *testing.T) {
 	} {
 		if got := string(TimeoutError(tc.b, tc.step, tc.d, tc.instanceWide).Producer()); got != tc.want {
 			t.Errorf("TimeoutError(%s, %q, %s, %v) = %s, want %s", tc.b, tc.step, tc.d, tc.instanceWide, got, tc.want)
+		}
+	}
+}
+
+// Entrypoint's walk answers as the decode into a map of members it
+// replaced (lever J2, item 2), on texts of every kind: escaped and
+// duplicate keys, trailing text, invalid UTF-8, deep nesting.
+func TestEntrypointWalk(t *testing.T) {
+	ref := func(args []byte) (string, bool, error) {
+		var top map[string]json.RawMessage
+		if err := json.Unmarshal(args, &top); err != nil || top == nil {
+			return "", false, fmt.Errorf("engine: the arguments are not a JSON object")
+		}
+		raw, ok := top[EntrypointOverride]
+		if !ok {
+			return "main", false, nil
+		}
+		var name string
+		if json.Unmarshal(raw, &name) != nil || !entrypointName.MatchString(name) {
+			return "", true, fmt.Errorf("%w: %s", ErrInvalidEntrypoint, raw)
+		}
+		return name, true, nil
+	}
+	for _, args := range []string{
+		`{"_ENTRYPOINT_OVERRIDE":"p"}`, `{"_ENTRYPOINT\u005fOVERRIDE":"p"}`, `{"_ENTRYPOINT_OVERRIDE":"a","_ENTRYPOINT_OVERRIDE":"b"}`,
+		`{"_ENTRYPOINT_OVERRIDE":"a","_ENTRYPOINT_OVERRIDE":null}`, `{"_ENTRYPOINT_OVERRIDE": "x" , "y":[1,{"z":2}]}`,
+		`{"_ENTRYPOINT_OVERRIDE":"\u0061"}`, `{"_ENTRYPOINT_OVERRIDE":"a\u0000"}`, "{\"_ENTRYPOINT_OVERRIDE\xff\":\"q\"}",
+		"{\"_ENTRYPOINT_OVERRIDE\":\"a\xff\"}", `{"a":1} x`, `{"a":1}{}`, `{"a":1} 1e400`, `{"a":1}   `, `{"a":1,}`,
+		`{"a":` + strings.Repeat("[", 10001) + strings.Repeat("]", 10001) + `}`, `null`, `[]`, `"s"`, ``, `{`,
+	} {
+		ge, go_, gerr := Entrypoint(text(args))
+		we, wo, werr := ref([]byte(args))
+		if ge != we || go_ != wo || (gerr == nil) != (werr == nil) || gerr != nil && gerr.Error() != werr.Error() {
+			t.Errorf("%.80q: %q %v %v; the decode %q %v %v", args, ge, go_, gerr, we, wo, werr)
 		}
 	}
 }
