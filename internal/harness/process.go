@@ -387,6 +387,9 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	p.recent.limit = cfg.RecentLate
 	if p.recent.limit == 0 {
 		p.recent.limit = DefaultRecentLate
+		if studyRecentLate > 0 {
+			p.recent.limit = studyRecentLate
+		}
 	}
 	diag := cfg.Diagnostics
 	if diag == nil {

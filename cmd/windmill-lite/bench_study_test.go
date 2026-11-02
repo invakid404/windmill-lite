@@ -461,9 +461,11 @@ func BenchmarkStudyMemory(b *testing.B) {
 // runtime per variant, held as an embedder holds it, serves sequential
 // runs of f/bench/chain2 (two steps that return their argument), each
 // run's input built just before it and dropped after: 30 runs of a 16 MiB
-// value, then 500 of a 64 KiB value. After every 5th (every 50th) run it
-// collects twice and records the Go heap; at the end it writes an
-// inuse_space heap profile. The variants: the subprocess topology an
+// value, then 2,200 of a 64 KiB value, enough to pass a harness process's
+// 4,096 recently settled invocations (DefaultRecentLate). After every 5th
+// (every 50th) run it collects twice and records the Go heap, and on Linux
+// the resident size; at the end it writes an inuse_space heap profile. The
+// build tag study_recentlate2 is the control: a limit of 2. The variants: the subprocess topology an
 // embedder gets by default, without a plugin and with a plugin whose
 // onRunEnd drops the trace; and host mode without a plugin, the topology
 // of the first memory benchmark, whose base grew with each run.
@@ -487,7 +489,7 @@ func TestStudyRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tsv.Close()
-	fmt.Fprintln(tsv, "variant\tvalue\truns\theap_inuse_mib\theap_alloc_mib\theap_objects\tgoroutines\tresults_freed\ttraces_freed\truns_alive\tsettlements_alive\truns_started")
+	fmt.Fprintln(tsv, "variant\tvalue\truns\theap_inuse_mib\theap_alloc_mib\theap_objects\tgoroutines\tresults_freed\ttraces_freed\truns_alive\tsettlements_alive\truns_started\trss_mib")
 	subprocess := func(t *testing.T, plugin string) *wl.Runtime {
 		rt, err := wl.Open(benchBundle, wl.Options{
 			EngineVersion:  resolveVersion(),
@@ -526,7 +528,12 @@ func TestStudyRetention(t *testing.T) {
 				var ms runtime.MemStats
 				runtime.ReadMemStats(&ms)
 				alive, settles, started := engine.StudyRunsAlive()
-				fmt.Fprintf(tsv, "%s\t%s\t%d\t%.1f\t%.1f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", v.name, value, runs, float64(ms.HeapInuse)/(1<<20), float64(ms.HeapAlloc)/(1<<20), ms.HeapObjects, runtime.NumGoroutine(), resultsFreed.Load(), tracesFreed.Load(), alive, settles, started)
+				// The resident size, on Linux only (-1 elsewhere).
+				rss := float64(procKiB(0, "VmRSS:")) / 1024
+				if rss < 0 {
+					rss = -1
+				}
+				fmt.Fprintf(tsv, "%s\t%s\t%d\t%.1f\t%.1f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", v.name, value, runs, float64(ms.HeapInuse)/(1<<20), float64(ms.HeapAlloc)/(1<<20), ms.HeapObjects, runtime.NumGoroutine(), resultsFreed.Load(), tracesFreed.Load(), alive, settles, started, rss)
 			}
 			run := func(size int) {
 				args := fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(size))
@@ -545,7 +552,7 @@ func TestStudyRetention(t *testing.T) {
 				value       string
 				size, runs  int
 				recordEvery int
-			}{{"16MiB", 16 << 20, 30, 5}, {"64KiB", 64 << 10, 500, 50}} {
+			}{{"16MiB", 16 << 20, 30, 5}, {"64KiB", 64 << 10, 2200, 50}} {
 				for i := 1; i <= c.runs; i++ {
 					run(c.size)
 					if i%c.recordEvery == 0 {
@@ -575,11 +582,13 @@ func TestStudyRetention(t *testing.T) {
 	}
 }
 
-// combinedSampler reads the engine's and the host's resident sizes
-// together every millisecond and keeps the largest sum it sees: a lower
-// bound on their combined peak, since a sample can miss the exact moment.
-// It reads /proc/<pid>/statm into a fixed buffer, so it allocates nothing
-// while it runs and does not add to the engine's own peak.
+// combinedSampler reads the engine's and the host's resident sizes one
+// after the other every millisecond and keeps the largest sum it sees: an
+// approximate paired sample of their combined resident size, not a strict
+// bound, since the two reads are not one observation and statm's resident
+// counts are themselves approximate (proc_pid_statm(5)). It reads
+// /proc/<pid>/statm into a fixed buffer, so a sample allocates nothing;
+// the sampler's goroutine and reads are its own small overhead.
 type combinedSampler struct {
 	stop chan struct{}
 	done chan int64
