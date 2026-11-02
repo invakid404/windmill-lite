@@ -261,6 +261,8 @@ func TestManualFailureSkip(t *testing.T) {
 		`{"wm_labels":["a"]}`, `{"wm\u005flabels":["a"]}`, `{"a":"\n","b":"\"","c":"\\u0077m_failure"}`,
 		`{"a":"wm_failure"}`, `{"a":{"wm_failure":"x"}}`, `["wm_failure"]`, `{"x":1}`, `{}`, `{"wm_failure":"x"} 1`,
 		`{"wm_failure":"x"} y`, `{"wm_failure":"x",}`, `{"\\u0077m_failure":"x"}`, `{"wm_failure":"\u00e9"}`,
+		`[{"wm_failure":"x"}]`, ` [{"\u0077m_failure":"x"}]`, `"wm_failure"`, ``, `  `, "\u00a0{\"wm_failure\":\"nbsp\"}",
+		` {"wm_failure":"spaced"} `, "\n\t{\"wm_failure\":\"x\"}",
 	} {
 		gv, gok := ManualFailure([]byte(r))
 		wv, wok := manualFailure([]byte(r))
