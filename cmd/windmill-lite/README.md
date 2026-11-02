@@ -362,6 +362,10 @@ The benchmarks run on these topologies:
 | `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, on the host-plain topology: its bundle has no reader of `args.json`, so the file is left out. `WL_BENCH_ARGS_FILE=1` keeps it, which measures its cost on the same code. The bare shape's `f/bench/work` can fetch, so its bundle is a reader and keeps the file |
 | `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
 | `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
+| `BenchmarkHostShapes`, the large shapes | 20 steps of 256 KiB, 10 of 1 MiB, 8 of 4 MiB and 4 of 16 MiB (`s20-256KiB` to `s4-16MiB`), each step as in the 1 KiB shapes: its template reads two short fields of a flow input whose `seed` is as large as the results |
+| `BenchmarkPassThrough` | The workload brief's pass-through chain (`bench_large_test.go`): a step makes an array of wide records, each with one text field (64 KiB, and 2,150 KiB, about 2.1 MB), and returns it through a step that returns its argument and 0 to 4 nested sub-flows that each return it unchanged; the flow then forwards it whole into 1, 3 or 5 steps' arguments, and a last step's expression maps it to its ids. On the host and on the plugin host, whose `onRunEnd` takes the whole trace. It reports per run: the wall time, the engine's CPU and bytes allocated, the host's CPU and the expression spans |
+| `BenchmarkExpressions` | A step returns a wide object with a long markup string and its plain-text form (96 KiB and 2 MiB), and eight steps each evaluate one expression on it, or on the same value given as the flow input's `v`: a short read, an optional-chained read, a null test, an object of three fields, a map, and the null test and the object on `flow_input.v`. Each expression's span is reported per run (`expr-e<k>-ns`) |
+| `BenchmarkRunPeaks` | Linux only. The peak resident memory of the engine and of the host over one run, two steps that return their argument at 16 and 32 MiB and eight at 16 MiB, each case on its own runtime and host after a warm run; with the sum of the two peaks and the largest sum of the two resident sizes read together every millisecond (`combined-sampled-MiB`, an approximate paired sample). Run it with `-benchtime 1x` |
 
 One iteration is one run per worker, the workers started together, so
 even one iteration has every run of its concurrency in flight at once.
@@ -446,6 +450,35 @@ WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
 ```
 
 `benchstat` (`golang.org/x/perf/cmd/benchstat`) compares two such outputs.
+
+`WL_BENCH_SIZES` gives `BenchmarkStepBoundary` other payload sizes, as
+labels separated by commas (`26B,1KiB,16MiB`); without it the sizes are
+those of [internal/bench](../../internal/bench/README.md), up to 4 MiB.
+
+### Comparing builds on GitHub's runners
+
+The workflow `Benchmarks` (`.github/workflows/bench.yml`) compares builds
+of the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
+is started by hand and gates nothing. It takes the builds as `name=ref`
+pairs, the benchmark groups and the number of rounds. Each job runs one
+group on one architecture: it builds every ref's test binary in a
+worktree of its own, then runs the rounds, each round running every build
+once in a rotating order, and compares each build with the one before it
+and the last with the first with `benchstat`. Its artifacts hold the
+outputs, the comparisons and the machine. The groups:
+
+| Group | What it runs |
+|---|---|
+| `boundary` | `BenchmarkStepBoundary` in host mode, one run at a time, 256 KiB to 16 MiB, `-benchtime 3s` |
+| `shapes` | the large shapes of `BenchmarkHostShapes`, `-benchtime 5x` |
+| `passthrough` | `BenchmarkPassThrough`, `-benchtime 10x` |
+| `expressions` | `BenchmarkExpressions`, `-benchtime 10x` |
+| `peaks` | `BenchmarkRunPeaks`, `-benchtime 1x` |
+| `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
+
+```sh
+gh workflow run bench.yml -f builds="main=origin/main head=my-branch" -f groups="boundary small" -f rounds=10
+```
 
 ### One process per shape
 

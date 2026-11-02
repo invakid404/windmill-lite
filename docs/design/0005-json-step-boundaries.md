@@ -462,6 +462,37 @@ and `benchstat` compares their outputs. A shared CI runner's timings vary
 by more than the 20 % a regression gate would catch, and a scheduled job
 that fails on that noise would need a person to look at it.
 
+**Large values (milestone PS2, amendment).** The plan gains the
+size-dependent cost of the step path, below Windmill's result-size limit
+(OR-7/b, WR-15), measured on synthetic values shaped like the workload
+brief's large ones: wide objects with long strings and arrays of wide
+records, tens of KB to several MiB
+([cmd/windmill-lite](../../cmd/windmill-lite/README.md#benchmarks)):
+
+4. the step boundary at 256 KiB, 1, 4 and 16 MiB (`WL_BENCH_SIZES`), and
+   host shapes whose steps return 256 KiB to 16 MiB;
+5. a pass-through chain: a 2.1 MB array of records returned unchanged
+   through 0 to 4 nested sub-flows and forwarded whole into 1 to 5 steps'
+   arguments, with and without a plugin that takes the run-end trace,
+   reporting the engine's CPU and bytes allocated per run;
+6. expressions that read short fields out of a 2 MiB result: a short read,
+   a null test and an object of three fields, each timed on its own;
+7. the peak resident memory of the engine and of the Bun host over one run
+   of 16 and 32 MiB, each process's own and an approximate paired sample of
+   both together.
+
+Their figures, unlike item 2's, come from GitHub's hosted runners
+(linux/amd64 and linux/arm64), through the workflow `Benchmarks`, which is
+started by hand and gates nothing. It rotates the builds it compares on
+one runner, round after round, and compares them with `benchstat`
+(at least ten rounds, p < 0.05). At these sizes a change moves a step by
+tens of percent, far above the runners' noise, and the figures then hold
+on both architectures an embedder deploys to, which one laptop cannot
+show. Its `small` group runs item 2's payloads of 1 KiB and below the
+same way, each in a process of its own, as a check that a change does
+not slow them beyond the runners' noise; item 2's recorded baseline stays
+the local one above.
+
 ## Consequences
 
 - Exactness comes from where the text is produced (the harness and

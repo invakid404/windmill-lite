@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -270,6 +271,7 @@ export async function main(p: unknown) {
 			files[s.path()+".flow/flow.yaml"] = s.flow()
 		}
 	}
+	maps.Copy(files, largeFolder())
 	return files
 }
 
@@ -1288,7 +1290,7 @@ func BenchmarkStepBoundary(b *testing.B) {
 				rt = benchRuntime(b, bun, topology)
 			}
 			for _, conc := range []int{1, 8} {
-				for _, n := range bench.SyntheticSizes {
+				for _, n := range stepSizes(b) {
 					b.Run(fmt.Sprintf("conc=%d/size=%s", conc, bench.SizeLabel(n)), func(b *testing.B) {
 						if fresh {
 							benchInChild(b)
