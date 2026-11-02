@@ -91,14 +91,29 @@ func unsupportedOutcome(message string, calls []string) engine.StepOutcome {
 // settles, and releases its record if Execute is done with it, before
 // passing Settled on: whoever hears Settled after Execute returned finds
 // the record released.
+//
+// It then lets go of the session and of its release (milestone PS2, lever
+// J6). A harness keeps the Reporter of each of its last settled
+// invocations for their late output (D9); through the session's record,
+// the run's own platform services and a host plugin's providers, the
+// session would keep the whole finished run reachable. A call the facade
+// admitted keeps its own pointer to the record, so it answers as before.
+// A repeated Settled is passed on and does nothing else.
 type sessionReporter struct {
 	engine.Reporter
+	mu      sync.Mutex
 	s       *Session
 	settled func()
 }
 
 func (r *sessionReporter) Settled(k engine.SettleKind) {
-	r.s.End()
-	r.settled()
+	r.mu.Lock()
+	s, settled := r.s, r.settled
+	r.s, r.settled = nil, nil
+	r.mu.Unlock()
+	if s != nil {
+		s.End()
+		settled()
+	}
 	r.Reporter.Settled(k)
 }
