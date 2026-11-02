@@ -287,7 +287,7 @@ func shortcut(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, route) {
 		}
 	}
 	if rp := sc.ResultsPath; rp != nil && !rp.Declines && s.Results != nil {
-		return jsonval.FromProducer(lookupPath(ctx, s.Results, rp)), routeResultsPath
+		return lookupPath(ctx, s.Results, rp), routeResultsPath
 	}
 	return jsonval.Value{}, routeEngine
 }
@@ -295,15 +295,18 @@ func shortcut(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, route) {
 // lookupPath is JE-9's lenient lookup: the step's stored result, with the
 // optional index and the segments applied, in jsonb's text output. A
 // missing step, an unusable stored text, a missing key, a type mismatch and
-// a null intermediate all give null.
-func lookupPath(ctx context.Context, r Results, rp *ResultsPath) []byte {
+// a null intermediate all give null. The value it finds is a part of a
+// stored text, so it keeps that part as its stored text (jsonval.FromPrinted):
+// a step that takes it as an argument stores it without canonicalising it
+// again.
+func lookupPath(ctx context.Context, r Results, rp *ResultsPath) jsonval.Value {
 	v, ok := r.Stored(ctx, rp.Step)
 	if !ok || v.IsZero() {
-		return jsonNull
+		return jsonval.FromProducer(jsonNull)
 	}
 	stored, err := v.Stored()
 	if err != nil {
-		return jsonNull
+		return jsonval.FromProducer(jsonNull)
 	}
 	path := rp.Segments
 	if rp.Index != "" {
@@ -311,9 +314,9 @@ func lookupPath(ctx context.Context, r Results, rp *ResultsPath) []byte {
 	}
 	sub, ok := walk(stored, path)
 	if !ok {
-		return jsonNull
+		return jsonval.FromProducer(jsonNull)
 	}
-	return databaseText(sub)
+	return jsonval.FromPrinted(databaseText(sub), sub)
 }
 
 // context returns the scope's context value name; the first of repeated

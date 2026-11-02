@@ -134,6 +134,15 @@ func TestWalkAgainstReference(t *testing.T) {
 			if stored(t, dt) != stored(t, got) {
 				t.Fatalf("case %d: databaseText(%s) = %s parses differently", i, got, dt)
 			}
+			// A part of a stored text is stored text, and so is the text
+			// jsonb prints for it once its spaces are gone: the stored text
+			// lookupPath keeps for its value (jsonval.FromPrinted).
+			if stored(t, dt) != string(got) {
+				t.Fatalf("case %d: databaseText(%s) = %s does not store as the part itself", i, got, dt)
+			}
+			if v := lookupValue(dt, got); stored(t, v.Producer()) != string(mustStored(t, v)) {
+				t.Fatalf("case %d: the looked-up value's stored text %s, not its producer's", i, mustStored(t, v))
+			}
 			if len(dt) != len(got)+separators(want) {
 				t.Fatalf("case %d: databaseText(%s) = %s, want %d spaces", i, got, dt, separators(want))
 			}
@@ -243,4 +252,17 @@ func FuzzJSONText(f *testing.F) {
 			}
 		}
 	})
+}
+
+// lookupValue is the value lookupPath returns for the part got of a stored
+// text, printed as dt.
+func lookupValue(dt, got []byte) jsonval.Value { return jsonval.FromPrinted(dt, got) }
+
+func mustStored(t *testing.T, v jsonval.Value) []byte {
+	t.Helper()
+	s, err := v.Stored()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

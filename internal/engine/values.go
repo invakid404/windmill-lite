@@ -127,19 +127,30 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 // beyond numeric's range, FX-51), or arguments whose text is not JSON (a
 // replaced JSON.stringify, JE-15), fail the push of the job, whose error
 // is the push's database error (pushError, FX-48 case 2, FX-50).
-func storeMembers(args jsonval.Value) (jsonval.Value, error) {
+//
+// held are the values the arguments were written from, in their order,
+// when the caller has them (argsOf): a member whose text is exactly held
+// value k's producer text, where k is the member's index, takes that
+// value's stored text, which a forwarded result already has (its step
+// stored it), instead of canonicalising the same bytes again. The stored
+// text depends on the bytes alone, so the outcome is the same either way.
+func storeMembers(args jsonval.Value, held ...jsonval.Value) (jsonval.Value, error) {
 	ms, ok := members(args.Producer())
 	if !ok {
 		return jsonval.Value{}, errors.New(sqlErr + "error returned from database: invalid input syntax for type json")
 	}
 	var out []rawMember
 	at := map[string]int{}
-	for _, m := range ms {
+	for i, m := range ms {
 		k, err := jsonval.FromProducer(m.rawKey).Stored()
 		if err != nil {
 			return jsonval.Value{}, pushError(err)
 		}
-		v, err := jsonval.FromProducer(m.value).Stored()
+		mv := jsonval.FromProducer(m.value)
+		if i < len(held) && !held[i].IsZero() && bytes.Equal(m.value, held[i].Producer()) {
+			mv = held[i]
+		}
+		v, err := mv.Stored()
 		if err != nil {
 			return jsonval.Value{}, pushError(err)
 		}

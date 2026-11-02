@@ -397,7 +397,7 @@ func handledBy(o outcome, handled bool) outcome {
 // failed push of the identity job delivers.
 func (r *run) loopSkipped(ctx context.Context, fr *frame, i int, o outcome, p jsonval.Value) outcome {
 	r.supersede(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
-	stored, err := storeMembers(objectOf(member{"previous_result", p.Producer()}))
+	stored, err := storeMembers(objectOf(member{"previous_result", p.Producer()}), p)
 	if err != nil {
 		return r.chainingAt(fr, false, o, err.Error())
 	}
