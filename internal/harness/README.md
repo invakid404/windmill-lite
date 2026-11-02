@@ -281,6 +281,12 @@ flight and become late output afterwards. The last `RecentLate` (4,096)
 settled invocations per process keep receiving late output of work they
 left running (D9).
 
+A run's Reporters let go of it once it has settled
+([internal/engine](../engine/README.md)), and an invocation's call queue
+keeps no call it has run, its outcome's delivery included. So the table
+of settled invocations keeps no finished run's values
+(`TestSerialKeepsNoCallItRan`).
+
 When a result's calls end with the outcome `Execute` waits for, and none
 of the invocation's calls is running, the reader hands them to the
 goroutine waiting in `Execute`. It runs them in the same order, outside

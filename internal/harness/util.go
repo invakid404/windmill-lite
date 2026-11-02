@@ -218,8 +218,7 @@ func (s *serial) runUntil(done func() bool) {
 			s.mu.Unlock()
 			return
 		}
-		f := s.queue[0]
-		s.queue = s.queue[1:]
+		f := s.take()
 		s.mu.Unlock()
 		f()
 		if done() {
@@ -235,6 +234,21 @@ func (s *serial) runUntil(done func() bool) {
 	}
 }
 
+// take removes the first queued function and returns it, with s.mu held.
+// The queue's array keeps no function it has handed out, and an empty
+// queue keeps no array: a function's closure, an invocation's outcome
+// among them, must not stay reachable for as long as the invocation is
+// kept for its late output (D9).
+func (s *serial) take() func() {
+	f := s.queue[0]
+	s.queue[0] = nil
+	s.queue = s.queue[1:]
+	if len(s.queue) == 0 {
+		s.queue = nil
+	}
+	return f
+}
+
 func (s *serial) run() {
 	for {
 		s.mu.Lock()
@@ -243,8 +257,7 @@ func (s *serial) run() {
 			s.mu.Unlock()
 			return
 		}
-		f := s.queue[0]
-		s.queue = s.queue[1:]
+		f := s.take()
 		s.mu.Unlock()
 		f()
 	}
