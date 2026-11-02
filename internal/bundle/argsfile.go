@@ -15,15 +15,17 @@ import (
 // arguments in its working directory (WR-5).
 const ArgsFileName = "args.json"
 
-// noArgsFile returns the scripts of the bundle in dir whose invocations
-// cannot read args.json (Manifest.NoArgsFile), sorted. Whether code reads a
-// file cannot be decided in general, so a script is listed only when its
-// built module gives its code no way to reach a file, a process or code
-// made at run time (argsFileFree), and it calls no code the build cannot
-// read: no host-provided module, no shared closure, no codebase bundle
-// with assets, no native boundary. Every other script keeps the file.
-func noArgsFile(dir string, files map[string]string) ([]string, error) {
-	var free []string
+// noArgsFileReader reports whether no script of the bundle in dir can
+// read args.json (Manifest.NoArgsFileReader). Host mode's args.json is one
+// file in the host's working directory, which every in-flight script of
+// the bundle could read, so the answer is the bundle's, never a script's.
+// Whether code reads a file cannot be decided in general: a script counts
+// as no reader only when its built module gives its code no way to a
+// file, a process or code made at run time (argsFileFree), and it calls no
+// code the build cannot read: no host-provided module, no shared closure,
+// no codebase bundle with assets, no native boundary. One script that does
+// not qualify makes the bundle a reader.
+func noArgsFileReader(dir string, files map[string]string) (bool, error) {
 	for _, rel := range slices.Sorted(maps.Keys(files)) {
 		id, ok := strings.CutPrefix(rel, "scripts/bun/")
 		if !ok {
@@ -35,14 +37,14 @@ func noArgsFile(dir string, files map[string]string) ([]string, error) {
 		}
 		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		var m ScriptMeta
 		if err := json.Unmarshal(b, &m); err != nil {
-			return nil, err
+			return false, err
 		}
 		if len(m.HostModules) > 0 || m.Shared != nil || m.Native != nil || m.Bundler != "" && m.Bundler != "bun" {
-			continue
+			return false, nil
 		}
 		ext := ".mjs"
 		if m.Format == CJS {
@@ -50,17 +52,17 @@ func noArgsFile(dir string, files map[string]string) ([]string, error) {
 		}
 		module := "scripts/bun/" + id + ext
 		if _, ok := files[module]; !ok {
-			continue
+			return false, nil
 		}
 		code, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(module)))
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		if argsFileFree(code) {
-			free = append(free, id)
+		if !argsFileFree(code) {
+			return false, nil
 		}
 	}
-	return free, nil
+	return true, nil
 }
 
 // argsCapabilities are the texts through which a script's code could read

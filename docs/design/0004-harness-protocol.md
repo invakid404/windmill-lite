@@ -671,25 +671,39 @@ change:
    symbolic links. So a host that does not use the SDK is held to the same
    rule; both sides run the cases of `conformance/protocol/host`. The
    engine writes each invocation's `args.json` there, as in a warm
-   process's own directory, unless the build cleared the invocation's
-   script (the manifest's `no_args_file`) and no `around` wrapper runs
-   with the step. It knows the directory before the welcome goes out,
-   since the host may submit a run as soon as it reads it.
-   - **Which scripts are cleared.** Whether code reads a file cannot be
-     decided, so the build clears a script only when its built code holds
-     no way to a file, a process or code made at run time. That rules out
-     the file's name, `Bun`, `fetch`, `import(`, `require`, `process`
-     beyond `process.env`, `eval`, `Function`, a constructor, the global
-     object, reflection, and any `[` other than `[]` or `[<digits>]`.
+   process's own directory. It knows the directory before the welcome
+   goes out, since the host may submit a run as soon as it reads it.
+   Since the host was not spawned with the base environment, each
+   invocation carries the facade's origin as `BASE_URL`.
+   - **Leaving the file out (PS1).** The file is one in the host's
+     working directory: every in-flight script and the host's own code
+     can read it, and it holds the latest invocation's arguments. So the
+     engine leaves it out only when both (a) and (b) hold, and writes it
+     in every other case.
+   - (a) The bundle's manifest says no script of the bundle can read it
+     (`no_args_file_reader`), decided for the bundle, never for a script.
+   - (b) The host opts in (`wl.Host.SkipArgsFile`, `windmill-lite host
+     -skip-args-file`, the SDK's `skipArgsFile`), stating that its own
+     code, its plugin's hooks included, never reads the file. The option
+     is off by default.
+   - **The build's decision.** Whether code reads a file cannot be
+     decided, so a script counts as no reader only when its built code
+     holds no way to a file, a process or code made at run time. That
+     rules out the file's name, `Bun`, `fetch`, `import(`, `require`,
+     `process` beyond `process.env`, `eval`, `Function`, a constructor,
+     the global object, reflection, and any `[` other than `[]` or
+     `[<digits>]`.
    - It also rules out a host-provided module, a shared closure, a
      codebase bundle and the native boundary, whose code the build cannot
-     read. A cleared script's arguments travel only in the `invoke` frame;
-     every other script keeps its file, so no script that can read it
-     loses it. Since
-   the host was not spawned with the base environment, each invocation
-   carries the facade's origin as `BASE_URL`. An engine that cannot serve the host at all (the bundle
-   does not open) refuses it in the handshake too, with `engine_refused`
-   and its reason.
+     read. With the file left out, each step's arguments travel only in
+     the `invoke` frame.
+   - It is no difference from Windmill: no script of such a bundle can
+     read the file, and the only other readers are the host's own code,
+     which Windmill does not have and whose host states it does not read
+     it.
+
+   An engine that cannot serve the host at all (the bundle does not open)
+   refuses it in the handshake too, with `engine_refused` and its reason.
 
 Measured (prototype outside the repository, Bun 1.4.2): a Bun host that
 heartbeats a Go child every 100 ms and then spins forever was killed by the
@@ -1151,14 +1165,16 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   one in 33 ms, measured with the commands of
   [0005](0005-json-step-boundaries.md#baseline).
 
-- Host mode leaves an invocation's `args.json` out only for a script
-  whose code the build cleared (the manifest's `no_args_file`,
-  [0010](0010-packaging.md)), in item 7 of host mode. The file cost about
-  110 µs of a host-mode step's 200 µs floor on macOS. The clearing is
-  conservative: a script that fetches, or reads any property by a built
-  name, keeps the file. So the saving goes to steps that do no I/O of
-  their own. A process the engine spawns still writes it for every
-  invocation ([WR-5](../semantics/languages.md#wr-5)).
+- Host mode leaves `args.json` out only for a bundle none of whose
+  scripts can read it (the manifest's `no_args_file_reader`,
+  [0010](0010-packaging.md)) whose host opts in, in item 7 of host mode.
+  The file cost about 110 µs of a host-mode step's 200 µs floor on macOS.
+  - The build's decision is conservative: one script that fetches, or
+    reads any property by a built name, makes the bundle a reader. So the
+    saving goes to bundles whose steps do no I/O of their own, run by a
+    host that says its own code does not read the file.
+  - A process the engine spawns still writes it for every invocation
+    ([WR-5](../semantics/languages.md#wr-5)).
 
 ## Spec IDs relied on
 

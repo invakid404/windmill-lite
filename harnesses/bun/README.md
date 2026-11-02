@@ -490,6 +490,15 @@ the SDK starts the engine with `-read-cache`. A run then calls the
 plugin's `resource` and `variable` hooks once per path, and answers its
 later reads of the path from that call.
 
+The connect option `skipArgsFile`, off by default, states that the
+host's own code, its plugin's hooks included, never reads `args.json` in
+its working directory. The SDK then starts the engine with
+`-skip-args-file`. For a bundle none of whose scripts can read the file
+(the manifest's `no_args_file_reader`), the engine writes no `args.json`
+([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7).
+For any other bundle, or without the option, it writes every
+invocation's file, as Windmill's worker does.
+
 The connect option `recycle` sets recycle triggers, none by default: `rss`
 trips when the resident set is at least that many bytes on `samples`
 consecutive heartbeats (default 2), `modules` when more script modules

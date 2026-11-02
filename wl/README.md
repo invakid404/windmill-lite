@@ -269,9 +269,11 @@ The bundle must be a directory, which the host loads too; steps run warm
    `fetch`: each invocation carries the facade's origin as `BASE_URL`,
    since the host was not spawned with the base environment, and its
    arguments go to `args.json` in the host's working directory (WR-5).
-   The file is left out only for a script the build cleared (the
-   manifest's `no_args_file`, ADR 0004 host mode item 7), when no around
-   wrapper runs with it.
+   - **Leaving the file out.** Only for a bundle none of whose scripts can
+     read it (the manifest's `no_args_file_reader`) whose host opted in
+     with `Host.SkipArgsFile` (ADR 0004 host mode item 7). The option,
+     off by default, states that the host's own code, its plugin's hooks
+     included, never reads the file.
 4. **Drain.** A host's `drain` is answered by the harness side: later runs
    are refused `draining`, and `bye` follows once none is in flight.
 5. **The watchdog.** `Host.KillAfter` (default 30 s, negative disables it)

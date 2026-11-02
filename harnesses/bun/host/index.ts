@@ -76,6 +76,14 @@ export type ConnectOptions = {
    * here only the next run. $WM_* strings still resolve for each job, and
    * a variable a step updates is read again. */
   readCache?: boolean;
+  /** Off by default. Set, it states that this host's own code, its
+   * plugin's hooks included, never reads args.json in the working
+   * directory; the engine then writes no args.json for a bundle none of
+   * whose scripts can read it (the manifest's no_args_file_reader), and
+   * each step's arguments travel only in the invoke frame (ADR 0004 host
+   * mode item 7). Otherwise every invocation's file is written, as
+   * Windmill's worker writes it. */
+  skipArgsFile?: boolean;
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
    * "retired"). A host that sees one drains and exits, and its supervisor
@@ -278,7 +286,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // overtake, and the step may block the event loop right after.
   const child = spawn(
     o.engine,
-    [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`, ...(o.readCache ? ["-read-cache"] : []), ...(o.engineFlags ?? [])],
+    [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`, ...(o.readCache ? ["-read-cache"] : []), ...(o.skipArgsFile ? ["-skip-args-file"] : []), ...(o.engineFlags ?? [])],
     { stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"] },
   );
   let settle: { resolve: () => void; reject: (e: Error) => void };

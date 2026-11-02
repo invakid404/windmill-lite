@@ -470,44 +470,48 @@ func TestBuildCompileErrors(t *testing.T) {
 	}
 }
 
-// TestBuildNoArgsFile checks the manifest's no_args_file list, the scripts
-// whose invocations host mode gives no args.json. The fixture's scripts
-// call its host-provided module, so none is listed. Once the flow's inline
-// step is a plain one, which reaches no file and calls nothing, it is
-// listed; the report script, also reading the file by a name it builds at
-// run time, stays out.
-func TestBuildNoArgsFile(t *testing.T) {
+// TestBuildNoArgsFileReader checks the manifest's no_args_file_reader,
+// decided for the whole bundle: the fixture, whose scripts call a
+// host-provided module, is a reader. A folder of plain steps, which reach
+// no file and call nothing, is not; one more step that reads the file by a
+// name it builds makes the whole bundle a reader.
+func TestBuildNoArgsFileReader(t *testing.T) {
 	bun := bunPath(t)
-	cfg, dir := fixtureConfig(t, bun)
-	if res := build(t, cfg); len(res.Manifest.NoArgsFile) != 0 {
-		t.Fatalf("no_args_file %v for scripts that call a host-provided module", res.Manifest.NoArgsFile)
+	cfg, _ := fixtureConfig(t, bun)
+	if res := build(t, cfg); res.Manifest.NoArgsFileReader {
+		t.Fatal("no_args_file_reader set for a bundle whose scripts call a host-provided module")
 	}
-	greet := filepath.Join(dir, "windmill", "f", "app", "main.flow", "greet.ts")
-	if err := os.WriteFile(greet, []byte("export async function main(name: string) {\n  return \"hello, \" + name + process.env.WM_JOB_ID;\n}\n"), 0o644); err != nil {
-		t.Fatal(err)
+	folder := filepath.Join(t.TempDir(), "plain")
+	write := func(name, body string) {
+		p := filepath.Join(folder, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	report := filepath.Join(dir, "windmill", "f", "app", "report.ts")
-	src, err := os.ReadFile(report)
-	if err != nil {
-		t.Fatal(err)
+	write("wmill.yaml", "defaultTs: bun\nincludes:\n  - f/**\n")
+	write("f/p/add.ts", "export async function main(x: number) {\n  return { y: x + 1, job: process.env.WM_JOB_ID };\n}\n")
+	write("f/p/main.flow/flow.yaml", "summary: Plain steps\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/p/add, input_transforms: {x: {type: javascript, expr: flow_input.x}}}\n")
+	plain := Config{Folder: folder, EngineVersion: fixtureEngine, Bun: bun, Helper: cfg.Helper, HarnessRuntime: cfg.HarnessRuntime, Out: filepath.Join(t.TempDir(), "bundle"), Work: t.TempDir()}
+	if res := build(t, plain); !res.Manifest.NoArgsFileReader {
+		t.Fatal("no_args_file_reader not set for a bundle of plain steps")
 	}
-	src = append(src, []byte("\nexport async function readArgs() {\n  return await Bun.file([\"args\", \"json\"].join(\".\")).text();\n}\n")...)
-	if err := os.WriteFile(report, src, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Out = filepath.Join(t.TempDir(), "bundle")
-	res := build(t, cfg)
-	if len(res.Manifest.NoArgsFile) != 1 || !strings.HasPrefix(res.Manifest.NoArgsFile[0], "inline-") {
-		t.Fatalf("no_args_file %v, want the plain inline step alone", res.Manifest.NoArgsFile)
-	}
-	m, err := os.ReadFile(filepath.Join(cfg.Out, ManifestFile))
+	m, err := os.ReadFile(filepath.Join(plain.Out, ManifestFile))
 	var onDisk struct {
-		NoArgsFile []string `json:"no_args_file"`
+		NoArgsFileReader bool `json:"no_args_file_reader"`
 	}
 	if err == nil {
 		err = json.Unmarshal(m, &onDisk)
 	}
-	if err != nil || !slices.Equal(onDisk.NoArgsFile, res.Manifest.NoArgsFile) {
+	if err != nil || !onDisk.NoArgsFileReader {
 		t.Fatalf("the manifest on disk: %s, %v", m, err)
+	}
+	write("f/p/read.ts", "export async function main() {\n  return await Bun.file([\"args\", \"json\"].join(\".\")).json();\n}\n")
+	write("f/p/read.flow/flow.yaml", "summary: A reader\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/p/read}\n")
+	plain.Out, plain.Work = filepath.Join(t.TempDir(), "bundle"), t.TempDir()
+	if res := build(t, plain); res.Manifest.NoArgsFileReader {
+		t.Fatal("no_args_file_reader set for a bundle with a step that reads args.json by a built name")
 	}
 }

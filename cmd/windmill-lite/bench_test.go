@@ -147,10 +147,14 @@ type benchShape struct {
 	// previous_result.data.items[0].id and results.s<k-1>?.n.
 	paths bool
 	// plain runs the bare shape's steps with f/bench/plain, which returns
-	// the same result and holds no I/O code, so that host mode leaves its
-	// args.json out (ADR 0004 host mode item 7). f/bench/work can fetch, so
-	// its invocations keep the file. Its runs report no host CPU of their
-	// own; the probe's before and after give the total.
+	// the same result and holds no I/O code, from a bundle of its own that
+	// has no other script (benchPlainFolder), so the bundle has no reader
+	// of args.json (no_args_file_reader). Its host opts in
+	// (wl.Host.SkipArgsFile), unless WL_BENCH_ARGS_FILE=1, so host mode
+	// leaves the file out (ADR 0004 host mode item 7). The bundle has no
+	// probe step, which reads the process and so would make it a reader:
+	// the host reports its CPU time on a signal instead (signalProbe), and
+	// its runs report no stages.
 	plain bool
 }
 
@@ -229,7 +233,6 @@ export async function main(timings: boolean) {
 }
 `,
 		"f/bench/work.ts":              benchWork,
-		"f/bench/plain.ts":             benchPlain,
 		"f/bench/resstep.ts":           benchResStep,
 		"f/bench/cachestep.ts":         benchCacheStep,
 		"f/bench/probe.flow/flow.yaml": "summary: The benchmarks' probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/probe, input_transforms: {timings: {type: javascript, expr: flow_input.timings}}}\n",
@@ -244,6 +247,17 @@ export async function main(timings: boolean) {
 		fmt.Fprintf(&chain, "    - id: %c\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: %s}}}\n", 'a'+k, from)
 	}
 	files["f/bench/chain.flow/flow.yaml"] = chain.String()
+	// f/bench/argsreader reads args.json once the test releases it
+	// (TestHostArgsFileSharedReader).
+	files["f/bench/argsreader.ts"] = `// Marks that it has started, waits for the test's release, then reads
+// args.json in the working directory.
+export async function main(p: unknown) {
+  await Bun.write("reader-ready", "ready");
+  while (!(await Bun.file("reader-release").exists())) await Bun.sleep(1);
+  return await Bun.file("args.json").json();
+}
+`
+	files["f/bench/argsreader.flow/flow.yaml"] = "summary: Reads args.json when released\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/argsreader, input_transforms: {p: {type: javascript, expr: flow_input.p}}}\n"
 	files["f/bench/pair.flow/flow.yaml"] = "summary: Two steps that each return their argument\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: flow_input.p}}}\n    - id: b\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: previous_result}}}\n"
 	var cache strings.Builder
 	cache.WriteString("summary: Steps that read the same resources and variable\nvalue:\n  modules:\n")
@@ -252,16 +266,25 @@ export async function main(timings: boolean) {
 	}
 	files["f/bench/cachecheck.flow/flow.yaml"] = cache.String()
 	for _, s := range benchShapes {
-		files[s.path()+".flow/flow.yaml"] = s.flow()
+		if !s.plain {
+			files[s.path()+".flow/flow.yaml"] = s.flow()
+		}
 	}
-	// WL_BENCH_ARGS_FILE=1 makes every script name args.json, so that the
-	// build clears none and host mode writes every invocation's file: the
-	// before side of the args file's measurement, on the same code.
-	if os.Getenv("WL_BENCH_ARGS_FILE") == "1" {
-		for name, body := range files {
-			if strings.HasSuffix(name, ".ts") {
-				files[name] = body + "\nexport const argsFile = \"args.json\";\n"
-			}
+	return files
+}
+
+// benchPlainFolder is the plain shapes' sync folder: f/bench/plain and its
+// flows, the shapes' and f/bench/plain_one, a single step, and nothing else,
+// so that no script of its bundle can read args.json.
+func benchPlainFolder() map[string]string {
+	files := map[string]string{
+		"wmill.yaml":                       "defaultTs: bun\nincludes:\n  - f/**\n",
+		"f/bench/plain.ts":                 benchPlain,
+		"f/bench/plain_one.flow/flow.yaml": "summary: One plain step\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/plain, input_transforms: {prev: {type: javascript, expr: flow_input.p}, n: {type: static, value: 1}, size: {type: static, value: 64}}}\n",
+	}
+	for _, s := range benchShapes {
+		if s.plain {
+			files[s.path()+".flow/flow.yaml"] = s.flow()
 		}
 	}
 	return files
@@ -269,7 +292,8 @@ export async function main(timings: boolean) {
 
 // benchPlain is the plain shape's step: f/bench/work's result for no log
 // lines and no reads, from code that holds no I/O at all, nor a property
-// read by a built name, so that the build clears it (no_args_file).
+// read by a built name, so that the build counts it as no reader of
+// args.json, and its own bundle has none (no_args_file_reader).
 const benchPlain = `// The step of the plain shape: work's result, with no I/O code.
 const made = new Map<number, unknown>();
 
@@ -442,12 +466,20 @@ var (
 // directory, the host's, for the tests that look into it.
 var benchWorkdirs sync.Map
 
+// benchHostPIDs holds each benchmark host's process id by its working
+// directory, and benchSignalProbes the runtimes whose host is probed by
+// signal (signalProbe).
+var benchHostPIDs, benchSignalProbes sync.Map
+
 var (
 	benchOnce   sync.Once
 	benchDir    string
 	benchBundle string
-	benchHost   string
-	benchErr    error
+	// benchPlainBundle is benchPlainFolder's bundle, which has no reader of
+	// args.json.
+	benchPlainBundle string
+	benchHost        string
+	benchErr         error
 )
 
 // benchSetup builds the benchmarks' bundle and compiles their host, once
@@ -495,6 +527,28 @@ func benchSetup(b testing.TB) string {
 		}); benchErr != nil {
 			return
 		}
+		plainFolder := filepath.Join(benchDir, "plainfolder")
+		for name, body := range benchPlainFolder() {
+			p := filepath.Join(plainFolder, filepath.FromSlash(name))
+			if benchErr = os.MkdirAll(filepath.Dir(p), 0o755); benchErr != nil {
+				return
+			}
+			if benchErr = os.WriteFile(p, []byte(body), 0o644); benchErr != nil {
+				return
+			}
+		}
+		benchPlainBundle = filepath.Join(benchDir, "plainbundle")
+		if _, benchErr = bundle.Build(context.Background(), bundle.Config{
+			Folder:         plainFolder,
+			EngineVersion:  resolveVersion(),
+			Bun:            bun,
+			Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
+			HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
+			Out:            benchPlainBundle,
+			Work:           filepath.Join(benchDir, "plainwork"),
+		}); benchErr != nil {
+			return
+		}
 		benchHost = filepath.Join(benchDir, "benchhost")
 		benchErr = compileHost(bun, "testdata/benchhost/host.ts", benchHost)
 	})
@@ -512,6 +566,22 @@ func benchRuntime(b testing.TB, bun, topology string) *wl.Runtime {
 
 // benchRuntimeWith is benchRuntime with the options edit sets.
 func benchRuntimeWith(b testing.TB, bun, topology string, edit func(*wl.Options)) *wl.Runtime {
+	return benchRuntimeOn(b, bun, topology, benchBundle, edit)
+}
+
+// benchPlainRuntime opens benchPlainBundle on the host topology, its host
+// opted in to leaving args.json out (wl.Host.SkipArgsFile) unless
+// WL_BENCH_ARGS_FILE=1, and probed by signal (signalProbe).
+func benchPlainRuntime(b testing.TB, bun string) *wl.Runtime {
+	rt := benchRuntimeOn(b, bun, "host", benchPlainBundle, func(o *wl.Options) {
+		o.Host.SkipArgsFile = os.Getenv("WL_BENCH_ARGS_FILE") != "1"
+	})
+	benchSignalProbes.Store(rt, true)
+	return rt
+}
+
+// benchRuntimeOn is benchRuntimeWith on another bundle.
+func benchRuntimeOn(b testing.TB, bun, topology, bundlePath string, edit func(*wl.Options)) *wl.Runtime {
 	b.Helper()
 	// A short directory: Unix socket paths are limited to about 100 bytes.
 	dir, err := os.MkdirTemp("", "wl-b-")
@@ -545,14 +615,14 @@ func benchRuntimeWith(b testing.TB, bun, topology string, edit func(*wl.Options)
 		}
 		opts.Bun, opts.HarnessRuntime, opts.ModuleState = bun, filepath.Join(repo, "harnesses", "bun", "runtime"), wl.ModuleStateWarm
 	case "host":
-		opts.Host = benchHostConn(b, dir, diag)
+		opts.Host = benchHostConn(b, dir, diag, bundlePath)
 	case "host-plugin":
-		opts.Host = benchHostConn(b, dir, diag, "WL_BENCH_PLUGIN=1")
+		opts.Host = benchHostConn(b, dir, diag, bundlePath, "WL_BENCH_PLUGIN=1")
 	default:
 		b.Fatalf("topology %q", topology)
 	}
 	edit(&opts)
-	rt, err := wl.Open(benchBundle, opts)
+	rt, err := wl.Open(bundlePath, opts)
 	if err != nil {
 		b.Fatalf("wl.Open (%s): %v", topology, err)
 	}
@@ -565,7 +635,7 @@ func benchRuntimeWith(b testing.TB, bun, topology string, edit func(*wl.Options)
 
 // benchHostConn starts the benchmark host with its working directory in
 // dir and returns the host connection its engine proxy handed over.
-func benchHostConn(b testing.TB, dir string, diag *os.File, env ...string) *wl.Host {
+func benchHostConn(b testing.TB, dir string, diag *os.File, bundlePath string, env ...string) *wl.Host {
 	b.Helper()
 	workdir := filepath.Join(dir, "host")
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
@@ -583,7 +653,7 @@ func benchHostConn(b testing.TB, dir string, diag *os.File, env ...string) *wl.H
 	defer ln.Close()
 	cmd := exec.Command(benchHost)
 	cmd.Dir = workdir
-	cmd.Env = append(append(os.Environ(), "WL_ENGINE="+self, "WL_BUNDLE="+benchBundle, benchProxyEnv+"="+sock), env...)
+	cmd.Env = append(append(os.Environ(), "WL_ENGINE="+self, "WL_BUNDLE="+bundlePath, benchProxyEnv+"="+sock), env...)
 	cmd.Stdout, cmd.Stderr = diag, diag
 	if err := cmd.Start(); err != nil {
 		b.Fatal(err)
@@ -613,6 +683,7 @@ func benchHostConn(b testing.TB, dir string, diag *os.File, env ...string) *wl.H
 			<-exited
 		}
 	})
+	benchHostPIDs.Store(workdir, cmd.Process.Pid)
 	h := &wl.Host{Conn: conns[1], Workdir: workdir, KillAfter: -1}
 	if len(conns) > 2 {
 		h.Children = conns[2]
@@ -739,6 +810,9 @@ type probed struct {
 // timings is true.
 func probe(tb testing.TB, rt *wl.Runtime, timings bool) probed {
 	tb.Helper()
+	if _, ok := benchSignalProbes.Load(rt); ok {
+		return signalProbe(tb, rt)
+	}
 	res, err := rt.Run(context.Background(), "f/bench/probe", fmt.Appendf(nil, `{"timings":%t}`, timings), wl.RunOptions{})
 	if err != nil || res.Status != wl.StatusSuccess {
 		tb.Fatalf("the probe: %+v, %v", res, err)
@@ -756,6 +830,39 @@ func probe(tb testing.TB, rt *wl.Runtime, timings bool) probed {
 		tb.Fatalf("the probe's result %.200s: %v", res.Result, err)
 	}
 	return probed{cpu: d, timings: out.Timings, rssPeak: out.RSSPeak, calls: out.Calls}
+}
+
+// signalProbe is probe for a runtime whose bundle has no probe step: it
+// sends the host SIGUSR1, on which testdata/benchhost writes its CPU time
+// and peak resident set to bench-probe.json in its working directory, and
+// waits for the file's count to move on. It reads no stage timings.
+func signalProbe(tb testing.TB, rt *wl.Runtime) probed {
+	tb.Helper()
+	dir, _ := benchWorkdirs.Load(rt)
+	pid, _ := benchHostPIDs.Load(dir)
+	file := filepath.Join(dir.(string), "bench-probe.json")
+	type reading struct {
+		N       int   `json:"n"`
+		User    int64 `json:"user"`
+		System  int64 `json:"system"`
+		RSSPeak int64 `json:"rss_peak"`
+	}
+	read := func() (reading, bool) {
+		var r reading
+		b, err := os.ReadFile(file)
+		return r, err == nil && json.Unmarshal(b, &r) == nil
+	}
+	last, _ := read()
+	if err := syscall.Kill(pid.(int), syscall.SIGUSR1); err != nil {
+		tb.Fatalf("the host's signal probe: %v", err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if r, ok := read(); ok && r.N > last.N {
+			return probed{cpu: time.Duration(r.User+r.System) * time.Microsecond, rssPeak: r.RSSPeak}
+		}
+	}
+	tb.Fatal("the host did not answer its signal probe")
+	return probed{}
 }
 
 // bunTiming is one invocation's readings in the harness, in nanoseconds
@@ -966,6 +1073,9 @@ func measure(tb testing.TB, rt *wl.Runtime, c benchCase, ops int, timer interfac
 	}
 	runtime.GC()
 	timed := benchTimed()
+	if _, ok := benchSignalProbes.Load(rt); ok {
+		timed = false // a signal probe reads no stage timings
+	}
 	out := benchResult{load: loadAverage()}
 	hostBefore := probe(tb, rt, timed).cpu
 	hostLast := hostBefore
@@ -1300,12 +1410,19 @@ func BenchmarkHostShapes(b *testing.B) {
 	for _, s := range benchShapes {
 		b.Run("shape="+s.name, func(b *testing.B) {
 			topology := "host"
-			if s.plugin() {
+			switch {
+			case s.plugin():
 				topology = "host-plugin"
+			case s.plain:
+				topology = "host-plain"
 			}
 			rt := runtimes[topology]
 			if rt == nil {
-				rt = benchRuntime(cleanupOn{TB: b, parent: parent}, bun, topology)
+				if s.plain {
+					rt = benchPlainRuntime(cleanupOn{TB: b, parent: parent}, bun)
+				} else {
+					rt = benchRuntime(cleanupOn{TB: b, parent: parent}, bun, topology)
+				}
 				runtimes[topology] = rt
 			}
 			c := shapeCase(s)

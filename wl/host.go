@@ -39,8 +39,16 @@ type Host struct {
 	// host otherwise, with workdir_not_writable or workdir_mismatch, which
 	// the host's hello lets it check. The host extracts the bundle's
 	// codebase assets there, and the runtime writes each step's args.json
-	// there (WR-5). It is required.
+	// there (WR-5), unless SkipArgsFile applies. It is required.
 	Workdir string
+	// SkipArgsFile is the host's statement that its own code, its plugin's
+	// hooks included, never reads args.json in Workdir. With it, and only
+	// for a bundle none of whose scripts can read the file (the manifest's
+	// no_args_file_reader), the runtime writes no args.json: each step's
+	// arguments travel only in the invoke frame, and the file's cost goes
+	// (ADR 0004 host mode item 7). Off by default, every invocation's file
+	// is written.
+	SkipArgsFile bool
 	// KillAfter is the watchdog's threshold (ADR 0004 host mode item 4):
 	// after that long without a frame from the host, whose event loop has
 	// stopped, the runtime sends it SIGKILL and its connection ends. Zero
@@ -95,11 +103,11 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
 		// The arguments travel in the invoke frame; the file is left out
-		// only for the scripts the build cleared (ADR 0004 host mode item
-		// 7).
-		NoArgsFile: noArgsFile(rt.manifest.NoArgsFile),
-		Check:      rt.hostCheck(opts),
-		Run:        rt.serveHost,
+		// only when no script of the bundle can read it and the host says
+		// its own code does not (ADR 0004 host mode item 7).
+		SkipArgsFile: h.SkipArgsFile && rt.manifest.NoArgsFileReader,
+		Check:        rt.hostCheck(opts),
+		Run:          rt.serveHost,
 	})
 	if err != nil {
 		return err
@@ -302,17 +310,4 @@ func (x interceptFirst) Intercept(ctx context.Context, r engine.Run, s engine.Si
 		return out, ok, err
 	}
 	return x.Hooks.Intercept(ctx, r, s, args)
-}
-
-// noArgsFile reports the scripts of a bundle's no_args_file list, or nil
-// when it lists none, so that every invocation's args.json is written.
-func noArgsFile(scripts []string) func(string) bool {
-	if len(scripts) == 0 {
-		return nil
-	}
-	free := make(map[string]bool, len(scripts))
-	for _, s := range scripts {
-		free[s] = true
-	}
-	return func(script string) bool { return free[script] }
 }

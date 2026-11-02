@@ -75,6 +75,7 @@ try {
     plugin,
     engineFlags: env.WL_ENGINE_FLAGS ? env.WL_ENGINE_FLAGS.split(" ") : undefined,
     readCache: env.WL_READ_CACHE === "1",
+    skipArgsFile: env.WL_SKIP_ARGS_FILE === "1",
   });
 } catch (e) {
   // The supervisor's test reads why the host could not connect.

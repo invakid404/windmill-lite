@@ -18,10 +18,13 @@
 // (summary or none) declares. With WL_BENCH_TRACE_KEYS=1, onRunEnd answers
 // the keys of the trace it got as a warning (code bench_trace).
 //
+// It answers SIGUSR1 with its CPU time in bench-probe.json (below).
+//
 // Environment: WL_ENGINE (the engine binary the SDK starts), WL_BUNDLE
 // (the bundle directory), WL_BENCH_PLUGIN, WL_BENCH_TRACE and
 // WL_BENCH_TRACE_KEYS. Its working directory is the one it passes.
 
+import { writeFileSync } from "node:fs";
 import { connect, type Plugin, type TraceDetail, type TraceNone } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
@@ -65,6 +68,18 @@ const plugin: Plugin = {
   },
   traceDetail: env.WL_BENCH_TRACE ? { onRunEnd: env.WL_BENCH_TRACE as TraceDetail } : undefined,
 };
+
+// On SIGUSR1 the host writes its CPU time (microseconds), its peak
+// resident set (bytes) and a count of these writes to bench-probe.json in
+// its working directory: the probe of a bundle that has no probe step
+// (the benchmarks' signalProbe). It reads nothing else there.
+let probes = 0;
+process.on("SIGUSR1", () => {
+  const c = process.cpuUsage();
+  const peak = process.resourceUsage().maxRSS;
+  probes++;
+  writeFileSync("bench-probe.json", JSON.stringify({ n: probes, user: c.user, system: c.system, rss_peak: process.platform === "darwin" ? peak : peak * 1024 }));
+});
 
 await connect({
   engine: env.WL_ENGINE!,

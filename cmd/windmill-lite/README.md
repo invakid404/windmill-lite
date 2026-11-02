@@ -156,6 +156,7 @@ connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
 | `-variables`, `-resources` | the host's variables and resources, as for `run` |
 | `-plugin-timeout` | how long a `host_call` to the host's plugin waits for its reply (default 1m; F2c) |
 | `-read-cache` | give each run a read cache, deviation D21 of [ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations): each resource and variable is read once per run (`wl.Options.ReadCache`, the host SDK's `readCache`) |
+| `-skip-args-file` | the host states that its own code never reads `args.json`: for a bundle none of whose scripts can read it (`no_args_file_reader`), write none ([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7; `wl.Host.SkipArgsFile`, the host SDK's `skipArgsFile`) |
 | `-cpuprofile` | write a CPU profile of the engine to this file until the host's connection ends ([Profiling](#profiling)) |
 
 ### Profiling
@@ -233,7 +234,8 @@ host-provided modules are:
 `testdata/host/host.ts` is a Bun host that embeds the SDK, registers its
 instances of these modules, connects the engine on the bundle, and serves
 its callers over HTTP on a Unix socket. It submits each run inside the
-caller's tenant scope, in `scopes.ts` and in `tenant.ts`.
+caller's tenant scope, in `scopes.ts` and in `tenant.ts`. With
+`WL_SKIP_ARGS_FILE=1` it connects with `skipArgsFile`.
 
 The test compiles the host with `bun build --compile`, and its engine is
 the test binary itself (`TestMain` runs the command when `WL_TEST_ENGINE`
@@ -268,7 +270,10 @@ The tests:
 | `TestHostStepLatency` | reports the per-step latency of host mode |
 | `TestHostReadCacheOption` | the SDK's `readCache` reaches the engine: the run lists deviation D21, and without the option it does not |
 | `TestReadCacheHostCalls` | on the plugin host, D21's cache makes one call of the plugin's hook per (run, path), and every step sees the first read's value; without it each read is a call, as on Windmill. A value holding `$WM_JOB_ID` resolves for each step's own job either way |
-| `TestHostArgsFileLeftOut` | the build clears `f/bench/echo`, which reaches no file, and not `f/bench/work`, which can fetch; a host-mode run of `f/bench/chain` writes no `args.json` into the host's working directory, and its steps still get their arguments |
+| `TestHostArgsFileSharedReader` | with the default, a step reading `args.json` while the eight-step chain runs reads the latest invocation's arguments, the chain's |
+| `TestHostArgsFileHookReader` | with the default, a host plugin's `onRunEnd` reading `args.json` after a run reads the run's last invocation's arguments |
+| `TestHostSkipArgsFile` | the file is left out only for a bundle with no reader (`f/bench/plain`'s) whose host opted in; with the option off, or for the benchmarks' bundle, which has readers, it is written |
+| `TestHostSkipArgsFileOption` | the host SDK's `skipArgsFile` reaches the engine: the test host on the plain bundle writes no `args.json` with it, and writes it without |
 | `TestHostArgsFileReaders` | steps that read `args.json` through a host-provided module (`f/host/argsfile.ts`) or by a file name they build read their own arguments back in host mode |
 | `TestPluginTraceDetailHost` | the plugin host's `onRunEnd` gets the trace it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, its id and status for `none` |
 | `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
@@ -330,7 +335,7 @@ so that it reads every run's trace and the engine's CPU time. The
 recorded baseline, with its machine, command and load, is in
 [ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
 
-The benchmarks run on two topologies:
+The benchmarks run on these topologies:
 
 - **host**: `testdata/benchhost/host.ts`, compiled with `bun build
   --compile`, is a warm Bun host that embeds the SDK and does nothing else.
@@ -345,13 +350,16 @@ The benchmarks run on two topologies:
   those under `f/bench/slow/` after 1 ms, and count their calls by run and
   path; its `onRunEnd` hook takes every run's trace. `WL_BENCH_TRACE`
   makes the hook declare a `summary` or `none` instead.
+- **host-plain**: the same host on the plain shape's bundle, which has no
+  reader of `args.json`, opted in to leaving it out
+  (`wl.Host.SkipArgsFile`) unless `WL_BENCH_ARGS_FILE=1`.
 
 | Benchmark | What it runs |
 |---|---|
 | `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
 | `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
 | `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode. It reads the engine's Go heap after two collections before and after the runs, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
-| `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, so host mode leaves its `args.json` out. The bare shape's `f/bench/work` can fetch, so it keeps the file. `WL_BENCH_ARGS_FILE=1` makes every script name `args.json`, which keeps every file: the file's cost on the same code |
+| `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, on the host-plain topology: its bundle has no reader of `args.json`, so the file is left out. `WL_BENCH_ARGS_FILE=1` keeps it, which measures its cost on the same code. The bare shape's `f/bench/work` can fetch, so its bundle is a reader and keeps the file |
 | `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
 | `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
 
@@ -412,6 +420,11 @@ before and after the runs, its peak resident set and the plugin's call
 counts, and sets and drains the harness's timings. A
 shape's last step reports the host's CPU time with its result too, so each
 run has its own figure.
+
+The plain shape's bundle has no probe step, which would read the process
+and so make the bundle a reader. Its host writes its CPU time and peak
+resident set to `bench-probe.json` on `SIGUSR1` instead, and the shape
+reports no stages.
 
 `WL_BENCH_TIMINGS=off` leaves the stage readings out, which measures what
 taking them costs. `TestBenchSplit` runs the measurement once on each

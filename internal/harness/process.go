@@ -212,9 +212,8 @@ type Process struct {
 	conn   *conn
 	dir    string
 	argsMu sync.Mutex // orders the writes of args.json in dir
-	// noArgs reports a script whose invocations get no args.json in dir
-	// (HostConfig.NoArgsFile); nil writes every invocation's.
-	noArgs     func(script string) bool
+	// skipArgs leaves args.json out of dir (HostConfig.SkipArgsFile).
+	skipArgs   bool
 	pid        int
 	killAfter  time.Duration
 	heartbeat  time.Duration
@@ -1655,7 +1654,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if times != nil {
 		times.Encoded = time.Now()
 	}
-	if err := p.writeArgsFor(inv, args); err != nil {
+	if err := p.writeArgs(args); err != nil {
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
 	}
 	if times != nil {
@@ -1962,22 +1961,12 @@ func (p *Process) PID() int { return p.pid }
 // every invocation's (D10), so the file is the latest invocation's.
 const ArgsFile = "args.json"
 
-// writeArgsFor writes inv's args.json (writeArgs), unless the host cleared
-// its script (HostConfig.NoArgsFile) and no around wrapper, the host
-// plugin's code, runs with the step.
-func (p *Process) writeArgsFor(inv engine.Invocation, args jsonval.Value) error {
-	if p.noArgs != nil && len(inv.Around) == 0 && p.noArgs(inv.Script) {
-		return nil
-	}
-	return p.writeArgs(args)
-}
-
 // writeArgs replaces the process's args.json with args, whole: it is
 // written beside it and renamed over it, so a script reading it never sees
 // it half written. A process without a working directory of its own (a
 // host-mode connection) has none.
 func (p *Process) writeArgs(args jsonval.Value) error {
-	if p.dir == "" {
+	if p.dir == "" || p.skipArgs {
 		return nil
 	}
 	p.argsMu.Lock()

@@ -313,9 +313,9 @@ the latest invocation's. A host-mode connection writes it in the host's
 working directory, which the handshake checked (`HostConfig.Workdir`),
 and never removes that directory.
 
-`HostConfig.NoArgsFile`, which `wl` sets from the bundle's `no_args_file`,
-leaves out the file of a cleared script's invocation in host mode, unless
-around wrappers, the host plugin's code, run with it.
+`HostConfig.SkipArgsFile` leaves every invocation's file out in host
+mode. `wl` sets it only for a bundle none of whose scripts can read the
+file (`no_args_file_reader`) whose host opted in.
 
 ## Death and the watchdog
 
@@ -568,7 +568,7 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 - `hostmode_test.go` (F3a) runs the shared working-directory cases through
   `CheckWorkdir` and through the handshake, a hello without a working
   directory, a refused host, a host's invocation environment (`BASE_URL`)
-  and `args.json`, which `NoArgsFile` leaves out for a cleared script without around wrappers, the host's drain (a run after it answered `draining`,
+  and `args.json`, which `SkipArgsFile` leaves out, the host's drain (a run after it answered `draining`,
   `bye` after the last `run_done`, also when idle, and behind two large
   outcomes sent in parts), `run_settled` after `run_done`, never before,
   and a run sent the moment the welcome arrives, whose invocation already

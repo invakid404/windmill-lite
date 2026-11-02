@@ -413,7 +413,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	free, err := noArgsFile(stage, bundleFiles)
+	noReader, err := noArgsFileReader(stage, bundleFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +427,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		NonconformantRuntime: bres.NonconformantRuntime || cres.NonconformantRuntime,
 		ModuleState:          cfg.ModuleState,
 		SharedCode:           cfg.SharedCode,
-		NoArgsFile:           free,
+		NoArgsFileReader:     noReader,
 		Deviations:           manifestDeviations(prog.Deviations, cfg.ModuleState, cfg.SharedCode),
 		Contract:             prog.Contract,
 		HostModules:          []HostModuleEntry{},
