@@ -244,6 +244,7 @@ export async function main(timings: boolean) {
 		fmt.Fprintf(&chain, "    - id: %c\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: %s}}}\n", 'a'+k, from)
 	}
 	files["f/bench/chain.flow/flow.yaml"] = chain.String()
+	files["f/bench/pair.flow/flow.yaml"] = "summary: Two steps that each return their argument\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: flow_input.p}}}\n    - id: b\n      value: {type: script, path: f/bench/echo, input_transforms: {p: {type: javascript, expr: previous_result}}}\n"
 	var cache strings.Builder
 	cache.WriteString("summary: Steps that read the same resources and variable\nvalue:\n  modules:\n")
 	for k := range 3 {
@@ -1176,6 +1177,54 @@ func BenchmarkStepBoundary(b *testing.B) {
 						r.report(b, c)
 					})
 				}
+			}
+		})
+	}
+}
+
+// retainedRuns is how many runs BenchmarkRetainedHeap makes at each size,
+// whatever b.N: enough for a slope, few enough that 16 MiB runs that are
+// all kept fit in memory.
+var retainedRuns = map[int]int{64 << 10: 200, 16 << 20: 8}
+
+// BenchmarkRetainedHeap is lever J5's probe: sequential runs of
+// f/bench/pair, two steps that each return a payload of the size, on one
+// long-lived runtime, in host and subprocess mode, with the engine's Go
+// heap read after two collections before and after them. heap-mib/run is
+// what each finished run leaves reachable; it is flat when finished runs
+// are released. Run it with -benchtime 1x: it makes retainedRuns runs.
+func BenchmarkRetainedHeap(b *testing.B) {
+	bun := benchSetup(b)
+	heap := func() uint64 {
+		runtime.GC()
+		runtime.GC()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return m.HeapAlloc
+	}
+	for _, topology := range []string{"host", "subprocess"} {
+		b.Run("topology="+topology, func(b *testing.B) {
+			rt := benchRuntime(b, bun, topology)
+			for _, n := range []int{64 << 10, 16 << 20} {
+				b.Run("size="+bench.SizeLabel(n), func(b *testing.B) {
+					args := fmt.Appendf(nil, `{"p":%s}`, bench.Synthetic(n))
+					run := func() {
+						res, err := rt.Run(context.Background(), "f/bench/pair", args, wl.RunOptions{})
+						if err != nil || res.Status != wl.StatusSuccess || len(res.Result) != n {
+							b.Fatalf("%v, %v", res.Status, err)
+						}
+					}
+					run()
+					before := heap()
+					runs := retainedRuns[n]
+					for range runs {
+						run()
+					}
+					after := heap()
+					b.ReportMetric(float64(int64(after)-int64(before))/float64(runs)/(1<<20), "heap-mib/run")
+					b.ReportMetric(float64(after)/(1<<20), "heap-mib")
+					b.ReportMetric(float64(runs), "runs")
+				})
 			}
 		})
 	}
