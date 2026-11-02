@@ -21,10 +21,21 @@ var internalArgs = map[string]bool{"_MODULES": true, "_TEMP_SCRIPT_REFS": true}
 // internal key was dropped would come out valid.
 func scriptArgs(args jsonval.Value) jsonval.Value {
 	text := args.Producer()
-	// A key can only match with an underscore or an escape in its text.
-	if !bytes.Contains(text, []byte("_MODULES")) && !bytes.Contains(text, []byte("_TEMP_SCRIPT_REFS")) && !bytes.Contains(text, []byte(`\`)) {
+	// A key is an internal one only when the text spells it, as itself or
+	// with \u escapes: no other JSON escape writes a letter or an
+	// underscore. Without either, nothing is dropped and the arguments
+	// stay as they are.
+	if !bytes.Contains(text, []byte("_MODULES")) && !bytes.Contains(text, []byte("_TEMP_SCRIPT_REFS")) && !bytes.Contains(text, []byte(`\u`)) {
 		return args
 	}
+	return walkedArgs(args)
+}
+
+// walkedArgs is scriptArgs' walk: the arguments without their internal
+// members, or the arguments as they are when none is there or the text is
+// not one object.
+func walkedArgs(args jsonval.Value) jsonval.Value {
+	text := args.Producer()
 	var kept [][]byte
 	dropped := false
 	rest, ok := jsonval.Members(text, func(key string, ks, _, _, ve int) {
