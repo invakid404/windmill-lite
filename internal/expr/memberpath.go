@@ -432,6 +432,58 @@ func (sc *pathScanner) skip(depth int) bool {
 	return ok
 }
 
+// skipChecked skips one value of text that validJSON has checked, without
+// checking it again: a string to its closing quote, found with
+// bytes.IndexByte, and a container to the bracket that closes it, jumping
+// between the quotes and brackets in it.
+func (sc *pathScanner) skipChecked() {
+	s := sc.s
+	switch s[sc.i] {
+	case '"':
+		sc.i = stringEnd(s, sc.i+1)
+	case '{', '[':
+		depth := 0
+		for {
+			j := bytes.IndexAny(s[sc.i:], `"{}[]`)
+			sc.i += j
+			switch s[sc.i] {
+			case '"':
+				sc.i = stringEnd(s, sc.i+1)
+				continue
+			case '{', '[':
+				depth++
+			default:
+				depth--
+			}
+			sc.i++
+			if depth == 0 {
+				return
+			}
+		}
+	default:
+		for sc.i < len(s) && !strings.ContainsRune(",}] \t\n\r", rune(s[sc.i])) {
+			sc.i++
+		}
+	}
+}
+
+// stringEnd returns the index after the closing quote of the checked
+// string whose text starts at i, after its opening quote: the first quote
+// that an odd number of backslashes does not escape.
+func stringEnd(s []byte, i int) int {
+	for {
+		q := i + bytes.IndexByte(s[i:], '"')
+		n := 0
+		for k := q - 1; k >= i && s[k] == '\\'; k-- {
+			n++
+		}
+		if n%2 == 0 {
+			return q + 1
+		}
+		i = q + 1
+	}
+}
+
 // rawString checks and skips a JSON string, and returns its text between
 // the quotes, escapes as written.
 func (sc *pathScanner) rawString() ([]byte, bool) {
@@ -524,7 +576,7 @@ func (sc *pathScanner) member(at int, key string) (int, bool) {
 		if pathKeyIs(raw, key) {
 			found, pos = true, sc.i
 		}
-		sc.skip(0)
+		sc.skipChecked()
 		sc.space()
 		sc.lit(",")
 	}
@@ -552,7 +604,7 @@ func (sc *pathScanner) element(at int, i uint64) (int, bool) {
 		if n == i {
 			return sc.i, true
 		}
-		sc.skip(0)
+		sc.skipChecked()
 		sc.space()
 		sc.lit(",")
 	}
@@ -567,7 +619,7 @@ func (sc *pathScanner) count(at int) int {
 		if sc.lit("]") {
 			return n
 		}
-		sc.skip(0)
+		sc.skipChecked()
 		sc.space()
 		sc.lit(",")
 	}

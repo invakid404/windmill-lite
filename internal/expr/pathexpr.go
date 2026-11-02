@@ -332,7 +332,14 @@ func (x *pathExpr) eval(in Input) ([]byte, bool) {
 	}
 	switch x.kind {
 	case pathSingle:
-		return walkPath(root, x.path.steps)
+		v, undefined, ok := pathValue(root, x.path.steps)
+		switch {
+		case !ok:
+			return nil, false
+		case undefined:
+			return []byte("null"), true
+		}
+		return v.appendJSON(nil), true
 	case pathTest, pathCond:
 		at, length, undefined, ok := pathEnd(root, x.path.steps)
 		if !ok {
@@ -360,7 +367,14 @@ func (x *pathExpr) eval(in Input) ([]byte, bool) {
 		if t.path == nil {
 			return []byte("null"), true // null or undefined, ?? null
 		}
-		return walkPath(root, t.path.steps)
+		v, undefined, ok := pathValue(root, t.path.steps)
+		switch {
+		case !ok:
+			return nil, false
+		case undefined:
+			return []byte("null"), true
+		}
+		return v.appendJSON(nil), true
 	}
 	// An object literal: its members in JavaScript's order, an undefined
 	// value left out, as JSON.stringify leaves it.

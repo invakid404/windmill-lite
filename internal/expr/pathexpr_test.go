@@ -276,3 +276,30 @@ func (c pathCase) checkForm(t *testing.T, p *Pipeline, text string) (pathResult,
 	}
 	return pathAnswered, x.kind
 }
+
+// skipChecked ends every checked value where skip, which checks it, ends:
+// on generated values with escaped quotes, runs of backslashes and
+// brackets inside strings, nested containers and numbers.
+func TestSkipChecked(t *testing.T) {
+	rng := rand.New(rand.NewPCG(9, 4))
+	texts := []string{`"a\"b"`, `"a\\"`, `"a\\\"b\\\\"`, `{"k":"}]\"[{","n":[1,{"x":"]"}]}`, `[]`, `{}`, `-1.5e+7`, `true`, `null`, `"""`}
+	for range 3000 {
+		var b strings.Builder
+		genJSON(rng, &b, 0)
+		texts = append(texts, b.String())
+	}
+	for _, text := range texts {
+		for _, tail := range []string{"", ",1", "] ", "}"} {
+			s := []byte(text + tail)
+			want := &pathScanner{s: s}
+			if !want.skip(0) {
+				t.Fatalf("not a checked value: %s", text)
+			}
+			got := &pathScanner{s: s}
+			got.skipChecked()
+			if got.i != want.i {
+				t.Fatalf("%s%s: skipChecked ends at %d, skip at %d", text, tail, got.i, want.i)
+			}
+		}
+	}
+}
