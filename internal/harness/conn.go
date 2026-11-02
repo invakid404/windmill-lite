@@ -69,9 +69,13 @@ type conn struct {
 	// raw is the socket's raw connection, through which flush writes
 	// without blocking; nil when the socket has none.
 	raw syscall.RawConn
-	// grace, once the peer has exited (endReads), bounds each read's wait
-	// for more bytes.
-	grace atomic.Pointer[time.Duration]
+	// Once the peer has exited (endReads), the reader waits for more bytes
+	// at most grace in one read, and left in all; endMu guards them.
+	endMu sync.Mutex
+	ended bool
+	endAt time.Time
+	grace time.Duration
+	left  time.Duration
 }
 
 type outStream struct {
@@ -462,25 +466,65 @@ func endOfStream(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET)
 }
 
-// endReads bounds the reader once the peer has exited: from then on each
-// read waits at most grace for more bytes, so a child that holds the
-// socket open cannot keep the reader. What the peer wrote before it exited
-// is read however long the reader takes to come to it: a deadline set once
-// at the exit would cut off the frames still in the socket's buffer.
+// endReads bounds the reader once the peer has exited, by the time it
+// waits for more bytes: at most grace in one read, and grace in all. A read
+// that finds bytes waiting takes almost nothing from it, and handling a
+// message takes nothing, so what the peer wrote before it exited is read
+// however long the reader takes to come to it; a deadline set once at the
+// exit would cut off the frames still in the socket's buffer. A child that
+// holds the socket and keeps writing to it gets the grace and no more.
 func (c *conn) endReads(grace time.Duration) {
-	c.grace.Store(&grace)
-	c.nc.SetReadDeadline(time.Now().Add(grace))
+	c.endMu.Lock()
+	defer c.endMu.Unlock()
+	if c.ended {
+		return
+	}
+	c.ended, c.endAt, c.grace, c.left = true, time.Now(), grace, grace
+	c.nc.SetReadDeadline(c.endAt.Add(grace))
 }
 
-// socketReader is the reader's source: the socket, each read bounded by
-// the grace once endReads has set it.
+// stopReads ends the reader now: the read in progress fails, and so does
+// every later one, bytes waiting or not.
+func (c *conn) stopReads() {
+	c.endMu.Lock()
+	defer c.endMu.Unlock()
+	if !c.ended {
+		c.ended, c.endAt = true, time.Now()
+	}
+	c.grace, c.left = 0, 0
+	c.nc.SetReadDeadline(aLongTimeAgo)
+}
+
+// aLongTimeAgo is a deadline that has passed.
+var aLongTimeAgo = time.Unix(1, 0)
+
+// socketReader is the reader's source: the socket, its reads bounded once
+// endReads has set the bounds. It takes from what is left the time each
+// read waited after the exit.
 type socketReader struct{ c *conn }
 
 func (r socketReader) Read(b []byte) (int, error) {
-	if g := r.c.grace.Load(); g != nil {
-		r.c.nc.SetReadDeadline(time.Now().Add(*g))
+	c := r.c
+	c.endMu.Lock()
+	if c.ended {
+		if wait := min(c.grace, c.left); wait > 0 {
+			c.nc.SetReadDeadline(time.Now().Add(wait))
+		} else {
+			c.nc.SetReadDeadline(aLongTimeAgo)
+		}
 	}
-	return r.c.nc.Read(b)
+	c.endMu.Unlock()
+	start := time.Now()
+	n, err := c.nc.Read(b)
+	c.endMu.Lock()
+	if c.ended {
+		if start.Before(c.endAt) {
+			start = c.endAt
+		}
+		c.left -= time.Since(start)
+	}
+	c.endMu.Unlock()
+	return n, err
 }
 
 func (c *conn) readLoop() {

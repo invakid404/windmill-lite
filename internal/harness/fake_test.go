@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,6 +25,9 @@ import (
 // cannot be made to on demand: a reader that stops reading, a mute peer,
 // outcomes fixed before the call ends, late output, protocol violations.
 func TestMain(m *testing.M) {
+	if id := os.Getenv("WL_DRIP_CHILD"); id != "" {
+		os.Exit(dripChild(id))
+	}
 	if mode := os.Getenv("WL_FAKE_HARNESS"); mode != "" {
 		os.Exit(fakeHarness(mode))
 	}
@@ -87,7 +91,7 @@ func fakeHarness(mode string) int {
 		time.Sleep(time.Second)
 	}
 	hello := Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid}
-	if mode == "fresh-unread-pong" || mode == "fresh-hang" || mode == "fresh-log-exit" {
+	if mode == "fresh-unread-pong" || mode == "fresh-hang" || mode == "fresh-log-exit" || mode == "fresh-drip-exit" {
 		hello.Caps.Fresh = true
 	}
 	if mode == "plugin" {
@@ -229,10 +233,46 @@ func fakeHarness(mode string) int {
 				send(Log{ID: inv.ID, Lines: []string{fmt.Sprintf("line %d", i)}})
 			}
 			return 6
+		case "fresh-drip-exit":
+			// Logs a line, leaves a child that holds the socket and keeps
+			// writing to it (dripChild), and exits with code 6. The child
+			// has a session of its own, so no kill of this process's group
+			// reaches it.
+			send(Log{ID: inv.ID, Lines: []string{"line 0"}})
+			child := exec.Command(os.Args[0], "-test.run=^$")
+			child.Env = append(os.Environ(), "WL_DRIP_CHILD="+inv.ID)
+			child.ExtraFiles = []*os.File{f}
+			child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			if err := child.Start(); err != nil {
+				fmt.Fprintln(os.Stderr, "fake: drip child:", err)
+				return 72
+			}
+			return 6
 		default:
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 		}
 	}
+}
+
+// dripChild is the child a fake harness in mode fresh-drip-exit leaves: on
+// the socket it inherited as fd 3, it writes a log line about invocation id
+// every 50 ms for 20 s, and stops once the engine has closed its end.
+func dripChild(id string) int {
+	nc, err := net.FileConn(os.NewFile(3, "engine"))
+	if err != nil {
+		return 70
+	}
+	for i := 1; i <= 400; i++ {
+		p, err := Encode(Log{ID: id, Lines: []string{fmt.Sprintf("drip %d", i)}})
+		if err != nil {
+			panic(err)
+		}
+		if _, err := nc.Write(appendFrame(nil, p)); err != nil {
+			return 0
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return 0
 }
 
 // A fresh process that exits right after its result, while a pong the
@@ -300,6 +340,83 @@ func TestFramesWrittenBeforeTheExitAreRead(t *testing.T) {
 	}
 	if got := rec.log(); got != "settled process_exited" {
 		t.Fatalf("reporter calls %q", got)
+	}
+}
+
+// A child the harness left, holding the socket and writing a frame to it
+// every 50 ms, does not keep the reader past exitReadGrace of waiting: the
+// process ends, and its invocation with it, about a second after the
+// harness exited, though the child goes on for 20 s.
+func TestAChildWritingAfterTheExitDoesNotHoldTheReader(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-drip-exit")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	type result struct {
+		out engine.StepOutcome
+		err error
+		at  time.Time
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, err := execute(t, p, freshInvocation("x", `{}`, rec), 30*time.Second)
+		done <- result{out, err, time.Now()}
+	}()
+	<-p.waitDone
+	exit := time.Now()
+	select {
+	case r := <-done:
+		if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.ExitCode != 6 || !strings.HasPrefix(r.out.Tail, "line 0") {
+			t.Fatalf("got %s exit %d, tail %q, %v; diagnostics %q", r.out.Kind, r.out.ExitCode, r.out.Tail, r.err, diag.String())
+		}
+		t.Logf("the invocation ended %v after the exit", r.at.Sub(exit))
+	case <-time.After(8 * time.Second):
+		t.Fatalf("the invocation is still in flight 8 s after the harness exited; diagnostics %q", diag.String())
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the process has not ended")
+	}
+}
+
+// A drain that times out after the harness has exited ends the reader at
+// once, however long the reader would still wait (here an hour of exit
+// grace), while a child the harness left keeps writing to the socket.
+func TestADrainEndsTheReaderOfAnExitedProcess(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-drip-exit")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.exitGrace = time.Hour
+	p.mu.Unlock()
+	rec := newRecorder()
+	executed := make(chan struct{})
+	go func() {
+		defer close(executed)
+		out, err := execute(t, p, freshInvocation("x", `{}`, rec), 30*time.Second)
+		t.Logf("the invocation: %s exit %d, %v", out.Kind, out.ExitCode, err)
+	}()
+	<-p.waitDone
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	drained := make(chan error, 1)
+	go func() { drained <- p.Drain(ctx) }()
+	select {
+	case err := <-drained:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Drain: %v", err)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatalf("Drain still waits 8 s after its context ended; diagnostics %q", diag.String())
+	}
+	select {
+	case <-executed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the invocation is still in flight")
+	}
+	if !strings.Contains(diag.String(), "killing the harness: drain timed out") {
+		t.Fatalf("diagnostics %q", diag.String())
 	}
 }
 
