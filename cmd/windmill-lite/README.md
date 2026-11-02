@@ -358,7 +358,7 @@ The benchmarks run on these topologies:
 |---|---|
 | `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
 | `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
-| `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode. It reads the engine's Go heap after two collections before and after the runs, with its own input kept alive through both readings, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
+| `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode and on the plugin host, whose plugin provides resources and variables. It reads the engine's Go heap after two collections before and after the runs, with its own input kept alive through both readings, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
 | `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, on the host-plain topology: its bundle has no reader of `args.json`, so the file is left out. `WL_BENCH_ARGS_FILE=1` keeps it, which measures its cost on the same code. The bare shape's `f/bench/work` can fetch, so its bundle is a reader and keeps the file |
 | `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
 | `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
@@ -474,6 +474,7 @@ outputs, the comparisons and the machine. The groups:
 | `passthrough` | `BenchmarkPassThrough`, `-benchtime 10x` |
 | `expressions` | `BenchmarkExpressions`, `-benchtime 10x` |
 | `peaks` | `BenchmarkRunPeaks`, `-benchtime 1x` |
+| `retained` | `BenchmarkRetainedHeap`, `-benchtime 1x` |
 | `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
 
 ```sh

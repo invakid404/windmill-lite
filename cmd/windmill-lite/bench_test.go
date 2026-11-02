@@ -1314,10 +1314,12 @@ var retainedRuns = map[int]int{64 << 10: 200, 16 << 20: 8}
 
 // BenchmarkRetainedHeap is lever J5's probe: sequential runs of
 // f/bench/pair, two steps that each return a payload of the size, on one
-// long-lived runtime, in host and subprocess mode, with the engine's Go
-// heap read after two collections before and after them. heap-mib/run is
-// what each finished run leaves reachable; it is flat when finished runs
-// are released. Run it with -benchtime 1x: it makes retainedRuns runs.
+// long-lived runtime, in host and subprocess mode, and on the host whose
+// plugin provides resources and variables (host-plugin, lever J6's path),
+// with the engine's Go heap read after two collections before and after
+// them. heap-mib/run is what each finished run leaves reachable; it is
+// flat when finished runs are released. Run it with -benchtime 1x: it
+// makes retainedRuns runs.
 func BenchmarkRetainedHeap(b *testing.B) {
 	bun := benchSetup(b)
 	heap := func() uint64 {
@@ -1327,7 +1329,7 @@ func BenchmarkRetainedHeap(b *testing.B) {
 		runtime.ReadMemStats(&m)
 		return m.HeapAlloc
 	}
-	for _, topology := range []string{"host", "subprocess"} {
+	for _, topology := range []string{"host", "subprocess", "host-plugin"} {
 		b.Run("topology="+topology, func(b *testing.B) {
 			rt := benchRuntime(b, bun, topology)
 			for _, n := range []int{64 << 10, 16 << 20} {

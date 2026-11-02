@@ -22,6 +22,8 @@ name: Benchmarks
 #       small        G1's configurations and shapes at 1 KiB and below, and
 #                    the eight-concurrent shape, each in a process of its
 #                    own (WL_BENCH_FRESH=1)
+#       retained     BenchmarkRetainedHeap (what finished runs leave
+#                    reachable on one long-lived runtime)
 #   - rounds: the rounds per job.
 #   - small_builds: the builds of the small group, when it compares others
 #     (empty: builds).
@@ -37,7 +39,7 @@ on:
         required: true
         default: "main=origin/main"
       groups:
-        description: "Groups: boundary shapes passthrough expressions peaks small"
+        description: "Groups: boundary shapes passthrough expressions peaks small retained"
         required: true
         default: "boundary shapes passthrough expressions peaks small"
       rounds:
@@ -161,6 +163,8 @@ jobs:
               cmds=("10x BenchmarkExpressions") ;;
             peaks)
               cmds=("1x BenchmarkRunPeaks") ;;
+            retained)
+              cmds=("1x BenchmarkRetainedHeap") ;;
             small)
               export WL_BENCH_FRESH=1 WL_BENCH_SIZES=26B,1KiB
               cmds=("3s BenchmarkStepBoundary/topology=(host|subprocess)/conc=(1|8)/"
