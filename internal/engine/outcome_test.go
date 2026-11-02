@@ -71,6 +71,13 @@ func TestManualFailure(t *testing.T) {
 		`{"x":1}`:                                   "",
 		`["wm_failure"]`:                            "",
 		`"wm_failure"`:                              "",
+		// Keys spelled with escapes are the same keys.
+		`{"\u0077m_failure":"esc"}`:                      `{"\u0077m_failure":"esc","error":{"name":"ManualFailure","message":"esc"}}`,
+		`{"wm\u005ffailure":"esc","wm_labels":[1]}`:      "",
+		`{"wm_failur\u0065":"e","wm\u005flabels":["a"]}`: `{"wm_failur\u0065":"e","wm\u005flabels":["a"],"error":{"name":"ManualFailure","message":"e"}}`,
+		// Look-alike values and nested keys are not markers.
+		`{"a":"wm_failure","b":{"wm_failure":"x"}}`: "",
+		`{"a":"line\nnext","b":"q\"x\\"}`:           "",
 	} {
 		v, failed := ManualFailure([]byte(result))
 		if failed != (want != "") || failed && string(v.Producer()) != want {
@@ -242,6 +249,23 @@ func TestEntrypointWalk(t *testing.T) {
 		we, wo, werr := ref([]byte(args))
 		if ge != we || go_ != wo || (gerr == nil) != (werr == nil) || gerr != nil && gerr.Error() != werr.Error() {
 			t.Errorf("%.80q: %q %v %v; the decode %q %v %v", args, ge, go_, gerr, we, wo, werr)
+		}
+	}
+}
+
+// ManualFailure's pre-check (lever J2, item 3) skips only results its walk
+// leaves successes: on every probe it answers as the walk does.
+func TestManualFailureSkip(t *testing.T) {
+	for _, r := range []string{
+		`{"wm_failure":"x"}`, `{"\u0077m_failure":"x"}`, `{"wm\u005ffailure":"x"}`, `{"w\u006d_failure":"x","wm_labels":null}`,
+		`{"wm_labels":["a"]}`, `{"wm\u005flabels":["a"]}`, `{"a":"\n","b":"\"","c":"\\u0077m_failure"}`,
+		`{"a":"wm_failure"}`, `{"a":{"wm_failure":"x"}}`, `["wm_failure"]`, `{"x":1}`, `{}`, `{"wm_failure":"x"} 1`,
+		`{"wm_failure":"x"} y`, `{"wm_failure":"x",}`, `{"\\u0077m_failure":"x"}`, `{"wm_failure":"\u00e9"}`,
+	} {
+		gv, gok := ManualFailure([]byte(r))
+		wv, wok := manualFailure([]byte(r))
+		if gok != wok || string(gv.Producer()) != string(wv.Producer()) {
+			t.Errorf("%s: %v %s; the walk %v %s", r, gok, gv.Producer(), wok, wv.Producer())
 		}
 	}
 }

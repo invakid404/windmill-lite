@@ -123,7 +123,20 @@ func FailureValue(raw []byte) jsonval.Value {
 // type (a wm_failure that is not a string, a wm_labels that is not null or
 // an array of strings, a null element included) disables both markers, so
 // the result stays a success. ok is false when the result stays one.
+//
+// Only a wm_failure member marks a failure, and a key is wm_failure only
+// when the text spells it, as itself or with \u escapes (no other escape
+// writes a letter or an underscore): a result without either is not
+// walked.
 func ManualFailure(result []byte) (jsonval.Value, bool) {
+	if !bytes.Contains(result, []byte("wm_failure")) && !bytes.Contains(result, []byte(`\u`)) {
+		return jsonval.Value{}, false
+	}
+	return manualFailure(result)
+}
+
+// manualFailure is ManualFailure's walk.
+func manualFailure(result []byte) (jsonval.Value, bool) {
 	ms, ok := members(bytes.TrimSpace(result))
 	if !ok {
 		return jsonval.Value{}, false
