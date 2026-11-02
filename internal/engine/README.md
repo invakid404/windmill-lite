@@ -216,9 +216,10 @@ An invocation settles when its entrypoint call can run no more code, and
 - **Tests of letting go.** `TestSettledRunLetsGoOfItsValues`
   (`retain_test.go`) keeps every Reporter, as the harness does, and checks
   with weak pointers that a settled run's step results become unreachable.
-  A run that has ended with an invocation still open gets that
-  invocation's late output, in the trace `OnRunSettled` receives, and keeps
-  its values until it settles.
+  A run that has ended with an invocation still open gets late output, in
+  the trace `OnRunSettled` receives, and keeps its values until it settles.
+  The late output may come from the open invocation or, in order, from one
+  that has already settled while the other keeps the run open.
 
 ## The engine core
 

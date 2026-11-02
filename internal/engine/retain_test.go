@@ -65,8 +65,9 @@ func (h settledTrace) OnRunSettled(t *Trace) { h.ch <- t }
 // invocations does. Once a run has settled, its step results are
 // unreachable however long the Reporters are kept, and a late call on one
 // of them goes nowhere. While a run that has ended still has an invocation
-// open, its late output reaches it, in the trace that OnRunSettled
-// receives, and its values stay reachable until it settles.
+// open, late output reaches it, in the trace that OnRunSettled receives,
+// from that invocation or from one that has already settled, in order; its
+// values stay reachable until it settles.
 func TestSettledRunLetsGoOfItsValues(t *testing.T) {
 	flows := map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""), mod("b", "echo", "", ""))}
 
@@ -109,6 +110,39 @@ func TestSettledRunLetsGoOfItsValues(t *testing.T) {
 		got := <-settled.ch
 		if l := got.Steps[0].Late; len(l) != 1 || string(l[0].Body.Producer()) != `["late line"]` {
 			t.Fatalf("the settled trace's late output %+v, want the late line", l)
+		}
+		got = nil
+		if n := x.reachable(); n != 0 {
+			t.Fatalf("%d of 2 results still reachable once the run settled", n)
+		}
+		runtime.KeepAlive(x.reporters)
+	})
+
+	// An invocation that has settled, as one the harness still holds in its
+	// table, sends late output while another keeps the run from settling:
+	// the output reaches the run, in order, and the values go once the run
+	// settles.
+	t.Run("settled while another is open", func(t *testing.T) {
+		x := &retainExec{open: true}
+		e := mustOpen(t, flows, x)
+		settled := settledTrace{ch: make(chan *Trace, 1)}
+		tr := runIt(t, e, `{}`, settled)
+		if len(tr.Steps) != 2 {
+			t.Fatalf("the run: %+v", tr.Status)
+		}
+		tr = nil
+		x.reporters[0].Settled(SettleCompleted)
+		for _, line := range []string{`["first"]`, `["second"]`} {
+			x.reporters[0].Late(Late{Kind: LateLog, Body: jsonval.FromProducer([]byte(line))})
+		}
+		if n := x.reachable(); n != 2 {
+			t.Fatalf("%d of 2 results reachable while an invocation is open, want 2", n)
+		}
+		x.reporters[1].Settled(SettleCompleted)
+		got := <-settled.ch
+		l := got.Steps[0].Late
+		if len(l) != 2 || string(l[0].Body.Producer()) != `["first"]` || string(l[1].Body.Producer()) != `["second"]` {
+			t.Fatalf("the settled trace's late output %+v, want the settled invocation's two lines in order", l)
 		}
 		got = nil
 		if n := x.reachable(); n != 0 {
