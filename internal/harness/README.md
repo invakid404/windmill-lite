@@ -330,6 +330,13 @@ fresh harness does that when it exits right after its result while a pong
 to its heartbeat is on its way, so taking `ECONNRESET` for a failure would
 discard the job's held result as killed by `SIGKILL`.
 
+A child of the harness may hold its socket open, so once the harness has
+exited each read of the socket waits at most `exitReadGrace` (one second)
+for more (`conn.endReads`). The frames the harness wrote before it exited
+are read however long the reader takes to come to them: a single deadline
+a second after the exit cut off log frames still in the socket's buffer
+(Linux's holds about 200 KiB) when the reader was slow.
+
 Every kill but the watchdog's, which reports its own, is named in the
 diagnostics (`killing the harness: <reason>`). The line is written after
 the signal, on a goroutine of its own, because the diagnostics writer can
@@ -668,7 +675,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   re-entrant Reporter, an abandoned call that settles the moment its
   cancel arrives, and a fresh process that exits right after its result
   with a pong still unread (`TestFreshExitWithAnUnreadPong`, which fails on
-  Linux when `ECONNRESET` is taken for a failed connection). It checks that
+  Linux when `ECONNRESET` is taken for a failed connection), and one whose
+  last log frames are still in the socket when the grace after its exit has
+  passed, the reader held on its first frame by a test hook
+  (`messageRead`; `TestFramesWrittenBeforeTheExitAreRead`). It checks that
   the pool hears of an abandonment and of a death before any Reporter does,
   and that a kill is named (`TestKillIsNamed`) without waiting for a
   blocked diagnostics writer, by `Kill` (`TestKillWithBlockedDiagnostics`)

@@ -87,7 +87,7 @@ func fakeHarness(mode string) int {
 		time.Sleep(time.Second)
 	}
 	hello := Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid}
-	if mode == "fresh-unread-pong" || mode == "fresh-hang" {
+	if mode == "fresh-unread-pong" || mode == "fresh-hang" || mode == "fresh-log-exit" {
 		hello.Caps.Fresh = true
 	}
 	if mode == "plugin" {
@@ -220,6 +220,15 @@ func fakeHarness(mode string) int {
 			time.Sleep(300 * time.Millisecond)
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 			return 0
+		case "fresh-log-exit":
+			// Logs a line, and once the engine says its reader has it, 20
+			// more, a frame each, and exits with code 6.
+			send(Log{ID: inv.ID, Lines: []string{"line 0"}})
+			recv()
+			for i := 1; i <= 20; i++ {
+				send(Log{ID: inv.ID, Lines: []string{fmt.Sprintf("line %d", i)}})
+			}
+			return 6
 		default:
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 		}
@@ -251,6 +260,46 @@ func TestFreshExitWithAnUnreadPong(t *testing.T) {
 	p.mu.Unlock()
 	if reason != "" {
 		t.Fatalf("the process was killed: %s; diagnostics %q", reason, diag.String())
+	}
+}
+
+// Every frame a process wrote before it exited reaches its invocation, in
+// order, however long the reader takes to come to it: the grace after the
+// exit bounds only each read's wait for more, which a child that holds the
+// socket would make endless. The reader is held on the first log frame,
+// while the other 20 are written and the process exits, until the grace
+// has passed. A deadline set once at the exit cut them off: on linux/arm64
+// the tail of TestBunFreshEndsWithTheProcess's long log stopped at the end
+// of a frame still in the socket when its reader was slow.
+func TestFramesWrittenBeforeTheExitAreRead(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-log-exit")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	inv := freshInvocation("x", `{}`, rec)
+	var once sync.Once
+	hold := func(m Message) {
+		if l, ok := m.(Log); ok && l.ID == inv.ID {
+			once.Do(func() {
+				// The fake writes the rest once it reads this.
+				p.conn.send(Ping{ID: "rest"})
+				<-p.waitDone
+				time.Sleep(exitReadGrace + 200*time.Millisecond)
+			})
+		}
+	}
+	messageRead.Store(&hold)
+	t.Cleanup(func() { messageRead.Store(nil) })
+	out, err := execute(t, p, inv, 10*time.Second)
+	want := "line 0"
+	for i := 1; i <= 20; i++ {
+		want += fmt.Sprintf("\nline %d", i)
+	}
+	if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 6 || out.Tail != want {
+		t.Fatalf("got %s exit %d, tail %q, %v; diagnostics %q", out.Kind, out.ExitCode, out.Tail, err, diag.String())
+	}
+	if got := rec.log(); got != "settled process_exited" {
+		t.Fatalf("reporter calls %q", got)
 	}
 }
 

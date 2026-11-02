@@ -69,6 +69,9 @@ type conn struct {
 	// raw is the socket's raw connection, through which flush writes
 	// without blocking; nil when the socket has none.
 	raw syscall.RawConn
+	// grace, once the peer has exited (endReads), bounds each read's wait
+	// for more bytes.
+	grace atomic.Pointer[time.Duration]
 }
 
 type outStream struct {
@@ -459,8 +462,29 @@ func endOfStream(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET)
 }
 
+// endReads bounds the reader once the peer has exited: from then on each
+// read waits at most grace for more bytes, so a child that holds the
+// socket open cannot keep the reader. What the peer wrote before it exited
+// is read however long the reader takes to come to it: a deadline set once
+// at the exit would cut off the frames still in the socket's buffer.
+func (c *conn) endReads(grace time.Duration) {
+	c.grace.Store(&grace)
+	c.nc.SetReadDeadline(time.Now().Add(grace))
+}
+
+// socketReader is the reader's source: the socket, each read bounded by
+// the grace once endReads has set it.
+type socketReader struct{ c *conn }
+
+func (r socketReader) Read(b []byte) (int, error) {
+	if g := r.c.grace.Load(); g != nil {
+		r.c.nc.SetReadDeadline(time.Now().Add(*g))
+	}
+	return r.c.nc.Read(b)
+}
+
 func (c *conn) readLoop() {
-	r := bufio.NewReaderSize(c.nc, 64<<10)
+	r := bufio.NewReaderSize(socketReader{c}, 64<<10)
 	asm := newAssembler(c.maxMessage)
 	for {
 		payload, err := readFrame(r, c.maxFrame)
@@ -493,9 +517,16 @@ func (c *conn) readLoop() {
 		if timed {
 			c.msgDecoded = time.Now()
 		}
+		if f := messageRead.Load(); f != nil {
+			(*f)(m)
+		}
 		c.onMessage(m)
 	}
 }
+
+// messageRead, when set, is called by every connection's reader with each
+// message before it hands it on; tests hold the reader there.
+var messageRead atomic.Pointer[func(Message)]
 
 // lastReceived returns when the last frame arrived, or when the conn was
 // made if none has.

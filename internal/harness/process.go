@@ -35,9 +35,10 @@ const (
 	// DefaultRecentLate is how many settled invocations keep receiving
 	// late output (D9) per process.
 	DefaultRecentLate = 4096
-	// exitReadGrace is how long the reader keeps draining the socket after
-	// the process exited: a child the step started may hold the socket
-	// open, so the end of the stream cannot be waited for.
+	// exitReadGrace is how long each read waits for more of the socket
+	// once the process has exited: a child the step started may hold the
+	// socket open, so the end of the stream cannot be waited for. What the
+	// process wrote before it exited is read however long that takes.
 	exitReadGrace = time.Second
 	// rejectGrace is how long a rejected harness gets to exit by itself.
 	rejectGrace = 2 * time.Second
@@ -495,6 +496,7 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("harness: socket: %w", err)
 	}
+	p.conn = newConn(nc, connConfig{maxMessage: p.maxMessage, onMessage: p.handle, onClose: p.readerDone})
 	go func() {
 		cmd.Wait()
 		p.mu.Lock()
@@ -510,9 +512,8 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 		}
 		p.mu.Unlock()
 		close(p.waitDone)
-		nc.SetReadDeadline(time.Now().Add(grace))
+		p.conn.endReads(grace)
 	}()
-	p.conn = newConn(nc, connConfig{maxMessage: p.maxMessage, onMessage: p.handle, onClose: p.readerDone})
 	p.conn.run()
 
 	if err := p.handshake(ctx, timeout); err != nil {
