@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
@@ -163,9 +164,9 @@ func realmProbe(tb testing.TB, rt *wl.Runtime) realmSample {
 	return s
 }
 
-// runNative runs f/native/steps n times, one after another, and checks
-// that each returned its input.
-func runNative(tb testing.TB, rt *wl.Runtime, n int) {
+// runNative runs f/native/steps n times, one after another, with the
+// run's hooks (nil for none), and checks that each returned its input.
+func runNative(tb testing.TB, rt *wl.Runtime, n int, hooks *wl.Hooks) {
 	tb.Helper()
 	var in struct {
 		P json.RawMessage `json:"p"`
@@ -174,39 +175,78 @@ func runNative(tb testing.TB, rt *wl.Runtime, n int) {
 		tb.Fatal(err)
 	}
 	for range n {
-		res, err := rt.Run(context.Background(), "f/native/steps", []byte(nativeInput), wl.RunOptions{})
+		res, err := rt.Run(context.Background(), "f/native/steps", []byte(nativeInput), wl.RunOptions{Hooks: hooks})
 		if err != nil || res.Status != wl.StatusSuccess || !bytes.Equal(res.Result, in.P) {
 			tb.Fatalf("f/native/steps: %+v, %v; want the result %s", res, err, in.P)
 		}
 	}
 }
 
+// varyingNames are hooks whose environment hook (H12) gives every
+// invocation a variable that no invocation had before: WL_VARYING_1,
+// WL_VARYING_2 and so on. A nativets module and the embedded client
+// declare every variable of the environment as a const of its name, so
+// each invocation of them has a preamble of its own.
+func varyingNames() *wl.Hooks {
+	var seq atomic.Int64
+	return &wl.Hooks{InvocationEnv: func(_ context.Context, _ wl.RunHandle, _ wl.Site, env map[string]string) error {
+		env[fmt.Sprintf("WL_VARYING_%d", seq.Add(1))] = "v"
+		return nil
+	}}
+}
+
+// nativeVariants is how many preamble variants of one module the harness
+// keeps compiled (MAX_VARIANTS, harnesses/bun/runtime/native.ts). With
+// varying names, f/native/steps compiles three modules per variant: the
+// nativets step, the nativets step that imports the embedded client, and
+// the client.
+const nativeVariants = 16
+
 // TestNativeInvocationsKeepNoScript runs N native-boundary invocations on
-// one long-lived process, N = 200 and then 400, after a run that loads
-// and compiles every module once, and checks that the count of Script
-// objects after a full collection does not grow with N: by fewer than 5
-// over the whole run. In host mode, the topology the milestone names, and
-// in subprocess mode, which runs native steps with the same code.
+// one long-lived process, N = 200 and then 400, after runs that load and
+// compile every module, and checks that the count of Script objects after
+// a full collection does not grow with N: by fewer than 5 over the whole
+// run. In host mode, and in subprocess mode, which runs native steps with
+// the same code. With fixed names, one run compiles every module. With
+// varying names (varyingNames), every invocation of a nativets module has
+// a preamble of its own: the first nativeVariants runs may keep at most
+// nativeVariants compiled variants of each of its three modules, and no
+// run after them may keep more.
 func TestNativeInvocationsKeepNoScript(t *testing.T) {
 	bun := benchSetup(t)
 	bundlePath := nativeBundle(t, bun)
 	for _, topology := range []string{"host", "subprocess"} {
-		t.Run("topology="+topology, func(t *testing.T) {
-			rt := benchRuntimeOn(t, bun, topology, bundlePath, func(*wl.Options) {})
-			runNative(t, rt, 1)
-			base := realmProbe(t, rt)
-			t.Logf("after one run: %v", base)
-			done := 0
-			for _, n := range []int{200, 400} {
-				runNative(t, rt, (n-done)/nativeSteps)
-				done = n
-				s := realmProbe(t, rt)
-				t.Logf("after %d more native invocations: %v", n, s)
-				if grew := s.Scripts - base.Scripts; grew >= 5 {
-					t.Errorf("%s: %d native invocations left %d more Script objects after a full collection; want fewer than 5", topology, n, grew)
+		for _, names := range []string{"fixed", "varying"} {
+			t.Run("topology="+topology+"/names="+names, func(t *testing.T) {
+				rt := benchRuntimeOn(t, bun, topology, bundlePath, func(*wl.Options) {})
+				var hooks *wl.Hooks
+				if names == "varying" {
+					hooks = varyingNames()
 				}
-			}
-		})
+				runNative(t, rt, 1, hooks)
+				base := realmProbe(t, rt)
+				t.Logf("after one run: %v", base)
+				if names == "varying" {
+					runNative(t, rt, nativeVariants+4, hooks)
+					first := base
+					base = realmProbe(t, rt)
+					t.Logf("after %d more runs: %v", nativeVariants+4, base)
+					if kept := base.Scripts - first.Scripts; kept > 3*nativeVariants {
+						t.Errorf("%s: the runs that fill the variants kept %d more Script objects; want at most %d", topology, kept, 3*nativeVariants)
+					}
+				}
+				done := 0
+				for _, n := range []int{200, 400} {
+					runNative(t, rt, (n-done)/nativeSteps, hooks)
+					done = n
+					s := realmProbe(t, rt)
+					t.Logf("after %d more native invocations: %v", n, s)
+					if grew := s.Scripts - base.Scripts; grew >= 5 {
+						t.Errorf("%s, %s names: %d native invocations left %d more Script objects after a full collection; want fewer than 5", topology, names, n, grew)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -243,14 +283,14 @@ func BenchmarkNativeRealm(b *testing.B) {
 	for _, topology := range []string{"host", "subprocess"} {
 		b.Run("topology="+topology, func(b *testing.B) {
 			rt := benchRuntimeOn(b, bun, topology, bundlePath, func(*wl.Options) {})
-			runNative(b, rt, 1)
+			runNative(b, rt, 1, nil)
 			first := realmProbe(b, rt)
 			b.Logf("%s, after one run: %v", topology, first)
 			var quarter, last realmSample
 			done := 0
 			for q := 1; q <= 4; q++ {
 				n := runs*q/4 - done
-				runNative(b, rt, n)
+				runNative(b, rt, n, nil)
 				done += n
 				last = realmProbe(b, rt)
 				if q == 1 {
