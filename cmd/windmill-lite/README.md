@@ -328,10 +328,13 @@ With shared code, both tests assert the memory gate of [ADR 0013](../../docs/des
 peak of at most 650 MiB after its soak.
 
 `realm_test.go` checks what native-boundary invocations leave behind in a
-long-lived Bun process. Its synthetic folder's flow `f/native/steps` runs
-ten native steps that each return their argument: bunnative and nativets
-steps in turn, one of them a nativets step that imports the embedded
-client.
+long-lived Bun process. Its synthetic folder's flows each run ten native
+steps that return their argument:
+
+- `f/native/steps`: bunnative and nativets steps in turn, one of them a
+  nativets step that imports the embedded client;
+- `f/native/varying`: the same, with a nativets step that returns its
+  argument through a direct `eval` in place of the bunnative one.
 
 Its Bun step `f/native/probe` reads, after a full collection
 (`Bun.gc(true)`), the process's count of JavaScriptCore `Script` objects
@@ -342,7 +345,7 @@ benchmarks' topologies (below).
 
 | Test | What it shows |
 |---|---|
-| `TestNativeInvocationsKeepNoScript` | After a run that loads and compiles every module, 200 and then 400 native invocations, in host mode and in subprocess mode, leave fewer than 5 more `Script` objects. Under the pinned Bun 1.3.10 every script that `node:vm` compiles from a string stays reachable after a full collection, so a harness that compiles one per invocation keeps one per invocation and fails the test ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
+| `TestNativeInvocationsKeepNoScript` | In host and subprocess mode, after runs that load and compile every module, 200 and then 400 native invocations leave fewer than 5 more `Script` objects. With fixed names it runs `f/native/steps`. With varying names it runs `f/native/varying`, each invocation getting a variable no invocation had before from the environment hook ([H12](../../docs/design/0008-host-hooks.md)); its first 16 runs may keep 16 more, the `eval` step's variants. A harness that compiles a script per invocation fails it ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
 
 ## Benchmarks
 

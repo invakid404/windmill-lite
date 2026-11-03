@@ -785,37 +785,49 @@ this mode cannot reproduce is deviation D5 of
 - **The module** is the script's native form, `scripts/bun/<id>.native.js`
   ([build/](build/README.md)): one async arrow function, so its scope has
   no `arguments`, as a module's has none, and its module-level `this` is
-  `undefined`, compiled in the realm
-  once per process for each set of preamble names. Its **preamble**
-  declares `process = { env }`, `BASE_URL` and `BASE_INTERNAL_URL` (both the
-  facade's origin: the welcome's, or in a fresh process, which the welcome
-  does not tell, the `BASE_URL` it was spawned with), and for nativets
-  every job variable as a `const` of its
-  name; the values are the invocation's job variables and nothing else. A
-  top-level declaration of one of those names fails the load.
+  `undefined`. It is compiled once per process for each preamble (below).
+  - *Its preamble* declares `process = { env }`, `BASE_URL` and
+    `BASE_INTERNAL_URL`, and for nativets each job variable as a `const` of
+    its name. A top-level declaration of one of those names fails the load.
+  - *The values* are the invocation's job variables and nothing else. Both
+    base URLs are the facade's origin: the welcome's, or in a fresh
+    process, which the welcome does not tell, the `BASE_URL` it was spawned
+    with.
 - **Compiled once, run in each realm.** Under the pinned Bun 1.3.10, every
   script that `node:vm` compiles from a string stays reachable after a full
-  collection, so a harness that compiled one per invocation would grow with
-  every native invocation it served. So never compile a script from a string
-  on an invocation's path: compile it once, as a module-level `vm.Script` or
-  in a cache with a bound, and run it in each new context with
-  `script.runInContext(ctx)`, which keeps nothing.
+  collection, so one compiled per invocation grows the process with every
+  native invocation. So never compile a script from a string with
+  `node:vm` on an invocation's path: compile it once, as a module-level
+  `vm.Script` or in a cache with a bound, and run it in each new context
+  with `script.runInContext(ctx)`, which keeps nothing.
   - *What that rules out.* On an invocation's path: `vm.runInContext`,
-    `vm.runInNewContext` and `vm.runInThisContext` with a string, and
-    `new vm.Script`, `vm.compileFunction` and `new Function`. A new context
-    keeps nothing.
-  - *What is compiled once today.* The realm's global read (`GLOBAL_SCRIPT`)
-    and its helpers (`REALM_SCRIPT`), once per process; a module, once per
-    process for each set of its preamble names.
-  - *When a module compiles again.* The reserved job variables have the same
-    names in every invocation. If a host's environment hook
+    `vm.runInNewContext` and `vm.runInThisContext` with a string,
+    `new vm.Script`, and `vm.compileFunction`, which keeps no script but
+    about 72 KiB of heap per call. A new context keeps nothing, and neither
+    does the realm's own `eval` or `Function`, though each compiles anew.
+  - *What is compiled once.* The realm's global read (`GLOBAL_SCRIPT`) and
+    its helpers (`REALM_SCRIPT`), once per process. A module, once per
+    process for each of its first 16 preambles (`MAX_VARIANTS`). Any further
+    preamble is compiled by the realm's own `eval` on each load, with the
+    module's URL in a `sourceURL` comment at the end of its first line, so
+    its bindings, errors and stacks are the same.
+  - *Which names a preamble declares.* Each job variable the module's text
+    spells, with its `\u` escapes or without, and every name that is not
+    plain ASCII or whose `const` fails to compile (a reserved word, `await`,
+    `eval`, `arguments`). Code cannot read or declare a name it never
+    spells, so leaving that name out changes nothing; a text that spells
+    `eval` declares every variable.
+  - *Why the bound holds.* The reserved job variables have the same names in
+    every invocation. A host's environment hook
     ([H12](../../docs/design/0008-host-hooks.md)), which sets an
-    invocation's variables, gives a nativets step a variable name that
-    changes between invocations, each such invocation compiles the module
-    again.
-  - *The test.* `TestNativeInvocationsKeepNoScript`
+    invocation's variables, may add names that change between invocations.
+    A module that never spells them keeps one preamble; any other keeps at
+    most 16 compiled variants.
+  - *The tests.* `TestNativeInvocationsKeepNoScript`
     ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#tests)) fails
-    when native invocations keep `Script` objects.
+    when native invocations keep `Script` objects, with fixed names and with
+    a name that changes every invocation. `test/native.test.ts` checks the
+    preamble's names and the variants' outcomes.
 - **Imports** resolve against `file:///eval.ts`. For a nativets script,
   every spelling of `file:///windmill.ts` is the embedded client
   (`scripts/native/windmill.js`), loaded in the same realm with its own
