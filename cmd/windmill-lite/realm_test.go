@@ -36,12 +36,16 @@ const nativeSteps = 10
 // argument, so the run's result is its p.
 const nativeInput = `{"p":{"n":1,"s":"native"}}`
 
-// nativeFolder is the synthetic sync folder of the native-realm checks:
-// f/native/steps, ten native steps that each return their argument (the
-// first the flow input's p, the others previous_result). They alternate a
-// bunnative step and a nativets one; the third is a nativets step that
-// imports the embedded client, which each invocation loads into its own
-// realm.
+// nativeFolder is the synthetic sync folder of the native-realm checks.
+// Its flows each run nativeSteps native steps that return their argument
+// (nativeFlow):
+//
+//   - f/native/steps: a bunnative step and a nativets one in turn; the
+//     third is a nativets step that imports the embedded client, which
+//     each invocation loads into its own realm;
+//   - f/native/varying: the same with f/native/evals, a nativets step that
+//     returns its argument through a direct eval, in place of the
+//     bunnative one.
 func nativeFolder() map[string]string {
 	files := map[string]string{
 		"wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
@@ -64,6 +68,13 @@ export async function main(p: unknown) {
   return typeof wmill.getVariable === "function" ? p : null;
 }
 `,
+		"f/native/evals.fetch.ts": `// Returns its argument through a direct eval, which can read any variable
+// of the module's scope: a nativets step whose preamble declares every
+// variable of the environment.
+export async function main(p: unknown) {
+  return eval("p");
+}
+`,
 		"f/native/probe.ts": `// The native-realm probe: after a full collection, the count of
 // JavaScriptCore Script objects, the JavaScript heap and the resident set,
 // in bytes, of the process this Bun step runs in.
@@ -77,23 +88,41 @@ export async function main() {
 `,
 		"f/native/probe.flow/flow.yaml": "summary: The native-realm probe\nvalue:\n  modules:\n    - id: a\n      value: {type: script, path: f/native/probe, input_transforms: {}}\n",
 	}
-	var steps strings.Builder
-	steps.WriteString("summary: Native steps that each return their argument\nvalue:\n  modules:\n")
-	for k := range nativeSteps {
-		path, from := "f/native/bunnative", "previous_result"
+	files["f/native/steps.flow/flow.yaml"] = nativeFlow("Native steps that each return their argument", func(k int) string {
 		switch {
 		case k == 2:
-			path = "f/native/client"
+			return "f/native/client"
 		case k%2 == 1:
-			path = "f/native/nativets"
+			return "f/native/nativets"
 		}
+		return "f/native/bunnative"
+	})
+	files["f/native/varying.flow/flow.yaml"] = nativeFlow("Nativets steps that each return their argument, some through eval", func(k int) string {
+		switch {
+		case k == 2:
+			return "f/native/client"
+		case k%2 == 1:
+			return "f/native/nativets"
+		}
+		return "f/native/evals"
+	})
+	return files
+}
+
+// nativeFlow is a flow of nativeSteps steps, step k running the script
+// path(k), that each return their argument: the first the flow input's p,
+// the others previous_result.
+func nativeFlow(summary string, path func(k int) string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "summary: %s\nvalue:\n  modules:\n", summary)
+	for k := range nativeSteps {
+		from := "previous_result"
 		if k == 0 {
 			from = "flow_input.p"
 		}
-		fmt.Fprintf(&steps, "    - id: %c\n      value: {type: script, path: %s, input_transforms: {p: {type: javascript, expr: %s}}}\n", 'a'+k, path, from)
+		fmt.Fprintf(&b, "    - id: %c\n      value: {type: script, path: %s, input_transforms: {p: {type: javascript, expr: %s}}}\n", 'a'+k, path(k), from)
 	}
-	files["f/native/steps.flow/flow.yaml"] = steps.String()
-	return files
+	return b.String()
 }
 
 var (
@@ -164,9 +193,10 @@ func realmProbe(tb testing.TB, rt *wl.Runtime) realmSample {
 	return s
 }
 
-// runNative runs f/native/steps n times, one after another, with the
-// run's hooks (nil for none), and checks that each returned its input.
-func runNative(tb testing.TB, rt *wl.Runtime, n int, hooks *wl.Hooks) {
+// runNative runs the flow at path, f/native/steps or f/native/varying, n
+// times, one after another, with the run's hooks (nil for none), and
+// checks that each returned its input.
+func runNative(tb testing.TB, rt *wl.Runtime, path string, n int, hooks *wl.Hooks) {
 	tb.Helper()
 	var in struct {
 		P json.RawMessage `json:"p"`
@@ -175,9 +205,9 @@ func runNative(tb testing.TB, rt *wl.Runtime, n int, hooks *wl.Hooks) {
 		tb.Fatal(err)
 	}
 	for range n {
-		res, err := rt.Run(context.Background(), "f/native/steps", []byte(nativeInput), wl.RunOptions{Hooks: hooks})
+		res, err := rt.Run(context.Background(), path, []byte(nativeInput), wl.RunOptions{Hooks: hooks})
 		if err != nil || res.Status != wl.StatusSuccess || !bytes.Equal(res.Result, in.P) {
-			tb.Fatalf("f/native/steps: %+v, %v; want the result %s", res, err, in.P)
+			tb.Fatalf("%s: %+v, %v; want the result %s", path, res, err, in.P)
 		}
 	}
 }
@@ -185,8 +215,8 @@ func runNative(tb testing.TB, rt *wl.Runtime, n int, hooks *wl.Hooks) {
 // varyingNames are hooks whose environment hook (H12) gives every
 // invocation a variable that no invocation had before: WL_VARYING_1,
 // WL_VARYING_2 and so on. A nativets module and the embedded client
-// declare every variable of the environment as a const of its name, so
-// each invocation of them has a preamble of its own.
+// declare each variable of the environment that their text spells as a
+// const of its name, and every variable when their text spells eval.
 func varyingNames() *wl.Hooks {
 	var seq atomic.Int64
 	return &wl.Hooks{InvocationEnv: func(_ context.Context, _ wl.RunHandle, _ wl.Site, env map[string]string) error {
@@ -196,22 +226,26 @@ func varyingNames() *wl.Hooks {
 }
 
 // nativeVariants is how many preamble variants of one module the harness
-// keeps compiled (MAX_VARIANTS, harnesses/bun/runtime/native.ts). With
-// varying names, f/native/steps compiles three modules per variant: the
-// nativets step, the nativets step that imports the embedded client, and
-// the client.
+// keeps compiled (MAX_VARIANTS, harnesses/bun/runtime/native.ts).
 const nativeVariants = 16
 
 // TestNativeInvocationsKeepNoScript runs N native-boundary invocations on
 // one long-lived process, N = 200 and then 400, after runs that load and
 // compile every module, and checks that the count of Script objects after
 // a full collection does not grow with N: by fewer than 5 over the whole
-// run. In host mode, and in subprocess mode, which runs native steps with
-// the same code. With fixed names, one run compiles every module. With
-// varying names (varyingNames), every invocation of a nativets module has
-// a preamble of its own: the first nativeVariants runs may keep at most
-// nativeVariants compiled variants of each of its three modules, and no
-// run after them may keep more.
+// run. It runs in host mode, and in subprocess mode, which runs native
+// steps with the same code, each with two kinds of environment:
+//
+//   - fixed names: f/native/steps, whose every invocation has the same
+//     variable names, so one run compiles every module;
+//   - varying names (varyingNames): f/native/varying, whose every
+//     invocation adds a name no invocation had before. The nativets
+//     steps, the step that imports the embedded client and the client
+//     never spell those names, so they keep one variant each. The step
+//     that evaluates code spells eval, so each of its invocations has a
+//     preamble of its own: the first nativeVariants runs may keep at most
+//     nativeVariants Script objects more, for its variants, and no run
+//     after them may keep more.
 func TestNativeInvocationsKeepNoScript(t *testing.T) {
 	bun := benchSetup(t)
 	bundlePath := nativeBundle(t, bun)
@@ -219,25 +253,25 @@ func TestNativeInvocationsKeepNoScript(t *testing.T) {
 		for _, names := range []string{"fixed", "varying"} {
 			t.Run("topology="+topology+"/names="+names, func(t *testing.T) {
 				rt := benchRuntimeOn(t, bun, topology, bundlePath, func(*wl.Options) {})
-				var hooks *wl.Hooks
+				path, hooks := "f/native/steps", (*wl.Hooks)(nil)
 				if names == "varying" {
-					hooks = varyingNames()
+					path, hooks = "f/native/varying", varyingNames()
 				}
-				runNative(t, rt, 1, hooks)
+				runNative(t, rt, path, 1, hooks)
 				base := realmProbe(t, rt)
 				t.Logf("after one run: %v", base)
 				if names == "varying" {
-					runNative(t, rt, nativeVariants+4, hooks)
+					runNative(t, rt, path, nativeVariants, hooks)
 					first := base
 					base = realmProbe(t, rt)
-					t.Logf("after %d more runs: %v", nativeVariants+4, base)
-					if kept := base.Scripts - first.Scripts; kept > 3*nativeVariants {
-						t.Errorf("%s: the runs that fill the variants kept %d more Script objects; want at most %d", topology, kept, 3*nativeVariants)
+					t.Logf("after %d more runs: %v", nativeVariants, base)
+					if kept := base.Scripts - first.Scripts; kept > nativeVariants {
+						t.Errorf("%s: the runs that fill the variants kept %d more Script objects; want at most %d", topology, kept, nativeVariants)
 					}
 				}
 				done := 0
 				for _, n := range []int{200, 400} {
-					runNative(t, rt, (n-done)/nativeSteps, hooks)
+					runNative(t, rt, path, (n-done)/nativeSteps, hooks)
 					done = n
 					s := realmProbe(t, rt)
 					t.Logf("after %d more native invocations: %v", n, s)
@@ -283,14 +317,14 @@ func BenchmarkNativeRealm(b *testing.B) {
 	for _, topology := range []string{"host", "subprocess"} {
 		b.Run("topology="+topology, func(b *testing.B) {
 			rt := benchRuntimeOn(b, bun, topology, bundlePath, func(*wl.Options) {})
-			runNative(b, rt, 1, nil)
+			runNative(b, rt, "f/native/steps", 1, nil)
 			first := realmProbe(b, rt)
 			b.Logf("%s, after one run: %v", topology, first)
 			var quarter, last realmSample
 			done := 0
 			for q := 1; q <= 4; q++ {
 				n := runs*q/4 - done
-				runNative(b, rt, n, nil)
+				runNative(b, rt, "f/native/steps", n, nil)
 				done += n
 				last = realmProbe(b, rt)
 				if q == 1 {
