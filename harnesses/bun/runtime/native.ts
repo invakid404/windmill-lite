@@ -210,6 +210,14 @@ const REALM_SCRIPT = new vm.Script(`(function () {
   return { copy, stringify: (v) => JSON.stringify(v ?? null), errorProto: Error.prototype, promiseProto: Promise.prototype };
 })`, { filename: "windmill-lite:native" });
 
+/** The realm's global object, read by a script compiled once per process
+ * and run in each new realm. Under the pinned Bun 1.3.10, every script
+ * that node:vm compiles from a string stays reachable after a full
+ * collection, so vm.runInContext("globalThis", ctx) kept one per native
+ * invocation; running a compiled script in a new context keeps nothing.
+ * The global it reads is the same object. */
+const GLOBAL_SCRIPT = new vm.Script("globalThis", { filename: "windmill-lite:native" });
+
 /** An identifier the preamble can declare as a const. A variable name that
  * is not one fails every nativets step's load on Windmill too (WR-45). */
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*$/u;
@@ -917,7 +925,7 @@ export class NativeJob {
   ) {
     this.unattributedAtOpen = native.unattributed;
     this.ctx = vm.createContext();
-    this.g = vm.runInContext("globalThis", this.ctx);
+    this.g = GLOBAL_SCRIPT.runInContext(this.ctx);
     this.realm = REALM_SCRIPT.runInContext(this.ctx)();
     this.promiseProto = (this.realm as unknown as { promiseProto: object }).promiseProto;
     this.install();
