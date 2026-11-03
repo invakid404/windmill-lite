@@ -793,6 +793,26 @@ this mode cannot reproduce is deviation D5 of
   every job variable as a `const` of its
   name; the values are the invocation's job variables and nothing else. A
   top-level declaration of one of those names fails the load.
+- **Compiled once, run in each realm.** Under the pinned Bun 1.3.10, every
+  script that `node:vm` compiles from a string stays reachable after a
+  full collection, with its compiled code. A host or warm harness that
+  compiled one per invocation would grow with every native invocation it
+  served, without bound, whatever the payloads. So **never compile a
+  script from a string per invocation**: compile it once, as a
+  module-level `vm.Script` or in a cache with a bound, and run the compiled
+  script in each new context with `script.runInContext(ctx)`, which keeps
+  nothing. On an invocation's path, that rules out `vm.runInContext`,
+  `vm.runInNewContext` and `vm.runInThisContext` with a string, and
+  `new vm.Script`, `vm.compileFunction` and `new Function`. A new context
+  keeps nothing either. Today the realm's global read (`GLOBAL_SCRIPT`)
+  and its helpers (`REALM_SCRIPT`) are compiled once per process, and a
+  module once per process for each set of its preamble names. The
+  reserved job variables have the same names in every invocation. A host
+  whose `InvocationEnv` hook (H12) gives a nativets step a name that
+  changes from one invocation to the next makes each such invocation
+  compile the module again. `TestNativeInvocationsKeepNoScript`
+  ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#tests)) fails when
+  native invocations keep `Script` objects.
 - **Imports** resolve against `file:///eval.ts`. For a nativets script,
   every spelling of `file:///windmill.ts` is the embedded client
   (`scripts/native/windmill.js`), loaded in the same realm with its own

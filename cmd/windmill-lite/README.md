@@ -327,6 +327,21 @@ With shared code, both tests assert the memory gate of [ADR 0013](../../docs/des
 `TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
 peak of at most 650 MiB after its soak.
 
+`realm_test.go` checks what native-boundary invocations leave behind in a
+long-lived Bun process (milestone PS3). Its synthetic folder's flow
+`f/native/steps` runs ten native steps that each return their argument:
+bunnative and nativets steps in turn, one of them a nativets step that
+imports the embedded client. Its Bun step `f/native/probe` reads, after a
+full collection (`Bun.gc(true)`), the process's count of JavaScriptCore
+`Script` objects (`heapStats().objectTypeCounts.Script`, from `bun:jsc`),
+its JavaScript heap and its resident set. It runs in the process the
+native steps run in: the host in host mode, the warm harness in
+subprocess mode. Both are the benchmarks' topologies (below).
+
+| Test | What it shows |
+|---|---|
+| `TestNativeInvocationsKeepNoScript` | After a run that loads and compiles every module, 200 and then 400 native invocations, in host mode and in subprocess mode, leave fewer than 5 more `Script` objects. Under the pinned Bun 1.3.10 every script that `node:vm` compiles from a string stays reachable after a full collection, so a harness that compiles one per invocation keeps one per invocation and fails the test ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
+
 ## Benchmarks
 
 `bench_test.go` holds the end-to-end benchmarks of the step boundary.
@@ -365,6 +380,7 @@ The benchmarks run on these topologies:
 | `BenchmarkHostShapes`, the large shapes | 20 steps of 256 KiB, 10 of 1 MiB, 8 of 4 MiB and 4 of 16 MiB (`s20-256KiB` to `s4-16MiB`). Each step works as in the 1 KiB shapes. Its template reads two short fields of a flow input whose `seed` is as large as the results |
 | `BenchmarkPassThrough` | A large value passed on unchanged (`bench_large_test.go`): an array of wide records with one text field each, of 64 KiB and about 2.1 MB. A step returns it through 0 to 4 nested sub-flows; the flow forwards it into 1, 3 or 5 steps and maps it to its ids. It runs on the host and on the plugin host, whose `onRunEnd` takes the whole trace. Per run: time, engine CPU and bytes allocated, host CPU |
 | `BenchmarkExpressions` | A step returns a wide object with a long markup string and its plain-text form, of 96 KiB and 2 MiB. Eight steps each evaluate one expression on it, or on the same value as the flow input's `v`: a short read, an optional-chained read, a null test, an object of three fields and a map. Each expression's time is reported per run (`expr-e<k>-ns`) |
+| `BenchmarkNativeRealm` | Milestone PS3's long run (`realm_test.go`): sequential runs of `f/native/steps`, ten native steps that each return their argument, on one host and on one warm harness. It reads `f/native/probe` after a first run and after each quarter of the runs. It reports what each native invocation of the last three quarters leaves after a full collection, so that the allocators' growth while the process warms up does not count: `Script` objects (`scripts/inv`), JavaScript heap (`heap-B/inv`) and resident set (`rss-B/inv`). It also reports the last reading and the `Script` objects the whole run left (`scripts-kept`). It makes `WL_NATIVE_RUNS` runs, 2,000 by default; run it with `-benchtime 1x` |
 | `BenchmarkRunPeaks` | Linux only, with `-benchtime 1x`: the peak resident memory of the engine and of the host over one run, two steps that return their argument at 16 and 32 MiB, and eight at 16 MiB. Each case runs on its own runtime and host, after a warm run. It reports each peak, their sum, and the largest sum of the two resident sizes read together every millisecond (`combined-sampled-MiB`) |
 
 One iteration is one run per worker, the workers started together, so
@@ -481,6 +497,7 @@ groups:
 | `expressions` | `BenchmarkExpressions`, `-benchtime 10x` |
 | `peaks` | `BenchmarkRunPeaks`, `-benchtime 1x` |
 | `retained` | `BenchmarkRetainedHeap`, `-benchtime 1x` |
+| `native` | `BenchmarkNativeRealm`, `-benchtime 1x`, with `WL_NATIVE_RUNS=8000` (80,000 native invocations): the resident set levels off only after about 20,000, so the last three quarters show what each invocation keeps |
 | `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
 
 ```sh
