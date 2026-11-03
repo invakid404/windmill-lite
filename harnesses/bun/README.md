@@ -787,8 +787,9 @@ this mode cannot reproduce is deviation D5 of
   no `arguments`, as a module's has none, and its module-level `this` is
   `undefined`. It is compiled for each preamble, as the next item says.
   - *Its preamble* declares `process = { env }`, `BASE_URL` and
-    `BASE_INTERNAL_URL`, and for nativets each job variable as a `const` of
-    its name. A top-level declaration of one of those names fails the load.
+    `BASE_INTERNAL_URL`, and for nativets each job variable its code can
+    name as a `const` of its name. A top-level declaration of one of those
+    names fails the load.
   - *The values* are the invocation's job variables and nothing else. Both
     base URLs are the facade's origin: the welcome's, or in a fresh
     process, which the welcome does not tell, the `BASE_URL` it was spawned
