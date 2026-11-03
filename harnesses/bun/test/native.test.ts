@@ -770,6 +770,23 @@ describe("the preamble and the module's compiled variants", () => {
     expect(await run("declares", declares, { OTHER: "1" })).toEqual({ ok: "2" });
   });
 
+  test("a variable named process fails the load though the module never spells it, compiled or past the bound", async () => {
+    // The preamble declares process itself, so a variable of that name
+    // collides with it. A name that is not plain ASCII is always declared,
+    // so each invocation here has a preamble of its own: the first 16
+    // compile, and the rest go through the realm's eval.
+    const meta = write("noprocess", "export function main() { return 1; }\n");
+    const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'process'.";
+    const before = scripts();
+    for (let i = 0; i < 24; i++) {
+      const r = await run("noprocess", meta, { process: "x", [`\u00c4${i}`]: "y" });
+      expect(r.generated).toBe(true);
+      expect(JSON.parse(r.error!).message).toBe(failed);
+    }
+    expect(await run("noprocess", meta, { "\u00c40": "y" })).toEqual({ ok: "1" });
+    expect(scripts() - before).toBeLessThanOrEqual(16);
+  });
+
   test("a name the text does not spell makes no new variant, and past 16 the realm's eval gives the same outcome and keeps no script", async () => {
     const quiet = write("quiet", "export function main() { return 1; }\n");
     const loud = write("loud", 'export function main() {\n  const v = eval("V");\n  throw new Error("boom " + v);\n}\n');

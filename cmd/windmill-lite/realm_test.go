@@ -284,6 +284,56 @@ func TestNativeInvocationsKeepNoScript(t *testing.T) {
 	}
 }
 
+// TestNativeProcessVariable checks that an environment variable named
+// process fails the load of a nativets step whose text never spells
+// process, as the preamble declares process itself, with the same error
+// on the module's compiled variants and past their bound. Each run of
+// f/native/steps fails at its second step, f/native/nativets: the first is
+// bunnative, whose preamble names no job variable. The run's environment
+// hook (H12) gives every invocation process and a name that is not plain
+// ASCII, which every preamble declares, so each nativets invocation has a
+// preamble of its own: the first nativeVariants compile, and the rest go
+// through the realm's eval. Without process the run returns its input.
+func TestNativeProcessVariable(t *testing.T) {
+	bun := benchSetup(t)
+	bundlePath := nativeBundle(t, bun)
+	const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'process'."
+	for _, topology := range []string{"host", "subprocess"} {
+		t.Run("topology="+topology, func(t *testing.T) {
+			rt := benchRuntimeOn(t, bun, topology, bundlePath, func(*wl.Options) {})
+			var seq atomic.Int64
+			hooks := func(process bool) *wl.Hooks {
+				return &wl.Hooks{InvocationEnv: func(_ context.Context, _ wl.RunHandle, _ wl.Site, env map[string]string) error {
+					env[fmt.Sprintf("WL_\u00c9_%d", seq.Add(1))] = "v"
+					if process {
+						env["process"] = "x"
+					}
+					return nil
+				}}
+			}
+			for i := range nativeVariants + 4 {
+				res, err := rt.Run(context.Background(), "f/native/steps", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(true)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var out struct {
+					Error struct {
+						Message string `json:"message"`
+						StepID  string `json:"step_id"`
+					} `json:"error"`
+				}
+				if res.Status == wl.StatusSuccess || json.Unmarshal(res.Result, &out) != nil || out.Error.Message != failed || out.Error.StepID != "b" {
+					t.Fatalf("run %d with process: %s, %s; want step b's load to fail with %q", i, res.Status, res.Result, failed)
+				}
+			}
+			res, err := rt.Run(context.Background(), "f/native/steps", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(false)})
+			if err != nil || res.Status != wl.StatusSuccess || string(res.Result) != "1" {
+				t.Fatalf("without process: %+v, %v; want the result 1", res, err)
+			}
+		})
+	}
+}
+
 // nativeRuns is how many runs of f/native/steps BenchmarkNativeRealm makes
 // on each topology, whatever b.N: WL_NATIVE_RUNS, 2,000 by default (20,000
 // native invocations).
