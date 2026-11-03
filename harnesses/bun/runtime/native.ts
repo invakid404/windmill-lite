@@ -242,9 +242,16 @@ const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*$/u;
 /** A variable name that a module's preamble may leave out when the
  * module's text never spells it: plain ASCII, so that the words of the
  * text (spelling) find it wherever the code names it, and none of
- * UNBINDABLE. Any other name is always declared, so JavaScriptCore still
- * decides whether it binds. */
+ * UNBINDABLE or OWN_BINDINGS. Any other name is always declared, so
+ * JavaScriptCore still decides whether it binds. */
 const PLAIN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/** The bindings the preamble itself makes, before the variables. A
+ * variable of the same name collides with one and fails the load, so the
+ * preamble always declares it. The scope's other bindings (the function's
+ * parameter, the import bindings, the module's own declarations) are in
+ * the module's text, where spelling finds them. */
+const OWN_BINDINGS = new Set(["process"]);
 
 /** The names whose const declaration in the module's scope (strict code
  * in an async function) fails to compile whatever the module's text is:
@@ -1262,8 +1269,10 @@ export class NativeJob {
    * both base URLs; nothing else (no PATH, HOME or TZ).
    *
    * The preamble leaves out each PLAIN name that the module's text never
-   * spells (words): the code can neither read nor declare a name it does
-   * not spell, so the const is not observable. That keeps the preamble the
+   * spells (words) and that it does not bind itself (OWN_BINDINGS): the
+   * code can neither read nor declare a name it does not spell, and no
+   * other binding of the scope can collide with it, so the const is not
+   * observable. That keeps the preamble the
    * same when an environment hook adds names the module does not use, so
    * the module keeps one compiled variant (Native.compile). A text that
    * spells `eval` keeps every name, since a direct eval reads any. */
@@ -1281,7 +1290,7 @@ export class NativeJob {
     for (const n of names) {
       if (!IDENTIFIER.test(n)) throw new LoadFailure(`SyntaxError: the environment variable ${JSON.stringify(n)} is not a valid identifier`);
     }
-    const bound = words.has("eval") ? names : names.filter((n) => words.has(n) || !PLAIN.test(n) || UNBINDABLE.has(n));
+    const bound = words.has("eval") ? names : names.filter((n) => words.has(n) || OWN_BINDINGS.has(n) || !PLAIN.test(n) || UNBINDABLE.has(n));
     const decls = [`process = { env: ${P}.env }`, ...bound.map((n) => `${n} = ${P}.env[${JSON.stringify(n)}]`)];
     return { text: `const ${decls.join(", ")};`, env };
   }
