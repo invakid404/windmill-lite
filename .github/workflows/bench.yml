@@ -24,6 +24,9 @@ name: Benchmarks
 #                    own (WL_BENCH_FRESH=1)
 #       retained     BenchmarkRetainedHeap (what finished runs leave
 #                    reachable on one long-lived runtime)
+#       native       BenchmarkNativeRealm (what native-boundary
+#                    invocations leave in a long-lived host or harness
+#                    process after a full collection)
 #   - rounds: the rounds per job.
 #   - small_builds: the builds of the small group, when it compares others
 #     (empty: builds).
@@ -35,7 +38,7 @@ on:
         required: true
         default: "main=origin/main"
       groups:
-        description: "Groups: boundary shapes passthrough expressions peaks small retained"
+        description: "Groups: boundary shapes passthrough expressions peaks small retained native"
         required: true
         default: "boundary shapes passthrough expressions peaks small"
       rounds:
@@ -150,6 +153,8 @@ jobs:
               cmds=("1x BenchmarkRunPeaks") ;;
             retained)
               cmds=("1x BenchmarkRetainedHeap") ;;
+            native)
+              cmds=("1x BenchmarkNativeRealm") ;;
             small)
               export WL_BENCH_FRESH=1 WL_BENCH_SIZES=26B,1KiB
               cmds=("3s BenchmarkStepBoundary/topology=(host|subprocess)/conc=(1|8)/"
