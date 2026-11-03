@@ -785,7 +785,7 @@ this mode cannot reproduce is deviation D5 of
 - **The module** is the script's native form, `scripts/bun/<id>.native.js`
   ([build/](build/README.md)): one async arrow function, so its scope has
   no `arguments`, as a module's has none, and its module-level `this` is
-  `undefined`. It is compiled once per process for each preamble (below).
+  `undefined`. It is compiled for each preamble, as the next item says.
   - *Its preamble* declares `process = { env }`, `BASE_URL` and
     `BASE_INTERNAL_URL`, and for nativets each job variable as a `const` of
     its name. A top-level declaration of one of those names fails the load.
@@ -803,8 +803,9 @@ this mode cannot reproduce is deviation D5 of
   - *What that rules out.* On an invocation's path: `vm.runInContext`,
     `vm.runInNewContext` and `vm.runInThisContext` with a string,
     `new vm.Script`, and `vm.compileFunction`, which keeps no script but
-    about 72 KiB of heap per call. A new context keeps nothing, and neither
-    does the realm's own `eval` or `Function`, though each compiles anew.
+    about 72 KiB of heap per call. A new context keeps nothing. The realm's
+    own `eval` and `Function` keep no script and no heap, though each
+    compiles anew.
   - *What is compiled once.* The realm's global read (`GLOBAL_SCRIPT`) and
     its helpers (`REALM_SCRIPT`), once per process. A module, once per
     process for each of its first 16 preambles (`MAX_VARIANTS`). Any further
