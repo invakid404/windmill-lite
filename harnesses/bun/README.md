@@ -814,11 +814,12 @@ this mode cannot reproduce is deviation D5 of
     module's URL in a `sourceURL` comment at the end of its first line, so
     its bindings, errors and stacks are the same.
   - *Which names a preamble declares.* Each job variable the module's text
-    spells, with its `\u` escapes or without, and every name that is not
-    plain ASCII or whose `const` fails to compile (a reserved word, `await`,
-    `eval`, `arguments`). Code cannot read or declare a name it never
-    spells, so leaving that name out changes nothing; a text that spells
-    `eval` declares every variable.
+    spells, with its `\u` escapes or without. It also declares every name
+    that is not plain ASCII, whose `const` fails to compile (a reserved
+    word, `await`, `eval`, `arguments`), or that the preamble binds itself
+    (`process`, so a variable of that name still fails the load). Code
+    cannot read or declare a name it never spells, so leaving it out
+    changes nothing; a text that spells `eval` declares every variable.
   - *Why the bound holds.* The reserved job variables have the same names in
     every invocation. A host's environment hook
     ([H12](../../docs/design/0008-host-hooks.md)), which sets an
