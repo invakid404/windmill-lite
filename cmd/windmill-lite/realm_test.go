@@ -17,16 +17,16 @@ import (
 )
 
 // These check what native-boundary invocations leave behind in a
-// long-lived Bun process (milestone PS3). Each native invocation runs in a
-// fresh node:vm realm (D5, harnesses/bun/runtime/native.ts). Under the
-// pinned Bun 1.3.10, every script that node:vm compiles from a string stays
-// reachable after a full collection, so a harness that compiles one per
-// invocation grows with every invocation it serves, without bound. The
-// probe step f/native/probe reads, after a full collection, the count of
-// JavaScriptCore Script objects (heapStats().objectTypeCounts.Script, from
-// bun:jsc), the JavaScript heap and the resident set of the process it runs
-// in: the host's in host mode, the harness's in subprocess mode, where the
-// native steps run too.
+// long-lived Bun process. Each native invocation runs in a fresh node:vm
+// realm (harnesses/bun/runtime/native.ts). Under the pinned Bun 1.3.10,
+// every script that node:vm compiles from a string stays reachable after a
+// full collection, so a harness that compiles one per invocation grows with
+// every invocation it serves, without bound. The probe step f/native/probe
+// reads, after a full collection, the count of JavaScriptCore Script
+// objects (heapStats().objectTypeCounts.Script, from bun:jsc), the
+// JavaScript heap and the resident set of the process it runs in: the
+// host's in host mode, the harness's in subprocess mode, where the native
+// steps run too.
 
 // nativeSteps is how many native steps a run of f/native/steps makes.
 const nativeSteps = 10
@@ -40,7 +40,7 @@ const nativeInput = `{"p":{"n":1,"s":"native"}}`
 // first the flow input's p, the others previous_result). They alternate a
 // bunnative step and a nativets one; the third is a nativets step that
 // imports the embedded client, which each invocation loads into its own
-// realm (WR-40).
+// realm.
 func nativeFolder() map[string]string {
 	files := map[string]string{
 		"wmill.yaml": "defaultTs: bun\nincludes:\n  - f/**\n",
@@ -226,7 +226,7 @@ func nativeRuns(tb testing.TB) int {
 	return n
 }
 
-// BenchmarkNativeRealm is milestone PS3's long run: sequential runs of
+// BenchmarkNativeRealm is the long run of these checks: sequential runs of
 // f/native/steps on one long-lived process, in host and subprocess mode.
 // It reads f/native/probe after a first run and after each quarter of the
 // runs (logged). It reports what each native invocation of the last three
