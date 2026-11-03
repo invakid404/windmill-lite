@@ -26,7 +26,9 @@ name: Benchmarks
 #                    reachable on one long-lived runtime)
 #       native       BenchmarkNativeRealm (what native-boundary
 #                    invocations leave in a long-lived host or harness
-#                    process after a full collection)
+#                    process after a full collection), at 8,000 runs:
+#                    the resident set levels off only after about
+#                    20,000 native invocations
 #   - rounds: the rounds per job.
 #   - small_builds: the builds of the small group, when it compares others
 #     (empty: builds).
@@ -154,6 +156,7 @@ jobs:
             retained)
               cmds=("1x BenchmarkRetainedHeap") ;;
             native)
+              export WL_NATIVE_RUNS=8000
               cmds=("1x BenchmarkNativeRealm") ;;
             small)
               export WL_BENCH_FRESH=1 WL_BENCH_SIZES=26B,1KiB
