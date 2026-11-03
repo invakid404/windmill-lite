@@ -4,6 +4,7 @@
 // WR-40 to WR-45), which runs native steps through the real harness; these
 // pin the parts it cannot reach, such as the fetch user agent (WR-45/g).
 
+import { heapStats } from "bun:jsc";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -704,5 +705,115 @@ describe("the errors the harness generates", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the preamble and the module's compiled variants", () => {
+  // One Native, as one process has, across invocations that each get a
+  // fresh realm, with the environment each invocation gives. A nativets
+  // preamble declares the variables the module's text spells, every
+  // variable when it spells eval, and always the names whose declaration
+  // fails; a module keeps at most 16 compiled variants, and the realm's eval
+  // compiles any other with the same outcome.
+  const dir = mkdtempSync(join(tmpdir(), "wl-native-preamble-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const native = new Native({ bundleDir: dir, baseURL: () => "http://127.0.0.1:9", onError: () => {}, onUntracked: () => {} });
+  native.capture();
+  const write = (script: string, js: string) => {
+    const m = nativeModule(js, "nativets");
+    mkdirSync(join(dir, "scripts", "bun"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "bun", `${script}.native.js`), m.text);
+    return { native: m.form, signatures: { main: { params: [] } } };
+  };
+  const run = (script: string, meta: unknown, env: Record<string, string>) => {
+    const resources = new InvocationResources();
+    const ctx: InvocationContext = { id: "i", run: "r", env, signal: new AbortController().signal, resources };
+    const inv = { id: "i", script, entry: "main", args: {}, env, resources };
+    return invocations.run(ctx, () => native.run(inv, meta, ctx, "a")) as Promise<{ ok?: string; error?: string; generated?: true }>;
+  };
+  const scripts = () => {
+    for (let i = 0; i < 3; i++) Bun.gc(true);
+    return heapStats().objectTypeCounts.Script ?? 0;
+  };
+
+  test("a variable the text does not spell keeps its value in process.env; one it spells is a const", async () => {
+    const meta = write("spells", 'export function main() { return [SPELLED, process.env["UN" + "SPELLED"], Object.keys(process.env).sort()]; }\n');
+    expect(await run("spells", meta, { SPELLED: "s", UNSPELLED: "u" })).toEqual({
+      ok: JSON.stringify(["s", "u", ["BASE_INTERNAL_URL", "BASE_URL", "SPELLED", "UNSPELLED"]]),
+    });
+  });
+
+  test("a direct eval reads every variable, whatever name it builds", async () => {
+    const meta = write("evals", 'export function main() { return eval("UN" + "SPELLED"); }\n');
+    expect(await run("evals", meta, { UNSPELLED: "u" })).toEqual({ ok: JSON.stringify("u") });
+  });
+
+  test("a name spelled with escapes is a const too", async () => {
+    const meta = write("escaped", "export function main() { return [W\\u0041, W\\u{42}]; }\n");
+    expect(await run("escaped", meta, { WA: "a", WB: "b" })).toEqual({ ok: JSON.stringify(["a", "b"]) });
+  });
+
+  test("a name whose declaration fails, or that the module declares, fails the load whether it is spelled or not", async () => {
+    const plain = write("plain", "export function main() { return 1; }\n");
+    for (const [name, message] of [
+      ["while", "Cannot use the keyword 'while' as a lexical variable name."],
+      ["arguments", "Cannot declare a variable named arguments in strict mode."],
+      ["await", "Cannot use 'await' as a lexical variable name in an async function."],
+    ]) {
+      const r = await run("plain", plain, { [name]: "x" });
+      expect(r.generated).toBe(true);
+      expect(JSON.parse(r.error!).message).toBe(`execution error:\nError: failed to load module: SyntaxError: ${message}`);
+    }
+    const declares = write("declares", "const MINE = 2;\nexport function main() { return MINE; }\n");
+    const r = await run("declares", declares, { MINE: "1" });
+    expect(JSON.parse(r.error!).message).toBe("execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'MINE'.");
+    expect(await run("declares", declares, { OTHER: "1" })).toEqual({ ok: "2" });
+  });
+
+  test("a variable named process fails the load though the module never spells it, compiled or past the bound", async () => {
+    // The preamble declares process itself, so a variable of that name
+    // collides with it. A name that is not plain ASCII is always declared,
+    // so each invocation here has a preamble of its own: the first 16
+    // compile, and the rest go through the realm's eval.
+    const meta = write("noprocess", "export function main() { return 1; }\n");
+    const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'process'.";
+    const before = scripts();
+    for (let i = 0; i < 24; i++) {
+      const r = await run("noprocess", meta, { process: "x", [`\u00c4${i}`]: "y" });
+      expect(r.generated).toBe(true);
+      expect(JSON.parse(r.error!).message).toBe(failed);
+    }
+    expect(await run("noprocess", meta, { "\u00c40": "y" })).toEqual({ ok: "1" });
+    expect(scripts() - before).toBeLessThanOrEqual(16);
+  });
+
+  test("a name the text does not spell makes no new variant, and past 16 the realm's eval gives the same outcome and keeps no script", async () => {
+    const quiet = write("quiet", "export function main() { return 1; }\n");
+    const loud = write("loud", 'export function main() {\n  const v = eval("V");\n  throw new Error("boom " + v);\n}\n');
+    // A sourceURL comment of the module's own text names its frames, on
+    // every variant.
+    const named = write("named", 'export function main() {\n  throw new Error(eval("V"));\n}\n//# sourceURL=own.js\n');
+    // Each invocation adds a name; every call is made from the same line, so
+    // the stacks' frames below the module are the same too.
+    const outcomes: { error?: string }[] = [];
+    const ownURL: { error?: string }[] = [];
+    let before = 0;
+    for (let i = 0; i <= 40; i++) {
+      if (i === 1) before = scripts();
+      expect(await run("quiet", quiet, { V: "v", [`N${i}`]: "x" })).toEqual({ ok: "1" });
+      outcomes.push(await run("loud", loud, { V: "v", [`N${i}`]: "x" }));
+      ownURL.push(await run("named", named, { V: "v", [`N${i}`]: "x" }));
+    }
+    // Every variant throws from the module's third line, line 4 of its
+    // native form, with the same stack.
+    const [first] = outcomes;
+    expect(JSON.parse(first.error!)).toMatchObject({ message: "boom v", name: "Error" });
+    expect(JSON.parse(first.error!).stack).toContain("at main (file:///eval.ts:4:");
+    for (const o of outcomes) expect(o).toEqual(first);
+    expect(JSON.parse(ownURL[0].error!).stack).toContain("at main (own.js:3:");
+    for (const o of ownURL) expect(o).toEqual(ownURL[0]);
+    // quiet kept its one variant; loud and named added at most 15 each to
+    // the one they had.
+    expect(scripts() - before).toBeLessThanOrEqual(30);
   });
 });

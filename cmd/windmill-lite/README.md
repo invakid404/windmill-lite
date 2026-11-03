@@ -327,6 +327,27 @@ With shared code, both tests assert the memory gate of [ADR 0013](../../docs/des
 `TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
 peak of at most 650 MiB after its soak.
 
+`realm_test.go` checks what native-boundary invocations leave behind in a
+long-lived Bun process. Its synthetic folder's flows each run ten native
+steps that return their argument:
+
+- `f/native/steps`: bunnative and nativets steps in turn, one of them a
+  nativets step that imports the embedded client;
+- `f/native/varying`: the same, with a nativets step that returns its
+  argument through a direct `eval` in place of the bunnative one.
+
+Its Bun step `f/native/probe` reads, after a full collection
+(`Bun.gc(true)`), the process's count of JavaScriptCore `Script` objects
+(`heapStats().objectTypeCounts.Script`, from `bun:jsc`), its JavaScript
+heap and its resident set. It runs where the native steps run: in the
+host in host mode, in the warm harness in subprocess mode, the
+benchmarks' topologies (below).
+
+| Test | What it shows |
+|---|---|
+| `TestNativeInvocationsKeepNoScript` | In host and subprocess mode, after runs that load and compile every module, 200 and then 400 native invocations leave fewer than 5 more `Script` objects. With fixed names it runs `f/native/steps`. With varying names it runs `f/native/varying`, each invocation getting a variable no invocation had before from the environment hook ([H12](../../docs/design/0008-host-hooks.md)); the 16 runs after its first may keep at most 16 more, the `eval` step's variants. A harness that compiles a script per invocation fails it ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
+| `TestNativeProcessVariable` | In host and subprocess mode, the environment hook ([H12](../../docs/design/0008-host-hooks.md)) gives every invocation a variable named `process` and a name that is not plain ASCII, so each nativets invocation has a preamble of its own. Each of 20 runs of `f/native/steps` fails at its plain nativets step, which never spells `process`, with the load error `Cannot declare a const variable twice: 'process'.`, on the 16 compiled variants and past them. Without `process` the run returns its input |
+
 ## Benchmarks
 
 `bench_test.go` holds the end-to-end benchmarks of the step boundary.
@@ -365,6 +386,7 @@ The benchmarks run on these topologies:
 | `BenchmarkHostShapes`, the large shapes | 20 steps of 256 KiB, 10 of 1 MiB, 8 of 4 MiB and 4 of 16 MiB (`s20-256KiB` to `s4-16MiB`). Each step works as in the 1 KiB shapes. Its template reads two short fields of a flow input whose `seed` is as large as the results |
 | `BenchmarkPassThrough` | A large value passed on unchanged (`bench_large_test.go`): an array of wide records with one text field each, of 64 KiB and about 2.1 MB. A step returns it through 0 to 4 nested sub-flows; the flow forwards it into 1, 3 or 5 steps and maps it to its ids. It runs on the host and on the plugin host, whose `onRunEnd` takes the whole trace. Per run: time, engine CPU and bytes allocated, host CPU |
 | `BenchmarkExpressions` | A step returns a wide object with a long markup string and its plain-text form, of 96 KiB and 2 MiB. Eight steps each evaluate one expression on it, or on the same value as the flow input's `v`: a short read, an optional-chained read, a null test, an object of three fields and a map. Each expression's time is reported per run (`expr-e<k>-ns`) |
+| `BenchmarkNativeRealm` | Sequential runs of `f/native/steps` (`realm_test.go`) on one host and on one warm harness, read by `f/native/probe` after a first run and after each quarter of the runs. It reports what each native invocation of the last three quarters leaves after a full collection: `Script` objects (`scripts/inv`), JavaScript heap (`heap-B/inv`) and resident set (`rss-B/inv`), then the last reading and the `Script` objects the whole run left (`scripts-kept`). It makes `WL_NATIVE_RUNS` runs, 2,000 by default; run it with `-benchtime 1x` |
 | `BenchmarkRunPeaks` | Linux only, with `-benchtime 1x`: the peak resident memory of the engine and of the host over one run, two steps that return their argument at 16 and 32 MiB, and eight at 16 MiB. Each case runs on its own runtime and host, after a warm run. It reports each peak, their sum, and the largest sum of the two resident sizes read together every millisecond (`combined-sampled-MiB`) |
 
 One iteration is one run per worker, the workers started together, so
@@ -481,6 +503,7 @@ groups:
 | `expressions` | `BenchmarkExpressions`, `-benchtime 10x` |
 | `peaks` | `BenchmarkRunPeaks`, `-benchtime 1x` |
 | `retained` | `BenchmarkRetainedHeap`, `-benchtime 1x` |
+| `native` | `BenchmarkNativeRealm`, `-benchtime 1x`, with `WL_NATIVE_RUNS=8000` (80,000 native invocations), so that the process warms up within the first quarter, which the figures per invocation leave out |
 | `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
 
 ```sh

@@ -210,14 +210,89 @@ const REALM_SCRIPT = new vm.Script(`(function () {
   return { copy, stringify: (v) => JSON.stringify(v ?? null), errorProto: Error.prototype, promiseProto: Promise.prototype };
 })`, { filename: "windmill-lite:native" });
 
+/** The realm's global object, read by a script compiled once per process
+ * and run in each new realm. Under the pinned Bun 1.3.10, every script
+ * that node:vm compiles from a string stays reachable after a full
+ * collection, so vm.runInContext("globalThis", ctx) kept one per native
+ * invocation; running a compiled script in a new context keeps nothing.
+ * The global it reads is the same object. */
+const GLOBAL_SCRIPT = new vm.Script("globalThis", { filename: "windmill-lite:native" });
+
+/** How many variants of one module Native.compile keeps compiled, one per
+ * preamble. A nativets module's preamble and the embedded client's name
+ * the variables of the invocation's environment that the module's text
+ * spells, all of them when it spells `eval` (NativeJob.preamble), and a
+ * host's environment hook can change them from one invocation to the
+ * next. A further variant is not compiled by node:vm, whose scripts Bun
+ * 1.3.10 keeps, but by the realm's own eval on each load (NativeJob.load),
+ * which keeps no script and gives the same bindings, errors and stacks. */
+const MAX_VARIANTS = 16;
+
+/** A module with its preamble, as NativeJob.load runs it: a script that
+ * node:vm compiled once, or, for a variant beyond MAX_VARIANTS, the source
+ * that the realm's eval compiles, which names the module's URL in a
+ * sourceURL comment; and its lines as compiled, which a stack's first
+ * frame points into (WR-43). */
+type Compiled = { script: vm.Script; lines: string[] } | { source: string; lines: string[] };
+
 /** An identifier the preamble can declare as a const. A variable name that
  * is not one fails every nativets step's load on Windmill too (WR-45). */
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*$/u;
 
+/** A variable name that a module's preamble may leave out when the
+ * module's text never spells it: plain ASCII, so that the words of the
+ * text (spelling) find it wherever the code names it, and none of
+ * UNBINDABLE or OWN_BINDINGS. Any other name is always declared, so
+ * JavaScriptCore still decides whether it binds. */
+const PLAIN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/** The bindings the preamble itself makes, before the variables. A
+ * variable of the same name collides with one and fails the load, so the
+ * preamble always declares it. The scope's other bindings (the function's
+ * parameter, the import bindings, the module's own declarations) are in
+ * the module's text, where spelling finds them. */
+const OWN_BINDINGS = new Set(["process"]);
+
+/** The names whose const declaration in the module's scope (strict code
+ * in an async function) fails to compile whatever the module's text is:
+ * the reserved words, await, and eval and arguments. The preamble always
+ * declares them, so the load still fails as it does on Windmill. */
+const UNBINDABLE = new Set([
+  "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum",
+  "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return",
+  "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield", "let", "static",
+  "implements", "interface", "package", "private", "protected", "public", "eval", "arguments",
+]);
+
+/** A run of ASCII identifier characters that starts as an identifier does. */
+const WORD = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+
+/** A \u escape, which an identifier may be spelled with. */
+const ESCAPE = /\\u\{([0-9A-Fa-f]+)\}|\\u([0-9A-Fa-f]{4})/g;
+
+/** The words a module's text spells: each run of WORD in the text, and in
+ * the text with its \u escapes decoded. Every identifier of the module's
+ * code that is plain ASCII is one of them, a direct eval's `eval`
+ * included; words in comments and strings only add to them. */
+function spelling(text: string): Set<string> {
+  const words = new Set(text.match(WORD));
+  if (text.includes("\\u")) {
+    const decoded = text.replace(ESCAPE, (m, braced: string | undefined, four: string | undefined) => {
+      const cp = parseInt(braced ?? four ?? "", 16);
+      return cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    });
+    for (const w of decoded.match(WORD) ?? []) words.add(w);
+  }
+  return words;
+}
+
 /** The Bun harness's native mode: one per runtime. */
 export class Native {
   private texts = new Map<string, Promise<string>>();
-  private compiled = new Map<string, { script: vm.Script; lines: string[] }>();
+  /** Each module's compiled variants, by its preamble. */
+  private compiled = new Map<string, Map<string, Compiled>>();
+  /** The words each module's text spells (spelling), by module. */
+  private spellings = new Map<string, Set<string>>();
   private clientForm: Promise<NativeForm> | undefined;
   private realms = new WeakMap<object, NativeJob>();
   private byContext = new WeakMap<object, NativeJob>();
@@ -824,6 +899,16 @@ export class Native {
     return job;
   }
 
+  /** The words a module's text spells, found once per process. */
+  spelled(rel: string, text: string): Set<string> {
+    let s = this.spellings.get(rel);
+    if (s === undefined) {
+      s = spelling(text);
+      this.spellings.set(rel, s);
+    }
+    return s;
+  }
+
   /** A bundle file's text, read once per process. */
   text(rel: string): Promise<string> {
     let p = this.texts.get(rel);
@@ -842,22 +927,38 @@ export class Native {
     return this.clientForm;
   }
 
-  /** A module's function with its preamble, compiled once per process for
-   * each set of preamble names, and its lines as compiled, which a stack's
-   * first frame points into (WR-43). */
-  compile(rel: string, text: string, form: NativeForm, preamble: string, url: string) {
-    const key = `${rel}\0${preamble}`;
-    let c = this.compiled.get(key);
+  /** A module's function with its preamble: compiled once per process for
+   * each of its first MAX_VARIANTS preambles, and left to the realm's eval
+   * for any other, so the scripts kept stay bounded whatever names an
+   * invocation's environment has. */
+  compile(rel: string, text: string, form: NativeForm, preamble: string, url: string): Compiled {
+    let variants = this.compiled.get(rel);
+    if (variants === undefined) {
+      variants = new Map();
+      this.compiled.set(rel, variants);
+    }
+    let c = variants.get(preamble);
     if (c === undefined) {
       const source = text.slice(0, form.preamble_at) + preamble + text.slice(form.preamble_at);
+      const lines = source.split(/\r\n|[\n\r\u2028\u2029]/);
+      if (variants.size >= MAX_VARIANTS) {
+        // The realm's eval takes the module's URL from a sourceURL comment,
+        // put at the end of the first line, which holds only the head, the
+        // preamble and the import bindings: no line or column moves, and a
+        // sourceURL comment in the module's own text comes later and still
+        // wins, as it wins over a script's filename.
+        const eol = source.indexOf("\n");
+        const at = eol < 0 ? source.length : eol;
+        return { source: `${source.slice(0, at)}//# sourceURL=${url}${source.slice(at)}`, lines };
+      }
       let script: vm.Script;
       try {
         script = new vm.Script(source, { filename: url });
       } catch (e) {
         throw new LoadFailure(describe(e));
       }
-      c = { script, lines: source.split(/\r\n|[\n\r\u2028\u2029]/) };
-      this.compiled.set(key, c);
+      c = { script, lines };
+      variants.set(preamble, c);
     }
     return c;
   }
@@ -881,6 +982,9 @@ export class NativeJob {
   /** The realm's global object. */
   readonly g: Record<string, any>;
   readonly promiseProto: object;
+  /** The realm's own eval, taken before any code runs in the realm, which
+   * compiles a module's variant beyond MAX_VARIANTS (Native.compile). */
+  private readonly evaluate: (source: string) => any;
   private realm: { copy: (v: unknown) => unknown; stringify: (v: unknown) => string | undefined; errorProto: object };
   private timers = new Map<number, () => void>();
   private timerSeq = 0;
@@ -917,7 +1021,8 @@ export class NativeJob {
   ) {
     this.unattributedAtOpen = native.unattributed;
     this.ctx = vm.createContext();
-    this.g = vm.runInContext("globalThis", this.ctx);
+    this.g = GLOBAL_SCRIPT.runInContext(this.ctx);
+    this.evaluate = this.g.eval;
     this.realm = REALM_SCRIPT.runInContext(this.ctx)();
     this.promiseProto = (this.realm as unknown as { promiseProto: object }).promiseProto;
     this.install();
@@ -1161,8 +1266,17 @@ export class NativeJob {
    * `process`, BASE_URL and BASE_INTERNAL_URL in both kinds, and for
    * nativets and the client every variable as a const of its name. The
    * values are the invocation's job variables and the facade's origin as
-   * both base URLs; nothing else (no PATH, HOME or TZ). */
-  private preamble(form: NativeForm, P: string): { text: string; env: Record<string, string> } {
+   * both base URLs; nothing else (no PATH, HOME or TZ).
+   *
+   * The preamble leaves out each PLAIN name that the module's text never
+   * spells (words) and that it does not bind itself (OWN_BINDINGS): the
+   * code can neither read nor declare a name it does not spell, and no
+   * other binding of the scope can collide with it, so the const is not
+   * observable. That keeps the preamble the
+   * same when an environment hook adds names the module does not use, so
+   * the module keeps one compiled variant (Native.compile). A text that
+   * spells `eval` keeps every name, since a direct eval reads any. */
+  private preamble(form: NativeForm, P: string, words: Set<string>): { text: string; env: Record<string, string> } {
     const env = new this.g.Object() as Record<string, string>;
     const base = this.native.baseURL ?? this.inv.env.BASE_INTERNAL_URL ?? this.inv.env.BASE_URL;
     if (base !== undefined) {
@@ -1176,7 +1290,8 @@ export class NativeJob {
     for (const n of names) {
       if (!IDENTIFIER.test(n)) throw new LoadFailure(`SyntaxError: the environment variable ${JSON.stringify(n)} is not a valid identifier`);
     }
-    const decls = [`process = { env: ${P}.env }`, ...names.map((n) => `${n} = ${P}.env[${JSON.stringify(n)}]`)];
+    const bound = words.has("eval") ? names : names.filter((n) => words.has(n) || OWN_BINDINGS.has(n) || !PLAIN.test(n) || UNBINDABLE.has(n));
+    const decls = [`process = { env: ${P}.env }`, ...bound.map((n) => `${n} = ${P}.env[${JSON.stringify(n)}]`)];
     return { text: `const ${decls.join(", ")};`, env };
   }
 
@@ -1197,15 +1312,17 @@ export class NativeJob {
       }
     }
     const text = await this.native.text(rel);
-    const { text: preamble, env } = this.preamble(form, form.param);
+    const { text: preamble, env } = this.preamble(form, form.param, this.native.spelled(rel, text));
     const c = this.native.compile(rel, text, form, preamble, url);
     if (url === SCRIPT_URL) this.lines = c.lines;
     // Running the script only evaluates the function expression, so what
     // it throws is the compilation's failure: JavaScriptCore reports a
     // redeclaration of a preamble name here, not when the script is made.
+    // A variant beyond MAX_VARIANTS is that same source, compiled by the
+    // realm's own eval, indirectly, so in the realm's global scope.
     let fn: (p: unknown) => Promise<Record<string, unknown>>;
     try {
-      fn = c.script.runInContext(this.ctx);
+      fn = "script" in c ? c.script.runInContext(this.ctx) : this.evaluate(c.source);
     } catch (e) {
       throw new LoadFailure(describe(e));
     }
