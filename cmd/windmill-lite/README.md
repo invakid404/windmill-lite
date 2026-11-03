@@ -345,7 +345,7 @@ benchmarks' topologies (below).
 
 | Test | What it shows |
 |---|---|
-| `TestNativeInvocationsKeepNoScript` | In host and subprocess mode, after runs that load and compile every module, 200 and then 400 native invocations leave fewer than 5 more `Script` objects. With fixed names it runs `f/native/steps`. With varying names it runs `f/native/varying`, each invocation getting a variable no invocation had before from the environment hook ([H12](../../docs/design/0008-host-hooks.md)); its first 16 runs may keep 16 more, the `eval` step's variants. A harness that compiles a script per invocation fails it ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
+| `TestNativeInvocationsKeepNoScript` | In host and subprocess mode, after runs that load and compile every module, 200 and then 400 native invocations leave fewer than 5 more `Script` objects. With fixed names it runs `f/native/steps`. With varying names it runs `f/native/varying`, each invocation getting a variable no invocation had before from the environment hook ([H12](../../docs/design/0008-host-hooks.md)); the 16 runs after its first may keep at most 16 more, the `eval` step's variants. A harness that compiles a script per invocation fails it ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
 
 ## Benchmarks
 
