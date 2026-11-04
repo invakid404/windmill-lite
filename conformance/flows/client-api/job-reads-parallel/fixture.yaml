@@ -1,0 +1,15 @@
+# GET jobs_u/get/{id} (WA-19) on parallel containers whose children run at
+# once and complete out of order, recorded on the oracle with two workers,
+# since the two children of each container wait for each other (OR-5).
+# The path script f/wl_jrp/role runs as either child of a parallel loop
+# and of a parallel branchall: the slow child completes after the reader,
+# which reads its run's job tree while both run; f/wl_jrp/read reads the
+# tree after both containers, as f/wl_jr/read does in client-api/job-reads.
+# Every id in an answer is a job of the run, which the normaliser writes as
+# its site (OR-14). Synthetic, written for this repository.
+id: client-api/job-reads-parallel
+spec: [WA-19/n, OR-5, OR-14]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2}

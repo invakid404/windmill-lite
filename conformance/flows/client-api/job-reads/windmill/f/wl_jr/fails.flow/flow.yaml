@@ -1,0 +1,47 @@
+summary: job reads, a loop whose iterator fails and a branchone whose predicate fails
+value:
+  modules:
+    - id: bad
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms: {}
+              lock: '!inline x.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: flow_input.nope.deeper
+        parallel: false
+        skip_failures: false
+      continue_on_error: true
+    - id: bo
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: c
+                value:
+                  type: rawscript
+                  content: '!inline c.ts'
+                  input_transforms: {}
+                  lock: '!inline c.lock'
+                  language: bun
+            expr: flow_input.nope.deeper
+            parallel: true
+            skip_failure: true
+        default: []
+      continue_on_error: true
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

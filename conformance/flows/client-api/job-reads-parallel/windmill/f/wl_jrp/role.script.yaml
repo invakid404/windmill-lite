@@ -1,0 +1,21 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_jrp/role.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    k:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+    role:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+  required:
+    - role
+    - k

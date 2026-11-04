@@ -7,13 +7,19 @@
 # other field that is not known to be left out. Step answers.p reads the
 # error answers and what no_logs and no_code change; the path script
 # f/wl_jr/args reads GET jobs_u/get_args/{id} on its own job and its flow
-# job; f/wl_jr/walk walks up its parent chain without no_logs. Every id in an answer
-# is a job of the run, which the normaliser writes as its site (OR-14), and
-# the workspace and user fields are written <env:...> when they equal the
-# reading step's variables (OR-29). Synthetic, written for this repository
-# from docs/semantics/client-api.md and docs/semantics/conformance.md.
+# job; f/wl_jr/walk walks up its parent chain without no_logs. Runs
+# subretry and loopretry read the flow jobs of a retried subflow's and a
+# retried loop's failed attempts; prerun a subflow whose input transform
+# failed; skipsub a skipped and a mocked subflow step; edges empty
+# containers and a subflow that stop_after_if stopped; fails a loop whose
+# iterator throws and a branchone whose predicate throws. Every id in an
+# answer is a job of the run, which the normaliser writes as its site
+# (OR-14), and the workspace and user fields are written <env:...> when
+# they equal the reading step's variables (OR-29). Synthetic, written for
+# this repository from docs/semantics/client-api.md and
+# docs/semantics/conformance.md.
 id: client-api/job-reads
-spec: [WA-19/e, WA-19/f, WA-19/g, WA-19/h, WA-19/j, WA-19/k, WA-V1, OR-14]
+spec: [WA-19/e, WA-19/f, WA-19/g, WA-19/h, WA-19/j, WA-19/k, WA-19/l, WA-19/m, WA-19/n, WA-V1, OR-14]
 scope: core
 provenance: oracle-observed
 languages: [bun]

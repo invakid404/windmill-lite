@@ -1,0 +1,4 @@
+# An empty for loop, a branchone that ran no branch, a branchall with no
+# branch, and a sub-flow that stop_after_if stopped after its first step.
+spec: [WA-19/n]
+target: f/wl_jr/edges

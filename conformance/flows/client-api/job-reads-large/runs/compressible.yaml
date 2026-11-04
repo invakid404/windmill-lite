@@ -1,0 +1,5 @@
+# 92,000 times "x": above 90,000 bytes uncompressed, but compressed far
+# below, so Windmill answers the value whole.
+spec: [WA-19/o]
+target: f/wl_jrl/big
+args: {kind: x, n: 92000}

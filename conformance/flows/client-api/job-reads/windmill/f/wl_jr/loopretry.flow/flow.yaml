@@ -1,0 +1,43 @@
+summary: job reads, a loop retried after its first iteration failed
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: rawscript
+              content: '!inline s.ts'
+              input_transforms:
+                key:
+                  type: static
+                  value: loopflaky
+              lock: '!inline s.lock'
+              language: bun
+          - id: t
+            value:
+              type: rawscript
+              content: '!inline t.ts'
+              input_transforms: {}
+              lock: '!inline t.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1]'
+        parallel: false
+        skip_failures: false
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

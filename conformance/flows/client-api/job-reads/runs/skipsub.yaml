@@ -1,0 +1,3 @@
+# A sub-flow that skip_if skipped and one that a mock answered.
+spec: [WA-19/m]
+target: f/wl_jr/skipsub

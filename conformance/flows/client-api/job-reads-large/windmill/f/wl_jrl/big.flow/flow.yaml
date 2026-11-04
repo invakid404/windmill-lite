@@ -1,0 +1,49 @@
+summary: job reads, a large result and a large argument
+value:
+  modules:
+    - id: v
+      value:
+        type: rawscript
+        content: '!inline v.ts'
+        input_transforms:
+          kind:
+            type: javascript
+            expr: flow_input.kind
+          n:
+            type: javascript
+            expr: flow_input.n
+        lock: '!inline v.lock'
+        language: bun
+    - id: w
+      value:
+        type: rawscript
+        content: '!inline w.ts'
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.v
+        lock: '!inline w.lock'
+        language: bun
+    - id: r
+      value:
+        type: rawscript
+        content: '!inline r.ts'
+        input_transforms: {}
+        lock: '!inline r.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    kind:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+    n:
+      type: number
+      description: ''
+      default: null
+  required:
+    - kind
+    - n

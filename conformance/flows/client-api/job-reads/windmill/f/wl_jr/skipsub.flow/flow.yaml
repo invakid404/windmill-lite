@@ -1,0 +1,35 @@
+summary: job reads, a skipped and a mocked sub-flow
+value:
+  modules:
+    - id: s1
+      value:
+        type: flow
+        input_transforms:
+          fail:
+            type: static
+            value: false
+        path: f/wl_jr/sub
+      skip_if:
+        expr: 'true'
+    - id: s2
+      value:
+        type: flow
+        input_transforms:
+          fail:
+            type: static
+            value: false
+        path: f/wl_jr/sub
+      mock:
+        enabled: true
+        return_value:
+          m: 1
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

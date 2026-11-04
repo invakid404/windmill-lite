@@ -1,0 +1,36 @@
+summary: job reads, a parallel loop with a parallelism read while one child completed
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                k:
+                  type: static
+                  value: h
+                role:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_jrp/role
+        iterator:
+          type: javascript
+          expr: '["fast", "slow", "read"]'
+        parallel: true
+        parallelism:
+          type: static
+          value: 2
+        skip_failures: false
+    - id: after
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jrp/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

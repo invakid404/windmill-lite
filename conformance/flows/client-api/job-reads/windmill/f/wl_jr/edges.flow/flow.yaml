@@ -1,0 +1,55 @@
+summary: job reads, empty containers, a branchone with no branch and an early stop
+value:
+  modules:
+    - id: e
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms: {}
+              lock: '!inline x.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[]'
+        parallel: false
+        skip_failures: false
+    - id: nb
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: c
+                value:
+                  type: rawscript
+                  content: '!inline c.ts'
+                  input_transforms: {}
+                  lock: '!inline c.lock'
+                  language: bun
+            expr: 'false'
+            parallel: true
+            skip_failure: true
+        default: []
+    - id: ba
+      value:
+        type: branchall
+        branches: []
+        parallel: false
+    - id: st
+      value:
+        type: flow
+        input_transforms: {}
+        path: f/wl_jr/stopper
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

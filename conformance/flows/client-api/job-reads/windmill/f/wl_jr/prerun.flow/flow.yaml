@@ -1,0 +1,22 @@
+summary: job reads, a sub-flow whose input transform fails
+value:
+  modules:
+    - id: core
+      value:
+        type: flow
+        input_transforms:
+          fail:
+            type: javascript
+            expr: flow_input.nope.deeper
+        path: f/wl_jr/sub
+      continue_on_error: true
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
