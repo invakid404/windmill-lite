@@ -250,7 +250,7 @@ func TestBodylessReplies(t *testing.T) {
 		method, path string
 		status       int
 	}{
-		{"HEAD", "/api/w/ws/jobs_u/get/j1", 501},
+		{"HEAD", "/api/w/ws/jobs_u/get_logs/j1", 501},
 		// The API has no HEAD operation, so HEAD of a served GET route is
 		// unsupported too.
 		{"HEAD", "/api/w/ws/jobs_u/get_root_job_id/job-a", 501},
@@ -271,7 +271,7 @@ func TestBodylessReplies(t *testing.T) {
 			t.Errorf("TCP %s %s: %d %q, want %d and no body", c.method, c.path, code, body, c.status)
 		}
 	}
-	want := []string{"HEAD /w/ws/jobs_u/get/j1", "HEAD /w/ws/jobs_u/get/j1", "HEAD /w/ws/jobs_u/get_root_job_id/job-a", "HEAD /w/ws/jobs_u/get_root_job_id/job-a"}
+	want := []string{"HEAD /w/ws/jobs_u/get_logs/j1", "HEAD /w/ws/jobs_u/get_logs/j1", "HEAD /w/ws/jobs_u/get_root_job_id/job-a", "HEAD /w/ws/jobs_u/get_root_job_id/job-a"}
 	if got := s.Unsupported(context.Background()); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("unsupported %q, want %q", got, want)
 	}
@@ -312,7 +312,7 @@ func TestUnsupportedRoutes(t *testing.T) {
 	s := f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
 	o := f.WarmOrigin()
 	for _, c := range []struct{ method, url, body string }{
-		{"GET", o + "/api/w/ws/jobs_u/get/j1", "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}"},
+		{"GET", o + "/api/w/ws/jobs_u/get_logs/j1", "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_logs/{id}"},
 		{"POST", o + "/api/w/ws/jobs/run/preview?tag=a", "Not implemented in windmill-lite: POST /w/{ws}/jobs/run/preview"},
 		{"POST", o + "/api/w/ws/jobs_u/queue/cancel/j1", "Not implemented in windmill-lite: POST /w/{ws}/jobs_u/queue/cancel/{id}"},
 		{"GET", o + "/api/w/ws/no_such/route", "Not implemented in windmill-lite: GET /w/ws/no_such/route"},
@@ -324,7 +324,7 @@ func TestUnsupportedRoutes(t *testing.T) {
 		}
 	}
 	got := s.Unsupported(context.Background())
-	want := []string{"GET /w/{ws}/jobs_u/get/{id}", "POST /w/{ws}/jobs/run/preview", "POST /w/{ws}/jobs_u/queue/cancel/{id}",
+	want := []string{"GET /w/{ws}/jobs_u/get_logs/{id}", "POST /w/{ws}/jobs/run/preview", "POST /w/{ws}/jobs_u/queue/cancel/{id}",
 		"GET /w/ws/no_such/route", "GET /elsewhere"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("unsupported %q, want %q", got, want)

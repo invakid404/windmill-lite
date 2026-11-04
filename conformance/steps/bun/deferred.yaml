@@ -282,7 +282,7 @@ deferred:
     reason: >-
       a generated service's ApiError needs the stock client, which the
       step level does not install; its 501 reply is checked on
-      windmill-client@1.767.0's JobService.getJob and getIdToken
+      windmill-client@1.767.0's JobService.getJobLogs and getIdToken
     expected_in: PF1 (internal/platform/facade TestUnsupportedPolicyOnTheClient)
   - spec: WA-11/b
     reason: >-

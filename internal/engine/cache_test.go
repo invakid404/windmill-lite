@@ -570,15 +570,15 @@ func TestCacheHitRegistersJob(t *testing.T) {
 	}
 }
 
-// registering registers each invocation's job for as long as it runs, as
-// the facade's executor does (facade.Register).
+// registering registers each invocation's job for as long as it runs,
+// with its run, as the facade's executor does (facade.Register).
 type registering struct {
 	p     *platform.Services
 	inner StepExecutor
 }
 
 func (x registering) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
-	end := x.p.JobRegistry().Begin(platform.Job{ID: inv.ID, Kind: platform.JobScript, Root: inv.Env["WM_ROOT_JOB_ID"], Path: inv.Env["WM_JOB_PATH"], Env: inv.Env})
+	end := x.p.JobRegistry().Begin(platform.Job{ID: inv.ID, Kind: platform.JobScript, Root: inv.Env["WM_ROOT_JOB_ID"], Path: inv.Env["WM_JOB_PATH"], Env: inv.Env, Run: inv.Run})
 	defer end()
 	return x.inner.Execute(ctx, inv)
 }
