@@ -1552,20 +1552,23 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// canceled job (FX-38, recorded by fx-23/canceled_sleep).
 	var pushed *frame // a flow step's child flow, pushed for later
 	if !due.IsZero() {
-		// A script job is pushed with its id, and a flow step's child flow
-		// with its own, which the flow's status names while they wait
-		// (WA-19); the invocation, or the subflow's run, takes it.
-		scheduled := m.Leaf != nil && !identity && preRun == nil && m.Kind != ir.KindProvided
+		// Every job is pushed with its id, which the flow's status names
+		// while it waits (WA-19/p): a script job, an identity job and a job
+		// that will fail at its pickup, whose id whatever completes it takes
+		// (run.takeScheduled), and a flow step's child flow, which its run
+		// takes. A host-provided site's has no Windmill counterpart and is
+		// not read while it waits.
+		scheduled := true
 		switch {
-		case scheduled:
-			r.jobScheduled(fr, i, idx, stored)
-		case m.Kind == ir.KindSubflow && !identity && preRun == nil:
-			scheduled = true
-			pushed = r.subflowScheduled(fr, i, idx, stored)
-		default:
+		case m.Kind == ir.KindProvided:
+			scheduled = false
 			r.mu.Lock()
 			fr.owner().waiting++
 			r.mu.Unlock()
+		case m.Kind == ir.KindSubflow && !identity:
+			pushed = r.subflowScheduled(fr, i, idx, stored)
+		default:
+			r.jobScheduled(fr, i, idx, stored, identity)
 		}
 		err := r.wait(ctx, site.Path, due)
 		r.mu.Lock()
@@ -1609,7 +1612,12 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	o.rec.Start = r.clock.Now()
 	if preRun != nil {
 		o.rec.Ran = true
-		if m.Kind == ir.KindSubflow {
+		if m.Kind == ir.KindSubflow && pushed != nil {
+			// The subflow pushed for later fails at its pickup, as one
+			// pushed at once does (FX-14).
+			o.rec.Job = pushed.id
+			defer func() { r.childEnded(pushed, flowEnd{status: conformance.RunFailure, result: o.rec.Result}) }()
+		} else if m.Kind == ir.KindSubflow {
 			// FX-14: a flow step's job, its subflow's, still launches and
 			// fails before any of the subflow's modules runs, which the
 			// walker reads as not_run (recorded by the
@@ -1673,7 +1681,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		// cache may answer it.
 		if cacheKey, cacheTTL = r.leafCache(ctx, fr, m, stored); cacheKey != "" {
 			if c, hit := r.lookup(ctx, cacheKey); hit {
-				return r.cachedJob(ctx, fr, i, site.Path, o, c)
+				return r.cachedJob(ctx, fr, i, idx, site.Path, o, c)
 			}
 		}
 		entry, _, err := storedEntrypoint(stored)
@@ -2405,16 +2413,9 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 // ADR 0007): its job id, its innermost scope and its runnable path.
 func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
-	id := newUUID()
-	if r.nsched.Load() > 0 {
-		r.mu.Lock()
-		if s, ok := r.sched[idx]; ok {
-			// The job was pushed earlier, scheduled for later
-			// (jobScheduled).
-			id = s.id
-			delete(r.sched, idx)
-		}
-		r.mu.Unlock()
+	id, ok := r.takeScheduled(idx)
+	if !ok {
+		id = newUUID()
 	}
 	inv := Invocation{
 		ID:          id,

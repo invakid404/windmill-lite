@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -432,6 +433,174 @@ func TestJobRecordWhileAModuleWaitsForItsRetry(t *testing.T) {
 	}
 	if after.Type != "CompletedJob" || after.Success == nil || !*after.Success {
 		t.Errorf("the retry's job once it ran: %+v", after)
+	}
+}
+
+// A job pushed for later keeps its id through its completion, whatever
+// completes it ([WA-19]/p): an identity job of a skipped step, the result
+// cache's answer at its pickup, a failure of its input transform, an
+// entrypoint override that fails it before it runs, the identity job of a
+// skipped loop and of a mocked branchone, and a flow step's child flow
+// that its input transform fails. Each waits for the
+// sleep of the step before it, in a branch of a parallel branchall, while
+// the last branch reads the branches' flow jobs: each names its waiting
+// step's job, waiting for its executor, which reads queued and not
+// running; once the run has ended, the trace names the same job.
+func TestJobsPushedForLaterKeepTheirIds(t *testing.T) {
+	services := &platform.Services{}
+	x := jobReader{t, services}
+	type waited struct {
+		id      string
+		queued  bool
+		running *bool
+	}
+	got := map[string]waited{}
+	var readErr error
+	exec := &stepFunc{f: func(inv Invocation) (StepOutcome, error) {
+		if inv.Env["WM_FLOW_STEP_ID"] != "r" {
+			return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"ok"`))}, nil
+		}
+		want := map[string]int{"b0": 1, "b1": 2, "b2": 1, "b3": 1, "b4": 1, "b5": 1, "b6": 1}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) && len(got) < len(want) {
+			root := x.must(inv.Env["WM_ROOT_JOB_ID"])
+			var v struct {
+				FlowStatus struct {
+					Modules []struct {
+						FlowJobs []string `json:"flow_jobs"`
+					} `json:"modules"`
+				} `json:"flow_status"`
+			}
+			body, _ := services.GetJob(root.ID)
+			if json.Unmarshal(body, &v) != nil || len(v.FlowStatus.Modules[0].FlowJobs) != 8 {
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
+			for b, k := range want {
+				n := int(b[1] - '0')
+				fl, err := x.read(v.FlowStatus.Modules[0].FlowJobs[n])
+				if err != nil {
+					readErr = err
+					continue
+				}
+				if m := fl.FlowStatus.Modules; len(m) > k && m[k].Type == "WaitingForExecutor" && m[k].Job != "" {
+					var job struct {
+						Type    string `json:"type"`
+						Running *bool  `json:"running"`
+					}
+					jb, err := services.GetJob(m[k].Job)
+					if err != nil || json.Unmarshal(jb, &job) != nil {
+						readErr = err
+						continue
+					}
+					got[b] = waited{id: m[k].Job, queued: job.Type == "QueuedJob", running: job.Running}
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"read"`))}, nil
+	}}
+	sleep := `"sleep":` + static("1")
+	cached := cachedInline("c0", "", `"cache_ttl":60`)
+	branch := func(mods ...string) string { return `{"modules":[` + strings.Join(mods, ",") + `]}` }
+	flows := map[string]string{"f/t/main": flowOf(`{"id":"ba","value":{"type":"branchall","parallel":true,"branches":[` + strings.Join([]string{
+		branch(mod("a0", "echo", "", sleep), mod("s", "echo", "", `"skip_if":{"expr":"true"}`)),
+		branch(cached, mod("a1", "echo", "", sleep), strings.Replace(cached, `"id":"c0"`, `"id":"c1"`, 1)),
+		branch(mod("a2", "echo", "", sleep), mod("t", "echo", inputs("x", js("flow_input.nope.deeper")), `"continue_on_error":true`)),
+		branch(mod("a3", "echo", "", sleep), mod("e", "echo", inputs("_ENTRYPOINT_OVERRIDE", static(`"1bad"`)), `"continue_on_error":true`)),
+		branch(mod("a4", "echo", "", sleep), loopOf("l", []string{mod("li", "echo", "", "")}, `"iterator":{"type":"static","value":[1]},"skip_failures":false`, `"skip_if":{"expr":"true"}`)),
+		branch(mod("a5", "echo", "", sleep), `{"id":"bo","value":{"type":"branchone","branches":[],"default":[`+mod("bi", "echo", "", "")+`]},"mock":{"enabled":true,"return_value":{"b":1}}}`),
+		branch(mod("a6", "echo", "", sleep), `{"id":"sf","value":{"type":"flow","path":"f/t/sub","input_transforms":{"x":`+js("flow_input.nope.deeper")+`}},"continue_on_error":true}`),
+		branch(mod("r", "echo", "", "")),
+	}, ",") + `]}}`), "f/t/sub": flowOf(mod("o", "echo", "", ""))}
+	e, err := New(Config{Program: compileFlows(t, flows), Bundle: "sha256:test", Exec: registering{services, exec}, JS: jsEng, Platform: services})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Hooks: NoHooks{}, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 7 {
+		t.Fatalf("waiting jobs read: %+v (%v)", got, readErr)
+	}
+	final := map[string]string{}
+	for _, rec := range tr.Steps {
+		for b, step := range map[string]string{"b0": "/m:s", "b1": "/m:c1", "b2": "/m:t", "b3": "/m:e", "b4": "/m:l", "b5": "/m:bo", "b6": "/m:sf"} {
+			if strings.HasSuffix(rec.Site.String(), step) && !rec.Superseded {
+				final[b] = jobOf(rec)
+			}
+		}
+	}
+	for b, w := range got {
+		if !w.queued || w.running == nil || *w.running {
+			t.Errorf("%s's waiting job: %+v", b, w)
+		}
+		if final[b] != w.id {
+			t.Errorf("%s's job waited as %q and completed as %q", b, w.id, final[b])
+		}
+	}
+}
+
+// boundaryText builds the texts of jsonval's boundaryInputs, which
+// PostgreSQL stores in the sizes TestReplacedFromNinetyThousandBytes
+// names (jsonval's TestToastedSizeMatchesPostgreSQL): n characters, of
+// which a share, repeats, repeats earlier text.
+func boundaryText(n int, repeats float64) string {
+	rng := rand.New(rand.NewPCG(5, 6))
+	letters := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	b := make([]byte, 0, n+32)
+	for len(b) < n {
+		if len(b) > 64 && rng.Float64() < repeats {
+			at := max(0, len(b)-4000) + rng.IntN(min(len(b), 4000)-32)
+			b = append(b, b[at:at+3+rng.IntN(29)]...)
+		} else {
+			for range 16 {
+				b = append(b, letters[rng.IntN(64)])
+			}
+		}
+	}
+	return string(b[:n])
+}
+
+// A job's result, and its arguments, are replaced from 90,000 bytes
+// stored ([WA-19]/o): at 89,999 they stay whole, and at 90,000 and 90,001
+// they are replaced, whether pglz shrinks them to that size (text half of
+// whose pieces repeat) or not (random characters).
+func TestReplacedFromNinetyThousandBytes(t *testing.T) {
+	for i, stored := range []int{89999, 90000, 90001} {
+		for _, c := range []struct {
+			n       int
+			repeats float64
+			args    bool
+		}{{89991 + i, 0, false}, {89986 + i, 0, true}, {144031 + i, 0.5, false}, {144026 + i, 0.5, true}} {
+			quoted, _ := json.Marshal(boundaryText(c.n, c.repeats))
+			text := quoted
+			if c.args {
+				text = []byte(`{"x":` + string(quoted) + `}`)
+			}
+			name := fmt.Sprintf("%d characters, %.0f%% repeats, arguments %v", c.n, 100*c.repeats, c.args)
+			if size, err := jsonval.ToastedSize(text); err != nil || size != stored {
+				t.Fatalf("%s: stored in %d bytes (%v), want %d", name, size, err, stored)
+			}
+			want := stored >= 90000
+			if got := replaced(text); got != want {
+				t.Errorf("%s, stored in %d bytes: replaced %v", name, stored, got)
+			}
+			result, args := []byte(`1`), []byte(`{}`)
+			if c.args {
+				args = text
+			} else {
+				result = text
+			}
+			gotResult, gotArgs := tooBig(true, result, args)
+			if c.args && (string(gotArgs) == `{"reason":"WINDMILL_TOO_BIG"}`) != want {
+				t.Errorf("%s, stored in %d bytes: arguments %.40s", name, stored, gotArgs)
+			}
+			if !c.args && (string(gotResult) == `"WINDMILL_TOO_BIG"`) != want {
+				t.Errorf("%s, stored in %d bytes: result %.40s", name, stored, gotResult)
+			}
+		}
 	}
 }
 

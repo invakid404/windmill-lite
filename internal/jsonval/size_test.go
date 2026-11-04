@@ -243,18 +243,106 @@ func compressionInputs() []string {
 	return out
 }
 
+// boundaryText is n characters of text, of which a share, repeats, is made
+// of pieces that repeat text up to 4,000 characters before them, and the
+// rest of random characters, which no compressor shrinks. A shorter text
+// is a prefix of a longer one with the same share.
+func boundaryText(n int, repeats float64) string {
+	rng := rand.New(rand.NewPCG(5, 6))
+	letters := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	b := make([]byte, 0, n+32)
+	for len(b) < n {
+		if len(b) > 64 && rng.Float64() < repeats {
+			at := max(0, len(b)-4000) + rng.IntN(min(len(b), 4000)-32)
+			b = append(b, b[at:at+3+rng.IntN(29)]...)
+		} else {
+			for range 16 {
+				b = append(b, letters[rng.IntN(64)])
+			}
+		}
+	}
+	return string(b[:n])
+}
+
+// boundaryInput is a JSON text and the bytes PostgreSQL stores it in.
+type boundaryInput struct {
+	name   string
+	text   string
+	stored int
+}
+
+// boundaryInputs are job results (a JSON string) and argument objects
+// (one key, x, holding a string) that PostgreSQL stores in 89,999, 90,000
+// and 90,001 bytes, either side of the 90,000 from which Windmill replaces
+// a job's result or arguments (WA-19/o): random characters, which pglz
+// does not shrink, stored in their length and 8 bytes as a result and 13
+// as arguments; and about 144,000 characters half of whose pieces repeat
+// earlier text, which pglz shrinks to those sizes. The engine's tests
+// build the same texts to check the replacement at those sizes.
+func boundaryInputs() []boundaryInput {
+	var out []boundaryInput
+	add := func(kind string, n int, repeats float64, stored int) {
+		quoted, _ := json.Marshal(boundaryText(n, repeats))
+		text := string(quoted)
+		if kind == "arguments" {
+			text = `{"x":` + text + `}`
+		}
+		out = append(out, boundaryInput{fmt.Sprintf("%s of %d characters, %.0f%% repeats", kind, n, 100*repeats), text, stored})
+	}
+	for i, stored := range []int{89999, 90000, 90001} {
+		add("result", 89991+i, 0, stored)
+		add("arguments", 89986+i, 0, stored)
+		add("result", 144031+i, 0.5, stored)
+		add("arguments", 144026+i, 0.5, stored)
+	}
+	return out
+}
+
+// ToastedSize gives each boundary input the size PostgreSQL stores it in
+// (TestToastedSizeMatchesPostgreSQL checks that against PostgreSQL), the
+// texts with repeats compressed by pglz and the others stored as they are.
+func TestToastedSizeAtTheReplacement(t *testing.T) {
+	for _, in := range boundaryInputs() {
+		d, err := jsonbDatum([]byte(in.text))
+		if err != nil {
+			t.Fatalf("%s: %v", in.name, err)
+		}
+		size, err := ToastedSize([]byte(in.text))
+		if err != nil || size != in.stored {
+			t.Errorf("%s: ToastedSize %d (%v), want %d", in.name, size, err, in.stored)
+		}
+		c := pglzCompressedLen(d[4:])
+		if compressed := c >= 0 && c+8 < len(d)-4-2; compressed != strings.Contains(in.name, "50%") {
+			t.Errorf("%s: pglz %d of %d bytes, compressed %v", in.name, c, len(d)-4, compressed)
+		}
+	}
+}
+
 // ToastedSize equals what PostgreSQL stores, checked as
 // TestStoredMatchesPostgreSQL is, when WL_JSONB_PSQL holds a psql command
 // line: for every input of the other tests that jsonb stores and every
 // compression input, the datum's length is pg_column_size of the value as
 // computed, and for a value large enough to be toasted, pg_column_size as
 // the table stores it is ToastedSize when TOAST moves it out of line, or
-// the compressed length and its 8-byte header when it stays inline.
+// the compressed length and its 8-byte header when it stays inline, which
+// it does only in a tuple of TOAST's 2,032-byte target, far below the
+// 90,000 bytes from which Windmill replaces a value. Each boundary input is
+// stored in the bytes its test names.
 func TestToastedSizeMatchesPostgreSQL(t *testing.T) {
 	command := psqlCommand(t)
 	inputs, _ := sizeInputs(t)
 	inputs = append(inputs, compressionInputs()...)
+	boundary := boundaryInputs()
+	from := len(inputs)
+	for _, in := range boundary {
+		inputs = append(inputs, in.text)
+	}
 	computed, stored := postgresSizes(t, command, inputs)
+	for k, in := range boundary {
+		if got := stored[from+k]; got != in.stored {
+			t.Errorf("%s: pg_column_size %d stored, want %d", in.name, got, in.stored)
+		}
+	}
 	toasted, compressed := 0, 0
 	for n, in := range inputs {
 		d, err := jsonbDatum([]byte(in))
@@ -275,8 +363,12 @@ func TestToastedSizeMatchesPostgreSQL(t *testing.T) {
 		if c >= 0 && c+8 < len(d)-4-2 {
 			compressed++
 		}
-		if stored[n] != size && !(size == c+4 && stored[n] == c+8) {
+		inline := size == c+4 && stored[n] == c+8
+		if stored[n] != size && !inline {
 			t.Errorf("%.60s… (%d bytes of text): ToastedSize %d (pglz %d of %d), pg_column_size %d stored", in, len(in), size, c, len(d)-4, stored[n])
+		}
+		if inline && stored[n] > 2032 {
+			t.Errorf("%.60s… (%d bytes of text): stored inline in %d bytes, above TOAST's target", in, len(in), stored[n])
 		}
 	}
 	t.Logf("%d inputs, %d toasted, %d of them compressed", len(inputs), toasted, compressed)

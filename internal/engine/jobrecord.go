@@ -136,7 +136,10 @@ func (r *run) noInvocationJob(fr *frame, i, idx int, o *outcome) {
 		// A container that ran has no job of its own (CF-1).
 		return
 	}
-	id := newUUID()
+	id, ok := r.takeScheduled(idx)
+	if !ok {
+		id = newUUID()
+	}
 	o.rec.NoInvocationJob = id
 	// A script job that failed before its invocation is still a script's
 	// job; any other job that ran with no invocation is an identity job.
@@ -344,7 +347,7 @@ func (x *recordView) flowStatus(fr *frame, end *flowEnd, states json.RawMessage)
 	last := -1 // the last module that started
 	mods := make([][]byte, n)
 	if fr.waiting > 0 {
-		return nil, &platform.NotServed{Reason: "a module of the flow waits for a sleep or a retry delay"}
+		return nil, &platform.NotServed{Reason: "a host-provided site of the flow waits for a sleep or a retry delay"}
 	}
 	for k := range n {
 		if fr.recs[k] >= 0 {
@@ -435,6 +438,10 @@ func (x *recordView) entry(fr *frame, k int, parent string) []byte {
 	switch {
 	case rec.NoInvocationJob != "":
 		o.field("job", jsonText(rec.NoInvocationJob))
+	case isContainer(m.Kind) && rec.Job != "":
+		// A skipped or mocked container's identity job, pushed for later
+		// (jobScheduled): a container that runs has no job of its own.
+		o.field("job", jsonText(rec.Job))
 	case m.Kind == ir.KindForLoop || m.Kind == ir.KindWhileLoop:
 		x.loopEntry(&o, fr, k, rec)
 	case m.Kind == ir.KindBranchOne:
@@ -923,20 +930,46 @@ type schedJob struct {
 
 // jobScheduled pushes module i of fr's job, whose record is idx and whose
 // stored arguments are stored, for later, after a sleep or a retry delay
-// (FX-23, FX-26): it gets its id, its record names it and its arguments,
-// and it is registered with the run's tree, as the invocation that takes
-// the id registers it again, so that a read finds it waiting (WA-19/p).
-func (r *run) jobScheduled(fr *frame, i, idx int, stored jsonval.Value) {
+// (FX-23, FX-26): a script job, or with identity the identity job of a
+// skipped, mocked or identity module (FX-16). It gets its id, its record
+// names it and its arguments, and it is registered with the run's tree,
+// as the invocation that takes the id registers it again, so that a read
+// finds it waiting (WA-19/p).
+func (r *run) jobScheduled(fr *frame, i, idx int, stored jsonval.Value, identity bool) {
 	id := newUUID()
 	r.mu.Lock()
 	rec := &r.trace.Steps[idx]
 	rec.Job, rec.RecordedArgs = id, stored
-	r.indexLeaf(id, fr, i, idx, false)
+	r.indexLeaf(id, fr, i, idx, identity)
 	r.sched[idx] = schedJob{id: id, waiting: true}
 	r.nsched.Add(1)
 	r.mu.Unlock()
-	env := r.jobEnv(fr, i, id)
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Path: env["WM_JOB_PATH"], Env: env, Run: r.id})()
+	job := platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id}
+	if !identity {
+		// An identity job runs no script: it has no path and no
+		// variables, as noInvocationJob registers it.
+		job.Env = r.jobEnv(fr, i, id)
+		job.Path = job.Env["WM_JOB_PATH"]
+	}
+	r.e.platform.JobRegistry().Begin(job)()
+}
+
+// takeScheduled takes the id of the job of the record idx pushed for
+// later (jobScheduled), for what completes that job: its invocation, the
+// result cache's answer at its pickup, or a completion with no invocation
+// (noInvocationJob). It reports false when the job was not pushed for
+// later.
+func (r *run) takeScheduled(idx int) (string, bool) {
+	if r.nsched.Load() == 0 {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.sched[idx]
+	if ok {
+		delete(r.sched, idx)
+	}
+	return s.id, ok
 }
 
 // released records that c, a parallel container's child flow, is released

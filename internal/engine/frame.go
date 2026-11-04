@@ -129,10 +129,11 @@ type frame struct {
 	recs  []int
 	kids  [][]*frame
 	owned []int
-	// waiting counts the modules of the flow, and of its collapsed
-	// iterations, that wait for a sleep or a retry delay to end before
-	// their job starts, a state in which Windmill's record of the flow job
-	// has not been seen (WA-19). run.mu guards it.
+	// waiting counts the host-provided sites of the flow, and of its
+	// collapsed iterations, that wait for a sleep or a retry delay to end
+	// before the host answers them: a provided site has no Windmill job,
+	// so no record of the flow job in that state has been seen (WA-19).
+	// run.mu guards it.
 	waiting int
 	// attempts holds, by record, the job of a failed attempt of a
 	// container that its retry kept: the child flow that failed it, which

@@ -328,9 +328,13 @@ func (r *run) leafCache(ctx context.Context, fr *frame, m *ir.Module, args jsonv
 // an identity of its own, and the job registry knows it as it knows every
 // job of the run's tree while its root lives (ADR 0007, PF3), so a root
 // lookup by its id answers as for a job that ran.
-func (r *run) cachedJob(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, c cacheEntry) outcome {
+func (r *run) cachedJob(ctx context.Context, fr *frame, i, idx int, site conformance.SitePath, o outcome, c cacheEntry) outcome {
 	v := c.value()
-	o.rec.Ran, o.rec.Job, o.rec.Cached = true, newUUID(), true
+	id, ok := r.takeScheduled(idx)
+	if !ok {
+		id = newUUID()
+	}
+	o.rec.Ran, o.rec.Job, o.rec.Cached = true, id, true
 	r.e.registerHit(r.jobEnv(fr, i, o.rec.Job), r.id, nil)
 	r.ended(fr, &o)
 	r.recordJob(fr, i, v)
