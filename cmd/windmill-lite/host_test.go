@@ -49,6 +49,9 @@ func TestMain(m *testing.M) {
 	if sock := os.Getenv(benchProxyEnv); sock != "" {
 		os.Exit(benchProxy(sock))
 	}
+	if os.Getenv(embStoreEnv) != "" {
+		os.Exit(benchStore())
+	}
 	if v := os.Getenv("WL_TEST_FAKE_ENGINE"); v != "" {
 		os.Exit(fakeEngine(v))
 	}
@@ -69,6 +72,9 @@ func TestMain(m *testing.M) {
 	}
 	if benchDir != "" {
 		os.RemoveAll(benchDir)
+	}
+	if embDir != "" {
+		os.RemoveAll(embDir)
 	}
 	os.Exit(code)
 }

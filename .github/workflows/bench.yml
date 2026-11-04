@@ -24,6 +24,9 @@ name: Benchmarks
 #                    own (WL_BENCH_FRESH=1)
 #       retained     BenchmarkRetainedHeap (what finished runs leave
 #                    reachable on one long-lived runtime)
+#       embedder     BenchmarkEmbedder: the embedder shapes, twelve
+#                    workloads each on windmill-lite in host mode and as
+#                    the in-process baseline, 20 requests per side per round
 #       native       BenchmarkNativeRealm (what native-boundary
 #                    invocations leave in a long-lived host or harness
 #                    process after a full collection), at 8,000 runs:
@@ -40,7 +43,7 @@ on:
         required: true
         default: "main=origin/main"
       groups:
-        description: "Groups: boundary shapes passthrough expressions peaks small retained native"
+        description: "Groups: boundary shapes passthrough expressions peaks small retained native embedder"
         required: true
         default: "boundary shapes passthrough expressions peaks small"
       rounds:
@@ -158,6 +161,9 @@ jobs:
             native)
               export WL_NATIVE_RUNS=8000
               cmds=("1x BenchmarkNativeRealm") ;;
+            embedder)
+              export WL_BENCH_EMB_N=20
+              cmds=("1x BenchmarkEmbedder") ;;
             small)
               export WL_BENCH_FRESH=1 WL_BENCH_SIZES=26B,1KiB
               cmds=("3s BenchmarkStepBoundary/topology=(host|subprocess)/conc=(1|8)/"
