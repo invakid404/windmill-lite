@@ -55,10 +55,10 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 195 | 130 | 63 | 0 | 2 | 181 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 119 | 68 | 46 | 5 | 0 | 43 | 0 | 6 |
+| [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1051 | 726 | 308 | 8 | 9 | 665 | 0 | 7 |
+| **Total** | 1052 | 727 | 308 | 8 | 9 | 666 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -7408,38 +7408,66 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     read by its second child while both run, the first completing after
     the reader (`par`), and parallel loops with a parallelism of 2 over
     three children read once one or two have completed (`held`, `held2`)
-    and of 1 read by its first child (`held1`). The next module reads the
-    containers completed.
+    and of 1 read by its first child (`held1`); and two parallel
+    branchalls of two branches, each read by one branch once the other has
+    completed, the completed one first, then last (`partial`). The next
+    module reads the containers completed.
   - **Expect:** the empty containers' entries are `Success` with the nil
     job, the loop and the branchall with empty `flow_jobs`, the branchone
     with `branch_chosen` `{"type": "default"}`; the stopped subflow's
     `step` is 1, its second step waiting. The failed starts are `Failure`
     with the nil job and nothing else. A running parallel loop's
     `iterator.index` is the number of its children that have completed,
-    its `job` its last child released to run, its `flow_jobs` every
-    child, a held one included, which is a `QueuedJob` with
+    its `job` its last child released to run (of two released together,
+    either), its `flow_jobs` every child, a held one included, which is a `QueuedJob` with
     `running: true` and every module waiting. A running parallel
     branchall's `branchall.branch` is 0 and its `job` its last branch,
-    with `parallel: true`. Completed, each container names the child that
-    completed last.
+    with `parallel: true`, and once a branch has completed, `branch` 1, the
+    number completed, in either order. Completed, each container names the
+    child that completed last.
   - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
     runs `edges` and `fails`, [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
-    runs `par`, `held`, `held1` and `held2`, oracle run 41791783623, as
-    expected.
+    runs `held`, `held1` and `held2`, oracle run 41791783623, and `par`
+    and `partial`, oracle run 41816071223, as expected. In run `par` the
+    reader writes the running parallel loop's `job` as `<racy>`: of its
+    two children, started together, oracle run 41814009799 named `l/i:1`
+    in one repeat and `l/i:0` in the other.
 - **WA-19/o** · oracle-observed · large results and arguments
-  - **Given:** a step returns a string of `n` characters, either `x`
-    repeated or a sequence that no compressor shrinks; the next step takes
-    it as its argument `x`; a third reads both jobs. `n` is 89,000
-    (`whole`, not compressible) or 92,000 (`compressible`,
-    `incompressible`).
-  - **Expect:** below 90000 bytes stored, the result and the argument
-    whole; above, `"WINDMILL_TOO_BIG"` and `{"reason": "WINDMILL_TOO_BIG"}`
-    for the sequence, the whole value for `x` repeated, which compresses
-    below.
+  - **Given:** a step returns a value; the next step takes it as its
+    argument `x`; a third reads both jobs. The value is a string of `n`
+    characters: `x` repeated, a sequence that no compressor shrinks, or an
+    8 KiB block of that sequence repeated (`window`); or an array of 1,000
+    small objects (`rows`). `n` is 89,000 (`whole`), 92,000
+    (`compressible`, `incompressible`) or 131,072 (`window`). In `walkx`
+    and `walkr`, a step under a sub-flow whose input holds 92,000 times
+    `x` or 92,000 incompressible characters walks up its parent chain
+    without `no_logs`.
+  - **Expect:** a value whose stored column, after pglz's compression,
+    takes less than 90000 bytes whole; else `"WINDMILL_TOO_BIG"` and
+    `{"reason": "WINDMILL_TOO_BIG"}`.
   - **Recorded:** [`flows/client-api/job-reads-large`](../../conformance/flows/client-api/job-reads-large)
     runs `whole`, `compressible` and `incompressible`, oracle run
-    41791783623, as expected. windmill-lite answers 501 for the last two
-    (deviation D23 of [ADR 0001](../design/0001-equivalence-contract.md)).
+    41791783623, and `window`, `rows`, `walkx` and `walkr`, oracle run
+    41816071223: whole for `whole`, `compressible`, `rows` and `walkx`'s
+    sub-flow input; replaced for `incompressible`, `window`, which pglz,
+    looking back 4 KiB at most, does not shrink, and `walkr`'s sub-flow
+    input.
+- **WA-19/p** · oracle-observed · flows whose steps wait for a sleep or a retry delay
+  - **Given:** on two workers, a parallel branchall whose branches wait:
+    a step after the sleep of the step before it, and a step for its
+    retry's delay (`waits`); a sub-flow, a loop and a collapsed loop after
+    the sleep of the step before each, and a sub-flow and a loop for their
+    retry's delay (`waits2`). The last branch reads the job tree
+    meanwhile.
+  - **Expect:** a waiting step's entry is `WaitingForExecutor` with its
+    pushed job, which is a `QueuedJob` with `running: false`; a retry's
+    entry so lists no `failed_retries`; a waiting sub-flow step's entry is
+    `WaitingForExecutor` with its sub-flow's job, a `QueuedJob` with
+    `running: false`, `step` 0 and every module waiting; a waiting loop's
+    entry is `InProgress` with its first child pushed, a `QueuedJob` with
+    `running: false`, and a collapsed loop's with its body job so.
+  - **Recorded:** [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
+    runs `waits` and `waits2`, oracle run 41816071223, as expected.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour
