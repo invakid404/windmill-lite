@@ -42,6 +42,13 @@ const ENV: Record<string, string> = {
   workspace_id: "WM_WORKSPACE", created_by: "WM_USERNAME", email: "WM_EMAIL", permissioned_as: "WM_PERMISSIONED_AS",
 };
 const extra = new Set<string>();
+// racy is set, by readTree's racyLoops on every read, while the reader of
+// a parallel loop whose children start together reads: the job such a
+// running loop names is the child that a worker picked up last, whose
+// order varies between runs, so the reader writes it as <racy> and does
+// not walk from it (WA-19/n).
+let racy = false;
+const racyLoop = (m: any) => racy && m?.parallel === true && m?.iterator !== undefined;
 function keep(v: any, served: Set<string>, left: Set<string>, where: string, each: (k: string, x: any) => any): any {
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
@@ -51,7 +58,8 @@ function keep(v: any, served: Set<string>, left: Set<string>, where: string, eac
   return out;
 }
 function entry(m: any): any {
-  return m === null || typeof m !== "object" ? m : keep(m, MODULE_SERVED, MODULE_LEFT_OUT, "module", (_, x) => x);
+  if (m === null || typeof m !== "object") return m;
+  return keep(m, MODULE_SERVED, MODULE_LEFT_OUT, "module", (k, x) => (k === "job" && racyLoop(m) ? "<racy>" : x));
 }
 function pick(job: any): any {
   return keep(job, SERVED, LEFT_OUT, "job", (k, x) => {
@@ -70,7 +78,8 @@ async function get(id: string, q = "?no_logs=true") {
   if (res.status === 200) json = JSON.parse(text);
   return { status: res.status, type: res.headers.get("content-type"), text, json };
 }
-async function readTree() {
+async function readTree(racyLoops = false) {
+  racy = racyLoops;
   const out: Record<string, unknown> = {};
   const seen = new Set<string>();
   const record = async (id: string, site: string) => {
@@ -85,7 +94,7 @@ async function readTree() {
     if (j?.flow_status) await walk(j.flow_status, site);
   };
   const mod = async (m: any, site: string): Promise<void> => {
-    if (m.job) await visit(m.job, site);
+    if (m.job && !racyLoop(m)) await visit(m.job, site);
     const fj: string[] = m.flow_jobs ?? [];
     for (let i = 0; i < fj.length; i++) await visit(fj[i], `${site}/${i}`);
     const fr: string[] = m.failed_retries ?? [];
@@ -158,7 +167,7 @@ export async function main(role: string, k: string) {
   }
   await until(`${k}_started`);
   await Bun.sleep(300);
-  const out = await readTree();
+  const out = await readTree(k === "l");
   await state(`${k}_read`, true);
   return out;
 }
