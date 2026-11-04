@@ -205,7 +205,7 @@ func TestJSExprIsolation(t *testing.T) {
 }
 
 // TestJSExprWorstCaseTime times jsExpr and the engine on the largest
-// inputs the walker takes (a root just under PS1's 1 MiB cap read to its
+// inputs the walker takes (a root just under the member paths' 1 MiB cap read to its
 // end, a string of that size measured and joined three times, ≈ 0.9 MiB
 // strings joined): jsExpr answers or, past jsMaxWork, declines, within
 // milliseconds either way. jsExpr's own work is bounded, so it stays far
@@ -215,7 +215,7 @@ func TestJSExprIsolation(t *testing.T) {
 func TestJSExprWorstCaseTime(t *testing.T) {
 	l := DefaultLimits()
 	p := NewPipeline(realEngine(t, l, 1))
-	// PS1's walker reads roots up to 1 MiB (maxPathText); the budget then
+	// The member paths' walker reads roots up to 1 MiB (maxPathText); the budget then
 	// bounds the strings built.
 	big := maxPathText - 64
 	arr := "[" + strings.TrimSuffix(strings.Repeat("123456,", big/7), ",") + "]"

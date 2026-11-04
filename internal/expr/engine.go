@@ -92,7 +92,7 @@ type HostString struct {
 // lookups of JE-18 and the helpers of JE-11 and JE-20 are host functions.
 //
 // Inline marks a Call that never blocks: an in-memory read under a short
-// lock, such as the results lookup of a MemoryResults (milestone PS4). An
+// lock, such as the results lookup of a MemoryResults. An
 // engine may then call it on the thread that runs the evaluation, in call
 // order, instead of on a goroutine of its own. Its Promise settles at the
 // same point either way, after the jobs queued so far have run, and the

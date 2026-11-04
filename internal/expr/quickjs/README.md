@@ -51,26 +51,27 @@ What the package does not do:
 2. **Waiting.** `Eval` hands the job to the next slot that has a prepared
    runtime. When none has, the caller waits, and waiting callers are served
    in arrival order. `Stats` counts these waits.
-3. **Binding.** Each `HostString` becomes a writable, enumerable and
-   configurable global property holding its text as a string; the program
-   parses it ([ADR 0003](../../../docs/design/0003-semantics-placement.md)).
-   Each `HostFunc` becomes a global function. A call converts its first
-   argument with `ToString` (a conversion that throws makes the call throw)
-   and returns a Promise, and `Call` runs on its own goroutine with a
-   context that ends with the attempt. A `HostFunc` marked `Inline`, one
-   that never blocks (the pipeline's results lookup when it reads memory;
-   milestone PS4), is called instead on the slot's thread when the calls
-   are taken, and its answers settle first, in call order. The attempt's
-   end is checked when it returns. At most 64 calls of one evaluation
-   run at once or hold an inline answer not yet settled; the others wait,
-   queued, in call order. The Promise settles
-   only after the jobs queued so far have run: it resolves with the returned
-   text, or rejects with an `Error` whose message is `err.Error()`, built
-   with no frames on the stack (so its `stack` is empty unless the program
-   set `Error.prepareStackTrace`, which then runs). The runtime is prepared
-   before a job arrives, so an evaluation first restarts the context's
-   `performance` clock, before the bindings, so that one named `performance`
-   replaces it.
+3. **Binding.** The runtime is prepared before a job arrives, so an
+   evaluation first restarts the context's `performance` clock, before the
+   bindings, so that one named `performance` replaces it. Each `HostString`
+   becomes a writable, enumerable and configurable global property holding
+   its text as a string; the program parses it
+   ([ADR 0003](../../../docs/design/0003-semantics-placement.md)). Each
+   `HostFunc` becomes a global function that returns a Promise; a call:
+   - converts its first argument with `ToString`; a conversion that throws
+     makes the call throw;
+   - runs `Call` on its own goroutine, with a context that ends with the
+     attempt. A `HostFunc` marked `Inline`, one that never blocks (the
+     pipeline's results lookup when it reads memory), is called instead on
+     the slot's thread when the calls are taken. The attempt's end is
+     checked when it returns, and its answers settle first, in call order;
+   - waits, queued in call order, while 64 calls of the evaluation run or
+     hold an inline answer not yet settled;
+   - settles its Promise only after the jobs queued so far have run. The
+     Promise resolves with the returned text, or rejects with an `Error`
+     whose message is `err.Error()`. The `Error` is built with no frames on
+     the stack, so its `stack` is empty unless the program set
+     `Error.prepareStackTrace`, which then runs.
 4. **Running.** Each of the input's preludes runs, in order, as a global
    script of the context: its top-level `let`, `const` and `class`
    declarations become global lexical bindings the program sees, which no
@@ -112,15 +113,17 @@ What the package does not do:
 6. **Replenishing.** The slot replies first, then frees the runtime and
    prepares the next one, off the caller's path. A runtime is never reused:
    nothing survives from one evaluation to the next (JE-1). How it is
-   freed depends on the mode (milestone PS4):
+   freed depends on the mode:
    - **default:** each runtime allocates from a mimalloc heap of its own,
-     made on the slot's thread, and the slot destroys that heap whole
+     made on the slot's thread. The slot destroys that heap whole
      (`mi_heap_destroy`) instead of freeing the runtime block by block.
      QuickJS-ng's teardown does not run, which nothing can observe: no
-     JavaScript runs while a runtime is freed, and every block the runtime
-     and the slot's records hold is in the heap, so a block QuickJS-ng fails
-     to free (it does for some programs, such as one that assigns an object
-     to `Error.stackTraceLimit`) is reclaimed with the rest, uncounted;
+     JavaScript runs while a runtime is freed;
+   - **default, after a leak:** every block the runtime and the slot's
+     records hold is in the heap, so a block that QuickJS-ng fails to free
+     is reclaimed with the rest, uncounted. QuickJS-ng fails to free blocks
+     for some programs, such as one that assigns an object to
+     `Error.stackTraceLimit`;
    - **leak check** (`Options.LeakCheck`, and always in builds with
      `wl_libc_malloc`): every block a runtime allocates is linked into the
      slot's list, and after `JS_FreeRuntime` the slot frees the blocks still
@@ -163,14 +166,15 @@ the binaries are static, and runs them on a runner of that architecture.
 
 ## Allocator
 
-The engine allocates every block of a runtime's heap with mimalloc, from a
-heap of the runtime's own in the default mode (`mi_heap_malloc` and the
-rest) and from the thread's heap in leak check (`mi_malloc`), in
-`wl_quickjs.c`. The heap cap counts each block's `mi_usable_size` either
+The engine allocates every block of a runtime's heap with mimalloc
+(`wl_quickjs.c`): from a heap of the runtime's own in the default mode
+(`mi_heap_malloc` and the rest), and from the thread's heap in leak check
+(`mi_malloc`). The heap cap counts each block's `mi_usable_size` either
 way. mimalloc does not replace the C library's `malloc`, which the rest of
-the program keeps. Destroying the heap whole saves the per-block frees and
-QuickJS-ng's teardown of every object, which `BenchmarkEvalCPU` compares
-with leak check.
+the program keeps.
+
+Destroying the heap whole saves the per-block frees and QuickJS-ng's
+teardown of every object. `BenchmarkEvalCPU` compares the two modes.
 
 musl's `malloc`, which the static Linux engine links, makes every slot
 thread wait on one lock. Measured in CI (`TestPoolUnderLoad`, CI run
@@ -194,10 +198,11 @@ The build tag `wl_libc_malloc` (`alloc_libc.go`) puts the C library's
 allocator back, with leak check always on: the C library has no heap to
 destroy whole. Only measurements use it: the `Static Linux engine` CI job
 prints the pool's table for four builds in its summary (musl or glibc,
-each with mimalloc and with its own `malloc`). Since PS4 the mimalloc
-builds there destroy each runtime's heap and the others free it block by
-block, so the table compares the release configuration with each C
-library's allocator, not the allocators alone.
+each with mimalloc and with its own `malloc`).
+
+In that table the mimalloc builds destroy each runtime's heap, and the
+others free it block by block. So the table compares the release
+configuration with each C library's allocator, not the allocators alone.
 
 ## Tests and cases
 
@@ -217,27 +222,33 @@ library's allocator, not the allocators alone.
   `queueMicrotask`, `performance` and `DOMException`, which QuickJS-ng's
   full context adds; batch E3f recorded those on the oracle
   ([Q-JE-2](../../../docs/semantics/expressions.md#q-je-2), answered).
-- The Go tests cover the binding, the preludes, the C library's name, host
-  functions (concurrency and its bound, rejection, settling after queued
-  jobs, the attempt's end, program code that calls the host while a call
-  is settled, arguments counted against the cap, sequential calls whose
-  arguments add up past the cap, record reuse), exceptions and the kinds
-  of thrown values, the job queue (every queued job runs, and a throwing
-  one is dropped), the compile cache, fresh runtimes, leaks, interrupts
-  and cancellations (also when
-  they come during a long built-in or readback, while a host call is
-  pending, or once a completed readback is about to be returned, which the
-  tests reach through `attemptReturned`), `Close`, the arrival
-  order of waiting callers, concurrent use under `-race`, and the overflow
-  depth at the default stack, which they log for each platform and check
-  lies between 600 (fits) and 1 000 000 (overflows), the bracket JE-48
-  records on Windmill, where depth 1 000 overflows too; that this engine
-  fits depth 1 000 (JE-48/a's `depth-1000` case) is deviation D17 of
-  [0001](../../../docs/design/0001-equivalence-contract.md). An engine
-  started through the tests' shared helper must end with no leaked heap
-  block, which means something in leak check (`WL_QJS_LEAK_CHECK=1`, which
-  one CI step sets for this package and [internal/expr](../README.md)); the
-  one test that makes QuickJS-ng leak uses a helper without that check.
+- The Go tests cover:
+  - the binding, the preludes and the C library's name;
+  - host functions: concurrency and its bound, rejection, settling after
+    queued jobs, and the attempt's end;
+  - host calls from program code while a call is settled, arguments
+    counted against the cap, sequential calls whose arguments add up past
+    the cap, and record reuse;
+  - exceptions and the kinds of thrown values;
+  - the job queue: every queued job runs, and a throwing one is dropped;
+  - the compile cache, fresh runtimes and leaks;
+  - interrupts and cancellations, also when they come during a long
+    built-in or readback, while a host call is pending, or once a
+    completed readback is about to be returned (the tests reach that
+    through `attemptReturned`);
+  - `Close`, the arrival order of waiting callers, and concurrent use
+    under `-race`;
+  - the overflow depth at the default stack. The tests log it for each
+    platform and check that it lies between 600 (fits) and 1 000 000
+    (overflows), the bracket JE-48 records on Windmill, where depth 1 000
+    overflows too. That this engine fits depth 1 000 (JE-48/a's
+    `depth-1000` case) is deviation D17 of
+    [0001](../../../docs/design/0001-equivalence-contract.md).
+- An engine started through the tests' shared helper must end with no
+  leaked heap block. The engine counts leaked blocks only in leak check
+  (`WL_QJS_LEAK_CHECK=1`), which one CI step sets for this package and
+  [internal/expr](../README.md). The one test that makes QuickJS-ng leak
+  uses a helper without that check.
 - `TestEngineLeaksAreReclaimed` runs in leak check and checks that a
   known leak is seen and freed and the slot recovers.
   `TestDestroyedHeapsReclaimLeaks` checks the default mode. In leak check,
@@ -247,12 +258,15 @@ library's allocator, not the allocators alone.
   next runtime can still use nearly the whole cap.
 - `BenchmarkEvalCPU` reports the CPU per evaluation, preparing and freeing
   the runtimes included, in the default mode and in leak check.
-- `inline_test.go` covers inline host functions: their answers settle in
-  call order; with 2,000 queued calls the engine holds exactly the bound,
-  64, at once; programs give the same outcome with their functions inline
-  and on goroutines (answers, rejections, chained and mixed calls,
-  `Promise.all`, `allSettled` and `race`, under `-race`); and one that
-  blocks past the attempt limit still ends the attempt with its error.
+- `inline_test.go` covers inline host functions:
+  - their answers settle in call order;
+  - with 2,000 queued calls, the engine holds exactly the bound, 64, at
+    once;
+  - programs give the same outcome with their functions inline and on
+    goroutines: answers, rejections, chained and mixed calls,
+    `Promise.all`, `allSettled` and `race`, under `-race`;
+  - a call that blocks past the attempt limit still ends the attempt
+    with the limit's error.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
   report-only step.

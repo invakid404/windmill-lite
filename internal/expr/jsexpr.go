@@ -14,9 +14,8 @@ import (
 )
 
 // jsExpr is an expression over JSON values that the pipeline evaluates in
-// Go with JavaScript's semantics, without the engine (ADR 0003, milestone
-// PS4):
-// member paths of any bound root (a context value, flow_input, or a step's
+// Go with JavaScript's semantics, without the engine (ADR 0003): member
+// paths of any bound root (a context value, flow_input, or a step's
 // result read as results.<id>, from memory or through the lookup) combined
 // by template literals, string, number, boolean and null literals, .length,
 // !, unary -, the arithmetic operators, the relational operators, === and
@@ -569,7 +568,7 @@ type jsDecline struct{}
 //
 //   - jsBaseline, 1 MiB: a fresh runtime and context with the context and
 //     results preludes and a template over them evaluates under a 1 MiB cap,
-//     the smallest the engine takes (measured on QuickJS-ng, milestone PS4).
+//     the smallest the engine takes (measured on this QuickJS-ng).
 //   - jsParseFactor + jsStringFactor, 66 bytes per byte of JSON text: the
 //     smallest cap under which the engine binds a 1 MiB value and reads its
 //     length is, per byte of text, 45 bytes for an array of empty objects

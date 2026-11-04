@@ -35,7 +35,7 @@
 // the evaluation's cap.
 #define WL_READBACK_HEADROOM (16u << 20)
 
-// A runtime's heap has two modes (README, Allocator; milestone PS4):
+// A runtime's heap has two modes (README, Allocator):
 //
 //   - the default, destroy: the runtime allocates from a mimalloc heap of
 //     its own (mi_heap_new on the slot's thread), and release destroys that

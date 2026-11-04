@@ -397,7 +397,7 @@ separated by commas, to the host's environment only.
 | `BenchmarkPassThrough` | A large value passed on unchanged (`bench_large_test.go`): an array of wide records with one text field each, of 64 KiB and about 2.1 MB. A step returns it through 0 to 4 nested sub-flows; the flow forwards it into 1, 3 or 5 steps and maps it to its ids. It runs on the host and on the plugin host, whose `onRunEnd` takes the whole trace. Per run: time, engine CPU and bytes allocated, host CPU |
 | `BenchmarkExpressions` | A step returns a wide object with a long markup string and its plain-text form, of 96 KiB and 2 MiB. Eight steps each evaluate one expression on it, or on the same value as the flow input's `v`: a short read, an optional-chained read, a null test, an object of three fields and a map. Each expression's time is reported per run (`expr-e<k>-ns`) |
 | `BenchmarkNativeRealm` | Sequential runs of `f/native/steps` (`realm_test.go`) on one host and on one warm harness, read by `f/native/probe` after a first run and after each quarter of the runs. It reports what each native invocation of the last three quarters leaves after a full collection: `Script` objects (`scripts/inv`), JavaScript heap (`heap-B/inv`) and resident set (`rss-B/inv`), then the last reading and the `Script` objects the whole run left (`scripts-kept`). It makes `WL_NATIVE_RUNS` runs, 2,000 by default; run it with `-benchtime 1x` |
-| `BenchmarkEmbedder` | The embedder shapes (`bench_embed_test.go`): twelve workloads shaped like a host-mode embedder's requests, each on windmill-lite in host mode and as the same step functions composed by hand in one Bun process, the in-process baseline, interleaved request by request; see [The embedder shapes](#the-embedder-shapes). Run it with `-benchtime 1x` |
+| `BenchmarkEmbedder` | The embedder shapes (`bench_embed_test.go`): twelve workloads shaped like a host-mode embedder's requests. Each runs on windmill-lite in host mode and as the in-process baseline, the same step functions composed by hand in one Bun process, interleaved request by request; see [The embedder shapes](#the-embedder-shapes). Run it with `-benchtime 1x` |
 | `BenchmarkArgsFileOps` | The write sequence of a step's `args.json` alone (a temporary file in a directory under `TMPDIR`, written, closed and renamed over `args.json`), at 256 B, 1 KiB and 64 KiB: user and system CPU per write, from `getrusage` |
 | `BenchmarkRunPeaks` | Linux only, with `-benchtime 1x`: the peak resident memory of the engine and of the host over one run, two steps that return their argument at 16 and 32 MiB, and eight at 16 MiB. Each case runs on its own runtime and host, after a warm run. It reports each peak, their sum, and the largest sum of the two resident sizes read together every millisecond (`combined-sampled-MiB`) |
 
@@ -420,12 +420,14 @@ on both:
 Both sides call one store, a separate process (the test binary with
 `WL_BENCH_EMB_STORE`): the steps read and write it by `fetch`, after
 `WL_BENCH_EMB_KV_US` (300 µs by default), and the resources come from its
-API after `WL_BENCH_EMB_API_US` (1,200 µs). A workload is one tree of
-nodes (script steps, `branchone`, identity steps, a for-loop) that gives
-both the flow and the in-process program, so both run the same steps in
-the same order with the same inputs. The step scripts are synthetic:
-`get` and `put` are native (`//native`) and call the store, `calc` is a Bun
-step that computes; their CPU work is calibrated per workload.
+API after `WL_BENCH_EMB_API_US` (1,200 µs).
+
+A workload is one tree of nodes (script steps, `branchone`, identity
+steps, a for-loop) that gives both the flow and the in-process program, so
+both run the same steps in the same order with the same inputs. The step
+scripts are synthetic: `get` and `put` are native (`//native`) and call the
+store, `calc` is a Bun step that computes; their CPU work is calibrated per
+workload.
 
 | Workload | Per request: steps / invocations / expressions | Shape |
 |---|---|---|
@@ -438,15 +440,19 @@ step that computes; their CPU work is calibrated per workload.
 
 `TestEmbShapes` checks every shape's counts and that its flow and program
 are well formed; the benchmark checks that both sides return the same
-first result. `WL_BENCH_EMB` selects workloads (names separated by commas),
-`WL_BENCH_EMB_N` the measured requests per side (50), `WL_BENCH_EMB_SIDE=wl`
-or `inproc` one side only, `WL_BENCH_EMB_WORK` scales the steps' CPU work in
-percent, `WL_BENCH_EMB_NATIVE=0` runs the native steps as Bun steps,
-`WL_BENCH_READ_CACHE=off` turns the read cache off,
-`WL_BENCH_ARGS_FILE=skip` leaves `args.json` out where the bundle allows,
-and `WL_BENCH_EMB_PPROF` writes a CPU profile of the engine over the
-measured requests only. `WL_BENCH_INPROC_BUN_OPTIONS` reaches the
-in-process side as `BUN_OPTIONS`.
+first result. These variables change a run:
+
+| Variable | Effect |
+|---|---|
+| `WL_BENCH_EMB` | the workloads, names separated by commas (default: the twelve) |
+| `WL_BENCH_EMB_N` | the measured requests per side (default 50) |
+| `WL_BENCH_EMB_SIDE` | `wl` or `inproc`: one side only |
+| `WL_BENCH_EMB_WORK` | the steps' CPU work, in percent of the calibration |
+| `WL_BENCH_EMB_NATIVE=0` | runs the native steps as Bun steps |
+| `WL_BENCH_READ_CACHE=off` | turns the read cache off |
+| `WL_BENCH_ARGS_FILE=skip` | leaves `args.json` out where the bundle allows |
+| `WL_BENCH_EMB_PPROF` | a file for a CPU profile of the engine over the measured requests only |
+| `WL_BENCH_INPROC_BUN_OPTIONS` | the in-process side's `BUN_OPTIONS` |
 
 Its figures, per request (for H, per batch) and per step run:
 

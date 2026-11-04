@@ -170,7 +170,7 @@ jobs:
       - name: Test the expression packages in leak check
         if: matrix.checks
         # The engine destroys each QuickJS-ng runtime's heap whole by
-        # default, leaks included, without counting them (milestone PS4).
+        # default, leaks included, without counting them.
         # Leak check frees each runtime block by block and counts what
         # QuickJS-ng left, so the tests' check that no runtime leaked
         # catches a leak QuickJS-ng starts making

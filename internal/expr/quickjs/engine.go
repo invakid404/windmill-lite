@@ -30,7 +30,7 @@ type Options struct {
 	// then frees and counts the blocks the engine left allocated
 	// (Stats.LeakedBlocks). By default each runtime allocates from a
 	// mimalloc heap of its own, which the slot destroys whole after the
-	// evaluation, leaks included, without counting them (milestone PS4).
+	// evaluation, leaks included, without counting them.
 	// Tests use it so that a leak QuickJS-ng starts making still fails
 	// them; builds with the wl_libc_malloc tag always run so.
 	LeakCheck bool

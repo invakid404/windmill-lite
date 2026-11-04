@@ -12,7 +12,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr"
 )
 
-// Inline host functions (expr.HostFunc.Inline, milestone PS4) are called on
+// Inline host functions (expr.HostFunc.Inline) are called on
 // the slot's thread when the program's calls are dispatched, and their
 // answers settle in call order.
 

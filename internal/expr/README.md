@@ -170,17 +170,23 @@ Anything else goes to the engine:
 - `results.<id>` for any other id: its read is a host call that the engine
   makes under the attempt limit, cancellation and retries of JE-2.
 
-On the same engines, `jsExpr` (`jsexpr.go`, milestone PS4,
+On the same engines, `jsExpr` (`jsexpr.go`,
 [ADR 0003](../../docs/design/0003-semantics-placement.md)) then answers in
-Go what it takes of the rest. It takes member paths of the bound roots
-(and of `results.<id>` read through a `MemoryResults` lookup, the engine's
-frame results), combined with template literals, string, number, boolean
-and null literals, `.length`, `!`, unary `-`, the arithmetic and relational
-operators, `===`, `!==`, `&&`, `||` and `?:`. A predicate site's text is
-taken inside its `Boolean(` … `)`, the only call it parses and, by JE-24,
-the only wrapper a predicate site adds. It answers what the program would
-answer and declines everything else, before or during the evaluation, and
-the engine then runs as it would. It declines:
+Go what it takes of the rest. It answers what the program would answer and
+declines everything else, before or during the evaluation; the engine then
+runs as it would. It takes:
+
+- member paths of the bound roots, and of `results.<id>` read through a
+  `MemoryResults` lookup (the engine's frame results);
+- template literals, string, number, boolean and null literals,
+  `.length`, `!` and unary `-`;
+- the arithmetic and relational operators, `===`, `!==`, `&&`, `||` and
+  `?:`;
+- a predicate site's text inside its `Boolean(` … `)`, the only call it
+  parses. That wrapper is the only one a predicate site adds
+  ([JE-24](../../docs/semantics/expressions.md#je-24)).
+
+It declines:
 
 - a member of `null` or `undefined`, an inherited member, a string's
   member other than `length`, and `__proto__`;
@@ -189,11 +195,13 @@ the engine then runs as it would. It declines:
 - a string or object converted to a number, and a lone surrogate;
 - a lookup that fails, a root that is not bound, and a text that is not
   UTF-8 or that holds a comment or a line break;
-- any evaluation that might meet a limit: past an upper bound of its
-  QuickJS heap against JE-3's cap, a text nested deeper than 32 or longer
-  than 16 KiB, an attempt limit under 5 s, more than 4 MiB of its own work,
-  or a hundredth of the attempt limit spent. The constants, and why each
-  is an upper bound, are documented where they are defined.
+- any evaluation that might meet a limit. It declines when an upper bound
+  of its QuickJS heap passes the cap
+  ([JE-3](../../docs/semantics/expressions.md#je-3)), or the text nests
+  deeper than 32 or is longer than 16 KiB. It also declines under an
+  attempt limit of less than 5 s, past 4 MiB of its own work, or once it
+  has spent a hundredth of the attempt limit. `jsexpr.go` documents the
+  constants, and why each is an upper bound.
 
 Its reads go through a memo, in the program's order, and only where the
 program makes them. When it declines after a read, the engine's bindings
@@ -218,14 +226,15 @@ Otherwise the expression's program runs on the engine with these bindings
 Every host function answers JSON text:
 
 - **The results lookup.** Every id it is asked is a `Results.Lookup`
-  read, in stored text. When the scope's `Results` reads memory
-  (`MemoryResults`, the engine's frame results), the lookup is marked
-  `Inline`, and the engine may answer it on its own thread instead of a
-  goroutine (milestone PS4); the helpers never are. A failed read rejects with the read's
-  message. The previous id, when `previous_result` is bound (JE-18 step
-  1, the reading [0001](../../docs/design/0001-equivalence-contract.md)
-  §6 records for FX-V6), never reaches it: the results prelude answers it
+  read, in stored text. A failed read rejects with the read's message.
+  The previous id, when `previous_result` is bound (JE-18 step 1, the
+  reading [0001](../../docs/design/0001-equivalence-contract.md) §6
+  records for FX-V6), never reaches it: the results prelude answers it
   from memory.
+- **A lookup from memory.** When the scope's `Results` reads memory
+  (`MemoryResults`, the engine's frame results), the results lookup is
+  marked `Inline`: the engine may answer it on its own thread instead of a
+  goroutine. The helpers never are.
 - **The helpers.** They answer from `Helpers`. Without them they reject
   with JE-20's `… is not available without an authenticated client`, and
   `flow_user_state` without a results context with `flow_user_state() is
@@ -531,14 +540,16 @@ context-free case's recorded argument as its stored form.
   `TestJSExprKeepsTheHeapCap`, `TestJSExprKeepsTheStackLimit`,
   `TestJSExprKeepsTheAttemptLimit`, `TestJSExprBoundsItsOwnWork` and
   `TestJSExprWorstCaseTime` hold it to the evaluation's limits.
-  `TestJSExprIsolation` checks that evaluations share nothing, and
+- `TestJSExprIsolation` checks that evaluations share nothing, and
   `TestJSExprReadMemoKeys` that reads differing only in a key's spelling
-  never share a memo entry. `TestJSExprKeepsReadOrder` runs sequences of
-  expressions with `jsExpr` on and off, over a lookup that reads memory
-  (answered inline) and one that does not (on goroutines), and compares
-  every read, helper call and outcome of the four.
-  `TestBindInlinesMemoryLookups` checks that only a memory lookup is
-  marked `Inline`, through the read memo too.
+  never share a memo entry. `TestJSExprConcurrentPipeline` evaluates from
+  16 goroutines on one pipeline, under `-race`, and holds every outcome to
+  QuickJS's for the same scope.
+- `TestJSExprKeepsReadOrder` runs sequences of expressions with `jsExpr`
+  on and off, over a lookup that reads memory (answered inline) and one
+  that does not (on goroutines). It compares every read, helper call and
+  outcome of the four. `TestBindInlinesMemoryLookups` checks that only a
+  memory lookup is marked `Inline`, through the read memo too.
 - `TestMemberPathPipeline` runs with `jsExpr` on and off.
   `WL_TEST_QUICKJS_ONLY=1` runs the whole package with it off, as one CI
   part does, so that every case passes on QuickJS alone too.
@@ -571,12 +582,15 @@ The tests of milestone B2b run on the real engine. Package `expr` cannot
 import [internal/expr/quickjs](quickjs/README.md), which imports it, so
 `quickjs_test.go`, of the external test package `expr_test` in the same
 test binary, registers the engine for them; an engine a test starts must
-end with no leaked heap block, which the engine counts only in leak check
-(`WL_QJS_LEAK_CHECK=1`, as one CI step runs this package; see
+end with no leaked heap block.
+
+The engine counts leaked blocks only in leak check (`WL_QJS_LEAK_CHECK=1`,
+as one CI step runs this package; see
 [internal/expr/quickjs](quickjs/README.md)). `TestJSExprKeepsTheHeapCap`
 drives the engine out of its cap on strings with non-ASCII characters,
 where QuickJS-ng's `JS_ToCStringLen2` leaks the string it was converting.
-It therefore uses `realLeakyEngine`, which logs leaks instead of failing.
+That test therefore uses `realLeakyEngine`, which logs leaks instead of
+failing.
 
 - `TestE3aOnEngine` is B2b's exit gate (ADR 0012: the expression suite
   against the E3a recordings, at unit level as in B2a). It runs every

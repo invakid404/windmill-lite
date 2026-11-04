@@ -67,7 +67,7 @@ type Pipeline struct {
 	exprOf sync.Map
 
 	// js says whether jsExpr answers what it takes of the rest, on such an
-	// engine (ADR 0003, milestone PS4): templates, arithmetic, comparisons
+	// engine (ADR 0003): templates, arithmetic, comparisons
 	// and predicates over bound JSON values, in Go, under the evaluation's
 	// limits. SetQuickJSOnly turns it off. jsOf holds each text's parse,
 	// or nil for a text it does not take.
@@ -81,8 +81,7 @@ type Pipeline struct {
 var quickJSOnlyDefault = false
 
 // SetQuickJSOnly, when on, turns jsExpr off: everything the shortcuts and
-// the member paths do not answer runs on the engine, as before milestone
-// PS4. A safety valve for embedders (wl.Options.QuickJSOnly), and how the
+// the member paths do not answer runs on the engine. A safety valve for embedders (wl.Options.QuickJSOnly), and how the
 // tests show that a gap in jsExpr cannot hide behind QuickJS. Call it
 // before the pipeline's first evaluation.
 func (p *Pipeline) SetQuickJSOnly(on bool) {
@@ -443,7 +442,7 @@ func bind(e *Expr, s *Scope) Input {
 			if s.Results != nil {
 				// A lookup that reads the run's results in memory under a
 				// short lock (MemoryResults) never blocks, so the engine may
-				// answer it on its own thread (milestone PS4).
+				// answer it on its own thread.
 				in.Funcs = append(in.Funcs, HostFunc{Name: hostResults, Call: b.results, Inline: readsMemory(s.Results)})
 				lookup = true
 			}

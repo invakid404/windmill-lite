@@ -134,7 +134,7 @@ type embBuilder struct {
 // workloads differ in how much host CPU an invocation adds (0.31 to
 // 0.79 ms) and in how much of their expression time QuickJS takes; most
 // of the first is the native steps' realm, so the share of native steps
-// sets it (as measured for milestone PS4).
+// sets it.
 type embMix struct {
 	kinds []string
 	scale int

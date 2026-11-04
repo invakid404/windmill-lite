@@ -154,27 +154,33 @@ harness, which is (a) with its duplication.
      generated values and paths holds the two to each other. Such a path
      takes about 0.6 µs instead of 26 to 48 µs on a runtime.
    - **Templates, arithmetic, comparisons and predicates over JSON values
-     are answered in Go too (PS4, `jsExpr`).** On such an engine, a text
-     that the member paths do not answer is evaluated in Go when it
-     combines member paths of bound roots with template literals,
+     are answered in Go too (`jsExpr`).** On such an engine, `jsExpr`
+     evaluates in Go a text that the member paths do not answer. It takes
+     member paths of bound roots combined with template literals,
      literals, `.length`, `!`, unary `-`, the arithmetic and relational
      operators, `===`, `!==`, `&&`, `||` and `?:`.
-   - A predicate site's text is taken inside its `Boolean(` … `)` wrapper.
-     By [JE-24](../semantics/expressions.md#je-24), that is the only
-     wrapper a predicate site adds. The reference has two other wrappers
-     in the flow pipeline, neither specific to predicates. One is
-     [JE-12](../semantics/expressions.md#je-12)'s `(await …)` around a
-     results read, which `jsExpr` requires the text to spell exactly as
-     the rewrite does. The other is the evaluator's `async function`
-     ([JE-13](../semantics/expressions.md#je-13)), which only a statement,
-     `await`, `this` or `arguments` could observe, and `jsExpr` parses none
-     of them. So `Boolean` is the only call `jsExpr` parses.
+   - A predicate site's text is taken inside its `Boolean(` … `)` wrapper,
+     and `Boolean` is the only call `jsExpr` parses. That wrapper is the
+     only one a predicate site adds
+     ([JE-24](../semantics/expressions.md#je-24)). The flow pipeline's two
+     other wrappers change nothing `jsExpr` answers:
+     - the `(await …)` around a results read
+       ([JE-12](../semantics/expressions.md#je-12)): `jsExpr` requires the
+       text to spell the read exactly as that rewrite does;
+     - the evaluator's `async function`
+       ([JE-13](../semantics/expressions.md#je-13)): only a statement,
+       `await`, `this` or `arguments` could observe it, and `jsExpr`
+       parses none of them.
    - It declines wherever JavaScript would do more than compute over the
      values' own data, and the engine then answers or fails as it would.
-     That covers a member of `null` or `undefined`; an object compared,
-     converted or returned; a string or object converted to a number; a
-     lone surrogate; `__proto__`; a lookup that fails; a comment or a line
-     break; a text that is not UTF-8; and any text it does not parse whole.
+     It declines:
+     - a member of `null` or `undefined`, and `__proto__`;
+     - an object compared or returned, or converted to a primitive when
+       it has a `toString` or `valueOf` key;
+     - a string or an object converted to a number, and a lone surrogate;
+     - a lookup that fails;
+     - a comment, a line break, a text that is not UTF-8, and any text it
+       does not parse whole.
    - It keeps the evaluation's limits by answering only where the engine
      certainly meets none of them:
      - for [JE-3](../semantics/expressions.md#je-3)'s heap cap, it charges
@@ -199,8 +205,8 @@ harness, which is (a) with its duplication.
      a decline is kept, and the engine's evaluation reuses it, so a step's
      lookups and helper calls are the same with `jsExpr` on and off.
    - The parse depends on the text alone, is cached per text, and is
-     separate from the evaluation, so that a later milestone can move the
-     choice to the bundle's build. PS4 changes no IR.
+     separate from the evaluation, so that the choice can move to the
+     bundle's build later (planned, not done: the IR carries no choice).
    - It is on by default. `wl.Options.QuickJSOnly` and the CLI's
      `-quickjs-only` flag turn it off, as a safety valve for embedders.
    - Tests hold its exactness:
@@ -266,23 +272,25 @@ harness, which is (a) with its duplication.
      a runtime returns its memory to the allocator, so there is no
      instance-level growth to manage (the wazero prototype held 570 MiB of
      linear memory after 256 KB runs, which is part of why it is deferred).
-   - **Freeing a runtime (PS4).** Each runtime allocates from a mimalloc
+   - **Freeing a runtime.** Each runtime allocates from a mimalloc
      heap of its own, which the slot destroys whole after the evaluation
      instead of freeing the runtime object by object; whatever QuickJS-ng
      leaks goes with it. Nothing observable changes: no JavaScript runs
-     while a runtime is freed. A leak-check mode keeps the old release,
-     QuickJS-ng's own teardown and a sweep that frees and counts the blocks
-     it left; tests run in it by `WL_QJS_LEAK_CHECK=1`, and CI runs the
-     expression packages so, so that a leak QuickJS-ng starts making still
-     fails a test.
+     while a runtime is freed.
+   - **Leak check.** A second mode frees each runtime as before: QuickJS-ng's
+     own teardown, then a sweep that frees and counts the blocks it left.
+     Tests run in it with `WL_QJS_LEAK_CHECK=1`, and CI runs the
+     expression packages so. A leak that QuickJS-ng starts making then
+     still fails a test.
    - **Interrupts (D8).** An attempt that reaches 20 s is interrupted through
      QuickJS-ng's interrupt handler, and the slot prepares a new runtime.
-   - **Host calls (PS4).** A host call runs on a goroutine of its own, at
-     most 64 of an evaluation at once. A call that never blocks, the results
-     lookup when it reads the run's memory (`MemoryResults`), is marked
-     `Inline` and answered on the slot's thread when the program's calls are
-     taken, saving two thread hand-offs per read; its answers settle in call
-     order and count against the same bound until they settle.
+   - **Host calls.** A host call runs on a goroutine of its own, at
+     most 64 of an evaluation at once. A call that never blocks, the
+     results lookup when it reads the run's memory (`MemoryResults`), is
+     marked `Inline`: the slot answers it on its own thread when it takes
+     the program's calls, which saves two thread hand-offs per read. Its
+     answers settle in call order, and count against the same bound until
+     they settle.
 7. **Harnesses are step runners.** Given a script, arguments and a
    per-invocation environment, a harness binds arguments, hydrates, calls the
    entrypoint, serialises the result or error with its language's rules, and

@@ -24,7 +24,7 @@ func (c *countingJS) Eval(ctx context.Context, p expr.Program, in expr.Input) ([
 }
 
 // TestQuickJSOnlyReachesThePipeline runs a flow whose template, arithmetic
-// and skip_if the pipeline's Go evaluator answers (milestone PS4), reading
+// and skip_if the pipeline's Go evaluator answers (jsExpr), reading
 // the previous step's result through the run's frame results: with the
 // evaluator on, none of them reaches QuickJS-ng; with Config.QuickJSOnly,
 // every one does, and the run's outcome is the same. So the switch that

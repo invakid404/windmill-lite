@@ -470,7 +470,7 @@ func TestMemberPathPipeline(t *testing.T) {
 		}
 	}
 	// engine says whether the engine evaluates the text with jsExpr off;
-	// js, whether jsExpr answers it instead when it is on (milestone PS4).
+	// js, whether jsExpr answers it instead when it is on.
 	cases := []struct {
 		text, want string
 		engine     bool

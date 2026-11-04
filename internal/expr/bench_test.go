@@ -39,8 +39,8 @@ func BenchmarkEvalMemberPath(b *testing.B) {
 	}
 }
 
-// BenchmarkEvalJSExpr evaluates the expressions jsExpr answers (milestone
-// PS4) through Eval, with it on and with it off (QuickJS): a template over
+// BenchmarkEvalJSExpr evaluates the expressions jsExpr answers through
+// Eval, with it on and with it off (QuickJS): a template over
 // the flow input and a step's result read through a memory lookup,
 // arithmetic, and a skip_if predicate.
 func BenchmarkEvalJSExpr(b *testing.B) {

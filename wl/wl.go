@@ -86,7 +86,7 @@ type Options struct {
 	// QuickJSOnly evaluates every expression that the shortcuts and the
 	// member paths do not answer in QuickJS, turning off the Go evaluator of
 	// templates, arithmetic, comparisons and predicates over JSON values
-	// that milestone PS4 added (ADR 0003, engine.Config.QuickJSOnly). The
+	// (jsExpr; ADR 0003, engine.Config.QuickJSOnly). The
 	// evaluator answers only what QuickJS would answer the same way, so
 	// nothing observable changes; this is a safety valve. Off by default.
 	QuickJSOnly bool
