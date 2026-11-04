@@ -672,7 +672,8 @@ interface); `WA-Vn` findings were added during validation.
   | — | `run_script_by_path_sync(path, …)` | the deprecated instance `run_script(path=…)`: async dispatch, then `wait_job` | dispatch | later |
   | `runFlow(path, args, verbose, tag)`, `runFlowAsync(path, args, scheduledInSeconds, doNotTrackInParent=true, tag)` | `run_flow_async` | `POST /w/{ws}/jobs/run/f/{path}` | dispatch | core (interface) |
   | `waitJob(id, verbose)`, `getResultMaybe(id)`, `getResult(id)` | `Windmill.wait_job` (instance only), `get_result` | poll `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}`; `GET /w/{ws}/jobs_u/completed/get_result/{id}` | dispatch | core (interface) |
-  | — | `get_job(id)`, `get_job_status(id)` | `GET /w/{ws}/jobs_u/get/{id}`. Status is `"COMPLETED"` if `type` lower-cased is `completedjob`, `"RUNNING"` if `running`, otherwise `"WAITING"` | job tree | later |
+  | `JobService.getJob` (generated, [WA-9](#wa-9)) | `get_job(id)`, `get_job_status(id)` | `GET /w/{ws}/jobs_u/get/{id}` ([WA-19](#wa-19)). Python's status is `"COMPLETED"` if `type` lower-cased is `completedjob`, `"RUNNING"` if `running`, otherwise `"WAITING"` | job tree | core (a job of a live run); later (Python) |
+  | `JobService.getJobArgs` (generated, [WA-9](#wa-9)) | — | `GET /w/{ws}/jobs_u/get_args/{id}` ([WA-19](#wa-19)) | job tree | core (a job of a live run) |
   | — | `cancel_job(id, reason?)`, `cancel_running()` | `POST /w/{ws}/jobs_u/queue/cancel/{id}` with `{reason}` (default reason `cancelled via cancel_job method`). `cancel_running` first does `GET /w/{ws}/jobs/list?running=true&script_path_exact=<WM_JOB_PATH>`, then cancels every match except `WM_JOB_ID` with reason ``killed by `cancel_running` method`` | dispatch | out |
   | — | `run_inline_script_preview(content, language, args?)` | `POST /w/{ws}/jobs/run_inline/preview` when the base is localhost/127.0.0.1, else `POST /w/{ws}/jobs/run_wait_result/preview`; body `{content, language, args}` | — | out |
   | `loadS3File`, `loadS3FileStream` | `load_s3_file`, `load_s3_file_reader` | `GET /w/{ws}/job_helpers/download_s3_file?file_key&s3_resource_path&storage` (raw fetch) | object store | core |
@@ -1618,16 +1619,119 @@ interface); `WA-Vn` findings were added during validation.
   unchanged.
 
 <a id="wa-19"></a>
-### WA-19 · Job introspection from scripts (`getJob`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
+### WA-19 · Job introspection from scripts (`getJob`, `getJobArgs`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
-**Scope:** core (`getRootJobId`); later (`getJob`, `getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d); high (the lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the lookup of a job of an ended run)
+**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/k); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run)
 
-- **Rule:** scripts can read their own job tree. `JobService.getJob({id})`
-  returns a `Job` (`oneOf` `QueuedJob`/`CompletedJob` with discriminator `type`,
-  plus fields such as `parent_job`, `args`, `flow_status`, `running`,
-  `job_kind`, `script_path`). Scripts can also list queues and cancel jobs.
-  `getRootJobId` follows the effective-root rule ([WA-14](#wa-14),
-  [WA-V1](#wa-v1)). TS `setProgress(…, jobId)` uses `getJob`.
+- **Rule:** scripts can read their own job tree, list queues and cancel
+  jobs. `JobService.getJob({id})` returns a `Job` (`oneOf`
+  `QueuedJob`/`CompletedJob` with discriminator `type`), and
+  `JobService.getJobArgs({id})` a job's stored arguments. `getRootJobId`
+  follows the effective-root rule ([WA-14](#wa-14), [WA-V1](#wa-v1)), and
+  TS `setProgress(…, jobId)` uses `getJob`.
+  - **The job read** (`GET /w/{ws}/jobs_u/get/{id}`; TS `JobService.getJob`,
+    Python `get_job`) answers 200, `application/json`, with the job's
+    record: a `QueuedJob` while the job is queued or running, a
+    `CompletedJob` once it has completed (WA-19/e). Every job of a run has
+    a record while the run lives: the run's flow job, its steps, subflows
+    and their steps, the child flows of loops and branches, a collapsed
+    iteration's job, a skipped module's identity job, a retried step's
+    failed attempts and a failure module's job (WA-19/e to WA-19/g). The
+    table gives the fields recorded for Bun steps and flows, and when a
+    record has each.
+
+    | Field | In the record | Value |
+    |---|---|---|
+    | `type` | always | `QueuedJob` or `CompletedJob` |
+    | `id` | always | the job's id |
+    | `parent_job` | when set | the flow job whose module the job runs: a step's flow, a subflow's or a child flow's enclosing flow, a collapsed iteration's loop's flow; a dispatched job's `parent_job` query; absent for a run started by path ([WA-V1](#wa-v1)) |
+    | `root_job` | `QueuedJob`, when set | the job's innermost flow scope ([WA-V1](#wa-v1)): a step's `WM_ROOT_FLOW_JOB_ID`; a flow job's enclosing scope, absent for a flow job that starts its own (a top-level run, a subflow, a parallel iteration) |
+    | `running` | `QueuedJob` | `true` once the job has started |
+    | `flow_step_id` | `QueuedJob` of a job a flow created | the id of the module the job runs for: a step's own id; for a collapsed iteration's job, the loop's; for a child flow, its container's; for a subflow's flow job, the flow step's |
+    | `canceled` | always | `false` for a job that no one canceled |
+    | `success`, `result` | `CompletedJob` | whether the job succeeded, and its stored result (a flow's, the result its failure module gave when it ran) |
+    | `args` | always | the stored arguments: a step's arguments; a flow job's input; a child flow's input, which is its enclosing flow's input, with `iter` (`{index, value}`) added for a loop iteration; an identity job's `{"previous_result": …}` |
+    | `script_path` | not for an identity job | the job's runnable path ([WA-6](#wa-6)): `<flow path>/<module id>` for an inline step, `<flow path>/loop-<k>` for a collapsed iteration's job, its own for a path script and a flow, `<flow path>/forloop-<k>`, `loop-<k>`, `branchone-<n>` or `branchall-<k>` for a child flow, `<flow path>/failure` for an inline failure module |
+    | `is_flow_step` | always | `true` for every job a flow created, `false` for a run started by path or dispatched |
+    | `language` | a script job | the script's language (`bun`) |
+    | `workspace_id`, `created_by`, `email`, `permissioned_as` | always | the workspace and the user the run is permissioned as: the job's `WM_WORKSPACE`, `WM_USERNAME`, `WM_EMAIL`, `WM_PERMISSIONED_AS` |
+    | `flow_status` | a flow job | below |
+    | `job_kind` | always | `flow` for a run and a subflow, `flowscript` for an inline step and a collapsed iteration's job, `script` for a path script, `identity` for a skipped module's job, `flownode` for a child flow whose body the deploy stored as a node, `flowpreview` for one whose body it kept inline ([CF-8](control-flow.md#cf-8)), `preview` for an inline failure module |
+    | `tag` | always | `bun` for a Bun script job, `flow` for a flow job |
+    | `priority` | a job a flow created | `0`; absent for a run started by path |
+    | `visible_to_owner`, `is_retry` | always | `true` and `false`, a retry's attempts included |
+    | `same_worker`, `suspend`, `script_entrypoint_override` | `QueuedJob` | `false`, `0`, `null` |
+    | `deleted`, `is_skipped`, `result_columns` | `CompletedJob` | `false`, `false` (a skipped module's identity job included) and `null` |
+    | `created_at`, `started_at`, `scheduled_for`, `completed_at`, `duration_ms`, `last_ping` | by state | the job's times |
+    | `worker`, `mem_peak`, `script_hash` | by kind | the worker that ran the job, its peak memory, the script's hash |
+    | `raw_code`, `raw_lock` | an inline script job | its code and its lock; `no_code=true` leaves them out |
+    | `raw_flow` | a flow job | the flow's value |
+    | `logs` | a script job, unless `no_logs=true` | below |
+    | `leaf_jobs` | `QueuedJob` of a flow job | each module id that has jobs, with `{"SingleJob": <id>}` or `{"ListJob": [<id>, …]}`; not in the API's schema |
+
+    The record is compact JSON, except that each argument's value and the
+    result are written as jsonb's text output, with a space after each `:`
+    and `,` and numbers as stored: an argument `{"k":[1,2.50]}` reads
+    `{"k": [1, 2.50]}`, a result `{"k":[1,2.5]}` reads `{"k": [1, 2.5]}`
+    (WA-19/j, WA-19/h). The top-level keys of `args` come in no fixed
+    order, and a stored value of 90000 bytes or more is replaced
+    ([OR-V1](oracle.md#or-v1)).
+  - **A flow job's `flow_status`.**
+    - `step` is the cursor of the flow's state machine: the index of the
+      module that runs. Once the flow has completed, it is the number of
+      modules after a success, the index of the failed module after a
+      failure, and the number of modules plus one once a failure module
+      has completed. It is `0` for a flow job that its cache answered
+      ([FX-40](execution.md#fx-40)), whose entries all read
+      `WaitingForPriorSteps` (WA-19/f).
+    - `modules` has one entry per module. `failure_module` reads
+      `{"id": "failure", "type": "WaitingForPriorSteps"}` until a failure
+      module runs; its entry then carries `parent_module`, the id of the
+      module whose failure it handles.
+    - `preprocessor_module` is `null` and `cleanup_module` `{}` for a flow
+      without them. `user_states` holds the flow user state of a root that
+      has any ([WA-14](#wa-14)), each value as a read gives it back.
+
+    An entry has these fields:
+
+    | Field | When | Value |
+    |---|---|---|
+    | `id`, `type` | always | the module's id; `WaitingForPriorSteps` before it starts, then `InProgress`, then `Success` or `Failure` |
+    | `job` | once the module has a job | a step's job; a subflow's flow job; a skipped module's identity job; a loop's or a branchall's latest child; a branchone's chosen branch |
+    | `skipped` | a `Success` entry | `true` for a module that `skip_if` skipped |
+    | `flow_jobs`, `flow_jobs_success` | a loop or a branchall | its children in order (a collapsed loop's iteration jobs, or child flows), and whether each succeeded, `null` while one runs |
+    | `branch_chosen` | a branchone | `{"type": "branch", "branch": <k>}` or `{"type": "default"}` |
+    | `iterator` | a for or a while loop that runs | `{"index": <k>, "itered_len": <n>}`: the iteration that runs and the number of items, `0` for a while loop |
+    | `parallel`, `while_loop` | a parallel for loop, a while loop, that runs | `true` |
+    | `branchall` | a branchall that runs | `{"branch": <k>, "len": <n>}` |
+    | `failed_retries` | a module some of whose attempts failed | the failed attempts' jobs ([FX-27](execution.md#fx-27)) |
+    | `flow_jobs_duration` | a loop or a branchall | its children's start times and durations |
+  - **`no_logs`.** `no_logs=true` leaves `logs` out. Without it, and with
+    `no_logs=false`, a script job's record has `logs`, a text whose first
+    line is the worker's
+    `job=<id> tag=bun worker=<worker> hostname=<host> isolation=none`. A
+    running job's text holds what its script has written so far, and a
+    completed job's all of it, after the worker's lines (WA-19/k).
+  - **A flow job's record has no `logs`**, with or without the flag, and
+    `no_code=true` leaves out `raw_code` and `raw_lock`. Neither flag
+    changes any other field.
+  - **Error answers.** A UUID that names no job in the path's workspace
+    answers 404, `text/plain`, `Not found: Job not found at name <id><loc>`,
+    where `<loc>` is ` (jobs.rs:1688)` at the pin; an id that is not a UUID
+    gets the framework's 400 of [WA-V2](#wa-v2) (WA-19/h).
+  - **A job of a run that has ended** answers as while it ran, from its job
+    row, as a `CompletedJob`, until the job retention removes it (WA-19/i).
+  - **The arguments read** (`GET /w/{ws}/jobs_u/get_args/{id}`; TS
+    `JobService.getJobArgs`) answers 200, `application/json`, with the
+    job's stored arguments in jsonb's text output, numbers as stored:
+    `{"cfg": {"deep": {"k": [1, 2.50]}}, "label": "top"}`. That holds for a
+    step's own, at the top level, inside a subflow and inside a loop, and
+    for a flow job's input, a loop iteration's child flow's with `iter`
+    (WA-19/j).
+  - **The arguments read's other answers.** A UUID that names no job
+    answers 404 `Not found: Job Args not found at name <id>`, and an id
+    that is not a UUID the framework's 400 (WA-19/h). A job of a run that
+    has ended answers as while it ran (WA-19/i).
   - **The root lookup.** TS `getRootJobId(id?)` (default `WM_JOB_ID`; with
     neither it throws `Job ID not set` before any request) and Python
     `get_root_job_id` call `GET /w/{ws}/jobs_u/get_root_job_id/{id}`, an
@@ -1676,16 +1780,44 @@ interface); `WA-Vn` findings were added during validation.
   (completion deletes the queue row); `backend/src/monitor.rs:1722-1810`,
   `:1884` (the retention sweep deletes completed jobs older than the
   period, then their `v2_job` rows), `:2446-2459` (the period, 30 days by
-  default); `backend/windmill-common/src/jobs.rs:488-506`.
-- **Conformance:** [WA-19/a, WA-19/b, WA-19/c, WA-19/d](conformance.md#wa-19)
-- **Design note (not Windmill behaviour):** windmill-lite has no job rows, so
-  it needs a per-endpoint policy: synthesise a minimal record from the run's
-  in-memory tree, delegate to a real Windmill, or fail loudly. `getRootJobId`
-  and `get_result_maybe` for jobs windmill-lite dispatched itself are cheap to
-  synthesise faithfully; a full `flow_status` is not. Under the synthesise
-  policy, `JobService.getJob` on the flow id would return at least
-  `{"type":"QueuedJob","id":"<flow>","running":true}`. A minimal record is a
-  design choice, not the full upstream schema.
+  default); `backend/windmill-common/src/jobs.rs:488-506`. The job reads
+  (black box): fixtures
+  [`conformance/flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+  and [`job-reads-ended`](../../conformance/flows/client-api/job-reads-ended),
+  oracle run 41774793150, whose steps return each record reduced to the
+  fields windmill-lite serves and list every other field that is not
+  among those the table names; what `logs` holds is from a run of the walk
+  that also returned each record's `logs` (oracle run 41773840670).
+- **Conformance:** [WA-19/a to WA-19/k](conformance.md#wa-19)
+- **Design note (not Windmill behaviour):** windmill-lite has no job rows.
+  It answers the job reads of a job of a live run from the run that holds
+  it. It serves the fields of the first table from `type` to
+  `flow_status`, and the fields of `flow_status` and of its entries but
+  `flow_jobs_duration` and the flow-wide `retry`. It serves the arguments
+  read too, and leaves out, with the reason:
+  - `job_kind`: it follows how the deploy stored each body and which slot
+    a script sits in, which windmill-lite, running every step alike, does
+    not keep per job;
+  - `tag`, `priority`, `visible_to_owner`, `is_retry`, `same_worker`,
+    `suspend`, `script_entrypoint_override`, `deleted`, `is_skipped` and
+    `result_columns`: they follow worker tags, the queue, visibility,
+    workers, suspension, entrypoints, deletion and SQL results, which
+    windmill-lite does not model. Their recorded values are constants
+    that it would have to assume;
+  - the times, `worker`, `mem_peak`, `script_hash`: Windmill's own
+    execution facts, which no windmill-lite value equals;
+  - `raw_code`, `raw_lock`, `raw_flow`: the deployed text Windmill stores,
+    which a bundle does not keep;
+  - `logs`: its worker lines name Windmill's worker and host, so
+    `no_logs` changes nothing in windmill-lite's answer;
+  - `leaf_jobs`, `flow_jobs_duration`, `retry`: not in the API's schema,
+    times, or not recorded.
+
+  A job of a run that has ended answers 501, since windmill-lite releases
+  the run (deviation D22 of
+  [ADR 0001](../design/0001-equivalence-contract.md)). So do a job that
+  windmill-lite canceled and a flow with a preprocessor module. Values of
+  90000 bytes or more are served whole (D23).
 - **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
   Windmill's answers where windmill-lite chose its own: the root lookup of an
   unknown id is a 400 `SqlErr` text, not a 404 and not windmill-lite's 501;

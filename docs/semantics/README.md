@@ -80,10 +80,10 @@ and [licensing.md](licensing.md) maps which parts do.
 | [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 124 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 195 |
 | [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 212 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 108 |
+| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 115 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 18 | 88 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **350** | **271** | **67** | **7** | **5** | **0** | **130** | **1040** |
+| **Total** | **350** | **271** | **67** | **7** | **5** | **0** | **130** | **1047** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
@@ -156,7 +156,7 @@ which), and added or extended drafted parts, from the source alone, in
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
 questions, which keep their numbers; openflow.md's `Q-OF-7` entry points to
-licensing.md, where that question lives. 654 cases are `oracle-observed`,
+licensing.md, where that question lives. 661 cases are `oracle-observed`,
 and seven cases are windmill-lite `policy` checks rather than Windmill
 behaviour ([conformance.md](conformance.md#summary)).
 
