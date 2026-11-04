@@ -142,10 +142,10 @@ through the job API (`platform.ReadCache`). The run's trace lists D21.
 
 `Options.QuickJSOnly`, off by default, turns off the expression pipeline's
 Go evaluator of templates, arithmetic, comparisons and predicates over JSON
-values (`jsExpr`, milestone PS4,
+values (`jsExpr`,
 [ADR 0003](../docs/design/0003-semantics-placement.md)). Every expression
 that the shortcuts and the member paths do not answer then runs on
-QuickJS-ng, as before PS4. The evaluator answers only what QuickJS-ng
+QuickJS-ng. The evaluator answers only what QuickJS-ng
 answers the same way, so nothing observable changes: the option is a
 safety valve for an embedder that meets a difference, and a way to compare
 the two.
@@ -420,6 +420,30 @@ engine, and removes the directory an archive was
 extracted into and a data directory `Open` made. All of it is bounded by
 10 s; a run still in flight then makes `Close` return an error. It is
 idempotent and safe to call while runs start.
+
+## Garbage collection
+
+A Go program that embeds `wl` runs the engine in its own process, so the
+engine's collections follow the program's setting (`GOGC`,
+`debug.SetGCPercent`). A host-mode engine follows the `GOGC` of the host
+that spawned it. At Go's default, 100, the engine collects when its heap
+reaches twice what is live; at 400, five times.
+
+`GOGC=400` against the default, measured on the embedder shapes in host
+mode ([cmd/windmill-lite](../cmd/windmill-lite/README.md#the-embedder-shapes);
+Linux: [one job per architecture](https://github.com/invakid404/windmill-lite/actions/runs/41756851459), 5 rounds; macOS: 3
+rounds), as the range over the twelve workloads of each one's median
+change over paired rounds:
+
+| Runner | p50 | Engine CPU per step | Collector CPU per step |
+|---|---|---|---|
+| linux/amd64 (AMD EPYC 9V45) | 0 to −15 % | −6 to −28 % | −61 to −100 % |
+| linux/arm64 (Neoverse-N2) | +3 to −3 % | −1 to −14 % | −58 to −100 % |
+| macOS (Apple M4) | +5 to −11 % | −5 to −25 % | −59 to −77 % |
+
+At −100 %, no collection ran during the measured requests. The default
+suits most embedders; raise `GOGC` where the engine's CPU matters more than
+its memory.
 
 ## Tests
 
