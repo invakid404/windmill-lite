@@ -404,72 +404,6 @@ separated by commas, to the host's environment only.
 One iteration is one run per worker, the workers started together, so
 even one iteration has every run of its concurrency in flight at once.
 
-### The embedder shapes
-
-`BenchmarkEmbedder` runs each workload two ways and compares them request
-by request, the side that goes first alternating, after five warm requests
-on both:
-
-- **windmill-lite**: the workload as a flow, on the `host-emb` topology,
-  with the per-run read cache on (deviation D21 of ADR 0001);
-- **in process**: the same step functions called as plain functions,
-  composed by hand in one Bun process (`testdata/benchhost/inproc.ts`), the
-  same expressions evaluated as JavaScript in the same scope, each resource
-  read once per request.
-
-Both sides call one store, a separate process (the test binary with
-`WL_BENCH_EMB_STORE`): the steps read and write it by `fetch`, after
-`WL_BENCH_EMB_KV_US` (300 µs by default), and the resources come from its
-API after `WL_BENCH_EMB_API_US` (1,200 µs).
-
-A workload is one tree of nodes (script steps, `branchone`, identity
-steps, a for-loop) that gives both the flow and the in-process program, so
-both run the same steps in the same order with the same inputs. The step
-scripts are synthetic: `get` and `put` are native (`//native`) and call the
-store, `calc` is a Bun step that computes; their CPU work is calibrated per
-workload.
-
-| Workload | Per request: steps / invocations / expressions | Shape |
-|---|---|---|
-| A, B, D1, D2, E, F | 96 / 60 / 375, 155 / 105 / 506, 110 / 68 / 414, 135 / 84 / 459, 102 / 64 / 390, 58 / 33 / 220 | sequential, with branches and identity steps |
-| C1, C5, C20 | 102 / 64 / 390, 178 / 128 / 654, 463 / 368 / 1,644 | a parallel loop (parallelism 2) over 1, 5 or 20 items |
-| G | 50 / 26 / 194 | short and branch-heavy, its expressions mostly the pipeline's shortcuts |
-| H | 624 / 384 / 2,280 per batch: eight requests in flight of 78 / 48 / 285 | concurrent requests |
-| A-typical | 229 / 172 / 837 | A with items of about 65 KB passed through four levels of steps |
-| H-lit | eight requests in flight of 624 / 384 / 2,280 each | H's counts read per request; run only when named |
-
-`TestEmbShapes` checks every shape's counts and that its flow and program
-are well formed; the benchmark checks that both sides return the same
-first result. These variables change a run:
-
-| Variable | Effect |
-|---|---|
-| `WL_BENCH_EMB` | the workloads, names separated by commas (default: the twelve) |
-| `WL_BENCH_EMB_N` | the measured requests per side (default 50) |
-| `WL_BENCH_EMB_SIDE` | `wl` or `inproc`: one side only |
-| `WL_BENCH_EMB_WORK` | the steps' CPU work, in percent of the calibration |
-| `WL_BENCH_EMB_NATIVE=0` | runs the native steps as Bun steps |
-| `WL_BENCH_READ_CACHE=off` | turns the read cache off |
-| `WL_BENCH_ARGS_FILE=skip` | leaves `args.json` out where the bundle allows |
-| `WL_BENCH_EMB_PPROF` | a file for a CPU profile of the engine over the measured requests only |
-| `WL_BENCH_INPROC_BUN_OPTIONS` | the in-process side's `BUN_OPTIONS` |
-
-Its figures, per request (for H, per batch) and per step run:
-
-| Metric | Meaning |
-|---|---|
-| `wl-p50-ms`, `wl-p95-ms`, `inproc-p50-ms`, `inproc-p95-ms` | each side's elapsed time per request |
-| `gap-p50-ms`, `gap-p95-ms`, `ratio-p50` | windmill-lite against the in-process baseline |
-| `gap-us/run-step`, `gap-us/step` | the p50 gap per step of one request, and per step of a batch (H) |
-| `engine-cpu-us/step`, `host-cpu-us/step`, `inproc-cpu-us/step`, `extra-host-cpu-us/step` | CPU per step: the engine's (this process, `getrusage` around the requests), the host's, the in-process side's, and the host's over the in-process side's |
-| `wl-cpu-ms/req`, `inproc-cpu-ms/req` | CPU per request (engine and host together; the in-process side) |
-| `gc/step`, `gc-cpu-us/step` | the engine's collections and their CPU over the measured requests (`runtime/metrics`) |
-| `expr-ms/req` | the expression spans |
-| `host-us/inv`, `host-p50-us/inv` | each invocation's harness span: the time a step spends inside the host |
-| `thr-host-<thread>-us/step`, `thr-inproc-<thread>-us/step` | CPU per step by thread name (Linux from `/proc`, macOS through `testdata/benchhost/threadcpu_darwin.c`) |
-| `steps/req`, `steps/run`, `inv/req`, `expr/req` | the counts, read from the traces |
-| `load1`, `load1-end` | the one-minute load average before and after |
-
 ### Stages
 
 Each step is split into stages, each the difference of two readings of the
@@ -554,6 +488,72 @@ WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
 `WL_BENCH_SIZES` gives `BenchmarkStepBoundary` other payload sizes, as
 labels separated by commas (`26B,1KiB,16MiB`); without it the sizes are
 those of [internal/bench](../../internal/bench/README.md), up to 4 MiB.
+
+### The embedder shapes
+
+`BenchmarkEmbedder` runs each workload two ways and compares them request
+by request, the side that goes first alternating, after five warm requests
+on both:
+
+- **windmill-lite**: the workload as a flow, on the `host-emb` topology,
+  with the per-run read cache on (deviation D21 of ADR 0001);
+- **in process**: the same step functions called as plain functions,
+  composed by hand in one Bun process (`testdata/benchhost/inproc.ts`), the
+  same expressions evaluated as JavaScript in the same scope, each resource
+  read once per request.
+
+Both sides call one store, a separate process (the test binary with
+`WL_BENCH_EMB_STORE`): the steps read and write it by `fetch`, after
+`WL_BENCH_EMB_KV_US` (300 µs by default), and the resources come from its
+API after `WL_BENCH_EMB_API_US` (1,200 µs).
+
+A workload is one tree of nodes (script steps, `branchone`, identity
+steps, a for-loop) that gives both the flow and the in-process program, so
+both run the same steps in the same order with the same inputs. The step
+scripts are synthetic: `get` and `put` are native (`//native`) and call the
+store, `calc` is a Bun step that computes; their CPU work is calibrated per
+workload.
+
+| Workload | Per request: steps / invocations / expressions | Shape |
+|---|---|---|
+| A, B, D1, D2, E, F | 96 / 60 / 375, 155 / 105 / 506, 110 / 68 / 414, 135 / 84 / 459, 102 / 64 / 390, 58 / 33 / 220 | sequential, with branches and identity steps |
+| C1, C5, C20 | 102 / 64 / 390, 178 / 128 / 654, 463 / 368 / 1,644 | a parallel loop (parallelism 2) over 1, 5 or 20 items |
+| G | 50 / 26 / 194 | short and branch-heavy, its expressions mostly the pipeline's shortcuts |
+| H | 624 / 384 / 2,280 per batch: eight requests in flight of 78 / 48 / 285 | concurrent requests |
+| A-typical | 229 / 172 / 837 | A with items of about 65 KB passed through four levels of steps |
+| H-lit | eight requests in flight of 624 / 384 / 2,280 each | H's counts read per request; run only when named |
+
+`TestEmbShapes` checks every shape's counts and that its flow and program
+are well formed; the benchmark checks that both sides return the same
+first result. These variables change a run:
+
+| Variable | Effect |
+|---|---|
+| `WL_BENCH_EMB` | the workloads, names separated by commas (default: the twelve) |
+| `WL_BENCH_EMB_N` | the measured requests per side (default 50) |
+| `WL_BENCH_EMB_SIDE` | `wl` or `inproc`: one side only |
+| `WL_BENCH_EMB_WORK` | the steps' CPU work, in percent of the calibration |
+| `WL_BENCH_EMB_NATIVE=0` | runs the native steps as Bun steps |
+| `WL_BENCH_READ_CACHE=off` | turns the read cache off |
+| `WL_BENCH_ARGS_FILE=skip` | leaves `args.json` out where the bundle allows |
+| `WL_BENCH_EMB_PPROF` | a file for a CPU profile of the engine over the measured requests only |
+| `WL_BENCH_INPROC_BUN_OPTIONS` | the in-process side's `BUN_OPTIONS` |
+
+Its figures, per request (for H, per batch) and per step run:
+
+| Metric | Meaning |
+|---|---|
+| `wl-p50-ms`, `wl-p95-ms`, `inproc-p50-ms`, `inproc-p95-ms` | each side's elapsed time per request |
+| `gap-p50-ms`, `gap-p95-ms`, `ratio-p50` | windmill-lite against the in-process baseline |
+| `gap-us/run-step`, `gap-us/step` | the p50 gap per step of one request, and per step of a batch (H) |
+| `engine-cpu-us/step`, `host-cpu-us/step`, `inproc-cpu-us/step`, `extra-host-cpu-us/step` | CPU per step: the engine's (this process, `getrusage` around the requests), the host's, the in-process side's, and the host's over the in-process side's |
+| `wl-cpu-ms/req`, `inproc-cpu-ms/req` | CPU per request (engine and host together; the in-process side) |
+| `gc/step`, `gc-cpu-us/step` | the engine's collections and their CPU over the measured requests (`runtime/metrics`) |
+| `expr-ms/req` | the expression spans |
+| `host-us/inv`, `host-p50-us/inv` | each invocation's harness span: the time a step spends inside the host |
+| `thr-host-<thread>-us/step`, `thr-inproc-<thread>-us/step` | CPU per step by thread name (Linux from `/proc`, macOS through `testdata/benchhost/threadcpu_darwin.c`) |
+| `steps/req`, `steps/run`, `inv/req`, `expr/req` | the counts, read from the traces |
+| `load1`, `load1-end` | the one-minute load average before and after |
 
 ### Comparing builds on GitHub's runners
 

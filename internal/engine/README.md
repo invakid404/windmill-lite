@@ -248,6 +248,11 @@ lookup reads the run's memory under the run's lock and never waits
 (`expr.MemoryResults`), so the expression engine also answers that lookup
 on its own thread.
 
+`TestQuickJSOnlyReachesThePipeline` runs a flow whose template, arithmetic
+and `skip_if` the evaluator answers, counting what reaches QuickJS-ng. With
+the evaluator on, nothing does; with `QuickJSOnly`, all three do, and the
+run's result is the same.
+
 **What it runs (N1a, N1b, N3a, N3b, N3c, N2, NI, N4).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
