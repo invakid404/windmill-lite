@@ -11,7 +11,10 @@ name: Benchmarks
 #     by spaces. Each job builds the benchmarks' test binary of every ref in
 #     a worktree of its own, then runs the rounds; each round runs every
 #     build once, the order rotating. benchstat compares each build with the
-#     one before it and the last with the first.
+#     one before it and the last with the first. A build can add
+#     environment to its runs, to compare a runtime setting on the same
+#     code: name=ref:VAR=value:VAR=value (git refuses ':' in ref names), as
+#     in tmpfs=<sha>:TMPDIR=/dev/shm or gc=<sha>:GOGC=400.
 #   - groups: which benchmarks, a job per group and architecture:
 #       boundary     BenchmarkStepBoundary, host, one run at a time,
 #                    256 KiB to 16 MiB
@@ -130,7 +133,7 @@ jobs:
       - name: Build each build's benchmarks
         run: |
           for pair in $BUILDS; do
-            name=${pair%%=*} ref=${pair#*=}
+            name=${pair%%=*} ref=${pair#*=} ref=${ref%%:*}
             src="$RUNNER_TEMP/src/$name"
             git worktree add --detach "$src" "$ref"
             echo "$name: $(git -C "$src" rev-parse HEAD)" | tee -a "$RUNNER_TEMP/out/machine.txt"
@@ -174,12 +177,18 @@ jobs:
           nb=${#builds[@]}
           for r in $(seq 1 "$ROUNDS"); do
             for i in $(seq 0 $((nb - 1))); do
-              name=${builds[$(( (i + r) % nb ))]%%=*}
+              pair=${builds[$(( (i + r) % nb ))]}
+              name=${pair%%=*} spec=${pair#*=}
+              # The build's own environment: the VAR=value fields after
+              # its ref.
+              envs=()
+              IFS=: read -r -a fields <<< "$spec"
+              for f in "${fields[@]:1}"; do envs+=("$f"); done
               for c in "${cmds[@]}"; do
                 bt=${c%% *} pattern=${c#* }
-                echo "round $r: $name, $pattern, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
+                echo "round $r: $name ${envs[*]}, $pattern, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
                 (cd "$RUNNER_TEMP/src/$name/cmd/windmill-lite" &&
-                  "$RUNNER_TEMP/bin/$name.test" -test.run '^$' -test.bench "$pattern" -test.benchtime "$bt" -test.count 1 -test.timeout 0) >> "$RUNNER_TEMP/out/$name.txt"
+                  env "${envs[@]}" "$RUNNER_TEMP/bin/$name.test" -test.run '^$' -test.bench "$pattern" -test.benchtime "$bt" -test.count 1 -test.timeout 0) >> "$RUNNER_TEMP/out/$name.txt"
               done
             done
           done

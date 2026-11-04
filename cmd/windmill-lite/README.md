@@ -554,7 +554,11 @@ those of [internal/bench](../../internal/bench/README.md), up to 4 MiB.
 The workflow `Benchmarks` (`.github/workflows/bench.yml`) compares builds
 of the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
 is started by hand and gates nothing. It takes the builds as `name=ref`
-pairs, the benchmark groups and the number of rounds.
+pairs, the benchmark groups and the number of rounds. A build can add
+environment to its runs, to compare a runtime setting on the same code in
+the same job: `name=ref:VAR=value`, with more `:VAR=value` fields as
+needed (git refuses `:` in ref names), as in
+`tmpfs=<sha>:TMPDIR=/dev/shm` or `gc=<sha>:GOGC=400`.
 
 Each job runs one group on one architecture:
 
