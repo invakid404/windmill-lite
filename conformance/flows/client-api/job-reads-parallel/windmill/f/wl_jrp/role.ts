@@ -10,7 +10,7 @@
 // <k>_fast is set and a second more, then reads; "readwaits" waits until
 // <k>_a and <k>_f are set and 1.5 s more, then reads; "readwaits2" the
 // same for <k>_a, <k>_c, <k>_d, <k>_sf and <k>_l, and "readwaits3" for
-// <k>_0 to <k>_5. The keys are the run's root flow job's (WA-14).
+// <k>_0 to <k>_8. The keys are the run's root flow job's (WA-14).
 const NIL = "00000000-0000-0000-0000-000000000000";
 const e = process.env;
 // The fields of a job that windmill-lite serves (WA-19), and those it
@@ -151,7 +151,7 @@ export async function main(role: string, k: string) {
     return await readTree();
   }
   if (role === "readwaits3") {
-    for (let i = 0; i < 6; i++) await until(`${k}_${i}`);
+    for (let i = 0; i < 9; i++) await until(`${k}_${i}`);
     await Bun.sleep(1500);
     return await readTree();
   }

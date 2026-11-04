@@ -10,7 +10,7 @@
 # waits2 and waits3 read, from a sibling branch, flows whose steps,
 # sub-flows and containers wait for a sleep or a retry's delay, waits3's
 # being skipped, mocked, identity, failing, cached and wrongly entered
-# steps. Of a running parallel container whose children were released
+# steps, a skipped loop, a mocked branchone and a failing flow step. Of a running parallel container whose children were released
 # together, the readers check that its job is one of its flow_jobs and
 # write it as <one of flow_jobs>, since which one varies between runs.
 # Every id in an answer is a job of the run, which the normaliser writes as
