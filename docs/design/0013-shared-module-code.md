@@ -453,6 +453,20 @@ instance of every module it imports, as on Windmill.
      that the step's entry takes then has the module's names, in the order
      its bundler gives a namespace. It does not have the CommonJS interop
      marker (`__esModule`) of the reference that the names are read from.
+   - **The references' module types.** esbuild takes a module's type from
+     the extension of its path, in every namespace: `.mjs` and `.mts` make
+     an ES module, and `.cjs` and `.cts` a CommonJS module, whatever the
+     text. So the build fixes each reference's type itself:
+     - The CommonJS reference that an ES module reference reads from has a
+       path of its own ending `.cjs`. Named after a package entry such as
+       `windmill-client`'s `dist/index.mjs`, it would be an ES module whose
+       `module.exports` is the step module's own.
+     - An ES module reference to a module without exports holds an empty
+       export statement. Named after a dependency file ending `.cjs` or
+       `.cts`, it would otherwise be a CommonJS module, whose namespace
+       object holds a default.
+     - A package whose entry is an ES module therefore shares its group's
+       closure as any other package does.
    - **Initialisation through a reference.** The reference imports the
      module whatever names the step reads, so the module initialises as the
      per-script bundle's import of it does.
@@ -711,6 +725,7 @@ cases of the semantics catalogue:
 | D18/l | Host-provided modules: a listed module that two scripts and a dependency of each import is the registered instance (D12), while the dependency is per script; the build still warns `host_module_shared_dependency` |
 | D18/m | Strictness: a sloppy CommonJS dependency imported by a script whose entry starts with `"use strict"` and by one whose entry does not reads an unbound `this` and assigns an undeclared variable as in each script's per-script bundle; a dependency of an ES module group runs strict, as in its ES module bundle |
 | D18/n | Interop: a Bun-built script and a `format: esm` codebase script read a dependency's live binding (`export let`, changed by a call) after the change. Default and namespace imports of an ES module dependency give its default. Those of a CommonJS package, with and without `__esModule`, agree with the per-script bundle |
+| D18/n, ES module packages | A CommonJS and a `format: esm` codebase script take named and namespace imports of a `"type": "module"` package with an `.mjs` entry, of a package whose `.mjs` entry re-exports its members, of a CommonJS package and of a folder file ending `.mjs`. Each gives the per-script bundle's results (`n-esm-packages-cjs`, `n-esm-packages-esm`) |
 | D18/o | Cycles: two dependency modules that import each other see each other's partial exports during initialisation, as in the per-script bundle |
 | D18/p | Physical copies: two copies of one package version that one script resolves from two places keep independent state, as in its per-script bundle |
 | D18/q | A script imported by another: its module in the importer's instance is not its own module as a root, and keeps state of its own |
@@ -745,6 +760,17 @@ cases of the semantics catalogue:
   `import()` and two statically. Built with shared code, all four share one
   closure, and each returns the per-script bundle's result in `warm`, in
   host mode and in `fresh`.
+- `TestESModulePackagesShareTheClosure` (in `cmd/wltest`) runs codebase
+  scripts of both formats. They import ES module packages, a CommonJS
+  package, and folder files whose names end `.mjs`, `.mts` or `.cts` or
+  that lie below a directory named `cjs`.
+  - Built with shared code, every script keeps its shared layout, and
+    loading its shared-layout module assigns `module.exports` only at the
+    script's own export point.
+  - Each step returns the per-script bundle's result in `warm`, in host
+    mode and in `fresh`.
+  - `TestWindmillClientSharesTheClosure` does the same for the stock
+    `windmill-client` 1.767.0, by a named and a namespace import.
 - `TestModuleMemory` and `TestModuleMemoryClosure` run with the real shared
   layout, against the targets above.
 

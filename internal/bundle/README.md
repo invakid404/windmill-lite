@@ -403,6 +403,13 @@ dependency plugin (`depPlugin`):
   from a bundle of the module alone). Its namespace object then has the
   module's names, and not the CommonJS interop marker of the reference that
   it reads them from.
+- esbuild takes a module's type from its path's extension in every
+  namespace (`.mjs` and `.mts` an ES module, `.cjs` and `.cts` CommonJS).
+  So the CommonJS reference that an ES module reference reads from has a
+  path of its own ending `.cjs` (`cjsReferencePath`, in the namespace
+  `windmill-lite-dep-cjs`). An ES module reference to a module without
+  exports holds an empty export statement. A dependency named
+  `index.mjs` or `x.cts` keeps both references' types.
 - The env support module, host-provided modules' shims, external modules
   and the entry itself stay as the per-script bundle has them.
 - Each inject file is replaced by a proxy that re-exports its names from

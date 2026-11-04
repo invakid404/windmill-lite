@@ -597,6 +597,26 @@ Windmill v1.767.0's image).
   statically. All four must name one closure, with no
   `shared_code_fallback` warning. The fixture's flow then passes in `warm`,
   `fresh` and `host`, and in `warm` and `host` with shared code.
+- `TestESModulePackagesShareTheClosure` builds the synthetic fixture
+  `testdata/esm-packages` with shared code, in a copy whose sync tree gets
+  the fixture's `packages/` as its `node_modules` (Git ignores
+  `node_modules`). Its codebase scripts, of a CommonJS entry and of a
+  format esm entry, import ES module packages, a CommonJS package, and
+  folder files whose names end `.mjs`, `.mts` or `.cts` or that lie below a
+  directory named `cjs`.
+  - Every script must keep its shared layout, with one closure per entry
+    and no `shared_code_fallback` warning.
+  - `testdata/shared-stub-exports.mjs` loads each shared-layout module
+    with a stand-in closure registry. A CommonJS module must assign
+    `module.exports` once, after which it holds `main`; an ES module must
+    export `main` and never assign `module.exports`.
+  - The fixture's flows then pass in `warm`, `fresh` and `host`, and in
+    `warm` and `host` with shared code.
+- `TestWindmillClientSharesTheClosure` does the same with
+  `testdata/esm-client`, whose scripts read `JobService.getJob` of the
+  stock `windmill-client` 1.767.0 by a named and a namespace import. It
+  needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules` holds the
+  client.
 - `TestEndedRunJobRead` checks deviation D22 on
   `conformance/flows/client-api/job-reads-ended`, in `fresh` and in
   `warm`. The step that reads the job of a run that has ended fails with
