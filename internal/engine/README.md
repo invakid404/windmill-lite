@@ -17,7 +17,8 @@ time of milestone N2: `sleep`, the step timeout and its messages, retries
 with their arithmetic, jitter and argument reuse, deadlines and the clock,
 (milestone PF3) each run's place in the job registry, the helper
 `flow_user_state()`, a root script's run as a script job and the default
-dispatcher, the integration of milestone NI (N2's waits and retries,
+dispatcher, the records of its jobs that the job reads of a live run
+answer (`jobrecord.go`), the integration of milestone NI (N2's waits and retries,
 the cancellation and failures inside containers, and the evaluation timing
 of container-level fields), the `cache_ttl` result cache of milestone
 N4, and what milestone F2c added for host plugins: `RunRequest.Around`
@@ -227,6 +228,15 @@ An invocation settles when its entrypoint call can run no more code, and
   the trace `OnRunSettled` receives, and keeps its values until it settles.
   The late output may come from the open invocation or, in order, from one
   that has already settled while the other keeps the run open.
+- **Tests of the job records** (`jobrecord_test.go`, with the
+  `registering` executor that registers each invocation as the facade
+  does). `TestJobRecordsDuringARun` checks the records a step reads of
+  its own running job, the run's flow job with its status, and the
+  completed step before it, byte for byte, and its arguments read.
+  `TestEndedRunReleasesItsJobRecords` checks with weak pointers that a run
+  that has ended leaves its step results unreachable, its jobs known to
+  the root lookup and no longer read. `TestJobRecordServesLargeValuesWhole`
+  checks deviation D23.
 
 ## The engine core
 
@@ -1082,6 +1092,46 @@ flows with its own, and the runs the dispatcher starts read its own.
 - **A script root is checked when the engine opens**, as every flow is
   (ADR 0001 §3's rule): a Bun script in either boundary. Its own
   `cache_ttl` caches its script job (N4, below).
+
+**The job records (`jobrecord.go`).** A run renders the record that
+`GET jobs_u/get/{id}` answers for each job of its tree while it lives,
+and the arguments that `GET jobs_u/get_args/{id}` answers
+([WA-19](../../docs/semantics/client-api.md#wa-19)), for the facade
+through the job registry.
+
+- **References, not copies.** A run registers its flow job and each
+  child flow with itself as the view (`platform.Job.View`), and indexes
+  every job it starts by id (`run.jobs`): a flow job by its frame, a leaf
+  by its frame, its module and its record in the trace. The leaf's record
+  names its job and its stored arguments from its launch on. A child flow
+  records its end; the run its own. Nothing is rendered until a step asks.
+- **The record** is the oracle's, with the fields windmill-lite serves:
+  `type`, `id`, `parent_job` (the flow job of the frame the job runs in),
+  `root_job` (the innermost scope: a frame's scope, absent when the frame
+  starts its own), `running` and `flow_step_id` while it runs, `canceled`,
+  `success` and `result` once it has completed, `args`, `script_path`,
+  `is_flow_step`, `language`, the host's workspace and user, and a flow
+  job's `flow_status`. Each argument's value and the result are written
+  as jsonb's text output.
+- **`flow_status`** comes from the trace: each module's latest record by
+  site (none: `WaitingForPriorSteps`; no status yet: `InProgress`; then
+  its module status), its job, `skipped` on a success, the failed
+  attempts, a loop's or a branchall's children from their sites with
+  their success, a branchone's chosen branch, and, while a container
+  runs, its `iterator` (`run.iterLen`), `parallel`, `while_loop` or
+  `branchall`. `step` follows the module cursor.
+- **Jobs with no invocation.** An identity job, and a script job that
+  failed before its invocation, get an id when their module completes
+  (`StepRecord.NoInvocationJob`), registered with the run's tree, since
+  Windmill's status names one for them.
+- **Not rendered:** a job of a run that has ended and is its own root,
+  even while a registration of it lingers (D22); a canceled job; a flow
+  job that ended canceled, latched or halted; a flow with a preprocessor
+  module. Each is a `platform.NotServed`, which the facade answers 501.
+- **Script runs.** `RunScript` registers its job with a view of its own
+  (`scriptView`), which renders it running, then completed while its root
+  lives: a dispatch that tracked it in its parent keeps it in another
+  run's tree.
 
 **The result cache (N4, `cache.go`).** Before a job with a `cache_ttl`
 runs, the engine looks it up in the result cache of its platform

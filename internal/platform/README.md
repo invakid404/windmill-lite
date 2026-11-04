@@ -8,7 +8,9 @@ the facade share (PF1); the resource, variable and secret services with
 their local defaults and the interpolation walker (PF2); the job
 registry, flow user state, object store and dispatcher services (PF3);
 and the result cache service of `cache_ttl` with its in-memory default
-(N4).
+(N4). The job registry also answers the job reads of a live run, `GET
+jobs_u/get/{id}` and `jobs_u/get_args/{id}`, from the run that holds each
+job.
 This README covers `internal/platform` and its `testdata/`; the facade
 (the router, its transports, attribution, the 501 policy, and the routes
 that serve these services) is [internal/platform/facade](facade/README.md),
@@ -22,7 +24,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
 | `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services`, `Providers` and `Services.WithProviders` (H13) |
 | `readcache.go` | `ReadCache`: a run's read cache, deviation D21 of ADR 0001 |
-| `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState`; `JSONSyntaxError`, the backend JSON library's text for a body that is not JSON, which the facade's JSON-body routes answer |
+| `jobs.go` | `Job`, `JobKind`, the `Jobs`, `JobView` and `FlowUserState` interfaces, `NotServed` and `ErrEndedRun`, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `GetJob`, `GetJobArgs`, `JobEnv`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`; `JSONSyntaxError`, the backend JSON library's text for a body that is not JSON, which the facade's JSON-body routes answer |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
 | `results.go` | the `ResultCache` interface and `MemoryResults`, its local default (N4) |
@@ -240,6 +242,32 @@ for a script job, its job variables.
     without Windmill's location (D14). A live flow job, whose job
     variables the registry does not keep, fails with `ErrNoJobVariables`.
 
+**The job reads** ([WA-19](../../docs/semantics/client-api.md#wa-19)).
+Each job of a live tree reaches the run that holds it: a run registers
+its flow job with its own id as `Job.Run` and itself as `Job.View`, a
+`JobView`, and every other job of it names the run in `Run`, so
+`Registry.Job` gives it that view. The registry keeps the view, a
+reference to the run, never a copy of its state, and drops it with the
+tree, as it drops a job's variables.
+
+- `Services.GetJob` answers `GET jobs_u/get/{id}` with the view's
+  `JobRecord`, and `Services.GetJobArgs` answers `GET
+  jobs_u/get_args/{id}` with its `JobArgs`, while the job's root lives,
+  the job running or completed.
+- An id the registry does not know fails with the API's 404, `Not found:
+  Job not found at name <id>` or `Not found: Job Args not found at name
+  <id>`, without the location (D14).
+- A job whose root has ended fails with `ErrEndedRun`, a `NotServed`
+  that the facade answers 501 (deviation D22 of
+  [ADR 0001](../../docs/design/0001-equivalence-contract.md)): the root
+  lookup still answers for it.
+- A job that no run of the runtime holds (a host's `Jobs` without views)
+  fails with a `NotServed` too.
+- `Services.FlowUserStates` lists a live flow job's user state as its
+  flow status holds it, in jsonb's key order, when the services'
+  `FlowUserState` lists maps (`FlowUserStateLister`, which `UserStates`
+  implements).
+
 **Flow user state** ([WA-14](../../docs/semantics/client-api.md#wa-14)) is
 a key/value map per flow job, which the stock helpers address by their
 effective root. `Services.FlowUserState` reads a key: the value stored, or
@@ -405,6 +433,19 @@ One walker implements resolution for the three contracts of
     host's `FlowUserState`;
   - the job that a resource read's `job_id` names (`TestReadJobEnv`);
   - the services' one registry, shared by callers that first ask at once.
+- `jobreads_test.go` checks the job reads
+  ([WA-19](../../docs/semantics/client-api.md#wa-19)), with `-race` in CI:
+  - each job of a run answered by its run's view, the run, a running step,
+    a step that has ended and a flow scope a step names, the 404 texts of
+    an unknown id, a job no run holds, and every job once the run has
+    ended, which the root lookup still answers (`TestJobReadsDuringARun`);
+  - a run that has ended released: no view and no variables kept
+    (`TestEndedRunIsReleased`);
+  - a dispatched run in another run's tree, answered by its own view after
+    it ended, until the root ends;
+  - eight runs at once, each reading its own jobs and the others' runs
+    (`TestJobReadsOfConcurrentRuns`);
+  - a flow job's user state listed in jsonb's key order.
 - `objects_test.go` (PF3) checks `DirObjects`: storages kept apart,
   metadata, a replacing write, a missing object, keys that would escape
   the directory, no temporary file left, concurrent writers and readers

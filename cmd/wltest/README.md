@@ -377,9 +377,10 @@ a few at a time (`flows.go`):
    (a module that failed at the root's pickup with no job carries its
    error to the flow's result). The values are then normalised by
    [OR-14](../../docs/semantics/oracle.md#or-14)'s rules: job ids become the
-   placeholders of their sites (the run's own id is the root, `<job:>`, and
-   a child flow's id its iteration's or branch's site, as the walker
-   reaches it), and
+   placeholders of their sites (the run's own id is the root, `<job:>`, a
+   child flow's id its iteration's or branch's site, as the walker
+   reaches it, and the id of a job a module ran with no invocation, such
+   as a skipped module's identity job, its module's site), and
    a failed site's stack is masked wherever its value is carried
    ([OR-V3](../../docs/semantics/oracle.md#or-v3) clause a); then the
    fixture's `stack` and `mask` pointers apply. Retries (milestone N2):
@@ -589,6 +590,12 @@ Windmill v1.767.0's image).
   statically. All four must name one closure, with no
   `shared_code_fallback` warning. The fixture's flow then passes in `warm`,
   `fresh` and `host`, and in `warm` and `host` with shared code.
+- `TestEndedRunJobRead` checks deviation D22 on
+  `conformance/flows/client-api/job-reads-ended`, in `fresh` and in
+  `warm`. The step that reads the job of a run that has ended fails with
+  `UnsupportedPlatformCall`, which names the job read and the reason. The
+  recording holds Windmill's completed job (WA-19/i), so the flow suite
+  does not require that run.
 - `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
   seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
   in `fresh` and in `warm`, since the result cache lives in the engine,

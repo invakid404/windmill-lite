@@ -394,7 +394,7 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     as the digest of its directory tree, which refuses a symbolic link
     below the runtime's directory. Its deviations are the program's,
     those of the module-state mode (D1, D2, D9 to D11 in `warm`) and those
-    every bundle has (D3, D8, D14).
+    every bundle has (D3, D8, D14, D16, D17, D22, D23).
   - **Source inventory.** It lists the files the build read: what the
     compiler read through a recording file system, the workspace scripts
     the bundles inline, and each host-provided module's file, metadata and

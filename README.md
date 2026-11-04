@@ -106,7 +106,8 @@ resolves a step's `$var:` and `$res:` arguments when the step's job is
 picked up, `flow_env` on every transition, and `variable()` and
 `resource()` in expressions; the harness writes each step's `args.json`.
 PF3 adds the rest of the platform behind the facade: a job registry that
-answers root lookups from the runs, flow user state shared by a run's
+answers root lookups from the runs, and the job reads of a live run
+(`getJob`, `getJobArgs`) from the run that holds each job, flow user state shared by a run's
 steps and its `flow_user_state()`, an object store for the S3 helpers,
 and a dispatcher that runs a bundle's roots as separate runs when a step
 dispatches them and refuses any other target. Its expressions run on the expression pipeline in
