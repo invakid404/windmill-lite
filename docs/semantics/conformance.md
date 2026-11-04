@@ -55,10 +55,10 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 195 | 130 | 63 | 0 | 2 | 181 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 115 | 64 | 46 | 5 | 0 | 39 | 0 | 6 |
+| [The wmill client API and the platform interface](#client-api) | 119 | 68 | 46 | 5 | 0 | 43 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1047 | 722 | 308 | 8 | 9 | 661 | 0 | 7 |
+| **Total** | 1051 | 726 | 308 | 8 | 9 | 665 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -7370,6 +7370,76 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     `job=<id> tag=bun worker=<worker> hostname=<host> isolation=none` for
     a running and for a completed script job, and the completed one held
     the script's output.
+- **WA-19/l** · oracle-observed · the attempts of a retried subflow and of a retried loop
+  - **Given:** a flow step that runs a subflow by path with one retry,
+    whose first step fails on its first run and succeeds on the retry
+    (`subretry`); a sequential loop of one item with one retry, whose
+    body's first step does the same (`loopretry`). A step after it reads
+    the job tree, the jobs that `failed_retries` names included.
+  - **Expect:** the module's entry names the retry's flow job as `job` and
+    the first run's in `failed_retries`. Each flow job shows its own run:
+    the first's `step` 0 with its first step `Failure` and its own job and
+    the next step `WaitingForPriorSteps`, the retry's every step
+    `Success`; each step's job has its own flow job as `parent_job`. The
+    loop's retried child flow keeps `iter_parent` in its input
+    ([CF-22](control-flow.md#cf-22)).
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `subretry` and `loopretry`, oracle run 41791783623, as expected.
+- **WA-19/m** · oracle-observed · a subflow that failed before its steps, and skipped and mocked subflow steps
+  - **Given:** a flow step whose input transform throws, with
+    `continue_on_error: true` (`prerun`); a flow step that `skip_if`
+    skips and one whose `mock` returns `{"m": 1}` (`skipsub`). A step after
+    them reads the job tree.
+  - **Expect:** the failed step's entry is `Failure` with a job, a
+    `CompletedJob` with `success: false`, the transform's error as
+    `result`, `args` `{}`, `step` 0 and every module waiting. The skipped
+    and the mocked step's entries are `Success` with an identity job,
+    `skipped` `true` and `false`: a `CompletedJob` with no `script_path`,
+    `args` `{"previous_result": …}` and its result, `{}` and `{"m": 1}`.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `prerun` and `skipsub`, oracle run 41791783623, as expected.
+- **WA-19/n** · oracle-observed · empty and failed containers, early stops, and parallel children
+  - **Given:** a for loop over `[]`, a branchone whose only branch does not
+    hold and whose default has no module, a branchall with no branch, and
+    a subflow whose first step `stop_after_if` stops (`edges`); a for loop
+    whose iterator throws and a branchone whose predicate throws, both
+    with `continue_on_error: true` (`fails`); on two workers, a parallel
+    loop of two children and a parallel branchall of two branches, each
+    read by its second child while both run, the first completing after
+    the reader (`par`), and parallel loops with a parallelism of 2 over
+    three children read once one or two have completed (`held`, `held2`)
+    and of 1 read by its first child (`held1`). The next module reads the
+    containers completed.
+  - **Expect:** the empty containers' entries are `Success` with the nil
+    job, the loop and the branchall with empty `flow_jobs`, the branchone
+    with `branch_chosen` `{"type": "default"}`; the stopped subflow's
+    `step` is 1, its second step waiting. The failed starts are `Failure`
+    with the nil job and nothing else. A running parallel loop's
+    `iterator.index` is the number of its children that have completed,
+    its `job` its last child released to run, its `flow_jobs` every
+    child, a held one included, which is a `QueuedJob` with
+    `running: true` and every module waiting. A running parallel
+    branchall's `branchall.branch` is 0 and its `job` its last branch,
+    with `parallel: true`. Completed, each container names the child that
+    completed last.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `edges` and `fails`, [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
+    runs `par`, `held`, `held1` and `held2`, oracle run 41791783623, as
+    expected.
+- **WA-19/o** · oracle-observed · large results and arguments
+  - **Given:** a step returns a string of `n` characters, either `x`
+    repeated or a sequence that no compressor shrinks; the next step takes
+    it as its argument `x`; a third reads both jobs. `n` is 89,000
+    (`whole`, not compressible) or 92,000 (`compressible`,
+    `incompressible`).
+  - **Expect:** below 90000 bytes stored, the result and the argument
+    whole; above, `"WINDMILL_TOO_BIG"` and `{"reason": "WINDMILL_TOO_BIG"}`
+    for the sequence, the whole value for `x` repeated, which compresses
+    below.
+  - **Recorded:** [`flows/client-api/job-reads-large`](../../conformance/flows/client-api/job-reads-large)
+    runs `whole`, `compressible` and `incompressible`, oracle run
+    41791783623, as expected. windmill-lite answers 501 for the last two
+    (deviation D23 of [ADR 0001](../design/0001-equivalence-contract.md)).
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour

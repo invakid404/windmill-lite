@@ -23,7 +23,7 @@ records the Windmill behaviour windmill-lite must reproduce, as numbered
 findings with a scope, a confidence level and a status. Expected outputs were
 first derived from the pinned source; recording batches E3a to E3f (design
 record 0012) and the recordings the build milestones committed with their
-fixtures have since recorded 654 of the catalogue's cases on the CE
+fixtures have since recorded 665 of the catalogue's cases on the CE
 oracle, and the findings and cases they settled or corrected say so in dated
 revision and correction notes. Each pending recording is tracked as an open
 question. Disputed findings are shown with both claims and are not settled.
@@ -80,10 +80,10 @@ and [licensing.md](licensing.md) maps which parts do.
 | [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 124 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 195 |
 | [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 212 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 115 |
+| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 119 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 18 | 88 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **350** | **271** | **67** | **7** | **5** | **0** | **130** | **1047** |
+| **Total** | **350** | **271** | **67** | **7** | **5** | **0** | **130** | **1051** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
@@ -156,7 +156,7 @@ which), and added or extended drafted parts, from the source alone, in
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
 questions, which keep their numbers; openflow.md's `Q-OF-7` entry points to
-licensing.md, where that question lives. 661 cases are `oracle-observed`,
+licensing.md, where that question lives. 665 cases are `oracle-observed`,
 and seven cases are windmill-lite `policy` checks rather than Windmill
 behaviour ([conformance.md](conformance.md#summary)).
 

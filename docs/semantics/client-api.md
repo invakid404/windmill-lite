@@ -1621,7 +1621,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-19"></a>
 ### WA-19 · Job introspection from scripts (`getJob`, `getJobArgs`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
-**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/k); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run)
+**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/o); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run)
 
 - **Rule:** scripts can read their own job tree, list queues and cancel
   jobs. `JobService.getJob({id})` returns a `Job` (`oneOf`
@@ -1636,9 +1636,15 @@ interface); `WA-Vn` findings were added during validation.
     a record while the run lives: the run's flow job, its steps, subflows
     and their steps, the child flows of loops and branches, a collapsed
     iteration's job, a skipped module's identity job, a retried step's
-    failed attempts and a failure module's job (WA-19/e to WA-19/g). The
-    table gives the fields recorded for Bun steps and flows, and when a
-    record has each.
+    failed attempts and a failure module's job (WA-19/e to WA-19/g). So
+    has each attempt of a retried subflow or container: its flow job
+    shows the modules and the jobs that attempt ran (WA-19/l). So have a
+    subflow whose input transform failed, launched and failed with every
+    module waiting, and the identity job of a flow step that `skip_if`
+    skipped or a mock answered (WA-19/m). A parallel loop's child that its
+    parallelism holds is a `QueuedJob` with `running: true` before it
+    starts, its modules waiting (WA-19/n). The table gives the fields
+    recorded for Bun steps and flows, and when a record has each.
 
     | Field | In the record | Value |
     |---|---|---|
@@ -1674,16 +1680,25 @@ interface); `WA-Vn` findings were added during validation.
     and `,` and numbers as stored: an argument `{"k":[1,2.50]}` reads
     `{"k": [1, 2.50]}`, a result `{"k":[1,2.5]}` reads `{"k": [1, 2.5]}`
     (WA-19/j, WA-19/h). The top-level keys of `args` come in no fixed
-    order, and a stored value of 90000 bytes or more is replaced
-    ([OR-V1](oracle.md#or-v1)).
+    order.
+  - **Large values.** A result whose stored column takes 90000 bytes or
+    more reads `"WINDMILL_TOO_BIG"`, and such arguments
+    `{"reason": "WINDMILL_TOO_BIG"}` ([OR-V1](oracle.md#or-v1)): the size
+    is PostgreSQL's `pg_column_size`, after its compression of large
+    values. A string of 89,000 characters that no compressor shrinks, as a
+    result and as an argument, reads whole; 92,000 such characters are
+    replaced in both places, while 92,000 times `x` reads whole (WA-19/o).
+    The arguments read is not limited.
   - **A flow job's `flow_status`.**
     - `step` is the cursor of the flow's state machine: the index of the
-      module that runs. Once the flow has completed, it is the number of
-      modules after a success, the index of the failed module after a
-      failure, and the number of modules plus one once a failure module
-      has completed. It is `0` for a flow job that its cache answered
-      ([FX-40](execution.md#fx-40)), whose entries all read
-      `WaitingForPriorSteps` (WA-19/f).
+      module that runs. Once the flow has completed, it is one past the
+      last module that ran after a success (the number of modules, or
+      fewer when `stop_after_if` stopped the flow, WA-19/n), the index of
+      the failed module after a failure, and the number of modules plus
+      one once a failure module has completed. It is `0` for a flow job
+      that its cache answered ([FX-40](execution.md#fx-40)), whose entries
+      all read `WaitingForPriorSteps` (WA-19/f), and for a subflow that
+      failed before any of its modules ran (WA-19/m).
     - `modules` has one entry per module. `failure_module` reads
       `{"id": "failure", "type": "WaitingForPriorSteps"}` until a failure
       module runs; its entry then carries `parent_module`, the id of the
@@ -1697,14 +1712,20 @@ interface); `WA-Vn` findings were added during validation.
     | Field | When | Value |
     |---|---|---|
     | `id`, `type` | always | the module's id; `WaitingForPriorSteps` before it starts, then `InProgress`, then `Success` or `Failure` |
-    | `job` | once the module has a job | a step's job; a subflow's flow job; a skipped module's identity job; a loop's or a branchall's latest child; a branchone's chosen branch |
+    | `job` | once the module has a job | a step's job; a subflow's flow job, or the identity job of a flow step that was skipped or mocked; a skipped module's identity job; a branchone's chosen branch; a loop's or a branchall's child (below); the nil job `00000000-0000-0000-0000-000000000000` of a container that completed with no child (an empty iterator, a branchall with no branch, a branchone whose branch has no module), whose start failed (an iterator that throws), or of a branchone whose predicate threw (WA-19/n) |
     | `skipped` | a `Success` entry | `true` for a module that `skip_if` skipped |
-    | `flow_jobs`, `flow_jobs_success` | a loop or a branchall | its children in order (a collapsed loop's iteration jobs, or child flows), and whether each succeeded, `null` while one runs |
-    | `branch_chosen` | a branchone | `{"type": "branch", "branch": <k>}` or `{"type": "default"}` |
-    | `iterator` | a for or a while loop that runs | `{"index": <k>, "itered_len": <n>}`: the iteration that runs and the number of items, `0` for a while loop |
-    | `parallel`, `while_loop` | a parallel for loop, a while loop, that runs | `true` |
-    | `branchall` | a branchall that runs | `{"branch": <k>, "len": <n>}` |
-    | `failed_retries` | a module some of whose attempts failed | the failed attempts' jobs ([FX-27](execution.md#fx-27)) |
+    | `flow_jobs`, `flow_jobs_success` | a loop or a branchall, unless its start failed | its children in order (a collapsed loop's iteration jobs, or child flows; a parallel loop's all, those its parallelism holds included), and whether each succeeded, `null` until it completes |
+    | `branch_chosen` | a branchone that chose a branch | `{"type": "branch", "branch": <k>}` or `{"type": "default"}`, a default with no module included; absent when a predicate threw |
+    | `iterator` | a for or a while loop that runs | `{"index": <k>, "itered_len": <n>}`: the iteration that runs, or for a parallel loop the number of its children that have completed; the number of items, `0` for a while loop |
+    | `parallel`, `while_loop` | a parallel for loop or branchall, a while loop, that runs | `true` |
+    | `branchall` | a branchall that runs | `{"branch": <k>, "len": <n>}`: the branch that runs, `0` in a parallel one; the number of branches |
+    | `failed_retries` | a module some of whose attempts failed | the failed attempts' jobs ([FX-27](execution.md#fx-27)): a step's failed jobs; a subflow's or a container's failed flow job, which keeps its own modules and jobs (WA-19/l) |
+
+    A container's `job` is its last child while it runs, except that a
+    running parallel loop's is its last child released to run, its
+    parallelism holding the others; once a sequential container has
+    completed, its last child; once a parallel one has, the child that
+    completed last ([CF-22](control-flow.md#cf-22)) (WA-19/g, WA-19/n).
     | `flow_jobs_duration` | a loop or a branchall | its children's start times and durations |
   - **`no_logs`.** `no_logs=true` leaves `logs` out. Without it, and with
     `no_logs=false`, a script job's record has `logs`, a text whose first
@@ -1787,8 +1808,12 @@ interface); `WA-Vn` findings were added during validation.
   oracle run 41774793150, whose steps return each record reduced to the
   fields windmill-lite serves and list every other field that is not
   among those the table names; what `logs` holds is from a run of the walk
-  that also returned each record's `logs` (oracle run 41773840670).
-- **Conformance:** [WA-19/a to WA-19/k](conformance.md#wa-19)
+  that also returned each record's `logs` (oracle run 41773840670); the
+  retries, failed starts, skips and edges of WA-19/l to WA-19/n and the
+  fixtures [`job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
+  (two workers) and [`job-reads-large`](../../conformance/flows/client-api/job-reads-large),
+  oracle run 41791783623.
+- **Conformance:** [WA-19/a to WA-19/o](conformance.md#wa-19)
 - **Design note (not Windmill behaviour):** windmill-lite has no job rows.
   It answers the job reads of a job of a live run from the run that holds
   it. It serves the fields of the first table from `type` to
@@ -1815,9 +1840,17 @@ interface); `WA-Vn` findings were added during validation.
 
   A job of a run that has ended answers 501, since windmill-lite releases
   the run (deviation D22 of
-  [ADR 0001](../design/0001-equivalence-contract.md)). So do a job that
-  windmill-lite canceled and a flow with a preprocessor module. Values of
-  90000 bytes or more are served whole (D23).
+  [ADR 0001](../design/0001-equivalence-contract.md)). A record whose
+  arguments or result may take 90000 bytes or more stored answers 501
+  too (D23): windmill-lite bounds the stored size from the value's text,
+  above `pg_column_size` (checked against PostgreSQL), and does not
+  reproduce the compression that decides Windmill's answer above it
+  (WA-19/o). So do the states the oracle has not recorded: a job that
+  windmill-lite canceled, a flow job that ended neither in a success nor
+  in a failure (canceled, latched or halted), a flow with a preprocessor
+  module, a flow job while one of its modules waits for a sleep or a
+  retry delay, and a parallel branchall that runs with a branch
+  completed.
 - **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
   Windmill's answers where windmill-lite chose its own: the root lookup of an
   unknown id is a 400 `SqlErr` text, not a 404 and not windmill-lite's 501;
