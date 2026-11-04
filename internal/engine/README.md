@@ -235,8 +235,16 @@ An invocation settles when its entrypoint call can run no more code, and
   completed step before it, byte for byte, and its arguments read.
   `TestEndedRunReleasesItsJobRecords` checks with weak pointers that a run
   that has ended leaves its step results unreachable, its jobs known to
-  the root lookup and no longer read. `TestJobRecordServesLargeValuesWhole`
-  checks deviation D23.
+  the root lookup and no longer read. `TestJobRecordsOfARetriedSubflow`
+  reads both flow jobs of a subflow that failed and succeeded on its
+  retry, each with its own step's job; `TestJobRecordOfAnUnlaunchedSubflow`
+  a subflow whose input transform failed; `TestJobRecordsOfSkippedAndMockedSubflows`
+  the identity jobs of a skipped and a mocked flow step;
+  `TestJobRecordWhileAModuleWaitsForItsRetry` a flow job while a module
+  waits for its retry delay, not read. `TestJobRecordLargeValues` checks
+  deviation D23: a result of 60,000 characters is read whole, one of
+  100,000 and the arguments holding it are not, and the arguments read
+  serves them.
 
 ## The engine core
 
@@ -1104,7 +1112,19 @@ through the job registry.
   every job it starts by id (`run.jobs`): a flow job by its frame, a leaf
   by its frame, its module and its record in the trace. The leaf's record
   names its job and its stored arguments from its launch on. A child flow
-  records its end; the run its own. Nothing is rendered until a step asks.
+  records its end, and its place among the ends of the run's child flows;
+  the run its own. A parallel loop registers all its children at its
+  start, the ones its parallelism holds included, and marks each it
+  releases (`frame.released`). Nothing is rendered until a step asks.
+- **Per attempt.** Each frame holds, per module, the record of its
+  current attempt (`frame.recs`) and that attempt's child flows or
+  collapsed iterations by slot (`frame.kids`), both set when the attempt
+  starts; the records of its own modules' attempts (`frame.owned`), where
+  the attempts its modules list as failed retries are; and the child flow
+  of a failed container attempt that a retry kept (`frame.attempts`). A
+  retry runs at the same sites as the attempt it replaces, so the record
+  of a superseded attempt's flow job reads its own modules and jobs from
+  its frame, never the retry's.
 - **The record** is the oracle's, with the fields windmill-lite serves:
   `type`, `id`, `parent_job` (the flow job of the frame the job runs in),
   `root_job` (the innermost scope: a frame's scope, absent when the frame
@@ -1113,21 +1133,34 @@ through the job registry.
   `is_flow_step`, `language`, the host's workspace and user, and a flow
   job's `flow_status`. Each argument's value and the result are written
   as jsonb's text output.
-- **`flow_status`** comes from the trace: each module's latest record by
-  site (none: `WaitingForPriorSteps`; no status yet: `InProgress`; then
-  its module status), its job, `skipped` on a success, the failed
-  attempts, a loop's or a branchall's children from their sites with
-  their success, a branchone's chosen branch, and, while a container
-  runs, its `iterator` (`run.iterLen`), `parallel`, `while_loop` or
-  `branchall`. `step` follows the module cursor.
-- **Jobs with no invocation.** An identity job, and a script job that
-  failed before its invocation, get an id when their module completes
-  (`StepRecord.NoInvocationJob`), registered with the run's tree, since
-  Windmill's status names one for them.
+- **`flow_status`** comes from the frame: each module's current record
+  (none: `WaitingForPriorSteps`; no status yet: `InProgress`; then its
+  module status), its job (a subflow step's from its child flow while it
+  runs), `skipped` on a success, the failed attempts, a loop's or a
+  branchall's children with their success, a branchone's chosen branch,
+  and, while a container runs, its `iterator` (`run.iterLen`; a parallel
+  loop's index counts its completed children), `parallel`, `while_loop`
+  or `branchall`. A container's job is its last child; a running
+  parallel loop's, its last child released; a completed parallel
+  container's, the child that completed last. A container that completed
+  with no child, or whose start failed, and a branchone whose predicate
+  threw, have the nil job. `step` follows the module cursor.
+- **Jobs with no invocation.** An identity job, a skipped or mocked flow
+  step's included, and a script job that failed before its invocation,
+  get an id when their module completes (`StepRecord.NoInvocationJob`),
+  registered with the run's tree, since Windmill's status names one for
+  them. A subflow that fails before any of its modules runs (an input
+  transform's failure, a cancellation while it was scheduled) is created
+  and registered as one that ran (`run.unlaunchedSubflow`).
 - **Not rendered:** a job of a run that has ended and is its own root,
-  even while a registration of it lingers (D22); a canceled job; a flow
-  job that ended canceled, latched or halted; a flow with a preprocessor
-  module. Each is a `platform.NotServed`, which the facade answers 501.
+  even while a registration of it lingers (D22); a job whose arguments or
+  result may take 90000 bytes or more stored, by `jsonval.StoredBound`
+  (D23); a canceled job; a flow job that ended canceled, latched or
+  halted; a flow with a preprocessor module; a flow job while one of its
+  modules, or of its collapsed iterations, waits for a sleep or a retry
+  delay (`frame.waiting`); a parallel branchall that runs with a branch
+  completed. Each is a `platform.NotServed`, which the facade answers
+  501.
 - **Script runs.** `RunScript` registers its job with a view of its own
   (`scriptView`), which renders it running, then completed while its root
   lives: a dispatch that tracked it in its parent keeps it in another

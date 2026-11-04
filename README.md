@@ -255,7 +255,9 @@ runs the suite, reports the expression budget gate from those binaries,
 starts the engine in an image built `FROM scratch`, and compares the
 expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
-the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
+the canonicaliser with PostgreSQL in the oracle's pinned image, and checks
+against it the bound on a value's stored size that the job reads use. A
+separate
 job runs the Bun harness's own `bun test`, which is not a required check.
 Another, `Bun SDK types`, typechecks the Bun host SDK and the harness
 runtime as a host that vendors them does, against the pinned Bun's type

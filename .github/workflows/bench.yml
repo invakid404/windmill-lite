@@ -22,6 +22,9 @@ name: Benchmarks
 #       small        G1's configurations and shapes at 1 KiB and below, and
 #                    the eight-concurrent shape, each in a process of its
 #                    own (WL_BENCH_FRESH=1)
+#       mid          G1's sequential shapes between 1 KiB and 256 KiB
+#                    (10 KiB, 50 KiB and mixed results), each in a process
+#                    of its own
 #       retained     BenchmarkRetainedHeap (what finished runs leave
 #                    reachable on one long-lived runtime)
 #       native       BenchmarkNativeRealm (what native-boundary
@@ -40,7 +43,7 @@ on:
         required: true
         default: "main=origin/main"
       groups:
-        description: "Groups: boundary shapes passthrough expressions peaks small retained native"
+        description: "Groups: boundary shapes passthrough expressions peaks small mid retained native"
         required: true
         default: "boundary shapes passthrough expressions peaks small"
       rounds:
@@ -162,6 +165,9 @@ jobs:
               export WL_BENCH_FRESH=1 WL_BENCH_SIZES=26B,1KiB
               cmds=("3s BenchmarkStepBoundary/topology=(host|subprocess)/conc=(1|8)/"
                     "20x BenchmarkHostShapes/shape=(bare-s600-1KiB|s50-1KiB|s600-1KiB|plain-s600-1KiB|pathsA-s50|resA-s50|resA-s50-1ms|s200-mixed-conc8)\$") ;;
+            mid)
+              export WL_BENCH_FRESH=1
+              cmds=("10x BenchmarkHostShapes/shape=(s50-50KiB|s200-mixed|s600-10KiB|s600-50KiB|s600-mixed)\$") ;;
             *) echo "unknown group $GROUP" >&2; exit 1 ;;
           esac
           read -r -a builds <<< "$BUILDS"
