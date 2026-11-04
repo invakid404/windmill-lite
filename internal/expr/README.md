@@ -555,6 +555,10 @@ context-free case's recorded argument as its stored form.
   that does not (on goroutines). It compares every read, helper call and
   outcome of the four. `TestBindInlinesMemoryLookups` checks that only a
   memory lookup is marked `Inline`, through the read memo too.
+- `TestInlineLookupsLetHelpersSettle` races a helper call against an
+  endless loop of results lookups through the pipeline: the helper's answer
+  wins within a second, with memory lookups (inline) and with goroutine
+  ones.
 - `TestMemberPathPipeline` runs with `jsExpr` on and off.
   `WL_TEST_QUICKJS_ONLY=1` runs the whole package with it off, as one CI
   part does, so that every case passes on QuickJS alone too.

@@ -258,6 +258,12 @@ func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 	// which dispatch made on this thread, not yet settled, in call order.
 	// They count against maxCallsInFlight with the running calls.
 	var inline []hostResult
+	// preferRunning says that an answered goroutine call settles before
+	// the next inline answer. The two take turns while both wait, so a
+	// program whose inline calls keep replacing each other (a loop of
+	// memory lookups) cannot keep an answered helper call from settling,
+	// nor the reverse.
+	preferRunning := true
 	for {
 		rc := C.wl_run(s.c)
 		switch rc {
@@ -274,21 +280,35 @@ func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 			s.e.stats.heldPeak.Store(held)
 		}
 		var r hostResult
-		if len(inline) > 0 {
-			// An inline call has its answer already: it settles first, in
-			// call order, each after the jobs queued so far have run.
+		fromRunning := false
+		if len(inline) > 0 && preferRunning {
+			select {
+			case r = <-results:
+				fromRunning = true
+			default:
+			}
+		}
+		switch {
+		case fromRunning:
+		case len(inline) > 0:
+			// An inline call has its answer already: inline answers settle
+			// in call order, each after the jobs queued so far have run.
 			r, inline = inline[0], inline[1:]
-		} else {
+		default:
 			// Nothing runs until a host call settles; with none running the
 			// result can never settle, and only the attempt limit or the
 			// caller ends the evaluation (JE-2).
 			select {
 			case r = <-results:
-				running--
+				fromRunning = true
 			case <-attempt.Done():
 				return reply{err: errInterrupted}
 			}
 		}
+		if fromRunning {
+			running--
+		}
+		preferRunning = !fromRunning
 		if attempt.Err() != nil {
 			// Both were ready; the attempt's end wins.
 			return reply{err: errInterrupted}

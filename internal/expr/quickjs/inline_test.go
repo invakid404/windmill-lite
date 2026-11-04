@@ -137,3 +137,53 @@ func TestInlineHostCallKeepsTheAttemptLimit(t *testing.T) {
 		t.Fatalf("the slot did not recover: %q", got)
 	}
 }
+
+// TestInlineChainLetsAnsweredCallsSettle: a program whose inline calls keep
+// replacing each other (each settlement makes the next call) races a host
+// call that answers after 1 ms on a goroutine. The answered call settles
+// within a turn of the inline answers, so the race ends with it instead of
+// at the attempt limit.
+func TestInlineChainLetsAnsweredCallsSettle(t *testing.T) {
+	e := newEngine(t, Options{Limits: shortLimits(5 * time.Second), Slots: 1})
+	var inlineCalls atomic.Int64
+	in := expr.Input{Funcs: []expr.HostFunc{
+		inlineFunc("f", func(_ context.Context, arg string) ([]byte, error) {
+			inlineCalls.Add(1)
+			return []byte(arg), nil
+		}),
+		hostFunc("g", func(_ context.Context, arg string) ([]byte, error) {
+			time.Sleep(time.Millisecond)
+			return []byte(arg), nil
+		}),
+	}}
+	start := time.Now()
+	got := mustRun(t, e, `Promise.race([g("done"), (async () => { for (;;) await f("x"); })()])`, in)
+	if got != "done" {
+		t.Fatalf("got %q", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("the answered call settled after %v", d)
+	}
+	if inlineCalls.Load() == 0 {
+		t.Fatal("the inline chain did not run")
+	}
+}
+
+// TestRunningChainLetsInlineAnswersSettle is the reverse: a chain of host
+// calls answered at once on goroutines races an inline call, which settles
+// within a turn of theirs.
+func TestRunningChainLetsInlineAnswersSettle(t *testing.T) {
+	e := newEngine(t, Options{Limits: shortLimits(5 * time.Second), Slots: 1})
+	in := expr.Input{Funcs: []expr.HostFunc{
+		inlineFunc("f", func(_ context.Context, arg string) ([]byte, error) { return []byte(arg), nil }),
+		hostFunc("g", func(_ context.Context, arg string) ([]byte, error) { return []byte(arg), nil }),
+	}}
+	start := time.Now()
+	got := mustRun(t, e, `Promise.race([(async () => { for (;;) await g("x"); })(), (async () => { await g("y"); return f("done"); })()])`, in)
+	if got != "done" {
+		t.Fatalf("got %q", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("the inline answer settled after %v", d)
+	}
+}

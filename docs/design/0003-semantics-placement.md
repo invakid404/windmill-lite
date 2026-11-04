@@ -287,10 +287,11 @@ harness, which is (a) with its duplication.
    - **Host calls.** A host call runs on a goroutine of its own, at
      most 64 of an evaluation at once. A call that never blocks, the
      results lookup when it reads the run's memory (`MemoryResults`), is
-     marked `Inline`: the slot answers it on its own thread when it takes
-     the program's calls, which saves two thread hand-offs per read. Its
-     answers settle in call order, and count against the same bound until
-     they settle.
+     marked `Inline`: the slot answers it on its own thread, which saves
+     two thread hand-offs per read. Its
+     answers settle in call order, taking turns with the goroutine calls
+     that have answered, and count against the same bound until they
+     settle.
 7. **Harnesses are step runners.** Given a script, arguments and a
    per-invocation environment, a harness binds arguments, hydrates, calls the
    entrypoint, serialises the result or error with its language's rules, and

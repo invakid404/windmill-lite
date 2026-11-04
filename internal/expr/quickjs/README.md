@@ -64,7 +64,9 @@ What the package does not do:
      attempt. A `HostFunc` marked `Inline`, one that never blocks (the
      pipeline's results lookup when it reads memory), is called instead on
      the slot's thread when the calls are taken. The attempt's end is
-     checked when it returns, and its answers settle first, in call order;
+     checked when it returns. Inline answers settle in call order, taking
+     turns with the goroutine calls that have answered, so a chain of
+     inline calls cannot keep an answered call waiting;
    - waits, queued in call order, while 64 calls of the evaluation run or
      hold an inline answer not yet settled;
    - settles its Promise only after the jobs queued so far have run. The
@@ -260,6 +262,10 @@ configuration with each C library's allocator, not the allocators alone.
   the runtimes included, in the default mode and in leak check.
 - `inline_test.go` covers inline host functions:
   - their answers settle in call order;
+  - a chain of inline calls, each settlement making the next, lets a
+    goroutine call that has answered settle, and a chain of goroutine
+    calls lets an inline answer settle, both within a second rather than
+    at the attempt limit;
   - with 2,000 queued calls, the engine holds exactly the bound, 64, at
     once;
   - programs give the same outcome with their functions inline and on

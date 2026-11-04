@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -64,4 +65,37 @@ func TestJSExprConcurrentPipeline(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// TestInlineLookupsLetHelpersSettle runs a statement that races a helper
+// call against an endless loop of results lookups, through the pipeline on
+// the real engine: with a lookup that reads memory (answered inline on the
+// engine's thread) as with one that does not (on goroutines), the helper's
+// answer wins the race well inside the attempt limit. The alias keeps the
+// helper call concurrent with the loop instead of awaited where it is
+// written.
+func TestInlineLookupsLetHelpersSettle(t *testing.T) {
+	l := DefaultLimits()
+	l.Attempt = 5 * time.Second
+	p := NewPipeline(realEngine(t, l, 1))
+	setRetry(p, 1, 0)
+	e := Compile(SiteInputTransform, `const get = variable; return Promise.race([get("u/done"), (async () => { for (;;) await results.a; })()])`)
+	for _, memory := range []bool{false, true} {
+		r := &fakeResults{stored: map[string]string{"a": "1"}}
+		s := &Scope{PreviousID: "other", Helpers: &fakeHelpers{variables: map[string]string{"u/done": "done"}}, Results: r}
+		if memory {
+			s.Results = memoryResults{r}
+		}
+		start := time.Now()
+		v, err := p.Eval(context.Background(), e, s)
+		if err != nil {
+			t.Fatalf("memory %t: %v after %v", memory, err, time.Since(start))
+		}
+		if got := string(v.Producer()); got != `"done"` {
+			t.Fatalf("memory %t: %s", memory, got)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Fatalf("memory %t: the helper's answer settled after %v", memory, d)
+		}
+	}
 }
