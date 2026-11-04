@@ -146,10 +146,14 @@ type Registry struct {
 // endedJobs is how many jobs of ended trees a Registry keeps known.
 const endedJobs = 4096
 
-// endedJob is a job of a tree that has ended, kept under seq.
+// endedJob is a job of a tree that has ended, kept under seq: its kind,
+// root and path, what the root lookup reads, and nothing else, so that an
+// ended job costs no more than these strings, whatever Job holds while it
+// is live.
 type endedJob struct {
-	job Job
-	seq uint64
+	kind       JobKind
+	root, path string
+	seq        uint64
 }
 
 type endedRef struct {
@@ -288,14 +292,13 @@ func (r *Registry) sweep(root string) {
 	}
 }
 
-// retire keeps j, a job whose tree has ended, among the ended jobs,
-// without its Env and its View, so that no ended run stays reachable from
-// the registry, and forgets the oldest ones beyond keep. Called with mu
-// held.
+// retire keeps j, a job whose tree has ended, among the ended jobs, by its
+// kind, root and path only: without its Env, its run and its View, so that
+// no ended run stays reachable from the registry. It forgets the oldest
+// ones beyond keep. Called with mu held.
 func (r *Registry) retire(j Job) {
-	j.Env, j.View = nil, nil
 	r.seq++
-	r.ended[j.ID] = endedJob{job: j, seq: r.seq}
+	r.ended[j.ID] = endedJob{kind: j.Kind, root: j.Root, path: j.Path, seq: r.seq}
 	r.order = append(r.order, endedRef{id: j.ID, seq: r.seq})
 	for len(r.ended) > r.keep || len(r.order) > 2*r.keep {
 		old := r.order[0]
@@ -313,7 +316,10 @@ func (r *Registry) Job(id string) (Job, bool, bool) {
 	e := r.jobs[id]
 	if e == nil {
 		k, ok := r.ended[id]
-		return k.job, false, ok
+		if !ok {
+			return Job{}, false, false
+		}
+		return Job{ID: id, Kind: k.kind, Root: k.root, Path: k.path}, false, true
 	}
 	live := e.live > 0
 	if e.derived {

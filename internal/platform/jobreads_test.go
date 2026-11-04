@@ -110,11 +110,6 @@ func TestEndedRunIsReleased(t *testing.T) {
 			t.Errorf("%s after its run ended: %+v live %v known %v", id, j, live, ok)
 		}
 	}
-	for id, e := range r.ended {
-		if e.job.View != nil {
-			t.Errorf("the ended job %s keeps a view", id)
-		}
-	}
 	if len(r.jobs) != 0 || len(r.trees) != 0 {
 		t.Errorf("left %d jobs, %d trees", len(r.jobs), len(r.trees))
 	}
