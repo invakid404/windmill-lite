@@ -1,0 +1,243 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      {
+        "k": "\"k\": [1, 2.50]",
+        "own": {
+          "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"in a loop\"}",
+          "type": "application/json",
+          "status": 200
+        },
+        "flow": {
+          "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"iter\": {\"index\": 0, \"value\": \"in a loop\"}, \"label\": \"top\"}",
+          "type": "application/json",
+          "status": 200
+        },
+        "label": "in a loop"
+      }
+    ],
+    "steps": {
+      "m:loop": {
+        "status": "success",
+        "result": [
+          {
+            "k": "\"k\": [1, 2.50]",
+            "own": {
+              "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"in a loop\"}",
+              "type": "application/json",
+              "status": 200
+            },
+            "flow": {
+              "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"iter\": {\"index\": 0, \"value\": \"in a loop\"}, \"label\": \"top\"}",
+              "type": "application/json",
+              "status": 200
+            },
+            "label": "in a loop"
+          }
+        ]
+      },
+      "m:loop/i:0/m:inl": {
+        "status": "success",
+        "args": {
+          "cfg": {
+            "deep": {
+              "k": [
+                1,
+                2.50
+              ],
+              "s": "x"
+            },
+            "name": "n1"
+          },
+          "label": "in a loop"
+        },
+        "result": {
+          "k": "\"k\": [1, 2.50]",
+          "own": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"in a loop\"}",
+            "type": "application/json",
+            "status": 200
+          },
+          "flow": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"iter\": {\"index\": 0, \"value\": \"in a loop\"}, \"label\": \"top\"}",
+            "type": "application/json",
+            "status": 200
+          },
+          "label": "in a loop"
+        }
+      },
+      "m:sub": {
+        "status": "success",
+        "args": {
+          "cfg": {
+            "deep": {
+              "k": [
+                1,
+                2.50
+              ],
+              "s": "x"
+            },
+            "name": "n1"
+          }
+        },
+        "result": {
+          "k": "\"k\": [1, 2.50]",
+          "own": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"in a sub-flow\"}",
+            "type": "application/json",
+            "status": 200
+          },
+          "flow": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}}",
+            "type": "application/json",
+            "status": 200
+          },
+          "label": "in a sub-flow"
+        }
+      },
+      "m:sub/m:s": {
+        "status": "success",
+        "args": {
+          "cfg": {
+            "deep": {
+              "k": [
+                1,
+                2.50
+              ],
+              "s": "x"
+            },
+            "name": "n1"
+          },
+          "label": "in a sub-flow"
+        },
+        "result": {
+          "k": "\"k\": [1, 2.50]",
+          "own": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"in a sub-flow\"}",
+            "type": "application/json",
+            "status": 200
+          },
+          "flow": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}}",
+            "type": "application/json",
+            "status": 200
+          },
+          "label": "in a sub-flow"
+        }
+      },
+      "m:top": {
+        "status": "success",
+        "args": {
+          "cfg": {
+            "deep": {
+              "k": [
+                1,
+                2.50
+              ],
+              "s": "x"
+            },
+            "name": "n1"
+          },
+          "label": "top"
+        },
+        "result": {
+          "k": "\"k\": [1, 2.50]",
+          "own": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"top\"}",
+            "type": "application/json",
+            "status": 200
+          },
+          "flow": {
+            "text": "{\"cfg\": {\"deep\": {\"k\": [1, 2.50], \"s\": \"x\"}, \"name\": \"n1\"}, \"label\": \"top\"}",
+            "type": "application/json",
+            "status": 200
+          },
+          "label": "top"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261104044210-3d33254c4cfd",
+      "revision": "3d33254c4cfd26d0c0ef18751940eb9d65910144",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41774793150"
+    },
+    "recorded_at": "2026-11-04T04:44:40Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34781"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 406,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-04T04:44:39.905489Z",
+          "started_at": "2026-11-04T04:44:39.951212Z",
+          "completed_at": "2026-11-04T04:44:40.166990Z",
+          "duration_ms": 216
+        },
+        "m:loop/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-04T04:44:40.086500Z",
+          "started_at": "2026-11-04T04:44:40.132740Z",
+          "completed_at": "2026-11-04T04:44:40.163564Z",
+          "duration_ms": 31
+        },
+        "m:loop/i:0/m:inl": {
+          "kind": "script",
+          "created_at": "2026-11-04T04:44:40.136482Z",
+          "started_at": "2026-11-04T04:44:40.138542Z",
+          "completed_at": "2026-11-04T04:44:40.161292Z",
+          "duration_ms": 21
+        },
+        "m:sub": {
+          "kind": "flow",
+          "created_at": "2026-11-04T04:44:40.002227Z",
+          "started_at": "2026-11-04T04:44:40.052068Z",
+          "completed_at": "2026-11-04T04:44:40.083796Z",
+          "duration_ms": 32
+        },
+        "m:sub/m:s": {
+          "kind": "script",
+          "created_at": "2026-11-04T04:44:40.056147Z",
+          "started_at": "2026-11-04T04:44:40.058399Z",
+          "completed_at": "2026-11-04T04:44:40.081399Z",
+          "duration_ms": 21
+        },
+        "m:top": {
+          "kind": "script",
+          "created_at": "2026-11-04T04:44:39.953304Z",
+          "started_at": "2026-11-04T04:44:39.954715Z",
+          "completed_at": "2026-11-04T04:44:39.998857Z",
+          "duration_ms": 42
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,252 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      {
+        "own": {
+          "id": "<job:m:w/i:0/m:read>",
+          "args": {},
+          "type": "QueuedJob",
+          "email": "<env:WM_EMAIL>",
+          "running": true,
+          "canceled": false,
+          "language": "bun",
+          "root_job": "<job:>",
+          "created_by": "<env:WM_USERNAME>",
+          "parent_job": "<job:>",
+          "script_path": "f/wl_jr/read",
+          "flow_step_id": "w",
+          "is_flow_step": true,
+          "workspace_id": "<env:WM_WORKSPACE>",
+          "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+        },
+        "up1": {
+          "id": "<job:>",
+          "args": {},
+          "type": "QueuedJob",
+          "email": "<env:WM_EMAIL>",
+          "running": true,
+          "canceled": false,
+          "created_by": "<env:WM_USERNAME>",
+          "flow_status": {
+            "step": 0,
+            "modules": [
+              {
+                "id": "w",
+                "job": "<job:m:w/i:0/m:read>",
+                "type": "InProgress",
+                "iterator": {
+                  "index": 0,
+                  "itered_len": 0
+                },
+                "flow_jobs": [
+                  "<job:m:w/i:0/m:read>"
+                ],
+                "while_loop": true,
+                "flow_jobs_success": [
+                  null
+                ]
+              }
+            ],
+            "cleanup_module": {},
+            "failure_module": {
+              "id": "failure",
+              "type": "WaitingForPriorSteps"
+            },
+            "preprocessor_module": null
+          },
+          "script_path": "f/wl_jr/inwhile",
+          "is_flow_step": false,
+          "workspace_id": "<env:WM_WORKSPACE>",
+          "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+        },
+        "extra": []
+      }
+    ],
+    "steps": {
+      "m:w": {
+        "status": "success",
+        "result": [
+          {
+            "own": {
+              "id": "<job:m:w/i:0/m:read>",
+              "args": {},
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "language": "bun",
+              "root_job": "<job:>",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "script_path": "f/wl_jr/read",
+              "flow_step_id": "w",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "up1": {
+              "id": "<job:>",
+              "args": {},
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "flow_status": {
+                "step": 0,
+                "modules": [
+                  {
+                    "id": "w",
+                    "job": "<job:m:w/i:0/m:read>",
+                    "type": "InProgress",
+                    "iterator": {
+                      "index": 0,
+                      "itered_len": 0
+                    },
+                    "flow_jobs": [
+                      "<job:m:w/i:0/m:read>"
+                    ],
+                    "while_loop": true,
+                    "flow_jobs_success": [
+                      null
+                    ]
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jr/inwhile",
+              "is_flow_step": false,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "extra": []
+          }
+        ]
+      },
+      "m:w/i:0/m:read": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "own": {
+            "id": "<job:m:w/i:0/m:read>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/read",
+            "flow_step_id": "w",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "w",
+                  "job": "<job:m:w/i:0/m:read>",
+                  "type": "InProgress",
+                  "iterator": {
+                    "index": 0,
+                    "itered_len": 0
+                  },
+                  "flow_jobs": [
+                    "<job:m:w/i:0/m:read>"
+                  ],
+                  "while_loop": true,
+                  "flow_jobs_success": [
+                    null
+                  ]
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jr/inwhile",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": []
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261104044210-3d33254c4cfd",
+      "revision": "3d33254c4cfd26d0c0ef18751940eb9d65910144",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41774793150"
+    },
+    "recorded_at": "2026-11-04T04:44:46Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34781"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 205,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-04T04:44:46.419866Z",
+          "started_at": "2026-11-04T04:44:46.458621Z",
+          "completed_at": "2026-11-04T04:44:46.492834Z",
+          "duration_ms": 34
+        },
+        "m:w/i:0/m:read": {
+          "kind": "script",
+          "created_at": "2026-11-04T04:44:46.460686Z",
+          "started_at": "2026-11-04T04:44:46.462962Z",
+          "completed_at": "2026-11-04T04:44:46.489351Z",
+          "duration_ms": 24
+        }
+      }
+    }
+  }
+}
