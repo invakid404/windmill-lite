@@ -156,9 +156,9 @@ applied here.
 `_ENTRYPOINT_OVERRIDE` when the argument object carries it, as the flow
 preprocessor step's always does, and `main` otherwise. An override that is
 not a string matching `^[A-Za-z_][A-Za-z0-9_]*$` is refused with an error
-wrapping `ErrInvalidEntrypoint`, whose text begins `Invalid entrypoint
-override`, before any wrapper runs; the engine fails the step with it as a
-pre-run error (below). The harness selects WR-V1's fallback from the same
+wrapping `ErrInvalidEntrypoint`, whose text is the one Windmill's worker
+writes after `Bad request: `, before any wrapper runs; the engine fails
+the step with it as the worker's execution error (below). The harness selects WR-V1's fallback from the same
 argument.
 
 `Entrypoint` walks the argument object in place for the last member of
@@ -578,7 +578,7 @@ the step's success value, not the `EarlyStopError`
 | a parallel `branchall` of two or more branches in a `same_worker` flow | the `same_worker` chaining error of a parallel loop | CF-7 |
 | a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
 | `stop_after_all_iters_if` fails | an error stop of the flow: ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<text>`: <predicate text>"}}``, carried by the loop, whose result stays its array | CF-13, JE-27 |
-| an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
+| an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "execution error:\nBad request: Invalid entrypoint override <value>: must match ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, not starting with a digit)", "name": "ExecutionErr", "step_id": <id>}}`, at the job's pickup, before the step runs | WR-12 |
 | the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
 | a job's result or failure value that jsonb refuses | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-48 case 1, OR-27 |
 | the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay fails without running, with the run's `Canceled` error | FX-38 |

@@ -1686,9 +1686,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		}
 		entry, _, err := storedEntrypoint(stored)
 		if err != nil {
-			// WR-12: the job fails before any wrapper runs.
+			// WR-12: the job fails at its pickup, before any wrapper runs,
+			// with the worker's execution error.
 			o.rec.Ran = true
-			out := fail(engineError("ExecutionErr", err.Error()), OriginEngine)
+			out := fail(workerError(fr.stepID(i), "execution error:\nBad request: "+err.Error()), OriginEngine)
 			r.recordJob(fr, i, out.rec.Result)
 			r.ended(fr, &out)
 			return out

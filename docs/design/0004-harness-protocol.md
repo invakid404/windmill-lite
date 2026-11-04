@@ -110,7 +110,8 @@ Windmill makes them:
 
 1. **The name**, in the engine, before any invocation: a name that does not
    match `^[A-Za-z_][A-Za-z0-9_]*$` fails the step with Windmill's
-   `Invalid entrypoint override …` text, before any wrapper runs.
+   worker error, `execution error:\nBad request: Invalid entrypoint
+   override …`, before any wrapper runs.
 2. **The export**, in the harness, after the script's module has loaded, as
    the wrapper does after its import: top-level code, import failures and
    their logs come first; then an export that is missing or not a function

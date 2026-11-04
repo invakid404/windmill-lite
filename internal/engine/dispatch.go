@@ -150,6 +150,9 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		}
 	}
 	entry, _, err := Entrypoint(args)
+	if errors.Is(err, ErrInvalidEntrypoint) {
+		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\nBad request: "+err.Error())}, nil
+	}
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", err.Error())}, nil
 	}
