@@ -41,6 +41,11 @@ value:
         type: script
         path: f/wl_esm_pkg/cjs/local_files
         input_transforms: {}
+    - id: file_names
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/file_names
+        input_transforms: {}
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

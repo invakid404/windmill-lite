@@ -5,7 +5,7 @@ target: f/wl_esm_pkg/cjs_all
 args: {}
 expect:
   status: success
-  result: {local: mjs, localDefault: mjs default, kind: mts, twice: 42, names: [kind, twice]}
+  result: {helper: cjs directory, meta: []}
   steps:
     "m:esm_named": {status: success, args: {}, result: pong}
     "m:esm_namespace": {status: success, args: {}, result: {ping: pong, names: [ping]}}
@@ -15,3 +15,4 @@ expect:
     "m:cjs_named": {status: success, args: {}, result: pong}
     "m:cjs_namespace": {status: success, args: {}, result: {ping: pong, names: [default, ping]}}
     "m:local_files": {status: success, args: {}, result: {local: mjs, localDefault: mjs default, kind: mts, twice: 42, names: [kind, twice]}}
+    "m:file_names": {status: success, args: {}, result: {helper: cjs directory, meta: []}}

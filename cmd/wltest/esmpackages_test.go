@@ -28,8 +28,13 @@ import (
 // format esm entry. They take named and namespace imports of packages with
 // an .mjs entry, with "type": "module" and a .js entry, and with an .mjs
 // entry that re-exports its members; of a CommonJS package; and of folder
-// files whose names end .mjs and .mts. checkSharedFixture checks the build
-// and runs the fixture's flows in every mode.
+// files: ES modules whose names end .mjs and .mts, an ES module without
+// exports whose name ends .cts, and a file below a directory named cjs at
+// the sync root. esbuild reads a module's type from its path's extension,
+// and the shared layout refers to each dependency by its path from the
+// sync root, so these are the paths a reference's name could mistype.
+// checkSharedFixture checks the build and runs the fixture's flows in every
+// mode.
 //
 // [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#decision
 func TestESModulePackagesShareTheClosure(t *testing.T) {
