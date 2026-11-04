@@ -259,6 +259,27 @@ deferred:
       a walk up the parent chain needs a step two levels down in a flow; the flow fixture conformance/flows/client-api/job-reads,
       which the flow suite requires, holds the case
     expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/l
+    reason: >-
+      the attempts of a retried subflow and of a retried loop need flow runs; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/m
+    reason: >-
+      a subflow that failed before its steps, and skipped and mocked subflow steps, need flow runs; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/n
+    reason: >-
+      empty and failed containers, early stops and parallel children need flow runs, the parallel ones on two workers; the flow fixtures
+      conformance/flows/client-api/job-reads and job-reads-parallel, which the flow suite requires, hold the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads, job-reads-parallel)
+  - spec: WA-19/o
+    reason: >-
+      large results and arguments need a flow whose step reads another step's job; the flow fixture conformance/flows/client-api/job-reads-large
+      holds the case: the flow suite requires its run below the replacement size, and TestLargeValueJobRead checks the two above it, which
+      windmill-lite answers 501 (deviation D23)
+    expected_in: cmd/wltest TestFlowSuite and TestLargeValueJobRead (conformance/flows/client-api/job-reads-large)
   - spec: WA-19/i
     reason: >-
       a job of a run that has ended needs a run that a step dispatched and
