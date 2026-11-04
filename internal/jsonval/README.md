@@ -154,8 +154,9 @@ stored, so a text under 7000 bytes is bounded without the walk.
 `TestStoredBound` checks that the walk stays under that shortcut, and
 `TestStoredBoundAbovePostgreSQL` (run as `TestStoredMatchesPostgreSQL`
 is, below) that the bound is above `pg_column_size` of every input of
-the other tests and of texts that take `jsonb`'s most bytes per byte of
-text, as computed and as a table stores them. It also checks what the
+the other tests that `jsonb` stores (`Stored` accepts it) and of texts
+that take `jsonb`'s most bytes per byte of text, as computed and as a
+table stores them. It also checks what the
 job-reads-large fixture rests on: 89,000 characters that no compressor
 shrinks are stored below 90000 bytes and bounded below, and 92,000 are
 stored above, while 92,000 times `x` is stored far below.

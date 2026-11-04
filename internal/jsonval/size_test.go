@@ -12,14 +12,15 @@ import (
 	"testing"
 )
 
-// sizeInputs are JSON texts that StoredBound is checked on: the valid
-// inputs of the other tests, and texts that take jsonb's most bytes per
+// sizeInputs are JSON texts that StoredBound is checked on: the inputs of
+// the other tests that jsonb stores (Stored accepts them; a value it
+// refuses has no stored size), and texts that take jsonb's most bytes per
 // byte of text (one-digit numbers, empty strings and containers, keys),
 // long numbers, escapes, deep nesting, and the large strings of the
 // job-reads-large fixture's runs.
 func sizeInputs(t *testing.T) (inputs []string, named map[string]int) {
 	for _, in := range postgresInputs(t) {
-		if json.Valid([]byte(in)) {
+		if _, err := FromProducer([]byte(in)).Stored(); json.Valid([]byte(in)) && err == nil {
 			inputs = append(inputs, in)
 		}
 	}
@@ -77,6 +78,11 @@ func sizeInputs(t *testing.T) (inputs []string, named map[string]int) {
 func TestStoredBound(t *testing.T) {
 	inputs, _ := sizeInputs(t)
 	for _, in := range append(inputs, "1", "[1]", "[1,1]", `{"":1}`, `[[],[]]`, `""`, "true", "-0.5e-3") {
+		// Every input is one that jsonb stores, as the PostgreSQL check
+		// needs.
+		if _, err := FromProducer([]byte(in)).Stored(); err != nil {
+			t.Errorf("%.40s…: jsonb does not store it: %v", in, err)
+		}
 		if w := storedWalk([]byte(in)); w > 12*len(in)+32 {
 			t.Errorf("%.40s… (%d bytes): walked %d, above the shortcut's %d", in, len(in), w, 12*len(in)+32)
 		}
