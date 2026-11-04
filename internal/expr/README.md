@@ -541,6 +541,12 @@ context-free case's recorded argument as its stored form.
   `go test` runs the seeds and `testdata/fuzz` (a text that is not UTF-8,
   found by fuzzing); `go test -run '^$' -fuzz FuzzJSExprMatchesEngine
   ./internal/expr` explores further.
+- Each fuzzed case's first byte is its site: a `SiteKind` replays at that
+  site, and any other byte maps onto one, so the fuzzer reaches every
+  site, each with its scope as the conformance cases give it.
+  `TestFuzzSeedsKeepTheirSites` checks that every conformance seed replays
+  at its recorded site, with that site's wrapping, results lookup and
+  context names.
 - `TestParseJSExpr` checks what the grammar takes and refuses.
   `TestJSExprKeepsTheHeapCap`, `TestJSExprKeepsTheStackLimit`,
   `TestJSExprKeepsTheAttemptLimit`, `TestJSExprBoundsItsOwnWork` and
