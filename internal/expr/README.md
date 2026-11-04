@@ -565,7 +565,12 @@ The tests of milestone B2b run on the real engine. Package `expr` cannot
 import [internal/expr/quickjs](quickjs/README.md), which imports it, so
 `quickjs_test.go`, of the external test package `expr_test` in the same
 test binary, registers the engine for them; an engine a test starts must
-end with no leaked heap block.
+end with no leaked heap block, which the engine counts only in leak check
+(`WL_QJS_LEAK_CHECK=1`, as one CI step runs this package; see
+[internal/expr/quickjs](quickjs/README.md)). `TestJSExprKeepsTheHeapCap`
+drives the engine out of its cap on strings with non-ASCII characters,
+where QuickJS-ng's `JS_ToCStringLen2` leaks the string it was converting.
+It therefore uses `realLeakyEngine`, which logs leaks instead of failing.
 
 - `TestE3aOnEngine` is B2b's exit gate (ADR 0012: the expression suite
   against the E3a recordings, at unit level as in B2a). It runs every

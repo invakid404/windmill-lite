@@ -266,6 +266,15 @@ harness, which is (a) with its duplication.
      a runtime returns its memory to the allocator, so there is no
      instance-level growth to manage (the wazero prototype held 570 MiB of
      linear memory after 256 KB runs, which is part of why it is deferred).
+   - **Freeing a runtime (PS4).** Each runtime allocates from a mimalloc
+     heap of its own, which the slot destroys whole after the evaluation
+     instead of freeing the runtime object by object; whatever QuickJS-ng
+     leaks goes with it. Nothing observable changes: no JavaScript runs
+     while a runtime is freed. A leak-check mode keeps the old release,
+     QuickJS-ng's own teardown and a sweep that frees and counts the blocks
+     it left; tests run in it by `WL_QJS_LEAK_CHECK=1`, and CI runs the
+     expression packages so, so that a leak QuickJS-ng starts making still
+     fails a test.
    - **Interrupts (D8).** An attempt that reaches 20 s is interrupted through
      QuickJS-ng's interrupt handler, and the slot prepares a new runtime.
 7. **Harnesses are step runners.** Given a script, arguments and a

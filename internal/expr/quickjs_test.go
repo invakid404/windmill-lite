@@ -2,6 +2,7 @@ package expr_test
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
@@ -12,7 +13,9 @@ import (
 // imports it, but this external test package of the same test binary can.
 func init() {
 	expr.RegisterTestEngine(quickjs.CLibrary(), func(l expr.Limits, slots int) (expr.Engine, func() error, error) {
-		e, err := quickjs.New(quickjs.Options{Limits: l, Slots: slots})
+		// WL_QJS_LEAK_CHECK=1 runs the engine in leak check, so that the
+		// leak check below means something (quickjs.Options.LeakCheck).
+		e, err := quickjs.New(quickjs.Options{Limits: l, Slots: slots, LeakCheck: os.Getenv("WL_QJS_LEAK_CHECK") == "1"})
 		if err != nil {
 			return nil, nil, err
 		}

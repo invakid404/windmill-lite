@@ -36,7 +36,7 @@ func newEngine(t testing.TB, opts Options) *Engine {
 // newLeakyEngine is newEngine for tests that make QuickJS-ng leak.
 func newLeakyEngine(t testing.TB, opts Options) *Engine {
 	t.Helper()
-	e, err := New(opts)
+	e, err := New(testOptions(opts))
 	if err != nil {
 		t.Fatal(err)
 	}

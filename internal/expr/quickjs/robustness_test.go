@@ -46,9 +46,10 @@ func TestSettlingSurvivesProgramCodeThatCallsTheHost(t *testing.T) {
 }
 
 func TestEngineLeaksAreReclaimed(t *testing.T) {
-	// QuickJS-ng does not free the object this program leaves behind; the
-	// engine frees it with the runtime's other blocks, and counts it.
-	e := newLeakyEngine(t, Options{Slots: 1})
+	// QuickJS-ng does not free the object this program leaves behind; in
+	// leak check, the engine frees it with the runtime's other blocks, and
+	// counts it.
+	e := newLeakyEngine(t, Options{Slots: 1, LeakCheck: true})
 	for range 3 {
 		if got := mustRun(t, e, `Error.stackTraceLimit = {}; Error.stackTraceLimit = 10; "x"`, expr.Input{}); got != "x" {
 			t.Fatalf("got %q", got)
@@ -59,6 +60,63 @@ func TestEngineLeaksAreReclaimed(t *testing.T) {
 	}
 	if got := mustRun(t, e, `"next"`, expr.Input{}); got != "next" {
 		t.Fatalf("the slot did not recover: %q", got)
+	}
+}
+
+// TestDestroyedHeapsReclaimLeaks: in the default mode the engine destroys
+// each runtime's heap whole, so what a leaking program leaves behind is
+// reclaimed although nothing counts it. Leak check first shows that the
+// program does leak its 8 MiB string. Then, in the default mode, 100 such
+// evaluations on one slot leave mimalloc's committed memory where it was
+// (without the reclaim it would grow by 800 MiB), LeakedBlocks stays 0, and
+// the slot's next runtime can still use nearly the whole cap: its heap
+// accounting starts from zero.
+func TestDestroyedHeapsReclaimLeaks(t *testing.T) {
+	if !hasDestroy() {
+		t.Skip("builds with wl_libc_malloc free every runtime block by block")
+	}
+	const leak = `Error.stackTraceLimit = { s: "x".repeat(8 << 20) }; Error.stackTraceLimit = 10; "x"`
+	l := expr.DefaultLimits()
+	l.MemoryMB = 64
+
+	check, err := New(Options{Limits: l, Slots: 1, LeakCheck: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if got := mustRun(t, check, leak, expr.Input{}); got != "x" {
+			t.Fatalf("got %q", got)
+		}
+	}
+	check.Close()
+	if n, b := check.Stats().LeakedBlocks, check.stats.leakedBytes.Load(); n == 0 || b < 3*(8<<20) {
+		t.Fatalf("in leak check the program leaked %d blocks of %d bytes, want its three 8 MiB strings", n, b)
+	}
+
+	e, err := New(Options{Limits: l, Slots: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	for range 3 {
+		mustRun(t, e, leak, expr.Input{})
+	}
+	before := committed()
+	for range 100 {
+		if got := mustRun(t, e, leak, expr.Input{}); got != "x" {
+			t.Fatalf("got %q", got)
+		}
+	}
+	after := committed()
+	t.Logf("mimalloc's committed memory: %d MiB before, %d MiB after 100 leaking evaluations", before>>20, after>>20)
+	if after > before+64<<20 {
+		t.Fatalf("committed memory grew from %d MiB to %d MiB: the leaks were not reclaimed", before>>20, after>>20)
+	}
+	if n := e.Stats().LeakedBlocks; n != 0 {
+		t.Fatalf("LeakedBlocks %d in the default mode, want 0 (not counted)", n)
+	}
+	if got := mustRun(t, e, `String("y".repeat(48 << 20).length)`, expr.Input{}); got != "50331648" {
+		t.Fatalf("a 48 MiB string under the 64 MiB cap after the leaks: %q", got)
 	}
 }
 

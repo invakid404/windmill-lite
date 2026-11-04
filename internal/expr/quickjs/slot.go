@@ -60,6 +60,9 @@ func (e *Engine) startSlot() error {
 	if s.c == nil {
 		return errors.New("expr/quickjs: cannot allocate a slot")
 	}
+	if !e.leakCheck {
+		C.wl_set_destroy(s.c, 1)
+	}
 	h := cgo.NewHandle(s)
 	e.wg.Add(1)
 	if rc := C.wl_spawn(C.uintptr_t(h), C.size_t(threadStack(e.limits))); rc != 0 {
@@ -121,12 +124,22 @@ func (s *slot) loop() {
 	}
 }
 
-// release frees the runtime and counts the blocks QuickJS-ng left
-// allocated, which the C side has just freed.
+// release frees the runtime and, in leak check, counts the blocks
+// QuickJS-ng left allocated, which the C side has just freed.
 func (s *slot) release() {
 	C.wl_release(s.c)
 	s.e.stats.leaked.Add(uint64(C.wl_leaked(s.c)))
+	s.e.stats.leakedBytes.Add(uint64(C.wl_leaked_bytes(s.c)))
 }
+
+// hasDestroy says whether this build has the default mode, in which a
+// runtime's heap is destroyed whole (Options.LeakCheck); builds with
+// wl_libc_malloc do not. Tests use it, and committed.
+func hasDestroy() bool { return C.wl_has_destroy() != 0 }
+
+// committed is the memory mimalloc has committed for the process, or 0 in
+// builds with wl_libc_malloc.
+func committed() uint64 { return uint64(C.wl_committed()) }
 
 // run runs j on the prepared runtime and reports whether it used it.
 func (s *slot) run(j *job) (reply, bool) {

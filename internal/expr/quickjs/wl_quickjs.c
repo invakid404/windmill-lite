@@ -35,11 +35,18 @@
 // the evaluation's cap.
 #define WL_READBACK_HEADROOM (16u << 20)
 
-// Every block a runtime allocates is linked into its slot's heap, so that
-// whatever the engine fails to free by the end of JS_FreeRuntime can still
-// be freed, and counted. Blocks come from mimalloc, whose heaps are per
-// thread, so slots do not contend for one allocator lock (README,
-// Allocator).
+// A runtime's heap has two modes (README, Allocator; milestone PS4):
+//
+//   - the default, destroy: the runtime allocates from a mimalloc heap of
+//     its own (mi_heap_new on the slot's thread), and release destroys that
+//     heap, every block in it at once, instead of freeing the runtime;
+//   - leak check (wl_set_destroy(s, 0), and always with wl_libc_malloc):
+//     every block is linked into its slot's heap, so that whatever the
+//     engine fails to free by the end of JS_FreeRuntime can still be freed,
+//     and counted (wl_leaked).
+//
+// Blocks come from mimalloc, whose heaps are per thread, so slots do not
+// contend for one allocator lock.
 typedef union wl_block {
 	struct {
 		union wl_block *prev, *next;
@@ -72,6 +79,7 @@ struct wl_slot {
 	wl_heap heap;
 	size_t memory_limit;
 	size_t leaked; // blocks swept at the last release
+	size_t leaked_bytes; // and their usable bytes
 	atomic_int interrupt;
 	int interrupted;
 	JSValue result;
@@ -83,6 +91,12 @@ struct wl_slot {
 	// C strings handed to Go, freed at release.
 	const char *cstr[8];
 	int ncstr;
+#ifndef WL_LIBC_MALLOC
+	// destroy: the slot's runtimes allocate from a mimalloc heap of their
+	// own, mh, which release destroys (wl_set_destroy).
+	int destroy;
+	mi_heap_t *mh;
+#endif
 };
 
 static void heap_link(wl_heap *h, wl_block *b)
@@ -169,9 +183,73 @@ static const JSMallocFunctions heap_funcs = {
 	heap_calloc, heap_malloc, heap_free, heap_realloc, heap_usable_size,
 };
 
+#ifndef WL_LIBC_MALLOC
+// The destroy mode's allocator: blocks with the same header, so that
+// heap_usable_size and the engine's accounting of the cap are the same in
+// both modes, but from the runtime's own mimalloc heap and linked nowhere:
+// release destroys the heap, every block in it at once. mimalloc lets only
+// the thread that made a heap allocate from it; a slot's runtimes are
+// prepared, run and released on the slot's own thread.
+static void *mh_malloc(void *opaque, size_t size)
+{
+	wl_slot *s = opaque;
+	wl_block *b;
+
+	if (size > SIZE_MAX - sizeof(wl_block))
+		return NULL;
+	b = mi_heap_malloc(s->mh, sizeof(wl_block) + size);
+	return b == NULL ? NULL : b + 1;
+}
+
+static void *mh_calloc(void *opaque, size_t count, size_t size)
+{
+	wl_slot *s = opaque;
+	wl_block *b;
+
+	if (size != 0 && count > (SIZE_MAX - sizeof(wl_block)) / size)
+		return NULL;
+	b = mi_heap_zalloc(s->mh, sizeof(wl_block) + count * size);
+	return b == NULL ? NULL : b + 1;
+}
+
+static void mh_free(void *opaque, void *ptr)
+{
+	(void)opaque;
+	if (ptr != NULL)
+		mi_free((wl_block *)ptr - 1);
+}
+
+static void *mh_realloc(void *opaque, void *ptr, size_t size)
+{
+	wl_slot *s = opaque;
+	wl_block *nb;
+
+	if (ptr == NULL)
+		return mh_malloc(opaque, size);
+	if (size > SIZE_MAX - sizeof(wl_block))
+		return NULL;
+	nb = mi_heap_realloc(s->mh, (wl_block *)ptr - 1, sizeof(wl_block) + size);
+	return nb == NULL ? NULL : nb + 1;
+}
+
+static const JSMallocFunctions mh_funcs = {
+	mh_calloc, mh_malloc, mh_free, mh_realloc, heap_usable_size,
+};
+#endif
+
+void wl_set_destroy(wl_slot *s, int on)
+{
+#ifndef WL_LIBC_MALLOC
+	s->destroy = on;
+#else
+	(void)s;
+	(void)on;
+#endif
+}
+
 // heap_sweep frees every block still linked and returns how many there
-// were.
-static size_t heap_sweep(wl_heap *h)
+// were, adding their usable bytes to *bytes when it is not NULL.
+static size_t heap_sweep(wl_heap *h, size_t *bytes)
 {
 	size_t n = 0;
 	wl_block *b;
@@ -179,6 +257,8 @@ static size_t heap_sweep(wl_heap *h)
 	while (h->head.link.next != &h->head) {
 		b = h->head.link.next;
 		heap_unlink(b);
+		if (bytes != NULL)
+			*bytes += WL_USABLE_SIZE(b);
 		WL_FREE(b);
 		n++;
 	}
@@ -244,9 +324,22 @@ int wl_prepare(wl_slot *s, size_t memory_limit, size_t stack_size)
 	JSRuntime *rt;
 	JSContext *ctx;
 
-	rt = JS_NewRuntime2(&heap_funcs, &s->heap);
+#ifndef WL_LIBC_MALLOC
+	if (s->destroy) {
+		s->mh = mi_heap_new();
+		if (s->mh == NULL)
+			return WL_NO_MEMORY;
+		rt = JS_NewRuntime2(&mh_funcs, s);
+		if (rt == NULL) {
+			mi_heap_destroy(s->mh);
+			s->mh = NULL;
+			return WL_NO_MEMORY;
+		}
+	} else
+#endif
+		rt = JS_NewRuntime2(&heap_funcs, &s->heap);
 	if (rt == NULL) {
-		heap_sweep(&s->heap);
+		heap_sweep(&s->heap, NULL);
 		return WL_NO_MEMORY;
 	}
 	JS_SetMemoryLimit(rt, memory_limit);
@@ -254,8 +347,15 @@ int wl_prepare(wl_slot *s, size_t memory_limit, size_t stack_size)
 	JS_SetInterruptHandler(rt, wl_interrupt_handler, s);
 	ctx = JS_NewContext(rt);
 	if (ctx == NULL) {
+#ifndef WL_LIBC_MALLOC
+		if (s->mh != NULL) {
+			mi_heap_destroy(s->mh);
+			s->mh = NULL;
+			return WL_NO_MEMORY;
+		}
+#endif
 		JS_FreeRuntime(rt);
-		heap_sweep(&s->heap);
+		heap_sweep(&s->heap, NULL);
 		return WL_NO_MEMORY;
 	}
 	JS_SetContextOpaque(ctx, s);
@@ -275,6 +375,30 @@ void wl_release(wl_slot *s)
 
 	if (ctx == NULL)
 		return;
+#ifndef WL_LIBC_MALLOC
+	if (s->mh != NULL) {
+		// Everything the runtime holds, the slot's call records, bytecode
+		// and C strings included, is in its heap: destroying the heap frees
+		// it all, leaks included. No JavaScript runs while a runtime is
+		// freed (finalizers are C, and the engine registers none that free
+		// anything outside the heap), so skipping the engine's own
+		// teardown is not observable.
+		s->calls = NULL;
+		s->ncalls = s->calls_cap = 0;
+		s->free_head = s->queue_head = s->queue_tail = WL_NO_CALL;
+		s->ncstr = 0;
+		s->bc = NULL;
+		s->result = JS_UNDEFINED;
+		s->exc = JS_UNDEFINED;
+		s->ctx = NULL;
+		s->rt = NULL;
+		mi_heap_destroy(s->mh);
+		s->mh = NULL;
+		s->leaked = 0;
+		s->leaked_bytes = 0;
+		return;
+	}
+#endif
 	for (i = 0; i < s->ncalls; i++) {
 		JS_FreeValue(ctx, s->calls[i].resolve);
 		JS_FreeValue(ctx, s->calls[i].reject);
@@ -301,12 +425,39 @@ void wl_release(wl_slot *s)
 	s->rt = NULL;
 	// QuickJS-ng can leak an object the program made unreachable (for
 	// example through Error.stackTraceLimit); its blocks go here.
-	s->leaked = heap_sweep(&s->heap);
+	s->leaked_bytes = 0;
+	s->leaked = heap_sweep(&s->heap, &s->leaked_bytes);
 }
 
 size_t wl_leaked(wl_slot *s)
 {
 	return s->leaked;
+}
+
+size_t wl_leaked_bytes(wl_slot *s)
+{
+	return s->leaked_bytes;
+}
+
+int wl_has_destroy(void)
+{
+#ifndef WL_LIBC_MALLOC
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+size_t wl_committed(void)
+{
+#ifndef WL_LIBC_MALLOC
+	size_t elapsed, user, sys, rss, peak_rss, commit, peak_commit, faults;
+
+	mi_process_info(&elapsed, &user, &sys, &rss, &peak_rss, &commit, &peak_commit, &faults);
+	return commit;
+#else
+	return 0;
+#endif
 }
 
 void wl_interrupt(wl_slot *s)

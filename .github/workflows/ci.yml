@@ -167,6 +167,18 @@ jobs:
           set -x
           go test "${args[@]}" "${packages[@]}"
 
+      - name: Test the expression packages in leak check
+        if: matrix.checks
+        # The engine destroys each QuickJS-ng runtime's heap whole by
+        # default, leaks included, without counting them (milestone PS4).
+        # Leak check frees each runtime block by block and counts what
+        # QuickJS-ng left, so the tests' check that no runtime leaked
+        # catches a leak QuickJS-ng starts making
+        # (internal/expr/quickjs, Options.LeakCheck).
+        env:
+          WL_QJS_LEAK_CHECK: "1"
+        run: go test -race -count=1 ./internal/expr/...
+
       - name: Build a fixture bundle twice and compare
         if: matrix.checks
         # F4's exit gate (ADR 0010, 0012): the same inputs and pins give one

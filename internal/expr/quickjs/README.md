@@ -32,11 +32,11 @@ What the package does not do:
 | Name | What it does |
 |---|---|
 | `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
-| `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache). |
+| `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache), `LeakCheck` (free each runtime block by block and count what QuickJS-ng leaked, below). |
 | `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode, with strict mode forced, as Windmill's evaluator compiles every script ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the input's preludes, then the bytecode, on a fresh runtime and context, and returns the completion string or an error. |
 | `(*Engine).ExactMemberPaths()` | Says that the engine evaluates a member path over JSON values as package `expr`'s own answer does, so the pipeline answers those paths without it. |
-| `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and heap blocks that QuickJS-ng leaked and the engine freed. |
+| `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and, in leak check only, heap blocks that QuickJS-ng leaked and the engine freed (`LeakedBlocks`; 0 in the default mode). |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
 | `CLibrary()` | The C library the engine was built against: `glibc`, `musl` (the static Linux engine), `apple` or `other`. QuickJS-ng's transcendental `Math` functions call its libm, so their last digit can differ from the glibc of Windmill's image (deviation D16 of [0001](../../../docs/design/0001-equivalence-contract.md)). |
 
@@ -106,11 +106,21 @@ What the package does not do:
    class with `JS_IsPromise`.
 6. **Replenishing.** The slot replies first, then frees the runtime and
    prepares the next one, off the caller's path. A runtime is never reused:
-   nothing survives from one evaluation to the next (JE-1). Every block a
-   runtime allocates is tracked, so a block QuickJS-ng fails to free (it
-   does for some programs, such as one that assigns an object to
-   `Error.stackTraceLimit`) is freed with the runtime and counted in
-   `Stats().LeakedBlocks`. The tests fail on any other leak.
+   nothing survives from one evaluation to the next (JE-1). How it is
+   freed depends on the mode (milestone PS4):
+   - **default:** each runtime allocates from a mimalloc heap of its own,
+     made on the slot's thread, and the slot destroys that heap whole
+     (`mi_heap_destroy`) instead of freeing the runtime block by block.
+     QuickJS-ng's teardown does not run, which nothing can observe: no
+     JavaScript runs while a runtime is freed, and every block the runtime
+     and the slot's records hold is in the heap, so a block QuickJS-ng fails
+     to free (it does for some programs, such as one that assigns an object
+     to `Error.stackTraceLimit`) is reclaimed with the rest, uncounted;
+   - **leak check** (`Options.LeakCheck`, and always in builds with
+     `wl_libc_malloc`): every block a runtime allocates is linked into the
+     slot's list, and after `JS_FreeRuntime` the slot frees the blocks still
+     linked and counts them in `Stats().LeakedBlocks`. The tests run so when
+     `WL_QJS_LEAK_CHECK=1`, and fail on any leak but the known ones.
 
 ## Limits
 
@@ -131,7 +141,7 @@ package, and `wl_quickjs.c` is the thin C layer that the Go slot loop calls.
 
 The C sources are built with `-O2 -DNDEBUG`. QuickJS-ng's assertions are
 off, because a program can reach one of them: the one in `JS_FreeRuntime`
-that checks for leaked objects. The tracked heap handles those leaks
+that checks for leaked objects. The heap's modes handle those leaks
 instead.
 
 `mimalloc/` holds the allocator the engine's heap uses (below): mimalloc
@@ -148,10 +158,14 @@ the binaries are static, and runs them on a runner of that architecture.
 
 ## Allocator
 
-The engine allocates every block of a runtime's heap with mimalloc
-(`mi_malloc` and the rest, in `wl_quickjs.c`), and the heap cap counts each
-block's `mi_usable_size`. mimalloc does not replace the C library's
-`malloc`, which the rest of the program keeps.
+The engine allocates every block of a runtime's heap with mimalloc, from a
+heap of the runtime's own in the default mode (`mi_heap_malloc` and the
+rest) and from the thread's heap in leak check (`mi_malloc`), in
+`wl_quickjs.c`. The heap cap counts each block's `mi_usable_size` either
+way. mimalloc does not replace the C library's `malloc`, which the rest of
+the program keeps. Destroying the heap whole saves the per-block frees and
+QuickJS-ng's teardown of every object, which `BenchmarkEvalCPU` compares
+with leak check.
 
 musl's `malloc`, which the static Linux engine links, makes every slot
 thread wait on one lock. Measured in CI (`TestPoolUnderLoad`, CI run
@@ -172,9 +186,13 @@ macro of its own), which only stops mimalloc reading the thread pointer
 directly.
 
 The build tag `wl_libc_malloc` (`alloc_libc.go`) puts the C library's
-allocator back. Only measurements use it: the `Static Linux engine` CI job
+allocator back, with leak check always on: the C library has no heap to
+destroy whole. Only measurements use it: the `Static Linux engine` CI job
 prints the pool's table for four builds in its summary (musl or glibc,
-each with mimalloc and with its own `malloc`).
+each with mimalloc and with its own `malloc`). Since PS4 the mimalloc
+builds there destroy each runtime's heap and the others free it block by
+block, so the table compares the release configuration with each C
+library's allocator, not the allocators alone.
 
 ## Tests and cases
 
@@ -212,8 +230,18 @@ each with mimalloc and with its own `malloc`).
   fits depth 1 000 (JE-48/a's `depth-1000` case) is deviation D17 of
   [0001](../../../docs/design/0001-equivalence-contract.md). An engine
   started through the tests' shared helper must end with no leaked heap
-  block; the one test that makes QuickJS-ng leak uses a helper without that
-  check.
+  block, which means something in leak check (`WL_QJS_LEAK_CHECK=1`, which
+  one CI step sets for this package and [internal/expr](../README.md)); the
+  one test that makes QuickJS-ng leak uses a helper without that check.
+- `TestEngineLeaksAreReclaimed` runs in leak check and checks that a
+  known leak is seen and freed and the slot recovers.
+  `TestDestroyedHeapsReclaimLeaks` checks the default mode. In leak check,
+  a program first shows that it leaks an 8 MiB string per evaluation.
+  Then 100 evaluations of it in the default mode leave mimalloc's
+  committed memory where it was, `LeakedBlocks` stays 0, and the slot's
+  next runtime can still use nearly the whole cap.
+- `BenchmarkEvalCPU` reports the CPU per evaluation, preparing and freeing
+  the runtimes included, in the default mode and in leak check.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
   report-only step.
