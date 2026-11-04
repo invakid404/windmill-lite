@@ -220,8 +220,8 @@ harness, which is (a) with its duplication.
      - CI runs the conformance suite and the oracle recordings with
        `jsExpr` on and with it off.
 
-     Such an expression takes about 2 µs instead of 80 to 200 µs on a
-     runtime (`BenchmarkEvalJSExpr`).
+     Such an expression takes about 2 µs instead of 29 to 36 µs on a
+     runtime (`BenchmarkEvalJSExpr`, Apple M4).
 3. **The engine is QuickJS-ng at revision `be664ca1`** (MIT), vendored as C
    source and embedded **natively through cgo**, behind a Go interface. Native
    wins because it scales about four times better with the bound input
