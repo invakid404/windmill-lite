@@ -33,9 +33,12 @@ import (
 
 const (
 	// depNamespace holds the shared-layout module's references to its
-	// dependency modules, by key; supportNamespace its closure support
-	// module, which makes the instance.
+	// dependency modules, by key; depCJSNamespace the CommonJS references
+	// that its ES module references re-export from (cjsReferencePath);
+	// supportNamespace its closure support module, which makes the
+	// instance.
 	depNamespace     = "windmill-lite-dep"
+	depCJSNamespace  = "windmill-lite-dep-cjs"
 	supportNamespace = "windmill-lite-shared"
 	// closureSpecifier is the specifier a reference imports the support
 	// module by; closureEntry the closure build's entry.
@@ -108,13 +111,22 @@ func depReference(key string) string {
 // (__esModule) of the reference it reads them from; otherwise it
 // re-exports them all (export *), and the build keeps a script whose entry
 // takes the namespace object on its per-script bundle (FallbackExportNames).
-// The Bun helper's esmReference writes the same.
+//
+// The reference's path is the dependency's key, whose extension esbuild
+// reads as the module's type (cjsReferencePath): a key ending .cjs or .cts
+// would make a reference without an export statement a CommonJS module,
+// whose namespace object holds a default. A reference of a module with no
+// exports therefore ends with an empty export statement, which makes it an
+// ES module whatever its path. The Bun helper's esmReference writes the
+// same text without that statement, which its references, files ending
+// .mjs, do not need.
 func esmReference(key string, m moduleNames) string {
 	k, _ := json.Marshal(key)
 	cjs, _ := json.Marshal(cjsSpecifier + key)
 	// The CommonJS reference initialises the module, whatever names an
 	// importer reads, as the per-script bundle does for an import of it.
 	text := fmt.Sprintf("import %s;\nexport * from %s;\n", cjs, cjs)
+	exports := true
 	if m.known() {
 		var list []string
 		for _, n := range m.names {
@@ -124,12 +136,17 @@ func esmReference(key string, m moduleNames) string {
 			}
 		}
 		text = fmt.Sprintf("import %s;\n", cjs)
-		if len(list) > 0 {
+		exports = len(list) > 0
+		if exports {
 			text += fmt.Sprintf("export { %s } from %s;\n", strings.Join(list, ", "), cjs)
 		}
 	}
 	if m.hasDefault() {
 		text += fmt.Sprintf("import { dep } from %q;\nexport default dep(%s).default;\n", closureSpecifier, k)
+		exports = true
+	}
+	if !exports {
+		text += "export {};\n"
 	}
 	return text
 }
@@ -137,6 +154,21 @@ func esmReference(key string, m moduleNames) string {
 // cjsSpecifier prefixes the specifier an ES module reference re-exports its
 // dependency's CommonJS reference by.
 const cjsSpecifier = "windmill-lite:dep-cjs/"
+
+// cjsReferencePath is the path, in depCJSNamespace, of the CommonJS
+// reference to the ES module dependency key. esbuild takes a module whose
+// path ends .mjs or .mts for an ES module, and one whose path ends .cjs or
+// .cts for a CommonJS module, whatever its text and namespace. A reference
+// named by the dependency's own file name, such as a package's index.mjs,
+// would be an ES module: its module.exports would be the free name of the
+// shared-layout module itself, whose exports it would replace, and the
+// names the ES module reference re-exports from it would be missing. The
+// path therefore ends .cjs, whatever the key's extension. The references
+// have a namespace of their own, so that no path of one is a dependency's
+// key.
+func cjsReferencePath(key string) string {
+	return key + ".cjs"
+}
 
 // closureEntrySource is the source of a closure's entry: a table from each
 // dependency module's key to a function that requires its file, so each
@@ -922,7 +954,7 @@ func depPlugin(folder, entry, id string, esm bool, listed map[string]bool, proxi
 			return api.OnResolveResult{Path: strings.TrimPrefix(a.Path, "windmill-lite:"), Namespace: supportNamespace}, nil
 		})
 		b.OnResolve(api.OnResolveOptions{Filter: `^` + regexp.QuoteMeta(cjsSpecifier)}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
-			return api.OnResolveResult{Path: "cjs/" + strings.TrimPrefix(a.Path, cjsSpecifier), Namespace: depNamespace}, nil
+			return api.OnResolveResult{Path: cjsReferencePath(strings.TrimPrefix(a.Path, cjsSpecifier)), Namespace: depCJSNamespace}, nil
 		})
 		b.OnResolve(api.OnResolveOptions{Filter: `.*`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
 			if a.PluginData == (depGuard{}) {
@@ -960,11 +992,11 @@ func depPlugin(folder, entry, id string, esm bool, listed map[string]bool, proxi
 			}
 			return api.OnResolveResult{Path: key, Namespace: depNamespace, SideEffects: effects}, nil
 		})
+		b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: depCJSNamespace}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
+			text := depReference(strings.TrimSuffix(a.Path, ".cjs"))
+			return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
+		})
 		b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: depNamespace}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
-			if key, ok := strings.CutPrefix(a.Path, "cjs/"); ok {
-				text := depReference(key)
-				return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
-			}
 			mu.Lock()
 			names, esm := esmDeps[a.Path]
 			mu.Unlock()
