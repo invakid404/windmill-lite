@@ -119,6 +119,13 @@ type Config struct {
 	// static provided site needs no Provide. nil answers every named
 	// site by declining.
 	Provide ProvideFunc
+	// QuickJSOnly turns off the expression pipeline's Go evaluator of
+	// templates, arithmetic, comparisons and predicates over JSON values
+	// (ADR 0003, milestone PS4): every expression that the shortcuts and the
+	// member paths do not answer then runs on JS, as before PS4. The
+	// evaluator answers only what QuickJS would answer the same way; this is
+	// a safety valve. Off by default.
+	QuickJSOnly bool
 }
 
 // ProvideFunc is Config.Provide.
@@ -225,6 +232,9 @@ func New(cfg Config) (*Engine, error) {
 		}
 	}
 	p := expr.NewPipeline(cfg.JS)
+	if cfg.QuickJSOnly {
+		p.SetQuickJSOnly(true)
+	}
 	p.Prepare(exprs...)
 	e.eval = p
 	return e, nil

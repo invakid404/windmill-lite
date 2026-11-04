@@ -83,6 +83,13 @@ type Options struct {
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
 	ExpressionSlots int
+	// QuickJSOnly evaluates every expression that the shortcuts and the
+	// member paths do not answer in QuickJS, turning off the Go evaluator of
+	// templates, arithmetic, comparisons and predicates over JSON values
+	// that milestone PS4 added (ADR 0003, engine.Config.QuickJSOnly). The
+	// evaluator answers only what QuickJS would answer the same way, so
+	// nothing observable changes; this is a safety valve. Off by default.
+	QuickJSOnly bool
 	// Providers are the named providers of the bundle's host-provided
 	// sites (ADR 0002, ADR 0008), by the names the host contract gives
 	// them. Open fails with ErrMissingProvider when the contract names one
@@ -396,7 +403,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.js, err = quickjs.New(quickjs.Options{Slots: opts.ExpressionSlots}); err != nil {
 		return nil, err
 	}
-	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, SharedCode: rt.sharedCode(), Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide}); err != nil {
+	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, SharedCode: rt.sharedCode(), Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide, QuickJSOnly: opts.QuickJSOnly}); err != nil {
 		return nil, err
 	}
 	// The default dispatcher runs the bundle's roots as runs of their own

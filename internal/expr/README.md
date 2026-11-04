@@ -170,6 +170,38 @@ Anything else goes to the engine:
 - `results.<id>` for any other id: its read is a host call that the engine
   makes under the attempt limit, cancellation and retries of JE-2.
 
+On the same engines, `jsExpr` (`jsexpr.go`, milestone PS4,
+[ADR 0003](../../docs/design/0003-semantics-placement.md)) then answers in
+Go what it takes of the rest. It takes member paths of the bound roots
+(and of `results.<id>` read through a `MemoryResults` lookup, the engine's
+frame results), combined with template literals, string, number, boolean
+and null literals, `.length`, `!`, unary `-`, the arithmetic and relational
+operators, `===`, `!==`, `&&`, `||` and `?:`. A predicate site's text is
+taken inside its `Boolean(` … `)`, the only call it parses and, by JE-24,
+the only wrapper a predicate site adds. It answers what the program would
+answer and declines everything else, before or during the evaluation, and
+the engine then runs as it would. It declines:
+
+- a member of `null` or `undefined`, an inherited member, a string's
+  member other than `length`, and `__proto__`;
+- an object compared or returned, and one with a `toString` or `valueOf`
+  key converted to a primitive;
+- a string or object converted to a number, and a lone surrogate;
+- a lookup that fails, a root that is not bound, and a text that is not
+  UTF-8 or that holds a comment or a line break;
+- any evaluation that might meet a limit: past an upper bound of its
+  QuickJS heap against JE-3's cap, a text nested deeper than 32 or longer
+  than 16 KiB, an attempt limit under 5 s, more than 4 MiB of its own work,
+  or a hundredth of the attempt limit spent. The constants, and why each
+  is an upper bound, are documented where they are defined.
+
+Its reads go through a memo, in the program's order, and only where the
+program makes them. When it declines after a read, the engine's bindings
+reuse what it read, so nothing is read twice. Each text is parsed once and
+cached, apart from the evaluation. `SetQuickJSOnly` turns it off: the
+engine's `Config.QuickJSOnly`, `wl.Options.QuickJSOnly` and the CLI's
+`-quickjs-only` set it.
+
 Otherwise the expression's program runs on the engine with these bindings
 (JE-10):
 
@@ -477,6 +509,35 @@ context-free case's recorded argument as its stored form.
     and unpaired surrogates, edge numbers, and text that is not JSON.
   - The paths read missing members, indexes past the end and `length`,
     and chain optionally over `null` and `undefined`.
+- `TestJSExprsMatchEngine` is `jsExpr`'s differential test: 6,000
+  generated expressions per run (1,500 with `-short`) over generated
+  values, each through `jsExpr` and on the real engine. Wherever `jsExpr`
+  answers, the engine must give the same text, and where the engine fails,
+  `jsExpr` must decline. The generator covers templates, arithmetic,
+  comparisons, predicates, short-circuits, keys that spell like syntax
+  (`?b`, `a.b`, `[`), failing lookups and every kind of decline. A longer
+  sweep runs by its variables, as in
+  `WL_JSEXPR_CASES=30000 WL_JSEXPR_SEED=3 go test -run '^TestJSExprsMatchEngine$' ./internal/expr`.
+- `FuzzJSExprMatchesEngine` is a Go fuzz test of the same claim, seeded
+  from the generator and from every expression of the conformance suite
+  with its scope (`conformance/exprs` and the flow fixtures' unit cases).
+  `go test` runs the seeds and `testdata/fuzz` (a text that is not UTF-8,
+  found by fuzzing); `go test -run '^$' -fuzz FuzzJSExprMatchesEngine
+  ./internal/expr` explores further.
+- `TestParseJSExpr` checks what the grammar takes and refuses.
+  `TestJSExprKeepsTheHeapCap`, `TestJSExprKeepsTheStackLimit`,
+  `TestJSExprKeepsTheAttemptLimit`, `TestJSExprBoundsItsOwnWork` and
+  `TestJSExprWorstCaseTime` hold it to the evaluation's limits.
+  `TestJSExprIsolation` checks that evaluations share nothing, and
+  `TestJSExprReadMemoKeys` that reads differing only in a key's spelling
+  never share a memo entry. `TestJSExprKeepsReadOrder` runs sequences of
+  expressions with `jsExpr` on and off and compares every read, helper
+  call and outcome.
+- `TestMemberPathPipeline` runs with `jsExpr` on and off.
+  `WL_TEST_QUICKJS_ONLY=1` runs the whole package with it off, as one CI
+  part does, so that every case passes on QuickJS alone too.
+- `BenchmarkEvalJSExpr` times a template, arithmetic and a predicate
+  through `Eval`, with `jsExpr` on and off.
 - `TestPathExprsMatchEngine` is the same differential test for null tests
   and object literals of paths. It generates thousands of them over the
   generated values: each operator against `null` and `undefined`, alone

@@ -171,6 +171,14 @@ case or run.
 shared-layout modules, and `fresh` their per-script bundles, as a bundle
 built so runs them.
 
+`-quickjs-only` runs every expression that the shortcuts and member paths
+do not answer on QuickJS-ng, without the pipeline's Go evaluator
+(`wl.Options.QuickJSOnly`, [ADR 0003](../../docs/design/0003-semantics-placement.md)).
+The package's own tests (`TestFlowSuite`, the step and expression suites)
+do the same when `WL_TEST_QUICKJS_ONLY=1`, and one CI part runs them so:
+every fixture, case and recording passes with the evaluator on and with
+it off.
+
 ### Step cases
 
 For each step file ([ADR 0003](../../docs/design/0003-semantics-placement.md),

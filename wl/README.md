@@ -140,6 +140,16 @@ plugin's included, and answers its later reads of it from that read. This
 covers its steps' `$res:` and `$var:` arguments, `flow_env` and their reads
 through the job API (`platform.ReadCache`). The run's trace lists D21.
 
+`Options.QuickJSOnly`, off by default, turns off the expression pipeline's
+Go evaluator of templates, arithmetic, comparisons and predicates over JSON
+values (`jsExpr`, milestone PS4,
+[ADR 0003](../docs/design/0003-semantics-placement.md)). Every expression
+that the shortcuts and the member paths do not answer then runs on
+QuickJS-ng, as before PS4. The evaluator answers only what QuickJS-ng
+answers the same way, so nothing observable changes: the option is a
+safety valve for an embedder that meets a difference, and a way to compare
+the two.
+
 `Run` is safe for concurrent use: runs of one runtime share its harness
 pool, its services and its expression engine. A run latched by a hook, a
 provider or the engine (H5) has status `latched` and its error in

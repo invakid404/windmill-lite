@@ -65,6 +65,28 @@ type Pipeline struct {
 	// nil for a text that is not one.
 	paths  bool
 	exprOf sync.Map
+
+	// js says whether jsExpr answers what it takes of the rest, on such an
+	// engine (ADR 0003, milestone PS4): templates, arithmetic, comparisons
+	// and predicates over bound JSON values, in Go, under the evaluation's
+	// limits. SetQuickJSOnly turns it off. jsOf holds each text's parse,
+	// or nil for a text it does not take.
+	js   bool
+	jsOf sync.Map
+}
+
+// quickJSOnlyDefault is NewPipeline's default for SetQuickJSOnly: false.
+// This package's tests set it from WL_TEST_QUICKJS_ONLY (testmode_test.go),
+// so that CI can run them all with jsExpr off.
+var quickJSOnlyDefault = false
+
+// SetQuickJSOnly, when on, turns jsExpr off: everything the shortcuts and
+// the member paths do not answer runs on the engine, as before milestone
+// PS4. A safety valve for embedders (wl.Options.QuickJSOnly), and how the
+// tests show that a gap in jsExpr cannot hide behind QuickJS. Call it
+// before the pipeline's first evaluation.
+func (p *Pipeline) SetQuickJSOnly(on bool) {
+	p.js = !on
 }
 
 // compiled is the Engine's answer for one source: its program, or the
@@ -77,7 +99,7 @@ type compiled struct {
 // NewPipeline returns a Pipeline that evaluates on engine.
 func NewPipeline(engine Engine) *Pipeline {
 	_, paths := engine.(ExactMemberPaths)
-	return &Pipeline{engine: engine, limits: engine.Limits(), attempts: 3, retryPause: 5 * time.Second, programs: map[string]compiled{}, paths: paths}
+	return &Pipeline{engine: engine, limits: engine.Limits(), attempts: 3, retryPause: 5 * time.Second, programs: map[string]compiled{}, paths: paths, js: !quickJSOnlyDefault}
 }
 
 // Prepare compiles the programs of exprs on the engine, and the preludes,
@@ -148,8 +170,12 @@ func (p *Pipeline) program(source string) (Program, error) {
 // results.<previous id>?.b, is answered as the engine would answer it,
 // without the engine (memberPath), and so is a null test or an object
 // literal of such paths over one root (pathExpr):
-// previous_result.x == null ? null : previous_result.x.id. Anything else runs the expression's program on the
-// engine (see evaluate). A failure is an *EvalError with Windmill's text; a context that ends during
+// previous_result.x == null ? null : previous_result.x.id. On such an
+// engine, jsExpr then answers templates, arithmetic, comparisons and
+// predicates over bound JSON values as the engine would, where it can show
+// that the engine would meet none of the evaluation's limits (jsexpr.go;
+// SetQuickJSOnly turns it off). Anything else runs the expression's program
+// on the engine (see evaluate). A failure is an *EvalError with Windmill's text; a context that ends during
 // the evaluation gives its cause instead. The engine's text is returned as
 // it is, without a check that it is JSON: the user's code can replace
 // JSON.stringify and so return any string (JE-15).
@@ -184,6 +210,28 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 			return jsonval.FromProducer(out), nil
 		}
 	}
+	if p.paths && p.js {
+		if x := p.jsExpr(e); x != nil {
+			// Its reads go through a memo, so that the engine, when jsExpr
+			// declines, reads none of them again.
+			ms := *s
+			var memo *memoResults
+			_, memoryReads := s.Results.(MemoryResults)
+			if s.Results != nil {
+				memo = &memoResults{Results: s.Results}
+				ms.Results = memo
+			}
+			if out, ok := x.eval(ctx, &ms, jsLimits{limits: p.limits, bound: in.Strings, memoryReads: memoryReads}); ok {
+				if err := context.Cause(ctx); err != nil {
+					return jsonval.Value{}, err
+				}
+				return jsonval.FromProducer(out), nil
+			}
+			if memo != nil && memo.used {
+				in = bind(e, &ms)
+			}
+		}
+	}
 	if id := p.pathExpr(e).sharedRead(); id != "" && slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
 		in.Strings = append(in.Strings, HostString{hostSharedRead, []byte(id)})
 	}
@@ -199,6 +247,19 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 type exprKey struct {
 	mode Mode
 	text string
+}
+
+// jsExpr returns e's jsExpr, or nil, parsed once per text: the parse is
+// separate from the evaluation and depends on the text alone, so that it
+// could move to the bundle's build.
+func (p *Pipeline) jsExpr(e *Expr) *jsExpr {
+	key := exprKey{e.Mode, e.Trimmed}
+	if x, ok := p.jsOf.Load(key); ok {
+		return x.(*jsExpr)
+	}
+	x := parseJSExpr(e)
+	p.jsOf.Store(key, x)
+	return x
 }
 
 // pathExpr returns e's pathExpr, or nil.

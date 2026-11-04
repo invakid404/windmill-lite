@@ -235,7 +235,12 @@ checks that every flow stays within what the engine runs, and compiles
 every expression's program once on the configured QuickJS-ng engine
 through B2b's `expr.Pipeline` ([ADR 0003](../../docs/design/0003-semantics-placement.md)).
 The compiler has already run the expressions' textual stages
-(`expr.Compile`), so nothing is recomputed per run. `Run(ctx,
+(`expr.Compile`), so nothing is recomputed per run. The pipeline's Go
+evaluator of templates, arithmetic, comparisons and predicates (`jsExpr`,
+milestone PS4) is on unless `Config.QuickJSOnly` is set. It reads
+`results.<id>` through the run's frame results, which declare that their
+lookup reads the run's memory under the run's lock and never waits
+(`expr.MemoryResults`). `Run(ctx,
 RunRequest)` runs one flow to its end and returns its trace; an error
 means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for

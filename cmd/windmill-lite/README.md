@@ -103,6 +103,7 @@ SIGINT and SIGTERM cancel the run.
 | `-resources` | a JSON file of the host's resources, keyed by path, as in a bundle's `data/resources.json` (`resource_type`, `value`) |
 | `-trace` | print the trace summary with the outcome |
 | `-cpuprofile` | write a CPU profile of the engine to this file until the run ends ([Profiling](#profiling)) |
+| `-quickjs-only` | evaluate every expression that the shortcuts and member paths do not answer on QuickJS-ng, without the pipeline's Go evaluator (`wl.Options.QuickJSOnly`, [ADR 0003](../../docs/design/0003-semantics-placement.md)) |
 
 The engine version (below) must be the one that built the bundle. With the
 fixture built as above:
@@ -158,6 +159,7 @@ connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
 | `-read-cache` | give each run a read cache, deviation D21 of [ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations): each resource and variable is read once per run (`wl.Options.ReadCache`, the host SDK's `readCache`) |
 | `-skip-args-file` | the host states that its own code never reads `args.json`: for a bundle none of whose scripts can read it (`no_args_file_reader`), write none ([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7; `wl.Host.SkipArgsFile`, the host SDK's `skipArgsFile`) |
 | `-cpuprofile` | write a CPU profile of the engine to this file until the host's connection ends ([Profiling](#profiling)) |
+| `-quickjs-only` | as for `run`: no Go evaluator of expressions (`wl.Options.QuickJSOnly`); a Bun host passes it among the SDK's `engineFlags` |
 
 ### Profiling
 
