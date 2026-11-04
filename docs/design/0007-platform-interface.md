@@ -616,22 +616,27 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     `script_path`, `is_flow_step`, `language`, the workspace and user
     fields, and a flow job's `flow_status`. WA-19 names each field left
     out with its reason; `no_logs` and `no_code` change nothing. Values
-    are jsonb's text output, as Windmill writes them.
+    are jsonb's text output, as Windmill writes them. An argument map or a
+    result whose stored column takes 90000 bytes or more is replaced, as
+    Windmill replaces it: `jsonval.ToastedSize` computes `pg_column_size`
+    from the value, jsonb's binary form compressed by a port of
+    PostgreSQL's pglz (PostgreSQL License), and CI checks both against
+    PostgreSQL.
+  - **A job pushed for later**, after the sleep of the step before it or a
+    retry's delay, gets its id when it is pushed, not when it starts, so
+    that its flow's status names it while it waits and it is read: a
+    step's job (`jobScheduled`), a flow step's subflow
+    (`subflowScheduled`), a container's child flow at its pickup.
   - **An identity job**, and a script job that failed before its
     invocation, get an id when they run (`StepRecord.NoInvocationJob`),
     since Windmill's flow status names one for them; the run registers it
     with its tree.
   - **Not served:** a job of a run that has ended answers 501 with the
-    reason (D22), since the engine releases a run when it ends. So does a
-    record whose arguments or result may take 90000 bytes or more stored
-    (D23): Windmill then answers the value or a replacement depending on
-    PostgreSQL's compression. `jsonval.StoredBound` bounds the stored size
-    from the value's text, and CI checks the bound against PostgreSQL's
-    `pg_column_size`. So do the states no recording shows: a job that
-    windmill-lite canceled, latched or halted, a flow with a preprocessor
-    module, a flow job while one of its modules waits for a sleep or a
-    retry delay, and a parallel branchall that runs with a branch
-    completed. The 501 policy then fails the step that asked.
+    reason (D22), since the engine releases a run when it ends. So do the
+    states no recording shows: a job that windmill-lite canceled, latched
+    or halted, a flow with a preprocessor module, and a flow job while a
+    skipped, mocked or host-provided step of it waits for the sleep of the
+    step before it. The 501 policy then fails the step that asked.
 
 - A host may put a read cache in front of a run's resource and variable
   providers (`wl.Options.ReadCache`, off by default). Each run then reads

@@ -154,7 +154,10 @@ keep their own licences: the Apache-2.0 files from Windmill under
 the MIT-licensed QuickJS-ng sources under `internal/expr/quickjs/quickjs-ng/`
 ([NOTICE](internal/expr/quickjs/quickjs-ng/NOTICE)) and mimalloc sources
 under `internal/expr/quickjs/mimalloc/`
-([NOTICE](internal/expr/quickjs/mimalloc/NOTICE)).
+([NOTICE](internal/expr/quickjs/mimalloc/NOTICE)), and the Go files ported
+from PostgreSQL, `internal/jsonval/pglz.go` and `internal/jsonval/jsonb.go`,
+under the PostgreSQL License
+([LICENSE.PostgreSQL](internal/jsonval/LICENSE.PostgreSQL)).
 
 ## Quick start
 
@@ -256,7 +259,7 @@ starts the engine in an image built `FROM scratch`, and compares the
 expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
 the canonicaliser with PostgreSQL in the oracle's pinned image, and checks
-against it the bound on a value's stored size that the job reads use. A
+against it the stored size of a value that the job reads compute. A
 separate
 job runs the Bun harness's own `bun test`, which is not a required check.
 Another, `Bun SDK types`, typechecks the Bun host SDK and the harness

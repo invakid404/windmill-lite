@@ -241,10 +241,11 @@ An invocation settles when its entrypoint call can run no more code, and
   a subflow whose input transform failed; `TestJobRecordsOfSkippedAndMockedSubflows`
   the identity jobs of a skipped and a mocked flow step;
   `TestJobRecordWhileAModuleWaitsForItsRetry` a flow job while a module
-  waits for its retry delay, not read. `TestJobRecordLargeValues` checks
-  deviation D23: a result of 60,000 characters is read whole, one of
-  100,000 and the arguments holding it are not, and the arguments read
-  serves them.
+  waits for its retry delay: its entry waits for its executor and names
+  the retry's job, read queued and not running, which the retry then runs
+  as. `TestJobRecordLargeValues`: 100,000 times `x` is read whole, while
+  100,000 characters that do not compress, as a result and in arguments,
+  are replaced, and the arguments read serves them.
 
 ## The engine core
 
@@ -1153,10 +1154,24 @@ through the job registry.
   and, while a container runs, its `iterator` (`run.iterLen`; a parallel
   loop's index counts its completed children), `parallel`, `while_loop`
   or `branchall`. A container's job is its last child; a running
-  parallel loop's, its last child released; a completed parallel
-  container's, the child that completed last. A container that completed
+  parallel loop's, its last child released, the last by index among
+  children released together (Windmill names whichever of those a
+  worker picked up last); a completed parallel container's, the child
+  that completed last. A container that completed
   with no child, or whose start failed, and a branchone whose predicate
   threw, have the nil job. `step` follows the module cursor.
+- **Jobs pushed for later.** A job scheduled after the sleep of the step
+  before it or a retry's delay is pushed with its id before the wait, as
+  Windmill pushes it: a step's job (`run.jobScheduled`), which its
+  invocation then takes (`run.sched`), and a flow step's subflow
+  (`run.subflowScheduled`), which the step then runs, are indexed and
+  registered at once; a child flow waits at its pickup
+  (`frame.scheduled`). While it waits, the module's entry reads
+  `WaitingForExecutor` and the job's record `running: false`.
+- **Large values.** An argument map or a result whose stored column takes
+  90000 bytes or more is replaced as Windmill replaces it (`tooBig`):
+  `jsonval.StoredBound` rules most values out at once, and
+  `jsonval.ToastedSize` computes the others' `pg_column_size`.
 - **Jobs with no invocation.** An identity job, a skipped or mocked flow
   step's included, and a script job that failed before its invocation,
   get an id when their module completes (`StepRecord.NoInvocationJob`),
@@ -1165,14 +1180,11 @@ through the job registry.
   transform's failure, a cancellation while it was scheduled) is created
   and registered as one that ran (`run.unlaunchedSubflow`).
 - **Not rendered:** a job of a run that has ended and is its own root,
-  even while a registration of it lingers (D22); a job whose arguments or
-  result may take 90000 bytes or more stored, by `jsonval.StoredBound`
-  (D23); a canceled job; a flow job that ended canceled, latched or
-  halted; a flow with a preprocessor module; a flow job while one of its
-  modules, or of its collapsed iterations, waits for a sleep or a retry
-  delay (`frame.waiting`); a parallel branchall that runs with a branch
-  completed. Each is a `platform.NotServed`, which the facade answers
-  501.
+  even while a registration of it lingers (D22); a canceled job; a flow
+  job that ended canceled, latched or halted; a flow with a preprocessor
+  module; a flow job while a skipped, mocked or host-provided step of it
+  waits for the sleep of the step before it (`frame.waiting`). Each is a
+  `platform.NotServed`, which the facade answers 501.
 - **Script runs.** `RunScript` registers its job with a view of its own
   (`scriptView`), which renders it running, then completed while its root
   lives: a dispatch that tracked it in its parent keeps it in another

@@ -603,12 +603,6 @@ Windmill v1.767.0's image).
   `UnsupportedPlatformCall`, which names the job read and the reason. The
   recording holds Windmill's completed job (WA-19/i), so the flow suite
   does not require that run.
-- `TestLargeValueJobRead` checks deviation D23 on
-  `conformance/flows/client-api/job-reads-large`, in `fresh` and in
-  `warm`: runs `compressible` and `incompressible` fail with
-  `UnsupportedPlatformCall`, naming both job reads and the reason, while
-  their recordings hold Windmill's answers (WA-19/o), the whole value and
-  its replacement; run `whole` passes.
 - `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
   seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
   in `fresh` and in `warm`, since the result cache lives in the engine,
