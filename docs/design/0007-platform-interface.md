@@ -625,18 +625,25 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **A job pushed for later**, after the sleep of the step before it or a
     retry's delay, gets its id when it is pushed, not when it starts, so
     that its flow's status names it while it waits and it is read: a
-    step's job (`jobScheduled`), a flow step's subflow
-    (`subflowScheduled`), a container's child flow at its pickup.
+    step's job (`jobScheduled`), the identity job of a skipped, mocked or
+    identity module (a container's included), a job that its input
+    transform or its entrypoint fails at its pickup, a flow step's
+    subflow (`subflowScheduled`), one whose input transform failed
+    included, and a container's child flow at its pickup. Whatever
+    completes the job keeps that id (`run.takeScheduled`): its
+    invocation, the result cache's answer at its pickup, or a completion
+    with no invocation.
   - **An identity job**, and a script job that failed before its
     invocation, get an id when they run (`StepRecord.NoInvocationJob`),
-    since Windmill's flow status names one for them; the run registers it
-    with its tree.
+    or keep the one they were pushed with, since Windmill's flow status
+    names one for them; the run registers it with its tree.
   - **Not served:** a job of a run that has ended answers 501 with the
     reason (D22), since the engine releases a run when it ends. So do the
     states no recording shows: a job that windmill-lite canceled, latched
     or halted, a flow with a preprocessor module, and a flow job while a
-    skipped, mocked or host-provided step of it waits for the sleep of the
-    step before it. The 501 policy then fails the step that asked.
+    host-provided step of it waits for the sleep of the step before it,
+    since a provided site has no Windmill job to record. The 501 policy
+    then fails the step that asked.
 
 - A host may put a read cache in front of a run's resource and variable
   providers (`wl.Options.ReadCache`, off by default). Each run then reads

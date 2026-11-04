@@ -243,9 +243,19 @@ An invocation settles when its entrypoint call can run no more code, and
   `TestJobRecordWhileAModuleWaitsForItsRetry` a flow job while a module
   waits for its retry delay: its entry waits for its executor and names
   the retry's job, read queued and not running, which the retry then runs
-  as. `TestJobRecordLargeValues`: 100,000 times `x` is read whole, while
-  100,000 characters that do not compress, as a result and in arguments,
-  are replaced, and the arguments read serves them.
+  as. `TestJobsPushedForLaterKeepTheirIds` reads, from a sibling branch,
+  seven jobs waiting for a sleep: a skipped step's, a cached step's, a
+  step's whose input transform fails, a step's whose entrypoint fails, a
+  skipped loop's, a mocked branchone's and a failing flow step's subflow,
+  each queued and not running, and checks that each completes with the
+  id it waited with. `TestFlowWithAWaitingProvidedSiteIsNotServed` reads
+  a flow job while its host-provided site waits, answered not served,
+  and once the site has its value. `TestJobRecordLargeValues`: 100,000
+  times `x` is read whole, while 100,000 characters that do not
+  compress, as a result and in arguments, are replaced, and the
+  arguments read serves them. `TestReplacedFromNinetyThousandBytes`
+  checks the replacement at 89,999, 90,000 and 90,001 bytes stored, with
+  jsonval's boundary texts.
 
 ## The engine core
 
@@ -1162,11 +1172,16 @@ through the job registry.
   threw, have the nil job. `step` follows the module cursor.
 - **Jobs pushed for later.** A job scheduled after the sleep of the step
   before it or a retry's delay is pushed with its id before the wait, as
-  Windmill pushes it: a step's job (`run.jobScheduled`), which its
-  invocation then takes (`run.sched`), and a flow step's subflow
-  (`run.subflowScheduled`), which the step then runs, are indexed and
+  Windmill pushes it: a step's job (`run.jobScheduled`), the identity job
+  of a skipped, mocked or identity module, a container's included, and a
+  job that its input transform or its entrypoint fails at its pickup;
+  and a flow step's subflow (`run.subflowScheduled`), which the step then
+  runs, or fails when its input transform failed. Each is indexed and
   registered at once; a child flow waits at its pickup
-  (`frame.scheduled`). While it waits, the module's entry reads
+  (`frame.scheduled`). Whatever completes a pushed job takes its id
+  (`run.takeScheduled`): its invocation, the result cache's answer at its
+  pickup (`run.cachedJob`), or a completion with no invocation
+  (`run.noInvocationJob`). While it waits, the module's entry reads
   `WaitingForExecutor` and the job's record `running: false`.
 - **Large values.** An argument map or a result whose stored column takes
   90000 bytes or more is replaced as Windmill replaces it (`tooBig`):
@@ -1175,16 +1190,17 @@ through the job registry.
 - **Jobs with no invocation.** An identity job, a skipped or mocked flow
   step's included, and a script job that failed before its invocation,
   get an id when their module completes (`StepRecord.NoInvocationJob`),
-  registered with the run's tree, since Windmill's status names one for
-  them. A subflow that fails before any of its modules runs (an input
+  the one they were pushed with if they waited, registered with the
+  run's tree, since Windmill's status names one for them. A subflow that fails before any of its modules runs (an input
   transform's failure, a cancellation while it was scheduled) is created
   and registered as one that ran (`run.unlaunchedSubflow`).
 - **Not rendered:** a job of a run that has ended and is its own root,
   even while a registration of it lingers (D22); a canceled job; a flow
   job that ended canceled, latched or halted; a flow with a preprocessor
-  module; a flow job while a skipped, mocked or host-provided step of it
-  waits for the sleep of the step before it (`frame.waiting`). Each is a
-  `platform.NotServed`, which the facade answers 501.
+  module; a flow job while a host-provided step of it waits for the sleep
+  of the step before it (`frame.waiting`), since a provided site has no
+  Windmill job to record. Each is a `platform.NotServed`, which the
+  facade answers 501.
 - **Script runs.** `RunScript` registers its job with a view of its own
   (`scriptView`), which renders it running, then completed while its root
   lives: a dispatch that tracked it in its parent keeps it in another

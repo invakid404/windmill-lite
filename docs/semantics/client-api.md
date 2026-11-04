@@ -1645,10 +1645,17 @@ interface); `WA-Vn` findings were added during validation.
     parallelism holds is a `QueuedJob` with `running: true` before it
     starts, its modules waiting (WA-19/n). A job pushed for later, after
     the sleep of the step before it or a retry's delay, has a record from
-    its push: a step's job, a flow step's subflow, a container's child flow
-    or a collapsed loop's body job, each a `QueuedJob` with
-    `running: false` until it is picked up (WA-19/p). The table gives the
-    fields recorded for Bun steps and flows, and when a record has each.
+    its push, each a `QueuedJob` with `running: false` until it is picked
+    up: a step's job, one the result cache answers at its pickup and one
+    whose entrypoint override fails it there included; the identity job
+    of a module that `skip_if` skips, that a mock answers or that is an
+    identity module, a loop's and a branchone's included; a step's job
+    whose input transform threw, with empty arguments; a flow step's
+    subflow, one whose input transform threw included, with empty
+    arguments; a container's child flow; and a collapsed loop's body job.
+    Each completes with the id it was pushed with (WA-19/p). The table
+    gives the fields recorded for Bun steps and flows, and when a record
+    has each.
 
     | Field | In the record | Value |
     |---|---|---|
@@ -1678,6 +1685,7 @@ interface); `WA-Vn` findings were added during validation.
     | `raw_flow` | a flow job | the flow's value |
     | `logs` | a script job, unless `no_logs=true` | below |
     | `leaf_jobs` | `QueuedJob` of a flow job | each module id that has jobs, with `{"SingleJob": <id>}` or `{"ListJob": [<id>, …]}`; not in the API's schema |
+    | `pre_run_error` | `QueuedJob` of a step's job whose input transform threw, pushed for later | present; its value is not recorded (WA-19/p) |
 
     The record is compact JSON, except that each argument's value and the
     result are written as jsonb's text output, with a space after each `:`
@@ -1692,7 +1700,10 @@ interface); `WA-Vn` findings were added during validation.
     pglz, PostgreSQL's default method. A string of 89,000 characters that
     no compressor shrinks, as a result and as an argument, reads whole;
     92,000 such characters are replaced in both places, while 92,000 times
-    `x` reads whole. An 8 KiB block of such characters repeated to 131,072
+    `x` reads whole. At the boundary, such a string stored in 89,999 bytes
+    reads whole and one stored in 90,000 is replaced, as a result (89,991
+    and 89,992 characters, 8 bytes more stored) and as the argument map
+    `{"x": …}` (89,986 and 89,987 characters, 13 bytes more). An 8 KiB block of such characters repeated to 131,072
     is replaced: pglz looks back 4 KiB at most, so it does not shrink it,
     which shows the method is pglz and not lz4. An array of 1,000 small
     objects (about 100 KB as jsonb) reads whole, as does a sub-flow's input
@@ -1722,7 +1733,7 @@ interface); `WA-Vn` findings were added during validation.
 
     | Field | When | Value |
     |---|---|---|
-    | `id`, `type` | always | the module's id; `WaitingForPriorSteps` before it starts, then `InProgress`, then `Success` or `Failure`; `WaitingForExecutor` while a step's job or a flow step's subflow waits for the sleep of the step before it or for its retry's delay, with that job as `job` and no `failed_retries` (a container waiting so reads `InProgress`, its child pushed) (WA-19/p) |
+    | `id`, `type` | always | the module's id; `WaitingForPriorSteps` before it starts, then `InProgress`, then `Success` or `Failure`; `WaitingForExecutor` while a step's job or a flow step's subflow waits for the sleep of the step before it or for its retry's delay, with that job as `job` and no `failed_retries`, and so while the identity job of a skipped or mocked container waits (a container that runs reads `InProgress` while it waits, its child pushed) (WA-19/p) |
     | `job` | once the module has a job | a step's job; a subflow's flow job, or the identity job of a flow step that was skipped or mocked; a skipped module's identity job; a branchone's chosen branch; a loop's or a branchall's child (below); the nil job `00000000-0000-0000-0000-000000000000` of a container that completed with no child (an empty iterator, a branchall with no branch, a branchone whose branch has no module), whose start failed (an iterator that throws), or of a branchone whose predicate threw (WA-19/n) |
     | `skipped` | a `Success` entry | `true` for a module that `skip_if` skipped |
     | `flow_jobs`, `flow_jobs_success` | a loop or a branchall, unless its start failed | its children in order (a collapsed loop's iteration jobs, or child flows; a parallel loop's all, those its parallelism holds included), and whether each succeeded, `null` until it completes |
@@ -1832,7 +1843,10 @@ interface); `WA-Vn` findings were added during validation.
   (two workers) and [`job-reads-large`](../../conformance/flows/client-api/job-reads-large),
   oracle run 41791783623; the waits of WA-19/p, a partly completed
   parallel branchall and the further large values of WA-19/o, oracle run
-  41816071223.
+  41816071223; the waits of skipped, mocked, identity, failing, cached and
+  wrongly entered jobs and of a flow step whose input transform throws
+  (WA-19/p), the parallel runs read again with the racy job checked, and
+  the replacement's boundary (WA-19/o), oracle run 41839478258.
 - **Conformance:** [WA-19/a to WA-19/p](conformance.md#wa-19)
 - **Design note (not Windmill behaviour):** windmill-lite has no job rows.
   It answers the job reads of a job of a live run from the run that holds
@@ -1856,22 +1870,23 @@ interface); `WA-Vn` findings were added during validation.
   - `logs`: its worker lines name Windmill's worker and host, so
     `no_logs` changes nothing in windmill-lite's answer;
   - `leaf_jobs`, `flow_jobs_duration`, `retry`: not in the API's schema,
-    times, or not recorded.
+    times, or not recorded;
+  - `pre_run_error`: its value is not recorded. The failure it holds is
+    the result of the job's completed record, which windmill-lite serves.
 
   A job of a run that has ended answers 501, since windmill-lite releases
   the run (deviation D22 of
   [ADR 0001](../design/0001-equivalence-contract.md)). Of children a
   running parallel container released together, it names the last
   released by index, the child Windmill named in most recorded repeats.
-  It replaces large
-  arguments and results as Windmill does: it computes `pg_column_size`
-  from the value, jsonb's binary form compressed by a port of pglz, both
-  checked against PostgreSQL. The states the oracle has not recorded
-  answer 501 too: a job that windmill-lite canceled, a flow job that ended
-  neither in a success nor in a failure (canceled, latched or halted), a
-  flow with a preprocessor module, and a flow job while a skipped, mocked
-  or host-provided step of it waits for the sleep of the step before
-  it.
+  It replaces large arguments and results as Windmill does: it computes
+  `pg_column_size` from the value, jsonb's binary form compressed by a
+  port of pglz, both checked against PostgreSQL. The states the oracle
+  has not recorded answer 501 too: a job that windmill-lite canceled, a
+  flow job that ended neither in a success nor in a failure (canceled,
+  latched or halted), a flow with a preprocessor module, and a flow job
+  while a host-provided step of it waits for the sleep of the step before
+  it, since a provided site has no Windmill job.
 - **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
   Windmill's answers where windmill-lite chose its own: the root lookup of an
   unknown id is a 400 `SqlErr` text, not a 404 and not windmill-lite's 501;

@@ -7428,19 +7428,23 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
     runs `edges` and `fails`, [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
     runs `held`, `held1` and `held2`, oracle run 41791783623, and `par`
-    and `partial`, oracle run 41825190326, as expected. Their readers write
-    the `job` of a running parallel branchall, and in run `par` of the
-    running parallel loop, as `<racy>`: of children released together,
-    oracle run 41814009799 named `l/i:1` and `l/i:0` in the two repeats of
-    `par`, and oracle run 41820829156 `b:1` and `b:0` in those of
-    `partial`.
+    and `partial`, oracle run 41839478258, as expected. Their readers
+    check that the `job` of a running parallel branchall, and in run `par`
+    of the running parallel loop, is one of the module's `flow_jobs`, and
+    then write it as `<one of flow_jobs>`, any other value staying as it
+    is: of children released together, oracle run 41814009799 named
+    `l/i:1` and `l/i:0` in the two repeats of `par`, and oracle run
+    41820829156 `b:1` and `b:0` in those of `partial`.
 - **WA-19/o** · oracle-observed · large results and arguments
   - **Given:** a step returns a value; the next step takes it as its
     argument `x`; a third reads both jobs. The value is a string of `n`
     characters: `x` repeated, a sequence that no compressor shrinks, or an
     8 KiB block of that sequence repeated (`window`); or an array of 1,000
     small objects (`rows`). `n` is 89,000 (`whole`), 92,000
-    (`compressible`, `incompressible`) or 131,072 (`window`). In `walkx`
+    (`compressible`, `incompressible`) or 131,072 (`window`); or, of
+    characters that no compressor shrinks, 89,986 (`edge1`), 89,987
+    (`edge2`), 89,991 (`edge3`) or 89,992 (`edge4`), which store as the
+    result in 8 bytes more and as the argument map in 13 more. In `walkx`
     and `walkr`, a step under a sub-flow whose input holds 92,000 times
     `x` or 92,000 incompressible characters walks up its parent chain
     without `no_logs`.
@@ -7453,24 +7457,45 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     41816071223: whole for `whole`, `compressible`, `rows` and `walkx`'s
     sub-flow input; replaced for `incompressible`, `window`, which pglz,
     looking back 4 KiB at most, does not shrink, and `walkr`'s sub-flow
-    input.
+    input. Runs `edge1` to `edge4`, oracle run 41839478258: the result
+    stored in 89,994, 89,995 and 89,999 bytes whole, in 90,000 replaced;
+    the argument map stored in 89,999 bytes whole, in 90,000, 90,004 and
+    90,005 replaced.
 - **WA-19/p** · oracle-observed · flows whose steps wait for a sleep or a retry delay
   - **Given:** on two workers, a parallel branchall whose branches wait:
     a step after the sleep of the step before it, and a step for its
     retry's delay (`waits`); a sub-flow, a loop and a collapsed loop after
     the sleep of the step before each, and a sub-flow and a loop for their
-    retry's delay (`waits2`). The last branch reads the job tree
-    meanwhile.
+    retry's delay (`waits2`); after the sleep of the step before each, a
+    step that `skip_if` skips, a mocked step, an identity module, a step
+    whose input transform throws, a path script the result cache answers
+    at its pickup, a step whose `_ENTRYPOINT_OVERRIDE` is invalid, a loop
+    that `skip_if` skips, a mocked branchone, and a flow step whose input
+    transform throws (`waits3`). The last branch reads the job tree
+    meanwhile; the step after the branchall reads it completed.
   - **Expect:** a waiting step's entry is `WaitingForExecutor` with its
     pushed job, which is a `QueuedJob` with `running: false`; a retry's
     entry so lists no `failed_retries`; a waiting sub-flow step's entry is
     `WaitingForExecutor` with its sub-flow's job, a `QueuedJob` with
     `running: false`, `step` 0 and every module waiting; a waiting loop's
     entry is `InProgress` with its first child pushed, a `QueuedJob` with
-    `running: false`, and a collapsed loop's with its body job so.
+    `running: false`, and a collapsed loop's with its body job so. In
+    `waits3`, every waiting entry is `WaitingForExecutor` with a pushed
+    job, a `QueuedJob` with `running: false`: the skipped, mocked and
+    identity modules', the skipped loop's and the mocked branchone's an
+    identity job, with `{"previous_result": …}` (the mock's value for a
+    mocked module) and no `script_path` or `language`; the throwing step's
+    a script job with empty arguments; the cached and the wrongly entered
+    steps' a script job with their arguments; the throwing flow step's its
+    sub-flow's job, with empty arguments, `step` 0 and its module waiting.
+    Completed, each entry names the job it waited with: the identity jobs
+    succeeded with their `previous_result`, the cached step with the
+    cached result, and the throwing and wrongly entered steps and the
+    throwing flow step's sub-flow failed with the error.
   - **Recorded:** [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
-    runs `waits` and `waits2`, oracle run 41825190326, as expected, the
-    running parallel branchall's `job` written `<racy>`.
+    runs `waits`, `waits2` and `waits3`, oracle run 41839478258, as
+    expected, the running parallel branchall's `job` written
+    `<one of flow_jobs>` once checked to be one of its `flow_jobs`.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour

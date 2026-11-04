@@ -181,10 +181,16 @@ stored above, while 92,000 times `x` is stored far below.
 datum's length is `pg_column_size` of every input as computed, and that
 `ToastedSize` is the size the table stores for every input large enough
 to be toasted, or the compressed length and its 8-byte header for one
-that stays inline compressed. Its inputs add texts that exercise pglz:
-arrays of objects, sentences over ASCII and multi-byte vocabularies,
-numbers, a block repeated inside and outside pglz's 4 KiB window, and
-random text with repeats near the 25 % pglz requires.
+that stays inline compressed, which happens only within TOAST's
+2,032-byte target. Its inputs add texts that exercise pglz: arrays of
+objects, sentences over ASCII and multi-byte vocabularies, numbers, a
+block repeated inside and outside pglz's 4 KiB window, and random text
+with repeats near the 25 % pglz requires. They also add the boundary
+inputs: results and argument objects stored in 89,999, 90,000 and
+90,001 bytes, either side of Windmill's replacement, made of random
+characters that pglz does not shrink and of text that it shrinks to
+those sizes. `TestToastedSizeAtTheReplacement` checks the same sizes
+without PostgreSQL.
 
 ## Tests
 
