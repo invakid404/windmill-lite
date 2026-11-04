@@ -218,7 +218,10 @@ Otherwise the expression's program runs on the engine with these bindings
 Every host function answers JSON text:
 
 - **The results lookup.** Every id it is asked is a `Results.Lookup`
-  database read, in stored text. A failed read rejects with the read's
+  read, in stored text. When the scope's `Results` reads memory
+  (`MemoryResults`, the engine's frame results), the lookup is marked
+  `Inline`, and the engine may answer it on its own thread instead of a
+  goroutine (milestone PS4); the helpers never are. A failed read rejects with the read's
   message. The previous id, when `previous_result` is bound (JE-18 step
   1, the reading [0001](../../docs/design/0001-equivalence-contract.md)
   §6 records for FX-V6), never reaches it: the results prelude answers it
@@ -531,8 +534,11 @@ context-free case's recorded argument as its stored form.
   `TestJSExprIsolation` checks that evaluations share nothing, and
   `TestJSExprReadMemoKeys` that reads differing only in a key's spelling
   never share a memo entry. `TestJSExprKeepsReadOrder` runs sequences of
-  expressions with `jsExpr` on and off and compares every read, helper
-  call and outcome.
+  expressions with `jsExpr` on and off, over a lookup that reads memory
+  (answered inline) and one that does not (on goroutines), and compares
+  every read, helper call and outcome of the four.
+  `TestBindInlinesMemoryLookups` checks that only a memory lookup is
+  marked `Inline`, through the read memo too.
 - `TestMemberPathPipeline` runs with `jsExpr` on and off.
   `WL_TEST_QUICKJS_ONLY=1` runs the whole package with it off, as one CI
   part does, so that every case passes on QuickJS alone too.

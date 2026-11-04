@@ -441,7 +441,10 @@ func bind(e *Expr, s *Scope) Input {
 			in.Strings = append(in.Strings, HostString{n, textOr(s.FlowEnv, []byte("{}"))})
 		case "results":
 			if s.Results != nil {
-				in.Funcs = append(in.Funcs, HostFunc{hostResults, b.results})
+				// A lookup that reads the run's results in memory under a
+				// short lock (MemoryResults) never blocks, so the engine may
+				// answer it on its own thread (milestone PS4).
+				in.Funcs = append(in.Funcs, HostFunc{Name: hostResults, Call: b.results, Inline: readsMemory(s.Results)})
 				lookup = true
 			}
 		case "error":
@@ -465,11 +468,21 @@ func bind(e *Expr, s *Scope) Input {
 		in.Strings = append(in.Strings, HostString{hostPreviousID, []byte(s.PreviousID)})
 	}
 	in.Funcs = append(in.Funcs,
-		HostFunc{hostVariable, b.variable},
-		HostFunc{hostResource, b.resource},
-		HostFunc{hostFlowUserState, b.flowUserState},
+		HostFunc{Name: hostVariable, Call: b.variable},
+		HostFunc{Name: hostResource, Call: b.resource},
+		HostFunc{Name: hostFlowUserState, Call: b.flowUserState},
 	)
 	return in
+}
+
+// readsMemory says whether r's lookup reads memory (MemoryResults), through
+// jsExpr's read memo, whose lookup is r's or a value it already read.
+func readsMemory(r Results) bool {
+	if m, ok := r.(*memoResults); ok {
+		r = m.Results
+	}
+	_, ok := r.(MemoryResults)
+	return ok
 }
 
 func textOr(v jsonval.Value, def []byte) []byte {

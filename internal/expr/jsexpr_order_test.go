@@ -3,7 +3,6 @@ package expr
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -63,9 +62,12 @@ func (memoryLog) MemoryLookup() {}
 
 // TestJSExprKeepsReadOrder evaluates sequences of expressions one at a time
 // on the real engine, as a step's inputs are, with jsExpr on and with it
-// off: the reads of results, the helper calls and the outcomes are the same
-// and come in the same order, a read jsExpr made before it declined is not
-// made again by the engine, and nothing after a failing expression runs.
+// off, over a lookup that reads memory (which jsExpr reads through, and the
+// engine calls inline, on its own thread) and over one that does not (which
+// the engine calls on a goroutine): in all four, the reads of results, the
+// helper calls and the outcomes are the same and come in the same order, a
+// read jsExpr made before it declined is not made again by the engine, and
+// nothing after a failing expression runs.
 func TestJSExprKeepsReadOrder(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -83,36 +85,71 @@ func TestJSExprKeepsReadOrder(t *testing.T) {
 	eng := realEngine(t, DefaultLimits(), 2)
 	stored := map[string]string{"a": `{"n":1}`, "b": `[1,2]`}
 	for _, c := range cases {
-		for _, memory := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/memory=%t", c.name, memory), func(t *testing.T) {
-				run := func(js bool) ([]string, []string) {
-					l := &orderLog{stored: stored}
-					p := NewPipeline(eng)
-					p.SetQuickJSOnly(!js)
-					var outs []string
-					for _, text := range c.texts {
-						s := &Scope{PreviousID: "other", FlowInput: jsonval.FromProducer([]byte(`{"x":null}`)), Helpers: l, Results: l}
-						if memory {
-							s.Results = memoryLog{l}
-						}
-						v, err := p.Eval(context.Background(), Compile(SiteInputTransform, text), s)
-						if err != nil {
-							outs = append(outs, "error: "+err.Error())
-							break
-						}
-						outs = append(outs, string(v.Producer()))
+		t.Run(c.name, func(t *testing.T) {
+			run := func(js, memory bool) ([]string, []string) {
+				l := &orderLog{stored: stored}
+				p := NewPipeline(eng)
+				p.SetQuickJSOnly(!js)
+				var outs []string
+				for _, text := range c.texts {
+					s := &Scope{PreviousID: "other", FlowInput: jsonval.FromProducer([]byte(`{"x":null}`)), Helpers: l, Results: l}
+					if memory {
+						s.Results = memoryLog{l}
 					}
-					return l.entries, outs
+					v, err := p.Eval(context.Background(), Compile(SiteInputTransform, text), s)
+					if err != nil {
+						outs = append(outs, "error: "+err.Error())
+						break
+					}
+					outs = append(outs, string(v.Producer()))
 				}
-				onLog, onOuts := run(true)
-				offLog, offOuts := run(false)
-				if !slices.Equal(onLog, offLog) {
-					t.Errorf("reads and calls\n jsExpr on  %v\n jsExpr off %v", onLog, offLog)
+				return l.entries, outs
+			}
+			offLog, offOuts := run(false, false)
+			for _, v := range [][2]bool{{false, true}, {true, false}, {true, true}} {
+				log, outs := run(v[0], v[1])
+				if !slices.Equal(log, offLog) {
+					t.Errorf("reads and calls\n jsExpr %t, memory %t: %v\n jsExpr off, no memory: %v", v[0], v[1], log, offLog)
 				}
-				if !slices.Equal(onOuts, offOuts) {
-					t.Errorf("outcomes\n jsExpr on  %v\n jsExpr off %v", onOuts, offOuts)
+				if !slices.Equal(outs, offOuts) {
+					t.Errorf("outcomes\n jsExpr %t, memory %t: %v\n jsExpr off, no memory: %v", v[0], v[1], outs, offOuts)
 				}
-			})
+			}
+		})
+	}
+}
+
+// TestBindInlinesMemoryLookups: the engine may answer the results lookup on
+// its own thread (HostFunc.Inline) exactly when it reads memory
+// (MemoryResults), directly or through jsExpr's read memo; the helpers,
+// which may wait on a provider, never.
+func TestBindInlinesMemoryLookups(t *testing.T) {
+	e := Compile(SiteInputTransform, "`${results.a.n}:${variable(\"u/a\")}`")
+	plain := &fakeResults{stored: map[string]string{"a": `{"n":1}`}}
+	for _, c := range []struct {
+		name    string
+		results Results
+		inline  bool
+	}{
+		{"a lookup of its own", plain, false},
+		{"a memory lookup", memoryResults{plain}, true},
+		{"a memory lookup through the memo", &memoResults{Results: memoryResults{plain}}, true},
+		{"a lookup of its own through the memo", &memoResults{Results: plain}, false},
+	} {
+		in := bind(e, &Scope{Results: c.results})
+		found := false
+		for _, f := range in.Funcs {
+			if f.Name == hostResults {
+				found = true
+				if f.Inline != c.inline {
+					t.Errorf("%s: the results lookup is inline: %t, want %t", c.name, f.Inline, c.inline)
+				}
+			} else if f.Inline {
+				t.Errorf("%s: %s is inline", c.name, f.Name)
+			}
+		}
+		if !found {
+			t.Errorf("%s: no results lookup bound", c.name)
 		}
 	}
 }

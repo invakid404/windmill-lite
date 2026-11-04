@@ -57,8 +57,13 @@ What the package does not do:
    Each `HostFunc` becomes a global function. A call converts its first
    argument with `ToString` (a conversion that throws makes the call throw)
    and returns a Promise, and `Call` runs on its own goroutine with a
-   context that ends with the attempt. At most 64 calls of one evaluation
-   run at once; the others wait, queued, in call order. The Promise settles
+   context that ends with the attempt. A `HostFunc` marked `Inline`, one
+   that never blocks (the pipeline's results lookup when it reads memory;
+   milestone PS4), is called instead on the slot's thread when the calls
+   are taken, and its answers settle first, in call order. The attempt's
+   end is checked when it returns. At most 64 calls of one evaluation
+   run at once or hold an inline answer not yet settled; the others wait,
+   queued, in call order. The Promise settles
    only after the jobs queued so far have run: it resolves with the returned
    text, or rejects with an `Error` whose message is `err.Error()`, built
    with no frames on the stack (so its `stack` is empty unless the program
@@ -242,6 +247,12 @@ library's allocator, not the allocators alone.
   next runtime can still use nearly the whole cap.
 - `BenchmarkEvalCPU` reports the CPU per evaluation, preparing and freeing
   the runtimes included, in the default mode and in leak check.
+- `inline_test.go` covers inline host functions: their answers settle in
+  call order; with 2,000 queued calls the engine holds exactly the bound,
+  64, at once; programs give the same outcome with their functions inline
+  and on goroutines (answers, rejections, chained and mixed calls,
+  `Promise.all`, `allSettled` and `race`, under `-race`); and one that
+  blocks past the attempt limit still ends the attempt with its error.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
   report-only step.

@@ -281,6 +281,9 @@ type counters struct {
 	waitNanos                                                 atomic.Int64
 	// leakedBytes is the usable bytes of the blocks leaked counts (tests).
 	leakedBytes atomic.Uint64
+	// heldPeak is the most host calls one evaluation held at once, running
+	// or answered inline and not yet settled (tests; with one slot).
+	heldPeak atomic.Int64
 }
 
 // Stats returns the Engine's counters.

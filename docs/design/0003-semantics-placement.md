@@ -277,6 +277,12 @@ harness, which is (a) with its duplication.
      fails a test.
    - **Interrupts (D8).** An attempt that reaches 20 s is interrupted through
      QuickJS-ng's interrupt handler, and the slot prepares a new runtime.
+   - **Host calls (PS4).** A host call runs on a goroutine of its own, at
+     most 64 of an evaluation at once. A call that never blocks, the results
+     lookup when it reads the run's memory (`MemoryResults`), is marked
+     `Inline` and answered on the slot's thread when the program's calls are
+     taken, saving two thread hand-offs per read; its answers settle in call
+     order and count against the same bound until they settle.
 7. **Harnesses are step runners.** Given a script, arguments and a
    per-invocation environment, a harness binds arguments, hydrates, calls the
    entrypoint, serialises the result or error with its language's rules, and
