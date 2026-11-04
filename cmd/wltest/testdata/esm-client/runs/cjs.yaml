@@ -1,0 +1,11 @@
+# Both steps of the CommonJS codebase entry read JobService.getJob, a
+# member that windmill-client's ES module entry re-exports.
+spec: [D18]
+target: f/wl_esm_client/cjs_all
+args: {}
+expect:
+  status: success
+  result: function
+  steps:
+    "m:named": {status: success, args: {}, result: function}
+    "m:namespace": {status: success, args: {}, result: function}

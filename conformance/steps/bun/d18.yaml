@@ -950,6 +950,108 @@ cases:
       - args: '{}'
         expect: {status: success, result: {count: 1, dflt: dflt, fn: fn, nsDefault: function, other: other}}
   - spec: D18
+    variant: n-esm-packages-cjs
+    provenance: policy
+    title: a CommonJS codebase script's named and namespace imports of ES module packages, one of which re-exports its members, of a CommonJS package and of a folder file ending .mjs give the per-script bundle's results
+    note: >-
+      The ES module dependencies' file names end .mjs, which esbuild takes
+      for an ES module whatever the file's text. Both scripts run their
+      shared-layout modules in warm mode, and their per-script bundles
+      in fresh mode and on Node.
+    codebase: {relative_path: f/wl_step, format: cjs}
+    files:
+      node_modules/d18-nmc-esm/package.json: |
+        {"name": "d18-nmc-esm", "version": "1.0.0", "type": "module", "exports": "./index.mjs"}
+      node_modules/d18-nmc-esm/index.mjs: |
+        export const ping = () => "pong";
+      node_modules/d18-nmc-re/package.json: |
+        {"name": "d18-nmc-re", "version": "1.0.0", "exports": {".": {"import": "./dist/index.mjs", "require": "./dist/index.cjs"}}}
+      node_modules/d18-nmc-re/dist/index.mjs: |
+        export * from "./services.mjs";
+      node_modules/d18-nmc-re/dist/services.mjs: |
+        export class JobService { static getJob(id) { return { id }; } }
+      node_modules/d18-nmc-re/dist/index.cjs: |
+        exports.JobService = { getJob: (id) => ({ id, from: "require" }) };
+      node_modules/d18-nmc-cjs/package.json: |
+        {"name": "d18-nmc-cjs", "version": "1.0.0", "main": "index.js"}
+      node_modules/d18-nmc-cjs/index.js: |
+        exports.ping = () => "cjs pong";
+      f/wl_step/d18_nmc_local.mjs: |
+        export const local = "mjs";
+    path: f/wl_step/d18_nmc_named
+    script: |
+      import { ping } from "d18-nmc-esm";
+      import { JobService } from "d18-nmc-re";
+      import { ping as cjsPing } from "d18-nmc-cjs";
+      import { local } from "./d18_nmc_local.mjs";
+      export function main() { return [ping(), JobService.getJob("j1"), cjsPing(), local]; }
+    scripts:
+      f/wl_step/d18_nmc_namespace: |
+        import * as esm from "d18-nmc-esm";
+        import * as re from "d18-nmc-re";
+        import * as cjs from "d18-nmc-cjs";
+        import * as local from "./d18_nmc_local.mjs";
+        export function main() {
+          return { esm: [esm.ping(), Object.keys(esm)], re: [re.JobService.getJob("j2"), Object.keys(re)], cjs: [cjs.ping(), Object.keys(cjs)], local: [local.local, Object.keys(local)] };
+        }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [pong, {id: j1}, cjs pong, mjs]}
+      - args: '{}'
+        script: f/wl_step/d18_nmc_namespace
+        expect: {status: success, result: {esm: [pong, [ping]], re: [{id: j2}, [JobService]], cjs: [cjs pong, [default, ping]], local: [mjs, [local]]}}
+  - spec: D18
+    variant: n-esm-packages-esm
+    provenance: policy
+    title: a format esm codebase script's named and namespace imports of ES module packages, one of which re-exports its members, of a CommonJS package and of a folder file ending .mjs give the per-script bundle's results
+    note: >-
+      The ES module dependencies' file names end .mjs, which esbuild takes
+      for an ES module whatever the file's text. Both scripts run their
+      shared-layout modules in warm mode, and their per-script bundles
+      in fresh mode.
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      node_modules/d18-nme-esm/package.json: |
+        {"name": "d18-nme-esm", "version": "1.0.0", "type": "module", "exports": "./index.mjs"}
+      node_modules/d18-nme-esm/index.mjs: |
+        export const ping = () => "pong";
+      node_modules/d18-nme-re/package.json: |
+        {"name": "d18-nme-re", "version": "1.0.0", "exports": {".": {"import": "./dist/index.mjs", "require": "./dist/index.cjs"}}}
+      node_modules/d18-nme-re/dist/index.mjs: |
+        export * from "./services.mjs";
+      node_modules/d18-nme-re/dist/services.mjs: |
+        export class JobService { static getJob(id) { return { id }; } }
+      node_modules/d18-nme-re/dist/index.cjs: |
+        exports.JobService = { getJob: (id) => ({ id, from: "require" }) };
+      node_modules/d18-nme-cjs/package.json: |
+        {"name": "d18-nme-cjs", "version": "1.0.0", "main": "index.js"}
+      node_modules/d18-nme-cjs/index.js: |
+        exports.ping = () => "cjs pong";
+      f/wl_step/d18_nme_local.mjs: |
+        export const local = "mjs";
+    path: f/wl_step/d18_nme_named
+    script: |
+      import { ping } from "d18-nme-esm";
+      import { JobService } from "d18-nme-re";
+      import { ping as cjsPing } from "d18-nme-cjs";
+      import { local } from "./d18_nme_local.mjs";
+      export function main() { return [ping(), JobService.getJob("j1"), cjsPing(), local]; }
+    scripts:
+      f/wl_step/d18_nme_namespace: |
+        import * as esm from "d18-nme-esm";
+        import * as re from "d18-nme-re";
+        import * as cjs from "d18-nme-cjs";
+        import * as local from "./d18_nme_local.mjs";
+        export function main() {
+          return { esm: [esm.ping(), Object.keys(esm)], re: [re.JobService.getJob("j2"), Object.keys(re)], cjs: [cjs.ping(), Object.keys(cjs)], local: [local.local, Object.keys(local)] };
+        }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [pong, {id: j1}, cjs pong, mjs]}
+      - args: '{}'
+        script: f/wl_step/d18_nme_namespace
+        expect: {status: success, result: {esm: [pong, [ping]], re: [{id: j2}, [JobService]], cjs: [cjs pong, [default, ping]], local: [mjs, [local]]}}
+  - spec: D18
     variant: o-cycles
     provenance: policy
     title: two dependency modules that require each other see each other's partial exports, as in the per-script bundle

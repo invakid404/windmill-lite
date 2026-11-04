@@ -1,0 +1,16 @@
+# windmill-client under shared code. Codebase scripts of two entries, one
+# CommonJS (the default format) and one format esm, import the stock
+# windmill-client 1.767.0, whose import condition names an ES module entry
+# (dist/index.mjs) that re-exports its services. One step takes a named
+# import and one a namespace import; each reads JobService.getJob, as in
+# its per-script bundle, in every mode: warm, fresh and host, and warm and
+# host from a bundle built with shared code. The test copies the fixture
+# and installs the client from WL_WINDMILL_CLIENT as the sync tree's
+# node_modules; the package is never committed. Synthetic scripts, written
+# for this repository; test data of cmd/wltest, outside conformance/, so no
+# oracle session records it.
+id: wltest/esm-client
+spec: [D18]
+scope: core
+provenance: policy
+languages: [bun]

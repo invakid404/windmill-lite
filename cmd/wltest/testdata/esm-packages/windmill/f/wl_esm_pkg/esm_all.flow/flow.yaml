@@ -1,0 +1,48 @@
+summary: The format esm codebase scripts that import ES module packages, a CommonJS package and .mjs and .mts files
+value:
+  modules:
+    - id: esm_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/esm_named
+        input_transforms: {}
+    - id: esm_namespace
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/esm_namespace
+        input_transforms: {}
+    - id: module_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/module_named
+        input_transforms: {}
+    - id: reexport_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/reexport_named
+        input_transforms: {}
+    - id: reexport_namespace
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/reexport_namespace
+        input_transforms: {}
+    - id: cjs_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/cjs_named
+        input_transforms: {}
+    - id: cjs_namespace
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/cjs_namespace
+        input_transforms: {}
+    - id: local_files
+      value:
+        type: script
+        path: f/wl_esm_pkg/esm/local_files
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

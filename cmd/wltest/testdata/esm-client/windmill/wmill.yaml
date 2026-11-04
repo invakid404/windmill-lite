@@ -1,0 +1,8 @@
+defaultTs: bun
+includes: ["f/**"]
+codebases:
+  - relative_path: f/wl_esm_client/cjs
+    includes: ["f/wl_esm_client/cjs/**"]
+  - relative_path: f/wl_esm_client/esm
+    includes: ["f/wl_esm_client/esm/**"]
+    format: esm

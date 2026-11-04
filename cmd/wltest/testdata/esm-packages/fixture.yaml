@@ -1,0 +1,22 @@
+# ES module packages under shared code. Codebase scripts of two entries,
+# one CommonJS (the default format) and one format esm, import packages by
+# named and namespace imports:
+#
+#   - pkg-esm: "type": "module", with an .mjs entry;
+#   - pkg-module: "type": "module", with a .js entry and a default export;
+#   - pkg-reexport: an .mjs entry for the import condition that re-exports
+#     its members from other .mjs files, as windmill-client does;
+#   - pkg-cjs: a CommonJS package.
+#
+# They also import files of the folder whose names end .mjs and .mts. Each
+# step returns what its per-script bundle returns, in every mode: warm,
+# fresh and host, and warm and host from a bundle built with shared code.
+# The test copies the fixture and installs packages/ as the sync tree's
+# node_modules, which Git ignores. Synthetic, written for this repository;
+# it is test data of cmd/wltest, outside conformance/, so no oracle session
+# records it.
+id: wltest/esm-packages
+spec: [D18]
+scope: core
+provenance: policy
+languages: [bun]
