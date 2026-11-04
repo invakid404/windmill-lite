@@ -1,0 +1,18 @@
+# Each step of the format esm codebase entry returns what its per-script bundle
+# returns. The flow's result is the last step's.
+spec: [D18]
+target: f/wl_esm_pkg/esm_all
+args: {}
+expect:
+  status: success
+  result: {helper: cjs directory, meta: []}
+  steps:
+    "m:esm_named": {status: success, args: {}, result: pong}
+    "m:esm_namespace": {status: success, args: {}, result: {ping: pong, names: [ping]}}
+    "m:module_named": {status: success, args: {}, result: [pong, hello]}
+    "m:reexport_named": {status: success, args: {}, result: {job: {id: j1, base: /api}, base: /api}}
+    "m:reexport_namespace": {status: success, args: {}, result: {job: {id: j2, base: /api}, flow: {path: f/x, base: /api}, names: [FlowService, JobService, settings]}}
+    "m:cjs_named": {status: success, args: {}, result: pong}
+    "m:cjs_namespace": {status: success, args: {}, result: {ping: pong, names: [default, ping]}}
+    "m:local_files": {status: success, args: {}, result: {local: mjs, localDefault: mjs default, kind: mts, twice: 42, names: [kind, twice]}}
+    "m:file_names": {status: success, args: {}, result: {helper: cjs directory, meta: []}}

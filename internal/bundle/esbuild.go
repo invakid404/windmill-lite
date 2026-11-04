@@ -890,7 +890,8 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 		for p := range meta.Inputs {
 			// The plugin's modules, and esbuild's own inputs, such as
 			// <define:NAME> for an object or array define value, are no files.
-			if strings.HasPrefix(p, pluginNamespace+":") || strings.HasPrefix(p, depNamespace+":") || strings.HasPrefix(p, supportNamespace+":") ||
+			if strings.HasPrefix(p, pluginNamespace+":") || strings.HasPrefix(p, depNamespace+":") || strings.HasPrefix(p, depCJSNamespace+":") ||
+				strings.HasPrefix(p, supportNamespace+":") ||
 				strings.HasPrefix(p, "<") && strings.HasSuffix(p, ">") {
 				continue
 			}

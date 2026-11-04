@@ -1,0 +1,18 @@
+summary: The CommonJS codebase scripts that import windmill-client by a named and a namespace import
+value:
+  modules:
+    - id: named
+      value:
+        type: script
+        path: f/wl_esm_client/cjs/named
+        input_transforms: {}
+    - id: namespace
+      value:
+        type: script
+        path: f/wl_esm_client/cjs/namespace
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

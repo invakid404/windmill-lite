@@ -719,7 +719,9 @@ sees of its dependencies:
 - the step's `module` and `exports`;
 - the closure's `import.meta` parameter;
 - an `import()` of a module the runtime has built in, which runs from the
-  closure.
+  closure;
+- named and namespace imports of packages whose entry is an ES module, and
+  of folder files whose names end `.mjs`.
 
 Others cover stack text, load errors, host-provided modules, strictness,
 interop, cycles, inject files and the settle-time fence.

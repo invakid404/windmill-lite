@@ -1,0 +1,53 @@
+summary: The CommonJS codebase scripts that import ES module packages, a CommonJS package and .mjs and .mts files
+value:
+  modules:
+    - id: esm_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/esm_named
+        input_transforms: {}
+    - id: esm_namespace
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/esm_namespace
+        input_transforms: {}
+    - id: module_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/module_named
+        input_transforms: {}
+    - id: reexport_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/reexport_named
+        input_transforms: {}
+    - id: reexport_namespace
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/reexport_namespace
+        input_transforms: {}
+    - id: cjs_named
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/cjs_named
+        input_transforms: {}
+    - id: cjs_namespace
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/cjs_namespace
+        input_transforms: {}
+    - id: local_files
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/local_files
+        input_transforms: {}
+    - id: file_names
+      value:
+        type: script
+        path: f/wl_esm_pkg/cjs/file_names
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

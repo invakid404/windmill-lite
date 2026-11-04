@@ -172,9 +172,10 @@ go test -race ./...
 
 The harness, build, skeleton and host-mode tests also need Bun 1.3.10, the
 version Windmill v1.767.0 ships; without it they skip. Point `WL_BUN` at its
-executable, and install the build helper's parser once. The Q-WA-4 test and
-the facade's attribution test also need the stock `windmill-client@1.767.0`:
-point `WL_WINDMILL_CLIENT` at a directory whose `node_modules` holds it (CI
+executable, and install the build helper's parser once. The Q-WA-4 test,
+the facade's attribution test and `cmd/wltest`'s test of the client under
+shared code also need the stock `windmill-client@1.767.0`: point
+`WL_WINDMILL_CLIENT` at a directory whose `node_modules` holds it (CI
 fetches it by its npm integrity hash):
 
 ```sh
