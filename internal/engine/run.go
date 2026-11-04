@@ -92,6 +92,9 @@ type run struct {
 	// status shows while it runs.
 	jobs    map[string]*jobRef
 	iterLen map[conformance.SitePath]int
+	// ends counts the ends of the run's child flows, which orders them
+	// (jobRef.ended).
+	ends uint64
 	// rootEnd is the run's own end, once its modules are done: a dispatched
 	// run tracked in its parent stays in its root's tree after it ends,
 	// and its record then shows it completed.
@@ -1128,6 +1131,14 @@ func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.Sit
 		}
 		return true
 	case isContainer(m.Kind) && j != nil:
+		for _, c := range fr.kids[i] {
+			if c != nil && c.site == j.site {
+				if fr.attempts == nil {
+					fr.attempts = map[int]string{}
+				}
+				fr.attempts[idx] = c.id
+			}
+		}
 		r.supersedeLocked(fr.sites[i], j.site, site)
 		*rec = StepRecord{Site: site, Attempt: rec.Attempt, Ran: true, Status: flowStepStatus(j.end.status), Start: rec.Start, Duration: rec.Duration,
 			RecordedArgs: j.input, ResolvedArgs: j.input, Result: j.end.result, ResultOrigin: j.end.origin, ResultNested: j.end.nested, Late: rec.Late}
@@ -1280,6 +1291,7 @@ func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value
 	r.mu.Lock()
 	idx := len(r.trace.Steps)
 	r.trace.Steps = append(r.trace.Steps, StepRecord{Site: site.Path})
+	r.attemptStarted(fr, i, idx)
 	r.mu.Unlock()
 	start := r.clock.Now()
 	o := r.module(ctx, fr, i, prev, prevID, idx, b)
@@ -1526,7 +1538,14 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// fails without running with the Canceled error, a failure and not a
 	// canceled job (FX-38, recorded by fx-23/canceled_sleep).
 	if !due.IsZero() {
-		if err := r.wait(ctx, site.Path, due); err != nil {
+		r.mu.Lock()
+		fr.owner().waiting++
+		r.mu.Unlock()
+		err := r.wait(ctx, site.Path, due)
+		r.mu.Lock()
+		fr.owner().waiting--
+		r.mu.Unlock()
+		if err != nil {
 			reason, canceler := cancellationOf(ctx)
 			v := canceledError(reason, canceler)
 			o.rec.Ran, o.rec.Start = true, r.clock.Now()
@@ -1537,8 +1556,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				// them as never started ([FX-38]).
 				//
 				// [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
-				c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-				r.addChild(c)
+				c := r.unlaunchedSubflow(fr, i, stored)
 				r.childEnded(c, flowEnd{status: conformance.RunFailure, result: v})
 				o.rec.Job = c.id
 			}
@@ -1559,8 +1577,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			// fails before any of the subflow's modules runs, which the
 			// walker reads as not_run (recorded by the
 			// control-flow/subflow-retry fixture's run pre_run).
-			c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-			r.addChild(c)
+			c := r.unlaunchedSubflow(fr, i, stored)
 			o.rec.Job = c.id
 			defer func() { r.childEnded(c, flowEnd{status: conformance.RunFailure, result: o.rec.Result}) }()
 		}

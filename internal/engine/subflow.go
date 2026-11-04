@@ -42,7 +42,7 @@ func inputsOf(m *ir.Module) []ir.Input {
 func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value) outcome {
 	m := fr.moduleAt(i)
 	c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-	r.addChild(c)
+	r.addChild(fr, i, 0, c)
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
 	if e.unreported {

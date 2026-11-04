@@ -198,8 +198,8 @@ func manifestDeviations(prog []string, mode engine.ModuleState, shared bool) []s
 	// attempt (D8), no Rust location suffix in generated messages (D14), the
 	// expression engine's build: Math's digits from its libm (D16) and the
 	// recursion depth its frames fit (D17), and the job reads: a job of a
-	// run that has ended is not read (D22), and values are served whole
-	// (D23).
+	// run that has ended is not read (D22), nor is a job whose arguments
+	// or result may reach Windmill's replacement size (D23).
 	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17", "D22", "D23"), mode, shared)
 }
 

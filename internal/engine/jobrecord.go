@@ -46,8 +46,10 @@ type jobRef struct {
 	// a skipped, mocked or identity module (FX-16), which Windmill records
 	// with no script_path or language.
 	identity bool
-	// end is a child flow's end, once it has ended.
-	end *flowEnd
+	// end is a child flow's end, once it has ended, and ended its place
+	// among the ends of the run's child flows, from 1.
+	end   *flowEnd
+	ended uint64
 }
 
 // indexFlow indexes the flow job of fr. Called with mu held.
@@ -65,12 +67,39 @@ func (r *run) indexLeaf(id string, fr *frame, i, idx int, identity bool) {
 	}
 }
 
+// attemptStarted records that module i of fr starts an attempt whose
+// record is idx: the module's current record, with no child yet, and one
+// of the records of fr's flow. Called with mu held.
+func (r *run) attemptStarted(fr *frame, i, idx int) {
+	fr.recs[i] = idx
+	if fr.kids != nil {
+		fr.kids[i] = nil
+	}
+	own := fr.owner()
+	own.owned = append(own.owned, idx)
+}
+
+// addKid records c as the child at slot of the current attempt of module i
+// of fr, or removes the child there when c is nil. Called with mu held.
+func (fr *frame) addKid(i, slot int, c *frame) {
+	if fr.kids == nil {
+		fr.kids = make([][]*frame, len(fr.recs))
+	}
+	ks := fr.kids[i]
+	for len(ks) <= slot {
+		ks = append(ks, nil)
+	}
+	ks[slot] = c
+	fr.kids[i] = ks
+}
+
 // childEnded records the end of fr, a child flow, which its record shows.
 func (r *run) childEnded(fr *frame, e flowEnd) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if ref := r.jobs[fr.id]; ref != nil {
-		ref.end = &e
+		r.ends++
+		ref.end, ref.ended = &e, r.ends
 	}
 }
 
@@ -98,9 +127,10 @@ func (r *run) noInvocationJob(fr *frame, i, idx int, o *outcome) {
 	switch {
 	case !o.rec.Ran || o.rec.Job != "" || o.rec.Status == "":
 		return
-	case m.Kind == ir.KindSubflow || m.Kind == ir.KindProvided:
-		// A flow step's job is its subflow's flow job; a provided site's
-		// target is the host's.
+	case m.Kind == ir.KindSubflow && !o.rec.Skipped && !mocked, m.Kind == ir.KindProvided:
+		// A flow step's job is its subflow's flow job, unless skip_if or a
+		// mock replaced it with an identity job; a provided site's target
+		// is the host's.
 		return
 	case isContainer(m.Kind) && !o.rec.Skipped && !mocked:
 		// A container that ran has no job of its own (CF-1).
@@ -132,7 +162,7 @@ func (v runView) JobRecord(id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := newRecordIndex(r)
+	x := &recordView{r: r}
 	if ref.idx < 0 {
 		var us json.RawMessage
 		if hasStates {
@@ -177,37 +207,39 @@ func (r *run) lookupJob(id string) (*jobRef, error) {
 // runView is a run as the job registry reaches it.
 type runView struct{ r *run }
 
-// recordIndex is the run's trace indexed for one record: the latest record
-// of each site, and the latest child flow at each site, Windmill's job tree
-// no longer reaching a superseded one.
-type recordIndex struct {
-	r        *run
-	records  map[conformance.SitePath]int
-	children map[conformance.SitePath]string
+// recordView renders the records of a run's jobs. Each flow job's status
+// comes from its own frame: the current attempt of each of its modules
+// (frame.recs), the child flows and collapsed iterations of that attempt
+// (frame.kids), and the attempts its modules list as failed retries,
+// among the records the flow owns (frame.owned). So a flow job of an
+// attempt that a retry superseded still shows what it ran, though the
+// retry runs at the same sites. The run's mu is held.
+type recordView struct {
+	r *run
+	// err is set when an entry shows a state that Windmill's record has
+	// not been seen in, which the record is then not served in.
+	err error
 }
 
-func newRecordIndex(r *run) *recordIndex {
-	x := &recordIndex{r: r, records: map[conformance.SitePath]int{}, children: map[conformance.SitePath]string{}}
-	for k, rec := range r.trace.Steps {
-		if !rec.Superseded {
-			x.records[rec.Site] = k
-		}
+// notServed records that the record shows a state reason names, which it
+// is not served in.
+func (x *recordView) notServed(reason string) {
+	if x.err == nil {
+		x.err = &platform.NotServed{Reason: reason}
 	}
-	for _, c := range r.trace.Children {
-		if !c.Superseded {
-			x.children[c.Site] = c.ID
-		}
-	}
-	return x
 }
 
 // leafRecord is the record of a leaf job.
-func (x *recordIndex) leafRecord(id string, ref *jobRef) ([]byte, error) {
+func (x *recordView) leafRecord(id string, ref *jobRef) ([]byte, error) {
 	r, fr := x.r, ref.fr
 	rec := r.trace.Steps[ref.idx]
 	done := rec.Status != ""
 	if rec.Status == conformance.StepCanceled {
 		return nil, &platform.NotServed{Reason: "the job was canceled"}
+	}
+	result, args := recordText(rec.Result), recordText(rec.RecordedArgs)
+	if err := checkSize(done, result, args); err != nil {
+		return nil, err
 	}
 	in := fr.owner()
 	var o object
@@ -222,9 +254,9 @@ func (x *recordIndex) leafRecord(id string, ref *jobRef) ([]byte, error) {
 	o.field("canceled", []byte("false"))
 	if done {
 		o.field("success", jsonBool(rec.Status == conformance.StepSuccess))
-		o.field("result", databaseText(recordText(rec.Result)))
+		o.field("result", databaseText(result))
 	}
-	o.field("args", argsText(rec.RecordedArgs))
+	o.field("args", argsText(args))
 	if !ref.identity {
 		o.field("script_path", jsonText(r.jobPath(fr, ref.i)))
 		if s := r.e.prog.Scripts[fr.moduleAt(ref.i).Leaf.Script]; s != nil {
@@ -237,7 +269,7 @@ func (x *recordIndex) leafRecord(id string, ref *jobRef) ([]byte, error) {
 }
 
 // flowRecord is the record of a flow job: the root, or a child flow.
-func (x *recordIndex) flowRecord(id string, ref *jobRef, states json.RawMessage) ([]byte, error) {
+func (x *recordView) flowRecord(id string, ref *jobRef, states json.RawMessage) ([]byte, error) {
 	r, fr := x.r, ref.fr
 	end := ref.end
 	if fr == r.root {
@@ -249,6 +281,18 @@ func (x *recordIndex) flowRecord(id string, ref *jobRef, states json.RawMessage)
 	}
 	if fr == r.root && r.f.PreprocessorModule != nil {
 		return nil, &platform.NotServed{Reason: "a flow with a preprocessor module"}
+	}
+	var result []byte
+	if done {
+		result = recordText(end.result)
+	}
+	args := recordText(fr.input)
+	if err := checkSize(done, result, args); err != nil {
+		return nil, err
+	}
+	status, err := x.flowStatus(fr, end, states)
+	if err != nil {
+		return nil, err
 	}
 	var o object
 	o.field("type", jsonText(recordType(done)))
@@ -275,20 +319,20 @@ func (x *recordIndex) flowRecord(id string, ref *jobRef, states json.RawMessage)
 	o.field("canceled", []byte("false"))
 	if done {
 		o.field("success", jsonBool(end.status == conformance.RunSuccess))
-		o.field("result", databaseText(recordText(end.result)))
+		o.field("result", databaseText(result))
 	}
-	o.field("args", argsText(fr.input))
+	o.field("args", argsText(args))
 	o.field("script_path", jsonText(fr.path))
 	o.field("is_flow_step", jsonBool(fr != r.root))
 	x.host(&o)
-	o.field("flow_status", x.flowStatus(fr, end, states))
+	o.field("flow_status", status)
 	return o.close(), nil
 }
 
 // host writes the fields that the run's host configuration gives every job
 // of the run: its workspace, and the user it is permissioned as (ADR 0007,
 // job identity).
-func (x *recordIndex) host(o *object) {
+func (x *recordView) host(o *object) {
 	env := x.r.flowJobEnv
 	o.field("workspace_id", jsonText(env["WM_WORKSPACE"]))
 	o.field("created_by", jsonText(env["WM_USERNAME"]))
@@ -298,18 +342,21 @@ func (x *recordIndex) host(o *object) {
 
 // flowStatus is the flow_status of fr's flow job, which ended with end
 // (nil while it runs) and holds the user state states (nil for none).
-func (x *recordIndex) flowStatus(fr *frame, end *flowEnd, states json.RawMessage) []byte {
+func (x *recordView) flowStatus(fr *frame, end *flowEnd, states json.RawMessage) ([]byte, error) {
 	n := len(fr.modules)
 	last := -1 // the last module that started
 	mods := make([][]byte, n)
+	if fr.waiting > 0 {
+		return nil, &platform.NotServed{Reason: "a module of the flow waits for a sleep or a retry delay"}
+	}
 	for k := range n {
-		if _, ok := x.records[fr.sites[k]]; ok {
+		if fr.recs[k] >= 0 {
 			last = k
 		}
 		mods[k] = x.entry(fr, k, "")
 	}
-	failureSite := fr.sites[n]
-	fidx, failureRan := x.records[failureSite]
+	fidx := fr.recs[n]
+	failureRan := fidx >= 0
 	var failure []byte
 	switch {
 	case failureRan:
@@ -338,6 +385,9 @@ func (x *recordIndex) flowStatus(fr *frame, end *flowEnd, states json.RawMessage
 	case end != nil && end.status == conformance.RunSuccess:
 		step = last + 1
 	}
+	if x.err != nil {
+		return nil, x.err
+	}
 	var o object
 	o.field("step", []byte(strconv.Itoa(step)))
 	o.field("modules", jsonArray(mods))
@@ -347,7 +397,7 @@ func (x *recordIndex) flowStatus(fr *frame, end *flowEnd, states json.RawMessage
 	if states != nil {
 		o.field("user_states", states)
 	}
-	return o.close()
+	return o.close(), nil
 }
 
 // waiting is the status entry of a module that has not started.
@@ -360,11 +410,10 @@ func waiting(id string) []byte {
 
 // entry is the status entry of the module at cursor k of fr; parent names
 // the module whose failure the failure module handles, for its entry.
-func (x *recordIndex) entry(fr *frame, k int, parent string) []byte {
+func (x *recordView) entry(fr *frame, k int, parent string) []byte {
 	m := fr.moduleAt(k)
-	site := fr.sites[k]
-	idx, ok := x.records[site]
-	if !ok {
+	idx := fr.recs[k]
+	if idx < 0 {
 		return waiting(m.ID)
 	}
 	rec := x.r.trace.Steps[idx]
@@ -385,15 +434,15 @@ func (x *recordIndex) entry(fr *frame, k int, parent string) []byte {
 	case rec.NoInvocationJob != "":
 		o.field("job", jsonText(rec.NoInvocationJob))
 	case m.Kind == ir.KindForLoop || m.Kind == ir.KindWhileLoop:
-		x.loopEntry(&o, fr, k, rec, done)
+		x.loopEntry(&o, fr, k, rec)
 	case m.Kind == ir.KindBranchOne:
-		x.branchOneEntry(&o, fr, k, rec, done)
+		x.branchOneEntry(&o, fr, k, rec)
 	case m.Kind == ir.KindBranchAll:
-		x.branchAllEntry(&o, fr, k, done)
-	case m.Kind == ir.KindSubflow:
-		if id := x.children[site]; id != "" {
-			o.field("job", jsonText(id))
-		}
+		x.branchAllEntry(&o, fr, k, rec)
+	case m.Kind == ir.KindSubflow && fr.kids != nil && len(fr.kids[k]) > 0 && fr.kids[k][0] != nil:
+		// A flow step's job is its subflow's, its record naming it only
+		// once the step has completed.
+		o.field("job", jsonText(fr.kids[k][0].id))
 	case rec.Job != "":
 		o.field("job", jsonText(rec.Job))
 	}
@@ -403,8 +452,12 @@ func (x *recordIndex) entry(fr *frame, k int, parent string) []byte {
 	if done && len(rec.FailedRetries) > 0 {
 		ids := make([][]byte, 0, len(rec.FailedRetries))
 		for _, s := range rec.FailedRetries {
-			if i, ok := x.records[s]; ok {
-				ids = append(ids, jsonText(jobOf(x.r.trace.Steps[i])))
+			if i := x.owned(fr, s); i >= 0 {
+				id := jobOf(x.r.trace.Steps[i])
+				if id == "" {
+					id = fr.attempts[i]
+				}
+				ids = append(ids, jsonText(id))
 			}
 		}
 		o.field("failed_retries", jsonArray(ids))
@@ -413,6 +466,16 @@ func (x *recordIndex) entry(fr *frame, k int, parent string) []byte {
 		o.field("parent_module", jsonText(parent))
 	}
 	return o.close()
+}
+
+// owned is the latest of fr's records at site, or -1.
+func (x *recordView) owned(fr *frame, site conformance.SitePath) int {
+	for k := len(fr.owned) - 1; k >= 0; k-- {
+		if i := fr.owned[k]; x.r.trace.Steps[i].Site == site {
+			return i
+		}
+	}
+	return -1
 }
 
 // jobOf is the id of a record's job: its invocation's, or the one it ran
@@ -424,143 +487,196 @@ func jobOf(rec StepRecord) string {
 	return rec.NoInvocationJob
 }
 
-// child is the job and the status of a container's child at site: an
-// iteration's or a branch's child flow, or a collapsed iteration's job.
-// ok is false when the child has not started.
+// child is the job and the status of a container's child: an iteration's
+// or a branch's child flow, or a collapsed iteration's job; ended orders
+// the ends of a run's child flows, 0 while the child runs.
 type child struct {
-	id      string
-	success []byte // true, false, or null while it runs
+	id       string
+	success  []byte // true, false, or null while it runs
+	ended    uint64
+	released bool
 }
 
-// flowChild is the child flow at site, if one started.
-func (x *recordIndex) flowChild(site conformance.SitePath) (child, bool) {
-	id, ok := x.children[site]
-	if !ok {
-		return child{}, false
+// children are the children of the current attempt of module k of fr, in
+// slot order, up to the first that has not started.
+func (x *recordView) children(fr *frame, k int) []child {
+	if fr.kids == nil {
+		return nil
 	}
-	c := child{id: id, success: []byte("null")}
-	if ref := x.r.jobs[id]; ref != nil && ref.end != nil {
-		c.success = jsonBool(ref.end.status == conformance.RunSuccess)
-	}
-	return c, true
-}
-
-// loopEntry writes a for or a while loop's own fields: its children's
-// jobs and their success, the last child's job, and, while it runs, its
-// iterator and whether it is parallel or a while loop.
-func (x *recordIndex) loopEntry(o *object, fr *frame, k int, rec StepRecord, done bool) {
-	m := fr.moduleAt(k)
-	site := fr.sites[k]
-	body := bodyOf(m)
-	var kids []child
-	for j := 0; ; j++ {
-		it := site.Child(conformance.Iteration(j))
-		if body.collapse {
-			idx, ok := x.records[it.Child(conformance.Module(body.modules[0].ID))]
-			if !ok {
+	var out []child
+	for _, c := range fr.kids[k] {
+		if c == nil {
+			break
+		}
+		if c.collapsed != nil {
+			idx := c.recs[0]
+			if idx < 0 {
 				break
 			}
 			b := x.r.trace.Steps[idx]
-			c := child{id: jobOf(b), success: []byte("null")}
+			ch := child{id: jobOf(b), success: []byte("null")}
 			if b.Status != "" {
-				c.success = jsonBool(b.Status == conformance.StepSuccess)
+				ch.success = jsonBool(b.Status == conformance.StepSuccess)
 			}
-			kids = append(kids, c)
+			out = append(out, ch)
 			continue
 		}
-		c, ok := x.flowChild(it)
-		if !ok {
-			break
+		ch := child{id: c.id, success: []byte("null"), released: c.released}
+		if ref := x.r.jobs[c.id]; ref != nil && ref.end != nil {
+			ch.success, ch.ended = jsonBool(ref.end.status == conformance.RunSuccess), ref.ended
 		}
-		kids = append(kids, c)
+		out = append(out, ch)
 	}
-	x.writeChildren(o, kids)
-	if done {
+	return out
+}
+
+// loopEntry writes a for or a while loop's own fields, rec being its
+// record: its children (containerJobs), and, while it runs, its iterator
+// and whether it is parallel or a while loop. A sequential loop's
+// iterator is at its last child; a parallel loop's counts its children
+// that have completed, all its children being pushed at its start.
+func (x *recordView) loopEntry(o *object, fr *frame, k int, rec StepRecord) {
+	m := fr.moduleAt(k)
+	parallel := m.Kind == ir.KindForLoop && m.ForLoop.Parallel
+	kids := x.children(fr, k)
+	x.containerJobs(o, kids, rec, parallel, true)
+	if rec.Status != "" {
 		return
 	}
-	n := 0
+	n, index := 0, max(len(kids)-1, 0)
 	if m.Kind == ir.KindForLoop {
-		n = x.r.iterLen[site]
+		n = x.r.iterLen[fr.sites[k]]
+	}
+	if parallel {
+		index = 0
+		for _, c := range kids {
+			if c.ended > 0 {
+				index++
+			}
+		}
 	}
 	var it object
-	it.field("index", []byte(strconv.Itoa(max(len(kids)-1, 0))))
+	it.field("index", []byte(strconv.Itoa(index)))
 	it.field("itered_len", []byte(strconv.Itoa(n)))
 	o.field("iterator", it.close())
 	switch {
 	case m.Kind == ir.KindWhileLoop:
 		o.field("while_loop", []byte("true"))
-	case m.ForLoop.Parallel:
+	case parallel:
 		o.field("parallel", []byte("true"))
 	}
 }
 
-// writeChildren writes a container's children: flow_jobs, flow_jobs_success
-// and the last child as its job.
-func (x *recordIndex) writeChildren(o *object, kids []child) {
+// containerJobs writes a loop's or a branchall's children, rec being its
+// record: flow_jobs and flow_jobs_success, and its job: the last child; a
+// running parallel loop's last child released to run, and a completed
+// parallel container's child that completed last (CF-22); the nil job
+// once it has completed with no child (CF-14), with no children's fields
+// when its start failed.
+func (x *recordView) containerJobs(o *object, kids []child, rec StepRecord, parallel, loop bool) {
+	done := rec.Status != ""
 	ids := make([][]byte, len(kids))
 	ok := make([][]byte, len(kids))
+	last, ended := -1, 0
 	for i, c := range kids {
 		ids[i], ok[i] = jsonText(c.id), c.success
+		if c.ended > 0 {
+			ended++
+			if last < 0 || c.ended > kids[last].ended {
+				last = i
+			}
+		}
 	}
-	if len(kids) > 0 {
+	switch {
+	case len(kids) == 0 && done && rec.Module == conformance.ModuleSuccess:
+		o.field("job", jsonText(nilJob))
+	case len(kids) == 0 && done:
+		// A container whose start failed, before any child (a chaining
+		// error, CF-23; recorded for an iterator that throws): the nil
+		// job, and no children's fields.
+		o.field("job", jsonText(nilJob))
+		return
+	case parallel && !done && loop:
+		for i := len(kids) - 1; i >= 0; i-- {
+			if kids[i].released {
+				o.field("job", ids[i])
+				break
+			}
+		}
+	case parallel && !done && ended > 0:
+		x.notServed("a parallel branchall that runs with a branch completed")
+	case parallel && done:
+		o.field("job", ids[last])
+	case len(kids) > 0:
 		o.field("job", ids[len(ids)-1])
 	}
 	o.field("flow_jobs", jsonArray(ids))
 	o.field("flow_jobs_success", jsonArray(ok))
 }
 
-// branchOneEntry writes a branchone's own fields: the branch it chose and
-// that branch's child flow as its job.
-func (x *recordIndex) branchOneEntry(o *object, fr *frame, k int, rec StepRecord, done bool) {
+// branchOneEntry writes a branchone's own fields, rec being its record:
+// the branch it chose and that branch's child flow as its job, or the nil
+// job of a chosen branch that has no module (CF-14) and of a predicate
+// that threw.
+func (x *recordView) branchOneEntry(o *object, fr *frame, k int, rec StepRecord) {
 	m := fr.moduleAt(k)
-	site := fr.sites[k]
-	segs := make([]conformance.Segment, 0, len(m.BranchOne.Branches)+1)
-	for b := range m.BranchOne.Branches {
-		segs = append(segs, conformance.Branch(b))
-	}
-	segs = append(segs, conformance.DefaultBranch())
-	for n, seg := range segs {
-		c, ok := x.flowChild(site.Child(seg))
-		if !ok {
-			continue
+	if fr.kids != nil {
+		for n, c := range fr.kids[k] {
+			if c == nil {
+				continue
+			}
+			o.field("branch_chosen", branchChosen(n, len(m.BranchOne.Branches)))
+			o.field("job", jsonText(c.id))
+			return
 		}
-		var bc object
-		if n < len(m.BranchOne.Branches) {
-			bc.field("branch", []byte(strconv.Itoa(n)))
-			bc.field("type", jsonText("branch"))
-		} else {
-			bc.field("type", jsonText("default"))
-		}
-		o.field("branch_chosen", bc.close())
-		o.field("job", jsonText(c.id))
-		return
 	}
-	if done && fr.nilJob[k] {
-		// A branchone that ran no branch completed with a nil job (CF-14).
+	switch {
+	case rec.Status == "":
+	case rec.BranchChosen == nil:
+		// A predicate that threw failed the module with the nil job and
+		// chose no branch (OR-11).
+		o.field("job", jsonText(nilJob))
+	default:
+		n := len(m.BranchOne.Branches)
+		if rec.BranchChosen.Branch != nil {
+			n = *rec.BranchChosen.Branch
+		}
+		o.field("branch_chosen", branchChosen(n, len(m.BranchOne.Branches)))
 		o.field("job", jsonText(nilJob))
 	}
 }
 
-// branchAllEntry writes a branchall's own fields: its branches' child
-// flows and their success, the last as its job, and, while it runs, the
-// branch that runs and how many there are.
-func (x *recordIndex) branchAllEntry(o *object, fr *frame, k int, done bool) {
-	m := fr.moduleAt(k)
-	site := fr.sites[k]
-	var kids []child
-	for b := range m.BranchAll.Branches {
-		c, ok := x.flowChild(site.Child(conformance.Branch(b)))
-		if !ok {
-			break
-		}
-		kids = append(kids, c)
+// branchChosen is a branchone's branch_chosen for branch n of branches,
+// the default branch at n = branches.
+func branchChosen(n, branches int) []byte {
+	var bc object
+	if n < branches {
+		bc.field("branch", []byte(strconv.Itoa(n)))
+		bc.field("type", jsonText("branch"))
+	} else {
+		bc.field("type", jsonText("default"))
 	}
-	x.writeChildren(o, kids)
-	if done {
+	return bc.close()
+}
+
+// branchAllEntry writes a branchall's own fields, rec being its record:
+// its branches' child flows (containerJobs), and, while it runs, the
+// branch that runs, 0 in a parallel one whose branches are all pushed at
+// its start, and how many there are.
+func (x *recordView) branchAllEntry(o *object, fr *frame, k int, rec StepRecord) {
+	m := fr.moduleAt(k)
+	kids := x.children(fr, k)
+	x.containerJobs(o, kids, rec, m.BranchAll.Parallel, false)
+	if rec.Status != "" {
 		return
 	}
+	branch := max(len(kids)-1, 0)
+	if m.BranchAll.Parallel {
+		branch = 0
+		o.field("parallel", []byte("true"))
+	}
 	var ba object
-	ba.field("branch", []byte(strconv.Itoa(max(len(kids)-1, 0))))
+	ba.field("branch", []byte(strconv.Itoa(branch)))
 	ba.field("len", []byte(strconv.Itoa(len(m.BranchAll.Branches))))
 	o.field("branchall", ba.close())
 }
@@ -681,6 +797,10 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	result, args := recordText(v.result), recordText(v.args)
+	if err := checkSize(v.done, result, args); err != nil {
+		return nil, err
+	}
 	var o object
 	o.field("type", jsonText(recordType(v.done)))
 	o.field("id", jsonText(id))
@@ -697,9 +817,9 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 	o.field("canceled", []byte("false"))
 	if v.done {
 		o.field("success", jsonBool(v.success))
-		o.field("result", databaseText(recordText(v.result)))
+		o.field("result", databaseText(result))
 	}
-	o.field("args", argsText(v.args))
+	o.field("args", argsText(args))
 	o.field("script_path", jsonText(v.script.Path))
 	o.field("language", jsonText(string(v.script.Language)))
 	o.field("is_flow_step", []byte("false"))
@@ -715,8 +835,7 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 // jsonb's text output of the stored value (`{"cfg":{"k": [1, 2.50]}}`);
 // Windmill reads the stored arguments into a map of raw values and writes
 // the map out again.
-func argsText(v jsonval.Value) []byte {
-	stored := recordText(v)
+func argsText(stored []byte) []byte {
 	out := []byte{'{'}
 	_, ok := jsonval.Members(stored, func(_ string, ks, ke, vs, ve int) {
 		if len(out) > 1 {
@@ -752,4 +871,42 @@ func databaseText(stored []byte) []byte {
 		}
 	}
 	return out
+}
+
+// replacedFrom is the stored size from which GET jobs_u/get/{id} replaces a
+// job's arguments with {"reason":"WINDMILL_TOO_BIG"} and its result with
+// "WINDMILL_TOO_BIG" ([OR-V1]): PostgreSQL's pg_column_size of the stored
+// jsonb, after its compression.
+//
+// [OR-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/oracle.md#or-v1
+const replacedFrom = 90000
+
+// checkSize fails a record whose arguments args or, once it has completed,
+// result may take replacedFrom bytes or more stored: Windmill's answer then
+// depends on PostgreSQL's compression, which windmill-lite does not
+// reproduce, so it serves neither the value nor the replacement (WA-19).
+func checkSize(done bool, result, args []byte) error {
+	if jsonval.StoredBound(args) < replacedFrom && (!done || jsonval.StoredBound(result) < replacedFrom) {
+		return nil
+	}
+	return &platform.NotServed{Reason: "the job's arguments or result may take 90000 bytes or more stored, where Windmill's answer depends on PostgreSQL's compression"}
+}
+
+// released records that c, a parallel container's child flow, is released
+// to run (frame.released).
+func (r *run) released(c *frame) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c.released = true
+}
+
+// unlaunchedSubflow creates the child flow of module i of fr, a flow step
+// whose subflow fails at its pickup before any of its modules runs (FX-14,
+// FX-38), and registers its job with the run's tree, as runList does for
+// one that runs: the flow's status names it, and it is read (WA-19).
+func (r *run) unlaunchedSubflow(fr *frame, i int, stored jsonval.Value) *frame {
+	c := r.subflowFrame(fr, i, r.e.prog.Flows[fr.moduleAt(i).Subflow.Path], stored)
+	r.addChild(fr, i, 0, c)
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})()
+	return c
 }
