@@ -77,18 +77,33 @@ typedef struct wl_slot wl_slot;
 int wl_spawn(uintptr_t handle, size_t stack_bytes);
 
 wl_slot *wl_slot_new(void);
+// wl_set_destroy chooses how the slot's next runtimes are freed: 1, from a
+// mimalloc heap of their own that release destroys whole (the default
+// mode); 0, block by block, counting what the engine leaked (leak check).
+// Builds with wl_libc_malloc always free block by block.
+void wl_set_destroy(wl_slot *s, int on);
 void wl_slot_free(wl_slot *s);
 
 // wl_prepare creates the slot's fresh runtime and full context with the
 // given heap cap and stack size (both in bytes). WL_OK or WL_NO_MEMORY.
 int wl_prepare(wl_slot *s, size_t memory_limit, size_t stack_size);
-// wl_release frees everything the evaluation created, then the context and
-// the runtime, then every block of the runtime's heap that is still
-// allocated.
+// wl_release frees the runtime and everything it holds. In the default
+// mode it destroys the runtime's heap. In leak check it frees everything the
+// evaluation created, then the context and the runtime, then every block of
+// the runtime's heap that is still allocated.
 void wl_release(wl_slot *s);
 // wl_leaked is the number of blocks the last wl_release found still
-// allocated after the runtime was freed.
+// allocated after the runtime was freed: always 0 in the default mode,
+// which frees the heap without looking.
 size_t wl_leaked(wl_slot *s);
+// wl_leaked_bytes is those blocks' usable bytes.
+size_t wl_leaked_bytes(wl_slot *s);
+// wl_has_destroy is 1 when the build has the default mode (mimalloc), 0
+// with wl_libc_malloc.
+int wl_has_destroy(void);
+// wl_committed is the memory mimalloc has committed for the process, or 0
+// with wl_libc_malloc (tests).
+size_t wl_committed(void);
 
 // wl_interrupt asks the running program to stop. Any thread may call it.
 void wl_interrupt(wl_slot *s);

@@ -21,8 +21,8 @@
 // It answers SIGUSR1 with its CPU time in bench-probe.json (below).
 //
 // Environment: WL_ENGINE (the engine binary the SDK starts), WL_BUNDLE
-// (the bundle directory), WL_BENCH_PLUGIN, WL_BENCH_TRACE and
-// WL_BENCH_TRACE_KEYS. Its working directory is the one it passes.
+// (the bundle directory), WL_BENCH_PLUGIN, WL_BENCH_TRACE,
+// WL_BENCH_TRACE_KEYS, WL_BENCH_STORE_URL and WL_BENCH_EMB_API_US. Its working directory is the one it passes.
 
 import { writeFileSync } from "node:fs";
 import { connect, type Plugin, type TraceDetail, type TraceNone } from "../../../../harnesses/bun/host/index.ts";
@@ -50,9 +50,16 @@ function count(run: string, path: string) {
   calls[key] = (calls[key] ?? 0) + 1;
 }
 
+// With WL_BENCH_STORE_URL (the embedder shapes, bench_embed_test.go), the
+// resources under f/emb/ are read from that store's API, as a host that
+// keeps them elsewhere reads them, after WL_BENCH_EMB_API_US microseconds.
+const storeURL = env.WL_BENCH_STORE_URL;
+const apiDelay = env.WL_BENCH_EMB_API_US ?? "0";
+
 const plugin: Plugin = {
   resource: async (path, e) => {
     count(e.run, path);
+    if (storeURL && path.startsWith("f/emb/")) return await (await fetch(`${storeURL}/res/${path}?d=${apiDelay}`)).json();
     if (path.startsWith("f/bench/slow/")) await Bun.sleep(1);
     if (path === "f/bench/counter") return { type: "c_bench_counter", value: { seen: calls[`${e.run} ${path}`] } };
     return resources[path];

@@ -241,6 +241,9 @@ var genKeys = []string{
 	"a", "b", "id", "items", "name", "data", "n", "x_1", "$k", "0", "1", "2", "10", "007", "-1", "1.5", "4294967294", "4294967295",
 	"2147483647", "2147483648", "length", "constructor", "toString", "hasOwnProperty", "valueOf", "__proto__", "", "with space",
 	"ü", "😀", "quo\"te", "back\\slash", "tab\t", "a-b",
+	// Keys that spell like another component of a path, such as a?.b and
+	// a["?b"] (jsExpr's read memo must tell them apart).
+	"?b", "?", "?.a", ".", "a.b", "[", "]", "b?",
 	// Helper-call texts, which JE-11 rewrites inside quoted keys too.
 	"variable(x)", "resource(x)", "flow_user_state(x)", "(await resource(x))", "resource(",
 }
@@ -260,6 +263,8 @@ func genPathValue(rng *rand.Rand, depth int, escapes bool) *genValue {
 			var key string
 			if len(v.keys) > 0 && rng.IntN(6) == 0 {
 				key = v.keys[rng.IntN(len(v.keys))].key // repeated
+			} else if len(v.keys) > 0 && rng.IntN(5) == 0 {
+				key = "?" + v.keys[rng.IntN(len(v.keys))].key // a twin of a key
 			} else {
 				key = genKeys[rng.IntN(len(genKeys))]
 			}
@@ -464,65 +469,72 @@ func TestMemberPathPipeline(t *testing.T) {
 			Results:    r,
 		}
 	}
+	// engine says whether the engine evaluates the text with jsExpr off;
+	// js, whether jsExpr answers it instead when it is on.
 	cases := []struct {
 		text, want string
 		engine     bool
+		js         bool
 	}{
-		{"flow_input.cfg.region", `"eu-1"`, false},
-		{"previous_result.items[0]?.id", `7`, false},
-		{`results["a"].n`, `1`, true},
-		{"results.a?.missing?.x", `null`, true},
-		{"results.b.items.length", `1`, false},
-		{`results["b"]?.items[0].id`, `7`, false},
-		{"flow_input.cfg.toString", `null`, true},
-		{"flow_input.cfg.region.length", `4`, true},
-		{"flow_input.missing.x", "", true},
-		{"results.f?.n", "", true},
+		{"flow_input.cfg.region", `"eu-1"`, false, false},
+		{"previous_result.items[0]?.id", `7`, false, false},
+		{`results["a"].n`, `1`, true, false},
+		{"results.a?.missing?.x", `null`, true, false},
+		{"results.b.items.length", `1`, false, false},
+		{`results["b"]?.items[0].id`, `7`, false, false},
+		{"flow_input.cfg.toString", `null`, true, false},
+		{"flow_input.cfg.region.length", `4`, true, true},
+		{"flow_input.missing.x", "", true, false},
+		{"results.f?.n", "", true, false},
 		// Null tests and objects of member paths.
-		{"previous_result.items == null ? null : previous_result.items[0].id", `7`, false},
-		{"flow_input.cfg.missing !== undefined ? flow_input.cfg : null", `null`, false},
-		{"flow_input.cfg === null", `false`, false},
-		{"({ id: flow_input.cfg.region, n: flow_input.cfg.missing, 'x y': flow_input.cfg })", `{"id":"eu-1","x y":{"region":"eu-1"}}`, false},
-		{`({ a: results.b.items.length, "0": results.b.items[0].id })`, `{"0":7,"a":1}`, false},
-		{"results.a == null ? null : results.a.n", `1`, true},
-		{"({ n: results.a.n, m: results.a?.m })", `{"n":1}`, true},
-		{"flow_input.missing.x == null ? 1 : 2", "", true},
+		{"previous_result.items == null ? null : previous_result.items[0].id", `7`, false, false},
+		{"flow_input.cfg.missing !== undefined ? flow_input.cfg : null", `null`, false, false},
+		{"flow_input.cfg === null", `false`, false, false},
+		{"({ id: flow_input.cfg.region, n: flow_input.cfg.missing, 'x y': flow_input.cfg })", `{"id":"eu-1","x y":{"region":"eu-1"}}`, false, false},
+		{`({ a: results.b.items.length, "0": results.b.items[0].id })`, `{"0":7,"a":1}`, false, false},
+		{"results.a == null ? null : results.a.n", `1`, true, false},
+		{"({ n: results.a.n, m: results.a?.m })", `{"n":1}`, true, false},
+		{"flow_input.missing.x == null ? 1 : 2", "", true, false},
 	}
-	for _, exact := range []bool{true, false} {
-		for _, c := range cases {
-			t.Run(fmt.Sprintf("exact=%t/%s", exact, c.text), func(t *testing.T) {
-				counting := &countingEngine{Engine: real}
-				var eng Engine = counting
-				if exact {
-					eng = exactEngine{counting}
-				}
-				r := &fakeResults{
-					stored: map[string]string{"a": `{"n":1}`, "b": `{"from":"the lookup"}`},
-					fail:   map[string]string{"f": "Failed to fetch result for step 'f': synthetic"},
-				}
-				out, err := NewPipeline(eng).Eval(ctx, Compile(SiteInputTransform, c.text), scope(r))
-				got := string(out.Producer())
-				if err != nil {
-					got = err.Error()
-				}
-				if c.want != "" && got != c.want {
-					t.Errorf("%s, want %s", got, c.want)
-				}
-				if c.want == "" && err == nil {
-					t.Errorf("%s, want an error", got)
-				}
-				if n := counting.n.Load(); (n > 0) != (c.engine || !exact) || n > 1 {
-					t.Errorf("%d engine evaluations", n)
-				}
-				for _, id := range []string{"a", "f"} {
-					if n := strings.Count(strings.Join(r.asked, " "), "lookup:"+id); n > 1 {
-						t.Errorf("results.%s read %d times: %v", id, n, r.asked)
+	for _, js := range []bool{false, true} {
+		for _, exact := range []bool{true, false} {
+			for _, c := range cases {
+				t.Run(fmt.Sprintf("js=%t/exact=%t/%s", js, exact, c.text), func(t *testing.T) {
+					counting := &countingEngine{Engine: real}
+					var eng Engine = counting
+					if exact {
+						eng = exactEngine{counting}
 					}
-				}
-				if slices.Contains(r.asked, "lookup:b") {
-					t.Errorf("the previous id was read from the database: %v", r.asked)
-				}
-			})
+					r := &fakeResults{
+						stored: map[string]string{"a": `{"n":1}`, "b": `{"from":"the lookup"}`},
+						fail:   map[string]string{"f": "Failed to fetch result for step 'f': synthetic"},
+					}
+					p := NewPipeline(eng)
+					p.SetQuickJSOnly(!js)
+					out, err := p.Eval(ctx, Compile(SiteInputTransform, c.text), scope(r))
+					got := string(out.Producer())
+					if err != nil {
+						got = err.Error()
+					}
+					if c.want != "" && got != c.want {
+						t.Errorf("%s, want %s", got, c.want)
+					}
+					if c.want == "" && err == nil {
+						t.Errorf("%s, want an error", got)
+					}
+					if n := counting.n.Load(); (n > 0) != (c.engine && !(js && c.js) || !exact) || n > 1 {
+						t.Errorf("%d engine evaluations", n)
+					}
+					for _, id := range []string{"a", "f"} {
+						if n := strings.Count(strings.Join(r.asked, " "), "lookup:"+id); n > 1 {
+							t.Errorf("results.%s read %d times: %v", id, n, r.asked)
+						}
+					}
+					if slices.Contains(r.asked, "lookup:b") {
+						t.Errorf("the previous id was read from the database: %v", r.asked)
+					}
+				})
+			}
 		}
 	}
 	// The failed read gives the engine's error either way.

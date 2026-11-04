@@ -140,7 +140,7 @@ and exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of
@@ -170,6 +170,13 @@ case or run.
 ([ADR 0013](../../docs/design/0013-shared-module-code.md); deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations)): `warm` and `host` then run the scripts'
 shared-layout modules, and `fresh` their per-script bundles, as a bundle
 built so runs them.
+
+`-quickjs-only` runs every expression that the shortcuts and member paths
+do not answer on QuickJS-ng, without the pipeline's Go evaluator
+(`wl.Options.QuickJSOnly`, [ADR 0003](../../docs/design/0003-semantics-placement.md)).
+The package's tests run every flow fixture and expression case so when
+`WL_TEST_QUICKJS_ONLY=1`, and one CI part runs them that way. Every
+fixture, case and recording passes with the evaluator on and with it off.
 
 ### Step cases
 

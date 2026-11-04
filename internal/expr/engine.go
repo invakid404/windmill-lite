@@ -90,9 +90,18 @@ type HostString struct {
 // returns text that resolves the Promise as a string; a non-nil error
 // rejects it with an Error whose message is err.Error(). The results
 // lookups of JE-18 and the helpers of JE-11 and JE-20 are host functions.
+//
+// Inline marks a Call that never blocks: an in-memory read under a short
+// lock, such as the results lookup of a MemoryResults. An
+// engine may then call it on the thread that runs the evaluation, in call
+// order, instead of on a goroutine of its own. Its Promise settles at the
+// same point either way, after the jobs queued so far have run; the
+// engine's bound on the calls it holds at once still applies, and a chain
+// of inline calls must not keep another call's answer from settling.
 type HostFunc struct {
-	Name string
-	Call func(ctx context.Context, arg string) ([]byte, error)
+	Name   string
+	Call   func(ctx context.Context, arg string) ([]byte, error)
+	Inline bool
 }
 
 // Thrown says what kind of value a program threw. QuickJS-ng signals running

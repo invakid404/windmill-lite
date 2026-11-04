@@ -259,6 +259,18 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
+The pipeline's Go evaluator of templates, arithmetic, comparisons and
+predicates (`jsExpr`) is on unless `Config.QuickJSOnly` is set. It reads
+`results.<id>` through the run's frame results. They declare that their
+lookup reads the run's memory under the run's lock and never waits
+(`expr.MemoryResults`), so the expression engine also answers that lookup
+on its own thread.
+
+`TestQuickJSOnlyReachesThePipeline` runs a flow whose template, arithmetic
+and `skip_if` the evaluator answers, counting what reaches QuickJS-ng. With
+the evaluator on, nothing does; with `QuickJSOnly`, all three do, and the
+run's result is the same.
+
 **What it runs (N1a, N1b, N3a, N3b, N3c, N2, NI, N4).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,

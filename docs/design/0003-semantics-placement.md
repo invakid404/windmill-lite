@@ -153,6 +153,75 @@ harness, which is (a) with its duplication.
      (`ExactMemberPaths`). A differential test against QuickJS-ng over
      generated values and paths holds the two to each other. Such a path
      takes about 0.6 µs instead of 26 to 48 µs on a runtime.
+   - **Templates, arithmetic, comparisons and predicates over JSON values
+     are answered in Go too (`jsExpr`).** On such an engine, `jsExpr`
+     evaluates in Go a text that the member paths do not answer. It takes
+     member paths of bound roots combined with template literals,
+     literals, `.length`, `!`, unary `-`, the arithmetic and relational
+     operators, `===`, `!==`, `&&`, `||` and `?:`.
+   - A predicate site's text is taken inside its `Boolean(` … `)` wrapper,
+     and `Boolean` is the only call `jsExpr` parses. That wrapper is the
+     only one a predicate site adds
+     ([JE-24](../semantics/expressions.md#je-24)). The flow pipeline's two
+     other wrappers change nothing `jsExpr` answers:
+     - the `(await …)` around a results read
+       ([JE-12](../semantics/expressions.md#je-12)): `jsExpr` requires the
+       text to spell the read exactly as that rewrite does;
+     - the evaluator's `async function`
+       ([JE-13](../semantics/expressions.md#je-13)): only a statement,
+       `await`, `this` or `arguments` could observe it, and `jsExpr`
+       parses none of them.
+   - It declines wherever JavaScript would do more than compute over the
+     values' own data, and the engine then answers or fails as it would.
+     It declines:
+     - a member of `null` or `undefined`, and `__proto__`;
+     - an object compared or returned, or converted to a primitive when
+       it has a `toString` or `valueOf` key;
+     - a string or an object converted to a number, and a lone surrogate;
+     - a lookup that fails;
+     - a comment, a line break, a text that is not UTF-8, and any text it
+       does not parse whole.
+   - It keeps the evaluation's limits by answering only where the engine
+     certainly meets none of them:
+     - for [JE-3](../semantics/expressions.md#je-3)'s heap cap, it charges
+       an upper bound of the same evaluation's QuickJS heap and declines
+       past the cap. The bound is 1 MiB for a context, 66 bytes per byte
+       of every JSON text bound or read, and 2 bytes per character of
+       every string made. The constants and their measurements are
+       documented where they are defined;
+     - for [JE-48](../semantics/expressions.md#je-48)'s stack, it declines
+       a text nested deeper than 32 or longer than 16 KiB;
+     - for [JE-2](../semantics/expressions.md#je-2)'s attempt limit, it
+       runs only under a limit of at least 5 s. It charges its own work
+       before doing it (4 MiB of bytes scanned, walked and built), checks
+       the clock and the context at every node, and declines at a
+       hundredth of the limit;
+     - it reads `results.<id>` only through a lookup that reads memory
+       under a lock (`MemoryResults`: the engine's frame results), so no
+       read waits on anything. Every other lookup stays the engine's,
+       under its attempt limit.
+   - Reads happen in the program's order, and only where the program makes
+     them (short-circuits and `?:` branches included). A read made before
+     a decline is kept, and the engine's evaluation reuses it, so a step's
+     lookups and helper calls are the same with `jsExpr` on and off.
+   - The parse depends on the text alone, is cached per text, and is
+     separate from the evaluation, so that the choice can move to the
+     bundle's build later (planned, not done: the IR carries no choice).
+   - It is on by default. `wl.Options.QuickJSOnly` and the CLI's
+     `-quickjs-only` flag turn it off, as a safety valve for embedders.
+   - Tests hold its exactness:
+     - a differential test against QuickJS-ng over generated values and
+       expressions: 6,000 per run, and longer sweeps by `WL_JSEXPR_CASES`
+       and `WL_JSEXPR_SEED`;
+     - a Go fuzz test, seeded from that generator and from every
+       expression of the conformance suite;
+     - tests of the limits, of the isolation of evaluations, of the order
+       of reads, and of the read memo's keys;
+     - CI runs the conformance suite and the oracle recordings with
+       `jsExpr` on and with it off.
+
+     Such an expression takes about 2 µs instead of 29 to 36 µs on a
+     runtime (`BenchmarkEvalJSExpr`, Apple M4).
 3. **The engine is QuickJS-ng at revision `be664ca1`** (MIT), vendored as C
    source and embedded **natively through cgo**, behind a Go interface. Native
    wins because it scales about four times better with the bound input
@@ -203,8 +272,26 @@ harness, which is (a) with its duplication.
      a runtime returns its memory to the allocator, so there is no
      instance-level growth to manage (the wazero prototype held 570 MiB of
      linear memory after 256 KB runs, which is part of why it is deferred).
+   - **Freeing a runtime.** Each runtime allocates from a mimalloc
+     heap of its own, which the slot destroys whole after the evaluation
+     instead of freeing the runtime object by object; whatever QuickJS-ng
+     leaks goes with it. Nothing observable changes: no JavaScript runs
+     while a runtime is freed.
+   - **Leak check.** A second mode frees each runtime as before: QuickJS-ng's
+     own teardown, then a sweep that frees and counts the blocks it left.
+     Tests run in it with `WL_QJS_LEAK_CHECK=1`, and CI runs the
+     expression packages so. A leak that QuickJS-ng starts making then
+     still fails a test.
    - **Interrupts (D8).** An attempt that reaches 20 s is interrupted through
      QuickJS-ng's interrupt handler, and the slot prepares a new runtime.
+   - **Host calls.** A host call runs on a goroutine of its own, at
+     most 64 of an evaluation at once. A call that never blocks, the
+     results lookup when it reads the run's memory (`MemoryResults`), is
+     marked `Inline`: the slot answers it on its own thread, which saves
+     two thread hand-offs per read. Its
+     answers settle in call order, taking turns with the goroutine calls
+     that have answered, and count against the same bound until they
+     settle.
 7. **Harnesses are step runners.** Given a script, arguments and a
    per-invocation environment, a harness binds arguments, hydrates, calls the
    entrypoint, serialises the result or error with its language's rules, and

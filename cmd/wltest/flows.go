@@ -53,10 +53,17 @@ type flowChecker struct {
 	// warm and host-mode runs then run the scripts' shared-layout modules.
 	sharedCode bool
 	js         expr.Engine
+	// quickJSOnly runs every expression the shortcuts and member paths do
+	// not answer in QuickJS (wl.Options.QuickJSOnly); quickJSOnlyAll turns
+	// it on for every checker (this package's tests, WL_TEST_QUICKJS_ONLY).
+	quickJSOnly bool
 	// afterRuns, when set, is called in host mode once a fixture's runs
 	// have ended, before its host's teardown (tests: hostmode_test.go).
 	afterRuns func(*hostRuntime)
 }
+
+// quickJSOnlyAll sets every flowChecker's quickJSOnly (testmode_test.go).
+var quickJSOnlyAll = false
 
 // runResult is how one run of a fixture went.
 type runResult struct {
@@ -209,7 +216,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		opts := wl.Options{
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
-			Providers: fixtureProviders(f),
+			Providers: fixtureProviders(f), QuickJSOnly: fc.quickJSOnly || quickJSOnlyAll,
 		}
 		if fc.mode == ModeHost {
 			if host, err = fc.openHost(b.out, work, opts, &diag); err != nil {
@@ -439,7 +446,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 	// its inventory id.
 	items := map[string]string{}
 	open := func(t *target) {
-		if _, err := engine.New(engine.Config{Program: t.prog, JS: fc.js}); errors.Is(err, engine.ErrUnsupported) {
+		if _, err := engine.New(engine.Config{Program: t.prog, JS: fc.js, QuickJSOnly: fc.quickJSOnly || quickJSOnlyAll}); errors.Is(err, engine.ErrUnsupported) {
 			t.unsupported = "the engine does not run it yet: " + err.Error()
 		} else if err != nil {
 			t.problem = "engine: " + err.Error()

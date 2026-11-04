@@ -32,6 +32,13 @@ jobs:
     # `go test ./...` runs: the packages without TestFlowSuite, the suite's
     # modes whose names do not start with "host", and those that do.
     # TestFlowSuite is defined only in cmd/wltest.
+    #
+    # The part "Go (ubuntu-latest, QuickJS only)" runs the packages that hold
+    # the conformance suite and the oracle recordings (internal/expr and
+    # cmd/wltest) again with the pipeline's Go evaluator off
+    # (WL_TEST_QUICKJS_ONLY, wl.Options.QuickJSOnly; ADR 0003): every case
+    # must pass on QuickJS alone as well as with the evaluator, so that a gap
+    # in the evaluator cannot hide behind the engine, nor the reverse.
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -40,6 +47,10 @@ jobs:
           - name: Go (ubuntu-latest)
             os: ubuntu-latest
             checks: true
+          - name: Go (ubuntu-latest, QuickJS only)
+            os: ubuntu-latest
+            packages: ./internal/expr ./cmd/wltest
+            quickjs_only: "1"
           - name: Go (macos-latest, packages)
             os: macos-latest
             checks: true
@@ -147,12 +158,26 @@ jobs:
           RUN: ${{ matrix.run }}
           SKIP: ${{ matrix.skip }}
           PACKAGES: ${{ matrix.packages || './...' }}
+          WL_TEST_QUICKJS_ONLY: ${{ matrix.quickjs_only }}
         run: |
           args=(-race -timeout 45m)
           if [ -n "$RUN" ]; then args+=(-v -run "$RUN"); fi
           if [ -n "$SKIP" ]; then args+=(-skip "$SKIP"); fi
+          read -ra packages <<< "$PACKAGES"
           set -x
-          go test "${args[@]}" "$PACKAGES"
+          go test "${args[@]}" "${packages[@]}"
+
+      - name: Test the expression packages in leak check
+        if: matrix.checks
+        # The engine destroys each QuickJS-ng runtime's heap whole by
+        # default, leaks included, without counting them.
+        # Leak check frees each runtime block by block and counts what
+        # QuickJS-ng left, so the tests' check that no runtime leaked
+        # catches a leak QuickJS-ng starts making
+        # (internal/expr/quickjs, Options.LeakCheck).
+        env:
+          WL_QJS_LEAK_CHECK: "1"
+        run: go test -race -count=1 ./internal/expr/...
 
       - name: Build a fixture bundle twice and compare
         if: matrix.checks

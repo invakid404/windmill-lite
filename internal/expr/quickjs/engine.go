@@ -26,6 +26,14 @@ type Options struct {
 	// its compiled program or its compile error; 0 means 1024, and a
 	// negative value turns the cache off.
 	CacheEntries int
+	// LeakCheck frees each runtime block by block, as QuickJS-ng frees it,
+	// then frees and counts the blocks the engine left allocated
+	// (Stats.LeakedBlocks). By default each runtime allocates from a
+	// mimalloc heap of its own, which the slot destroys whole after the
+	// evaluation, leaks included, without counting them.
+	// Tests use it so that a leak QuickJS-ng starts making still fails
+	// them; builds with the wl_libc_malloc tag always run so.
+	LeakCheck bool
 }
 
 // ErrClosed is returned by an Engine that has been closed.
@@ -48,6 +56,7 @@ type Engine struct {
 	wg        sync.WaitGroup
 	cache     *compileCache
 	stats     counters
+	leakCheck bool
 }
 
 var _ expr.Engine = (*Engine)(nil)
@@ -92,10 +101,11 @@ func New(opts Options) (*Engine, error) {
 		return nil, fmt.Errorf("expr/quickjs: slot count %d is negative", n)
 	}
 	e := &Engine{
-		limits:  limits,
-		slots:   n,
-		jobs:    make(chan *job),
-		closing: make(chan struct{}),
+		limits:    limits,
+		slots:     n,
+		jobs:      make(chan *job),
+		closing:   make(chan struct{}),
+		leakCheck: opts.LeakCheck,
 	}
 	switch entries := opts.CacheEntries; {
 	case entries == 0:
@@ -257,15 +267,23 @@ type Stats struct {
 	Timeouts uint64
 	Canceled uint64
 	// LeakedBlocks counts heap blocks that were still allocated after a
-	// runtime had been freed, which the engine then freed itself.
-	// QuickJS-ng leaks for some programs (assigning an object to
-	// Error.stackTraceLimit, for one); any other leak is a bug.
+	// runtime had been freed, which the engine then freed itself. It is
+	// counted only in leak check (Options.LeakCheck, and builds with the
+	// wl_libc_malloc tag); in the default mode the engine destroys each
+	// runtime's heap whole, leaks included, and it stays 0. QuickJS-ng
+	// leaks for some programs (assigning an object to Error.stackTraceLimit,
+	// for one); any other leak is a bug.
 	LeakedBlocks uint64
 }
 
 type counters struct {
 	evaluations, compiles, waited, timeouts, canceled, leaked atomic.Uint64
 	waitNanos                                                 atomic.Int64
+	// leakedBytes is the usable bytes of the blocks leaked counts (tests).
+	leakedBytes atomic.Uint64
+	// heldPeak is the most host calls one evaluation held at once, running
+	// or answered inline and not yet settled (tests; with one slot).
+	heldPeak atomic.Int64
 }
 
 // Stats returns the Engine's counters.
