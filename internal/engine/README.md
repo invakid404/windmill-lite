@@ -1155,9 +1155,9 @@ through the job registry.
   loop's index counts its completed children), `parallel`, `while_loop`
   or `branchall`. A container's job is its last child; a running
   parallel loop's, its last child released, the last by index among
-  children released together (Windmill names whichever of those a
-  worker picked up last); a completed parallel container's, the child
-  that completed last. A container that completed
+  children released together, as a running parallel branchall's
+  (Windmill names whichever of those a worker picked up last); a
+  completed parallel container's, the child that completed last. A container that completed
   with no child, or whose start failed, and a branchone whose predicate
   threw, have the nil job. `step` follows the module cursor.
 - **Jobs pushed for later.** A job scheduled after the sleep of the step

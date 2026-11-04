@@ -1732,16 +1732,19 @@ interface); `WA-Vn` findings were added during validation.
     | `branchall` | a branchall that runs | `{"branch": <k>, "len": <n>}`: the branch that runs, or in a parallel one the number of its branches that have completed; the number of branches |
     | `failed_retries` | a module some of whose attempts failed | the failed attempts' jobs ([FX-27](execution.md#fx-27)): a step's failed jobs; a subflow's or a container's failed flow job, which keeps its own modules and jobs (WA-19/l) |
 
-    A container's `job` is its last child while it runs, except that a
-    running parallel loop's is the child that a worker picked up last, its
-    parallelism holding the others: the child it released last, and among
-    children released together, as at its start, whichever was picked up
-    last, which varies between runs (recorded `l/i:1` in seven repeats of
-    run `par` and `l/i:0` in one, oracle run 41814009799); once a
-    sequential container has completed, its last child; once a parallel
-    one has, the child that completed last ([CF-22](control-flow.md#cf-22))
-    (WA-19/g, WA-19/n).
     | `flow_jobs_duration` | a loop or a branchall | its children's start times and durations |
+
+    A container's `job` is its last child while it runs, except that a
+    running parallel container's is the child that a worker picked up
+    last: a parallel loop whose parallelism holds children names the child
+    it released last, and among children released together, a parallel
+    loop's at its start and every branch of a parallel branchall, the one
+    picked up last varies between runs (run `par`'s loop named `l/i:1` in
+    seven repeats and `l/i:0` in one, oracle run 41814009799; run
+    `partial`'s branchall `b:1` and `b:0`, oracle run 41820829156). Once a
+    sequential container has completed, its `job` is its last child; once
+    a parallel one has, the child that completed last
+    ([CF-22](control-flow.md#cf-22)) (WA-19/g, WA-19/n).
   - **`no_logs`.** `no_logs=true` leaves `logs` out. Without it, and with
     `no_logs=false`, a script job's record has `logs`, a text whose first
     line is the worker's
@@ -1857,7 +1860,10 @@ interface); `WA-Vn` findings were added during validation.
 
   A job of a run that has ended answers 501, since windmill-lite releases
   the run (deviation D22 of
-  [ADR 0001](../design/0001-equivalence-contract.md)). It replaces large
+  [ADR 0001](../design/0001-equivalence-contract.md)). Of children a
+  running parallel container released together, it names the last
+  released by index, the child Windmill named in most recorded repeats.
+  It replaces large
   arguments and results as Windmill does: it computes `pg_column_size`
   from the value, jsonb's binary form compressed by a port of pglz, both
   checked against PostgreSQL. The states the oracle has not recorded

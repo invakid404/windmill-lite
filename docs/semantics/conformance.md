@@ -7418,20 +7418,22 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     `step` is 1, its second step waiting. The failed starts are `Failure`
     with the nil job and nothing else. A running parallel loop's
     `iterator.index` is the number of its children that have completed,
-    its `job` its last child released to run (of two released together,
-    either), its `flow_jobs` every child, a held one included, which is a `QueuedJob` with
-    `running: true` and every module waiting. A running parallel
-    branchall's `branchall.branch` is 0 and its `job` its last branch,
-    with `parallel: true`, and once a branch has completed, `branch` 1, the
-    number completed, in either order. Completed, each container names the
-    child that completed last.
+    its `job` its last child released to run (of children released
+    together, any of them), its `flow_jobs` every child, a held one
+    included, which is a `QueuedJob` with `running: true` and every module
+    waiting. A running parallel branchall's `branchall.branch` is 0 and,
+    once a branch has completed, 1, the number completed, in either order,
+    with `parallel: true`; its `job` is any of its branches. Completed,
+    each container names the child that completed last.
   - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
     runs `edges` and `fails`, [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
     runs `held`, `held1` and `held2`, oracle run 41791783623, and `par`
-    and `partial`, oracle run 41816071223, as expected. In run `par` the
-    reader writes the running parallel loop's `job` as `<racy>`: of its
-    two children, started together, oracle run 41814009799 named `l/i:1`
-    in one repeat and `l/i:0` in the other.
+    and `partial`, oracle run 41825190326, as expected. Their readers write
+    the `job` of a running parallel branchall, and in run `par` of the
+    running parallel loop, as `<racy>`: of children released together,
+    oracle run 41814009799 named `l/i:1` and `l/i:0` in the two repeats of
+    `par`, and oracle run 41820829156 `b:1` and `b:0` in those of
+    `partial`.
 - **WA-19/o** · oracle-observed · large results and arguments
   - **Given:** a step returns a value; the next step takes it as its
     argument `x`; a third reads both jobs. The value is a string of `n`
@@ -7467,7 +7469,8 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     entry is `InProgress` with its first child pushed, a `QueuedJob` with
     `running: false`, and a collapsed loop's with its body job so.
   - **Recorded:** [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
-    runs `waits` and `waits2`, oracle run 41816071223, as expected.
+    runs `waits` and `waits2`, oracle run 41825190326, as expected, the
+    running parallel branchall's `job` written `<racy>`.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour
