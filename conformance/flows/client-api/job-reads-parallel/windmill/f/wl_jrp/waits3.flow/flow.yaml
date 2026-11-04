@@ -1,0 +1,202 @@
+summary: job reads, a sibling reads flows whose skipped, mocked, identity,
+  failing and cached steps wait for a sleep
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: a0
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w3_0
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: s
+                value:
+                  type: rawscript
+                  content: '!inline one.ts'
+                  input_transforms: {}
+                  lock: '!inline one.lock'
+                  language: bun
+                skip_if:
+                  expr: 'true'
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: a1
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w3_1
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: m
+                value:
+                  type: rawscript
+                  content: '!inline one.ts'
+                  input_transforms: {}
+                  lock: '!inline one.lock'
+                  language: bun
+                mock:
+                  enabled: true
+                  return_value:
+                    m: 1
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: a2
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w3_2
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: i
+                value:
+                  type: identity
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: a3
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w3_3
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: t
+                value:
+                  type: rawscript
+                  content: '!inline t.ts'
+                  input_transforms:
+                    x:
+                      type: javascript
+                      expr: flow_input.nope.deeper
+                  lock: '!inline t.lock'
+                  language: bun
+                continue_on_error: true
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: c0
+                value:
+                  type: script
+                  input_transforms: {}
+                  path: f/wl_jrp/pure
+                cache_ttl: 600
+              - id: a4
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w3_4
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: c1
+                value:
+                  type: script
+                  input_transforms: {}
+                  path: f/wl_jrp/pure
+                cache_ttl: 600
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: a5
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w3_5
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: e
+                value:
+                  type: rawscript
+                  content: '!inline e.ts'
+                  input_transforms:
+                    _ENTRYPOINT_OVERRIDE:
+                      type: static
+                      value: 1bad
+                    x:
+                      type: static
+                      value: 1
+                  lock: '!inline e.lock'
+                  language: bun
+                continue_on_error: true
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: r
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: w3
+                    role:
+                      type: static
+                      value: readwaits3
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+    - id: after
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jrp/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

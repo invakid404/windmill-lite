@@ -1,0 +1,8 @@
+# A parallel branchall whose branches wait for the sleep of the step
+# before: a step skip_if skips, a mocked step, an identity module, a step
+# whose input transform throws, a step the result cache answers at its
+# pickup, and a step whose entrypoint override is invalid; the last
+# branch reads the job tree meanwhile, and the step after the branchall
+# reads it completed.
+spec: [WA-19/p]
+target: f/wl_jrp/waits3

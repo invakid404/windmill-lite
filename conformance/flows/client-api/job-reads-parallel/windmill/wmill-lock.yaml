@@ -8,10 +8,15 @@ locks:
   f/wl_jrp/one.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
   f/wl_jrp/par.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
   f/wl_jrp/partial.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_jrp/pure: 8169355452005dcd9134f0ed0b62a7f880665fbff8d2764edc1a1f82d3f86b4d
   f/wl_jrp/read: 8100f482743ecd2f5abc68a572765a303e713cf41d0cd383a4f834d35386a111
-  f/wl_jrp/role: 617a7675db27412618dc003685b54b7fa10bb82d1a86bb50e88e18cfd9f549b0
+  f/wl_jrp/role: a3057d3cb42e19f085e5a0c6f1d32892a62dde3dd4f32e8611fa6f822939a848
   f/wl_jrp/waits.flow+__flow_hash: 3fdcfb307b9c2fdcf25cbcb38c3fa0e307e35873e12491c78a08bec30d9f532c
   f/wl_jrp/waits.flow+a.ts: 801455e35ec5a3d19faa5e385eafb20bb18dde75249911e1fde62f83c83f995e
   f/wl_jrp/waits.flow+b.ts: fed36c3546401948fcd6e8e300e2edd5e5021a23ec991d990f2467e82576b2c4
   f/wl_jrp/waits.flow+f.ts: 28f2aa5b486a7fcf5e35f2c470dd0151dbd72257525c5addba7af6c40442283f
   f/wl_jrp/waits2.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_jrp/waits3.flow+__flow_hash: b5435868a9dabe9cb7c03c25b19d776d88985cc718797c7f11d75e9c6f351150
+  f/wl_jrp/waits3.flow+e.ts: 2ae1c9426c5bb2ab057e6f1e8a553fd4efd4a0d6761ddb82d9638701ab8ea7bc
+  f/wl_jrp/waits3.flow+one.ts: ff81ea6f4f54082b78f040685e0d3fc8d5afb13d542c18777fcddd13377350df
+  f/wl_jrp/waits3.flow+t.ts: 2ae1c9426c5bb2ab057e6f1e8a553fd4efd4a0d6761ddb82d9638701ab8ea7bc

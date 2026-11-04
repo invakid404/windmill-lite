@@ -21,7 +21,7 @@ const LEFT_OUT = new Set([
   "mem_peak", "script_hash", "raw_code", "raw_lock", "raw_flow", "logs",
   "job_kind", "tag", "priority", "visible_to_owner", "is_retry", "same_worker",
   "suspend", "script_entrypoint_override", "result_columns", "deleted",
-  "is_skipped", "leaf_jobs", "canceled_by", "canceled_reason", "schedule_path",
+  "is_skipped", "leaf_jobs", "canceled_by", "canceled_reason", "schedule_path", "pre_run_error",
   "workflow_as_code_status", "preprocessed", "labels",
 ]);
 const STATUS_SERVED = new Set(["step", "modules", "failure_module", "preprocessor_module", "cleanup_module", "user_states"]);

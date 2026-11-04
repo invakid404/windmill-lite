@@ -5,7 +5,9 @@
 # far below and not at all; window is a block repeated beyond the 4 KiB
 # that pglz looks back, which only lz4 would shrink; rows is an array of
 # objects; walkx and walkr walk up the parent chain from under a sub-flow
-# whose input is large. windmill-lite answers each as Windmill does, from
+# whose input is large; edge1 to edge4 put the result and the argument map
+# at 89,999 and 90,000 bytes stored, either side of the replacement.
+# windmill-lite answers each as Windmill does, from
 # the stored size it computes (jsonval.ToastedSize). Synthetic, written for
 # this repository.
 id: client-api/job-reads-large

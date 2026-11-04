@@ -9,7 +9,8 @@
 // reads; "fastmark" sets <k>_fast and returns; "readafter" waits until
 // <k>_fast is set and a second more, then reads; "readwaits" waits until
 // <k>_a and <k>_f are set and 1.5 s more, then reads; "readwaits2" the
-// same for <k>_a, <k>_c, <k>_d, <k>_sf and <k>_l. The keys are the run's root flow job's (WA-14).
+// same for <k>_a, <k>_c, <k>_d, <k>_sf and <k>_l, and "readwaits3" for
+// <k>_0 to <k>_5. The keys are the run's root flow job's (WA-14).
 const NIL = "00000000-0000-0000-0000-000000000000";
 const e = process.env;
 // The fields of a job that windmill-lite serves (WA-19), and those it
@@ -26,7 +27,7 @@ const LEFT_OUT = new Set([
   "mem_peak", "script_hash", "raw_code", "raw_lock", "raw_flow", "logs",
   "job_kind", "tag", "priority", "visible_to_owner", "is_retry", "same_worker",
   "suspend", "script_entrypoint_override", "result_columns", "deleted",
-  "is_skipped", "leaf_jobs", "canceled_by", "canceled_reason", "schedule_path",
+  "is_skipped", "leaf_jobs", "canceled_by", "canceled_reason", "schedule_path", "pre_run_error",
   "workflow_as_code_status", "preprocessed", "labels",
 ]);
 const STATUS_SERVED = new Set(["step", "modules", "failure_module", "preprocessor_module", "cleanup_module", "user_states"]);
@@ -45,13 +46,21 @@ const extra = new Set<string>();
 // A running parallel container names as its job the child that a worker
 // picked up last, whose order varies between runs when children are
 // released together: always in a parallel branchall, and in a parallel
-// loop at its start. The reader writes such a job as <racy> and does not
-// walk from it (WA-19/n): a running parallel branchall's always, and a
-// running parallel loop's while racy is set, by readTree's racyLoops on
-// every read, for the reader of a loop whose children start together.
+// loop at its start. The reader then checks that the job is one of the
+// module's own flow_jobs, and writes it as <one of flow_jobs> only then;
+// any other value stays as it is, and fails the comparison. Each of the
+// flow_jobs is read anyway, so the named child's record and links are
+// checked there, and the reader does not walk from the job a second time
+// (WA-19/n). That holds for a running parallel branchall's job always,
+// and a running parallel loop's while racy is set, by readTree's
+// racyLoops on every read, for the reader of a loop whose children start
+// together.
 let racy = false;
 const racyLoop = (m: any) =>
-  m?.parallel === true && (m?.branchall !== undefined || (racy && m?.iterator !== undefined));
+  m?.parallel === true &&
+  (m?.branchall !== undefined || (racy && m?.iterator !== undefined)) &&
+  Array.isArray(m?.flow_jobs) &&
+  m.flow_jobs.includes(m?.job);
 function keep(v: any, served: Set<string>, left: Set<string>, where: string, each: (k: string, x: any) => any): any {
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
@@ -62,7 +71,7 @@ function keep(v: any, served: Set<string>, left: Set<string>, where: string, eac
 }
 function entry(m: any): any {
   if (m === null || typeof m !== "object") return m;
-  return keep(m, MODULE_SERVED, MODULE_LEFT_OUT, "module", (k, x) => (k === "job" && racyLoop(m) ? "<racy>" : x));
+  return keep(m, MODULE_SERVED, MODULE_LEFT_OUT, "module", (k, x) => (k === "job" && racyLoop(m) ? "<one of flow_jobs>" : x));
 }
 function pick(job: any): any {
   return keep(job, SERVED, LEFT_OUT, "job", (k, x) => {
@@ -139,6 +148,11 @@ export async function main(role: string, k: string) {
   if (role === "readafter") {
     await until(`${k}_fast`);
     await Bun.sleep(1000);
+    return await readTree();
+  }
+  if (role === "readwaits3") {
+    for (let i = 0; i < 6; i++) await until(`${k}_${i}`);
+    await Bun.sleep(1500);
     return await readTree();
   }
   if (role === "readwaits2") {
