@@ -1,0 +1,4 @@
+# A sub-flow that failed and succeeded on its retry: the reader reads
+# both attempts' flow jobs and their steps.
+spec: [WA-19/l]
+target: f/wl_jr/subretry

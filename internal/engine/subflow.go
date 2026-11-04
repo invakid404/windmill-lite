@@ -39,10 +39,13 @@ func inputsOf(m *ir.Module) []ir.Input {
 // hands the step its last carried value, while lookups read the stored
 // error (CF-23 route 3). The step's own stop_after_if is evaluated after a
 // success, whatever stop the subflow raised.
-func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value) outcome {
+func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, pushed *frame) outcome {
 	m := fr.moduleAt(i)
-	c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-	r.addChild(c)
+	c := pushed
+	if c == nil {
+		c = r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
+		r.addChild(fr, i, 0, c)
+	}
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
 	if e.unreported {
@@ -108,6 +111,7 @@ func (r *run) subflowFrame(fr *frame, i int, sub *ir.Flow, stored jsonval.Value)
 	now := r.clock.Now()
 	c := newFrame(sub.Modules, fr.sites[i])
 	c.site, c.child, c.subflow, c.id, c.pinged, c.started = fr.sites[i], true, true, newUUID(), now, now
+	c.parentJob, c.moduleID = fr.id, fr.moduleAt(i).ID
 	c.def, c.failure = sub, sub.FailureModule
 	c.input = jsonval.FromProducer(flowInputText(stored.Producer(), fr.rng))
 	c.path, c.nodes, c.rng = sub.Path, newNodeScope(fr.nodes), fr.rng

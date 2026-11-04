@@ -587,6 +587,7 @@ groups:
 | `retained` | `BenchmarkRetainedHeap`, `-benchtime 1x` |
 | `native` | `BenchmarkNativeRealm`, `-benchtime 1x`, with `WL_NATIVE_RUNS=8000` (80,000 native invocations), so that the process warms up within the first quarter, which the figures per invocation leave out |
 | `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
+| `mid` | in a process each (`WL_BENCH_FRESH=1`), the sequential shapes between 1 KiB and 256 KiB: `s50-50KiB`, `s200-mixed`, `s600-10KiB`, `s600-50KiB` and `s600-mixed`, `-benchtime 10x` |
 | `embedder` | `BenchmarkEmbedder`, all twelve workloads, `-benchtime 1x`, 20 measured requests per side per round (`WL_BENCH_EMB_N=20`) |
 
 ```sh

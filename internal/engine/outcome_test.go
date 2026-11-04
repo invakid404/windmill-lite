@@ -234,7 +234,7 @@ func TestEntrypointWalk(t *testing.T) {
 		}
 		var name string
 		if json.Unmarshal(raw, &name) != nil || !entrypointName.MatchString(name) {
-			return "", true, fmt.Errorf("%w: %s", ErrInvalidEntrypoint, raw)
+			return "", true, fmt.Errorf("%w %s: must match %s (letters, digits and underscores, not starting with a digit)", ErrInvalidEntrypoint, raw, entrypointName)
 		}
 		return name, true, nil
 	}

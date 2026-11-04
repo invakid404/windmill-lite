@@ -84,8 +84,27 @@ type run struct {
 	// (RunRequest.Around), or is nil.
 	around func(Site) []int
 
-	mu    sync.Mutex // guards trace and the frames' job results
+	mu    sync.Mutex // guards trace, the frames' job results, jobs and iterLen
 	trace Trace
+	// jobs indexes the jobs of the run's tree by id, for their records
+	// (WA-19, runView), and iterLen holds the number of items of each for
+	// loop that has evaluated its iterator, by the loop's site, which its
+	// status shows while it runs.
+	jobs    map[string]*jobRef
+	iterLen map[conformance.SitePath]int
+	// ends counts the ends of the run's child flows, which orders them
+	// (jobRef.ended).
+	ends uint64
+	// sched holds, by record, the script jobs pushed for later, which
+	// wait for a sleep or a retry delay (jobScheduled), until their
+	// invocation takes the id; nsched counts the jobs it ever held, so
+	// that an invocation in a run that pushed none looks nothing up.
+	sched  map[int]schedJob
+	nsched atomic.Int32
+	// rootEnd is the run's own end, once its modules are done: a dispatched
+	// run tracked in its parent stays in its root's tree after it ends,
+	// and its record then shows it completed.
+	rootEnd *flowEnd
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
@@ -95,6 +114,8 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState, SharedCode: e.sharedCode}
+	r.jobs, r.iterLen, r.sched = map[string]*jobRef{}, map[conformance.SitePath]int{}, map[int]schedJob{}
+	r.indexFlow(r.root)
 	if e.sharedCode {
 		r.trace.Deviations = []string{"D18"}
 	}
@@ -640,14 +661,15 @@ func (r *run) run(ctx context.Context) {
 // names may have new content by then ([FX-40]).
 //
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
-func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
+func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 	if fr != r.root && fr.collapsed == nil {
 		// A child flow (a loop iteration, a branch, a subflow) is a flow
 		// job of the run's tree while it runs (ADR 0007, D3), so a dispatch
 		// whose parent_job names it gets its runnable path (WA-15), and its
-		// id answers root lookups, whether or not one of its steps has
-		// registered yet.
-		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path})()
+		// id answers root lookups and job reads, whether or not one of its
+		// steps has registered yet. Its record shows its end (WA-19).
+		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path, Run: r.id, View: runView{r}})()
+		defer func() { r.childEnded(fr, e) }()
 	}
 	if !fr.cacheTTL.set {
 		return r.runModules(ctx, fr)
@@ -671,7 +693,7 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, cached: true}
 		}
 	}
-	e := r.runModules(ctx, fr)
+	e = r.runModules(ctx, fr)
 	if !e.stores || ended(e.status) || !fr.cacheTTL.stores() {
 		return e
 	}
@@ -726,7 +748,14 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 	// it without running its body (CF-28 rule 2). A collapsed iteration's
 	// body job waits as any job does (begin.due).
 	if !fr.due.IsZero() && fr.collapsed == nil {
-		if err := r.wait(ctx, fr.site, fr.due); err != nil {
+		r.mu.Lock()
+		fr.scheduled = true
+		r.mu.Unlock()
+		err := r.wait(ctx, fr.site, fr.due)
+		r.mu.Lock()
+		fr.scheduled = false
+		r.mu.Unlock()
+		if err != nil {
 			return flowEnd{status: r.endedStatus(ctx, conformance.RunCanceled)}
 		}
 	}
@@ -1115,6 +1144,14 @@ func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.Sit
 		}
 		return true
 	case isContainer(m.Kind) && j != nil:
+		for _, c := range fr.kids[i] {
+			if c != nil && c.site == j.site {
+				if fr.attempts == nil {
+					fr.attempts = map[int]string{}
+				}
+				fr.attempts[idx] = c.id
+			}
+		}
 		r.supersedeLocked(fr.sites[i], j.site, site)
 		*rec = StepRecord{Site: site, Attempt: rec.Attempt, Ran: true, Status: flowStepStatus(j.end.status), Start: rec.Start, Duration: rec.Duration,
 			RecordedArgs: j.input, ResolvedArgs: j.input, Result: j.end.result, ResultOrigin: j.end.origin, ResultNested: j.end.nested, Late: rec.Late}
@@ -1267,9 +1304,18 @@ func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value
 	r.mu.Lock()
 	idx := len(r.trace.Steps)
 	r.trace.Steps = append(r.trace.Steps, StepRecord{Site: site.Path})
+	r.attemptStarted(fr, i, idx)
 	r.mu.Unlock()
 	start := r.clock.Now()
 	o := r.module(ctx, fr, i, prev, prevID, idx, b)
+	r.noInvocationJob(fr, i, idx, &o)
+	if o.rec.Job != "" && o.rec.Cached && fr.moduleAt(i).Kind != ir.KindSubflow {
+		// A leaf the result cache answered (FX-40), whose job no
+		// invocation ran.
+		r.mu.Lock()
+		r.indexLeaf(o.rec.Job, fr, i, idx, false)
+		r.mu.Unlock()
+	}
 	if o.rec.Start.IsZero() {
 		o.rec.Start, o.rec.Duration = start, r.since(start)
 	}
@@ -1504,8 +1550,39 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// FX-26). A cancellation makes the queued job due at once, and it
 	// fails without running with the Canceled error, a failure and not a
 	// canceled job (FX-38, recorded by fx-23/canceled_sleep).
+	var pushed *frame // a flow step's child flow, pushed for later
 	if !due.IsZero() {
-		if err := r.wait(ctx, site.Path, due); err != nil {
+		// Every job is pushed with its id, which the flow's status names
+		// while it waits (WA-19/p): a script job, an identity job and a job
+		// that will fail at its pickup, whose id whatever completes it takes
+		// (run.takeScheduled), and a flow step's child flow, which its run
+		// takes. A host-provided site's has no Windmill counterpart and is
+		// not read while it waits.
+		scheduled := true
+		switch {
+		case m.Kind == ir.KindProvided:
+			scheduled = false
+			r.mu.Lock()
+			fr.owner().waiting++
+			r.mu.Unlock()
+		case m.Kind == ir.KindSubflow && !identity:
+			pushed = r.subflowScheduled(fr, i, idx, stored)
+		default:
+			r.jobScheduled(fr, i, idx, stored, identity)
+		}
+		err := r.wait(ctx, site.Path, due)
+		r.mu.Lock()
+		switch {
+		case pushed != nil:
+			pushed.scheduled = false
+			delete(r.sched, idx)
+		case scheduled:
+			r.sched[idx] = schedJob{id: r.sched[idx].id}
+		default:
+			fr.owner().waiting--
+		}
+		r.mu.Unlock()
+		if err != nil {
 			reason, canceler := cancellationOf(ctx)
 			v := canceledError(reason, canceler)
 			o.rec.Ran, o.rec.Start = true, r.clock.Now()
@@ -1516,8 +1593,11 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				// them as never started ([FX-38]).
 				//
 				// [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
-				c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-				r.addChild(c)
+				c := pushed
+				if c == nil {
+					c = r.unlaunchedSubflow(fr, i, stored)
+				}
+				r.childEnded(c, flowEnd{status: conformance.RunFailure, result: v})
 				o.rec.Job = c.id
 			}
 			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginEngine
@@ -1532,14 +1612,19 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	o.rec.Start = r.clock.Now()
 	if preRun != nil {
 		o.rec.Ran = true
-		if m.Kind == ir.KindSubflow {
+		if m.Kind == ir.KindSubflow && pushed != nil {
+			// The subflow pushed for later fails at its pickup, as one
+			// pushed at once does (FX-14).
+			o.rec.Job = pushed.id
+			defer func() { r.childEnded(pushed, flowEnd{status: conformance.RunFailure, result: o.rec.Result}) }()
+		} else if m.Kind == ir.KindSubflow {
 			// FX-14: a flow step's job, its subflow's, still launches and
 			// fails before any of the subflow's modules runs, which the
 			// walker reads as not_run (recorded by the
 			// control-flow/subflow-retry fixture's run pre_run).
-			c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-			r.addChild(c)
+			c := r.unlaunchedSubflow(fr, i, stored)
 			o.rec.Job = c.id
+			defer func() { r.childEnded(c, flowEnd{status: conformance.RunFailure, result: o.rec.Result}) }()
 		}
 		out := fail(transformError(preRun, fr.collapsed != nil), OriginEngine)
 		r.recordJob(fr, i, out.rec.Result)
@@ -1590,20 +1675,21 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		if !r.firstWrite(ctx, site) {
 			return notLaunched()
 		}
-		return r.subflow(ctx, fr, i, site.Path, o, stored)
+		return r.subflow(ctx, fr, i, site.Path, o, stored, pushed)
 	default:
 		// FX-40: once the job is picked up, before it runs, the result
 		// cache may answer it.
 		if cacheKey, cacheTTL = r.leafCache(ctx, fr, m, stored); cacheKey != "" {
 			if c, hit := r.lookup(ctx, cacheKey); hit {
-				return r.cachedJob(ctx, fr, i, site.Path, o, c)
+				return r.cachedJob(ctx, fr, i, idx, site.Path, o, c)
 			}
 		}
 		entry, _, err := storedEntrypoint(stored)
 		if err != nil {
-			// WR-12: the job fails before any wrapper runs.
+			// WR-12: the job fails at its pickup, before any wrapper runs,
+			// with the worker's execution error.
 			o.rec.Ran = true
-			out := fail(engineError("ExecutionErr", err.Error()), OriginEngine)
+			out := fail(workerError(fr.stepID(i), "execution error:\nBad request: "+err.Error()), OriginEngine)
 			r.recordJob(fr, i, out.rec.Result)
 			r.ended(fr, &out)
 			return out
@@ -2328,8 +2414,12 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 // ADR 0007): its job id, its innermost scope and its runnable path.
 func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
+	id, ok := r.takeScheduled(idx)
+	if !ok {
+		id = newUUID()
+	}
 	inv := Invocation{
-		ID:          newUUID(),
+		ID:          id,
 		Run:         r.id,
 		Site:        site.Path,
 		Script:      m.Leaf.Script,
@@ -2343,6 +2433,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		inv.Around = r.around(site)
 	}
 	inv.Env = r.jobEnv(fr, i, inv.ID)
+	r.jobLaunched(fr, i, idx, inv.ID, args)
 	// The job's reserved variables, which its argument resolution reads
 	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
 	// strings in a resource an argument names; neither the script's own

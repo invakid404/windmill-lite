@@ -1,0 +1,23 @@
+# GET jobs_u/get/{id} (WA-19) on parallel containers whose children run at
+# once and complete out of order, recorded on the oracle with two workers,
+# since the two children of each container wait for each other (OR-5).
+# The path script f/wl_jrp/role runs as either child of a parallel loop
+# and of a parallel branchall: the slow child completes after the reader,
+# which reads its run's job tree while both run; f/wl_jrp/read reads the
+# tree after both containers, as f/wl_jr/read does in client-api/job-reads.
+# Runs held, held1 and held2 read parallel loops with a parallelism; run
+# partial reads parallel branchalls with one branch completed; runs waits,
+# waits2 and waits3 read, from a sibling branch, flows whose steps,
+# sub-flows and containers wait for a sleep or a retry's delay, waits3's
+# being skipped, mocked, identity, failing, cached and wrongly entered
+# steps, a skipped loop, a mocked branchone and a failing flow step. Of a running parallel container whose children were released
+# together, the readers check that its job is one of its flow_jobs and
+# write it as <one of flow_jobs>, since which one varies between runs.
+# Every id in an answer is a job of the run, which the normaliser writes as
+# its site (OR-14). Synthetic, written for this repository.
+id: client-api/job-reads-parallel
+spec: [WA-19/n, WA-19/p, OR-5, OR-14]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2}

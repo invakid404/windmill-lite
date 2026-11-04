@@ -3,21 +3,26 @@ package facade
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The job routes of ADR 0007's services: the root lookup, from the job
-// registry (D3); flow user state ([WA-14]); and the result polls of the
-// runs a step dispatched ([WA-15], [WA-V2]). Each route's job id is a UUID
-// path parameter, which Windmill's web framework refuses with a 400 of
-// its own before the handler runs when it is not one (pathUUID).
+// The job routes of ADR 0007's services: the root lookup and the job
+// reads of a live run, from the job registry (D3, [WA-19]); flow user
+// state ([WA-14]); and the result polls of the runs a step dispatched
+// ([WA-15], [WA-V2]). Each route's job id is a UUID path parameter, which
+// Windmill's web framework refuses with a 400 of its own before the
+// handler runs when it is not one (pathUUID).
 //
 // [WA-14]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-14
 // [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 // [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
 func (f *Facade) serveJobs() {
 	f.Handle("getRootJobId", f.rootJobID)
+	f.Handle("getJob", f.getJob)
+	f.Handle("getJobArgs", f.getJobArgs)
 	f.Handle("getFlowUserState", f.getFlowUserState)
 	f.Handle("setFlowUserState", f.setFlowUserState)
 	f.Handle("getCompletedJobResultMaybe", f.resultMaybe)
@@ -55,6 +60,60 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 		}
 	}
 	return Error{Variant: "SqlErr", Message: noRows}.Reply()
+}
+
+// getJob answers getJob, GET /w/{ws}/jobs_u/get/{id} ([WA-19]): the
+// record of a job of a live run, which the run that holds it renders
+// (platform.Services.GetJob), with the fields windmill-lite serves.
+// no_logs and no_code change nothing, since windmill-lite serves neither
+// the logs nor the code that they leave out. An id that names no job, and
+// any job looked up in a workspace other than the caller's, answer
+// Windmill's 404 `Not found: Job not found at name <id>`, without its
+// Rust location (D14). A job of a run that has ended (D22), and a job in a
+// state whose record windmill-lite does not reproduce, answer 501 with the
+// reason after the route's name, which the 501 policy quotes when it
+// fails the step. The route checks no token ([WA-4]).
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+// [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
+func (f *Facade) getJob(_ context.Context, c *Call) Reply {
+	return f.jobRead(c, "Job not found at name ", f.platform.GetJob)
+}
+
+// getJobArgs answers getJobArgs, GET /w/{ws}/jobs_u/get_args/{id}
+// ([WA-19]): the stored arguments of a job of a live run, in jsonb's text
+// output, as a flow job's input for a flow job. An id that names no job,
+// and any job looked up in a workspace other than the caller's, answer
+// Windmill's 404 `Not found: Job Args not found at name <id>`, without its
+// location (D14); a job of a run that has ended answers 501 (D22), as
+// getJob does.
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+func (f *Facade) getJobArgs(_ context.Context, c *Call) Reply {
+	return f.jobRead(c, "Job Args not found at name ", f.platform.GetJobArgs)
+}
+
+// jobRead answers a job read of a live run: the id checked as the web
+// framework checks it, the 404 whose text starts with notFound for a job
+// of no run or of another workspace, the 501 of a job windmill-lite does
+// not answer for, or read's answer.
+func (f *Facade) jobRead(c *Call, notFound string, read func(id string) ([]byte, error)) Reply {
+	id, refused := pathUUID(c, "id", "id")
+	if refused != nil {
+		return *refused
+	}
+	if !ownWorkspace(c) {
+		return Error{Variant: "NotFound", Message: notFound + id}.Reply()
+	}
+	body, err := read(id)
+	var ns *platform.NotServed
+	switch {
+	case errors.As(err, &ns):
+		return text(501, UnsupportedPrefix+c.Route.Name()+": "+ns.Reason)
+	case err != nil:
+		return answer(nil, err)
+	}
+	return jsonReply(200, body)
 }
 
 // getFlowUserState answers GET /w/{ws}/jobs/flow/user_states/{id}/{key}

@@ -467,7 +467,7 @@ func recordJSON(rec StepRecord) map[string]any {
 		"abandoned": rec.Abandoned, "cached": rec.Cached, "hooks": append([]string{}, rec.Hooks...),
 		"failed_retries": sitesJSON(rec.FailedRetries), "duration_ms": msJSON(rec.Duration),
 	}
-	for k, v := range map[string]string{"job": rec.Job, "module": string(rec.Module), "result_origin": string(rec.ResultOrigin), "carried_origin": string(rec.CarriedOrigin)} {
+	for k, v := range map[string]string{"job": rec.Job, "no_invocation_job": rec.NoInvocationJob, "module": string(rec.Module), "result_origin": string(rec.ResultOrigin), "carried_origin": string(rec.CarriedOrigin)} {
 		if v != "" {
 			m[k] = v
 		}

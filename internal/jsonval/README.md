@@ -135,6 +135,63 @@ stack size; and `jsonb`'s limits on a string's length (256 MiB) and on a
 value's size. Nor is PostgreSQL's own message for invalid UTF-8, which
 never reaches a cast because PostgreSQL refuses such text earlier.
 
+## The stored size
+
+Windmill's job read replaces a value whose stored column takes 90000
+bytes or more by `pg_column_size`, after TOAST compressed it
+([OR-V1](../../docs/semantics/oracle.md#or-v1),
+[WA-19](../../docs/semantics/client-api.md#wa-19)/o). The job reads
+reproduce that size in two steps.
+
+`StoredBound` (`size.go`) bounds the bytes that `jsonb` stores a JSON text
+in, before any compression, so above its `pg_column_size` however
+PostgreSQL stores it: a value below the bound is never replaced.
+
+`ToastedSize` (`size.go`) computes the size itself, for a value TOAST
+moves out of line, as it does with any value near 90000 bytes: the
+compressed length and its 4-byte header when pglz's default strategy
+saves more than its 8-byte header and 2 bytes, else the datum's length
+less its 4-byte header. `jsonbDatum` (`jsonb.go`) writes the exact jsonb
+datum PostgreSQL 16 builds: entries, offsets every 32 entries, 4-byte
+alignment from the datum's start, numerics in their short or long form,
+keys ordered and deduplicated as jsonb orders them, little-endian.
+`pglzCompressedLen` (`pglz.go`) reproduces `pglz_compress` step for step,
+counting its output, with the hash reading bytes as x86-64's signed
+`char`, where the pinned oracle's PostgreSQL runs. Both files are ported
+from PostgreSQL and keep its licence
+([LICENSE.PostgreSQL](LICENSE.PostgreSQL)). The oracle compresses with
+pglz, not lz4: a value only lz4's 64 KiB window would shrink is replaced
+(WA-19/o, run `window`).
+
+The bound counts 8 bytes of headers and, for each value, key and
+container, 4 bytes of entry, up to 3 of alignment and its content: a
+string's bytes, at most its text's; a number's, at most 16 more than its
+text's; 4 of a container's header. A byte of text takes at most 12 bytes
+stored, so a text under 7000 bytes is bounded without the walk.
+`TestStoredBound` checks that the walk stays under that shortcut, and
+`TestStoredBoundAbovePostgreSQL` (run as `TestStoredMatchesPostgreSQL`
+is, below) that the bound is above `pg_column_size` of every input of
+the other tests that `jsonb` stores (`Stored` accepts it) and of texts
+that take `jsonb`'s most bytes per byte of text, as computed and as a
+table stores them. It also checks what the
+job-reads-large fixture rests on: 89,000 characters that no compressor
+shrinks are stored below 90000 bytes and bounded below, and 92,000 are
+stored above, while 92,000 times `x` is stored far below.
+`TestToastedSizeMatchesPostgreSQL`, run the same way, checks that the
+datum's length is `pg_column_size` of every input as computed, and that
+`ToastedSize` is the size the table stores for every input large enough
+to be toasted, or the compressed length and its 8-byte header for one
+that stays inline compressed, which happens only within TOAST's
+2,032-byte target. Its inputs add texts that exercise pglz: arrays of
+objects, sentences over ASCII and multi-byte vocabularies, numbers, a
+block repeated inside and outside pglz's 4 KiB window, and random text
+with repeats near the 25 % pglz requires. They also add the boundary
+inputs: results and argument objects stored in 89,999, 90,000 and
+90,001 bytes, either side of Windmill's replacement, made of random
+characters that pglz does not shrink and of text that it shrinks to
+those sizes. `TestToastedSizeAtTheReplacement` checks the same sizes
+without PostgreSQL.
+
 ## Tests
 
 ADR 0005 checks the canonicaliser three ways, and all three run in CI:

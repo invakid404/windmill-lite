@@ -229,6 +229,67 @@ deferred:
       another workspace's job is checked by internal/platform/facade's
       TestResultRoutes
     expected_in: internal/platform/facade TestResultRoutes
+  - spec: WA-19/e
+    reason: >-
+      the job reads of a step's own job tree need a flow run with a subflow; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/f
+    reason: >-
+      a subflow that its cache answered is a flow run; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/g
+    reason: >-
+      the statuses of containers, skips, retries and failure modules need flow runs; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/h
+    reason: >-
+      the job reads' error answers and what no_logs and no_code change are read from a flow step's job, beside the other job reads; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/j
+    reason: >-
+      the arguments of a step in a subflow and in a loop, and of their flow jobs, need flow runs; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/k
+    reason: >-
+      a walk up the parent chain needs a step two levels down in a flow; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/l
+    reason: >-
+      the attempts of a retried subflow and of a retried loop need flow runs; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/m
+    reason: >-
+      a subflow that failed before its steps, and skipped and mocked subflow steps, need flow runs; the flow fixture conformance/flows/client-api/job-reads,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads)
+  - spec: WA-19/n
+    reason: >-
+      empty and failed containers, early stops and parallel children need flow runs, the parallel ones on two workers; the flow fixtures
+      conformance/flows/client-api/job-reads and job-reads-parallel, which the flow suite requires, hold the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads, job-reads-parallel)
+  - spec: WA-19/o
+    reason: >-
+      large results and arguments need a flow whose step reads another step's job; the flow fixture conformance/flows/client-api/job-reads-large,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads-large)
+  - spec: WA-19/p
+    reason: >-
+      a flow whose step waits for a sleep or a retry delay, read by a sibling meanwhile, needs flow runs on two workers; the flow fixture
+      conformance/flows/client-api/job-reads-parallel, which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads-parallel)
+  - spec: WA-19/i
+    reason: >-
+      a job of a run that has ended needs a run that a step dispatched and
+      waited for; windmill-lite answers it 501 (deviation D22), which
+      TestEndedRunJobRead checks on conformance/flows/client-api/job-reads-ended
+    expected_in: cmd/wltest TestEndedRunJobRead
   - spec: WA-31/a
     reason: >-
       a parallel for-loop of 8 steps run 50 times is a flow; the step
@@ -246,7 +307,7 @@ deferred:
     reason: >-
       a generated service's ApiError needs the stock client, which the
       step level does not install; its 501 reply is checked on
-      windmill-client@1.767.0's JobService.getJob and getIdToken
+      windmill-client@1.767.0's JobService.getJobLogs and getIdToken
     expected_in: PF1 (internal/platform/facade TestUnsupportedPolicyOnTheClient)
   - spec: WA-11/b
     reason: >-

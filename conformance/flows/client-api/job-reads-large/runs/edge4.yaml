@@ -1,0 +1,5 @@
+# 89,992 characters that no compressor shrinks: stored in 90,000 bytes as
+# the result and 90,005 as the argument map: both replaced.
+spec: [WA-19/o]
+target: f/wl_jrl/big
+args: {kind: random, n: 89992}

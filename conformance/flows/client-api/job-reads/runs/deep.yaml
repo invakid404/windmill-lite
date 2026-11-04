@@ -1,0 +1,4 @@
+# The reading step runs inside a running sub-flow, after a step that set
+# flow user state at the root.
+spec: [WA-19/g, WA-V1]
+target: f/wl_jr/deep

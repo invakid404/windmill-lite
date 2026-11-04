@@ -111,6 +111,9 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		if rec.Job != "" {
 			ids[rec.Job] = rec.Site
 		}
+		if rec.NoInvocationJob != "" {
+			ids[rec.NoInvocationJob] = rec.Site
+		}
 	}
 	n := &conformance.Normaliser{IDs: ids}
 	o := conformance.Observation{Status: t.Status}

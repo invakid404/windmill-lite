@@ -488,7 +488,7 @@ func TestEngineArgumentFailures(t *testing.T) {
 		return tr
 	}
 	tr = run("f/t/entry")
-	wantStatus(t, tr, conformance.RunFailure, `{"error":{"name":"ExecutionErr","message":"Invalid entrypoint override: \"no-way\""}}`)
+	wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"execution error:\nBad request: Invalid entrypoint override \"no-way\": must match ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, not starting with a digit)","name":"ExecutionErr","step_id":"b"}}`)
 	if inv := s.invs[0]; inv.Entry != "other" || len(s.invs) != 1 {
 		t.Fatalf("invocations %+v", s.invs)
 	}

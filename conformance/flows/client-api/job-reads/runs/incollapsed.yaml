@@ -1,0 +1,3 @@
+# The reading step is each iteration of a collapsed loop.
+spec: [WA-19/g]
+target: f/wl_jr/incollapsed

@@ -53,7 +53,7 @@ them, per runtime or per run ([0008](0008-host-hooks.md)).
 | `FlowUserState` | `jobs_u/get_root_job_id`, `jobs/flow/user_states/{root}/{key}` | a map per effective root, discarded when the root run ends; `null` for a missing key | core |
 | `ObjectStore` | `job_helpers/download_s3_file`, `upload_s3_file`, `delete_s3_file` | a local directory keyed by (storage, key) | core (explicit keys), later (the rest) |
 | `Dispatcher` | `jobs/run/p`, `run/h`, `run/f`, `jobs_u/completed/get_result_maybe`, `get_result` | runs the target from the bundle as a detached run of the same runtime | core (interface) |
-| `Jobs` | `jobs_u/get`, `jobs_u/get_args/{id}`, job tree lookups | answers from the run registry for windmill-lite ids ([0001](0001-equivalence-contract.md) D3) | later; core for root lookup |
+| `Jobs` | `jobs_u/get_root_job_id/{id}`, `jobs_u/get/{id}`, `jobs_u/get_args/{id}` | answers from the run registry for windmill-lite ids ([0001](0001-equivalence-contract.md) D3): the root lookup for a live or an ended job, the job reads for a job of a live run (D22 for an ended one) | core |
 | `ResultCache` | none (engine-internal, `cache_ttl`) | per process (D4); the key and TTL rules of [FX-40](../semantics/execution.md#fx-40) | core (N4); later (S3-aware argument hashing) |
 | `Resume` | `jobs/resume_urls` | none: a step that asks gets `UnsupportedPlatformCall`; a host provider may return `{approvalPage, resume, cancel}` | core (call shape, provider interface); out (resuming, since `suspend` is rejected) |
 
@@ -460,11 +460,12 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     extraction, below), so a `waitJob` handed the refusal's body as an id
     fails at once. A UUID that names no job
     answers WA-V2's shapes; a windmill-lite job the dispatcher did not
-    start answers the polls with a 501, since job introspection beyond
-    dispatched runs (`Jobs`'s `jobs_u/get`, `get_args`) stays `later`.
+    start answers the polls with a 501, since the result polls answer
+    only for dispatched runs.
   - **Not yet:** a host's per-run services (H13) are F2a's; deletion,
-    generated keys and presigning in the object store, and job
-    introspection beyond the root lookup and dispatched runs, are `later`.
+    generated keys and presigning in the object store, and the job routes
+    other than the root lookup, the job reads (below) and the result
+    polls of dispatched runs, are `later`.
 
 - Milestone N4 implemented the result cache
   ([internal/platform](../../internal/platform/README.md), the engine's
@@ -586,6 +587,63 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     - windmill-lite has no instance database and no instance super
       admins, so a `CUSTOM_INSTANCE_DB/` resource path (WA-12/h) is looked
       up as any other path.
+
+- **The job reads** ([WA-19](../semantics/client-api.md#wa-19)). `GET
+  /w/{ws}/jobs_u/get/{id}` and `jobs_u/get_args/{id}` answer for every job
+  of a live root run, running or completed
+  ([internal/engine](../../internal/engine/README.md),
+  [internal/platform](../../internal/platform/README.md)). These are the
+  run's flow job, its steps, subflows and their steps, the child flows of
+  loops and branches, a collapsed iteration's job, a skipped or mocked
+  module's identity job, a retried step's failed attempts, each attempt
+  of a retried subflow or container, a subflow that failed before any of
+  its modules ran, a parallel loop's children its parallelism still
+  holds, and a failure module's job.
+  - **References, not copies.** The job registry keeps, with each job of a
+    live tree, a reference to the run that holds it (`platform.Job.Run` and
+    `View`), and drops it with the tree. The run indexes the jobs it starts
+    by id, with where each one's state lives: a flow job's frame, a leaf's
+    record in the trace. It renders a record only when a step asks, so a
+    run that no step asks about pays for the index alone.
+  - **Each flow job shows its own run.** A frame holds, per module, the
+    record of its current attempt and the child flows of that attempt,
+    and the records of its own attempts. A retry runs at the same sites as
+    the attempt it replaces, so a flow job of a superseded attempt still
+    reads its own modules and jobs, not the retry's.
+  - **The record** has the fields the oracle recorded that windmill-lite
+    reproduces exactly: `type`, `id`, `parent_job`, `root_job`, `running`,
+    `flow_step_id`, `canceled`, `success`, `result`, `args`,
+    `script_path`, `is_flow_step`, `language`, the workspace and user
+    fields, and a flow job's `flow_status`. WA-19 names each field left
+    out with its reason; `no_logs` and `no_code` change nothing. Values
+    are jsonb's text output, as Windmill writes them. An argument map or a
+    result whose stored column takes 90000 bytes or more is replaced, as
+    Windmill replaces it: `jsonval.ToastedSize` computes `pg_column_size`
+    from the value, jsonb's binary form compressed by a port of
+    PostgreSQL's pglz (PostgreSQL License), and CI checks both against
+    PostgreSQL.
+  - **A job pushed for later**, after the sleep of the step before it or a
+    retry's delay, gets its id when it is pushed, not when it starts, so
+    that its flow's status names it while it waits and it is read: a
+    step's job (`jobScheduled`), the identity job of a skipped, mocked or
+    identity module (a container's included), a job that its input
+    transform or its entrypoint fails at its pickup, a flow step's
+    subflow (`subflowScheduled`), one whose input transform failed
+    included, and a container's child flow at its pickup. Whatever
+    completes the job keeps that id (`run.takeScheduled`): its
+    invocation, the result cache's answer at its pickup, or a completion
+    with no invocation.
+  - **An identity job**, and a script job that failed before its
+    invocation, get an id when they run (`StepRecord.NoInvocationJob`),
+    or keep the one they were pushed with, since Windmill's flow status
+    names one for them; the run registers it with its tree.
+  - **Not served:** a job of a run that has ended answers 501 with the
+    reason (D22), since the engine releases a run when it ends. So do the
+    states no recording shows: a job that windmill-lite canceled, latched
+    or halted, a flow with a preprocessor module, and a flow job while a
+    host-provided step of it waits for the sleep of the step before it,
+    since a provided site has no Windmill job to record. The 501 policy
+    then fails the step that asked.
 
 - A host may put a read cache in front of a run's resource and variable
   providers (`wl.Options.ReadCache`, off by default). Each run then reads

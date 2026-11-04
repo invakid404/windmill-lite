@@ -1,0 +1,24 @@
+summary: job reads, a step that succeeds on its retry
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,6 @@
+# A flow runs a sub-flow by path (continue_on_error, a flow-level
+# cache_ttl), then reads its own job, the flow's and the sub-flow's, which
+# succeeded, and its steps.
+spec: [WA-19/e]
+target: f/wl_jr/main
+args: {fail: false}

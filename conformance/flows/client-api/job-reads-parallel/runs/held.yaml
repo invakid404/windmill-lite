@@ -1,0 +1,5 @@
+# A parallel loop with a parallelism of 2 over three children: the third,
+# the reader, starts once the first has completed, and reads while the
+# second runs; the next module reads the loop completed.
+spec: [WA-19/n]
+target: f/wl_jrp/held

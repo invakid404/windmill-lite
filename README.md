@@ -106,7 +106,8 @@ resolves a step's `$var:` and `$res:` arguments when the step's job is
 picked up, `flow_env` on every transition, and `variable()` and
 `resource()` in expressions; the harness writes each step's `args.json`.
 PF3 adds the rest of the platform behind the facade: a job registry that
-answers root lookups from the runs, flow user state shared by a run's
+answers root lookups from the runs, and the job reads of a live run
+(`getJob`, `getJobArgs`) from the run that holds each job, flow user state shared by a run's
 steps and its `flow_user_state()`, an object store for the S3 helpers,
 and a dispatcher that runs a bundle's roots as separate runs when a step
 dispatches them and refuses any other target. Its expressions run on the expression pipeline in
@@ -153,7 +154,10 @@ keep their own licences: the Apache-2.0 files from Windmill under
 the MIT-licensed QuickJS-ng sources under `internal/expr/quickjs/quickjs-ng/`
 ([NOTICE](internal/expr/quickjs/quickjs-ng/NOTICE)) and mimalloc sources
 under `internal/expr/quickjs/mimalloc/`
-([NOTICE](internal/expr/quickjs/mimalloc/NOTICE)).
+([NOTICE](internal/expr/quickjs/mimalloc/NOTICE)), and the Go files ported
+from PostgreSQL, `internal/jsonval/pglz.go` and `internal/jsonval/jsonb.go`,
+under the PostgreSQL License
+([LICENSE.PostgreSQL](internal/jsonval/LICENSE.PostgreSQL)).
 
 ## Quick start
 
@@ -254,7 +258,9 @@ runs the suite, reports the expression budget gate from those binaries,
 starts the engine in an image built `FROM scratch`, and compares the
 expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
-the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
+the canonicaliser with PostgreSQL in the oracle's pinned image, and checks
+against it the stored size of a value that the job reads compute. A
+separate
 job runs the Bun harness's own `bun test`, which is not a required check.
 Another, `Bun SDK types`, typechecks the Bun host SDK and the harness
 runtime as a host that vendors them does, against the pinned Bun's type

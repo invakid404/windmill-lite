@@ -1,0 +1,35 @@
+summary: job reads, a step that reads its own job tree
+value:
+  modules:
+    - id: n
+      value:
+        type: rawscript
+        content: '!inline n.ts'
+        input_transforms: {}
+        lock: '!inline n.lock'
+        language: bun
+    - id: core
+      value:
+        type: flow
+        input_transforms:
+          fail:
+            type: javascript
+            expr: flow_input.fail
+          v:
+            type: javascript
+            expr: results.n
+        path: f/wl_jr/sub
+      continue_on_error: true
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    fail:
+      type: boolean
+      description: ''
+  required: []

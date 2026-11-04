@@ -1,0 +1,68 @@
+summary: job reads, parallel children that overlap and complete out of order
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                k:
+                  type: static
+                  value: l
+                role:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_jrp/role
+        iterator:
+          type: javascript
+          expr: '["slow", "read"]'
+        parallel: true
+        skip_failures: false
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: s0
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: b
+                    role:
+                      type: static
+                      value: slow
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: s1
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: b
+                    role:
+                      type: static
+                      value: read
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+    - id: after
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jrp/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

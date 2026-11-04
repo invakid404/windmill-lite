@@ -602,13 +602,17 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken(), Start: clock.Now()}.Env(e.host)
 	// The run is a flow job of the job registry while it runs, in its
 	// effective root's tree, so that its steps' root lookups, reads with
-	// a job id and flow user state find it (ADR 0007, D3, WA-14); its user
-	// state is discarded when its tree is.
+	// a job id, job reads and flow user state find it (ADR 0007, D3,
+	// WA-14, WA-19); its user state is discarded when its tree is, and the
+	// registry's reference to the run with it.
 	if req.Started != nil {
 		req.Started(ctx, r)
 	}
-	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path})
+	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}})
 	r.run(ctx)
+	r.mu.Lock()
+	r.rootEnd = &flowEnd{status: r.trace.Status, result: r.trace.Result}
+	r.mu.Unlock()
 	endJob()
 	// H9: OnRunEnd sees the outcome first; its warnings are part of the
 	// returned trace and of the one OnRunSettled receives, possibly at once

@@ -1,0 +1,3 @@
+# The reading step is the iteration of a collapsed while loop.
+spec: [WA-19/g]
+target: f/wl_jr/inwhile

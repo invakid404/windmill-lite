@@ -17,7 +17,8 @@ time of milestone N2: `sleep`, the step timeout and its messages, retries
 with their arithmetic, jitter and argument reuse, deadlines and the clock,
 (milestone PF3) each run's place in the job registry, the helper
 `flow_user_state()`, a root script's run as a script job and the default
-dispatcher, the integration of milestone NI (N2's waits and retries,
+dispatcher, the records of its jobs that the job reads of a live run
+answer (`jobrecord.go`), the integration of milestone NI (N2's waits and retries,
 the cancellation and failures inside containers, and the evaluation timing
 of container-level fields), the `cache_ttl` result cache of milestone
 N4, and what milestone F2c added for host plugins: `RunRequest.Around`
@@ -155,9 +156,9 @@ applied here.
 `_ENTRYPOINT_OVERRIDE` when the argument object carries it, as the flow
 preprocessor step's always does, and `main` otherwise. An override that is
 not a string matching `^[A-Za-z_][A-Za-z0-9_]*$` is refused with an error
-wrapping `ErrInvalidEntrypoint`, whose text begins `Invalid entrypoint
-override`, before any wrapper runs; the engine fails the step with it as a
-pre-run error (below). The harness selects WR-V1's fallback from the same
+wrapping `ErrInvalidEntrypoint`, whose text is the one Windmill's worker
+writes after `Bad request: `, before any wrapper runs; the engine fails
+the step with it as the worker's execution error (below). The harness selects WR-V1's fallback from the same
 argument.
 
 `Entrypoint` walks the argument object in place for the last member of
@@ -227,6 +228,34 @@ An invocation settles when its entrypoint call can run no more code, and
   the trace `OnRunSettled` receives, and keeps its values until it settles.
   The late output may come from the open invocation or, in order, from one
   that has already settled while the other keeps the run open.
+- **Tests of the job records** (`jobrecord_test.go`, with the
+  `registering` executor that registers each invocation as the facade
+  does). `TestJobRecordsDuringARun` checks the records a step reads of
+  its own running job, the run's flow job with its status, and the
+  completed step before it, byte for byte, and its arguments read.
+  `TestEndedRunReleasesItsJobRecords` checks with weak pointers that a run
+  that has ended leaves its step results unreachable, its jobs known to
+  the root lookup and no longer read. `TestJobRecordsOfARetriedSubflow`
+  reads both flow jobs of a subflow that failed and succeeded on its
+  retry, each with its own step's job; `TestJobRecordOfAnUnlaunchedSubflow`
+  a subflow whose input transform failed; `TestJobRecordsOfSkippedAndMockedSubflows`
+  the identity jobs of a skipped and a mocked flow step;
+  `TestJobRecordWhileAModuleWaitsForItsRetry` a flow job while a module
+  waits for its retry delay: its entry waits for its executor and names
+  the retry's job, read queued and not running, which the retry then runs
+  as. `TestJobsPushedForLaterKeepTheirIds` reads, from a sibling branch,
+  seven jobs waiting for a sleep: a skipped step's, a cached step's, a
+  step's whose input transform fails, a step's whose entrypoint fails, a
+  skipped loop's, a mocked branchone's and a failing flow step's subflow,
+  each queued and not running, and checks that each completes with the
+  id it waited with. `TestFlowWithAWaitingProvidedSiteIsNotServed` reads
+  a flow job while its host-provided site waits, answered not served,
+  and once the site has its value. `TestJobRecordLargeValues`: 100,000
+  times `x` is read whole, while 100,000 characters that do not
+  compress, as a result and in arguments, are replaced, and the
+  arguments read serves them. `TestReplacedFromNinetyThousandBytes`
+  checks the replacement at 89,999, 90,000 and 90,001 bytes stored, with
+  jsonval's boundary texts.
 
 ## The engine core
 
@@ -549,7 +578,7 @@ the step's success value, not the `EarlyStopError`
 | a parallel `branchall` of two or more branches in a `same_worker` flow | the `same_worker` chaining error of a parallel loop | CF-7 |
 | a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
 | `stop_after_all_iters_if` fails | an error stop of the flow: ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<text>`: <predicate text>"}}``, carried by the loop, whose result stays its array | CF-13, JE-27 |
-| an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
+| an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "execution error:\nBad request: Invalid entrypoint override <value>: must match ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, not starting with a digit)", "name": "ExecutionErr", "step_id": <id>}}`, at the job's pickup, before the step runs | WR-12 |
 | the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
 | a job's result or failure value that jsonb refuses | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-48 case 1, OR-27 |
 | the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay fails without running, with the run's `Canceled` error | FX-38 |
@@ -1094,6 +1123,88 @@ flows with its own, and the runs the dispatcher starts read its own.
 - **A script root is checked when the engine opens**, as every flow is
   (ADR 0001 §3's rule): a Bun script in either boundary. Its own
   `cache_ttl` caches its script job (N4, below).
+
+**The job records (`jobrecord.go`).** A run renders the record that
+`GET jobs_u/get/{id}` answers for each job of its tree while it lives,
+and the arguments that `GET jobs_u/get_args/{id}` answers
+([WA-19](../../docs/semantics/client-api.md#wa-19)), for the facade
+through the job registry.
+
+- **References, not copies.** A run registers its flow job and each
+  child flow with itself as the view (`platform.Job.View`), and indexes
+  every job it starts by id (`run.jobs`): a flow job by its frame, a leaf
+  by its frame, its module and its record in the trace. The leaf's record
+  names its job and its stored arguments from its launch on. A child flow
+  records its end, and its place among the ends of the run's child flows;
+  the run its own. A parallel loop registers all its children at its
+  start, the ones its parallelism holds included, and marks each it
+  releases (`frame.released`). Nothing is rendered until a step asks.
+- **Per attempt.** Each frame holds, per module, the record of its
+  current attempt (`frame.recs`) and that attempt's child flows or
+  collapsed iterations by slot (`frame.kids`), both set when the attempt
+  starts; the records of its own modules' attempts (`frame.owned`), where
+  the attempts its modules list as failed retries are; and the child flow
+  of a failed container attempt that a retry kept (`frame.attempts`). A
+  retry runs at the same sites as the attempt it replaces, so the record
+  of a superseded attempt's flow job reads its own modules and jobs from
+  its frame, never the retry's.
+- **The record** is the oracle's, with the fields windmill-lite serves:
+  `type`, `id`, `parent_job` (the flow job of the frame the job runs in),
+  `root_job` (the innermost scope: a frame's scope, absent when the frame
+  starts its own), `running` and `flow_step_id` while it runs, `canceled`,
+  `success` and `result` once it has completed, `args`, `script_path`,
+  `is_flow_step`, `language`, the host's workspace and user, and a flow
+  job's `flow_status`. Each argument's value and the result are written
+  as jsonb's text output.
+- **`flow_status`** comes from the frame: each module's current record
+  (none: `WaitingForPriorSteps`; no status yet: `InProgress`; then its
+  module status), its job (a subflow step's from its child flow while it
+  runs), `skipped` on a success, the failed attempts, a loop's or a
+  branchall's children with their success, a branchone's chosen branch,
+  and, while a container runs, its `iterator` (`run.iterLen`; a parallel
+  loop's index counts its completed children), `parallel`, `while_loop`
+  or `branchall`. A container's job is its last child; a running
+  parallel loop's, its last child released, the last by index among
+  children released together, as a running parallel branchall's
+  (Windmill names whichever of those a worker picked up last); a
+  completed parallel container's, the child that completed last. A container that completed
+  with no child, or whose start failed, and a branchone whose predicate
+  threw, have the nil job. `step` follows the module cursor.
+- **Jobs pushed for later.** A job scheduled after the sleep of the step
+  before it or a retry's delay is pushed with its id before the wait, as
+  Windmill pushes it: a step's job (`run.jobScheduled`), the identity job
+  of a skipped, mocked or identity module, a container's included, and a
+  job that its input transform or its entrypoint fails at its pickup;
+  and a flow step's subflow (`run.subflowScheduled`), which the step then
+  runs, or fails when its input transform failed. Each is indexed and
+  registered at once; a child flow waits at its pickup
+  (`frame.scheduled`). Whatever completes a pushed job takes its id
+  (`run.takeScheduled`): its invocation, the result cache's answer at its
+  pickup (`run.cachedJob`), or a completion with no invocation
+  (`run.noInvocationJob`). While it waits, the module's entry reads
+  `WaitingForExecutor` and the job's record `running: false`.
+- **Large values.** An argument map or a result whose stored column takes
+  90000 bytes or more is replaced as Windmill replaces it (`tooBig`):
+  `jsonval.StoredBound` rules most values out at once, and
+  `jsonval.ToastedSize` computes the others' `pg_column_size`.
+- **Jobs with no invocation.** An identity job, a skipped or mocked flow
+  step's included, and a script job that failed before its invocation,
+  get an id when their module completes (`StepRecord.NoInvocationJob`),
+  the one they were pushed with if they waited, registered with the
+  run's tree, since Windmill's status names one for them. A subflow that fails before any of its modules runs (an input
+  transform's failure, a cancellation while it was scheduled) is created
+  and registered as one that ran (`run.unlaunchedSubflow`).
+- **Not rendered:** a job of a run that has ended and is its own root,
+  even while a registration of it lingers (D22); a canceled job; a flow
+  job that ended canceled, latched or halted; a flow with a preprocessor
+  module; a flow job while a host-provided step of it waits for the sleep
+  of the step before it (`frame.waiting`), since a provided site has no
+  Windmill job to record. Each is a `platform.NotServed`, which the
+  facade answers 501.
+- **Script runs.** `RunScript` registers its job with a view of its own
+  (`scriptView`), which renders it running, then completed while its root
+  lives: a dispatch that tracked it in its parent keeps it in another
+  run's tree.
 
 **The result cache (N4, `cache.go`).** Before a job with a `cache_ttl`
 runs, the engine looks it up in the result cache of its platform

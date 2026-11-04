@@ -398,8 +398,10 @@ jobs:
     # ADR 0005 checks the jsonb canonicaliser (internal/jsonval) against
     # PostgreSQL itself: every canonicaliser input of its tests is cast to
     # jsonb in the oracle's PostgreSQL image, pinned by the same digest as
-    # the oracle's compose file (docs/semantics/oracle.md), and compared.
-    # Service containers need a Linux runner. Branch protection does not
+    # the oracle's compose file (docs/semantics/oracle.md), and compared;
+    # and the bound above a value's stored size that the job reads use
+    # (jsonval.StoredBound) is checked against pg_column_size. Service
+    # containers need a Linux runner. Branch protection does not
     # require this job.
     name: jsonb (PostgreSQL)
     runs-on: ubuntu-latest
@@ -431,7 +433,7 @@ jobs:
       - name: Compare jsonval with PostgreSQL jsonb
         env:
           WL_JSONB_PSQL: docker exec -i ${{ job.services.postgres.id }} psql -U postgres
-        run: go test -count=1 -v -run '^TestStoredMatchesPostgreSQL$' ./internal/jsonval
+        run: go test -count=1 -v -run '^(TestStoredMatchesPostgreSQL|TestStoredBoundAbovePostgreSQL|TestToastedSizeMatchesPostgreSQL)$' ./internal/jsonval
 
   bun:
     # The Bun harness's own developer checks (ADR 0003): its codec against

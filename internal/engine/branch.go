@@ -93,7 +93,11 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 		return r.chainingAt(fr, b.first, o, text)
 	}
 	c.due = b.due
-	r.addChild(c)
+	slot := len(m.BranchOne.Branches)
+	if chosen.Branch != nil {
+		slot = *chosen.Branch
+	}
+	r.addChild(fr, i, slot, c)
 	e := r.runList(ctx, c)
 	if e.unreported {
 		return r.unreportedJob(ctx, fr, o, e)
@@ -230,7 +234,7 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 		if k == 0 {
 			c.due = b.due
 		}
-		r.addChild(c)
+		r.addChild(fr, i, k, c)
 		e := r.runList(ctx, c)
 		if e.unreported {
 			it.add(e)
@@ -340,8 +344,8 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 		c.due = b.due
 		children[k] = c
 	}
-	for _, c := range children {
-		r.addChild(c)
+	for k, c := range children {
+		r.addChild(fr, i, k, c)
 	}
 	ends := make([]flowEnd, n)
 	started := 0
@@ -354,6 +358,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 	} else {
 		for k, c := range children {
 			started++
+			r.released(c)
 			go func() {
 				ends[k] = r.runList(ctx, c)
 				done <- k
@@ -424,6 +429,7 @@ func (r *run) branchFrame(fr *frame, i int, seg conformance.Segment, ms []*ir.Mo
 	c := newFrame(ms, site)
 	now := r.clock.Now()
 	c.site, c.child, c.id, c.pinged, c.started = site, true, newUUID(), now, now
+	c.parentJob, c.moduleID = fr.id, fr.moduleAt(i).ID
 	c.def, c.failure, c.envSrc = fr.def, fr.failure, fr.envSrc
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = path, fr.scope, fr.nodes, fr.rng

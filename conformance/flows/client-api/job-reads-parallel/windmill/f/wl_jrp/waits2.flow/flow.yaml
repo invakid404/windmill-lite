@@ -1,0 +1,191 @@
+summary: job reads, a sibling reads flows whose sub-flows and containers wait
+  for a sleep and a retry delay
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: a
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w2_a
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: s
+                value:
+                  type: flow
+                  input_transforms: {}
+                  path: f/wl_jrp/one
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: c
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w2_c
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: l
+                value:
+                  type: forloopflow
+                  modules:
+                    - id: x
+                      value:
+                        type: script
+                        input_transforms:
+                          fail:
+                            type: static
+                            value: false
+                          key:
+                            type: static
+                            value: w2_x
+                        path: f/wl_jrp/mark
+                    - id: y
+                      value:
+                        type: script
+                        input_transforms:
+                          fail:
+                            type: static
+                            value: false
+                          key:
+                            type: static
+                            value: w2_y
+                        path: f/wl_jrp/mark
+                  iterator:
+                    type: javascript
+                    expr: '[1]'
+                  parallel: false
+                  skip_failures: false
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: d
+                value:
+                  type: script
+                  input_transforms:
+                    fail:
+                      type: static
+                      value: false
+                    key:
+                      type: static
+                      value: w2_d
+                  path: f/wl_jrp/mark
+                sleep:
+                  type: static
+                  value: 8
+              - id: cl
+                value:
+                  type: forloopflow
+                  modules:
+                    - id: z
+                      value:
+                        type: script
+                        input_transforms:
+                          fail:
+                            type: static
+                            value: false
+                          key:
+                            type: static
+                            value: w2_z
+                        path: f/wl_jrp/mark
+                  iterator:
+                    type: javascript
+                    expr: '[1]'
+                  parallel: false
+                  skip_failures: false
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: sf
+                value:
+                  type: flow
+                  input_transforms: {}
+                  path: f/wl_jrp/flakysub
+                retry:
+                  constant:
+                    attempts: 1
+                    seconds: 8
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: rl
+                value:
+                  type: forloopflow
+                  modules:
+                    - id: q
+                      value:
+                        type: script
+                        input_transforms:
+                          fail:
+                            type: static
+                            value: true
+                          key:
+                            type: static
+                            value: w2_l
+                        path: f/wl_jrp/mark
+                    - id: qq
+                      value:
+                        type: script
+                        input_transforms:
+                          fail:
+                            type: static
+                            value: false
+                          key:
+                            type: static
+                            value: w2_qq
+                        path: f/wl_jrp/mark
+                  iterator:
+                    type: javascript
+                    expr: '[1]'
+                  parallel: false
+                  skip_failures: false
+                retry:
+                  constant:
+                    attempts: 1
+                    seconds: 8
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: r
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: w2
+                    role:
+                      type: static
+                      value: readwaits2
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

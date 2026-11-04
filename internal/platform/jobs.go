@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
@@ -36,7 +38,52 @@ type Job struct {
 	// from which a resource read made with its job_id resolves $WM_*
 	// strings (APIEnv); nil for a flow job.
 	Env map[string]string
+	// Run is the id of the run that started the job, whose View renders
+	// its record; "" when no run of this runtime did. A run registers its
+	// own flow job with its id as Run and its View.
+	Run string
+	// View renders the job's record for GET jobs_u/get/{id} ([WA-19]).
+	// It is a reference to the run that holds the job, never a copy of
+	// the run's results, and the registry drops it with the job's tree. A
+	// job registered with no View is rendered by the View of the job that
+	// its Run names.
+	//
+	// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+	View JobView
 }
+
+// JobView renders the records of one run's jobs as GET jobs_u/get/{id}
+// answers them ([WA-19]) while the run is live: a QueuedJob while a job
+// runs and a CompletedJob once it has completed, with the fields that
+// windmill-lite serves.
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+type JobView interface {
+	// JobRecord returns the record of the job id names, as the JSON text
+	// the route answers. It fails with a *NotServed when the run does not
+	// hold the job, or holds it in a state whose record windmill-lite does
+	// not reproduce.
+	JobRecord(id string) ([]byte, error)
+	// JobArgs returns the stored arguments of the job id names, as GET
+	// jobs_u/get_args/{id} answers them: jsonb's text output of the job's
+	// args, or of a flow job's input. It fails as JobRecord does.
+	JobArgs(id string) ([]byte, error)
+}
+
+// NotServed is why windmill-lite does not answer GET jobs_u/get/{id} for a
+// job it knows: the job's run has ended (deviation D22 of ADR 0001), or
+// the job is in a state whose record windmill-lite does not reproduce. The
+// facade answers it 501, so the 501 policy fails the step that asked.
+type NotServed struct {
+	Reason string
+}
+
+func (e *NotServed) Error() string { return e.Reason }
+
+// ErrEndedRun is the NotServed of a job whose run has ended: the job
+// registry keeps an ended job's id, kind, root and path for the root
+// lookup, and drops the reference to its run (D22).
+var ErrEndedRun = &NotServed{Reason: "the job's run has ended, and windmill-lite keeps no record of the jobs of a run that has ended"}
 
 // Jobs is the job registry of ADR 0007 (D3): the jobs a runtime has
 // started, which answers job lookups for windmill-lite ids from the runs
@@ -99,10 +146,14 @@ type Registry struct {
 // endedJobs is how many jobs of ended trees a Registry keeps known.
 const endedJobs = 4096
 
-// endedJob is a job of a tree that has ended, kept under seq.
+// endedJob is a job of a tree that has ended, kept under seq: its kind,
+// root and path, what the root lookup reads, and nothing else, so that an
+// ended job costs no more than these strings, whatever Job holds while it
+// is live.
 type endedJob struct {
-	job Job
-	seq uint64
+	kind       JobKind
+	root, path string
+	seq        uint64
 }
 
 type endedRef struct {
@@ -147,12 +198,16 @@ func (r *Registry) Begin(j Job) (end func()) {
 		r.removeFromTree(e.job.Root, j.ID)
 		e.job, e.derived = j, false
 		r.addToTree(j.Root, j.ID)
+	case e.job.View == nil && j.View != nil:
+		// A second registration that brings the run's view (a script
+		// run registers its job before its invocation does).
+		e.job.Run, e.job.View = j.Run, j.View
 	}
 	e.live++
 	if j.Kind == JobScript {
-		r.derive(j.Env["WM_FLOW_JOB_ID"], j.Root, j.Env["WM_FLOW_PATH"])
-		r.derive(j.Env["WM_ROOT_FLOW_JOB_ID"], j.Root, "")
-		r.derive(j.Root, j.Root, "")
+		r.derive(j.Env["WM_FLOW_JOB_ID"], j.Root, j.Env["WM_FLOW_PATH"], j.Run)
+		r.derive(j.Env["WM_ROOT_FLOW_JOB_ID"], j.Root, "", j.Run)
+		r.derive(j.Root, j.Root, "", j.Run)
 	}
 	r.mu.Unlock()
 	var once sync.Once
@@ -160,12 +215,14 @@ func (r *Registry) Begin(j Job) (end func()) {
 }
 
 // derive makes a flow job of root known from a script job's variables,
-// unless it is known already.
-func (r *Registry) derive(id, root, path string) {
+// unless it is known already. It takes the script job's run, which is the
+// run that holds that flow job too, unless a dispatch placed the script
+// job's run in another run's tree.
+func (r *Registry) derive(id, root, path, run string) {
 	if id == "" || r.jobs[id] != nil {
 		return
 	}
-	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path}, derived: true}
+	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run}, derived: true}
 	r.addToTree(root, id)
 }
 
@@ -235,13 +292,13 @@ func (r *Registry) sweep(root string) {
 	}
 }
 
-// retire keeps j, a job whose tree has ended, among the ended jobs,
-// without its Env, and forgets the oldest ones beyond keep. Called with mu
-// held.
+// retire keeps j, a job whose tree has ended, among the ended jobs, by its
+// kind, root and path only: without its Env, its run and its View, so that
+// no ended run stays reachable from the registry. It forgets the oldest
+// ones beyond keep. Called with mu held.
 func (r *Registry) retire(j Job) {
-	j.Env = nil
 	r.seq++
-	r.ended[j.ID] = endedJob{job: j, seq: r.seq}
+	r.ended[j.ID] = endedJob{kind: j.Kind, root: j.Root, path: j.Path, seq: r.seq}
 	r.order = append(r.order, endedRef{id: j.ID, seq: r.seq})
 	for len(r.ended) > r.keep || len(r.order) > 2*r.keep {
 		old := r.order[0]
@@ -259,13 +316,22 @@ func (r *Registry) Job(id string) (Job, bool, bool) {
 	e := r.jobs[id]
 	if e == nil {
 		k, ok := r.ended[id]
-		return k.job, false, ok
+		if !ok {
+			return Job{}, false, false
+		}
+		return Job{ID: id, Kind: k.kind, Root: k.root, Path: k.path}, false, true
 	}
 	live := e.live > 0
 	if e.derived {
 		live = r.rootLive(e.job.Root)
 	}
-	return e.job, live, true
+	j := e.job
+	if j.View == nil && j.Run != "" {
+		if re := r.jobs[j.Run]; re != nil {
+			j.View = re.job.View
+		}
+	}
+	return j, live, true
 }
 
 // UserStates is the local default of the flow user state service: the
@@ -411,6 +477,123 @@ func (s *Services) RootJob(id string) (string, bool) {
 		return "", false
 	}
 	return j.Root, true
+}
+
+// GetJob answers GET jobs_u/get/{id} ([WA-19]): the record of the job id
+// names, which the run that holds it renders (Job.View) while the job's
+// root run is live. An id the job registry does not know fails with the
+// API's 404 `Not found: Job not found at name <id>`, written without
+// Windmill's Rust location (D14). A job the registry knows but no live
+// run holds fails with a *NotServed: a job of a run that has ended
+// (ErrEndedRun, deviation D22), whose record Windmill keeps until its job
+// retention removes it, 30 days by default.
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+func (s *Services) GetJob(id string) ([]byte, error) {
+	j, err := s.liveJob(id, "Job not found at name %s")
+	if err != nil {
+		return nil, err
+	}
+	return j.View.JobRecord(id)
+}
+
+// GetJobArgs answers GET jobs_u/get_args/{id} ([WA-19]): the stored
+// arguments of the job id names, which the run that holds it renders
+// while the job's root run is live. An id the job registry does not know
+// fails with the API's 404 `Not found: Job Args not found at name <id>`,
+// written without Windmill's Rust location (D14); a job of a run that has
+// ended fails with ErrEndedRun (D22), as GetJob does.
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+func (s *Services) GetJobArgs(id string) ([]byte, error) {
+	j, err := s.liveJob(id, "Job Args not found at name %s")
+	if err != nil {
+		return nil, err
+	}
+	return j.View.JobArgs(id)
+}
+
+// liveJob returns the job id names when a run that is live holds it: an
+// id the registry does not know fails with the API's 404 of format, a job
+// whose root run has ended with ErrEndedRun.
+func (s *Services) liveJob(id, format string) (Job, error) {
+	jobs := s.jobs()
+	j, _, ok := jobs.Job(id)
+	if !ok {
+		return Job{}, notFound(format, id)
+	}
+	// A job of a live run is known while its root lives, running or
+	// completed; once the root has ended, the registry keeps only the ids
+	// of its tree's jobs.
+	_, rootLive, _ := jobs.Job(cmp.Or(j.Root, id))
+	switch {
+	case !rootLive:
+		return Job{}, ErrEndedRun
+	case j.View == nil:
+		return Job{}, &NotServed{Reason: "no run of this runtime holds the job"}
+	}
+	return j, nil
+}
+
+// FlowUserStateLister is a flow user state service that can list a flow
+// job's whole map, which GET jobs_u/get/{id} shows as its flow status's
+// user_states ([WA-19]). UserStates implements it.
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+type FlowUserStateLister interface {
+	// UserStates returns each key of the flow job's map with its value,
+	// as the JSON text a read gives back.
+	UserStates(ctx context.Context, job string) (map[string]json.RawMessage, error)
+}
+
+// UserStates returns each key of the flow job's map with its value, as a
+// read gives it back.
+func (u *UserStates) UserStates(_ context.Context, job string) (map[string]json.RawMessage, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	m := u.maps[job]
+	if m == nil {
+		return nil, nil
+	}
+	out := make(map[string]json.RawMessage, len(m.vals))
+	for k, v := range m.vals {
+		out[k] = v
+	}
+	return out, nil
+}
+
+// FlowUserStates returns the user state of the live flow job id names,
+// as the object that its flow status holds (WA-14): each key with its
+// value as a read gives it back, in jsonb's order, as the flow status
+// column stores it. It returns false when the job has no user state, and
+// when the services' FlowUserState cannot list a map
+// (FlowUserStateLister).
+func (s *Services) FlowUserStates(ctx context.Context, id string) (json.RawMessage, bool, error) {
+	l, ok := s.userState().(FlowUserStateLister)
+	if !ok || !s.liveFlow(id) {
+		return nil, false, nil
+	}
+	m, err := l.UserStates(ctx, id)
+	if err != nil || len(m) == 0 {
+		return nil, false, err
+	}
+	var b []byte
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		b = append(b, ',')
+		q, err := json.Marshal(k)
+		if err != nil {
+			return nil, false, err
+		}
+		b = append(b, q...)
+		b = append(b, ':')
+		b = append(b, m[k]...)
+	}
+	b[0] = '{'
+	stored, err := jsonval.FromProducer(append(b, '}')).Stored()
+	if err != nil {
+		return nil, false, err
+	}
+	return stored, true, nil
 }
 
 // JobEnv returns the job variables of the script job id names, which a

@@ -1,0 +1,5 @@
+# A walk up the parent chain without no_logs, from a step inside a
+# sub-flow inside a branch of the root flow.
+spec: [WA-19/k]
+target: f/wl_jr/walk
+args: {cfg: {name: deep}}

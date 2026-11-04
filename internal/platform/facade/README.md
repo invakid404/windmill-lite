@@ -2,9 +2,9 @@
 
 **Current state:** the platform facade of
 [ADR 0007](../../../docs/design/0007-platform-interface.md) serves the root
-lookup, the resource and variable reads, a variable's update, flow user
-state, dispatch and its result polls, and the object store; every other
-route of Windmill's API answers 501. This README covers
+lookup, the job reads of a live run, the resource and variable reads, a
+variable's update, flow user state, dispatch and its result polls, and the
+object store; every other route of Windmill's API answers 501. This README covers
 `internal/platform/facade`. Job identity and the services are
 [internal/platform](../README.md).
 
@@ -83,6 +83,32 @@ and the engine each flow run. The lookup answers:
   to return at least one row`, without Windmill's Rust location (D14).
 - **An id that is not a UUID:** the web framework's `400` (WA-19/c,
   [Request rejections](#request-rejections)).
+
+**The job reads** ([WA-19](../../../docs/semantics/client-api.md#wa-19)),
+`getJob`, `GET /w/{ws}/jobs_u/get/{id}`, and `getJobArgs`, `GET
+/w/{ws}/jobs_u/get_args/{id}`, answer from the job registry, which
+reaches the run that holds the job
+([internal/platform](../README.md#the-job-registry-and-flow-user-state)).
+`Register` registers an invocation with its run, whose view renders its
+record. The reads answer:
+
+- **A job of a live run**, running or completed: `200`
+  `application/json`, the job's record with the fields windmill-lite
+  serves, or its stored arguments in jsonb's text output. The query's
+  `no_logs` and `no_code` change nothing, since windmill-lite serves
+  neither the logs nor the code they leave out.
+- **No job in the path's workspace:** an id the registry does not know,
+  and any id looked up in a workspace other than the caller's. They
+  answer Windmill's `404` `text/plain`, `Not found: Job not found at name
+  <id>` or `Not found: Job Args not found at name <id>`, without the
+  location (D14).
+- **A job of a run that has ended:** `501` with the reason after the
+  route's name, which the 501 policy quotes when it fails the step
+  (deviation D22 of
+  [ADR 0001](../../../docs/design/0001-equivalence-contract.md)); so do a
+  job no run of the runtime holds, and a record windmill-lite does not
+  reproduce, such as a canceled job's.
+- **An id that is not a UUID:** the web framework's `400`.
 
 **The resource and variable reads** answer from `Config.Platform`
 ([internal/platform](../README.md#services)), nil meaning none, so every
@@ -232,7 +258,7 @@ bare `text/plain`. The facade gives these answers on the routes it serves
 
 | Request | Routes | Answer |
 |---|---|---|
-| A job id that is not a UUID | the root lookup, the result polls (`id`), flow user state (`job_id`) | `400` ``Invalid URL: Cannot parse `<param>` with value `<id>`: UUID parsing failed: <detail>`` (WA-V2/c, WA-19/c, WA-14/d) |
+| A job id that is not a UUID | the root lookup, the job reads and the result polls (`id`), flow user state (`job_id`) | `400` ``Invalid URL: Cannot parse `<param>` with value `<id>`: UUID parsing failed: <detail>`` (WA-V2/c, WA-19/c, WA-14/d) |
 | A `job_id` query parameter that is not a UUID | `getResourceValueInterpolated` | `400` with windmill-lite's text, `windmill-lite: the query parameter job_id, "<id>", is not a UUID: <detail>`; the reference gives the status only (WA-12/g) |
 | A body without a JSON content type (`application/json`, or `application/<x>+json`) | `setFlowUserState`, `updateVariable` | `415` ``Expected request with `Content-Type: application/json` `` |
 | A body that does not parse as JSON | `setFlowUserState`, `updateVariable` | `400` `Failed to parse the request body as JSON: <message>`, the message in the backend JSON library's words, without the member's path that Windmill puts in front of an error inside a member or an element (`a: ` for `{"a": x}`) |
@@ -337,7 +363,7 @@ outside `/api/` answer `501` `text/plain` with
 which the stock helpers read as "absent"
 ([WA-41](../../../docs/semantics/client-api.md#wa-41)). The template is the
 API's, with its workspace parameter written `{ws}` as the reference writes
-it (`GET /w/{ws}/jobs_u/get/{id}`); a path no route matched is named as sent,
+it (`GET /w/{ws}/jobs_u/get_logs/{id}`); a path no route matched is named as sent,
 without `/api`. Every 501, a handler's included, is recorded against the
 invocation as unsupported.
 
@@ -401,6 +427,13 @@ comparison. An abandoned invocation has no outcome to replace.
   - the object store routes: a round trip with metadata, a missing object,
     the 501s of a generated key, a resource's bucket and deletion, and the
     500s with no store, which are not unsupported.
+- `jobreads_test.go`, without Bun (`TestJobReadRoutes`,
+  `TestUnservedJobRoutes`): the job reads of a live run's jobs, a step
+  that ended included, and a UUID in upper case; the 404 texts of an
+  unknown id and of another workspace, the framework's `400`, and the 501
+  of a job of a run that has ended, recorded as unsupported, while the
+  root lookup still answers; and the `jobs_u` routes that stay unserved
+  answering 501.
 - `providers_test.go`, without Bun:
   - the resource and variable reads on both transports: their statuses,
     content types and bodies, the raw read and exists, a create's 501, and

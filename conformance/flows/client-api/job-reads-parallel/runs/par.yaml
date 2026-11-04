@@ -1,0 +1,5 @@
+# A parallel loop and then a parallel branchall, each with two children
+# that run at once and complete out of order: a reader inside each reads
+# the running container, and the next module reads it completed.
+spec: [WA-19/n]
+target: f/wl_jrp/par

@@ -1,0 +1,6 @@
+# 131,072 characters: an 8 KiB block that no compressor shrinks, repeated.
+# A compressor that looks back further than 8 KiB shrinks it, one that
+# looks back 4 KiB does not.
+spec: [WA-19/o]
+target: f/wl_jrl/big
+args: {kind: window, n: 131072}

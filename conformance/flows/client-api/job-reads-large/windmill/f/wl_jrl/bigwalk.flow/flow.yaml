@@ -1,0 +1,44 @@
+summary: job reads, a walk up the parent chain past a sub-flow whose input is large
+value:
+  modules:
+    - id: v
+      value:
+        type: rawscript
+        content: '!inline v.ts'
+        input_transforms:
+          kind:
+            type: javascript
+            expr: flow_input.kind
+          n:
+            type: javascript
+            expr: flow_input.n
+        lock: '!inline v.lock'
+        language: bun
+    - id: sub
+      value:
+        type: flow
+        input_transforms:
+          cfg:
+            type: static
+            value:
+              name: required
+          padding:
+            type: javascript
+            expr: results.v
+        path: f/wl_jrl/inner
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    kind:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+    n:
+      type: number
+      description: ''
+      default: null
+  required:
+    - kind
+    - n

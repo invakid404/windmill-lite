@@ -51,6 +51,11 @@ type frame struct {
 	// branch. id is the flow's job id (WM_FLOW_JOB_ID) and scope the id of
 	// its innermost flow scope (WM_ROOT_FLOW_JOB_ID, WA-V1).
 	path, id, scope string
+	// parentJob is a child flow's parent job, the flow job whose module
+	// runs it, and moduleID that module's id, which the child's record
+	// shows as its flow_step_id while it runs (WA-19). Both are "" for the
+	// root.
+	parentJob, moduleID string
 	// site is a child flow's site: its iteration's (<loop>/i:<n>), its
 	// branch's (<container>/b:<n>, <container>/b:default), or a subflow's
 	// step's own (<step>), below which its modules have theirs.
@@ -111,6 +116,34 @@ type frame struct {
 	// iteration's are its loop's flow's (owner). Only the goroutine that
 	// drives the frame touches them.
 	env, envCached jsonval.Value
+	// recs holds, per module (the failure module last), the record in the
+	// trace of its current attempt in this flow, -1 before it starts, and
+	// kids, per module, the child flows of a container's or a flow step's
+	// current attempt by slot (an iteration's index, a branch's, the
+	// default branch after the others, 0 for a subflow), or a collapsed
+	// loop's iterations, frames of their own. owned lists the records of
+	// the flow's modules and of its collapsed iterations, every attempt's,
+	// where the attempts that a module lists as failed retries are. A job
+	// record (WA-19) reads them, so that each flow job shows what it ran,
+	// whatever a later attempt runs at the same sites. run.mu guards them.
+	recs  []int
+	kids  [][]*frame
+	owned []int
+	// waiting counts the host-provided sites of the flow, and of its
+	// collapsed iterations, that wait for a sleep or a retry delay to end
+	// before the host answers them: a provided site has no Windmill job,
+	// so no record of the flow job in that state has been seen (WA-19).
+	// run.mu guards it.
+	waiting int
+	// attempts holds, by record, the job of a failed attempt of a
+	// container that its retry kept: the child flow that failed it, which
+	// the record of the attempt does not name (run.attempt).
+	attempts map[int]string
+	// released marks a parallel child flow that its container released to
+	// run, one that a parallelism holds not being released yet (CF-7), and
+	// scheduled a flow job pushed for later that waits to be picked up,
+	// after a sleep or a retry delay (CF-21, FX-26). run.mu guards them.
+	released, scheduled bool
 }
 
 // nodeScope is one scope of the result-by-node-id map (JE-19, CF-19): the
@@ -130,7 +163,10 @@ func newNodeScope(parent *nodeScope) *nodeScope {
 // sites carry each module's occurrence when an id repeats (OF-2, ADR 0011),
 // and the failure slot's site, s:failure, comes after them.
 func newFrame(ms []*ir.Module, prefix conformance.SitePath) *frame {
-	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1), nilJob: make([]bool, len(ms)+1), succeeded: make([]bool, len(ms)+1)}
+	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1), nilJob: make([]bool, len(ms)+1), succeeded: make([]bool, len(ms)+1), recs: make([]int, len(ms)+1)}
+	for i := range fr.recs {
+		fr.recs[i] = -1
+	}
 	ids := make([]string, len(ms))
 	for i, m := range ms {
 		ids[i] = m.ID

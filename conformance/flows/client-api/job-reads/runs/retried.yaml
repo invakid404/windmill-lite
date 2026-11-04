@@ -1,0 +1,3 @@
+# A step that failed on its first attempt and succeeded on its retry.
+spec: [WA-19/g]
+target: f/wl_jr/retried

@@ -1,0 +1,5 @@
+# 89,000 characters that no compressor shrinks, as v's result and w's
+# argument: below Windmill's replacement, so both are read whole.
+spec: [WA-19/o]
+target: f/wl_jrl/big
+args: {kind: random, n: 89000}

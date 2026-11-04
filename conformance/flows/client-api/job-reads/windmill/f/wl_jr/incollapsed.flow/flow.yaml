@@ -1,0 +1,22 @@
+summary: job reads, a step that is a collapsed loop's iteration
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: read
+            value:
+              type: script
+              input_transforms: {}
+              path: f/wl_jr/read
+        iterator:
+          type: javascript
+          expr: '[1, 2]'
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

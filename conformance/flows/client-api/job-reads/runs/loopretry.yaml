@@ -1,0 +1,3 @@
+# A loop retried after its first attempt's iteration failed.
+spec: [WA-19/l]
+target: f/wl_jr/loopretry

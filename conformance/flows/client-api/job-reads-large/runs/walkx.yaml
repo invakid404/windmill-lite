@@ -1,0 +1,5 @@
+# A step under a sub-flow whose input holds 92,000 times "x" walks up its
+# parent chain without no_logs.
+spec: [WA-19/o]
+target: f/wl_jrl/bigwalk
+args: {kind: x, n: 92000}

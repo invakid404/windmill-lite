@@ -275,8 +275,8 @@ func storedEntrypoint(stored jsonval.Value) (entry string, override bool, err er
 // main otherwise. override reports whether the arguments carry one, which
 // is what selects the WR-V1 fallback in the harness. An override that is
 // not a string matching ^[A-Za-z_][A-Za-z0-9_]*$ is refused before any
-// wrapper runs, with an error wrapping ErrInvalidEntrypoint, whose text
-// begins as Windmill's does.
+// wrapper runs, with an error wrapping ErrInvalidEntrypoint, whose text is
+// what Windmill's worker writes after "Bad request: " (WR-12).
 //
 // It walks the object in place (jsonval.Members) for the last member of
 // that key, as a decode into a map of members finds it, and refuses text
@@ -298,7 +298,7 @@ func Entrypoint(args jsonval.Value) (entry string, override bool, err error) {
 	}
 	var name string
 	if json.Unmarshal(raw, &name) != nil || !entrypointName.MatchString(name) {
-		return "", true, fmt.Errorf("%w: %s", ErrInvalidEntrypoint, raw)
+		return "", true, fmt.Errorf("%w %s: must match %s (letters, digits and underscores, not starting with a digit)", ErrInvalidEntrypoint, raw, entrypointName)
 	}
 	return name, true, nil
 }

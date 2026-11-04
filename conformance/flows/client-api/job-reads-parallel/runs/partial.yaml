@@ -1,0 +1,5 @@
+# Two parallel branchalls, each read by one branch once the other has
+# completed: the completed branch first, then last; the next module reads
+# both completed.
+spec: [WA-19/p]
+target: f/wl_jrp/partial

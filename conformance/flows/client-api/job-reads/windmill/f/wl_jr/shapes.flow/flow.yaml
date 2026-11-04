@@ -1,0 +1,183 @@
+summary: job reads, loops and branches
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline x.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1, 2]'
+        parallel: false
+        skip_failures: false
+    - id: p
+      value:
+        type: forloopflow
+        modules:
+          - id: y
+            value:
+              type: rawscript
+              content: '!inline y.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline y.lock'
+              language: bun
+          - id: z
+            value:
+              type: rawscript
+              content: '!inline z.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: results.y
+              lock: '!inline z.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1, 2]'
+        parallel: true
+        skip_failures: false
+    - id: o
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: c1
+                value:
+                  type: rawscript
+                  content: '!inline c1.ts'
+                  input_transforms: {}
+                  lock: '!inline c1.lock'
+                  language: bun
+            expr: 'false'
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: c2
+                value:
+                  type: rawscript
+                  content: '!inline c2.ts'
+                  input_transforms: {}
+                  lock: '!inline c2.lock'
+                  language: bun
+            expr: 'true'
+            parallel: true
+            skip_failure: true
+        default:
+          - id: d
+            value:
+              type: rawscript
+              content: '!inline d.ts'
+              input_transforms: {}
+              lock: '!inline d.lock'
+              language: bun
+    - id: all
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: e
+                value:
+                  type: rawscript
+                  content: '!inline e.ts'
+                  input_transforms: {}
+                  lock: '!inline e.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: g
+                value:
+                  type: rawscript
+                  content: '!inline g.ts'
+                  input_transforms: {}
+                  lock: '!inline g.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: false
+    - id: sk
+      value:
+        type: rawscript
+        content: '!inline sk.ts'
+        input_transforms: {}
+        lock: '!inline sk.lock'
+        language: bun
+      skip_if:
+        expr: 'true'
+    - id: p1
+      value:
+        type: forloopflow
+        modules:
+          - id: q
+            value:
+              type: rawscript
+              content: '!inline q.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline q.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1]'
+        parallel: true
+        skip_failures: false
+    - id: o2
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: h
+                value:
+                  type: rawscript
+                  content: '!inline h.ts'
+                  input_transforms: {}
+                  lock: '!inline h.lock'
+                  language: bun
+            expr: 'false'
+            parallel: true
+            skip_failure: true
+        default:
+          - id: d1
+            value:
+              type: rawscript
+              content: '!inline d1.ts'
+              input_transforms: {}
+              lock: '!inline d1.lock'
+              language: bun
+          - id: d2
+            value:
+              type: rawscript
+              content: '!inline d2.ts'
+              input_transforms: {}
+              lock: '!inline d2.lock'
+              language: bun
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    k:
+      type: number
+      description: ''
+  required: []

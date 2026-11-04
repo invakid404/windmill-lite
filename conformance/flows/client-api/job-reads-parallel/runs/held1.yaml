@@ -1,0 +1,4 @@
+# A parallel loop with a parallelism of 1: its first child reads the loop
+# while the second waits to start.
+spec: [WA-19/n]
+target: f/wl_jrp/held1

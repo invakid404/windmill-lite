@@ -1,0 +1,18 @@
+# GET jobs_u/get/{id} (WA-19) on jobs whose result or arguments are large.
+# Windmill replaces a value whose stored column takes 90000 bytes or more
+# (OR-V1), after PostgreSQL's compression: run whole stays below that
+# uncompressed; compressible and incompressible are above it, compressed
+# far below and not at all; window is a block repeated beyond the 4 KiB
+# that pglz looks back, which only lz4 would shrink; rows is an array of
+# objects; walkx and walkr walk up the parent chain from under a sub-flow
+# whose input is large; edge1 to edge4 put the result and the argument map
+# at 89,999 and 90,000 bytes stored, either side of the replacement.
+# windmill-lite answers each as Windmill does, from
+# the stored size it computes (jsonval.ToastedSize). Synthetic, written for
+# this repository.
+id: client-api/job-reads-large
+spec: [WA-19/o, OR-V1]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

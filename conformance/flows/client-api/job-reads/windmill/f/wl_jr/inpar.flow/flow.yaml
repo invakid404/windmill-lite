@@ -1,0 +1,22 @@
+summary: job reads, a step inside a parallel loop body
+value:
+  modules:
+    - id: p
+      value:
+        type: forloopflow
+        modules:
+          - id: read
+            value:
+              type: script
+              input_transforms: {}
+              path: f/wl_jr/read
+        iterator:
+          type: javascript
+          expr: '[1]'
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

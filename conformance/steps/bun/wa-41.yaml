@@ -70,7 +70,7 @@ cases:
         // counted as left behind in fresh mode, where the fetch is not
         // intercepted (D9).
         await (await fetch(`${base}/oidc/token/aud`, { method: "POST", headers: auth })).text();
-        await (await fetch(`${base}/jobs_u/get/j1`, { headers: auth })).text();
+        await (await fetch(`${base}/jobs_u/get_logs/j1`, { headers: auth })).text();
         await (await fetch(`${base}/oidc/token/aud`, { method: "POST", headers: auth })).text();
         return 1;
       }
@@ -82,8 +82,8 @@ cases:
             error:
               name: UnsupportedPlatformCall
               message: "Not implemented in windmill-lite: POST /w/{ws}/oidc/token/{audience}"
-              calls: ["POST /w/{ws}/oidc/token/{audience}", "GET /w/{ws}/jobs_u/get/{id}", "POST /w/{ws}/oidc/token/{audience}"]
-        calls: ["501 POST /w/{ws}/oidc/token/{audience}", "501 GET /w/{ws}/jobs_u/get/{id}", "501 POST /w/{ws}/oidc/token/{audience}"]
+              calls: ["POST /w/{ws}/oidc/token/{audience}", "GET /w/{ws}/jobs_u/get_logs/{id}", "POST /w/{ws}/oidc/token/{audience}"]
+        calls: ["501 POST /w/{ws}/oidc/token/{audience}", "501 GET /w/{ws}/jobs_u/get_logs/{id}", "501 POST /w/{ws}/oidc/token/{audience}"]
   - spec: WA-41/b
     variant: thrown
     provenance: policy
@@ -91,15 +91,15 @@ cases:
     script: |
       export async function main() {
         const e = process.env;
-        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get/j1`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_logs/j1`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
         throw new Error(`the job lookup answered ${res.status}: ${await res.text()}`);
       }
     runs:
       - args: '{}'
         expect:
           status: failure
-          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}", calls: ["GET /w/{ws}/jobs_u/get/{id}"]}}
-        calls: ["501 GET /w/{ws}/jobs_u/get/{id}"]
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_logs/{id}", calls: ["GET /w/{ws}/jobs_u/get_logs/{id}"]}}
+        calls: ["501 GET /w/{ws}/jobs_u/get_logs/{id}"]
   - spec: WA-41/b
     variant: no-route
     provenance: policy

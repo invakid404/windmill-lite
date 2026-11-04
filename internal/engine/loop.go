@@ -73,6 +73,9 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 	if len(items) == 0 {
 		return r.emptyContainer(ctx, fr, i, o)
 	}
+	r.mu.Lock()
+	r.iterLen[site] = len(items)
+	r.mu.Unlock()
 	if l.Parallel {
 		return r.parallelLoop(ctx, fr, i, prev, prevID, items, o, b)
 	}
@@ -292,6 +295,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 				// retry's re-entry is a later transition, FX-15). The job
 				// was never pushed, so Windmill has no site for it.
 				r.supersede(fr.sites[i].Child(conformance.Iteration(k)), conformance.SitePath{}, conformance.SitePath{})
+				r.mu.Lock()
+				fr.addKid(i, k, nil)
+				r.mu.Unlock()
 				return chaining(k, k == 0 && b.first, e.chain)
 			}
 			job = &childJob{site: c.sites[0], input: e.args, end: e}
@@ -313,7 +319,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			if k == 0 {
 				c.due = b.due
 			}
-			r.addChild(c)
+			r.addChild(fr, i, k, c)
 			e = r.runList(ctx, c)
 			if e.unreported {
 				it.add(e)
@@ -471,9 +477,19 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		c.due = b.due
 		children[k] = c
 	}
-	for _, c := range children {
-		r.addChild(c)
+	// Every child is pushed at the loop's start, a held one included, which
+	// is a queued job of the run's tree until it is released (WA-19): its
+	// registration lasts until it ends, or until the loop does.
+	regs := make([]func(), n)
+	for k, c := range children {
+		r.addChild(fr, i, k, c)
+		regs[k] = r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})
 	}
+	defer func() {
+		for _, end := range regs {
+			end()
+		}
+	}()
 	// A child k is held when k is at or beyond its own parallelism N, and
 	// becomes eligible once k - N + 1 iterations have completed (CF-7,
 	// JE-V1). Held children wait by that count, in index order among
@@ -495,8 +511,10 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		started[k] = true
 		nStarted++
 		running++
+		r.released(children[k])
 		go func() {
 			ends[k] = r.runList(ctx, children[k])
+			regs[k]()
 			done <- k
 		}()
 	}
@@ -824,6 +842,7 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 	c := newFrame(bodyOf(m).modules, fr.sites[i].Child(conformance.Iteration(k)))
 	now := r.clock.Now()
 	c.site, c.child, c.id, c.pinged, c.started = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID(), now, now
+	c.parentJob, c.moduleID = fr.id, m.ID
 	c.def, c.failure, c.envSrc = fr.def, fr.failure, fr.envSrc
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = fr.path+"/loop-"+strconv.Itoa(k), fr.scope, fr.nodes, fr.rng
@@ -834,10 +853,13 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 	return c, ""
 }
 
-// addChild records a child flow the run created in its trace.
-func (r *run) addChild(c *frame) {
+// addChild records c, a child flow the run created for module i of fr at
+// slot (frame.kids), in its trace.
+func (r *run) addChild(fr *frame, i, slot int, c *frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.indexFlow(c)
+	fr.addKid(i, slot, c)
 	child := ChildFlow{Site: c.site, ID: c.id, Modules: c.ids(), Virtual: make([]bool, len(c.modules)), Failure: c.failure != nil}
 	for i, m := range c.modules {
 		child.Virtual[i] = m.Virtual
@@ -859,6 +881,9 @@ func (r *run) collapsedFrame(fr *frame, i, k int, base jsonval.Value, item []byt
 	c.input, c.prev = iterInput(base, k, item), prev
 	c.loopPrev, c.loopPrevID = loopPrev, loopPrevID
 	c.path, c.id, c.scope, c.nodes, c.rng = fr.path, fr.id, fr.scope, fr.nodes, fr.rng
+	r.mu.Lock()
+	fr.addKid(i, k, c)
+	r.mu.Unlock()
 	return c
 }
 

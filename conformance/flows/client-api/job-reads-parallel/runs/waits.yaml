@@ -1,0 +1,5 @@
+# A parallel branchall: one branch's step waits for the sleep of the step
+# before it, another's for its retry delay, and the third reads the job
+# tree meanwhile.
+spec: [WA-19/p]
+target: f/wl_jrp/waits

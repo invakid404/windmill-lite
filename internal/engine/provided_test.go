@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -222,5 +223,70 @@ func TestChildFlowsAreJobs(t *testing.T) {
 	env := envs[dispatched]
 	if env["WM_FLOW_PATH"] != "f/t/main/forloop-0" || env["WM_FLOW_JOB_ID"] == "" || env["WM_STATE_PATH"] != "f/t/main/forloop-0/nostep_user" {
 		t.Errorf("the dispatched job's identity: %v", env)
+	}
+}
+
+// A flow job answers 501 while a host-provided site of it waits for the
+// sleep of the step before it ([WA-19]): the site has no Windmill job, so
+// no recording shows the flow in that state. A sibling branch reads the
+// waiting branch's flow job meanwhile, and the step after the branchall
+// reads it again once the site has its value.
+//
+// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
+func TestFlowWithAWaitingProvidedSiteIsNotServed(t *testing.T) {
+	services := &platform.Services{}
+	var during, after error
+	exec := &stepFunc{f: func(inv Invocation) (StepOutcome, error) {
+		read := func() error {
+			var v struct {
+				FlowStatus struct {
+					Modules []struct {
+						FlowJobs []string `json:"flow_jobs"`
+					} `json:"modules"`
+				} `json:"flow_status"`
+			}
+			body, err := services.GetJob(inv.Env["WM_ROOT_JOB_ID"])
+			if err != nil || json.Unmarshal(body, &v) != nil || len(v.FlowStatus.Modules[0].FlowJobs) == 0 {
+				return errors.New("the run's flow job lists no branch yet")
+			}
+			_, err = services.GetJob(v.FlowStatus.Modules[0].FlowJobs[0])
+			return err
+		}
+		switch inv.Env["WM_FLOW_STEP_ID"] {
+		case "r":
+			deadline := time.Now().Add(5 * time.Second)
+			for during = errors.New("never read waiting"); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+				if err := read(); errors.As(err, new(*platform.NotServed)) {
+					during = nil
+					break
+				}
+			}
+		case "z":
+			after = read()
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"ok"`))}, nil
+	}}
+	branch := func(mods ...string) string { return `{"modules":[` + strings.Join(mods, ",") + `]}` }
+	flows := map[string]string{
+		"f/t/main": flowOf(`{"id":"ba","value":{"type":"branchall","parallel":true,"branches":[`+
+			branch(mod("a", "echo", "", `"sleep":`+static("1")), `{"id":"wait","value":{"type":"flow","path":"f/t/permit","input_transforms":{}}}`)+","+
+			branch(mod("r", "echo", "", ""))+`]}}`, mod("z", "echo", "", "")),
+		"f/t/permit": flowOf(`{"id":"s","value":{"type":"identity"},"suspend":{"required_events":1,"timeout":60}}`),
+	}
+	contract := `{"roots":[{"flow":"f/t/main"}],"provided":[{"selector":{"flow":"f/t/main","module":"wait"},"static":{"granted":true},"mandatory":true}]}`
+	e, err := New(Config{Program: compileContract(t, flows, contract), Bundle: "sha256:test", Exec: registering{services, exec}, JS: jsEng, Platform: services})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Hooks: NoHooks{}, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, tr, conformance.RunSuccess, `"ok"`)
+	if during != nil {
+		t.Errorf("the branch's flow job while its provided site waits: %v", during)
+	}
+	if after != nil {
+		t.Errorf("the branch's flow job once its provided site has its value: %v", after)
 	}
 }

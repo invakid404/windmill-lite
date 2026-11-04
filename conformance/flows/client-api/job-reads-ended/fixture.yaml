@@ -1,0 +1,15 @@
+# GET jobs_u/get/{id} and GET jobs_u/get_args/{id} (WA-19) on a job of a
+# run that has ended: a step dispatches a script as a run of its own,
+# waits for it, then reads its job and its arguments. Recorded on the oracle with two workers, since the step waits for
+# the run it dispatched (OR-5). windmill-lite keeps no record of the jobs
+# of a run that has ended and answers 501, which fails the step with
+# UnsupportedPlatformCall: deviation D22 of ADR 0001, which
+# TestEndedRunJobRead checks. roots lists the dispatched script, which a
+# host contract lists (ADR 0002). Synthetic, written for this repository.
+id: client-api/job-reads-ended
+spec: [WA-19/i, OR-5]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2}
+roots: [f/wl_jre/leaf]

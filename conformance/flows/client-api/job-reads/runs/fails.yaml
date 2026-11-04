@@ -1,0 +1,4 @@
+# A for loop whose iterator throws and a branchone whose predicate throws,
+# both with continue_on_error, read by the step after them.
+spec: [WA-19/n]
+target: f/wl_jr/fails

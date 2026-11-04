@@ -222,7 +222,7 @@ func TestTransportsAgree(t *testing.T) {
 // The 501 policy on the stock client (WA-41/a–b, WA-V5): runScriptByPathAsync
 // resolves to the 501's body as a job id (WA-V5/a), setFlowUserState
 // swallows its 501 (WA-V5/b), the strict setFlowUserState rejects with it
-// (WA-V5/c), and getIdToken and JobService.getJob reject with an ApiError
+// (WA-V5/c), and getIdToken and JobService.getJobLogs reject with an ApiError
 // whose status is 501, statusText the facade's, message the generator's
 // "Not Implemented" and body the 501's (WA-41/a). In fail mode the step
 // fails with UnsupportedPlatformCall though the script returned normally,
@@ -232,8 +232,8 @@ func TestTransportsAgree(t *testing.T) {
 // answers a route it does not serve.
 func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 	r := newBunRig(t)
-	const observed = `{"async":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","state":null,"strict":"Error setting flow user state at k: Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}","token":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: POST /w/{ws}/oidc/token/{audience}"},"job":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}"}}`
-	const failed = `{"name":"UnsupportedPlatformCall","message":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","calls":["POST /w/{ws}/jobs/run/p/{path}","POST /w/{ws}/jobs/flow/user_states/{id}/{key}","POST /w/{ws}/jobs/flow/user_states/{id}/{key}","POST /w/{ws}/oidc/token/{audience}","GET /w/{ws}/jobs_u/get/{id}"]}`
+	const observed = `{"async":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","state":null,"strict":"Error setting flow user state at k: Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}","token":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: POST /w/{ws}/oidc/token/{audience}"},"job":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_logs/{id}"}}`
+	const failed = `{"name":"UnsupportedPlatformCall","message":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","calls":["POST /w/{ws}/jobs/run/p/{path}","POST /w/{ws}/jobs/flow/user_states/{id}/{key}","POST /w/{ws}/jobs/flow/user_states/{id}/{key}","POST /w/{ws}/oidc/token/{audience}","GET /w/{ws}/jobs_u/get_logs/{id}"]}`
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		for _, c := range []struct {
 			policy Policy
@@ -478,7 +478,7 @@ export async function main() {
   // HEAD of an unsupported route, and of a served GET route, which the
   // API has no HEAD operation for.
   const head = [];
-  for (const path of ["jobs_u/get/j1", "jobs_u/get_root_job_id/" + e.WM_JOB_ID]) {
+  for (const path of ["jobs_u/get_logs/j1", "jobs_u/get_root_job_id/" + e.WM_JOB_ID]) {
     const res = await fetch(e.BASE_URL + "/api/w/" + e.WM_WORKSPACE + "/" + path, { method: "HEAD", headers: { authorization: "Bearer " + e.WM_TOKEN } });
     head.push({ status: res.status, body: await res.text() });
   }
@@ -522,7 +522,7 @@ export async function main() {
   };
 }
 `,
-	// WA-V5/a–c, getIdToken and WA-41/a's JobService.getJob, each answered
+	// WA-V5/a–c, getIdToken and WA-41/a's generated service (JobService.getJobLogs), each answered
 	// 501.
 	"unsupported": `import * as wmill from "windmill-client";
 
@@ -544,7 +544,7 @@ export async function main() {
   }
   let job;
   try {
-    await wmill.JobService.getJob({ workspace: process.env.WM_WORKSPACE, id: "j1" });
+    await wmill.JobService.getJobLogs({ workspace: process.env.WM_WORKSPACE, id: "j1" });
   } catch (err) {
     job = apiError(err);
   }

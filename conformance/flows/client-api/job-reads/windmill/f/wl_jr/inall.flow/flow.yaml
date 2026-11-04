@@ -1,0 +1,33 @@
+summary: job reads, a step inside a branchall branch
+value:
+  modules:
+    - id: all
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: read
+                value:
+                  type: script
+                  input_transforms: {}
+                  path: f/wl_jr/read
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: s
+                value:
+                  type: rawscript
+                  content: '!inline s.ts'
+                  input_transforms: {}
+                  lock: '!inline s.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

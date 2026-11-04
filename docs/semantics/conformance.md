@@ -55,10 +55,10 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 195 | 130 | 63 | 0 | 2 | 181 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 108 | 57 | 46 | 5 | 0 | 32 | 0 | 6 |
+| [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1040 | 715 | 308 | 8 | 9 | 654 | 0 | 7 |
+| **Total** | 1052 | 727 | 308 | 8 | 9 | 666 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -7234,7 +7234,7 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Expect:** the `resume` URL contains `/jobs_u/resume/<flow job id>/`.
 
 <a id="wa-19"></a>
-### WA-19 · Job introspection from scripts (`getJob`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
+### WA-19 · Job introspection from scripts (`getJob`, `getJobArgs`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
 **Scope:** core · **Finding:** [WA-19](client-api.md#wa-19)
 
@@ -7267,6 +7267,235 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     where `<loc>` is ` (jobs.rs:9074)` at the pin.
   - **Recorded:** [`flows/client-api/driven`](../../conformance/flows/client-api/driven) run `wa19d`, oracle run 41003988171:
     `[404, "Not found: Completed Job not found at name <id> (jobs.rs:9074)"]`.
+- **WA-19/e** · oracle-observed · a step reads its own job tree
+  - **Given:** a flow `F` whose module `core` runs a subflow by path with
+    `continue_on_error: true`. The subflow has a flow-level `cache_ttl` and
+    the steps `a`, which returns `null`, and `b`, which fails when asked
+    to. A path script step then reads, with
+    `GET …/jobs_u/get/{id}?no_logs=true`, its own job, its `parent_job`,
+    the job of `core` in that record's `flow_status.modules`, and the jobs
+    that record's status names. The flow runs with `{fail: false}` and
+    `{fail: true}`.
+  - **Expect:** its own job is a `QueuedJob` with `running: true`, and
+    `F` as `parent_job` and `root_job`, and its id as `flow_step_id`. `F`
+    is a `QueuedJob` whose entries read `Success` (with `skipped: false`),
+    `Success` or `Failure` for `core`, then `InProgress`, with that index
+    as `step`. The subflow is a `CompletedJob` with `success`, `result`,
+    its path as `script_path`, and its entries `a` and `b`, `step` 2 or 1.
+    `a`'s job has `success: true` and `result: null`; a failed `b`'s has
+    `success: false` and the error.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `ok` and `fail`, oracle run 41774793150, as expected, with the
+    fields of [WA-19](client-api.md#wa-19)'s table.
+- **WA-19/f** · oracle-observed · a subflow its cache answered
+  - **Given:** the same subflow called twice with the same inputs, the
+    reading step reading the second call's job.
+  - **Expect:** a `CompletedJob`, `success: true`, the first call's result,
+    `flow_status.step` 0 and every entry `WaitingForPriorSteps` with no job.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    run `cached`, oracle run 41774793150, as expected.
+- **WA-19/g** · oracle-observed · the statuses of containers, skips, retries and failure modules
+  - **Given:** these runs of the reading step:
+    - `shapes`: a flow of a collapsed for loop and a parallel for loop
+      whose two-step body runs as child flows; a branchone that chose a
+      branch, one that chose its default, and a branchall; a module that
+      `skip_if` skipped and a parallel loop of one item;
+    - `handled`: a subflow whose failure module ran; `retried`: a step
+      that succeeds on its retry; `deep`: the reader inside a running
+      subflow after flow user state was set;
+    - `inloop`, `inpar`, `inbranch`, `inall`: the reader inside a
+      sequential or a parallel loop's child flow, or a branchone's or a
+      branchall's branch; `incollapsed`, `inwhile`: the reader as a
+      collapsed for loop's or a while loop's iteration.
+  - **Expect:** the entries and records of [WA-19](client-api.md#wa-19)'s
+    tables. They include `flow_jobs`, `flow_jobs_success`,
+    `branch_chosen`, `failed_retries`, `user_states`, and a skipped
+    module's `identity` job with `{"previous_result": …}`. A failure
+    module's entry has `parent_module`, with `step` 3. A running container
+    has `iterator`, `parallel`, `while_loop` or `branchall`, and a running
+    child flow `flow_step_id` and `root_job`.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `shapes`, `handled`, `retried`, `deep`, `inloop`, `inpar`,
+    `inbranch`, `inall`, `incollapsed` and `inwhile`, oracle run
+    41774793150, as expected.
+- **WA-19/h** · oracle-observed · the error answers, `no_logs` and `no_code`
+  - **Given:** `GET …/jobs_u/get/<a UUID that names no job>`, with and
+    without `no_logs=true`; `GET …/jobs_u/get/abc`; the same for
+    `jobs_u/get_args`; a completed step's job read with `no_logs=true`,
+    without it, with `no_logs=false` and with `no_code=true`, and the
+    reading job's own without `no_logs`.
+  - **Expect:** 404, `text/plain`,
+    `Not found: Job not found at name <id><loc>` and
+    `Not found: Job Args not found at name <id>`, each without the location
+    the step cuts; the framework's 400 for `abc`; the same served fields in
+    every read of a job; the completed step's result `{"k": [1, 2.5]}` as
+    jsonb's text output.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    run `answers`, oracle run 41774793150, as expected; the location is
+    ` (jobs.rs:1688)` for the job read.
+- **WA-19/i** · oracle-observed · a job of a run that has ended
+  - **Given:** two workers; a step dispatches a script as a run of its own
+    (no `parent_job`), waits for it, then reads its job and its arguments.
+  - **Expect:** a `CompletedJob` with `success: true`, the result,
+    `is_flow_step: false` and no `parent_job`; the arguments `{}`.
+  - **Recorded:** [`flows/client-api/job-reads-ended`](../../conformance/flows/client-api/job-reads-ended)
+    run `ended`, oracle run 41774793150, as expected. windmill-lite answers
+    501 instead (deviation D22 of
+    [ADR 0001](../design/0001-equivalence-contract.md)).
+- **WA-19/j** · oracle-observed · the arguments of a step and of a flow
+  - **Given:** a path script with the arguments `label` and `cfg`
+    (`{"name": "n1", "deep": {"k": [1, 2.50], "s": "x"}}` from the flow
+    input), at the top level, inside a subflow and inside a parallel loop.
+    It reads `GET …/jobs_u/get_args/{id}` on its own job and on the flow
+    job it runs in, and how its own job's record spells `cfg.deep.k`.
+  - **Expect:** 200, `application/json`, jsonb's text output of the stored
+    arguments, `2.50` kept: the step's own, the flow's input, the subflow's
+    input, the loop's child flow's input with `iter`; the record's
+    `"k": [1, 2.50]`.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    run `args`, oracle run 41774793150, as expected.
+- **WA-19/k** · oracle-observed · a walk up the parent chain without `no_logs`
+  - **Given:** a step inside a subflow inside a branch of the root flow
+    reads `GET …/jobs_u/get/{id}` without `no_logs` on its own job, then on
+    each `parent_job` until there is none, at most 30 levels, and a
+    completed step of the subflow.
+  - **Expect:** four records, the step's, the subflow's, the branch's child
+    flow's and the root's, each with `id`, `parent_job` (none for the root),
+    `script_path` and `args` (the root's input's nested `cfg.name` in each
+    flow's); `logs` in the script jobs' records only.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    run `walk`, oracle run 41774793150, as expected. What `logs` holds is
+    from oracle run 41773840670, whose walk returned each record's first
+    line of `logs`. It read
+    `job=<id> tag=bun worker=<worker> hostname=<host> isolation=none` for
+    a running and for a completed script job, and the completed one held
+    the script's output.
+- **WA-19/l** · oracle-observed · the attempts of a retried subflow and of a retried loop
+  - **Given:** a flow step that runs a subflow by path with one retry,
+    whose first step fails on its first run and succeeds on the retry
+    (`subretry`); a sequential loop of one item with one retry, whose
+    body's first step does the same (`loopretry`). A step after it reads
+    the job tree, the jobs that `failed_retries` names included.
+  - **Expect:** the module's entry names the retry's flow job as `job` and
+    the first run's in `failed_retries`. Each flow job shows its own run:
+    the first's `step` 0 with its first step `Failure` and its own job and
+    the next step `WaitingForPriorSteps`, the retry's every step
+    `Success`; each step's job has its own flow job as `parent_job`. The
+    loop's retried child flow keeps `iter_parent` in its input
+    ([CF-22](control-flow.md#cf-22)).
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `subretry` and `loopretry`, oracle run 41791783623, as expected.
+- **WA-19/m** · oracle-observed · a subflow that failed before its steps, and skipped and mocked subflow steps
+  - **Given:** a flow step whose input transform throws, with
+    `continue_on_error: true` (`prerun`); a flow step that `skip_if`
+    skips and one whose `mock` returns `{"m": 1}` (`skipsub`). A step after
+    them reads the job tree.
+  - **Expect:** the failed step's entry is `Failure` with a job, a
+    `CompletedJob` with `success: false`, the transform's error as
+    `result`, `args` `{}`, `step` 0 and every module waiting. The skipped
+    and the mocked step's entries are `Success` with an identity job,
+    `skipped` `true` and `false`: a `CompletedJob` with no `script_path`,
+    `args` `{"previous_result": …}` and its result, `{}` and `{"m": 1}`.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `prerun` and `skipsub`, oracle run 41791783623, as expected.
+- **WA-19/n** · oracle-observed · empty and failed containers, early stops, and parallel children
+  - **Given:** a for loop over `[]`, a branchone whose only branch does not
+    hold and whose default has no module, a branchall with no branch, and
+    a subflow whose first step `stop_after_if` stops (`edges`); a for loop
+    whose iterator throws and a branchone whose predicate throws, both
+    with `continue_on_error: true` (`fails`); on two workers, a parallel
+    loop of two children and a parallel branchall of two branches, each
+    read by its second child while both run, the first completing after
+    the reader (`par`), and parallel loops with a parallelism of 2 over
+    three children read once one or two have completed (`held`, `held2`)
+    and of 1 read by its first child (`held1`); and two parallel
+    branchalls of two branches, each read by one branch once the other has
+    completed, the completed one first, then last (`partial`). The next
+    module reads the containers completed.
+  - **Expect:** the empty containers' entries are `Success` with the nil
+    job, the loop and the branchall with empty `flow_jobs`, the branchone
+    with `branch_chosen` `{"type": "default"}`; the stopped subflow's
+    `step` is 1, its second step waiting. The failed starts are `Failure`
+    with the nil job and nothing else. A running parallel loop's
+    `iterator.index` is the number of its children that have completed,
+    its `job` its last child released to run (of children released
+    together, any of them), its `flow_jobs` every child, a held one
+    included, which is a `QueuedJob` with `running: true` and every module
+    waiting. A running parallel branchall's `branchall.branch` is 0 and,
+    once a branch has completed, 1, the number completed, in either order,
+    with `parallel: true`; its `job` is any of its branches. Completed,
+    each container names the child that completed last.
+  - **Recorded:** [`flows/client-api/job-reads`](../../conformance/flows/client-api/job-reads)
+    runs `edges` and `fails`, [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
+    runs `held`, `held1` and `held2`, oracle run 41791783623, and `par`
+    and `partial`, oracle run 41839478258, as expected. Their readers
+    check that the `job` of a running parallel branchall, and in run `par`
+    of the running parallel loop, is one of the module's `flow_jobs`, and
+    then write it as `<one of flow_jobs>`, any other value staying as it
+    is: of children released together, oracle run 41814009799 named
+    `l/i:1` and `l/i:0` in the two repeats of `par`, and oracle run
+    41820829156 `b:1` and `b:0` in those of `partial`.
+- **WA-19/o** · oracle-observed · large results and arguments
+  - **Given:** a step returns a value; the next step takes it as its
+    argument `x`; a third reads both jobs. The value is a string of `n`
+    characters: `x` repeated, a sequence that no compressor shrinks, or an
+    8 KiB block of that sequence repeated (`window`); or an array of 1,000
+    small objects (`rows`). `n` is 89,000 (`whole`), 92,000
+    (`compressible`, `incompressible`) or 131,072 (`window`); or, of
+    characters that no compressor shrinks, 89,986 (`edge1`), 89,987
+    (`edge2`), 89,991 (`edge3`) or 89,992 (`edge4`), which store as the
+    result in 8 bytes more and as the argument map in 13 more. In `walkx`
+    and `walkr`, a step under a sub-flow whose input holds 92,000 times
+    `x` or 92,000 incompressible characters walks up its parent chain
+    without `no_logs`.
+  - **Expect:** a value whose stored column, after pglz's compression,
+    takes less than 90000 bytes whole; else `"WINDMILL_TOO_BIG"` and
+    `{"reason": "WINDMILL_TOO_BIG"}`.
+  - **Recorded:** [`flows/client-api/job-reads-large`](../../conformance/flows/client-api/job-reads-large)
+    runs `whole`, `compressible` and `incompressible`, oracle run
+    41791783623, and `window`, `rows`, `walkx` and `walkr`, oracle run
+    41816071223: whole for `whole`, `compressible`, `rows` and `walkx`'s
+    sub-flow input; replaced for `incompressible`, `window`, which pglz,
+    looking back 4 KiB at most, does not shrink, and `walkr`'s sub-flow
+    input. Runs `edge1` to `edge4`, oracle run 41839478258: the result
+    stored in 89,994, 89,995 and 89,999 bytes whole, in 90,000 replaced;
+    the argument map stored in 89,999 bytes whole, in 90,000, 90,004 and
+    90,005 replaced.
+- **WA-19/p** · oracle-observed · flows whose steps wait for a sleep or a retry delay
+  - **Given:** on two workers, a parallel branchall whose branches wait:
+    a step after the sleep of the step before it, and a step for its
+    retry's delay (`waits`); a sub-flow, a loop and a collapsed loop after
+    the sleep of the step before each, and a sub-flow and a loop for their
+    retry's delay (`waits2`); after the sleep of the step before each, a
+    step that `skip_if` skips, a mocked step, an identity module, a step
+    whose input transform throws, a path script the result cache answers
+    at its pickup, a step whose `_ENTRYPOINT_OVERRIDE` is invalid, a loop
+    that `skip_if` skips, a mocked branchone, and a flow step whose input
+    transform throws (`waits3`). The last branch reads the job tree
+    meanwhile; the step after the branchall reads it completed.
+  - **Expect:** a waiting step's entry is `WaitingForExecutor` with its
+    pushed job, which is a `QueuedJob` with `running: false`; a retry's
+    entry so lists no `failed_retries`; a waiting sub-flow step's entry is
+    `WaitingForExecutor` with its sub-flow's job, a `QueuedJob` with
+    `running: false`, `step` 0 and every module waiting; a waiting loop's
+    entry is `InProgress` with its first child pushed, a `QueuedJob` with
+    `running: false`, and a collapsed loop's with its body job so. In
+    `waits3`, every waiting entry is `WaitingForExecutor` with a pushed
+    job, a `QueuedJob` with `running: false`: the skipped, mocked and
+    identity modules', the skipped loop's and the mocked branchone's an
+    identity job, with `{"previous_result": …}` (the mock's value for a
+    mocked module) and no `script_path` or `language`; the throwing step's
+    a script job with empty arguments; the cached and the wrongly entered
+    steps' a script job with their arguments; the throwing flow step's its
+    sub-flow's job, with empty arguments, `step` 0 and its module waiting.
+    Completed, each entry names the job it waited with: the identity jobs
+    succeeded with their `previous_result`, the cached step with the
+    cached result, and the throwing and wrongly entered steps and the
+    throwing flow step's sub-flow failed with the error.
+  - **Recorded:** [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
+    runs `waits`, `waits2` and `waits3`, oracle run 41839478258, as
+    expected, the running parallel branchall's `job` written
+    `<one of flow_jobs>` once checked to be one of its `flow_jobs`.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour

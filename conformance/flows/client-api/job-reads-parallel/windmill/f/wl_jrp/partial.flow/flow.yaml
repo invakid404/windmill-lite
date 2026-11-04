@@ -1,0 +1,83 @@
+summary: job reads, parallel branchalls read while one branch has completed
+value:
+  modules:
+    - id: b1
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: x
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: p1
+                    role:
+                      type: static
+                      value: fastmark
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: y
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: p1
+                    role:
+                      type: static
+                      value: readafter
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+    - id: b2
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: y
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: p2
+                    role:
+                      type: static
+                      value: readafter
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: x
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: p2
+                    role:
+                      type: static
+                      value: fastmark
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+    - id: after
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jrp/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

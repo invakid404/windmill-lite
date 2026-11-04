@@ -1,0 +1,351 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "a": {
+        "id": "<job:m:a>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "k": [
+            1,
+            2.5
+          ],
+          "s": "x"
+        },
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jr/answers/a",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "a_k": "\"k\": [1, 2.5]",
+      "extra": [],
+      "unknown": {
+        "text": "Not found: Job not found at name <id>",
+        "type": "text/plain",
+        "status": 404
+      },
+      "not_uuid": {
+        "text": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+        "type": "text/plain; charset=utf-8",
+        "status": 400
+      },
+      "a_no_code": {
+        "id": "<job:m:a>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "k": [
+            1,
+            2.5
+          ],
+          "s": "x"
+        },
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jr/answers/a",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "a_with_logs": {
+        "id": "<job:m:a>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "k": [
+            1,
+            2.5
+          ],
+          "s": "x"
+        },
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jr/answers/a",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "args_unknown": {
+        "text": "Not found: Job Args not found at name <id>",
+        "type": "text/plain",
+        "status": 404
+      },
+      "args_not_uuid": {
+        "text": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+        "type": "text/plain; charset=utf-8",
+        "status": 400
+      },
+      "own_with_logs": {
+        "id": "<job:m:p>",
+        "args": {},
+        "type": "QueuedJob",
+        "email": "<env:WM_EMAIL>",
+        "running": true,
+        "canceled": false,
+        "language": "bun",
+        "root_job": "<job:>",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jr/answers/p",
+        "flow_step_id": "p",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "a_no_logs_false": {
+        "id": "<job:m:a>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "k": [
+            1,
+            2.5
+          ],
+          "s": "x"
+        },
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jr/answers/a",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "unknown_with_logs": {
+        "text": "Not found: Job not found at name <id>",
+        "type": "text/plain",
+        "status": 404
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "k": [
+            1,
+            2.5
+          ],
+          "s": "x"
+        }
+      },
+      "m:p": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "a": {
+            "id": "<job:m:a>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "k": [
+                1,
+                2.5
+              ],
+              "s": "x"
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/answers/a",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "a_k": "\"k\": [1, 2.5]",
+          "extra": [],
+          "unknown": {
+            "text": "Not found: Job not found at name <id>",
+            "type": "text/plain",
+            "status": 404
+          },
+          "not_uuid": {
+            "text": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+            "type": "text/plain; charset=utf-8",
+            "status": 400
+          },
+          "a_no_code": {
+            "id": "<job:m:a>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "k": [
+                1,
+                2.5
+              ],
+              "s": "x"
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/answers/a",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "a_with_logs": {
+            "id": "<job:m:a>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "k": [
+                1,
+                2.5
+              ],
+              "s": "x"
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/answers/a",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "args_unknown": {
+            "text": "Not found: Job Args not found at name <id>",
+            "type": "text/plain",
+            "status": 404
+          },
+          "args_not_uuid": {
+            "text": "Invalid URL: Cannot parse `id` with value `abc`: UUID parsing failed: invalid length: found 3",
+            "type": "text/plain; charset=utf-8",
+            "status": 400
+          },
+          "own_with_logs": {
+            "id": "<job:m:p>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/answers/p",
+            "flow_step_id": "p",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "a_no_logs_false": {
+            "id": "<job:m:a>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "k": [
+                1,
+                2.5
+              ],
+              "s": "x"
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/answers/a",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "unknown_with_logs": {
+            "text": "Not found: Job not found at name <id>",
+            "type": "text/plain",
+            "status": 404
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261104044210-3d33254c4cfd",
+      "revision": "3d33254c4cfd26d0c0ef18751940eb9d65910144",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41774793150"
+    },
+    "recorded_at": "2026-11-04T04:44:39Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34781"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 206,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-04T04:44:39.481895Z",
+          "started_at": "2026-11-04T04:44:39.511582Z",
+          "completed_at": "2026-11-04T04:44:39.679117Z",
+          "duration_ms": 168
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-11-04T04:44:39.512564Z",
+          "started_at": "2026-11-04T04:44:39.514524Z",
+          "completed_at": "2026-11-04T04:44:39.553762Z",
+          "duration_ms": 37
+        },
+        "m:p": {
+          "kind": "flowscript",
+          "created_at": "2026-11-04T04:44:39.556380Z",
+          "started_at": "2026-11-04T04:44:39.606505Z",
+          "completed_at": "2026-11-04T04:44:39.676607Z",
+          "duration_ms": 68
+        }
+      }
+    }
+  }
+}
