@@ -1,0 +1,19 @@
+summary: job reads, the sub-flow whose step walks up from under a large input
+value:
+  modules:
+    - id: c
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jrl/climb
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    cfg:
+      type: object
+      description: ''
+    padding:
+      type: string
+      description: ''
+  required: []

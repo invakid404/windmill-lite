@@ -1,0 +1,19 @@
+summary: job reads, a sub-flow of one step
+value:
+  modules:
+    - id: o
+      value:
+        type: script
+        input_transforms:
+          fail:
+            type: static
+            value: false
+          key:
+            type: static
+            value: one
+        path: f/wl_jrp/mark
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

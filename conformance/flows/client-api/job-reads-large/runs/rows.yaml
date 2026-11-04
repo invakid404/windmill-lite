@@ -1,0 +1,5 @@
+# An array of 1,000 small objects with repeated keys, as a result and an
+# argument: about 100 KB as jsonb, compressed far below 90,000 bytes.
+spec: [WA-19/o]
+target: f/wl_jrl/big
+args: {kind: rows, n: 1000}

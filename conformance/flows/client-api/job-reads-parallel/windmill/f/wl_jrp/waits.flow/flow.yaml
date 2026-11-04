@@ -1,0 +1,64 @@
+summary: job reads, a sibling reads flows whose steps wait for a sleep and a retry delay
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: a
+                value:
+                  type: rawscript
+                  content: '!inline a.ts'
+                  input_transforms: {}
+                  lock: '!inline a.lock'
+                  language: bun
+                sleep:
+                  type: static
+                  value: 8
+              - id: b
+                value:
+                  type: rawscript
+                  content: '!inline b.ts'
+                  input_transforms: {}
+                  lock: '!inline b.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: f
+                value:
+                  type: rawscript
+                  content: '!inline f.ts'
+                  input_transforms: {}
+                  lock: '!inline f.lock'
+                  language: bun
+                retry:
+                  constant:
+                    attempts: 1
+                    seconds: 8
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: r
+                value:
+                  type: script
+                  input_transforms:
+                    k:
+                      type: static
+                      value: w
+                    role:
+                      type: static
+                      value: readwaits
+                  path: f/wl_jrp/role
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

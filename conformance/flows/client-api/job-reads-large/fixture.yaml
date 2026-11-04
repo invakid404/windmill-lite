@@ -1,12 +1,13 @@
-# GET jobs_u/get/{id} (WA-19) on a job whose result or arguments are large.
+# GET jobs_u/get/{id} (WA-19) on jobs whose result or arguments are large.
 # Windmill replaces a value whose stored column takes 90000 bytes or more
-# (OR-V1), after PostgreSQL's compression. Run whole stays below that
-# uncompressed, and windmill-lite answers it exactly; runs compressible and
-# incompressible are above it uncompressed, where Windmill's answer depends
-# on the compression, which windmill-lite does not reproduce: it answers
-# 501, which fails the reading step with UnsupportedPlatformCall, and
-# TestLargeValueJobRead checks that. Synthetic, written for this
-# repository.
+# (OR-V1), after PostgreSQL's compression: run whole stays below that
+# uncompressed; compressible and incompressible are above it, compressed
+# far below and not at all; window is a block repeated beyond the 4 KiB
+# that pglz looks back, which only lz4 would shrink; rows is an array of
+# objects; walkx and walkr walk up the parent chain from under a sub-flow
+# whose input is large. windmill-lite answers each as Windmill does, from
+# the stored size it computes (jsonval.ToastedSize). Synthetic, written for
+# this repository.
 id: client-api/job-reads-large
 spec: [WA-19/o, OR-V1]
 scope: core

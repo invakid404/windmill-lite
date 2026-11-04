@@ -5,10 +5,14 @@
 # and of a parallel branchall: the slow child completes after the reader,
 # which reads its run's job tree while both run; f/wl_jrp/read reads the
 # tree after both containers, as f/wl_jr/read does in client-api/job-reads.
+# Runs held, held1 and held2 read parallel loops with a parallelism; run
+# partial reads parallel branchalls with one branch completed; runs waits
+# and waits2 read, from a sibling branch, flows whose steps, sub-flows and
+# containers wait for a sleep or a retry's delay.
 # Every id in an answer is a job of the run, which the normaliser writes as
 # its site (OR-14). Synthetic, written for this repository.
 id: client-api/job-reads-parallel
-spec: [WA-19/n, OR-5, OR-14]
+spec: [WA-19/n, WA-19/p, OR-5, OR-14]
 scope: core
 provenance: oracle-observed
 languages: [bun]

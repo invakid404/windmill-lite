@@ -6,7 +6,10 @@
 // reads the job tree of its run as f/wl_jrp/read does, sets <k>_read and
 // returns what it read. "readnow" reads at once; "fast2" sets <k>_f2 and
 // returns; "read2" waits until <k>_f2 is set and a second more, then
-// reads. The keys are the run's root flow job's (WA-14).
+// reads; "fastmark" sets <k>_fast and returns; "readafter" waits until
+// <k>_fast is set and a second more, then reads; "readwaits" waits until
+// <k>_a and <k>_f are set and 1.5 s more, then reads; "readwaits2" the
+// same for <k>_a, <k>_c, <k>_d, <k>_sf and <k>_l. The keys are the run's root flow job's (WA-14).
 const NIL = "00000000-0000-0000-0000-000000000000";
 const e = process.env;
 // The fields of a job that windmill-lite serves (WA-19), and those it
@@ -117,6 +120,26 @@ async function until(key: string) {
 }
 export async function main(role: string, k: string) {
   if (role === "fast") return "fast";
+  if (role === "fastmark") {
+    await state(`${k}_fast`, true);
+    return "fast";
+  }
+  if (role === "readafter") {
+    await until(`${k}_fast`);
+    await Bun.sleep(1000);
+    return await readTree();
+  }
+  if (role === "readwaits2") {
+    for (const w of ["a", "c", "d", "sf", "l"]) await until(`${k}_${w}`);
+    await Bun.sleep(1500);
+    return await readTree();
+  }
+  if (role === "readwaits") {
+    await until(`${k}_a`);
+    await until(`${k}_f`);
+    await Bun.sleep(1500);
+    return await readTree();
+  }
   if (role === "readnow") return await readTree();
   if (role === "fast2") {
     await state(`${k}_f2`, true);
