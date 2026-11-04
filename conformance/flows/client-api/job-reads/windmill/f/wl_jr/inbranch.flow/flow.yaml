@@ -1,0 +1,22 @@
+summary: job reads, a step inside a branch
+value:
+  modules:
+    - id: o
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: read
+                value:
+                  type: script
+                  input_transforms: {}
+                  path: f/wl_jr/read
+            expr: 'true'
+            parallel: true
+            skip_failure: true
+        default: []
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,28 @@
+summary: job reads, a walk up the parent chain from two levels down
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: s
+                value:
+                  type: flow
+                  input_transforms:
+                    cfg:
+                      type: javascript
+                      expr: flow_input.cfg
+                  path: f/wl_jr/walksub
+            expr: 'true'
+            parallel: true
+            skip_failure: true
+        default: []
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    cfg:
+      type: object
+      description: ''
+  required: []

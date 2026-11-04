@@ -1,0 +1,22 @@
+summary: job reads, error answers and no_logs
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: p
+      value:
+        type: rawscript
+        content: '!inline p.ts'
+        input_transforms: {}
+        lock: '!inline p.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

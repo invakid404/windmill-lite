@@ -1,0 +1,23 @@
+summary: job reads, a step inside a running sub-flow
+value:
+  modules:
+    - id: n
+      value:
+        type: rawscript
+        content: '!inline n.ts'
+        input_transforms: {}
+        lock: '!inline n.lock'
+        language: bun
+    - id: inner
+      value:
+        type: flow
+        input_transforms:
+          v:
+            type: javascript
+            expr: results.n
+        path: f/wl_jr/inner
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

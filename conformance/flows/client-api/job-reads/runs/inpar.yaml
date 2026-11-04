@@ -1,0 +1,3 @@
+# The reading step runs inside a parallel loop's child flow.
+spec: [WA-19/g, WA-V1]
+target: f/wl_jr/inpar

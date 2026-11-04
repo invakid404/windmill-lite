@@ -1,0 +1,4 @@
+# A sub-flow whose failure module ran after its second step failed.
+spec: [WA-19/g]
+target: f/wl_jr/handled
+args: {fail: true}

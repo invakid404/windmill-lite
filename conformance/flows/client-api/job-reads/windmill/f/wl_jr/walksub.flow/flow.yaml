@@ -1,0 +1,26 @@
+summary: job reads, the sub-flow whose step walks up its parent chain
+value:
+  modules:
+    - id: s0
+      value:
+        type: rawscript
+        content: '!inline s0.ts'
+        input_transforms: {}
+        lock: '!inline s0.lock'
+        language: bun
+    - id: w
+      value:
+        type: script
+        input_transforms:
+          prev:
+            type: javascript
+            expr: results.s0
+        path: f/wl_jr/walk
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    cfg:
+      type: object
+      description: ''
+  required: []

@@ -1,0 +1,5 @@
+# GET jobs_u/get_args/{id} on a step's own job, at the top level, inside a
+# sub-flow and inside a loop, and on the flow job each step runs in.
+spec: [WA-19/j]
+target: f/wl_jr/argsflow
+args: {label: top, cfg: {name: n1, deep: {k: [1, 2.50], s: "x"}}}

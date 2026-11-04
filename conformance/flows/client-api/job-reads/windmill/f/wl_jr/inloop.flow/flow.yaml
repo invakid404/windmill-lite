@@ -1,0 +1,32 @@
+summary: job reads, a step inside a loop body
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: rawscript
+              content: '!inline s.ts'
+              input_transforms: {}
+              lock: '!inline s.lock'
+              language: bun
+          - id: read
+            value:
+              type: script
+              input_transforms: {}
+              path: f/wl_jr/read
+        iterator:
+          type: javascript
+          expr: '[1]'
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    k:
+      type: number
+      description: ''
+  required: []

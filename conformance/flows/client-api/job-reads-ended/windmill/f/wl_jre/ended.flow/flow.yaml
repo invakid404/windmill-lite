@@ -1,0 +1,15 @@
+summary: job reads, a job of a run that has ended
+value:
+  modules:
+    - id: d
+      value:
+        type: rawscript
+        content: '!inline d.ts'
+        input_transforms: {}
+        lock: '!inline d.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

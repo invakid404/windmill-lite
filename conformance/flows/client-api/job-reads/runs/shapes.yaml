@@ -1,0 +1,5 @@
+# Completed containers: a collapsed loop, loops and branches whose bodies
+# ran as child flows, and a module that skip_if skipped.
+spec: [WA-19/g]
+target: f/wl_jr/shapes
+args: {k: 1}

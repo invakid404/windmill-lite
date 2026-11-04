@@ -1,0 +1,5 @@
+# As ok, with a sub-flow that failed: its first step succeeded with null,
+# its second failed.
+spec: [WA-19/e]
+target: f/wl_jr/main
+args: {fail: true}

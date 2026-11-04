@@ -1,0 +1,3 @@
+# The reading step runs inside a branchone's branch.
+spec: [WA-19/g, WA-V1]
+target: f/wl_jr/inbranch

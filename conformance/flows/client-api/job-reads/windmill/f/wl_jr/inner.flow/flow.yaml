@@ -1,0 +1,23 @@
+summary: job reads, the sub-flow whose step reads the job tree
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        content: '!inline s.ts'
+        input_transforms: {}
+        lock: '!inline s.lock'
+        language: bun
+    - id: read
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_jr/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v:
+      type: string
+      description: ''
+  required: []

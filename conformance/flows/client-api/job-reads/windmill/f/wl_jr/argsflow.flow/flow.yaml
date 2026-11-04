@@ -1,0 +1,53 @@
+summary: job reads, get_args on a step's own job and on its flow job
+value:
+  modules:
+    - id: top
+      value:
+        type: script
+        input_transforms:
+          cfg:
+            type: javascript
+            expr: flow_input.cfg
+          label:
+            type: javascript
+            expr: flow_input.label
+        path: f/wl_jr/args
+    - id: sub
+      value:
+        type: flow
+        input_transforms:
+          cfg:
+            type: javascript
+            expr: flow_input.cfg
+        path: f/wl_jr/argssub
+    - id: loop
+      value:
+        type: forloopflow
+        modules:
+          - id: inl
+            value:
+              type: script
+              input_transforms:
+                cfg:
+                  type: javascript
+                  expr: flow_input.cfg
+                label:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_jr/args
+        iterator:
+          type: javascript
+          expr: '["in a loop"]'
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    cfg:
+      type: object
+      description: ''
+    label:
+      type: string
+      description: ''
+  required: []

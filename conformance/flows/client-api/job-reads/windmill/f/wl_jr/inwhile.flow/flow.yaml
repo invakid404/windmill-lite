@@ -1,0 +1,21 @@
+summary: job reads, a step inside a while loop
+value:
+  modules:
+    - id: w
+      value:
+        type: whileloopflow
+        modules:
+          - id: read
+            value:
+              type: script
+              input_transforms: {}
+              path: f/wl_jr/read
+        skip_failures: false
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

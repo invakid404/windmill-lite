@@ -1,0 +1,22 @@
+summary: job reads, the sub-flow whose step reads its own arguments
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        input_transforms:
+          cfg:
+            type: javascript
+            expr: flow_input.cfg
+          label:
+            type: javascript
+            expr: "'in a sub-flow'"
+        path: f/wl_jr/args
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    cfg:
+      type: object
+      description: ''
+  required: []

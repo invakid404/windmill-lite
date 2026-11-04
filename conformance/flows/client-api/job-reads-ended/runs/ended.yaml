@@ -1,0 +1,3 @@
+# Windmill answers the ended run's job as a completed job.
+spec: [WA-19/i]
+target: f/wl_jre/ended

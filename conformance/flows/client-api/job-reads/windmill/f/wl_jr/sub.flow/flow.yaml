@@ -1,0 +1,32 @@
+summary: job reads, the sub-flow
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          fail:
+            type: javascript
+            expr: flow_input.fail
+        lock: '!inline b.lock'
+        language: bun
+  cache_ttl: 600
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    fail:
+      type: boolean
+      description: ''
+    v:
+      type: string
+      description: ''
+  required: []
