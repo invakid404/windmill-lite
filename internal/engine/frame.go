@@ -139,9 +139,10 @@ type frame struct {
 	// the record of the attempt does not name (run.attempt).
 	attempts map[int]string
 	// released marks a parallel child flow that its container released to
-	// run, one that a parallelism holds not being released yet (CF-7).
-	// run.mu guards it.
-	released bool
+	// run, one that a parallelism holds not being released yet (CF-7), and
+	// scheduled a flow job pushed for later that waits to be picked up,
+	// after a sleep or a retry delay (CF-21, FX-26). run.mu guards them.
+	released, scheduled bool
 }
 
 // nodeScope is one scope of the result-by-node-id map (JE-19, CF-19): the

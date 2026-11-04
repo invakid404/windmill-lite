@@ -95,6 +95,12 @@ type run struct {
 	// ends counts the ends of the run's child flows, which orders them
 	// (jobRef.ended).
 	ends uint64
+	// sched holds, by record, the script jobs pushed for later, which
+	// wait for a sleep or a retry delay (jobScheduled), until their
+	// invocation takes the id; nsched counts the jobs it ever held, so
+	// that an invocation in a run that pushed none looks nothing up.
+	sched  map[int]schedJob
+	nsched atomic.Int32
 	// rootEnd is the run's own end, once its modules are done: a dispatched
 	// run tracked in its parent stays in its root's tree after it ends,
 	// and its record then shows it completed.
@@ -108,7 +114,7 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState, SharedCode: e.sharedCode}
-	r.jobs, r.iterLen = map[string]*jobRef{}, map[conformance.SitePath]int{}
+	r.jobs, r.iterLen, r.sched = map[string]*jobRef{}, map[conformance.SitePath]int{}, map[int]schedJob{}
 	r.indexFlow(r.root)
 	if e.sharedCode {
 		r.trace.Deviations = []string{"D18"}
@@ -742,7 +748,14 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 	// it without running its body (CF-28 rule 2). A collapsed iteration's
 	// body job waits as any job does (begin.due).
 	if !fr.due.IsZero() && fr.collapsed == nil {
-		if err := r.wait(ctx, fr.site, fr.due); err != nil {
+		r.mu.Lock()
+		fr.scheduled = true
+		r.mu.Unlock()
+		err := r.wait(ctx, fr.site, fr.due)
+		r.mu.Lock()
+		fr.scheduled = false
+		r.mu.Unlock()
+		if err != nil {
 			return flowEnd{status: r.endedStatus(ctx, conformance.RunCanceled)}
 		}
 	}
@@ -1537,13 +1550,34 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// FX-26). A cancellation makes the queued job due at once, and it
 	// fails without running with the Canceled error, a failure and not a
 	// canceled job (FX-38, recorded by fx-23/canceled_sleep).
+	var pushed *frame // a flow step's child flow, pushed for later
 	if !due.IsZero() {
-		r.mu.Lock()
-		fr.owner().waiting++
-		r.mu.Unlock()
+		// A script job is pushed with its id, and a flow step's child flow
+		// with its own, which the flow's status names while they wait
+		// (WA-19); the invocation, or the subflow's run, takes it.
+		scheduled := m.Leaf != nil && !identity && preRun == nil && m.Kind != ir.KindProvided
+		switch {
+		case scheduled:
+			r.jobScheduled(fr, i, idx, stored)
+		case m.Kind == ir.KindSubflow && !identity && preRun == nil:
+			scheduled = true
+			pushed = r.subflowScheduled(fr, i, idx, stored)
+		default:
+			r.mu.Lock()
+			fr.owner().waiting++
+			r.mu.Unlock()
+		}
 		err := r.wait(ctx, site.Path, due)
 		r.mu.Lock()
-		fr.owner().waiting--
+		switch {
+		case pushed != nil:
+			pushed.scheduled = false
+			delete(r.sched, idx)
+		case scheduled:
+			r.sched[idx] = schedJob{id: r.sched[idx].id}
+		default:
+			fr.owner().waiting--
+		}
 		r.mu.Unlock()
 		if err != nil {
 			reason, canceler := cancellationOf(ctx)
@@ -1556,7 +1590,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				// them as never started ([FX-38]).
 				//
 				// [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
-				c := r.unlaunchedSubflow(fr, i, stored)
+				c := pushed
+				if c == nil {
+					c = r.unlaunchedSubflow(fr, i, stored)
+				}
 				r.childEnded(c, flowEnd{status: conformance.RunFailure, result: v})
 				o.rec.Job = c.id
 			}
@@ -1630,7 +1667,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		if !r.firstWrite(ctx, site) {
 			return notLaunched()
 		}
-		return r.subflow(ctx, fr, i, site.Path, o, stored)
+		return r.subflow(ctx, fr, i, site.Path, o, stored, pushed)
 	default:
 		// FX-40: once the job is picked up, before it runs, the result
 		// cache may answer it.
@@ -2368,8 +2405,19 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 // ADR 0007): its job id, its innermost scope and its runnable path.
 func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
+	id := newUUID()
+	if r.nsched.Load() > 0 {
+		r.mu.Lock()
+		if s, ok := r.sched[idx]; ok {
+			// The job was pushed earlier, scheduled for later
+			// (jobScheduled).
+			id = s.id
+			delete(r.sched, idx)
+		}
+		r.mu.Unlock()
+	}
 	inv := Invocation{
-		ID:          newUUID(),
+		ID:          id,
 		Run:         r.id,
 		Site:        site.Path,
 		Script:      m.Leaf.Script,

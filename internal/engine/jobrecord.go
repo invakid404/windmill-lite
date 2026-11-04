@@ -234,13 +234,11 @@ func (x *recordView) leafRecord(id string, ref *jobRef) ([]byte, error) {
 	r, fr := x.r, ref.fr
 	rec := r.trace.Steps[ref.idx]
 	done := rec.Status != ""
+	waits := r.sched[ref.idx].waiting
 	if rec.Status == conformance.StepCanceled {
 		return nil, &platform.NotServed{Reason: "the job was canceled"}
 	}
-	result, args := recordText(rec.Result), recordText(rec.RecordedArgs)
-	if err := checkSize(done, result, args); err != nil {
-		return nil, err
-	}
+	result, args := tooBig(done, recordText(rec.Result), recordText(rec.RecordedArgs))
 	in := fr.owner()
 	var o object
 	o.field("type", jsonText(recordType(done)))
@@ -248,7 +246,8 @@ func (x *recordView) leafRecord(id string, ref *jobRef) ([]byte, error) {
 	o.field("parent_job", jsonText(in.id))
 	if !done {
 		o.field("root_job", jsonText(in.scope))
-		o.field("running", []byte("true"))
+		// A job pushed for later has not started (jobScheduled).
+		o.field("running", jsonBool(!waits))
 		o.field("flow_step_id", jsonText(fr.stepID(ref.i)))
 	}
 	o.field("canceled", []byte("false"))
@@ -286,10 +285,7 @@ func (x *recordView) flowRecord(id string, ref *jobRef, states json.RawMessage) 
 	if done {
 		result = recordText(end.result)
 	}
-	args := recordText(fr.input)
-	if err := checkSize(done, result, args); err != nil {
-		return nil, err
-	}
+	result, args := tooBig(done, result, recordText(fr.input))
 	status, err := x.flowStatus(fr, end, states)
 	if err != nil {
 		return nil, err
@@ -311,7 +307,8 @@ func (x *recordView) flowRecord(id string, ref *jobRef, states json.RawMessage) 
 		if fr.scope != fr.id {
 			o.field("root_job", jsonText(fr.scope))
 		}
-		o.field("running", []byte("true"))
+		// A flow job pushed for later has not started (frame.scheduled).
+		o.field("running", jsonBool(!fr.scheduled))
 		if fr.moduleID != "" {
 			o.field("flow_step_id", jsonText(fr.moduleID))
 		}
@@ -419,6 +416,11 @@ func (x *recordView) entry(fr *frame, k int, parent string) []byte {
 	rec := x.r.trace.Steps[idx]
 	done := rec.Status != ""
 	typ := "InProgress"
+	if x.r.sched[idx].waiting {
+		// Its job is pushed, scheduled for when a sleep or a retry delay
+		// ends (jobScheduled).
+		typ = "WaitingForExecutor"
+	}
 	if done {
 		switch rec.Module {
 		case conformance.ModuleSuccess:
@@ -603,8 +605,6 @@ func (x *recordView) containerJobs(o *object, kids []child, rec StepRecord, para
 				break
 			}
 		}
-	case parallel && !done && ended > 0:
-		x.notServed("a parallel branchall that runs with a branch completed")
 	case parallel && done:
 		o.field("job", ids[last])
 	case len(kids) > 0:
@@ -672,7 +672,14 @@ func (x *recordView) branchAllEntry(o *object, fr *frame, k int, rec StepRecord)
 	}
 	branch := max(len(kids)-1, 0)
 	if m.BranchAll.Parallel {
+		// A parallel branchall's branch counts its branches that have
+		// completed, all of them being pushed at its start.
 		branch = 0
+		for _, c := range kids {
+			if c.ended > 0 {
+				branch++
+			}
+		}
 		o.field("parallel", []byte("true"))
 	}
 	var ba object
@@ -797,10 +804,7 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	result, args := recordText(v.result), recordText(v.args)
-	if err := checkSize(v.done, result, args); err != nil {
-		return nil, err
-	}
+	result, args := tooBig(v.done, recordText(v.result), recordText(v.args))
 	var o object
 	o.field("type", jsonText(recordType(v.done)))
 	o.field("id", jsonText(id))
@@ -881,15 +885,58 @@ func databaseText(stored []byte) []byte {
 // [OR-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/oracle.md#or-v1
 const replacedFrom = 90000
 
-// checkSize fails a record whose arguments args or, once it has completed,
-// result may take replacedFrom bytes or more stored: Windmill's answer then
-// depends on PostgreSQL's compression, which windmill-lite does not
-// reproduce, so it serves neither the value nor the replacement (WA-19).
-func checkSize(done bool, result, args []byte) error {
-	if jsonval.StoredBound(args) < replacedFrom && (!done || jsonval.StoredBound(result) < replacedFrom) {
-		return nil
+// tooBig gives the job read's text for a job's arguments args and, once
+// it has completed, its result: Windmill replaces each whose stored column
+// takes replacedFrom bytes or more, by pg_column_size, with
+// {"reason":"WINDMILL_TOO_BIG"} and "WINDMILL_TOO_BIG" ([OR-V1], WA-19/o).
+// The size is PostgreSQL's after its compression: jsonval.StoredBound
+// rules out most values at once, and jsonval.ToastedSize reproduces it
+// for the others.
+//
+// [OR-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/oracle.md#or-v1
+func tooBig(done bool, result, args []byte) ([]byte, []byte) {
+	if replaced(args) {
+		args = []byte(`{"reason":"WINDMILL_TOO_BIG"}`)
 	}
-	return &platform.NotServed{Reason: "the job's arguments or result may take 90000 bytes or more stored, where Windmill's answer depends on PostgreSQL's compression"}
+	if done && replaced(result) {
+		result = []byte(`"WINDMILL_TOO_BIG"`)
+	}
+	return result, args
+}
+
+// replaced reports whether a stored text takes replacedFrom bytes or more
+// stored.
+func replaced(text []byte) bool {
+	if jsonval.StoredBound(text) < replacedFrom {
+		return false
+	}
+	n, err := jsonval.ToastedSize(text)
+	return err == nil && n >= replacedFrom
+}
+
+// schedJob is a script job pushed for later: its id, and whether it still
+// waits.
+type schedJob struct {
+	id      string
+	waiting bool
+}
+
+// jobScheduled pushes module i of fr's job, whose record is idx and whose
+// stored arguments are stored, for later, after a sleep or a retry delay
+// (FX-23, FX-26): it gets its id, its record names it and its arguments,
+// and it is registered with the run's tree, as the invocation that takes
+// the id registers it again, so that a read finds it waiting (WA-19/p).
+func (r *run) jobScheduled(fr *frame, i, idx int, stored jsonval.Value) {
+	id := newUUID()
+	r.mu.Lock()
+	rec := &r.trace.Steps[idx]
+	rec.Job, rec.RecordedArgs = id, stored
+	r.indexLeaf(id, fr, i, idx, false)
+	r.sched[idx] = schedJob{id: id, waiting: true}
+	r.nsched.Add(1)
+	r.mu.Unlock()
+	env := r.jobEnv(fr, i, id)
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Path: env["WM_JOB_PATH"], Env: env, Run: r.id})()
 }
 
 // released records that c, a parallel container's child flow, is released
@@ -898,6 +945,21 @@ func (r *run) released(c *frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c.released = true
+}
+
+// subflowScheduled pushes module i of fr's child flow, a flow step's
+// subflow whose record is idx, for later, after a sleep or a retry delay:
+// it is created and registered with the run's tree, and waits to be picked
+// up; the step's status names it, waiting for its executor (WA-19/p).
+func (r *run) subflowScheduled(fr *frame, i, idx int, stored jsonval.Value) *frame {
+	c := r.subflowFrame(fr, i, r.e.prog.Flows[fr.moduleAt(i).Subflow.Path], stored)
+	r.addChild(fr, i, 0, c)
+	r.mu.Lock()
+	c.scheduled = true
+	r.sched[idx] = schedJob{id: c.id, waiting: true}
+	r.mu.Unlock()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})()
+	return c
 }
 
 // unlaunchedSubflow creates the child flow of module i of fr, a flow step

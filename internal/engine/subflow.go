@@ -39,10 +39,13 @@ func inputsOf(m *ir.Module) []ir.Input {
 // hands the step its last carried value, while lookups read the stored
 // error (CF-23 route 3). The step's own stop_after_if is evaluated after a
 // success, whatever stop the subflow raised.
-func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value) outcome {
+func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, pushed *frame) outcome {
 	m := fr.moduleAt(i)
-	c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
-	r.addChild(fr, i, 0, c)
+	c := pushed
+	if c == nil {
+		c = r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
+		r.addChild(fr, i, 0, c)
+	}
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
 	if e.unreported {

@@ -57,3 +57,24 @@ func storedWalk(text []byte) int {
 	}
 	return n
 }
+
+// ToastedSize is pg_column_size of text, one JSON value, stored as jsonb in
+// a table column that PostgreSQL 16 moves out of line, as it does with any
+// value of a few KiB or more in its row: when pglz's default strategy
+// compresses the datum by more than its 8-byte compressed header and 2
+// bytes, the compressed length and its 4-byte compression header; else the
+// datum's length less its 4-byte varlena header. It needs the datum's exact
+// bytes (jsonbDatum) and pglz's exact output (pglzCompressedLen), and
+// assumes pglz, PostgreSQL's default compression, which the oracle uses
+// (WA-19/o); TestToastedSizeMatchesPostgreSQL checks it against PostgreSQL.
+func ToastedSize(text []byte) (int, error) {
+	d, err := jsonbDatum(text)
+	if err != nil {
+		return 0, err
+	}
+	raw := len(d) - 4
+	if c := pglzCompressedLen(d[4:]); c >= 0 && c+8 < raw-2 {
+		return c + 4, nil
+	}
+	return raw, nil
+}
