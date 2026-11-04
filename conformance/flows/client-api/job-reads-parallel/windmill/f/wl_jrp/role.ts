@@ -42,13 +42,16 @@ const ENV: Record<string, string> = {
   workspace_id: "WM_WORKSPACE", created_by: "WM_USERNAME", email: "WM_EMAIL", permissioned_as: "WM_PERMISSIONED_AS",
 };
 const extra = new Set<string>();
-// racy is set, by readTree's racyLoops on every read, while the reader of
-// a parallel loop whose children start together reads: the job such a
-// running loop names is the child that a worker picked up last, whose
-// order varies between runs, so the reader writes it as <racy> and does
-// not walk from it (WA-19/n).
+// A running parallel container names as its job the child that a worker
+// picked up last, whose order varies between runs when children are
+// released together: always in a parallel branchall, and in a parallel
+// loop at its start. The reader writes such a job as <racy> and does not
+// walk from it (WA-19/n): a running parallel branchall's always, and a
+// running parallel loop's while racy is set, by readTree's racyLoops on
+// every read, for the reader of a loop whose children start together.
 let racy = false;
-const racyLoop = (m: any) => racy && m?.parallel === true && m?.iterator !== undefined;
+const racyLoop = (m: any) =>
+  m?.parallel === true && (m?.branchall !== undefined || (racy && m?.iterator !== undefined));
 function keep(v: any, served: Set<string>, left: Set<string>, where: string, each: (k: string, x: any) => any): any {
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
