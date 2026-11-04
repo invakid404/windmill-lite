@@ -433,7 +433,7 @@ jobs:
       - name: Compare jsonval with PostgreSQL jsonb
         env:
           WL_JSONB_PSQL: docker exec -i ${{ job.services.postgres.id }} psql -U postgres
-        run: go test -count=1 -v -run '^(TestStoredMatchesPostgreSQL|TestStoredBoundAbovePostgreSQL)$' ./internal/jsonval
+        run: go test -count=1 -v -run '^(TestStoredMatchesPostgreSQL|TestStoredBoundAbovePostgreSQL|TestToastedSizeMatchesPostgreSQL)$' ./internal/jsonval
 
   bun:
     # The Bun harness's own developer checks (ADR 0003): its codec against

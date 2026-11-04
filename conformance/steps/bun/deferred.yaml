@@ -276,10 +276,14 @@ deferred:
     expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads, job-reads-parallel)
   - spec: WA-19/o
     reason: >-
-      large results and arguments need a flow whose step reads another step's job; the flow fixture conformance/flows/client-api/job-reads-large
-      holds the case: the flow suite requires its run below the replacement size, and TestLargeValueJobRead checks the two above it, which
-      windmill-lite answers 501 (deviation D23)
-    expected_in: cmd/wltest TestFlowSuite and TestLargeValueJobRead (conformance/flows/client-api/job-reads-large)
+      large results and arguments need a flow whose step reads another step's job; the flow fixture conformance/flows/client-api/job-reads-large,
+      which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads-large)
+  - spec: WA-19/p
+    reason: >-
+      a flow whose step waits for a sleep or a retry delay, read by a sibling meanwhile, needs flow runs on two workers; the flow fixture
+      conformance/flows/client-api/job-reads-parallel, which the flow suite requires, holds the case
+    expected_in: cmd/wltest TestFlowSuite (conformance/flows/client-api/job-reads-parallel)
   - spec: WA-19/i
     reason: >-
       a job of a run that has ended needs a run that a step dispatched and

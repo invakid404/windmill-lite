@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"testing"
@@ -343,16 +344,25 @@ func TestJobRecordsOfSkippedAndMockedSubflows(t *testing.T) {
 	}
 }
 
-// A flow job whose module failed and waits for its retry delay is not
-// read: its status in that state has not been recorded ([WA-19]/n). Branch
-// b0 of a parallel branchall fails once and waits a second for its retry;
-// branch b1 reads b0's flow job meanwhile, then after the retry.
+// A flow job whose module failed and waits for its retry delay is read
+// ([WA-19]/p): the module's entry waits for its executor and names the
+// retry's job, pushed for later, which is queued and not running; once
+// the retry has run, the same job has completed. Branch b0 of a parallel
+// branchall fails once and waits a second for its retry; branch b1 reads
+// b0's flow job and the retry's job meanwhile, then after the retry.
 func TestJobRecordWhileAModuleWaitsForItsRetry(t *testing.T) {
 	services := &platform.Services{}
 	x := jobReader{t, services}
 	failed := make(chan struct{})
 	var once sync.Once
-	var during, after error
+	var during jobRec
+	var retryJob, retryRan string
+	var waiting, after struct {
+		Type    string `json:"type"`
+		Running *bool  `json:"running"`
+		Success *bool  `json:"success"`
+	}
+	var readErr error
 	exec := &stepFunc{f: func(inv Invocation) (StepOutcome, error) {
 		switch inv.Env["WM_FLOW_STEP_ID"] {
 		case "f":
@@ -362,34 +372,34 @@ func TestJobRecordWhileAModuleWaitsForItsRetry(t *testing.T) {
 				defer close(failed)
 				return StepOutcome{Kind: OutcomeError, Body: jsonval.FromProducer([]byte(`{"message":"first","name":"Error"}`))}, nil
 			}
+			retryRan = inv.ID
 		case "r":
 			<-failed
 			root := inv.Env["WM_ROOT_JOB_ID"]
-			flowJob := ""
 			deadline := time.Now().Add(5 * time.Second)
-			for time.Now().Before(deadline) {
-				body, err := services.GetJob(root)
-				if err == nil {
-					var v struct {
-						FlowStatus struct {
-							Modules []struct {
-								FlowJobs []string `json:"flow_jobs"`
-							} `json:"modules"`
-						} `json:"flow_status"`
-					}
-					if json.Unmarshal(body, &v) == nil && len(v.FlowStatus.Modules[0].FlowJobs) == 2 {
-						flowJob = v.FlowStatus.Modules[0].FlowJobs[0]
-					}
+			for time.Now().Before(deadline) && retryJob == "" {
+				var v struct {
+					FlowStatus struct {
+						Modules []struct {
+							FlowJobs []string `json:"flow_jobs"`
+						} `json:"modules"`
+					} `json:"flow_status"`
 				}
-				if flowJob != "" {
-					if _, during = x.read(flowJob); during != nil {
-						break
+				if body, err := services.GetJob(root); err == nil && json.Unmarshal(body, &v) == nil {
+					if fj := v.FlowStatus.Modules[0].FlowJobs; len(fj) == 2 {
+						if rec, err := x.read(fj[0]); err == nil && len(rec.FlowStatus.Modules) == 1 && rec.FlowStatus.Modules[0].Type == "WaitingForExecutor" {
+							during, retryJob = rec, rec.FlowStatus.Modules[0].Job
+						}
 					}
 				}
 				time.Sleep(5 * time.Millisecond)
 			}
+			var body []byte
+			if body, readErr = services.GetJob(retryJob); readErr == nil {
+				readErr = json.Unmarshal(body, &waiting)
+			}
 			for time.Now().Before(deadline) {
-				if _, after = x.read(flowJob); after == nil {
+				if body, err := services.GetJob(retryJob); err == nil && json.Unmarshal(body, &after) == nil && after.Type == "CompletedJob" {
 					break
 				}
 				time.Sleep(20 * time.Millisecond)
@@ -408,40 +418,53 @@ func TestJobRecordWhileAModuleWaitsForItsRetry(t *testing.T) {
 	if _, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Hooks: NoHooks{}, Seed: 1}); err != nil {
 		t.Fatal(err)
 	}
-	var ns *platform.NotServed
-	if !errors.As(during, &ns) || ns.Reason != "a module of the flow waits for a sleep or a retry delay" {
-		t.Errorf("the flow job while its module waits for its retry: %v", during)
+	if retryJob == "" {
+		t.Fatalf("b0's flow job never showed its module waiting for its executor: %+v", during)
 	}
-	if after != nil {
-		t.Errorf("the flow job after the retry: %v", after)
+	if m := during.FlowStatus.Modules[0]; during.Type != "QueuedJob" || during.FlowStatus.Step != 0 || m.ID != "f" || len(m.FailedRetries) != 0 {
+		t.Errorf("b0's flow job while f waits for its retry: %+v", during)
+	}
+	if readErr != nil || waiting.Type != "QueuedJob" || waiting.Running == nil || *waiting.Running {
+		t.Errorf("the retry's job while it waits: %+v %v", waiting, readErr)
+	}
+	if retryRan != retryJob {
+		t.Errorf("the retry ran as %q, its pushed job was %q", retryRan, retryJob)
+	}
+	if after.Type != "CompletedJob" || after.Success == nil || !*after.Success {
+		t.Errorf("the retry's job once it ran: %+v", after)
 	}
 }
 
-// A job's result or arguments that may take 90000 bytes or more stored
-// are not served: Windmill replaces such a value or not depending on
-// PostgreSQL's compression ([WA-19]/o, [OR-V1]). Below that bound the
-// value is served whole, and GET jobs_u/get_args/{id} serves arguments
-// whole at any size.
+// A job's result and arguments that take 90000 bytes or more stored are
+// replaced in the record, by "WINDMILL_TOO_BIG" and
+// {"reason":"WINDMILL_TOO_BIG"}, as Windmill replaces them ([WA-19]/o,
+// [OR-V1]); the stored size is after PostgreSQL's compression, so 100,000
+// times "x" is read whole and 100,000 characters that do not compress are
+// replaced. GET jobs_u/get_args/{id} serves arguments whole at any size.
 //
 // [OR-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/oracle.md#or-v1
 func TestJobRecordLargeValues(t *testing.T) {
 	services := &platform.Services{}
-	var root string
 	type read struct {
 		rec  []byte
 		args []byte
 		err  error
 	}
 	reads := map[string]read{}
+	rng := rand.New(rand.NewPCG(5, 6))
+	letters := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	noise := make([]byte, 100000)
+	for i := range noise {
+		noise[i] = letters[rng.IntN(64)]
+	}
 	exec := &stepFunc{f: func(inv Invocation) (StepOutcome, error) {
 		switch id := inv.Env["WM_FLOW_STEP_ID"]; id {
-		case "small":
-			return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"` + strings.Repeat("x", 60000) + `"`))}, nil
-		case "big", "arg":
+		case "xs":
 			return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"` + strings.Repeat("x", 100000) + `"`))}, nil
+		case "big", "arg":
+			return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"` + string(noise) + `"`))}, nil
 		case "r":
-			root = inv.Env["WM_ROOT_JOB_ID"]
-			body, err := services.GetJob(root)
+			body, err := services.GetJob(inv.Env["WM_ROOT_JOB_ID"])
 			if err != nil {
 				return StepOutcome{}, err
 			}
@@ -460,7 +483,7 @@ func TestJobRecordLargeValues(t *testing.T) {
 		}
 		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`))}, nil
 	}}
-	flows := map[string]string{"f/t/main": flowOf(mod("small", "echo", "", ""), mod("big", "echo", "", ""), mod("arg", "echo", inputs("x", js("results.big")), ""), mod("r", "echo", "", ""))}
+	flows := map[string]string{"f/t/main": flowOf(mod("xs", "echo", "", ""), mod("big", "echo", "", ""), mod("arg", "echo", inputs("x", js("results.big")), ""), mod("r", "echo", "", ""))}
 	e, err := New(Config{Program: compileFlows(t, flows), Bundle: "sha256:test", Exec: registering{services, exec}, JS: jsEng, Platform: services})
 	if err != nil {
 		t.Fatal(err)
@@ -468,15 +491,18 @@ func TestJobRecordLargeValues(t *testing.T) {
 	if tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Hooks: NoHooks{}, Seed: 1}); err != nil || tr.Status != "success" {
 		t.Fatalf("the run: %v %+v", err, tr)
 	}
-	var small struct{ Result string }
-	if rd := reads["small"]; rd.err != nil || json.Unmarshal(rd.rec, &small) != nil || len(small.Result) != 60000 {
-		t.Errorf("a result of 60,000 characters: %d characters, %v", len(small.Result), rd.err)
+	var rec struct {
+		Result json.RawMessage `json:"result"`
+		Args   json.RawMessage `json:"args"`
 	}
-	var ns *platform.NotServed
-	for _, id := range []string{"big", "arg"} {
-		if rd := reads[id]; !errors.As(rd.err, &ns) || !strings.Contains(ns.Reason, "90000 bytes") {
-			t.Errorf("%s: %v", id, rd.err)
-		}
+	if rd := reads["xs"]; rd.err != nil || json.Unmarshal(rd.rec, &rec) != nil || len(rec.Result) != 100002 {
+		t.Errorf("a result of 100,000 times x: %d bytes, %v", len(rec.Result), rd.err)
+	}
+	if rd := reads["big"]; rd.err != nil || json.Unmarshal(rd.rec, &rec) != nil || string(rec.Result) != `"WINDMILL_TOO_BIG"` {
+		t.Errorf("a result of 100,000 characters that do not compress: %.40s, %v", rec.Result, rd.err)
+	}
+	if rd := reads["arg"]; rd.err != nil || json.Unmarshal(rd.rec, &rec) != nil || string(rec.Args) != `{"reason":"WINDMILL_TOO_BIG"}` {
+		t.Errorf("arguments holding them: %.40s, %v", rec.Args, rd.err)
 	}
 	if args := reads["arg"].args; len(args) < 100000 {
 		t.Errorf("the arguments of 100,000 characters from get_args: %d bytes", len(args))
