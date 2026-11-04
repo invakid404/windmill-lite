@@ -132,7 +132,7 @@ value:
                   path: f/wl_jrp/mark
                 sleep:
                   type: static
-                  value: 10
+                  value: 12
               - id: c1
                 value:
                   type: script

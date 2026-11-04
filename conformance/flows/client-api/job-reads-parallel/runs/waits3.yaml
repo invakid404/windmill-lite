@@ -4,6 +4,8 @@
 # pickup, a step whose entrypoint override is invalid, a loop skip_if
 # skips, a mocked branchone, and a flow step whose input transform
 # throws; the last branch reads the job tree meanwhile, and the step after
-# the branchall reads it completed.
+# the branchall reads it completed. The cached step's branch sleeps 12
+# seconds, the others 10, so that it completes last on Windmill and on
+# windmill-lite, and the completed branchall names it.
 spec: [WA-19/p]
 target: f/wl_jrp/waits3
