@@ -31,6 +31,7 @@ func runHost(args []string, stderr io.Writer) int {
 	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof, until the host's connection ends")
 	readCache := fs.Bool("read-cache", false, "read each resource and variable once per run (deviation D21 of ADR 0001)")
 	skipArgsFile := fs.Bool("skip-args-file", false, "the host's own code never reads args.json: write none for a bundle none of whose scripts can read it")
+	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
@@ -60,7 +61,7 @@ func runHost(args []string, stderr io.Writer) int {
 		defer children.Close()
 		host.Children = children
 	}
-	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout, ReadCache: *readCache}
+	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout, ReadCache: *readCache, QuickJSOnly: *quickJSOnly}
 	if opts.Variables, err = hostVariables(*variables); err == nil {
 		opts.Resources, err = hostResources(*resources)
 	}

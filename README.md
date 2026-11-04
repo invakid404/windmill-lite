@@ -211,8 +211,8 @@ go run ./cmd/windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-19). |
 | [internal/ir](internal/ir/README.md) | The compiler: a sync folder and a host contract become the program the engine runs, normalised to Windmill's deployed form (container defaults, the native switch, virtual steps), with collapse decided, harness classes, provided sites, occurrences of repeated ids and the script inventory, and validated. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
-| [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names), the evaluator's shortcuts and bindings, and the program each expression runs as on QuickJS-ng: its preludes, serialisation, error texts, attempt retries and depth check; the expression suite against the E3a recordings and the budget gate. |
-| [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a heap on vendored mimalloc, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
+| [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, and the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names). It has the evaluator's shortcuts and bindings, and the program each expression runs as on QuickJS-ng: its preludes, serialisation, error texts, attempt retries and depth check. It holds the expression suite against the oracle's recordings and the budget gate. A Go evaluator answers templates, arithmetic, comparisons and predicates over JSON values as QuickJS-ng does. |
+| [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. Each runtime's heap, on vendored mimalloc, is destroyed whole after its evaluation; a leak-check mode frees it block by block. Host calls that never block are answered inline. |
 | [internal/engine](internal/engine/README.md) | The flow interpreter: the engine core, which runs a compiled program's flows in sequence (input transforms and the argument pipeline, the `results` routes, `skip_if`, `mock`, identity, `stop_after_if`, a static step timeout, `continue_on_error`, the failure module and recovery, chaining errors and the cancellation outcome), its containers (for and while loops, `branchone`, `branchall`, each body carrying the failure module), subflows by path, retried like any step, and the `cache_ttl` result cache, through the hook seams and the precedence of host signals; the contracts it is built on (the step executor, the hooks with no-op defaults, the run trace); the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; a root script's run as a script job and the default dispatcher; and the walking skeleton's bundle loader. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture, expression-case and step-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator, with the location rule of comparisons with windmill-lite; stub mode's replay table, replay service and the check of a run's calls that the oracle and windmill-lite share. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; stub mode's generator and the locator that finds a stub's site in a running job tree; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
@@ -287,7 +287,18 @@ runs only when started by hand and gates nothing
 On macOS, the Go tests run as three parallel jobs, split by complementary
 `-run` and `-skip` patterns: the packages without the flow suite, the flow
 suite's warm and fresh modes, and its host modes. The required check
-`Go (macos-latest)` passes only when all three pass. The `Secret scan` job
+`Go (macos-latest)` passes only when all three pass.
+
+Two more parts of the Go jobs check the expression engine both ways:
+
+- `Go (ubuntu-latest, QuickJS only)` runs `internal/expr` and `cmd/wltest`
+  again with the expression pipeline's Go evaluator off
+  (`WL_TEST_QUICKJS_ONLY=1`), so every conformance case and recording
+  passes on QuickJS-ng alone too. It is not a required check.
+- The step `Test the expression packages in leak check` runs
+  `internal/expr/...` with `WL_QJS_LEAK_CHECK=1`. The engine then frees
+  each runtime block by block and counts what QuickJS-ng leaked, which the
+  tests fail on. The `Secret scan` job
 scans each commit of a pull request with
 [gitleaks](https://github.com/gitleaks/gitleaks) (MIT licence), using its
 default rules and [.gitleaks.toml](.gitleaks.toml); it is not a required

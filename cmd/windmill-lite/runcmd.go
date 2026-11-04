@@ -34,6 +34,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	variables := fs.String("variables", "", "a JSON `file` of host variables, keyed by path, as in a bundle's data/variables.json; secrets go here")
 	resources := fs.String("resources", "", "a JSON `file` of host resources, keyed by path, as in a bundle's data/resources.json")
 	trace := fs.Bool("trace", false, "print the run's steps and platform calls with the outcome")
+	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
 	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof")
 	pos, ok := parse(fs, args)
 	if !ok {
@@ -64,6 +65,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		Digest:         *digest,
 		EngineVersion:  resolveVersion(),
 		Diagnostics:    stderr,
+		QuickJSOnly:    *quickJSOnly,
 	}
 	if opts.Variables, err = hostVariables(*variables); err != nil {
 		return fail(err)

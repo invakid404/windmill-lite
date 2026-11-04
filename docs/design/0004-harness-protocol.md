@@ -686,6 +686,13 @@ change:
      -skip-args-file`, the SDK's `skipArgsFile`), stating that its own
      code, its plugin's hooks included, never reads the file. The option
      is off by default.
+   - **Deployment on Linux.** The file is written once per invocation,
+     so the working directory's file system is on every step's path. The
+     host SDK's documentation recommends a working directory on tmpfs for
+     host-mode deployments on Linux, with its measured effect
+     ([harnesses/bun](../../harnesses/bun/README.md)). Nothing observable
+     changes: the file is written and read the same way, and holds nothing
+     that must outlive the host.
    - **The build's decision.** Whether code reads a file cannot be
      decided, so a script counts as no reader only when its built code
      holds no way to a file, a process or code made at run time. That

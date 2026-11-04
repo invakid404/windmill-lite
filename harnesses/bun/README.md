@@ -499,6 +499,35 @@ its working directory. The SDK then starts the engine with
 For any other bundle, or without the option, it writes every
 invocation's file, as Windmill's worker does.
 
+**Deploying a host on Linux: the working directory on tmpfs.** The engine
+writes each invocation's `args.json` in the host's working directory
+([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7),
+and `connect` extracts the bundle's codebase assets there. On tmpfs
+(`/dev/shm`, or a `tmpfs` mount that the host's container gives it), each
+write is a copy in memory instead of a file-system journal update.
+Nothing observable changes, and nothing there has to survive a restart.
+
+Keep the engine's data directory (`-data`, which holds the object store)
+where its persistence needs it. A host that can leave the file out
+(`skipArgsFile`) saves the write altogether.
+
+The working directory on `/dev/shm` against the same build on the runner's
+disk, measured on the embedder shapes
+([cmd/windmill-lite](../../cmd/windmill-lite/README.md#the-embedder-shapes);
+[one job per architecture](https://github.com/invakid404/windmill-lite/actions/runs/41756851459), 5 rounds), as the range over the
+twelve workloads of each one's median change over paired rounds:
+
+| Runner | p50 | Engine CPU per step | Host time per invocation |
+|---|---|---|---|
+| linux/amd64 (AMD EPYC 9V45) | −3 to −12 % | −11 to −28 % | −5 to −26 % |
+| linux/arm64 (Neoverse-N2) | +1 to −7 % | −8 to −25 % | +1 to −9 % |
+
+**The engine's garbage collector.** The engine is a Go process that
+inherits the host's environment (the SDK spawns it with no environment of
+its own), so `GOGC` set for the host reaches it.
+[wl](../../wl/README.md#garbage-collection) gives the effect of `GOGC=400`
+on the embedder shapes.
+
 The connect option `recycle` sets recycle triggers, none by default: `rss`
 trips when the resident set is at least that many bytes on `samples`
 consecutive heartbeats (default 2), `modules` when more script modules

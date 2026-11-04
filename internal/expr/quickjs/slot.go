@@ -60,6 +60,9 @@ func (e *Engine) startSlot() error {
 	if s.c == nil {
 		return errors.New("expr/quickjs: cannot allocate a slot")
 	}
+	if !e.leakCheck {
+		C.wl_set_destroy(s.c, 1)
+	}
 	h := cgo.NewHandle(s)
 	e.wg.Add(1)
 	if rc := C.wl_spawn(C.uintptr_t(h), C.size_t(threadStack(e.limits))); rc != 0 {
@@ -121,12 +124,22 @@ func (s *slot) loop() {
 	}
 }
 
-// release frees the runtime and counts the blocks QuickJS-ng left
-// allocated, which the C side has just freed.
+// release frees the runtime and, in leak check, counts the blocks
+// QuickJS-ng left allocated, which the C side has just freed.
 func (s *slot) release() {
 	C.wl_release(s.c)
 	s.e.stats.leaked.Add(uint64(C.wl_leaked(s.c)))
+	s.e.stats.leakedBytes.Add(uint64(C.wl_leaked_bytes(s.c)))
 }
+
+// hasDestroy says whether this build has the default mode, in which a
+// runtime's heap is destroyed whole (Options.LeakCheck); builds with
+// wl_libc_malloc do not. Tests use it, and committed.
+func hasDestroy() bool { return C.wl_has_destroy() != 0 }
+
+// committed is the memory mimalloc has committed for the process, or 0 in
+// builds with wl_libc_malloc.
+func committed() uint64 { return uint64(C.wl_committed()) }
 
 // run runs j on the prepared runtime and reports whether it used it.
 func (s *slot) run(j *job) (reply, bool) {
@@ -241,6 +254,16 @@ func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 	defer close(done)
 	results := make(chan hostResult)
 	running := 0
+	// inline holds the answers of inline host calls (expr.HostFunc.Inline),
+	// which dispatch made on this thread, not yet settled, in call order.
+	// They count against maxCallsInFlight with the running calls.
+	var inline []hostResult
+	// preferRunning says that an answered goroutine call settles before
+	// the next inline answer. The two take turns while both wait, so a
+	// program whose inline calls keep replacing each other (a loop of
+	// memory lookups) cannot keep an answered helper call from settling,
+	// nor the reverse.
+	preferRunning := true
 	for {
 		rc := C.wl_run(s.c)
 		switch rc {
@@ -250,17 +273,42 @@ func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 		default:
 			return reply{err: s.failure(rc)}
 		}
-		running += s.dispatch(attempt, j.in.Funcs, maxCallsInFlight-running, results, done)
-		// Nothing runs until a host call settles; with none running the
-		// result can never settle, and only the attempt limit or the caller
-		// ends the evaluation (JE-2).
-		var r hostResult
-		select {
-		case r = <-results:
-			running--
-		case <-attempt.Done():
-			return reply{err: errInterrupted}
+		var started int
+		started, inline = s.dispatch(attempt, j.in.Funcs, maxCallsInFlight-running-len(inline), results, done, inline)
+		running += started
+		if held := int64(running + len(inline)); held > s.e.stats.heldPeak.Load() {
+			s.e.stats.heldPeak.Store(held)
 		}
+		var r hostResult
+		fromRunning := false
+		if len(inline) > 0 && preferRunning {
+			select {
+			case r = <-results:
+				fromRunning = true
+			default:
+			}
+		}
+		switch {
+		case fromRunning:
+		case len(inline) > 0:
+			// An inline call has its answer already: inline answers settle
+			// in call order, each after the jobs queued so far have run.
+			r, inline = inline[0], inline[1:]
+		default:
+			// Nothing runs until a host call settles; with none running the
+			// result can never settle, and only the attempt limit or the
+			// caller ends the evaluation (JE-2).
+			select {
+			case r = <-results:
+				fromRunning = true
+			case <-attempt.Done():
+				return reply{err: errInterrupted}
+			}
+		}
+		if fromRunning {
+			running--
+		}
+		preferRunning = !fromRunning
 		if attempt.Err() != nil {
 			// Both were ready; the attempt's end wins.
 			return reply{err: errInterrupted}
@@ -276,13 +324,16 @@ func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 	}
 }
 
-// dispatch starts a goroutine for each queued host call, oldest first, up to
-// limit of them, and returns how many it started. Each argument is copied
-// and its engine copy freed at once, so that the heap holds only the
-// arguments of calls not yet dispatched.
-func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, results chan<- hostResult, done <-chan struct{}) int {
+// dispatch takes the queued host calls, oldest first, up to limit of them.
+// It starts a goroutine for each and returns how many it started, except
+// that an inline host function (expr.HostFunc.Inline) is called here, on
+// the slot's thread, and its answer appended to inline, in call order. Each
+// argument is copied and its engine copy freed at once, so that the heap
+// holds only the arguments of calls not yet dispatched; the calls past
+// limit stay queued in the engine.
+func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, results chan<- hostResult, done <-chan struct{}, inline []hostResult) (int, []hostResult) {
 	n := 0
-	for ; n < limit; n++ {
+	for taken := 0; taken < limit; taken++ {
 		var id C.uint32_t
 		var index C.int
 		var arg C.wl_text
@@ -292,6 +343,12 @@ func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, r
 		call := funcs[index].Call
 		a := string(goBytes(unsafe.Pointer(arg.ptr), arg.len))
 		C.wl_free_arg(s.c, id)
+		if funcs[index].Inline {
+			out, err := call(ctx, a)
+			inline = append(inline, hostResult{id: id, out: out, err: err})
+			continue
+		}
+		n++
 		go func() {
 			out, err := call(ctx, a)
 			select {
@@ -300,7 +357,7 @@ func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, r
 			}
 		}()
 	}
-	return n
+	return n, inline
 }
 
 func (s *slot) result() reply {

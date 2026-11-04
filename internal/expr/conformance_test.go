@@ -136,7 +136,7 @@ type e3aCase struct {
 	provenance string
 	site       SiteKind
 	text       string
-	scope      func(t *testing.T) *Scope
+	scope      func(t testing.TB) *Scope
 	// check judges a shortcut's answer against the recorded expectation.
 	check func(out jsonval.Value) error
 	// exprs is the context-free case, or unit the flow fixture's unit case,
@@ -148,7 +148,7 @@ type e3aCase struct {
 	recorded []string
 }
 
-func storedText(t *testing.T, producer string) string {
+func storedText(t testing.TB, producer string) string {
 	t.Helper()
 	s, err := jsonval.FromProducer([]byte(producer)).Stored()
 	if err != nil {
@@ -162,7 +162,7 @@ func storedText(t *testing.T, producer string) string {
 // from jsonb member by member, so a compact object whose members are each
 // in jsonb's printed form, here in jsonb's key order (the worker's is a
 // hash map's). It is also previous_result at a flow's first module.
-func workerFlowInput(t *testing.T, submitted string) string {
+func workerFlowInput(t testing.TB, submitted string) string {
 	t.Helper()
 	ms := objectMembers([]byte(storedText(t, submitted)))
 	if ms == nil {
@@ -186,7 +186,7 @@ func workerFlowInput(t *testing.T, submitted string) string {
 // input is the worker's text of it (JE-44); every site but sleep, retry_if
 // and skip_expr has a results context, and a stop predicate only when its
 // text reads results.
-func siteScope(t *testing.T, site SiteKind, text string, c caseContext) *Scope {
+func siteScope(t testing.TB, site SiteKind, text string, c caseContext) *Scope {
 	s := &Scope{PreviousID: c.PreviousID, Helpers: &fakeHelpers{}}
 	transform := site == SiteInputTransform || site == SiteFailureInputTransform
 	if p := c.PreviousResult; p != nil {
@@ -245,7 +245,7 @@ func unitSite(input string) SiteKind {
 // loadE3a returns every expression that recording batch E3a recorded: the
 // cases of conformance/exprs (static values aside, which are not
 // expressions) and the unit cases of the flow fixtures.
-func loadE3a(t *testing.T) map[string]*e3aCase {
+func loadE3a(t testing.TB) map[string]*e3aCase {
 	t.Helper()
 	out := map[string]*e3aCase{}
 	add := func(c *e3aCase) {
@@ -282,7 +282,7 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 				provenance: c.Provenance,
 				site:       site,
 				text:       *c.Expr,
-				scope:      func(t *testing.T) *Scope { return siteScope(t, site, *c.Expr, ctx) },
+				scope:      func(t testing.TB) *Scope { return siteScope(t, site, *c.Expr, ctx) },
 				check:      exprsCheck(t, c.Expect),
 				exprs:      c,
 				recorded:   exprsRecorded(t, path, c),
@@ -318,7 +318,7 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 					provenance: fx.Provenance,
 					site:       site,
 					text:       u.Expr,
-					scope:      func(t *testing.T) *Scope { return siteScope(t, site, u.Expr, ctx) },
+					scope:      func(t testing.TB) *Scope { return siteScope(t, site, u.Expr, ctx) },
 					check:      unitCheck(u.Expect),
 					unit:       u,
 					recorded:   recordedMessages(r.Recorded, u.Site),
@@ -331,7 +331,7 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 
 // exprsRecorded returns the messages recorded for a context-free case,
 // from conformance/exprs/recorded/<file>/<case>.json, at its step b.
-func exprsRecorded(t *testing.T, path string, c *conformance.ExprCase) []string {
+func exprsRecorded(t testing.TB, path string, c *conformance.ExprCase) []string {
 	t.Helper()
 	stem := strings.TrimSuffix(filepath.Base(path), ".yaml")
 	data, err := os.ReadFile(filepath.Join(filepath.Dir(path), conformance.RecordedDir, stem, c.Name()+".json"))
@@ -378,7 +378,7 @@ func recordedMessages(rec *conformance.Recording, site string) []string {
 // the strict check turns into the expected flow error (JE-24). A case that
 // expects the step to fail never has a shortcut's answer: shortcuts do not
 // fail.
-func exprsCheck(t *testing.T, e conformance.ExprExpect) func(jsonval.Value) error {
+func exprsCheck(t testing.TB, e conformance.ExprExpect) func(jsonval.Value) error {
 	return func(out jsonval.Value) error {
 		got := string(out.Producer())
 		switch {
@@ -488,7 +488,7 @@ func TestPipelineCases(t *testing.T) {
 				if !strings.Contains(c.Spec, "/") && c.Variant == "" {
 					t.Fatalf("case %s cites a finding, not a catalogue case, so it needs a variant", c.Spec)
 				}
-				var scope func(t *testing.T) *Scope
+				var scope func(t testing.TB) *Scope
 				var rec *e3aCase
 				switch {
 				case c.Recorded != nil && c.Context != nil:
@@ -511,7 +511,7 @@ func TestPipelineCases(t *testing.T) {
 					if c.Provenance != "source-derived" {
 						t.Fatalf("a case that restates no recording is source-derived, not %s", c.Provenance)
 					}
-					scope = func(t *testing.T) *Scope { return siteScope(t, c.Site, c.Text, *c.Context) }
+					scope = func(t testing.TB) *Scope { return siteScope(t, c.Site, c.Text, *c.Context) }
 				default:
 					if c.Provenance != "source-derived" {
 						t.Fatalf("a case that restates no recording is source-derived, not %s", c.Provenance)

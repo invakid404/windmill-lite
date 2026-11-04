@@ -620,6 +620,11 @@ func benchRuntimeOn(b testing.TB, bun, topology, bundlePath string, edit func(*w
 		opts.Host = benchHostConn(b, dir, diag, bundlePath)
 	case "host-plugin":
 		opts.Host = benchHostConn(b, dir, diag, bundlePath, "WL_BENCH_PLUGIN=1")
+	case "host-emb":
+		// The embedder shapes' host: its plugin reads the resources from
+		// the store (bench_embed_test.go).
+		_, api := embEnv()
+		opts.Host = benchHostConn(b, dir, diag, bundlePath, "WL_BENCH_PLUGIN=1", "WL_BENCH_STORE_URL="+embStoreURL, "WL_BENCH_EMB_API_US="+api)
 	default:
 		b.Fatalf("topology %q", topology)
 	}
@@ -656,6 +661,16 @@ func benchHostConn(b testing.TB, dir string, diag *os.File, bundlePath string, e
 	cmd := exec.Command(benchHost)
 	cmd.Dir = workdir
 	cmd.Env = append(append(os.Environ(), "WL_ENGINE="+self, "WL_BUNDLE="+bundlePath, benchProxyEnv+"="+sock), env...)
+	// WL_BENCH_HOST_BUN_OPTIONS reaches the compiled host as BUN_OPTIONS,
+	// for a CPU profile of the host (--cpu-prof and its flags).
+	if v := os.Getenv("WL_BENCH_HOST_BUN_OPTIONS"); v != "" {
+		cmd.Env = append(cmd.Env, "BUN_OPTIONS="+v)
+	}
+	// WL_BENCH_HOST_ENV adds NAME=value pairs, separated by commas, to the
+	// host's environment only (JavaScriptCore's BUN_JSC_ options).
+	if v := os.Getenv("WL_BENCH_HOST_ENV"); v != "" {
+		cmd.Env = append(cmd.Env, strings.Split(v, ",")...)
+	}
 	cmd.Stdout, cmd.Stderr = diag, diag
 	if err := cmd.Start(); err != nil {
 		b.Fatal(err)

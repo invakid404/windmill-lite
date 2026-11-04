@@ -59,6 +59,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	repo := fs.String("repo", "", "the repository root, which holds harnesses/bun (default: found from the working directory)")
 	verbose := fs.Bool("v", false, "print the harness diagnostics of every failed case or run")
 	shared := fs.Bool("shared-code", false, "build every bundle with shared code (ADR 0013): warm and host-mode runs run the scripts' shared-layout modules; a step file can ask for it itself (shared_code)")
+	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -140,7 +141,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		defer js.Close()
-		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, sharedCode: *shared, js: js}
+		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, sharedCode: *shared, js: js, quickJSOnly: *quickJSOnly}
 		for _, fr := range fc.runFixtures(ctx, dirs) {
 			if fr.err != nil {
 				fmt.Fprintln(stdout, "invalid", fr.dir, fr.err)

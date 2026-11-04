@@ -1,18 +1,21 @@
 # internal/expr
 
-**Current state:** the contracts of milestone K1, the textual pipeline
-and evaluator of milestone B2a, and their run on the real engine of
-milestone B2b
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers `internal/expr` and its `testdata/`, but not its `quickjs/`
-directory. `Compile` runs the textual stages of an expression, and
-`Pipeline` is the evaluator: it answers with a shortcut, or runs the
-expression's program on an `Engine`, the QuickJS-ng backend of milestone
-B1a in [internal/expr/quickjs](quickjs/README.md): Windmill's preludes,
-the expression in its wrapper, the serialisation of its value, and
-Windmill's error texts. Milestone N1a wired both in:
-[internal/ir](../ir/README.md) calls `Compile` for every expression of a
-program, so `ir.json` carries the textual stages, and the engine
+**Current state:** working: the textual stages, the evaluator with its
+shortcuts and its Go answers, and the run of each expression's program on
+QuickJS-ng, held to the oracle's recordings. This README covers
+`internal/expr` and its `testdata/`, but not its `quickjs/` directory.
+
+`Compile` runs the textual stages of an expression.
+[internal/ir](../ir/README.md) calls it for every expression of a program,
+so `ir.json` carries the stages' results. `Pipeline` is the evaluator: it
+answers with a shortcut, answers in Go what QuickJS-ng would answer the
+same way (`jsExpr`, below), or runs the expression's program on an
+`Engine`.
+
+The `Engine` is the QuickJS-ng backend in
+[internal/expr/quickjs](quickjs/README.md). The program is Windmill's
+preludes, the expression in its wrapper, the serialisation of its value,
+and Windmill's error texts. The flow interpreter
 ([internal/engine](../engine/README.md)) prepares a `Pipeline` for each
 program it opens and gives the evaluator each site's scope.
 
@@ -23,6 +26,8 @@ program it opens and gives the evaluator each site's scope.
 | `SiteKind` | the expression sites of [JE-22](../../docs/semantics/expressions.md#je-22) (the suspend site is left out, because `suspend` is rejected at load); `Predicate` marks the boolean sites of [JE-24](../../docs/semantics/expressions.md#je-24) | this package |
 | `Expr`, `Shortcut`, `Mode` | a compiled expression as the IR carries it ([ADR 0002](../../docs/design/0002-ir-and-loader.md)): the text as written, the trimmed text, the shortcuts its text allows ([JE-6](../../docs/semantics/expressions.md#je-6) to [JE-9](../../docs/semantics/expressions.md#je-9)), the mode ([JE-13](../../docs/semantics/expressions.md#je-13)), the bound names ([JE-10](../../docs/semantics/expressions.md#je-10)) and the engine source; its JSON form (snake-case names, the site and mode by name, empty parts omitted) is the one the IR's `ir.json` holds | `Compile` (B2a), which [internal/ir](../ir/README.md) calls for each expression site |
 | `Engine`, `Program`, `Input`, `Exception`, `Limits` | the JavaScript engine behind a Go interface ([ADR 0003](../../docs/design/0003-semantics-placement.md)): compile once, evaluate on a fresh runtime with host strings, host functions and preludes (global scripts that run first, B2b), one attempt's limits | B1a: [internal/expr/quickjs](quickjs/README.md) |
+| `HostFunc.Inline` | marks a host function that never blocks, which an engine may call on the thread that runs the evaluation, in call order | set by `Pipeline` on a `MemoryResults` lookup; honoured by [internal/expr/quickjs](quickjs/README.md) |
+| `MemoryResults` | a `Results` whose lookup reads memory under a short lock and never waits: the evaluator's Go answers read through it, and its lookup is marked `Inline` | the engine's frame results ([internal/engine](../engine/README.md)) |
 | `Evaluator`, `Scope`, `Results`, `Helpers` | what the flow interpreter calls at an expression site: the scope of [JE-22](../../docs/semantics/expressions.md#je-22), the results lookups of [JE-18](../../docs/semantics/expressions.md#je-18) and [JE-19](../../docs/semantics/expressions.md#je-19), and the `variable`, `resource` and `flow_user_state` helpers of [JE-20](../../docs/semantics/expressions.md#je-20) | `Pipeline` (B2a, B2b); the engine provides `Scope` and `Results`, and the platform milestones `Helpers` |
 | `EvalError`, `ErrOutOfMemory`, `ErrTooDeep`, `ErrRewritePanic` | a failed evaluation with Windmill's text, and its cause | `Pipeline` (B2b, FU3) |
 
@@ -170,6 +175,46 @@ Anything else goes to the engine:
 - `results.<id>` for any other id: its read is a host call that the engine
   makes under the attempt limit, cancellation and retries of JE-2.
 
+On the same engines, `jsExpr` (`jsexpr.go`,
+[ADR 0003](../../docs/design/0003-semantics-placement.md)) then answers in
+Go what it takes of the rest. It answers what the program would answer and
+declines everything else, before or during the evaluation; the engine then
+runs as it would. It takes:
+
+- member paths of the bound roots, and of `results.<id>` read through a
+  `MemoryResults` lookup (the engine's frame results);
+- template literals, string, number, boolean and null literals,
+  `.length`, `!` and unary `-`;
+- the arithmetic and relational operators, `===`, `!==`, `&&`, `||` and
+  `?:`;
+- a predicate site's text inside its `Boolean(` … `)`, the only call it
+  parses. That wrapper is the only one a predicate site adds
+  ([JE-24](../../docs/semantics/expressions.md#je-24)).
+
+It declines:
+
+- a member of `null` or `undefined`, an inherited member, a string's
+  member other than `length`, and `__proto__`;
+- an object compared or returned, and one with a `toString` or `valueOf`
+  key converted to a primitive;
+- a string or object converted to a number, and a lone surrogate;
+- a lookup that fails, a root that is not bound, and a text that is not
+  UTF-8 or that holds a comment or a line break;
+- any evaluation that might meet a limit. It declines when an upper bound
+  of its QuickJS heap passes the cap
+  ([JE-3](../../docs/semantics/expressions.md#je-3)), or the text nests
+  deeper than 32 or is longer than 16 KiB. It also declines under an
+  attempt limit of less than 5 s, past 4 MiB of its own work, or once it
+  has spent a hundredth of the attempt limit. `jsexpr.go` documents the
+  constants, and why each is an upper bound.
+
+Its reads go through a memo, in the program's order, and only where the
+program makes them. When it declines after a read, the engine's bindings
+reuse what it read, so nothing is read twice. Each text is parsed once and
+cached, apart from the evaluation. `SetQuickJSOnly` turns it off: the
+engine's `Config.QuickJSOnly`, `wl.Options.QuickJSOnly` and the CLI's
+`-quickjs-only` set it.
+
 Otherwise the expression's program runs on the engine with these bindings
 (JE-10):
 
@@ -186,11 +231,15 @@ Otherwise the expression's program runs on the engine with these bindings
 Every host function answers JSON text:
 
 - **The results lookup.** Every id it is asked is a `Results.Lookup`
-  database read, in stored text. A failed read rejects with the read's
-  message. The previous id, when `previous_result` is bound (JE-18 step
-  1, the reading [0001](../../docs/design/0001-equivalence-contract.md)
-  §6 records for FX-V6), never reaches it: the results prelude answers it
+  read, in stored text. A failed read rejects with the read's message.
+  The previous id, when `previous_result` is bound (JE-18 step 1, the
+  reading [0001](../../docs/design/0001-equivalence-contract.md) §6
+  records for FX-V6), never reaches it: the results prelude answers it
   from memory.
+- **A lookup from memory.** When the scope's `Results` reads memory
+  (`MemoryResults`, the engine's frame results), the results lookup is
+  marked `Inline`: the engine may answer it on its own thread instead of a
+  goroutine. The helpers never are.
 - **The helpers.** They answer from `Helpers`. Without them they reject
   with JE-20's `… is not available without an authenticated client`, and
   `flow_user_state` without a results context with `flow_user_state() is
@@ -477,6 +526,50 @@ context-free case's recorded argument as its stored form.
     and unpaired surrogates, edge numbers, and text that is not JSON.
   - The paths read missing members, indexes past the end and `length`,
     and chain optionally over `null` and `undefined`.
+- `TestJSExprsMatchEngine` is `jsExpr`'s differential test: 6,000
+  generated expressions per run (1,500 with `-short`) over generated
+  values, each through `jsExpr` and on the real engine. Wherever `jsExpr`
+  answers, the engine must give the same text, and where the engine fails,
+  `jsExpr` must decline. The generator covers templates, arithmetic,
+  comparisons, predicates, short-circuits, keys that spell like syntax
+  (`?b`, `a.b`, `[`), failing lookups and every kind of decline. A longer
+  sweep runs by its variables, as in
+  `WL_JSEXPR_CASES=30000 WL_JSEXPR_SEED=3 go test -run '^TestJSExprsMatchEngine$' ./internal/expr`.
+- `FuzzJSExprMatchesEngine` is a Go fuzz test of the same claim, seeded
+  from the generator and from every expression of the conformance suite
+  with its scope (`conformance/exprs` and the flow fixtures' unit cases).
+  `go test` runs the seeds and `testdata/fuzz` (a text that is not UTF-8,
+  found by fuzzing); `go test -run '^$' -fuzz FuzzJSExprMatchesEngine
+  ./internal/expr` explores further.
+- Each fuzzed case's first byte is its site: a `SiteKind` replays at that
+  site, and any other byte maps onto one, so the fuzzer reaches every
+  site, each with its scope as the conformance cases give it.
+  `TestFuzzSeedsKeepTheirSites` checks that every conformance seed replays
+  at its recorded site, with that site's wrapping, results lookup and
+  context names.
+- `TestParseJSExpr` checks what the grammar takes and refuses.
+  `TestJSExprKeepsTheHeapCap`, `TestJSExprKeepsTheStackLimit`,
+  `TestJSExprKeepsTheAttemptLimit`, `TestJSExprBoundsItsOwnWork` and
+  `TestJSExprWorstCaseTime` hold it to the evaluation's limits.
+- `TestJSExprIsolation` checks that evaluations share nothing, and
+  `TestJSExprReadMemoKeys` that reads differing only in a key's spelling
+  never share a memo entry. `TestJSExprConcurrentPipeline` evaluates from
+  16 goroutines on one pipeline, under `-race`, and holds every outcome to
+  QuickJS's for the same scope.
+- `TestJSExprKeepsReadOrder` runs sequences of expressions with `jsExpr`
+  on and off, over a lookup that reads memory (answered inline) and one
+  that does not (on goroutines). It compares every read, helper call and
+  outcome of the four. `TestBindInlinesMemoryLookups` checks that only a
+  memory lookup is marked `Inline`, through the read memo too.
+- `TestInlineLookupsLetHelpersSettle` races a helper call against an
+  endless loop of results lookups through the pipeline: the helper's answer
+  wins within a second, with memory lookups (inline) and with goroutine
+  ones.
+- `TestMemberPathPipeline` runs with `jsExpr` on and off.
+  `WL_TEST_QUICKJS_ONLY=1` runs the whole package with it off, as one CI
+  part does, so that every case passes on QuickJS alone too.
+- `BenchmarkEvalJSExpr` times a template, arithmetic and a predicate
+  through `Eval`, with `jsExpr` on and off.
 - `TestPathExprsMatchEngine` is the same differential test for null tests
   and object literals of paths. It generates thousands of them over the
   generated values: each operator against `null` and `undefined`, alone
@@ -505,6 +598,14 @@ import [internal/expr/quickjs](quickjs/README.md), which imports it, so
 `quickjs_test.go`, of the external test package `expr_test` in the same
 test binary, registers the engine for them; an engine a test starts must
 end with no leaked heap block.
+
+The engine counts leaked blocks only in leak check (`WL_QJS_LEAK_CHECK=1`,
+as one CI step runs this package; see
+[internal/expr/quickjs](quickjs/README.md)). `TestJSExprKeepsTheHeapCap`
+drives the engine out of its cap on strings with non-ASCII characters,
+where QuickJS-ng's `JS_ToCStringLen2` leaks the string it was converting.
+That test therefore uses `realLeakyEngine`, which logs leaks instead of
+failing.
 
 - `TestE3aOnEngine` is B2b's exit gate (ADR 0012: the expression suite
   against the E3a recordings, at unit level as in B2a). It runs every

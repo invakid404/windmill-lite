@@ -260,6 +260,11 @@ func (x *frameResults) Lookup(_ context.Context, id string) (jsonval.Value, erro
 	return v, nil
 }
 
+// MemoryLookup says that Lookup reads the run's memory under the run's lock
+// and never waits on anything else, so that the expression pipeline may read
+// through it outside the engine's attempt limit (expr.MemoryResults).
+func (x *frameResults) MemoryLookup() {}
+
 // Stored is the result-by-node-id lookup of JE-9's direct path (JE-19):
 // the job of the module with that id that finished last in the nearest
 // scope that has one.
