@@ -51,6 +51,11 @@ type frame struct {
 	// branch. id is the flow's job id (WM_FLOW_JOB_ID) and scope the id of
 	// its innermost flow scope (WM_ROOT_FLOW_JOB_ID, WA-V1).
 	path, id, scope string
+	// parentJob is a child flow's parent job, the flow job whose module
+	// runs it, and moduleID that module's id, which the child's record
+	// shows as its flow_step_id while it runs (WA-19). Both are "" for the
+	// root.
+	parentJob, moduleID string
 	// site is a child flow's site: its iteration's (<loop>/i:<n>), its
 	// branch's (<container>/b:<n>, <container>/b:default), or a subflow's
 	// step's own (<step>), below which its modules have theirs.

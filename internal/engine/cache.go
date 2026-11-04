@@ -331,7 +331,7 @@ func (r *run) leafCache(ctx context.Context, fr *frame, m *ir.Module, args jsonv
 func (r *run) cachedJob(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, c cacheEntry) outcome {
 	v := c.value()
 	o.rec.Ran, o.rec.Job, o.rec.Cached = true, newUUID(), true
-	r.e.registerHit(r.jobEnv(fr, i, o.rec.Job))
+	r.e.registerHit(r.jobEnv(fr, i, o.rec.Job), r.id, nil)
 	r.ended(fr, &o)
 	r.recordJob(fr, i, v)
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, v, v
@@ -344,9 +344,10 @@ func (r *run) cachedJob(ctx context.Context, fr *frame, i int, site conformance.
 // cache completed without running, in the job registry, and ends it at
 // once: a job that ran is registered by the facade's executor for as long
 // as it runs (facade.Register), with the same fields, and is then known
-// while its root lives (ADR 0007, PF3).
-func (e *Engine) registerHit(env map[string]string) {
-	end := e.platform.JobRegistry().Begin(platform.Job{ID: env["WM_JOB_ID"], Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env})
+// while its root lives (ADR 0007, PF3). run is the run that holds the job,
+// and view, when not nil, the view that renders it (WA-19).
+func (e *Engine) registerHit(env map[string]string, run string, view platform.JobView) {
+	end := e.platform.JobRegistry().Begin(platform.Job{ID: env["WM_JOB_ID"], Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, View: view})
 	end()
 }
 

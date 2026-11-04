@@ -73,6 +73,9 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 	if len(items) == 0 {
 		return r.emptyContainer(ctx, fr, i, o)
 	}
+	r.mu.Lock()
+	r.iterLen[site] = len(items)
+	r.mu.Unlock()
 	if l.Parallel {
 		return r.parallelLoop(ctx, fr, i, prev, prevID, items, o, b)
 	}
@@ -824,6 +827,7 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 	c := newFrame(bodyOf(m).modules, fr.sites[i].Child(conformance.Iteration(k)))
 	now := r.clock.Now()
 	c.site, c.child, c.id, c.pinged, c.started = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID(), now, now
+	c.parentJob, c.moduleID = fr.id, m.ID
 	c.def, c.failure, c.envSrc = fr.def, fr.failure, fr.envSrc
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = fr.path+"/loop-"+strconv.Itoa(k), fr.scope, fr.nodes, fr.rng
@@ -838,6 +842,7 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 func (r *run) addChild(c *frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.indexFlow(c)
 	child := ChildFlow{Site: c.site, ID: c.id, Modules: c.ids(), Virtual: make([]bool, len(c.modules)), Failure: c.failure != nil}
 	for i, m := range c.modules {
 		child.Virtual[i] = m.Virtual

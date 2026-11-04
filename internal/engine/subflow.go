@@ -108,6 +108,7 @@ func (r *run) subflowFrame(fr *frame, i int, sub *ir.Flow, stored jsonval.Value)
 	now := r.clock.Now()
 	c := newFrame(sub.Modules, fr.sites[i])
 	c.site, c.child, c.subflow, c.id, c.pinged, c.started = fr.sites[i], true, true, newUUID(), now, now
+	c.parentJob, c.moduleID = fr.id, fr.moduleAt(i).ID
 	c.def, c.failure = sub, sub.FailureModule
 	c.input = jsonval.FromProducer(flowInputText(stored.Producer(), fr.rng))
 	c.path, c.nodes, c.rng = sub.Path, newNodeScope(fr.nodes), fr.rng

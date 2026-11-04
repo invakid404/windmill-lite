@@ -424,6 +424,7 @@ func (r *run) branchFrame(fr *frame, i int, seg conformance.Segment, ms []*ir.Mo
 	c := newFrame(ms, site)
 	now := r.clock.Now()
 	c.site, c.child, c.id, c.pinged, c.started = site, true, newUUID(), now, now
+	c.parentJob, c.moduleID = fr.id, fr.moduleAt(i).ID
 	c.def, c.failure, c.envSrc = fr.def, fr.failure, fr.envSrc
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = path, fr.scope, fr.nodes, fr.rng

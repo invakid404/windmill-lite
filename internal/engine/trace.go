@@ -128,6 +128,12 @@ type StepRecord struct {
 	// that completed without running (FX-40). Empty for identity jobs,
 	// which have no invocation, and for sites with no job.
 	Job string
+	// NoInvocationJob is the id of the site's job when it ran one with no
+	// invocation: an identity job (FX-16), or a script job that failed
+	// before its invocation (FX-14, WR-12, FX-38). Windmill gives such a
+	// job an id, which its flow's status names and GET jobs_u/get/{id}
+	// answers for (WA-19); Job stays empty, since no step ran.
+	NoInvocationJob string
 
 	// Status is the status of the site's job (OR-V2), or StepNotRun when it
 	// has none. Module is the module's own status (FX-1), for a site that is

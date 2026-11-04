@@ -278,7 +278,8 @@ type Session struct {
 // owner. Executor registers each invocation it runs. The invocation is a
 // script job of the job registry (D3) until it ends: its job id is
 // WM_JOB_ID (id when unset), its root WM_ROOT_JOB_ID, and the flow scopes
-// it runs in become known with it.
+// it runs in become known with it, held by run, whose view renders its
+// record (WA-19).
 func (f *Facade) Register(id, run string, env map[string]string) *Session {
 	return f.register(id, run, env, nil)
 }
@@ -291,7 +292,7 @@ func (f *Facade) register(id, run string, env map[string]string, p *platform.Ser
 	if job == "" {
 		job = id
 	}
-	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env})
+	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run})
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {

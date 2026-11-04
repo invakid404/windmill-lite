@@ -84,8 +84,18 @@ type run struct {
 	// (RunRequest.Around), or is nil.
 	around func(Site) []int
 
-	mu    sync.Mutex // guards trace and the frames' job results
+	mu    sync.Mutex // guards trace, the frames' job results, jobs and iterLen
 	trace Trace
+	// jobs indexes the jobs of the run's tree by id, for their records
+	// (WA-19, runView), and iterLen holds the number of items of each for
+	// loop that has evaluated its iterator, by the loop's site, which its
+	// status shows while it runs.
+	jobs    map[string]*jobRef
+	iterLen map[conformance.SitePath]int
+	// rootEnd is the run's own end, once its modules are done: a dispatched
+	// run tracked in its parent stays in its root's tree after it ends,
+	// and its record then shows it completed.
+	rootEnd *flowEnd
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
@@ -95,6 +105,8 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState, SharedCode: e.sharedCode}
+	r.jobs, r.iterLen = map[string]*jobRef{}, map[conformance.SitePath]int{}
+	r.indexFlow(r.root)
 	if e.sharedCode {
 		r.trace.Deviations = []string{"D18"}
 	}
@@ -640,14 +652,15 @@ func (r *run) run(ctx context.Context) {
 // names may have new content by then ([FX-40]).
 //
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
-func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
+func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 	if fr != r.root && fr.collapsed == nil {
 		// A child flow (a loop iteration, a branch, a subflow) is a flow
 		// job of the run's tree while it runs (ADR 0007, D3), so a dispatch
 		// whose parent_job names it gets its runnable path (WA-15), and its
-		// id answers root lookups, whether or not one of its steps has
-		// registered yet.
-		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path})()
+		// id answers root lookups and job reads, whether or not one of its
+		// steps has registered yet. Its record shows its end (WA-19).
+		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path, Run: r.id, View: runView{r}})()
+		defer func() { r.childEnded(fr, e) }()
 	}
 	if !fr.cacheTTL.set {
 		return r.runModules(ctx, fr)
@@ -671,7 +684,7 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, cached: true}
 		}
 	}
-	e := r.runModules(ctx, fr)
+	e = r.runModules(ctx, fr)
 	if !e.stores || ended(e.status) || !fr.cacheTTL.stores() {
 		return e
 	}
@@ -1270,6 +1283,14 @@ func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value
 	r.mu.Unlock()
 	start := r.clock.Now()
 	o := r.module(ctx, fr, i, prev, prevID, idx, b)
+	r.noInvocationJob(fr, i, idx, &o)
+	if o.rec.Job != "" && o.rec.Cached && fr.moduleAt(i).Kind != ir.KindSubflow {
+		// A leaf the result cache answered (FX-40), whose job no
+		// invocation ran.
+		r.mu.Lock()
+		r.indexLeaf(o.rec.Job, fr, i, idx, false)
+		r.mu.Unlock()
+	}
 	if o.rec.Start.IsZero() {
 		o.rec.Start, o.rec.Duration = start, r.since(start)
 	}
@@ -1518,6 +1539,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				// [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
 				c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
 				r.addChild(c)
+				r.childEnded(c, flowEnd{status: conformance.RunFailure, result: v})
 				o.rec.Job = c.id
 			}
 			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginEngine
@@ -1540,6 +1562,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
 			r.addChild(c)
 			o.rec.Job = c.id
+			defer func() { r.childEnded(c, flowEnd{status: conformance.RunFailure, result: o.rec.Result}) }()
 		}
 		out := fail(transformError(preRun, fr.collapsed != nil), OriginEngine)
 		r.recordJob(fr, i, out.rec.Result)
@@ -2343,6 +2366,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		inv.Around = r.around(site)
 	}
 	inv.Env = r.jobEnv(fr, i, inv.ID)
+	r.jobLaunched(fr, i, idx, inv.ID, args)
 	// The job's reserved variables, which its argument resolution reads
 	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
 	// strings in a resource an argument names; neither the script's own

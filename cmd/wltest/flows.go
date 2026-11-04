@@ -769,12 +769,16 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 			}
 		}
 	}
-	// Every job the run's steps ran, superseded attempts' included, which
+	// Every job the run's steps ran, superseded attempts' included, and
+	// every job a module ran with no invocation (an identity job), which
 	// the normaliser replaces with its site's placeholder (OR-14).
 	jobs := map[string]conformance.SitePath{}
 	for _, rec := range tr.Steps {
 		if rec.Job != "" {
 			jobs[rec.Job] = rec.Site
+		}
+		if rec.NoInvocationJob != "" {
+			jobs[rec.NoInvocationJob] = rec.Site
 		}
 	}
 	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, jobs, f.Compare, r.Copies, effects)
