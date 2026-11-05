@@ -229,14 +229,25 @@ jobs:
         # and checks that it prints the npm package's version.
         run: python3 -m unittest discover -s scripts -v
 
+      - name: Set up Node for the npm package
+        if: matrix.checks
+        # The packaging test runs the SDK's test entry,
+        # windmill-lite/bun/testing, on the node on the PATH: Node 22, the
+        # oldest major the entry supports. It replaces Node 20 on the PATH
+        # for the steps after this one only; WL_NODE keeps naming Node 20.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.4
+
       - name: Test the npm package
         if: matrix.checks
         # The packaging test of the npm package windmill-lite
         # (harnesses/npm/test/check.sh): npm pack, the packed file list
         # and manifest, bun add into an empty project, tsc on an import of
-        # windmill-lite/bun, and a smoke host against the engine of this
-        # commit, stamped with the package's version as a release stamps
-        # it, which an engine of another version must refuse.
+        # windmill-lite/bun, the test entry windmill-lite/bun/testing on
+        # Bun 1.3.10 and on Node 22, and a smoke host against the engine
+        # of this commit, stamped with the package's version as a release
+        # stamps it, which an engine of another version must refuse.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
         run: |
