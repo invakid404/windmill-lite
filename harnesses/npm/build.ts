@@ -8,9 +8,9 @@
 //   package.json, so the SDK's harness version is the version of the
 //   engine it pairs with (runtime/version.ts, scripts/release.py).
 // - dist/bun/host/index.d.ts and dist/bun/runtime/*.d.ts: their type
-//   declarations, which TypeScript emits (npm/tsconfig.json). They keep
-//   the sources' relative imports, which end in .ts; TypeScript resolves
-//   each to its .d.ts file.
+//   declarations, which TypeScript emits (npm/tsconfig.json), keeping only
+//   those that index.d.ts reaches. They keep the sources' relative
+//   imports, which end in .ts; TypeScript resolves each to its .d.ts file.
 //
 // It runs on Bun 1.3.10, the harness's pinned Bun, and refuses any other:
 // Bun's bundler transpiles the runtime, so another Bun could ship other
@@ -18,7 +18,7 @@
 // --frozen-lockfile in harnesses/).
 
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const PINNED_BUN = "1.3.10";
 
@@ -75,6 +75,27 @@ const declarations = Bun.spawnSync([process.execPath, tsc, "-p", join(root, "npm
 });
 if (declarations.exitCode !== 0) {
   fail(`tsc exited with ${declarations.exitCode}`);
+}
+
+// tsc emits a declaration file for every source file that the SDK imports,
+// but the package ships only those that the declarations of ./bun reach:
+// the bundled JavaScript needs none of them, and a runtime file whose
+// types the SDK does not export is no part of what a host imports.
+const entry = join(dist, "bun", "host", "index.d.ts");
+const SPECIFIER = /(?:from\s+|import\()\s*"(\.{1,2}\/[^"]+)"/g;
+const reached = new Set<string>();
+const pending = [entry];
+for (let file = pending.pop(); file !== undefined; file = pending.pop()) {
+  if (reached.has(file)) continue;
+  if (!existsSync(file)) fail(`${relative(root, file)} is imported but tsc did not emit it`);
+  reached.add(file);
+  for (const [, spec] of readFileSync(file, "utf8").matchAll(SPECIFIER)) {
+    pending.push(join(dirname(file), spec!.replace(/\.ts$/, ".d.ts")));
+  }
+}
+for (const e of readdirSync(dist, { recursive: true, withFileTypes: true })) {
+  const file = join(e.parentPath, e.name);
+  if (e.isFile() && file.endsWith(".d.ts") && !reached.has(file)) rmSync(file);
 }
 
 const files = readdirSync(dist, { recursive: true, withFileTypes: true })

@@ -4,9 +4,7 @@ package/dist/bun/host/index.d.ts
 package/dist/bun/host/index.js
 package/dist/bun/runtime/context.d.ts
 package/dist/bun/runtime/frame.d.ts
-package/dist/bun/runtime/native.d.ts
 package/dist/bun/runtime/plugin.d.ts
 package/dist/bun/runtime/runtime.d.ts
 package/dist/bun/runtime/version.d.ts
-package/dist/bun/runtime/wrapper.d.ts
 package/package.json

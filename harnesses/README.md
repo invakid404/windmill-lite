@@ -92,7 +92,7 @@ so a TypeScript 6 project sets `"types": ["bun"]`.
 | File | What it is |
 |---|---|
 | `dist/bun/host/index.js` | The Bun host SDK and the harness runtime, bundled into one ES module by Bun 1.3.10. Its harness version is `v` + the package's version. |
-| `dist/bun/host/index.d.ts`, `dist/bun/runtime/*.d.ts` | The type declarations of the SDK and of the runtime types that it exports |
+| `dist/bun/host/index.d.ts`, `dist/bun/runtime/*.d.ts` | The type declarations of the SDK, and of the runtime modules whose types its declarations import: `context`, `frame`, `plugin`, `runtime` and `version` |
 | `package.json`, `README.md`, `LICENSE` | The manifest, this README and the [Unlicense](LICENSE) |
 
 `package.json` exports only `./bun`. Another runtime's SDK becomes another
@@ -111,9 +111,12 @@ subpath of this package.
 
 The build reads the version from `package.json`, and builds
 `dist/bun/host/index.js` with `Bun.build`, which defines `WL_RELEASE` as
-`"v<version>"`. It checks that the module sets that harness version. Then `tsc -p npm/tsconfig.json` emits
-the declarations. They keep the sources' relative imports, which end in
-`.ts`; TypeScript resolves each to its `.d.ts` file.
+`"v<version>"`. It checks that the module sets that harness version.
+
+Then `tsc -p npm/tsconfig.json` emits the declarations, and the build
+keeps only those that `dist/bun/host/index.d.ts` imports, directly or
+through another kept file. The declarations keep the sources' relative
+imports, which end in `.ts`; TypeScript resolves each to its `.d.ts` file.
 
 ## Test the package
 
