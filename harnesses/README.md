@@ -96,10 +96,20 @@ too.
 
 `invoke`'s options set the invocation's `id` and `run`, each a random UUID
 by default. `fn` keeps the caller's other `AsyncLocalStorage` stores, and
-calls of `invoke` may nest. `left` counts `timeout`, `interval` and
-`immediate` handles; in a process where the host SDK has connected, which
-installs the `fetch` view and the child-process wrappers, it counts
-`fetch`, `child` and `detached` too.
+calls of `invoke` may nest. `invoke` awaits `fn`'s result inside the
+invocation, so the work that a returned thenable, such as a lazy query
+object, starts in its `then()` is the invocation's too.
+
+`left` counts `timeout`, `interval` and `immediate` handles. In a process
+where the host SDK has connected, the connection also installs these
+views, and so changes what `invoke` does:
+
+- the `fetch` view and the child-process wrappers: `left` counts `fetch`,
+  `child` and `detached` too;
+- the log view: what `fn` writes through `console`, `process.stdout` and
+  `process.stderr` goes to the invocation's log, which nothing prints and
+  settlement drops. The test's output from inside `fn` is lost. Without a
+  connected host, that output reaches the process's streams.
 
 Call `install()` in the test runner's setup file, before a test imports
 the host's code. On Bun 1.3.10 the first named import of `node:timers`

@@ -606,9 +606,11 @@ describes them for a host
   calls `installProcessScope`, `installStepAPI` and `installTimers`, and
   nothing that routes to a connected runtime, such as `installFetch`.
 - **How it settles.** `invoke` builds an `InvocationContext` whose `work`
-  is its own registry, runs `fn` in it with `invocations.run`, and then
-  settles it with `settleInvocation`, as the runtime settles a step. `left`
-  is what `settleInvocation` returns.
+  is its own registry, and an `InvocationLog` that nothing reads. It calls
+  and awaits `fn` inside the context with `invocations.run`, as the
+  runtime awaits a step's entrypoint, so a thenable that `fn` returns
+  resolves there. Then it settles the invocation with `settleInvocation`,
+  as the runtime settles a step, and `left` is what that returns.
 - **Where it runs.** `context.ts` reads the `Bun` global only in the
   child-process wrappers, which the entry never installs. So the entry runs
   on Node 22 or newer as well as on Bun 1.3.10.
@@ -1047,6 +1049,8 @@ the runtime:
   is not reported, and, as its control, a factory that does not re-enter
   the scope;
 - sequential, nested and concurrent steps;
+- a thenable that a step returns, whose `then()` runs in the step's
+  invocation, nested too;
 - the invocation query inside a step, outside, and in a late continuation;
 - a step that throws, the caller's other async-context stores, and the
   step API inside a step.

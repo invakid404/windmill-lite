@@ -95,9 +95,11 @@ export function install(): void {
 /**
  * Runs `fn` as one invocation and settles it as the runtime settles a step.
  *
- * - `fn` runs inside the invocation's async context. Every other
- *   `AsyncLocalStorage` store of the caller stays, as a run's invocations
- *   keep the scope that the host submitted the run in.
+ * - `fn` runs, and its result is awaited, inside the invocation's async
+ *   context, so the work that a thenable `fn` returns starts in its
+ *   `then()` is the invocation's too. Every other `AsyncLocalStorage`
+ *   store of the caller stays, as a run's invocations keep the scope that
+ *   the host submitted the run in.
  * - Once `fn` has returned, or its promise has settled, the invocation
  *   settles through the runtime's own settlement function: the fence
  *   clears the timers that the invocation still has, and reports them.
@@ -106,6 +108,12 @@ export function install(): void {
  * - Inside `fn`, `wl.signal()` returns the invocation's abort signal,
  *   which never aborts here. `wl.latch()` throws a `TypeError`, since no
  *   run waits for the invocation.
+ * - What `fn` writes through `console`, `process.stdout` and
+ *   `process.stderr` reaches the process's streams, unless the host SDK
+ *   has connected in this process. Its connection installs the log view,
+ *   which sends those writes to the invocation's log instead: nothing
+ *   prints that log, and settlement drops it, so the test's output from
+ *   inside `fn` is lost.
  *
  * It calls install() first. Calls may nest: an inner invocation settles
  * on its own, and the caller's invocation goes on.
