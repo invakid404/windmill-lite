@@ -1,6 +1,6 @@
 {
   "name": "windmill-lite",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Bun host SDK of windmill-lite, which runs the flows and scripts of a Windmill folder with Windmill's semantics, in a host program's own process.",
   "license": "Unlicense",
   "repository": {
@@ -15,6 +15,10 @@
     "./bun": {
       "types": "./dist/bun/host/index.d.ts",
       "default": "./dist/bun/host/index.js"
+    },
+    "./bun/testing": {
+      "types": "./dist/bun/host/testing.d.ts",
+      "default": "./dist/bun/host/testing.js"
     }
   },
   "files": [

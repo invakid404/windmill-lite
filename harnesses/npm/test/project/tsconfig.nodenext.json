@@ -9,5 +9,5 @@
     "strict": true,
     "skipLibCheck": false
   },
-  "files": ["smoke.ts"]
+  "files": ["smoke.ts", "testing.ts"]
 }

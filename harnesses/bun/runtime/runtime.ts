@@ -63,6 +63,7 @@ import {
   realTimers,
   setChildAnnouncer,
   setChildGroups,
+  settleInvocation,
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
@@ -823,8 +824,7 @@ export class Runtime {
     if (this.stopped || this.exiting) return;
     for (const inv of this.invocations.values()) {
       this.sendLog(inv, true);
-      inv.resources.settle();
-      inv.log.close();
+      settleInvocation(inv);
     }
     this.end(status);
   }
@@ -1274,8 +1274,7 @@ export class Runtime {
         this.sender.send(msg);
         if (timed && running) timingSink()?.push({ ...timed, sent: Bun.nanoseconds() } as InvocationTiming);
         this.invocations.delete(inv.id);
-        inv.resources.settle();
-        inv.log.close();
+        settleInvocation(inv);
         // A fresh process ends once its result has been written, as the
         // wrapper exits right after writing it (WR-2): a frame the socket
         // did not take at once must not be cut off.
@@ -1336,8 +1335,7 @@ export class Runtime {
     if (this.heartbeat) realTimers.clearInterval(this.heartbeat);
     for (const inv of this.invocations.values()) {
       inv.controller.abort("harness_exit");
-      inv.resources.settle();
-      inv.log.close();
+      settleInvocation(inv);
     }
     const lost = new Error("windmill-lite: the engine connection ended");
     for (const c of this.platformCalls.values()) if (c !== DISCARD) c.reject(lost);

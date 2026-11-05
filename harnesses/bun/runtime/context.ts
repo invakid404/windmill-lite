@@ -241,6 +241,21 @@ export class InvocationLog {
   }
 }
 
+/** Settles an invocation: the settle-time fence (D9). It marks the
+ * invocation's registry settled and runs every release still pending,
+ * once, so its pending timers are cleared, its requests aborted and its
+ * children's groups released; then it closes the invocation's log, so its
+ * later writes are dropped. It returns what the invocation still held, by
+ * kind in sorted order (InvocationResources.settle): empty when it held
+ * nothing, and empty on a second call, which changes nothing. Every
+ * settlement of the runtime goes through it, and so does the test entry's
+ * (host/testing.ts), so both fence an invocation with the same code. */
+export function settleInvocation(inv: { resources: InvocationResources; log: InvocationLog }): Record<string, number> {
+  const left = inv.resources.settle();
+  inv.log.close();
+  return left;
+}
+
 export const invocations = new AsyncLocalStorage<InvocationContext>();
 
 /** The invocation whose context the caller runs in, if any. */

@@ -11,24 +11,32 @@
 # 3. bun add installs the tarball into a copy of project/, an empty
 #    project with the tsconfig.json of bun init (Bun 1.3.10) and
 #    TypeScript.
-# 4. tsc type-checks project/smoke.ts, which imports windmill-lite/bun:
-#    TypeScript 5.9.3 with bun init's tsconfig.json, then TypeScript 5.9.3
-#    and 6.0.3 with tsconfig.nodenext.json (NodeNext resolution, with the
-#    declarations of the package and of Bun checked too).
-# 5. The engine of this commit, stamped with the package's version as a
+# 4. tsc type-checks project/smoke.ts, which imports windmill-lite/bun and
+#    windmill-lite/bun/testing, and project/testing.ts, which imports
+#    windmill-lite/bun/testing: TypeScript 5.9.3 with bun init's
+#    tsconfig.json, then TypeScript 5.9.3 and 6.0.3 with
+#    tsconfig.nodenext.json (NodeNext resolution, with the declarations of
+#    the package and of Bun checked too). TypeScript 5.9.3 and 6.0.3 also
+#    check testing.ts with tsconfig.node.json: Node's type declarations
+#    only, so the test entry's declarations need no Bun types.
+# 5. project/testing.ts checks the SDK's test entry, windmill-lite/bun/testing,
+#    on Bun 1.3.10, and on the node on the PATH, which must be Node 22 or
+#    newer, as the JavaScript that tsc emits from it (tsconfig.node.json).
+# 6. The engine of this commit, stamped with the package's version as a
 #    release stamps it (scripts/release.py build-engine), builds a bundle
 #    of folder/, and the smoke host runs the flow f/smoke/hello on it
-#    through the installed SDK. With WL_ENGINE set, it uses that engine
-#    instead.
-# 6. An engine stamped with another version, and a bundle that engine
+#    through the installed SDK. The smoke host also loads the SDK's test
+#    entry, and checks that the two share one runtime state. With
+#    WL_ENGINE set, it uses that engine instead.
+# 7. An engine stamped with another version, and a bundle that engine
 #    built: the smoke host's connect() must reject with version_mismatch.
 #    So the packed SDK carries the package's version; an unstamped SDK
 #    would pair with any engine.
 #
-# Needs Bun 1.3.10 (WL_BUN, default bun), npm, python3, go with a C
-# compiler, and the dependencies of the package (bun install
-# --frozen-lockfile in harnesses/) and of the build helper (the same in
-# harnesses/bun/build).
+# Needs Bun 1.3.10 (WL_BUN, default bun), Node 22 or newer as node on the
+# PATH, npm, python3, go with a C compiler, and the dependencies of the
+# package (bun install --frozen-lockfile in harnesses/) and of the build
+# helper (the same in harnesses/bun/build).
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -85,7 +93,10 @@ want = {
     "version": sys.argv[2],
     "license": "Unlicense",
     "type": "module",
-    "exports": {"./bun": {"types": "./dist/bun/host/index.d.ts", "default": "./dist/bun/host/index.js"}},
+    "exports": {
+        "./bun": {"types": "./dist/bun/host/index.d.ts", "default": "./dist/bun/host/index.js"},
+        "./bun/testing": {"types": "./dist/bun/host/testing.d.ts", "default": "./dist/bun/host/testing.js"},
+    },
     "publishConfig": {"access": "public"},
 }
 problems = [f"{k} is {manifest.get(k)!r}, want {v!r}" for k, v in want.items() if manifest.get(k) != v]
@@ -113,6 +124,17 @@ step "tsc: TypeScript 5.9.3, NodeNext"
 (cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
 step "tsc: TypeScript 6.0.3, NodeNext"
 (cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
+step "tsc: TypeScript 5.9.3 and 6.0.3, NodeNext with Node's types only"
+(cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
+(cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
+
+step "the test entry on Bun $("$WL_BUN" --version)"
+(cd "$work/project" && "$WL_BUN" testing.ts) || fail "the test entry on Bun"
+node_version=$(node -p 'process.versions.node') || fail "no node on the PATH"
+[ "${node_version%%.*}" -ge 22 ] || fail "the test entry needs Node 22 or newer, and node on the PATH is $node_version"
+step "the test entry on Node $node_version"
+(cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.node.json --pretty false) || fail "tsc of testing.ts for Node"
+(cd "$work/project" && node node/testing.js) || fail "the test entry on Node"
 
 if [ -n "${WL_ENGINE:-}" ]; then
   engine=$(absolute "$WL_ENGINE")

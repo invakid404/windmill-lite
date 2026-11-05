@@ -42,10 +42,10 @@ internal/gen/               typed client generation (0009)
 internal/conformance/       fixture loading, observation, comparison, identity encoding (0003, 0011)
 internal/oracle/            the oracle harness (0011)
 internal/bench/             what the benchmarks share: payloads, percentiles, concurrent workers (0005)
-harnesses/                  the npm package windmill-lite (0009): package.json, one subpath per runtime;
-                            npm/ (its build and packaging test)
+harnesses/                  the npm package windmill-lite (0009): package.json, one subpath per runtime
+                            and the Bun SDK's test entry; npm/ (its build and packaging test)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
-                            host/ (Bun host SDK), test/ (developer checks against golden frames)
+                            host/ (Bun host SDK and its test entry), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
 conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/, build/: the shared cases (0003)
 ```

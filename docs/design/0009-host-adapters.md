@@ -112,7 +112,8 @@ is `harnesses/`, whose [README](../../harnesses/README.md) describes it.
 - **One package, one subpath per runtime.** `windmill-lite/bun` is the Bun
   host SDK. The SDK of another runtime becomes another subpath of the same
   package, never a package of its own, so that no host has to rename its
-  dependency.
+  dependency. The Bun host SDK's test entry is the subpath
+  `windmill-lite/bun/testing` ([The test entry](#the-test-entry)).
 - **One version.** The `version` field of `harnesses/package.json` is the
   version of the package and of the engine, and a release is the Git tag
   `v` + that version. A release build of the engine stamps `v` + the
@@ -120,9 +121,11 @@ is `harnesses/`, whose [README](../../harnesses/README.md) describes it.
   stamps the same into the SDK's harness version, so the handshake pairs
   the SDK only with the engine of its release.
 - **Built JavaScript and declarations.** The package ships the SDK and the
-  harness runtime bundled into one ES module by Bun 1.3.10, as the
-  host-mode tests bundle them, and `.d.ts` declarations. A host's `tsc`
-  never checks the runtime's code under the host's own compiler options.
+  harness runtime bundled by Bun 1.3.10, as the host-mode tests bundle
+  them, and `.d.ts` declarations. A host's `tsc` never checks the
+  runtime's code under the host's own compiler options. Each entry is an
+  ES module, and the runtime module that both entries import is an ES
+  module of its own ([The test entry](#the-test-entry)).
 - **Trusted publishing.** The release workflow publishes each release
   with npm provenance, through npm trusted publishing, so that no npm token
   exists. The first version is published by hand, because npm adds a
@@ -140,6 +143,73 @@ Alternatives:
 - A `package.json` at the repository root would be the nearest
   `package.json` of every fixture script that the bundlers read in place,
   and its `"type": "module"` could change how they bundle them.
+
+### The test entry
+
+A host's own process-level code runs in the process where its steps run:
+its pooled database and cache clients, their timers, and the work it
+starts outside every step. The settle-time fence decides what of that code
+a step's settlement clears, and the process scope decides what it keeps
+([0004](0004-harness-protocol.md), the shared-process failure model). A
+host tests that code against the fence, without an engine or a bundle.
+
+The subpath `windmill-lite/bun/testing` is the Bun host SDK's test entry,
+`harnesses/bun/host/testing.ts`. Its three functions take their names from
+the runtime's concepts:
+
+- **`install()`** installs the runtime's step machinery in the process, as
+  the harness does before any step loads: the timer fence, the process
+  scope and the step API (`wl`). A second call changes nothing.
+- **`invoke(fn, options)`** runs `fn` as one invocation, in that
+  invocation's async context, and then settles it. The settlement is the
+  runtime's own function, `settleInvocation` in `runtime/context.ts`,
+  which every settlement of the runtime calls.
+- **`currentInvocation()`** returns the invocation of the caller's async
+  context, as its `id`, its `run` and whether it has `settled`, or
+  `undefined` outside every invocation. It answers for the runtime's
+  steps and for `invoke`'s alike.
+
+`invoke` resolves with `fn`'s result and `left`, what the settlement
+released, counted by kind as the `left_behind` warning counts it. `left` is
+`{}` when the invocation left nothing. When `fn` throws, the invocation
+settles too, and `invoke` then rejects with what `fn` threw.
+
+`install()` installs nothing else. The environment, `fetch` and log views,
+the child-process wrappers and the process-level error handlers route to a
+connected runtime, and a test runner shares the process with the test. A
+host that vendors the SDK imports `host/testing.ts` from its copy.
+
+**One runtime state.** The package's build makes `runtime/context.ts`,
+which holds the invocation context, the timer fence and the process scope,
+one module that both entries import. So a process that loads both entries
+has one copy of that state. The packaging test checks it on the packed
+package.
+
+**Bun and Node.** The entry imports only `runtime/context.ts`, which reads
+no Bun global when it is evaluated or in what the entry calls. So the entry
+runs on Bun 1.3.10 and on Node 22 or newer, the oldest Node major that the
+Node.js project still maintains, for host test suites on Node test runners
+such as vitest. Its declarations need no Bun types, and the packaging test
+runs it on both.
+
+Alternatives:
+
+- Exporting the runtime's internals as they are, such as `invocations`,
+  `InvocationResources` and `installTimers`. A host's tests would build
+  invocation contexts by hand and depend on their shape, which changes
+  with the runtime. A context that the runtime never builds, or a
+  settlement that leaves the log open, tests something else.
+- A helper that re-implements the settlement for tests. The tests would
+  then check the helper, not the fence, and the two could drift apart.
+- An entry bundled with its own copy of the runtime. A process that loads
+  both entries would have two invocation contexts and two timer fences,
+  and the process scope that `windmill-lite/bun` publishes would not leave
+  the test entry's invocations.
+- A package of its own, such as `windmill-lite-testing`. It is a second
+  version to pair with the engine, and has the same problem of two copies
+  across two packages.
+- Tests through a real engine and bundle. Each unit test of the host's
+  code would need the engine binary and a build.
 
 ### Vendoring the Bun host SDK
 

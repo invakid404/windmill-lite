@@ -13,5 +13,5 @@
     "rootDir": "../bun",
     "outDir": "../dist/bun"
   },
-  "files": ["../bun/host/index.ts"]
+  "files": ["../bun/host/index.ts", "../bun/host/testing.ts"]
 }

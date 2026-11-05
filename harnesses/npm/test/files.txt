@@ -2,7 +2,10 @@ package/LICENSE
 package/README.md
 package/dist/bun/host/index.d.ts
 package/dist/bun/host/index.js
+package/dist/bun/host/testing.d.ts
+package/dist/bun/host/testing.js
 package/dist/bun/runtime/context.d.ts
+package/dist/bun/runtime/context.js
 package/dist/bun/runtime/frame.d.ts
 package/dist/bun/runtime/plugin.d.ts
 package/dist/bun/runtime/runtime.d.ts
