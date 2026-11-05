@@ -11,7 +11,7 @@
 
 import { strict as assert } from "node:assert";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { currentInvocation, install, type Invocation, invoke } from "windmill-lite/bun/testing";
+import { currentInvocation, install, type Invocation, invoke, type InvokeOptions, type Settlement } from "windmill-lite/bun/testing";
 
 type ProcessScope = { capture(): <R>(fn: () => R) => R };
 
@@ -158,6 +158,20 @@ await check("the caller's other async-context stores stay inside a step", async 
   const tenant = new AsyncLocalStorage<string>();
   const s = await tenant.run("tenant", () => invoke(() => tenant.getStore()));
   assert.equal(s.result, "tenant");
+});
+
+await check("the declarations type the API as it behaves", async () => {
+  // tsc checks these lines in every setup of check.sh; they also run.
+  const options: InvokeOptions = { id: "typed", run: "typed-run" };
+  const sync: Settlement<number> = await invoke(() => 1, options);
+  const fulfilled: Settlement<string> = await invoke(async () => "text");
+  const left: Record<string, number> = sync.left;
+  const inv: Invocation | undefined = currentInvocation();
+  // @ts-expect-error invoke() takes no option but id and run.
+  const extra = () => invoke(() => 1, { id: "typed", signal: undefined });
+  // @ts-expect-error a step's result has the type that its function returns.
+  const wrong: Settlement<string> = sync;
+  assert.deepEqual([sync.result, fulfilled.result, left, inv, typeof extra, wrong.left], [1, "text", {}, undefined, "function", {}]);
 });
 
 if (failures.length > 0) {

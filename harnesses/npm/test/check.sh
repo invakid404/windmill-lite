@@ -11,10 +11,14 @@
 # 3. bun add installs the tarball into a copy of project/, an empty
 #    project with the tsconfig.json of bun init (Bun 1.3.10) and
 #    TypeScript.
-# 4. tsc type-checks project/smoke.ts, which imports windmill-lite/bun:
-#    TypeScript 5.9.3 with bun init's tsconfig.json, then TypeScript 5.9.3
-#    and 6.0.3 with tsconfig.nodenext.json (NodeNext resolution, with the
-#    declarations of the package and of Bun checked too).
+# 4. tsc type-checks project/smoke.ts, which imports windmill-lite/bun and
+#    windmill-lite/bun/testing, and project/testing.ts, which imports
+#    windmill-lite/bun/testing: TypeScript 5.9.3 with bun init's
+#    tsconfig.json, then TypeScript 5.9.3 and 6.0.3 with
+#    tsconfig.nodenext.json (NodeNext resolution, with the declarations of
+#    the package and of Bun checked too). TypeScript 5.9.3 and 6.0.3 also
+#    check testing.ts with tsconfig.node.json: Node's type declarations
+#    only, so the test entry's declarations need no Bun types.
 # 5. project/testing.ts checks the SDK's test entry, windmill-lite/bun/testing,
 #    on Bun 1.3.10, and on the node on the PATH, which must be Node 22 or
 #    newer, as the JavaScript that tsc emits from it (tsconfig.node.json).
@@ -120,6 +124,9 @@ step "tsc: TypeScript 5.9.3, NodeNext"
 (cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
 step "tsc: TypeScript 6.0.3, NodeNext"
 (cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
+step "tsc: TypeScript 5.9.3 and 6.0.3, NodeNext with Node's types only"
+(cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
+(cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
 
 step "the test entry on Bun $("$WL_BUN" --version)"
 (cd "$work/project" && "$WL_BUN" testing.ts) || fail "the test entry on Bun"
