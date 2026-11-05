@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ESNext"],
+    "types": ["bun"],
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": false
+  },
+  "files": ["smoke.ts"]
+}
