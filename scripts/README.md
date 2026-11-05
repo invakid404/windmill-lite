@@ -1,9 +1,11 @@
 # scripts
 
 **Current state:** the documentation check runs in CI and reports warnings
-only. The [Renovate auto-ack](#renovate-auto-ack) scripts are installed,
-awaiting activation. This README covers the scripts in this directory, and
-none of them is part of windmill-lite itself.
+only. The [release helper](#release-helper) serves the release workflow and
+the npm package's packaging test. The
+[Renovate auto-ack](#renovate-auto-ack) scripts are installed, awaiting
+activation. This README covers the scripts in this directory, and none of
+them is part of windmill-lite itself.
 
 ## Documentation check
 
@@ -25,6 +27,35 @@ python3 scripts/check-docs.py --diff-base "$(git merge-base origin/main HEAD)"
 ```
 
 The second command reports only the blocks that your branch changed.
+
+## Release helper
+
+windmill-lite has one version: the `version` field of
+[harnesses/package.json](../harnesses/package.json), the manifest of the npm
+package `windmill-lite`. The release engine and the package both carry it,
+and a release is the Git tag `v` + that version, such as `v0.1.0`.
+[RELEASING.md](../RELEASING.md) gives the release steps.
+
+`release.py` has four commands. Each first checks the version's form:
+`MAJOR.MINOR.PATCH` with an optional pre-release, such as `0.2.0-rc.1`.
+
+| Command | What it does |
+|---|---|
+| `release.py version` | Prints the version. |
+| `release.py check-tag <tag>` | Exits 1 unless the tag is `v` + the version. |
+| `release.py build-engine <out> [--static]` | Builds `./cmd/windmill-lite` with `-X main.version=v<version>`, so that `windmill-lite version` prints `windmill-lite v<version>`. `--static` adds the static link of the Linux release engine. |
+| `release.py check-engine <binary>` | Exits 1 unless the binary's `version` prints that line. |
+
+`test_release.py` holds the unit tests of `release.py`, which CI runs. One
+of them builds the engine with `build-engine` and checks that it prints the
+package's version, so the release engine and the package cannot differ.
+That test skips without `go`.
+
+The [release workflow](../.github/workflows/release.yml) and the
+packaging test of the npm package
+([harnesses/npm/test/check.sh](../harnesses/npm/test/check.sh)) build the
+engine with `release.py`. The package's build, `harnesses/npm/build.ts`,
+stamps the same `v<version>` into the Bun host SDK.
 
 ## Renovate auto-ack
 
