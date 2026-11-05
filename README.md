@@ -310,7 +310,8 @@ unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
 
 The Go jobs on Ubuntu and macOS also run the
-[packaging test](harnesses/README.md#test-the-package) of the npm package.
+[packaging test](harnesses/README.md#test-the-package) of the npm package,
+with Node 22, the oldest Node that the package's test entry supports.
 The [release workflow](.github/workflows/release.yml) releases a tag
 ([RELEASING.md](RELEASING.md)). It runs as a dry run on pull requests that
 change it, the package's manifest, lockfile, build or packaging test, or
