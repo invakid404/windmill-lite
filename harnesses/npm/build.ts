@@ -39,8 +39,9 @@ if (!existsSync(tsc)) {
 }
 
 // The form scripts/release.py checks: MAJOR.MINOR.PATCH with an optional
-// pre-release.
-const VERSION_FORM = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
+// pre-release, whose numeric identifiers have no leading zeros.
+const PRE = "(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)";
+const VERSION_FORM = new RegExp(`^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-${PRE}(\\.${PRE})*)?$`);
 const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version?: unknown };
 if (typeof version !== "string" || !VERSION_FORM.test(version)) {
   fail(`package.json's version ${JSON.stringify(version)} is not MAJOR.MINOR.PATCH with an optional pre-release`);

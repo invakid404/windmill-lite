@@ -182,10 +182,9 @@ because the repository root has no `package.json`.
 `windmill-lite version` prints `v` + the release's version for an engine
 of a release ([The npm package](#the-npm-package)), and otherwise the
 module version that Go stamps into the binary. Built from a clean checkout
-of the commit, or with
-`go install github.com/invakid404/windmill-lite/cmd/windmill-lite@<commit>`,
-it is a pseudo-version that ends in the first 12 hexadecimal digits of the
-commit ID, such as `v0.0.0-20261028113407-7c82cc9ab979`. Go appends
+of the commit, it is a pseudo-version that ends in the first 12
+hexadecimal digits of the commit ID, such as
+`v0.0.0-20261028113407-7c82cc9ab979`. Go appends
 `+dirty` to the version of a build from a checkout with uncommitted
 changes.
 
@@ -232,16 +231,17 @@ a new protocol.
   SDK's own version was not compared with the engine's then: that needed the
   release to stamp it. A host that pins the engine binary by digest
   does so itself (as `pack --single --host bun` will, F6).
-- Milestone F3b made the pairing real. The SDK's version is the harness
-  version its hello names (`harnesses/bun/runtime/version.ts`), which a
-  release stamps with `--define WL_RELEASE='"vX.Y.Z"'` when it runs or
-  builds the host, as the npm package's build does; the repository's own
-  is `dev`. The engine refuses a host whose stamped SDK version differs
-  from its own stamped version with `version_mismatch` in the handshake,
-  and the SDK refuses an engine of another release in the welcome too, so
-  that an engine from before the check is not used either. An unstamped
-  version (`dev`, a development build's `(devel)`) pairs with anything,
-  since there is no release to compare. Both sides run the cases of
+- The SDK and the engine of a release pair only with each other. The
+  SDK's version is the harness version its hello names
+  (`harnesses/bun/runtime/version.ts`), which a release stamps with
+  `--define WL_RELEASE='"vX.Y.Z"'` when it runs or builds the host, as the
+  npm package's build does; the repository's own is `dev`.
+- The engine refuses a host whose stamped SDK version differs from its own
+  stamped version with `version_mismatch` in the handshake. The SDK
+  refuses an engine of another release in the welcome too, so that an
+  engine from before the check is not used either. An unstamped version
+  (`dev`, a development build's `(devel)`) pairs with anything, since
+  there is no release to compare. Both sides run the cases of
   `conformance/protocol/host/versions.json`.
 
 ## Spec IDs relied on

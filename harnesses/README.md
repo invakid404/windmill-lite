@@ -22,17 +22,40 @@ run in the host's own process
 bun add windmill-lite
 ```
 
-A host needs three more things, and `connect()` fails without each:
+A host needs three more things:
 
 | Requirement | Why |
 |---|---|
 | [Bun](../docs/glossary.md#bun) 1.3.10 | The steps run on the host's Bun, and the engine refuses a host on any other Bun with `runtime_mismatch`. 1.3.10 is the Bun of Windmill v1.767.0's images. |
-| The windmill-lite engine of the package's version | The SDK and the engine refuse each other with `version_mismatch` when their versions differ. Each GitHub Release, such as `v0.1.0`, has the engine for Linux (amd64, arm64) and macOS (arm64, amd64), with `SHA256SUMS`. |
-| A [bundle](../docs/glossary.md#bundle) that this engine built | The engine opens only a bundle that its own version built: `windmill-lite build <folder> -o <bundle>`. |
+| The windmill-lite engine of the package's version | The SDK carries the package's version, and an engine of another release refuses it with `version_mismatch` (a development build of the engine, which has no release version, accepts any SDK). |
+| A [bundle](../docs/glossary.md#bundle) that this engine built | The engine opens only a bundle that its own version built. |
 
-The engine of a release also installs with Go:
-`go install github.com/invakid404/windmill-lite/cmd/windmill-lite@v0.1.0`.
-`windmill-lite version` prints `windmill-lite v0.1.0` for either.
+The GitHub Release of each version, such as `v0.1.0`, has the engine for
+Linux (amd64 and arm64, static binaries) and for macOS (arm64 and amd64),
+with `LICENSES.txt` and `SHA256SUMS`.
+
+1. Download the engine for your platform and `SHA256SUMS`.
+2. Check it against its sum:
+   `grep windmill-lite-<os>-<arch> SHA256SUMS | sha256sum --check`
+   (on macOS, `shasum -a 256 --check` in place of `sha256sum --check`).
+3. Make it executable: `chmod +x windmill-lite-<os>-<arch>`.
+
+`windmill-lite version` prints `windmill-lite v0.1.0` for the engine of
+`v0.1.0`.
+
+To build a bundle, `windmill-lite build` also needs the Bun build helper,
+which neither the release nor the package ships. Take it from a checkout
+of the release's tag:
+
+1. Check out the tag, such as `v0.1.0`.
+2. Install the helper's dependencies:
+   `(cd harnesses/bun/build && bun install --frozen-lockfile)`.
+3. Build the bundle with that checkout's helper, and with Bun 1.3.10 as
+   `bun` on the `PATH` or in `WL_BUN`:
+   `WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts windmill-lite build <folder> -o <bundle>`.
+
+The [`build` command](../cmd/windmill-lite/README.md#build) describes its
+flags, such as `-contract` for the host contract.
 
 ## Use
 
@@ -105,8 +128,9 @@ at the first check that fails:
    empty project with the `tsconfig.json` of `bun init`.
 4. `tsc` type-checks `npm/test/project/smoke.ts`, which imports
    `windmill-lite/bun`, in the three setups of [Types](#types).
-5. The engine of the checkout, built as a release builds it, builds a
-   bundle of the synthetic folder `npm/test/folder/`. The smoke host runs
+5. The engine of the checkout, stamped with the package's version as a
+   release stamps it, builds a bundle of the synthetic folder
+   `npm/test/folder/`. The smoke host runs
    its flow `f/smoke/hello` through the installed SDK, which must return
    `"hello, npm"`.
 6. An engine stamped with another version builds its own bundle, and must

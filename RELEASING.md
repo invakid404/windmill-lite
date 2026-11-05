@@ -16,15 +16,19 @@ When the tag is pushed, the
 3. It packs the npm package and runs the
    [packaging test](harnesses/README.md#test-the-package) on that tarball
    with the Linux amd64 engine.
-4. It creates the GitHub Release of the tag, with the four binaries and
-   their SHA-256 sums in `SHA256SUMS`.
+4. It creates the GitHub Release of the tag, with the four binaries,
+   `LICENSES.txt` and the SHA-256 sums of those five files in
+   `SHA256SUMS`. `LICENSES.txt` holds the licence texts that the binaries
+   carry: windmill-lite's, those of the third-party code in this
+   repository that the engine contains, and those of the Go modules that
+   it links.
 5. It publishes the tested tarball to npm with provenance, through npm
    trusted publishing. A version that is on npm already is not published
    again.
 
 Trusted publishing needs no npm token or secret. npm exchanges the publish
 job's GitHub OIDC token for a short-lived publish token, and accepts it
-only from the workflow file `release.yml` of this repository. A
+only from a run of the workflow file `release.yml` of this repository. A
 pre-release version, such as `0.2.0-rc.1`, becomes a GitHub pre-release
 and the npm dist-tag `next`.
 
@@ -46,6 +50,13 @@ comes from the release workflow.
 8. Publish the package: `npm publish --access public`. npm runs the build
    (the `prepack` script) with `WL_BUN`, and publishes
    `windmill-lite@0.1.0`.
+
+   To publish the tarball that CI tested instead, run the release
+   workflow as a dry run on `main` first
+   ([Try a release without releasing](#try-a-release-without-releasing)).
+   Download its artifact `npm-package`, and run
+   `npm publish ./windmill-lite-0.1.0.tgz --access public` in place of
+   this step.
 9. On [npmjs.com](https://www.npmjs.com/package/windmill-lite), open the
    package's **Settings**. Under **Trusted publishing**, choose
    **GitHub Actions** and enter these fields:
@@ -60,14 +71,16 @@ comes from the release workflow.
 10. Save the trusted publisher.
 11. Optional, and npm's recommendation once a trusted publisher exists:
     under **Publishing access**, choose **Require two-factor
-    authentication and disallow tokens**. Then only the release workflow
-    and a two-factor sign-in can publish.
+    authentication and disallow tokens**. Then only a run of
+    `release.yml` and a two-factor sign-in can publish.
 12. Tag the commit that you published from: `git tag v0.1.0 <commit>`.
 13. Push the tag: `git push origin v0.1.0`.
 
 The release workflow then creates the GitHub Release `v0.1.0` with the
-engine binaries. It finds `0.1.0` on npm already, so it publishes nothing.
-Its notice says whether the published tarball equals the one that it built.
+engine binaries. It finds `0.1.0` on npm already, so it skips
+`npm publish --dry-run` and publishes nothing. A notice says that the
+published tarball equals the one that it built, or a warning says that
+they differ.
 
 ## Release a new version
 

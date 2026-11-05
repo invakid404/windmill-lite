@@ -23,6 +23,12 @@ A release is the tag "v" + the version. The release workflow
                                 through from the environment)
   check-engine <binary>         exit 1 unless `<binary> version` prints
                                 "windmill-lite v" + the version
+  notices <out>                 write the licence texts that the engine
+                                binary must carry into <out>: the
+                                Unlicense, the third-party files of this
+                                repository that the engine contains, the
+                                licences of the Go modules it links, and
+                                Go's own
 
 Every command checks the version's form first: MAJOR.MINOR.PATCH with an
 optional pre-release, such as 0.1.0 or 0.2.0-rc.1, which npm and Go module
@@ -41,9 +47,12 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE_JSON = REPO / "harnesses" / "package.json"
 
+# A pre-release identifier is a number without leading zeros, or a string
+# of letters, digits and hyphens with at least one non-digit (SemVer 2.0.0).
+_PRE = r"(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
 VERSION_FORM = re.compile(
     r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?"
+    rf"(-{_PRE}(\.{_PRE})*)?"
 )
 
 # The static link of the Linux release engine, as CI's static-linux job
@@ -108,10 +117,73 @@ def check_engine(binary: str, v: str) -> None:
         )
 
 
+# The third-party files of this repository whose code or data the engine
+# binary contains, as the root README lists them, with what each covers.
+VENDORED_NOTICES = [
+    ("QuickJS-ng (MIT), compiled into the expression engine",
+     ["internal/expr/quickjs/quickjs-ng/LICENSE", "internal/expr/quickjs/quickjs-ng/NOTICE"]),
+    ("mimalloc (MIT), the expression engine's allocator",
+     ["internal/expr/quickjs/mimalloc/LICENSE", "internal/expr/quickjs/mimalloc/NOTICE"]),
+    ("PostgreSQL (PostgreSQL License), ported in internal/jsonval/pglz.go and internal/jsonval/jsonb.go",
+     ["internal/jsonval/LICENSE.PostgreSQL"]),
+    ("Windmill's OpenAPI description (Apache-2.0), from which the embedded route table internal/platform/facade/routes.json is generated",
+     ["internal/oracle/openapi/NOTICE", "internal/oracle/openapi/LICENSE-APACHE"]),
+    ("Windmill's OpenFlow schema (Apache-2.0), vendored in internal/openflow/schema",
+     ["internal/openflow/schema/NOTICE", "internal/openflow/schema/LICENSE-APACHE"]),
+]
+
+_LICENSE_FILE = re.compile(r"(?i)(licen[cs]e|copying|notice|patents)([.-].*)?")
+
+
+def _section(title: str, text: str) -> str:
+    return f"{'=' * 72}\n{title}\n{'=' * 72}\n\n{text.rstrip()}\n\n"
+
+
+def go_modules() -> list[tuple[str, str, str]]:
+    """Returns the Go modules that ./cmd/windmill-lite links, other than
+    this one, as (path, version, directory)."""
+    res = subprocess.run(
+        ["go", "list", "-deps", "-f",
+         "{{if and .Module (not .Module.Main)}}{{.Module.Path}}\t{{.Module.Version}}\t{{.Module.Dir}}{{end}}",
+         "./cmd/windmill-lite"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        raise ReleaseError(f"go list failed: {res.stderr.strip()}")
+    return sorted({tuple(line.split("\t")) for line in res.stdout.splitlines() if line})
+
+
+def notices() -> str:
+    """Returns the licence texts that a binary of the engine must carry."""
+    out = [_section("windmill-lite (Unlicense)", (REPO / "LICENSE").read_text(encoding="utf-8"))]
+    for title, files in VENDORED_NOTICES:
+        text = "\n\n".join(f"--- {f} ---\n\n{(REPO / f).read_text(encoding='utf-8')}" for f in files)
+        out.append(_section(title, text))
+    for path, ver, directory in go_modules():
+        found = sorted(p for p in pathlib.Path(directory).iterdir() if p.is_file() and _LICENSE_FILE.fullmatch(p.name))
+        if not found:
+            raise ReleaseError(f"Go module {path} {ver} has no licence file in {directory}")
+        text = "\n\n".join(f"--- {p.name} ---\n\n{p.read_text(encoding='utf-8')}" for p in found)
+        out.append(_section(f"Go module {path} {ver}", text))
+    goroot = pathlib.Path(subprocess.run(["go", "env", "GOROOT"], capture_output=True, text=True, check=True).stdout.strip())
+    # Go's own distribution keeps LICENSE and PATENTS in GOROOT; a package
+    # manager such as Homebrew may move them one level up.
+    texts = []
+    for name in ("LICENSE", "PATENTS"):
+        found = [d / name for d in (goroot, goroot.parent) if (d / name).is_file()]
+        if found:
+            texts.append(f"--- {name} ---\n\n{found[0].read_text(encoding='utf-8')}")
+        elif name == "LICENSE":
+            raise ReleaseError(f"no LICENSE of Go in {goroot} or its parent")
+    out.append(_section("Go (the standard library and runtime)", "\n\n".join(texts)))
+    return "".join(out)
+
+
 USAGE = """usage: release.py version
        release.py check-tag <tag>
        release.py build-engine <out> [--static]
-       release.py check-engine <binary>"""
+       release.py check-engine <binary>
+       release.py notices <out>"""
 
 
 def main(argv: list[str]) -> int:
@@ -128,6 +200,8 @@ def main(argv: list[str]) -> int:
                 build_engine(out, True, v)
             case ["check-engine", binary]:
                 check_engine(binary, v)
+            case ["notices", out]:
+                pathlib.Path(out).write_text(notices(), encoding="utf-8")
             case _:
                 print(USAGE, file=sys.stderr)
                 return 2

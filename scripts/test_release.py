@@ -27,12 +27,12 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(release.version(), declared)
 
     def test_release_versions(self) -> None:
-        for v in ["0.1.0", "1.0.0", "10.20.30", "0.2.0-rc.1", "1.0.0-alpha-1.x"]:
+        for v in ["0.1.0", "1.0.0", "10.20.30", "0.2.0-rc.1", "1.0.0-alpha-1.x", "1.0.0-0", "1.0.0-0a.10"]:
             with self.subTest(v=v):
                 self.assertEqual(release.check_form(v), v)
 
     def test_other_versions_are_refused(self) -> None:
-        for v in ["v0.1.0", "0.1", "0.1.0.0", "01.1.0", "0.1.0+build.1", "0.1.0-", "0.1.0-rc..1", "", None, 1]:
+        for v in ["v0.1.0", "0.1", "0.1.0.0", "01.1.0", "0.1.0+build.1", "0.1.0-", "0.1.0-rc..1", "0.1.0-01", "0.1.0-rc.01", "", None, 1]:
             with self.subTest(v=v):
                 with self.assertRaises(release.ReleaseError):
                     release.check_form(v)
@@ -82,9 +82,9 @@ class CheckEngineTest(unittest.TestCase):
 
 
 class ReleaseEngineTest(unittest.TestCase):
-    """The engine that build-engine builds, as the release builds it,
-    prints the package's version: the engine and the npm package cannot
-    differ."""
+    """The engine that build-engine builds, with the release's version
+    stamp, prints the package's version: the release engine and the npm
+    package cannot differ."""
 
     @unittest.skipUnless(shutil.which("go"), "needs the go command and a C compiler")
     def test_the_release_engine_prints_the_package_version(self) -> None:
@@ -95,6 +95,25 @@ class ReleaseEngineTest(unittest.TestCase):
             printed = subprocess.run([out, "version"], capture_output=True, text=True, check=True).stdout
             self.assertEqual(printed, f"windmill-lite v{release.version()}\n")
             subprocess.run([sys.executable, str(cli), "check-engine", out], check=True)
+
+
+class NoticesTest(unittest.TestCase):
+    """The licence texts of the release assets name every third-party part
+    of the engine binary."""
+
+    @unittest.skipUnless(shutil.which("go"), "needs the go command")
+    def test_the_notices_cover_the_engine(self) -> None:
+        text = release.notices()
+        for title, files in release.VENDORED_NOTICES:
+            self.assertIn(title, text)
+            for f in files:
+                self.assertIn(f"--- {f} ---", text)
+        modules = [path for path, _, _ in release.go_modules()]
+        self.assertIn("github.com/evanw/esbuild", modules)
+        for path in modules:
+            self.assertIn(f"Go module {path} ", text)
+        self.assertIn("This is free and unencumbered software released into the public domain.", text)
+        self.assertIn("Go (the standard library and runtime)", text)
 
 
 if __name__ == "__main__":

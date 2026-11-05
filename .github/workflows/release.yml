@@ -13,9 +13,11 @@ name: Release
 # 3. package: packs the npm package, runs its packaging test
 #    (harnesses/npm/test/check.sh) on that tarball with the Linux amd64
 #    engine of step 2, and runs npm publish --dry-run on it.
-# 4. assets: the SHA-256 sums of the four binaries, in SHA256SUMS.
-# 5. release: the GitHub Release of the tag, with the binaries and
-#    SHA256SUMS.
+# 4. assets: LICENSES.txt, the licence texts that the binaries carry
+#    (scripts/release.py notices), and the SHA-256 sums of the four
+#    binaries and LICENSES.txt, in SHA256SUMS.
+# 5. release: the GitHub Release of the tag, with the binaries,
+#    LICENSES.txt and SHA256SUMS.
 # 6. publish: npm publish --provenance --access public of the tarball
 #    that step 3 tested, unless that version is on npm already. npm
 #    trusted publishing authorises it: npm
@@ -26,9 +28,10 @@ name: Release
 #
 # A dry run does steps 1 to 4 and creates and publishes nothing:
 # workflow_dispatch with dry_run (the default), or a pull request that
-# changes the release workflow, the package or the release helper. A dry
-# run on a branch has no tag to check; a release (dry_run false) runs only
-# from the tag.
+# changes this workflow, the package's manifest, lockfile, build or
+# packaging test, or the release helper (the paths below). A dry run on a
+# branch has no tag to check; a release (dry_run false) runs only from
+# the tag.
 
 on:
   push:
@@ -126,10 +129,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
+        # No build cache: a release engine is built from the tag's sources
+        # alone.
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: go.sum
+          cache: false
 
       - name: Set up Zig
         if: matrix.os == 'linux'
@@ -250,7 +255,15 @@ jobs:
           harnesses/npm/test/check.sh
 
       - name: npm publish --dry-run
+        # npm refuses to publish over a version, even in a dry run. The
+        # publish job skips a version that is on npm already, such as the
+        # first version, which is published by hand (RELEASING.md), so
+        # this step skips it too.
         run: |
+          if published=$(npm view "windmill-lite@$VERSION" dist.integrity 2>/dev/null) && [ -n "$published" ]; then
+            echo "::notice::windmill-lite@$VERSION is on npm already ($published); the publish job publishes nothing"
+            exit 0
+          fi
           tag=latest
           case "$VERSION" in *-*) tag=next ;; esac
           npm publish "$RUNNER_TEMP/npm/windmill-lite-$VERSION.tgz" --dry-run --provenance --access public --tag "$tag"
@@ -267,8 +280,21 @@ jobs:
     name: Release assets
     needs: [check, engine]
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # notices lists the Go modules that the engine links, and reads
+        # their licence files from the module cache.
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
       - name: Download the engines
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -276,14 +302,18 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/assets
 
-      - name: Write SHA256SUMS
-        working-directory: ${{ runner.temp }}/assets
+      - name: Write LICENSES.txt and SHA256SUMS
         run: |
+          cd "$RUNNER_TEMP/assets"
           for bin in windmill-lite-linux-amd64 windmill-lite-linux-arm64 windmill-lite-darwin-arm64 windmill-lite-darwin-amd64; do
             test -f "$bin" || { echo "no $bin" >&2; exit 1; }
           done
           test "$(find . -type f | wc -l)" -eq 4
-          sha256sum windmill-lite-* > SHA256SUMS
+          cd "$GITHUB_WORKSPACE"
+          python3 scripts/release.py notices "$RUNNER_TEMP/assets/LICENSES.txt"
+          cd "$RUNNER_TEMP/assets"
+          grep '^Go module ' LICENSES.txt
+          sha256sum windmill-lite-* LICENSES.txt > SHA256SUMS
           sha256sum -c SHA256SUMS
           { echo '```'; cat SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
@@ -319,7 +349,7 @@ jobs:
           case "$VERSION" in *-*) prerelease=--prerelease ;; esac
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "v$VERSION" --generate-notes $prerelease \
-            "$RUNNER_TEMP"/assets/windmill-lite-* "$RUNNER_TEMP/assets/SHA256SUMS"
+            "$RUNNER_TEMP"/assets/windmill-lite-* "$RUNNER_TEMP/assets/LICENSES.txt" "$RUNNER_TEMP/assets/SHA256SUMS"
 
   publish:
     name: npm publish

@@ -15,10 +15,11 @@
 #    TypeScript 5.9.3 with bun init's tsconfig.json, then TypeScript 5.9.3
 #    and 6.0.3 with tsconfig.nodenext.json (NodeNext resolution, with the
 #    declarations of the package and of Bun checked too).
-# 5. The engine of this commit, built as the release builds it
-#    (scripts/release.py build-engine), builds a bundle of folder/, and
-#    the smoke host runs the flow f/smoke/hello on it through the
-#    installed SDK. With WL_ENGINE set, it uses that engine instead.
+# 5. The engine of this commit, stamped with the package's version as a
+#    release stamps it (scripts/release.py build-engine), builds a bundle
+#    of folder/, and the smoke host runs the flow f/smoke/hello on it
+#    through the installed SDK. With WL_ENGINE set, it uses that engine
+#    instead.
 # 6. An engine stamped with another version, and a bundle that engine
 #    built: the smoke host's connect() must reject with version_mismatch.
 #    So the packed SDK carries the package's version; an unstamped SDK
@@ -48,11 +49,19 @@ fail() {
 step() {
   echo "== $*"
 }
+# absolute prints its argument as an absolute path, since the checks run
+# in other directories.
+absolute() {
+  case $1 in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$PWD/$1" ;;
+  esac
+}
 
 version=$(python3 "$repo/scripts/release.py" version)
 
 if [ -n "${WL_TARBALL:-}" ]; then
-  tgz=$WL_TARBALL
+  tgz=$(absolute "$WL_TARBALL")
 else
   step "npm pack windmill-lite $version"
   (cd "$pkg" && npm pack --pack-destination "$work") || fail "npm pack failed"
@@ -106,9 +115,9 @@ step "tsc: TypeScript 6.0.3, NodeNext"
 (cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
 
 if [ -n "${WL_ENGINE:-}" ]; then
-  engine=$WL_ENGINE
+  engine=$(absolute "$WL_ENGINE")
 else
-  step "build the engine as the release does"
+  step "build the engine stamped as a release stamps it"
   engine="$work/windmill-lite"
   python3 "$repo/scripts/release.py" build-engine "$engine" || fail "build-engine"
 fi

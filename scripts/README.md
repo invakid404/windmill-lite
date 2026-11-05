@@ -36,8 +36,9 @@ package `windmill-lite`. The release engine and the package both carry it,
 and a release is the Git tag `v` + that version, such as `v0.1.0`.
 [RELEASING.md](../RELEASING.md) gives the release steps.
 
-`release.py` has four commands. Each first checks the version's form:
-`MAJOR.MINOR.PATCH` with an optional pre-release, such as `0.2.0-rc.1`.
+`release.py` has five commands. Each first checks the version's form:
+`MAJOR.MINOR.PATCH` with an optional pre-release, such as `0.2.0-rc.1`,
+whose numeric identifiers have no leading zeros.
 
 | Command | What it does |
 |---|---|
@@ -45,11 +46,13 @@ and a release is the Git tag `v` + that version, such as `v0.1.0`.
 | `release.py check-tag <tag>` | Exits 1 unless the tag is `v` + the version. |
 | `release.py build-engine <out> [--static]` | Builds `./cmd/windmill-lite` with `-X main.version=v<version>`, so that `windmill-lite version` prints `windmill-lite v<version>`. `--static` adds the static link of the Linux release engine. |
 | `release.py check-engine <binary>` | Exits 1 unless the binary's `version` prints that line. |
+| `release.py notices <out>` | Writes `LICENSES.txt`, the release asset with the licence texts that the engine binary carries. They are the Unlicense, the licence and notice files of the third-party code in this repository (QuickJS-ng, mimalloc, the PostgreSQL ports, Windmill's Apache-2.0 OpenAPI files), those of each Go module that `./cmd/windmill-lite` links, and Go's own. It fails when a Go module has no licence file. |
 
 `test_release.py` holds the unit tests of `release.py`, which CI runs. One
 of them builds the engine with `build-engine` and checks that it prints the
 package's version, so the release engine and the package cannot differ.
-That test skips without `go`.
+Another checks that `notices` covers each third-party part of the engine.
+Both skip without `go`.
 
 The [release workflow](../.github/workflows/release.yml) and the
 packaging test of the npm package

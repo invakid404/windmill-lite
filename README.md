@@ -312,8 +312,9 @@ unacknowledged change in its scope.
 The Go jobs on Ubuntu and macOS also run the
 [packaging test](harnesses/README.md#test-the-package) of the npm package.
 The [release workflow](.github/workflows/release.yml) releases a tag
-([RELEASING.md](RELEASING.md)), and runs as a dry run on pull requests that
-change it, the package or `scripts/release.py`.
+([RELEASING.md](RELEASING.md)). It runs as a dry run on pull requests that
+change it, the package's manifest, lockfile, build or packaging test, or
+`scripts/release.py`.
 
 The [benchmark workflow](.github/workflows/bench.yml) compares builds of
 the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
