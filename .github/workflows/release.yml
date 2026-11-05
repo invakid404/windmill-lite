@@ -17,7 +17,8 @@ name: Release
 # 5. release: the GitHub Release of the tag, with the binaries and
 #    SHA256SUMS.
 # 6. publish: npm publish --provenance --access public of the tarball
-#    that step 3 tested. npm trusted publishing authorises it: npm
+#    that step 3 tested, unless that version is on npm already. npm
+#    trusted publishing authorises it: npm
 #    exchanges the job's GitHub OIDC token (id-token: write) for a
 #    short-lived publish token. No npm token or secret exists, and npm
 #    accepts the exchange only from this workflow file of this repository,
@@ -351,8 +352,21 @@ jobs:
 
       - name: Publish with provenance
         # No NODE_AUTH_TOKEN: npm authenticates through trusted publishing.
-        # A pre-release goes to the dist-tag next, which npm requires.
+        # A version that is on npm already is not published again: npm
+        # never replaces a version, and the first version is published by
+        # hand before its tag (RELEASING.md). A pre-release goes to the
+        # dist-tag next, which npm requires.
         run: |
+          tgz="$RUNNER_TEMP/npm/windmill-lite-$VERSION.tgz"
+          if published=$(npm view "windmill-lite@$VERSION" dist.integrity 2>/dev/null) && [ -n "$published" ]; then
+            built="sha512-$(openssl dgst -sha512 -binary "$tgz" | base64 -w0)"
+            if [ "$published" = "$built" ]; then
+              echo "::notice::windmill-lite@$VERSION is on npm already, with this tarball; nothing to publish"
+            else
+              echo "::warning::windmill-lite@$VERSION is on npm already, with another tarball ($published; this run built $built); nothing to publish"
+            fi
+            exit 0
+          fi
           tag=latest
           case "$VERSION" in *-*) tag=next ;; esac
-          npm publish "$RUNNER_TEMP/npm/windmill-lite-$VERSION.tgz" --provenance --access public --tag "$tag"
+          npm publish "$tgz" --provenance --access public --tag "$tag"
