@@ -21,8 +21,8 @@ answered over `host_call` (below).
 This README covers `harnesses/bun`: `runtime/`, the harness side of the
 protocol of [ADR 0004](../../docs/design/0004-harness-protocol.md);
 `host/`, the Bun host SDK of
-[ADR 0009](../../docs/design/0009-host-adapters.md); and `test/`, the
-developer checks. The build helper, which bundles scripts and parses their
+[ADR 0009](../../docs/design/0009-host-adapters.md) and its test entry; and
+`test/`, the developer checks. The build helper, which bundles scripts and parses their
 signatures, has its own README: [build/](build/README.md). The harness runs
 on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
 ([WR-3](../../docs/semantics/languages.md#wr-3)).
@@ -367,8 +367,10 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `pending()` drops one that has ended. When the runtime queues the frame that settles the
   invocation, it first sends a `warning` with code `left_behind` whose
   `left` counts what is still registered by kind (`pending()`), if
-  anything is. Then it calls `settle()`, which runs every release still
-  pending, once, and closes the invocation's log. So the invocation's
+  anything is. Then it settles the invocation with `settleInvocation`, as
+  the [test entry](#the-test-entry) does: the registry's `settle()` runs
+  every release still pending, once, and the invocation's log closes. So
+  the invocation's
   pending timers are cleared, its requests aborted, its later log writes
   dropped and its later platform calls refused, and in a warm process its
   children's groups are killed; a `detached` child is left running.
@@ -589,6 +591,29 @@ every run of the host.
 - The engine finds a selector with an unknown field, a wrong form, or an
   ambiguous module id. The error names the selector, such as
   `the run's haltAfter[0]`.
+
+### The test entry
+
+`host/testing.ts` is the SDK's test entry, `windmill-lite/bun/testing`
+([ADR 0009](../../docs/design/0009-host-adapters.md#the-test-entry)). A
+host's tests call its `install()`, `invoke(fn, options)` and
+`currentInvocation()` to check the host's process-level code against the
+settle-time fence, without an engine or a bundle. The package README
+describes them for a host
+([Test a host's process-level code](../README.md#test-a-hosts-process-level-code)).
+
+- **What it installs.** It imports only `runtime/context.ts`. `install()`
+  calls `installProcessScope`, `installStepAPI` and `installTimers`, and
+  nothing that routes to a connected runtime, such as `installFetch`.
+- **How it settles.** `invoke` builds an `InvocationContext` whose `work`
+  is its own registry, runs `fn` in it with `invocations.run`, and then
+  settles it with `settleInvocation`, as the runtime settles a step. `left`
+  is what `settleInvocation` returns.
+- **Where it runs.** `context.ts` reads the `Bun` global only in the
+  child-process wrappers, which the entry never installs. So the entry runs
+  on Node 22 or newer as well as on Bun 1.3.10.
+- **Vendored.** A host that vendors the SDK imports `host/testing.ts` from
+  its copy of `host/`.
 
 ## Host plugins
 
@@ -1013,6 +1038,18 @@ runs host mode end to end in a host compiled with `bun build --compile`.
 
 `test/host.test.ts` also checks that a run frame carries the run's
 write-capable selectors and halts as the host gave them.
+
+`test/testing.test.ts` checks the [test entry](#the-test-entry) against
+the runtime:
+
+- a step's timers, reported by kind and cleared, and an empty report;
+- work started through the process scope, which survives settlement and
+  is not reported, and, as its control, a factory that does not re-enter
+  the scope;
+- sequential, nested and concurrent steps;
+- the invocation query inside a step, outside, and in a late continuation;
+- a step that throws, the caller's other async-context stores, and the
+  step API inside a step.
 
 ```sh
 (cd harnesses/bun/build && bun install --frozen-lockfile)
