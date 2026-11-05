@@ -1,6 +1,6 @@
 #!/bin/sh
 # The packaging test of the npm package windmill-lite (harnesses/package.json).
-# It checks the package as an embedder gets it from npm, and exits 1 at the
+# It checks the package as a host gets it from npm, and exits 1 at the
 # first check that fails:
 #
 # 1. npm pack packs the package, which builds it first (its prepack

@@ -81,17 +81,19 @@ Every adapter below is a transport over these calls.
      working directory; the SDK extracts codebase assets there and refuses to
      connect otherwise (`workdir_not_writable`, `workdir_mismatch`), and the
      engine checks the same again in the handshake.
-   - **Consumption.** Nothing is published to a package registry. A host
-     vendors the SDK together with the harness runtime it imports, from the
-     commit or release of the engine it runs, and checks the copy's
+   - **Consumption.** A host installs the SDK from npm, as the subpath
+     `windmill-lite/bun` of the package `windmill-lite`, which bundles the
+     harness runtime it imports ([The npm package](#the-npm-package)). The
+     package's version is the engine's version, and the handshake rejects
+     any other pairing. A host can instead vendor the SDK with the harness
+     runtime, from the commit of the engine it runs, and check the copy's
      provenance ([Vendoring the Bun host SDK](#vendoring-the-bun-host-sdk)).
-     For a release, the SDK version equals the engine version, and the
-     handshake rejects any other pairing.
-   - **Types.** A host that vendors the SDK, with the harness runtime it
-     imports, typechecks them with its own program. So the SDK and the
-     runtime use only names that the pinned Bun's type declarations
-     (`@types/bun`) define, with or without the DOM library, and CI
-     typechecks them that way (`harnesses/bun/test/typecheck`).
+   - **Types.** The npm package ships type declarations, which a host's
+     `tsc` checks as declarations only. A host that vendors the SDK, with
+     the harness runtime it imports, typechecks them with its own program.
+     So the SDK and the runtime use only names that the pinned Bun's type
+     declarations (`@types/bun`) define, with or without the DOM library,
+     and CI typechecks them that way (`harnesses/bun/test/typecheck`).
 3. **Plain gRPC.** The same `Runner` service on a Unix or TCP socket, without
    the go-plugin handshake, for hosts in other languages.
 4. **HTTP.** `POST /v1/run/{f|p}/{path}` with the arguments as the body,
@@ -102,11 +104,48 @@ Every adapter below is a transport over these calls.
    printing the outcome as JSON and exiting non-zero on failure; used by the
    conformance runner and for debugging.
 
+### The npm package
+
+The npm package `windmill-lite` is how a Bun host gets the SDK. Its root
+is `harnesses/`, whose [README](../../harnesses/README.md) describes it.
+
+- **One package, one subpath per runtime.** `windmill-lite/bun` is the Bun
+  host SDK. The SDK of another runtime becomes another subpath of the same
+  package, never a package of its own, so that no host has to rename its
+  dependency.
+- **One version.** The `version` field of `harnesses/package.json` is the
+  version of the package and of the engine, and a release is the Git tag
+  `v` + that version. A release build of the engine stamps `v` + the
+  version as its version (`scripts/release.py`). The package's build
+  stamps the same into the SDK's harness version, so the handshake pairs
+  the SDK only with the engine of its release.
+- **Built JavaScript and declarations.** The package ships the SDK and the
+  harness runtime bundled into one ES module by Bun 1.3.10, as the
+  host-mode tests bundle them, and `.d.ts` declarations. A host's `tsc`
+  never checks the runtime's code under the host's own compiler options.
+- **Trusted publishing.** The release workflow publishes each release
+  with npm provenance, through npm trusted publishing, so that no npm token
+  exists. The first version is published by hand, because npm adds a
+  trusted publisher only to a package that exists.
+
+Alternatives:
+
+- Shipping the TypeScript sources needs no build, and Bun runs them. But a
+  host's `tsc` type-checks every imported `.ts` file under the host's
+  options. The options of `bun init` (`noUncheckedIndexedAccess`) reject
+  the runtime's code, and `NodeNext` without `allowImportingTsExtensions`
+  rejects its `.ts` imports.
+- Publishing nothing, with every host vendoring the SDK (below), makes each
+  host copy and check two directories at a commit, and update them by hand.
+- A `package.json` at the repository root would be the nearest
+  `package.json` of every fixture script that the bundlers read in place,
+  and its `"type": "module"` could change how they bundle them.
+
 ### Vendoring the Bun host SDK
 
-A Bun host copies the SDK into its own repository. A package manager cannot
-install it as a git dependency, because neither the repository root nor
-`harnesses/bun` has a `package.json`.
+A Bun host that does not install the npm package copies the SDK into its
+own repository. A package manager cannot install it as a git dependency,
+because the repository root has no `package.json`.
 
 1. **Copy two directories together.** `harnesses/bun/host/index.ts` imports
    `../runtime/context.ts`, `../runtime/plugin.ts` and
@@ -140,8 +179,10 @@ install it as a git dependency, because neither the repository root nor
    both directories and the record, rebuild the engine and the bundle, and
    run the check again.
 
-`windmill-lite version` prints the module version that Go stamps into the
-binary. Built from a clean checkout of the commit, or with
+`windmill-lite version` prints `v` + the release's version for an engine
+of a release ([The npm package](#the-npm-package)), and otherwise the
+module version that Go stamps into the binary. Built from a clean checkout
+of the commit, or with
 `go install github.com/invakid404/windmill-lite/cmd/windmill-lite@<commit>`,
 it is a pseudo-version that ends in the first 12 hexadecimal digits of the
 commit ID, such as `v0.0.0-20261028113407-7c82cc9ab979`. Go appends
@@ -194,8 +235,8 @@ a new protocol.
 - Milestone F3b made the pairing real. The SDK's version is the harness
   version its hello names (`harnesses/bun/runtime/version.ts`), which a
   release stamps with `--define WL_RELEASE='"vX.Y.Z"'` when it runs or
-  builds the host, or by setting the default in its tag; the repository's
-  own is `dev`. The engine refuses a host whose stamped SDK version differs
+  builds the host, as the npm package's build does; the repository's own
+  is `dev`. The engine refuses a host whose stamped SDK version differs
   from its own stamped version with `version_mismatch` in the handshake,
   and the SDK refuses an engine of another release in the welcome too, so
   that an engine from before the check is not used either. An unstamped

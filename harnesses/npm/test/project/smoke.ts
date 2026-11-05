@@ -1,6 +1,6 @@
 // The smoke host of the packaging test (../check.sh): a Bun host that
-// imports the host SDK from the installed package windmill-lite, as an
-// embedder does. Its working directory is the host's working directory,
+// imports the host SDK from the installed package windmill-lite, as a
+// host does. Its working directory is the host's working directory,
 // which connect() requires.
 //
 //   bun smoke.ts run       connects the engine WL_ENGINE on the bundle
