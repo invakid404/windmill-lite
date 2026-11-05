@@ -27,8 +27,10 @@ signatures, has its own README: [build/](build/README.md). The harness runs
 on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
 ([WR-3](../../docs/semantics/languages.md#wr-3)).
 
-The runtime and the host SDK have no dependencies and no `package.json`.
-The build helper has one, for its TypeScript parser. The type check has two,
+The runtime and the host SDK have no dependencies and no `package.json` of
+their own. The npm package `windmill-lite`, whose root is `harnesses/`,
+ships them built ([harnesses/README.md](../README.md)). The build helper
+has a `package.json`, for its TypeScript parser. The type check has two,
 in `test/typecheck` and `test/typecheck/oldest`, for TypeScript and the type
 declarations, which only developers and CI install
 ([Type check](#type-check)).
@@ -63,13 +65,15 @@ cannot corrupt the protocol.
 - **Handshake.** It sends `hello` with `Bun.version`, its pid, the SHA-256
   of the bundle's `manifest.json`, and the `fetch`, `native` and `fresh`
   capabilities (in host mode `host` instead of `fresh`, since host mode
-  always runs warm, and the working directory as `workdir`). Its harness
-  version is the release it belongs to (`runtime/version.ts`): `dev` in
-  the repository, which a release stamps with `--define WL_RELEASE`
-  (F3b). It accepts a warm welcome, or a fresh one outside host mode; in
-  host mode it refuses a welcome from an engine of another release with
-  `version_mismatch` (`versionsPair`, ADR 0009). A welcome that refuses
+  always runs warm, and the working directory as `workdir`). It accepts a
+  warm welcome, or a fresh one outside host mode. A welcome that refuses
   it is reported to `onReject` with its code and message.
+- **Harness version.** The hello names the release that the harness
+  belongs to (`runtime/version.ts`): `dev` in the repository, which the
+  npm package's build stamps with `--define WL_RELEASE` as `v` + the
+  package's version. In host mode the harness refuses a welcome from an
+  engine of another release with `version_mismatch` (`versionsPair`,
+  ADR 0009).
 - **Heartbeat.** After the welcome it sends a `ping` every `heartbeat_ms`
   with its health: invocations in flight (those whose outcome is still
   open), abandoned ones, the process-level errors no invocation owned, the
@@ -415,8 +419,11 @@ calls on its current connection.
 ## Host mode and the host SDK
 
 `host/index.ts` is the SDK for a host that is itself a Bun program
-(ADR 0009). It imports `../runtime/`, so a host vendors `host/` and
-`runtime/` together, from one commit, and checks the copy's provenance
+(ADR 0009). A host installs it from npm and imports `windmill-lite/bun`,
+which bundles the runtime with it ([harnesses/README.md](../README.md)).
+It imports `../runtime/`, so a host that vendors the sources instead copies
+`host/` and `runtime/` together, from one commit, and checks the copy's
+provenance
 ([ADR 0009, Vendoring the Bun host SDK](../../docs/design/0009-host-adapters.md#vendoring-the-bun-host-sdk)).
 
 Its `plugin` option is the host's plugin (below, Host

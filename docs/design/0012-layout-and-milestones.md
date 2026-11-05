@@ -42,6 +42,8 @@ internal/gen/               typed client generation (0009)
 internal/conformance/       fixture loading, observation, comparison, identity encoding (0003, 0011)
 internal/oracle/            the oracle harness (0011)
 internal/bench/             what the benchmarks share: payloads, percentiles, concurrent workers (0005)
+harnesses/                  the npm package windmill-lite (0009): package.json, one subpath per runtime;
+                            npm/ (its build and packaging test)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
@@ -49,8 +51,10 @@ conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolde
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
-without breaking hosts. The Bun harness and its host SDK are consumed from
-this repository; nothing is published to a package registry.
+without breaking hosts. The Bun host SDK is published to npm as the package
+`windmill-lite`, whose root is `harnesses/`
+([0009](0009-host-adapters.md#the-npm-package)); a host can also vendor it
+from this repository.
 
 ### Milestones
 

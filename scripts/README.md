@@ -1,9 +1,11 @@
 # scripts
 
 **Current state:** the documentation check runs in CI and reports warnings
-only. The [Renovate auto-ack](#renovate-auto-ack) scripts are installed,
-awaiting activation. This README covers the scripts in this directory, and
-none of them is part of windmill-lite itself.
+only. The [release helper](#release-helper) serves the release workflow and
+the npm package's packaging test. The
+[Renovate auto-ack](#renovate-auto-ack) scripts are installed, awaiting
+activation. This README covers the scripts in this directory, and none of
+them is part of windmill-lite itself.
 
 ## Documentation check
 
@@ -25,6 +27,42 @@ python3 scripts/check-docs.py --diff-base "$(git merge-base origin/main HEAD)"
 ```
 
 The second command reports only the blocks that your branch changed.
+
+## Release helper
+
+windmill-lite has one version: the `version` field of
+[harnesses/package.json](../harnesses/package.json), the manifest of the npm
+package `windmill-lite`. The release engine and the package both carry it,
+and a release is the Git tag `v` + that version, such as `v0.1.0`.
+[RELEASING.md](../RELEASING.md) gives the release steps.
+
+`release.py` has six commands. Each first checks the version's form:
+`MAJOR.MINOR.PATCH` with an optional pre-release, such as `0.2.0-rc.1`,
+whose numeric identifiers have no leading zeros.
+
+| Command | What it does |
+|---|---|
+| `release.py version` | Prints the version. |
+| `release.py check-tag <tag>` | Exits 1 unless the tag is `v` + the version. |
+| `release.py mode` | Prints `dry_run=true` or `dry_run=false` for a run of the release workflow, from its GitHub Actions variables and its `DRY_RUN_INPUT`, or exits 1 for a run that may not release. Only a tag of `invakid404/windmill-lite` releases: pushed, or dispatched with the dry run off. A fork's tag, a pull request and a dispatch with the dry run on are dry runs. |
+| `release.py build-engine <out> [--static]` | Builds `./cmd/windmill-lite` with `-X main.version=v<version>`, so that `windmill-lite version` prints `windmill-lite v<version>`. `--static` adds the static link of the Linux release engine. |
+| `release.py check-engine <binary>` | Exits 1 unless the binary's `version` prints that line. |
+| `release.py notices <out>` | Writes `LICENSES.txt`, the release asset with the licence texts that the engine binary carries. They are the Unlicense, the licence and notice files of the third-party code in this repository (QuickJS-ng, mimalloc, the PostgreSQL ports, Windmill's Apache-2.0 OpenAPI files), those of each Go module that `./cmd/windmill-lite` links, and Go's own. It fails when a Go module has no licence file. |
+
+`test_release.py` holds the unit tests of `release.py`, which CI runs. One
+of them builds the engine with `build-engine` and checks that it prints the
+package's version, so the release engine and the package cannot differ.
+Another checks that `notices` covers each third-party part of the engine.
+Both skip without `go`.
+
+`ModeTest` checks `mode` for a tag, a pull request and a dispatch, each in
+this repository and in a fork.
+
+The [release workflow](../.github/workflows/release.yml) and the
+packaging test of the npm package
+([harnesses/npm/test/check.sh](../harnesses/npm/test/check.sh)) build the
+engine with `release.py`. The package's build, `harnesses/npm/build.ts`,
+stamps the same `v<version>` into the Bun host SDK.
 
 ## Renovate auto-ack
 

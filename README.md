@@ -146,6 +146,12 @@ builds shared code: a `warm` or host-mode process then compiles each build
 group's dependency code once and gives each step module its own instance
 of it.
 
+The Bun host SDK is also the npm package `windmill-lite`, whose version is
+the engine's version ([harnesses](harnesses/README.md)). The
+[release workflow](.github/workflows/release.yml) releases each tag
+`v<version>`: the engine binaries in a GitHub Release, and the package on
+npm ([RELEASING.md](RELEASING.md)).
+
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
 keep their own licences: the Apache-2.0 files from Windmill under
@@ -204,6 +210,21 @@ go run ./cmd/windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
   --args '{"name": "lite"}' -harness-runtime harnesses/bun/runtime
 ```
 
+### Install the Bun host SDK
+
+A Bun program runs flows in its own process through the Bun host SDK, from
+the npm package `windmill-lite`. The host also needs Bun 1.3.10, and the
+engine and bundles of the package's version
+([harnesses/README.md](harnesses/README.md#install)).
+
+```sh
+bun add windmill-lite
+```
+
+```ts
+import { connect } from "windmill-lite/bun";
+```
+
 ## Index
 
 | Path | What it covers |
@@ -226,13 +247,15 @@ go run ./cmd/windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
 | [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, warm and `fresh` pools, platform calls, warnings, each step's `args.json`, and host mode. It implements the step executor. |
 | [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base), the Bun side of the build, which runs the Bun build helper, and codebase scripts, which esbuild bundles through its Go API as the `wmill` CLI does, with their assets and the CLI parity check. |
 | [internal/bench](internal/bench/README.md) | What the benchmarks share: the synthetic payloads of the step boundary benchmarks, nearest-rank percentiles, and workers that start together and report the concurrency they reach. Only test files use it. |
+| [harnesses](harnesses/README.md) | The npm package `windmill-lite`: its manifest, which holds the one version of the package and the engine, its build and its packaging test. Its subpath `windmill-lite/bun` is the Bun host SDK, bundled with the harness runtime. |
 | [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment, log and `fetch` views and child-process wrapping, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the settle-time fence on the per-invocation registry and the process scope, `fresh` mode, codebase modules (CommonJS on Bun's CommonJS loader) and their assets in the working directory, the native boundary mode for `nativets` and `//native` steps, and the host SDK (working-directory checks, host-provided modules, assets, runs and their settlement, health with recycle triggers, drain, the watchdog option, and a host plugin), and host plugins answered over `host_call`, with `around` wrappers, and the step API (`wl.latch`, `wl.signal`). |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, the export scan of host-provided modules, the source parse of codebase scripts, and the native form of native steps with their embedded client. |
 | [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases (host mode's working-directory cases among them), the host-plugin cases, the Bun build cases (codebase scripts included), the Bun step cases (with D13's, Node against Bun), the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's and N3c's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture, PF1's job-identity fixture, PF2's platform-services fixture, and batch E3e's remaining recordings) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
-| [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
+| [scripts](scripts/README.md) | Repository tooling: the documentation check, and the release helper, which reads the one version of the engine and the npm package and builds the release engine. The scripts that acknowledge Renovate dependency bumps are installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
 | [docs/memoria.md](docs/memoria.md) | How the documentation gate works and the per-session review flow. |
+| [RELEASING.md](RELEASING.md) | How a release works, the owner's one-time steps for the first npm publish and its trusted publisher, and the steps of each later release. |
 | [AGENTS.md](AGENTS.md) | Contributor rules: the clean-room rule, synthetic fixtures, Go as the primary language, pull requests. |
 
 ## Contributing
@@ -285,6 +308,13 @@ one session for each other oracle configuration a fixture names
 [Memoria gate](.github/workflows/memoria.yml) fails while any README has an
 unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
+
+The Go jobs on Ubuntu and macOS also run the
+[packaging test](harnesses/README.md#test-the-package) of the npm package.
+The [release workflow](.github/workflows/release.yml) releases a tag
+([RELEASING.md](RELEASING.md)). It runs as a dry run on pull requests that
+change it, the package's manifest, lockfile, build or packaging test, or
+`scripts/release.py`.
 
 The [benchmark workflow](.github/workflows/bench.yml) compares builds of
 the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It

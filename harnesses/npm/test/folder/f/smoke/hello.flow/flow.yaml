@@ -1,0 +1,5 @@
+summary: One step that greets the name the flow is given
+value:
+  modules:
+    - id: greet
+      value: {type: script, path: f/smoke/greet, input_transforms: {name: {type: javascript, expr: flow_input.name}}}

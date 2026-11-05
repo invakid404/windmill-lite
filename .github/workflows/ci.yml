@@ -224,8 +224,24 @@ jobs:
       - name: Test repository scripts
         if: matrix.checks
         # Unit tests for the helpers in scripts/: the Renovate auto-ack
-        # checks and the documentation check.
+        # checks, the documentation check and the release helper, one of
+        # whose tests builds the engine with the release's version stamp
+        # and checks that it prints the npm package's version.
         run: python3 -m unittest discover -s scripts -v
+
+      - name: Test the npm package
+        if: matrix.checks
+        # The packaging test of the npm package windmill-lite
+        # (harnesses/npm/test/check.sh): npm pack, the packed file list
+        # and manifest, bun add into an empty project, tsc on an import of
+        # windmill-lite/bun, and a smoke host against the engine of this
+        # commit, stamped with the package's version as a release stamps
+        # it, which an engine of another version must refuse.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+        run: |
+          (cd harnesses && bun install --frozen-lockfile)
+          harnesses/npm/test/check.sh
 
   go-macos:
     # The required status check "Go (macos-latest)": it passes only when

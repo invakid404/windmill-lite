@@ -1,9 +1,11 @@
 // The release this harness and host SDK belong to (ADR 0009: a host takes
 // the SDK of its engine's release, and the SDK's version is the engine's).
-// The hello names it as the harness version. A release stamps it, by
-// running or building with `--define WL_RELEASE='"vX.Y.Z"'` or by setting
-// this default in its tag; the repository's own is "dev", which pairs with
-// any engine (milestone F3b).
+// The hello names it as the harness version. A release stamps it by
+// running or building with `--define WL_RELEASE='"vX.Y.Z"'`: the npm
+// package's build (harnesses/npm/build.ts) stamps "v" + the package's
+// version, which is also the release engine's version
+// (scripts/release.py). The repository's own is "dev", which pairs with
+// any engine.
 
 declare const WL_RELEASE: string | undefined;
 
