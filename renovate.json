@@ -15,8 +15,9 @@
       "allowedVersions": "1.3.10"
     },
     {
-      "description": "The SDK typecheck uses the type declarations of the pinned Bun (harnesses/bun/test/typecheck); they move only with Bun.",
+      "description": "The SDK typecheck and the npm package's declaration build use the type declarations of the pinned Bun (harnesses/bun/test/typecheck, harnesses/package.json); they move only with Bun.",
       "matchFileNames": [
+        "harnesses/package.json",
         "harnesses/bun/test/typecheck/package.json",
         "harnesses/bun/test/typecheck/oldest/package.json"
       ],

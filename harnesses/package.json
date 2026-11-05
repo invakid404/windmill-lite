@@ -1,0 +1,33 @@
+{
+  "name": "windmill-lite",
+  "version": "0.1.0",
+  "description": "The Bun host SDK of windmill-lite, which runs the flows and scripts of a Windmill folder with Windmill's semantics, in a host program's own process.",
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/invakid404/windmill-lite.git",
+    "directory": "harnesses"
+  },
+  "homepage": "https://github.com/invakid404/windmill-lite/tree/main/harnesses#readme",
+  "bugs": "https://github.com/invakid404/windmill-lite/issues",
+  "type": "module",
+  "exports": {
+    "./bun": {
+      "types": "./dist/bun/host/index.d.ts",
+      "default": "./dist/bun/host/index.js"
+    }
+  },
+  "files": [
+    "dist/bun/"
+  ],
+  "scripts": {
+    "prepack": "\"${WL_BUN:-bun}\" npm/build.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.10",
+    "typescript": "6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
