@@ -2,12 +2,13 @@
 // windmill-lite/bun/testing from the installed package, as a host's tests
 // do, and checks the entry's API against the packed runtime: what a step's
 // settlement reports and clears, what the process scope keeps, sequential
-// and nested steps, and the invocation query.
+// and nested steps, a thenable that a step returns, and the invocation
+// query.
 //
 // check.sh runs it on Bun 1.3.10, and on Node 22 or newer as the
 // JavaScript that tsc emits from it (tsconfig.node.json). On Node no Bun
-// global exists, so a pass there shows that the entry needs none. It exits
-// 1 at the first check that fails.
+// global exists, so a pass there shows that the entry needs none. It runs
+// every check, prints each failure, and exits 1 if any check failed.
 
 import { strict as assert } from "node:assert";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -138,6 +139,27 @@ await check("the invocation query inside, outside and in a late continuation", a
   await lateDone;
   await sleep(10);
   assert.deepEqual(late, { inv: { id: "step", run: "run", settled: true }, fired: false });
+});
+
+await check("a thenable that the step returns is resolved inside its invocation, nested too", async () => {
+  const seen: (string | undefined)[] = [];
+  const fired: string[] = [];
+  // A lazy query: its then() starts the work, as a query object of a
+  // database client starts its request only when it is awaited.
+  const lazyQuery = (tag: string): PromiseLike<string> => ({
+    then(onfulfilled, onrejected) {
+      seen.push(currentInvocation()?.id);
+      setTimeout(() => fired.push(tag), 5);
+      return Promise.resolve(tag).then(onfulfilled, onrejected);
+    },
+  });
+  const s = await invoke(() => lazyQuery("lazy"), { id: "lazy" });
+  assert.deepEqual(s, { result: "lazy", left: { timeout: 1 } });
+  const outer = await invoke(async () => (await invoke(() => lazyQuery("inner"), { id: "inner" })).left, { id: "outer" });
+  assert.deepEqual(outer, { result: { timeout: 1 }, left: {} });
+  await sleep(20);
+  assert.deepEqual(seen, ["lazy", "inner"]);
+  assert.deepEqual(fired, []);
 });
 
 await check("a step that throws is settled, then invoke rejects with its error", async () => {

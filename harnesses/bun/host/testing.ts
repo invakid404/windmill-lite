@@ -129,7 +129,10 @@ export async function invoke<T>(fn: () => T | PromiseLike<T>, options: InvokeOpt
   };
   let result: Awaited<T>;
   try {
-    result = await invocations.run(ctx, fn);
+    // fn's result is awaited inside the invocation's context, as the
+    // runtime awaits a step's entrypoint: a thenable that fn returns is
+    // resolved there, so the work its then() starts is the invocation's.
+    result = await invocations.run(ctx, async () => await fn());
   } catch (e) {
     settleInvocation(ctx);
     throw e;

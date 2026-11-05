@@ -178,6 +178,36 @@ test("a timer callback runs in its step's invocation; default ids are fresh", as
   expect(other.result?.id).not.toBe(inStep?.id);
 });
 
+/** A lazy query: a thenable whose then() starts work, as a query object of
+ * a database client starts its request only when it is awaited. */
+function lazyQuery(seen: (string | undefined)[], fired: string[], tag: string): PromiseLike<string> {
+  return {
+    then(onfulfilled, onrejected) {
+      seen.push(currentInvocation()?.id);
+      setTimeout(() => fired.push(tag), 5);
+      return Promise.resolve(tag).then(onfulfilled, onrejected);
+    },
+  };
+}
+
+test("a thenable that the step returns is resolved inside its invocation, which fences the work its then() starts", async () => {
+  const seen: (string | undefined)[] = [];
+  const fired: string[] = [];
+  const s = await invoke(() => lazyQuery(seen, fired, "lazy"), { id: "lazy" });
+  expect(s).toEqual({ result: "lazy", left: { timeout: 1 } });
+  const outer = await invoke(
+    async () => {
+      const inner = await invoke(() => lazyQuery(seen, fired, "inner"), { id: "inner" });
+      return inner.left;
+    },
+    { id: "outer" },
+  );
+  expect(outer).toEqual({ result: { timeout: 1 }, left: {} });
+  await sleep(20);
+  expect(seen).toEqual(["lazy", "inner"]);
+  expect(fired).toEqual([]);
+});
+
 test("a step that throws is settled first, then invoke rejects with its error", async () => {
   const fired: string[] = [];
   const err = new Error("boom");
