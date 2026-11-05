@@ -15,6 +15,10 @@
     "./bun": {
       "types": "./dist/bun/host/index.d.ts",
       "default": "./dist/bun/host/index.js"
+    },
+    "./bun/testing": {
+      "types": "./dist/bun/host/testing.d.ts",
+      "default": "./dist/bun/host/testing.js"
     }
   },
   "files": [

@@ -18,8 +18,9 @@
 # 5. The engine of this commit, stamped with the package's version as a
 #    release stamps it (scripts/release.py build-engine), builds a bundle
 #    of folder/, and the smoke host runs the flow f/smoke/hello on it
-#    through the installed SDK. With WL_ENGINE set, it uses that engine
-#    instead.
+#    through the installed SDK. The smoke host also loads the SDK's test
+#    entry, and checks that the two share one runtime state. With
+#    WL_ENGINE set, it uses that engine instead.
 # 6. An engine stamped with another version, and a bundle that engine
 #    built: the smoke host's connect() must reject with version_mismatch.
 #    So the packed SDK carries the package's version; an unstamped SDK
@@ -85,7 +86,10 @@ want = {
     "version": sys.argv[2],
     "license": "Unlicense",
     "type": "module",
-    "exports": {"./bun": {"types": "./dist/bun/host/index.d.ts", "default": "./dist/bun/host/index.js"}},
+    "exports": {
+        "./bun": {"types": "./dist/bun/host/index.d.ts", "default": "./dist/bun/host/index.js"},
+        "./bun/testing": {"types": "./dist/bun/host/testing.d.ts", "default": "./dist/bun/host/testing.js"},
+    },
     "publishConfig": {"access": "public"},
 }
 problems = [f"{k} is {manifest.get(k)!r}, want {v!r}" for k, v in want.items() if manifest.get(k) != v]
