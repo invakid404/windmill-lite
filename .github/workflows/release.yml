@@ -4,7 +4,8 @@ name: Release
 # version field of harnesses/package.json, the one version of the engine
 # and the npm package (scripts/release.py). RELEASING.md has the steps.
 #
-# 1. check: the tag is "v" + the package version.
+# 1. check: the tag is "v" + the package version, and the run releases
+#    only from a tag of invakid404/windmill-lite (scripts/release.py mode).
 # 2. engine: builds the engine binaries the repository builds, each on a
 #    runner of its platform: Linux amd64 and arm64 as static binaries
 #    (zig cc against musl, as CI's static-linux job builds them), and
@@ -27,11 +28,11 @@ name: Release
 #    as the package's trusted publisher names them.
 #
 # A dry run does steps 1 to 4 and creates and publishes nothing:
-# workflow_dispatch with dry_run (the default), or a pull request that
+# workflow_dispatch with dry_run (the default), a pull request that
 # changes this workflow, the package's manifest, lockfile, build or
-# packaging test, or the release helper (the paths below). A dry run on a
-# branch has no tag to check; a release (dry_run false) runs only from
-# the tag.
+# packaging test, or the release helper (the paths below), and any run in
+# a fork. A dry run on a branch has no tag to check; a release (dry_run
+# false) runs only from the tag, in invakid404/windmill-lite.
 
 on:
   push:
@@ -73,29 +74,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check the tag against the package version
+      - name: Check the tag and decide whether this run releases
+        # release.py mode (tested in scripts/test_release.py): a pushed tag
+        # releases only in invakid404/windmill-lite, and a fork's tag is a
+        # dry run; a dispatch releases only there, on a tag, with dry_run
+        # false; a pull request is a dry run. A tag must be "v" + the
+        # package version.
         id: version
         env:
-          EVENT: ${{ github.event_name }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
         run: |
           version=$(python3 scripts/release.py version)
-          case "$EVENT" in
-            push) dry_run=false ;;
-            workflow_dispatch) dry_run=$DRY_RUN_INPUT ;;
-            *) dry_run=true ;;
-          esac
-          if [ "$REF_TYPE" = tag ]; then
-            python3 scripts/release.py check-tag "$REF_NAME"
-          elif [ "$dry_run" != true ]; then
-            echo "::error::a release runs only from its tag v$version, not from the $REF_TYPE $REF_NAME"
-            exit 1
-          fi
+          mode=$(python3 scripts/release.py mode)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
-          echo "windmill-lite $version from the $REF_TYPE $REF_NAME; dry run: $dry_run" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$mode" >> "$GITHUB_OUTPUT"
+          echo "windmill-lite $version, $GITHUB_EVENT_NAME of the $GITHUB_REF_TYPE $GITHUB_REF_NAME in $GITHUB_REPOSITORY: $mode" | tee -a "$GITHUB_STEP_SUMMARY"
 
   engine:
     name: Engine (${{ matrix.os }}-${{ matrix.arch }})
@@ -328,7 +321,13 @@ jobs:
   release:
     name: GitHub Release
     needs: [check, package, assets]
-    if: needs.check.outputs.dry_run == 'false'
+    # The check job decided; the event, the tag ref and the repository are
+    # checked here again, so that no other run reaches a write permission.
+    if: >-
+      needs.check.outputs.dry_run == 'false' &&
+      github.repository == 'invakid404/windmill-lite' &&
+      github.ref_type == 'tag' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -354,7 +353,11 @@ jobs:
   publish:
     name: npm publish
     needs: [check, package, release]
-    if: needs.check.outputs.dry_run == 'false'
+    if: >-
+      needs.check.outputs.dry_run == 'false' &&
+      github.repository == 'invakid404/windmill-lite' &&
+      github.ref_type == 'tag' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

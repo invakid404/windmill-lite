@@ -58,6 +58,64 @@ class TagTest(unittest.TestCase):
                     release.check_tag(given, "0.1.0")
 
 
+class ModeTest(unittest.TestCase):
+    """Which runs of the release workflow may release, and which are dry
+    runs or refused."""
+
+    UP = "invakid404/windmill-lite"
+    FORK = "someone/windmill-lite"
+
+    def mode(self, event: str, ref_type: str, ref_name: str, repository: str, dry_run_input: str = "") -> bool:
+        return release.release_mode(event, ref_type, ref_name, repository, dry_run_input, "0.1.0")
+
+    def test_the_upstream_tag_releases(self) -> None:
+        self.assertFalse(self.mode("push", "tag", "v0.1.0", self.UP))
+
+    def test_another_tag_is_refused(self) -> None:
+        for repository in (self.UP, self.FORK):
+            with self.subTest(repository=repository), self.assertRaises(release.ReleaseError):
+                self.mode("push", "tag", "v0.1.1", repository)
+
+    def test_a_fork_tag_is_a_dry_run(self) -> None:
+        self.assertTrue(self.mode("push", "tag", "v0.1.0", self.FORK))
+
+    def test_pull_requests_are_dry_runs(self) -> None:
+        for repository in (self.UP, self.FORK):
+            with self.subTest(repository=repository):
+                self.assertTrue(self.mode("pull_request", "branch", "98/merge", repository))
+
+    def test_a_dispatch_is_a_dry_run_by_default(self) -> None:
+        for repository, ref_type, ref_name in [(self.UP, "branch", "main"), (self.UP, "tag", "v0.1.0"), (self.FORK, "branch", "main"), (self.FORK, "tag", "v0.1.0")]:
+            for dry_run_input in ("true", ""):
+                with self.subTest(repository=repository, ref=ref_name, dry_run=dry_run_input):
+                    self.assertTrue(self.mode("workflow_dispatch", ref_type, ref_name, repository, dry_run_input))
+
+    def test_a_dispatch_releases_only_upstream_on_the_tag(self) -> None:
+        self.assertFalse(self.mode("workflow_dispatch", "tag", "v0.1.0", self.UP, "false"))
+        for repository, ref_type, ref_name in [(self.UP, "branch", "main"), (self.FORK, "tag", "v0.1.0"), (self.FORK, "branch", "main"), (self.UP, "tag", "v0.1.1")]:
+            with self.subTest(repository=repository, ref=ref_name), self.assertRaises(release.ReleaseError):
+                self.mode("workflow_dispatch", ref_type, ref_name, repository, "false")
+
+    def test_other_events_are_refused(self) -> None:
+        for event, ref_type in [("push", "branch"), ("schedule", "branch"), ("pull_request_target", "branch"), ("", "")]:
+            with self.subTest(event=event), self.assertRaises(release.ReleaseError):
+                self.mode(event, ref_type, "main", self.UP)
+
+    def test_the_command_reads_the_actions_environment(self) -> None:
+        cli = pathlib.Path(__file__).with_name("release.py")
+        v = release.version()
+        base = {"PATH": os.environ.get("PATH", ""), "GITHUB_REPOSITORY": self.UP}
+        cases = [
+            ({"GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": f"v{v}"}, 0, "dry_run=false\n"),
+            ({"GITHUB_EVENT_NAME": "pull_request", "GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "98/merge"}, 0, "dry_run=true\n"),
+            ({"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "main", "DRY_RUN_INPUT": "false"}, 1, ""),
+        ]
+        for env, code, out in cases:
+            with self.subTest(env=env):
+                res = subprocess.run([sys.executable, str(cli), "mode"], env={**base, **env}, capture_output=True, text=True)
+                self.assertEqual((res.returncode, res.stdout), (code, out), res.stderr)
+
+
 class CheckEngineTest(unittest.TestCase):
     def fake(self, d: str, line: str, code: int = 0) -> str:
         p = pathlib.Path(d) / "windmill-lite"

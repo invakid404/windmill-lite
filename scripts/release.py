@@ -16,6 +16,10 @@ A release is the tag "v" + the version. The release workflow
 
   version                       print the version
   check-tag <tag>               exit 1 unless <tag> is "v" + the version
+  mode                          print dry_run=true or dry_run=false for the
+                                release workflow's run, from its GitHub
+                                Actions environment (see release_mode), or
+                                exit 1 when the run may not release
   build-engine <out> [--static] build ./cmd/windmill-lite into <out> with
                                 the version stamped; --static links it
                                 statically, as the Linux release engine
@@ -39,6 +43,7 @@ npm treat it differently.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -90,6 +95,42 @@ def tag(v: str) -> str:
 def check_tag(given: str, v: str) -> None:
     if given != tag(v):
         raise ReleaseError(f"tag {given} is not the package version's tag {tag(v)}")
+
+
+# The repository whose tags release windmill-lite. A fork's runs are dry
+# runs, whatever triggers them.
+UPSTREAM = "invakid404/windmill-lite"
+
+
+def release_mode(event: str, ref_type: str, ref_name: str, repository: str, dry_run_input: str, v: str) -> bool:
+    """Returns whether a run of the release workflow is a dry run, which
+    builds and checks everything and creates and publishes nothing. It
+    raises ReleaseError for a run that asks to release where it may not.
+
+    - A pushed tag releases in UPSTREAM, and is a dry run in a fork.
+    - workflow_dispatch is a dry run unless its dry_run input is "false";
+      then it releases only in UPSTREAM and on a tag.
+    - A pull request is always a dry run.
+    - On a tag, the tag must be "v" + the version, dry run or not.
+    """
+    if ref_type == "tag":
+        check_tag(ref_name, v)
+    match event:
+        case "push":
+            if ref_type != "tag":
+                raise ReleaseError(f"a push of the {ref_type} {ref_name} does not release; push the tag {tag(v)}")
+            return repository != UPSTREAM
+        case "workflow_dispatch":
+            if dry_run_input != "false":
+                return True
+            if repository != UPSTREAM:
+                raise ReleaseError(f"a release runs only in {UPSTREAM}, not in {repository}")
+            if ref_type != "tag":
+                raise ReleaseError(f"a release runs only from its tag {tag(v)}, not from the {ref_type} {ref_name}")
+            return False
+        case "pull_request":
+            return True
+    raise ReleaseError(f"the release workflow does not run on {event!r} events")
 
 
 def build_engine(out: str, static: bool, v: str) -> None:
@@ -181,6 +222,7 @@ def notices() -> str:
 
 USAGE = """usage: release.py version
        release.py check-tag <tag>
+       release.py mode
        release.py build-engine <out> [--static]
        release.py check-engine <binary>
        release.py notices <out>"""
@@ -194,6 +236,14 @@ def main(argv: list[str]) -> int:
                 print(v)
             case ["check-tag", given]:
                 check_tag(given, v)
+            case ["mode"]:
+                env = os.environ
+                dry = release_mode(
+                    env.get("GITHUB_EVENT_NAME", ""), env.get("GITHUB_REF_TYPE", ""),
+                    env.get("GITHUB_REF_NAME", ""), env.get("GITHUB_REPOSITORY", ""),
+                    env.get("DRY_RUN_INPUT", ""), v,
+                )
+                print(f"dry_run={'true' if dry else 'false'}")
             case ["build-engine", out]:
                 build_engine(out, False, v)
             case ["build-engine", out, "--static"]:
