@@ -7,6 +7,22 @@
 finding: WR-2
 scope: core
 cases:
+  - spec: WR-2/a
+    provenance: source-derived
+    title: a pending timer is cut off at exit; a warm process's settle-time fence clears it, and a fresh process ends with the result
+    note: >-
+      The left_behind warning reports the one timeout the fence cleared just
+      before the frame that settles the invocation, in both modes (D9), so
+      its line is never written.
+    deviation: D9
+    script: |
+      export async function main() { setTimeout(() => console.log("late"), 2000); return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}
+        warnings: [left_behind]
+        left: {timeout: 1}
+        settled: completed
   - spec: WR-2
     variant: top-level-env
     provenance: policy
@@ -45,13 +61,16 @@ cases:
   - spec: WR-2
     variant: top-level-log
     provenance: policy
-    title: what top-level code writes is in its job's log, so an escaped failure's tail quotes it
+    title: what top-level code writes is in its job's log, ahead of what the entrypoint writes, so an escaped failure's tail quotes both in that order
+    note: >-
+      WR-2/b's order, seen through the tail: the step suite observes no log
+      of a successful run.
     script: |
       console.log("written at load");
-      export function main() { throw null; }
+      export function main() { console.log("written by main"); throw null; }
     runs:
       - args: '{}'
         claims:
           - {at: /status, equals: failure}
-          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\nwritten at load\n"}
+          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\nwritten at load\nwritten by main\n"}
           - {at: /result/error/exit_code, equals: 1}
