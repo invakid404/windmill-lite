@@ -448,16 +448,18 @@ step, never releases them.
 - `process.env` is replaced by a view that answers from the current
   invocation first; bundles rewrite `Bun.env` and `import.meta.env` to
   `process.env` at build time ([WA-31](../semantics/client-api.md#wa-31)).
-  This mechanism is gated: the walking skeleton (milestone W1) runs the
-  16-way isolation test of [Q-WA-4](../semantics/client-api.md#q-wa-4) on the
-  pinned Bun before anything depends on it. On Bun 1.3.10 it passed 16 of
-  16 on every channel. The view also reaches `Bun.env` and
-  `import.meta.env` at run time: their object, which assigning
-  `process.env` leaves in place, takes a prototype that answers from the
-  current invocation, and a variable the process already has becomes an
-  accessor. Code the build does not rewrite, such as an unbundled
-  dependency or a host's own module, is therefore covered too; the build's
-  define rewrite ([0010](0010-packaging.md)) stays.
+  This mechanism is gated: the 16-way isolation test of
+  [Q-WA-4](../semantics/client-api.md#q-wa-4) runs on the pinned Bun before
+  anything depends on it. On Bun 1.4.3 it passes 16 of 16 on every
+  channel, as it did on 1.3.10.
+- The view also reaches `Bun.env` and `import.meta.env` at run time: their
+  object, which assigning `process.env` leaves in place, takes a prototype
+  that answers from the current invocation. Bun 1.4.3's object takes no
+  accessors, so a variable the process has moves out of it, into the view's
+  own store, once an invocation claims it. Code the build does not rewrite,
+  such as an unbundled dependency or a host's own module, is therefore
+  covered too; the build's define rewrite ([0010](0010-packaging.md))
+  stays.
 - `console.*`, `process.stdout.write` and `process.stderr.write` are
   attributed to the current invocation. A console call is formatted by a
   Console of the invocation's own (Node's, without colours), so its
@@ -1057,12 +1059,12 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     every client a module makes at load after the first run, which is the
     breakage the owner's correction of the fence forbids.
   - **The environment view** keeps a step's `Bun.env.X = …` write of a
-    variable the process lacks in the invocation's copy (a `set` trap on
-    the prototype). A delete through `Bun.env`, and a write of an
-    unshadowed process variable, still reach the process: an ordinary
-    object cannot trap them. Enumerating `Bun.env` lists the process's
-    variables; `process.env`, which the build's define rewrite puts in its
-    place, and a child's environment list the invocation's.
+    variable that object does not hold in the invocation's copy (a `set`
+    trap on the prototype). A delete through `Bun.env`, and a write of an
+    unclaimed process variable, are not kept per invocation: Bun's object
+    cannot trap them. Enumerating `Bun.env` lists the process variables no
+    invocation has claimed; `process.env`, which the build's define rewrite
+    puts in its place, and a child's environment list the invocation's.
   - **`fresh` mode** (failure model item 8). The engine treats the exit 0
     of a fresh process before any result as
     [WR-V2](../semantics/languages.md#wr-v2)'s empty result, and kills a
