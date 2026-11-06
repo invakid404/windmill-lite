@@ -542,7 +542,9 @@ in `spec` (the version check, `WR-3/a`).
 
 **`frames.json`** holds the codec's golden frames. `go test ./internal/harness
 -run TestFrameCases -args -update` writes `payload` and `frames` from Go's
-encoder; both codecs then check every case unless `sides` limits it.
+encoder; both codecs then check every case unless `sides` limits it. The
+file is laid out as `-update` writes it, and the Go test fails when it is
+not: write a new case by hand in that layout, or run `-update` after it.
 
 | Kind | Fields | Check |
 |---|---|---|
