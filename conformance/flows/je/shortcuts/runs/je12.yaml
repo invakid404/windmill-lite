@@ -33,7 +33,7 @@ unit:
     expr: "results['a']"
     context:
       previous_id: b_a
-      previous_result: "null"
+      previous_result: "3"
       results:
         a: "{\"v\": 3}"
     expect:
