@@ -5,5 +5,6 @@ go 1.27.3
 require (
 	github.com/evanw/esbuild v0.28.0
 	go.yaml.in/yaml/v3 v3.0.6
+	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
 )
