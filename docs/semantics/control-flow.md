@@ -479,7 +479,7 @@ confidence tags are defined in the [index](README.md#legend).
   `branchall` on its first failed branch in every state, while the
   for-loop's `skip_failures` keeps its split (points 2 and 4). Re-recorded
   on CE v1.862.0 (fixture `conformance/flows/openflow/of-deployed`, runs
-  `f7_ba` and `ba_shape`, oracle run ORACLE_RUN_W5D): `flows/get` after
+  `f7_ba` and `ba_shape`, oracle run 42299716256): `flows/get` after
   the dependency job shows `skip_failure: false` on each branch, and `f7_ba`
   fails with `[ERR("b")]` ([OF-7/c](conformance.md#of-7)). Points 1, 2 and 4
   were re-verified at v1.862.0 for the four defaults; the rest is verified
@@ -1309,7 +1309,7 @@ confidence tags are defined in the [index](README.md#legend).
   (1.827.0 and 1.855.0). Re-recorded on CE v1.862.0 as
   [CF-16/c](conformance.md#cf-16) (fixture
   `conformance/flows/control-flow/cf-v1`, runs `a` and `c-seq`, oracle run
-  ORACLE_RUN_W5D). A handler result without `recover: true` changes
+  42299716256). A handler result without `recover: true` changes
   nothing: CF-16/b still fails. The rest of the finding is verified at
   v1.767.0 only.
 
@@ -1759,7 +1759,7 @@ confidence tags are defined in the [index](README.md#legend).
   mid-loop skip of [Q-CF-6](#q-cf-6) holds at v1.767.0 only. Re-recorded on
   CE v1.862.0 (fixture `conformance/flows/control-flow/cf-21`, runs
   `skip_mid`, `skip_mid_flows` and `skip_mid_while`, oracle run
-  ORACLE_RUN_W5D): each loop ran every iteration and returned `[1, 2, 3]`
+  42299716256): each loop ran every iteration and returned `[1, 2, 3]`
   (the while loop `[1, 2, 3, 4, 5]`, stopped by its `stop_after_if`), and
   no loop step was skipped ([CF-21/a, CF-21/b](conformance.md#cf-21)). The
   parallel loop's single evaluation ([CF-21/c](conformance.md#cf-21)) is
@@ -2819,7 +2819,7 @@ confidence tags are defined in the [index](README.md#legend).
   the error handler turn nested failures green", and 1.855.0, "report a
   failed flow unless its failure module succeeded"; which release brought
   which part is inferred). Re-recorded on CE v1.862.0 (fixture
-  `conformance/flows/control-flow/cf-v1`, oracle run ORACLE_RUN_W5D): in
+  `conformance/flows/control-flow/cf-v1`, oracle run 42299716256): in
   runs `a` and `c-seq` the sequential container still records `Failure`
   with `[{"recover":true}]` after its first child, and the root's own
   handler does not run, but the root flow now ends `success` with that
@@ -3108,7 +3108,7 @@ These are proposals made while studying the behaviour. They bind nothing.
   closed. **Re-answered 2026-11-06 (retarget to v1.862.0):** at v1.862.0 a
   loop evaluates its `skip_if` once, when it is entered, sequential or
   parallel; the same runs, re-recorded on CE v1.862.0 (oracle run
-  ORACLE_RUN_W5D), ran every iteration ([CF-21](#cf-21)). Status: closed.
+  42299716256), ran every iteration ([CF-21](#cf-21)). Status: closed.
 <a id="q-cf-7"></a>
 - **Q-CF-7** · affects [CF-22](#cf-22) · **Answered 2026-10-29 (SC4).**
   The artefact is real: milestone NI's run `iter_parent` of fixture

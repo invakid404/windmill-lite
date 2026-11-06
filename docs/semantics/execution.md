@@ -2386,7 +2386,7 @@ run of batch E3f in the [design README](../design/README.md).
   1.855.0, "report a failed flow unless its failure module succeeded";
   the split between the two releases is inferred). Re-recorded on CE
   v1.862.0 (fixture `conformance/flows/execution/fx-33`, run
-  `parent_view`, oracle run ORACLE_RUN_W5D): the parent succeeded with
+  `parent_view`, oracle run 42299716256): the parent succeeded with
   `{"recover": true, "v": 1}`, its step `s` succeeded as a job while its
   module entry is `Failure`; new case [FX-33/h](conformance.md#fx-33). The
   recovery record decoder, the table above and the child's own status are
@@ -2664,7 +2664,7 @@ run of batch E3f in the [design README](../design/README.md).
   record is now decoded only from an object, so the positional reading of
   Q-FX-12 holds at v1.767.0 only. Re-recorded on CE v1.862.0 (fixture
   `conformance/flows/execution/fx-36-http`, run `array`, oracle run
-  ORACLE_RUN_W5D): `[201, null, null, null, 7]` is answered HTTP 200 with
+  42299716256): `[201, null, null, null, 7]` is answered HTTP 200 with
   the whole array as the body, `[201, null, null, null, 7]`, as
   [FX-36/h](conformance.md#fx-36) now says. Only the decoder's input was
   re-verified at v1.862.0; the rest of the response rules are verified at
@@ -2734,7 +2734,7 @@ run of batch E3f in the [design README](../design/README.md).
   result; a script step inside a branch already answered early. New cases
   FX-37/b to FX-37/e, recorded on CE v1.862.0 (fixture
   `conformance/flows/execution/fx-37-branches`, oracle run
-  ORACLE_RUN_W5D).
+  42299716256).
 
 <a id="fx-38"></a>
 ### FX-38 · Cancellation
@@ -2850,7 +2850,7 @@ run of batch E3f in the [design README](../design/README.md).
   inferred). Re-recorded on CE v1.862.0: `b`'s job in
   `conformance/flows/execution/fx-38-pickup` runs `subflow`, `bun` and
   `retried`, and in `conformance/flows/execution/fx-23` run
-  `canceled_sleep`, ends `canceled` (oracle run ORACLE_RUN_W5D). Only this
+  `canceled_sleep`, ends `canceled` (oracle run 42299716256). Only this
   path was re-verified at v1.862.0; the rest of the finding is verified at
   v1.767.0 only.
 
@@ -4568,7 +4568,7 @@ against Windmill CE `v1.767.0`.
   scope. Status: closed. **Re-answered 2026-11-06 (retarget to v1.862.0):**
   no. At v1.862.0 the record is decoded only from an object (1.813.0), so
   the same run answers HTTP 200 with the whole array as the body (oracle
-  run ORACLE_RUN_W5D; [FX-36/h](conformance.md#fx-36)). The positional
+  run 42299716256; [FX-36/h](conformance.md#fx-36)). The positional
   answer above holds at v1.767.0 only. Status: closed.
 
 <a id="q-fx-13"></a>
