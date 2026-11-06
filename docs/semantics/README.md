@@ -38,6 +38,12 @@ Windmill only.
 | Commit | `6de4ec0f665ad856002495c4d86269105ec28ad7` |
 | Source pointers | `path:line @ v1.767.0`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.767.0) |
 
+The reference is moving to Windmill `v1.862.0` (commit
+`120415af151593716d39140c8a7d7f3bbe9d99cf`). An area file whose header
+names that release lists, in dated revisions, the findings re-verified
+there; its other findings are verified at v1.767.0 only. A source pointer
+names its version, and one without a version is `@ v1.767.0`.
+
 The reference claims nothing about other Windmill versions. Where the source
 and the [public documentation](https://www.windmill.dev/docs) disagree, the
 finding follows the source at the pin and notes the disagreement.
