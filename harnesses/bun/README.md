@@ -55,7 +55,7 @@ cannot corrupt the protocol.
 |---|---|
 | `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, loads the host plugin `--plugin` names, connects to fd 3, starts the runtime |
 | `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
-| `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
+| `runtime/runtime.ts` | The handshake, the step runner and how it loads a step module, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
 | `runtime/context.ts` | The per-invocation context: the environment view, the fetch view, the timer fence, the log view, child-process wrapping, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
@@ -427,10 +427,10 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   rule above.
 - **How a module loads.** Bun 1.4.3 evaluates a module that `import()`
   loads outside every async context (1.3.10 kept the caller's), and one
-  that `require()` loads inside the caller's. So `loadModule` evaluates a
-  step module with `require()`, then takes its namespace from `import()` of
-  the same file. That `import()` does not evaluate it again, and gives the
-  namespace it always gave.
+  that `require()` loads inside the caller's. So `loadModule`
+  (`runtime/runtime.ts`) evaluates a step module with `require()`, then
+  takes its namespace from `import()` of the same file. That `import()`
+  does not evaluate it again, and gives the namespace it always gave.
 - **A top-level `await`** still pending makes `require()` throw a
   `TypeError` once the evaluation has started, in the loading context;
   `import()` then waits for that evaluation. An ES module's failure stays
