@@ -103,7 +103,8 @@ type batch struct {
 // it recorded instead. The batch is a milestone of ADR 0012 and covers the
 // findings its row names as ranges ("FX-6 to FX-10") and the cases it
 // names ("FX-42/h"), and a batch with gates gives every run one that needs
-// the batch merged.
+// the batch merged. A run whose recording the retarget ledger lists as
+// pending may lack one (checkBatch).
 func TestRecordingBatches(t *testing.T) {
 	// spec: OR-15, OR-19, OR-V5/b
 	root := repoRoot(t)
@@ -126,6 +127,7 @@ func TestRecordingBatches(t *testing.T) {
 		t.Fatalf("read %d milestones from ADR 0012", len(plan))
 	}
 
+	pending := pendingRecordings(t)
 	paths, err := filepath.Glob("testdata/batches/*.json")
 	if err != nil {
 		t.Fatal(err)
@@ -150,13 +152,17 @@ func TestRecordingBatches(t *testing.T) {
 				t.Fatalf("batch %q is not a milestone of ADR 0012", b.Batch)
 			}
 			checkBatchRow(t, b, row.title, inCatalogue)
-			checkBatch(t, root, b, inCatalogue)
+			checkBatch(t, root, b, inCatalogue, pending)
 			checkBatchGates(t, root, b, plan)
 		})
 	}
 }
 
-func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool) {
+// checkBatch checks one batch. A run that pending (the retarget ledger's
+// oracle section) lists may lack its recording: it then counts as
+// recording its cases, and the claims that read its recording are passed
+// over with its marker logged.
+func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool, pending map[string]conformance.LedgerEntry) {
 	// The batch's cases: those of its findings, and the extra ones.
 	cases := map[string]bool{}
 	for c := range inCatalogue {
@@ -184,6 +190,7 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 
 	// The fixtures, their runs and recordings.
 	recordedBy := map[string][]string{}
+	unrecorded := map[string]conformance.LedgerEntry{}
 	observations := map[string]conformance.Observation{}
 	deployments := map[string]*FlowDeployment{}
 	for _, dir := range b.Fixtures {
@@ -217,7 +224,16 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 				t.Errorf("%s has no expect", name)
 			}
 			if r.Recorded == nil {
-				t.Errorf("%s has no recording", name)
+				e, ok := pending[name]
+				if !ok {
+					t.Errorf("%s has no recording", name)
+					continue
+				}
+				t.Logf("%s has no recording, pending in the retarget ledger (%s)", name, e.Marker())
+				unrecorded[name] = e
+				for _, c := range r.Spec {
+					recordedBy[c] = append(recordedBy[c], name)
+				}
 				continue
 			}
 			if err := CheckRecordingIdentity(r.Recorded.Provenance); err != nil {
@@ -287,6 +303,10 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 		}
 		obs, ok := observations[p.Run]
 		if !ok {
+			if e, pend := unrecorded[p.Run]; pend {
+				t.Logf("prefix for %s: run %s is pending (%s)", p.Case, p.Run, e.Marker())
+				continue
+			}
 			t.Errorf("prefix for %s: run %s is not a recorded run of the batch", p.Case, p.Run)
 			continue
 		}
@@ -309,6 +329,10 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 		}
 		obs, ok := observations[x.Run]
 		if !ok {
+			if e, pend := unrecorded[x.Run]; pend {
+				t.Logf("text check for %s: run %s is pending (%s)", x.Case, x.Run, e.Marker())
+				continue
+			}
 			t.Errorf("text check for %s: run %s is not a recorded run of the batch", x.Case, x.Run)
 			continue
 		}
@@ -338,6 +362,10 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 		}
 		obs, ok := observations[c.Run]
 		if !ok {
+			if e, pend := unrecorded[c.Run]; pend {
+				t.Logf("contradiction of %s: run %s is pending (%s)", c.Case, c.Run, e.Marker())
+				continue
+			}
 			t.Errorf("contradiction of %s: run %s is not a recorded run of the batch", c.Case, c.Run)
 			continue
 		}
@@ -362,6 +390,10 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 		}
 		dep, ok := deployments[d.Run]
 		if !ok {
+			if e, pend := unrecorded[d.Run]; pend {
+				t.Logf("deployment check of %s: run %s is pending (%s)", d.Case, d.Run, e.Marker())
+				continue
+			}
 			t.Errorf("deployment check of %s: run %s is not a recorded run of the batch", d.Case, d.Run)
 			continue
 		}

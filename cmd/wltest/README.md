@@ -19,6 +19,9 @@ embeds. `diff`, which
 running the oracle and windmill-lite live, is in no milestone of ADR 0012
 yet: it prints that it is not implemented and exits 2.
 
+On the retarget branch only, a fourth verb, `ledger`, guards the retarget
+ledger ([The retarget ledger](#the-retarget-ledger)).
+
 `check` can build every bundle with the shared code of
 [ADR 0013](../../docs/design/0013-shared-module-code.md) (`-shared-code`, below).
 
@@ -73,6 +76,7 @@ The oracle runs in public CI; see
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
 | `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
+| `--pending FILE` | — | The retarget ledger. A run its `oracle` section lists may be `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable` without failing the session, and gets a `pending:` line. An `unchanged` one gets a `stale:` line and fails a `--check` session ([The retarget ledger](#the-retarget-ledger)). A missing file lists no run. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
 `expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
@@ -595,6 +599,10 @@ Windmill v1.767.0's image).
 - `TestStepSuite` runs `d18.yaml`'s cases from a bundle built with shared
   code ([ADR 0013](../../docs/design/0013-shared-module-code.md)): `warm` runs the shared-layout modules and
   `fresh` the per-script bundles.
+- `TestStepSuite` and `TestFlowSuite` read the retarget ledger, which
+  exists only on the retarget branch. A step case or required run that it
+  lists may fail in the modes its entry covers, and fails the test when it
+  passes in one ([The retarget ledger](#the-retarget-ledger)).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
   N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a, N5 and
   E3f, and the flow-suite half of F3b's: every run the flow suite requires
@@ -748,6 +756,19 @@ Windmill v1.767.0's image).
   refusals, among them `--mismatched` at the working directory or at
   `--out`, refused before Docker is asked anything. The sessions behind
   `record` are tested in [internal/oracle](../../internal/oracle/README.md#tests).
+- The retarget ledger's tests need no Bun ([The retarget ledger](#the-retarget-ledger)):
+  - `TestLedgerGuard` runs the guard on generated Git trees. With `--base
+    main` it fails on a ledger file, with an entry or empty, and on a
+    marker in a Go test, a bun test or a data file, and passes without
+    them. With another base it lists them and passes.
+  - In the same trees, a malformed marker in a test file and a malformed
+    ledger fail with any base, and prose about the marker form and
+    ignored files are not markers.
+  - `TestRetargetLedger` holds the committed ledger to the runs and cases
+    it names, `TestRecordVerdict` checks how `record --pending` judges and
+    prints a listed run, and `TestJudgeSuite` how the suites judge one.
+    The verdict on the reports of real sessions is tested in
+    [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch).
 
 ### Host mode
 
@@ -794,6 +815,102 @@ fixtures leave no descriptor open, with garbage collection off
 `TestFlowSuite` runs the suite in `warm`, `fresh` and `host` mode, and in
 `warm` and `host` from bundles built with shared code; every
 required run must pass in all five.
+
+## The retarget ledger
+
+The retarget ledger lists what a pull request into the retarget branch,
+`rt/retarget`, knowingly leaves failing while windmill-lite moves to
+Windmill 1.862.0 and Bun 1.4.3. Each item names the retarget milestone that
+clears it and gives a one-line reason. It is a tool of that branch only:
+the pull request that merges `rt/retarget` into `main` deletes the ledger
+file, every marker and the code that reads them.
+
+It has two parts:
+
+- **The ledger file**, [`testdata/flowsuite-pending.json`](testdata/flowsuite-pending.json),
+  for the conformance runs and cases that `wltest` checks and records.
+- **Markers** in test code, for Go tests and bun tests. A marker is
+  `retarget-pending: <milestone> <reason>`: the prefix, one space, the
+  milestone's id, one space and a one-line reason.
+
+A milestone's id is the prefix of its pull request's title: the capital
+letter `W` or `X`, a number, and an optional lower-case letter.
+
+### The ledger file
+
+Each section maps an item, named from the repository root, to an entry
+`{"milestone": "…", "reason": "…"}`. A `flow_suite` or `step_suite` entry
+may add `"modes": […]`, the modes it fails in; without them it covers every
+mode.
+
+| Section | Item | What it allows | Read by |
+|---|---|---|---|
+| `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite` |
+| `step_suite` | a step case: `<step file>/<case>` | the case fails in a mode the entry covers: `warm` or `fresh` | `TestStepSuite` |
+| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, and the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch) |
+
+`conformance.ParseLedger` refuses unknown fields, a milestone that is not
+an id, an empty or multi-line reason, a mode listed twice, an `oracle`
+entry with modes, and an item that is not a clean path from the root.
+`TestRetargetLedger` requires each item to exist: a required run, a step
+case, or a run of a fixture or expression file.
+
+### How the ledger is applied
+
+- `TestFlowSuite` and `TestStepSuite` still run every listed run and case.
+  In a mode its entry covers, a failure is logged with the marker instead
+  of failing the test. The QuickJS-only CI part runs the same modes, so an
+  entry holds there as well.
+- A listed run or case that passes in a mode its entry covers fails the
+  test. The entry then hides nothing in that mode, so the pull request
+  that made it pass removes the mode or the entry.
+- `record --pending` changes no output: new and changed recordings still
+  go under `--out`, and an `expect_mismatch` run's observation under
+  `--mismatched`. Only the session's verdict changes. A listed run
+  reported `unchanged` already has its recording, so its entry is stale;
+  a refused run fails as always.
+- A listed run that failed in the session itself still fails it. Its
+  report has `local_failure` set: a recording, observation or raw capture
+  that could not be placed or written, or a failed comparison with the
+  committed recording. No milestone clears that, and the run's evidence
+  would be missing.
+
+### Markers in test code
+
+- **Go:** the test, or the one subtest of a table that fails, calls
+  `t.Skip` with the marker as its message. `go test` prints the message
+  only with `-v`; the guard below prints every marker in CI.
+- **Bun:** the test is a `test.skip`, or its group a `describe.skip`, whose
+  name starts with the marker. `bun test` prints each skipped test's name
+  after `(skip)`.
+
+A marker that follows a quote, as these do, ends at the closing quote;
+any other ends at the end of its line.
+
+### The guard
+
+`wltest ledger [--base BRANCH] [--repo DIR]` reads the ledger file and
+searches every file that Git tracks, or would track, for markers. It
+prints the entries, each marker with its file and line, and a count per
+milestone. It fails on a malformed ledger, and on an occurrence of the
+prefix in a Go or bun test file that is not a marker.
+
+With `--base main` it also fails while the ledger file exists, even
+empty, or while any marker remains. The CI jobs `Go (ubuntu-latest)` and
+`Go (macos-latest, packages)` run it with the pull request's base branch,
+or the pushed branch. So no pull request into `main` passes while it
+carries the ledger, and every pull request's log lists what is pending.
+
+The guard runs on the pull request that merges the branch into `main`, so
+it is the last part of the tool to go.
+
+### Rules for a pull request into rt/retarget
+
+1. Merge with CI green.
+2. Give each failure the pull request knowingly causes an entry or a
+   marker, with the milestone that clears it and a one-line reason.
+3. Remove the entries and markers it clears, and add none for another
+   milestone's own work.
 
 ## Version
 

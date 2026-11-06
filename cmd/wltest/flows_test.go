@@ -93,10 +93,14 @@ func requiredRuns(t *testing.T) map[string]string {
 // conformance/flows, and every expression file under conformance/exprs as
 // its generated one-step flow fixture, also runs: each must load, and its
 // runs are reported as passing, failing or unsupported, with the reason.
+// On the retarget branch, a required run that the retarget ledger lists
+// may fail in the modes its entry covers, and fails the test when it
+// passes in one (judgeSuite).
 func TestFlowSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	req := requiredRuns(t)
 	root := repo(t)
+	pending := retargetLedger(t).FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -111,14 +115,8 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
 	}
 	dirs = append(dirs, exprs...)
-	for _, c := range []struct {
-		mode   string
-		shared bool
-	}{{conformance.ModeWarm, false}, {conformance.ModeFresh, false}, {ModeHost, false}, {conformance.ModeWarm, true}, {ModeHost, true}} {
-		mode, name := c.mode, c.mode
-		if c.shared {
-			name += "-shared-code"
-		}
+	for _, c := range flowSuiteModes {
+		mode, name := c.mode, c.name()
 		t.Run(name, func(t *testing.T) {
 			fc := &flowChecker{bun: bun, repo: root, mode: mode, sharedCode: c.shared, js: js}
 			type outcome struct {
@@ -155,25 +153,68 @@ func TestFlowSuite(t *testing.T) {
 					extra = append(extra, key)
 				}
 			}
+			held := 0
 			for _, key := range slices.Sorted(maps.Keys(req)) {
 				o := got[key]
-				switch {
-				case !o.seen:
+				if !o.seen {
 					t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
+					continue
+				}
+				var what string
+				switch {
 				case o.res.unsupported != "":
-					t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
+					what = "is unsupported: " + o.res.unsupported
 				case len(o.res.problems) > 0:
-					t.Errorf("required run %s (%s) failed:\n  %s\nharness diagnostics:\n%s", key, req[key], strings.Join(o.res.problems, "\n  "), o.res.diag)
+					what = "failed:\n  " + strings.Join(o.res.problems, "\n  ") + "\nharness diagnostics:\n" + o.res.diag
+				}
+				e, listed := pending[key]
+				switch judgeSuite(what != "", e, listed, name) {
+				case verdictFail:
+					t.Errorf("required run %s (%s) %s", key, req[key], what)
+				case verdictPending:
+					held++
+					t.Logf("required run %s (%s), pending in the retarget ledger (%s), %s", key, req[key], e.Marker(), what)
+				case verdictStale:
+					t.Errorf("required run %s (%s) passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", key, req[key], name, conformance.LedgerPath, e.Marker())
 				}
 			}
 			slices.Sort(extra)
-			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
-				name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
+			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above or pending (%d)",
+				name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req), held)
 			if len(extra) > 0 {
 				t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
 			}
 		})
 	}
+}
+
+// flowSuiteMode is one of TestFlowSuite's modes: a mode of wltest check,
+// with bundles built with shared code or without.
+type flowSuiteMode struct {
+	mode   string
+	shared bool
+}
+
+// name is the mode's subtest name, which a ledger entry's modes use.
+func (m flowSuiteMode) name() string {
+	if m.shared {
+		return m.mode + "-shared-code"
+	}
+	return m.mode
+}
+
+// flowSuiteModes are TestFlowSuite's modes, in the order it runs them.
+var flowSuiteModes = []flowSuiteMode{{conformance.ModeWarm, false}, {conformance.ModeFresh, false}, {ModeHost, false}, {conformance.ModeWarm, true}, {ModeHost, true}}
+
+// retargetLedger reads the retarget ledger (conformance.LedgerPath): none
+// on main, where nothing is pending.
+func retargetLedger(t *testing.T) *conformance.Ledger {
+	t.Helper()
+	l, err := conformance.LoadLedger(filepath.Join(repo(t), filepath.FromSlash(conformance.LedgerPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
 }
 
 // Milestone N4's gate (ADR 0012): the E3d FX-40 cases, the fixture
