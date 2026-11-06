@@ -152,19 +152,21 @@ The package ships JavaScript and type declarations (`.d.ts`), so a host's
 test type-checks imports of `windmill-lite/bun` and of
 `windmill-lite/bun/testing` with:
 
-- TypeScript 5.9.3 and the `tsconfig.json` that `bun init` of Bun 1.3.10
-  writes;
-- TypeScript 5.9.3 and 6.0.3 with `NodeNext` module resolution, and with
-  `skipLibCheck` off, so that `tsc` checks the declarations too.
+- TypeScript 7.0.2 and the `tsconfig.json` that `bun init` of Bun 1.4.3
+  writes, and `bun check`, the type check that the `typecheck` script of
+  `bun init` runs, with the same `tsconfig.json`;
+- TypeScript 7.0.2, 6.0.3 and 5.9.3 with `NodeNext` module resolution,
+  and with `skipLibCheck` off, so that `tsc` checks the declarations too.
 
 The SDK's declarations use Bun's type declarations, `@types/bun`, which
-`bun init` installs. TypeScript 6 loads an `@types` package only when
-`types` names it, so a TypeScript 6 project sets `"types": ["bun"]`.
+`bun init` installs. TypeScript 6 and 7 and `bun check` load an `@types`
+package only when `types` names it, so such a project sets
+`"types": ["bun"]`, as `bun init` of Bun 1.4.3 does.
 
 The test entry's declarations import nothing, so a project without
 `@types/bun` can import it. The packaging test checks an import of
 `windmill-lite/bun/testing` with Node's type declarations only, with
-TypeScript 5.9.3 and 6.0.3, `NodeNext` and `skipLibCheck` off.
+TypeScript 7.0.2, 6.0.3 and 5.9.3, `NodeNext` and `skipLibCheck` off.
 
 ## What the package holds
 
@@ -218,7 +220,8 @@ at the first check that fails:
    `package.json` has the fields that npm and provenance need and no
    dependencies, and its `LICENSE` is the repository's.
 3. `bun add` installs the tarball into a copy of `npm/test/project/`, an
-   empty project with the `tsconfig.json` of `bun init`.
+   empty project with the `tsconfig.json` of `bun init` and the
+   TypeScript versions of [Types](#types).
 4. `tsc` type-checks `npm/test/project/smoke.ts`, which imports both
    entries, and `npm/test/project/testing.ts`, which imports the test
    entry, in the setups of [Types](#types).
