@@ -38,6 +38,12 @@ Windmill only.
 | Commit | `6de4ec0f665ad856002495c4d86269105ec28ad7` |
 | Source pointers | `path:line @ v1.767.0`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.767.0) |
 
+An area file whose **Pinned version** line names `v1.862.0` (commit
+`120415af151593716d39140c8a7d7f3bbe9d99cf`) cites that release as
+`path:line @ v1.862.0`. In such a file a pointer without a version is at
+`v1.767.0`, and a finding that no note re-verifies at `v1.862.0` is verified
+at v1.767.0 only.
+
 The reference claims nothing about other Windmill versions. Where the source
 and the [public documentation](https://www.windmill.dev/docs) disagree, the
 finding follows the source at the pin and notes the disagreement.
@@ -190,8 +196,8 @@ before `out`).
 
 A qualifier in parentheses gives the provenance: `source-traced` (no oracle
 recording yet), `oracle pending` (an open question asks for a recording), or
-`oracle-observed` (recorded on a running Windmill CE `v1.767.0`; see
-[oracle.md](oracle.md)).
+`oracle-observed` (recorded on a running Windmill CE `v1.767.0`, or
+`v1.862.0` where the finding says so; see [oracle.md](oracle.md)).
 
 ### Status
 
