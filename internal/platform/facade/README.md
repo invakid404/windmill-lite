@@ -509,9 +509,10 @@ comparison. An abandoned invocation has no outcome to replace.
       `UnsupportedPlatformCall` quoting the refusal.
 
 On the retarget branch, the stock-client cases that need the client's
-import-time token skip with a retarget-pending marker: `TestAttribution`'s
-two warm runs and its fresh runs, `TestTransportsAgree`, and the fresh run
-of each other test above. Bun 1.4.3 evaluates a module that `import()` loads outside its
+import-time token skip with a retarget-pending marker
+([the retarget ledger](../../../cmd/wltest/README.md#the-retarget-ledger)):
+`TestAttribution`'s two warm runs and its fresh runs, `TestTransportsAgree`,
+and the fresh run of each other test above. Bun 1.4.3 evaluates a module that `import()` loads outside its
 invocation's async context, so the client reads no `WM_TOKEN` at import.
 
 The step cases of [conformance/steps](../../../conformance/README.md) run
