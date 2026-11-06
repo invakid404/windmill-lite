@@ -144,9 +144,9 @@ func TestCommittedRecordingsNameThePinnedOracle(t *testing.T) {
 		t.Fatal("no committed recordings")
 	}
 	for _, bad := range []string{
-		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.767.0-beta"}}`,
-		`{"oracle":{"version":"CE v1.767.0 ","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
-		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillRepo + `:1.767.0","cli":"` + CLIPackage + `"}}`,
+		`{"oracle":{"version":"CE v1.862.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.862.0-beta"}}`,
+		`{"oracle":{"version":"CE v1.862.0 ","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
+		`{"oracle":{"version":"CE v1.862.0","image":"` + WindmillRepo + `:1.862.0","cli":"` + CLIPackage + `"}}`,
 		`{"oracle":{"version":null,"image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
 		`not json`,
 	} {

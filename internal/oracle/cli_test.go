@@ -22,16 +22,16 @@ func TestCLIVersionExact(t *testing.T) {
 		out string
 		ok  bool
 	}{
-		{"CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update.", true},
-		{"1.767.0", true},
-		{"v1.767.0", true},
-		{"wmill 1.767.0\n", true},
-		{"1.767.0-beta", false},
-		{"CLI version: 1.767.0-rc1", false},
-		{"11.767.0", false},
-		{"1.767.01", false},
-		{"1.767.0.1", false},
-		{"CLI version: 1.766.0\nLatest version 1.767.0 is available.", false},
+		{"CLI version: 1.862.0\nCLI is outdated. Latest version 1.870.0 is available. Run `wmill upgrade` to update.", true},
+		{"1.862.0", true},
+		{"v1.862.0", true},
+		{"wmill 1.862.0\n", true},
+		{"1.862.0-beta", false},
+		{"CLI version: 1.862.0-rc1", false},
+		{"11.862.0", false},
+		{"1.862.01", false},
+		{"1.862.0.1", false},
+		{"CLI version: 1.861.0\nLatest version 1.862.0 is available.", false},
 		{"no version here", false},
 		{"", false},
 	} {

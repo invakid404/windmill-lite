@@ -1200,8 +1200,8 @@ type Provenance struct {
 }
 
 // CheckRecordingIdentity requires a recording's provenance to name the
-// pinned reference: oracle.version CE v1.767.0, oracle.image the pinned
-// image and digest, oracle.cli windmill-cli@1.767.0 (OR-15, OR-V5/b). A
+// pinned reference: oracle.version CE v1.862.0, oracle.image the pinned
+// image and digest, oracle.cli windmill-cli@1.862.0 (OR-15, OR-V5/b). A
 // missing, malformed or different identity is refused with
 // recording_identity_mismatch. Dates, timings, the host and the other
 // provenance fields are never checked.

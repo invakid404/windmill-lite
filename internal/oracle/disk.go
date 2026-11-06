@@ -32,7 +32,7 @@ func imageDiskEstimate(image, arch string) uint64 {
 		if arch == "arm64" {
 			return 3_940_469_084
 		}
-		return 3 * 1_373_000_000
+		return 3 * 1_736_000_000
 	case PostgresImage:
 		return 288_118_565
 	}
