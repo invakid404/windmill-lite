@@ -14,7 +14,6 @@ cases:
       The left_behind warning reports the one timeout the fence cleared just
       before the frame that settles the invocation, in both modes (D9), so
       its line is never written.
-    deviation: D9
     script: |
       export async function main() { setTimeout(() => console.log("late"), 2000); return 1; }
     runs:
