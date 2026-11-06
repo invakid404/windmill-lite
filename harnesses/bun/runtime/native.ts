@@ -212,11 +212,11 @@ const REALM_SCRIPT = new vm.Script(`(function () {
 })`, { filename: "windmill-lite:native" });
 
 /** The realm's global object, read by a script compiled once per process
- * and run in each new realm. Under the pinned Bun 1.3.10, every script
- * that node:vm compiles from a string stays reachable after a full
- * collection, so vm.runInContext("globalThis", ctx) kept one per native
- * invocation; running a compiled script in a new context keeps nothing.
- * The global it reads is the same object. */
+ * and run in each new realm. Under Bun 1.3.10, every script that node:vm
+ * compiles from a string stays reachable after a full collection, so
+ * vm.runInContext("globalThis", ctx) kept one per native invocation
+ * (Bun 1.4.3 keeps none); running a compiled script in a new context
+ * keeps nothing. The global it reads is the same object. */
 const GLOBAL_SCRIPT = new vm.Script("globalThis", { filename: "windmill-lite:native" });
 
 /** How many variants of one module Native.compile keeps compiled, one per
