@@ -2,11 +2,11 @@ Vendored Apache-2.0 files from Windmill
 =======================================
 
 The files in this directory are copied, unmodified, from the Windmill
-repository (https://github.com/windmill-labs/windmill) at tag v1.767.0,
-commit 6de4ec0f665ad856002495c4d86269105ec28ad7:
+repository (https://github.com/windmill-labs/windmill) at tag v1.862.0,
+commit 120415af151593716d39140c8a7d7f3bbe9d99cf:
 
   openflow.openapi.yaml  the OpenFlow schema
-                         SHA-256 6e1a84317bff02fefdd0bfee7092dbc46ddb0f1120ce5e039c9ebf8094d138e3
+                         SHA-256 9f4b6d76a05874998de2b0dc8db12ad6f8520df7da2323d065f8b0f8e666972b
   LICENSE-APACHE         the Apache License, Version 2.0, as Windmill ships it
                          SHA-256 a8954535368e7af09e498e8da177941b548f3b04352be3f1550da21162735fe0
 

@@ -1,7 +1,7 @@
 # internal/openflow
 
-**Current state:** implemented (milestone A3 of
-[0012](../../docs/design/0012-layout-and-milestones.md)). The sync-folder
+**Current state:** implemented, per
+[0012](../../docs/design/0012-layout-and-milestones.md). The sync-folder
 loader ([internal/syncfolder](../syncfolder/README.md)) decodes every
 `flow.yaml` with it, and the compiler ([internal/ir](../ir/README.md))
 compiles the decoded model. This README covers `internal/openflow/` and its
@@ -12,7 +12,9 @@ directions ([OF-1](../../docs/semantics/openflow.md#of-1)).
 
 What the package does not do:
 
-- read YAML or a sync folder, or resolve `!inline` references (A2 and A4);
+- read YAML or a sync folder, or resolve `!inline` references
+  ([internal/yamlx](../yamlx/README.md) and
+  [internal/syncfolder](../syncfolder/README.md));
 - apply what a successful deploy adds: the `bun` and `bunnative` switch,
   virtual `<id>-v` steps, the lock policy and validation of out-of-scope
   features, including the refusal of `aiagent` and `flowscript` modules
@@ -133,15 +135,14 @@ quotes it, and are compared with Windmill by substring, as the reference does.
 
 ## Readings the reference does not settle
 
-Each is the smallest reading consistent with the reference; the milestone's
-pull request lists them as open questions.
+Each is the smallest reading consistent with the reference.
 
 - A null `expr` in an ordinary transform counts as absent, as it does in a
   restricted slot.
 - In a restricted slot, a `type` other than `static` or `javascript` is
   rejected with the ordinary transform's message, with one exception: a
   loop's `parallelism` also takes `ai`, as the reference says it decodes
-  ([CF-7/e](../../docs/semantics/conformance.md#cf-7), milestone FU8). The
+  ([CF-7/e](../../docs/semantics/conformance.md#cf-7)). The
   reference says nothing of an `ai` timeout, which stays refused.
 - Within one module, the value decodes first, then the retry check runs, then
   the path check.
@@ -181,9 +182,15 @@ go test -run '^$' -fuzz FuzzDecodeFlowValue ./internal/openflow
 
 ## Vendored schema
 
-`schema/openflow.openapi.yaml` is Windmill's OpenFlow schema at `v1.767.0`,
+`schema/openflow.openapi.yaml` is Windmill's OpenFlow schema at `v1.862.0`,
 unmodified. Windmill licenses its OpenAPI files under Apache-2.0, so the file
 keeps that licence: [`schema/NOTICE`](schema/NOTICE) records its source,
 commit and digest, and `schema/LICENSE-APACHE` is the licence text. These
 files are not covered by the Unlicense of the rest of the repository. Only
 the coverage test reads the schema; no code is generated from it.
+
+On the retarget branch, the decoder still follows Windmill `v1.767.0`, and
+nine properties of this schema are neither decoded nor listed as ignored.
+The coverage walk is therefore skipped with a retarget-pending marker
+([the retarget ledger](../../cmd/wltest/README.md#the-retarget-ledger)); the
+check that the vendored file is unmodified still runs.
