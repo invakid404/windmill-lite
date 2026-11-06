@@ -175,6 +175,12 @@ func (c *compiler) flow(p string) {
 		SameWorker:        v.SameWorker,
 		Timeout:           doc.Timeout,
 	}
+	if v.Timeout != nil {
+		// value.timeout, the flow's wall-clock limit that the v1.862.0
+		// schema adds, is not enforced by the engine yet: the flow is
+		// refused rather than run without it (0001 §5a).
+		c.fail(unsupported(p, "", "value.timeout"))
+	}
 	if v.SkipExpr != nil {
 		out.SkipExpr = compileExpr(expr.SiteSkipExpr, *v.SkipExpr)
 	}
@@ -339,8 +345,9 @@ func (fc *flowCompiler) module(m *openflow.Module, seg conformance.Segment, sc s
 }
 
 // envelope copies the envelope fields that matter at run time. Queue,
-// placement and cleanup fields (priority, debouncing, delete_after_use,
-// delete_after_secs) have no effect and are dropped (0001 §3, OF-12).
+// placement, permission and cleanup fields (priority, debouncing,
+// job_token_scopes, delete_after_use, delete_after_secs) have no effect and
+// are dropped (0001 §3, OF-12).
 func (fc *flowCompiler) envelope(m *openflow.Module, out *Module, sc scope) {
 	if m.Suspend != nil {
 		// Durable suspend is out of scope (FX-39). A suspend on a provided
