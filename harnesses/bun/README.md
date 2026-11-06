@@ -243,7 +243,7 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   it, wherever it is called; once that invocation has settled, `refresh()`
   re-arms nothing. Bun's `util.promisify` form is kept. Handles created outside every invocation, in a process scope, or
   while a step module evaluates are not registered. `node:timers` is
-  patched before any step module imports it. On Bun 1.3.10 the first named
+  patched before any step module imports it. On Bun 1.4.3 the first named
   import of a builtin fixes its named bindings for every later importer:
   in host mode, a host whose own modules import `node:timers` or
   `node:child_process` by name before it connects leaves steps' named
@@ -285,20 +285,20 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 - **Child processes.** `child_process`'s `spawn`, `exec`, `execFile` and
   `fork`, their sync forms, and `Bun.spawn` and `Bun.spawnSync` give a
   child started inside an invocation without an `env` the invocation's
-  view, a plain copy of `process.env`; on Bun 1.3.10 `spawnSync`,
-  `execSync` and `Bun.spawn` would otherwise pass the process's own
-  environment. `util.promisify(exec)` and `util.promisify(execFile)` keep
-  their `{stdout, stderr}` form.
+  view, a plain copy of `process.env`. On Bun 1.4.3 `Bun.spawn` and
+  `Bun.spawnSync` would otherwise pass the environment the process started
+  with. `util.promisify(exec)` and `util.promisify(execFile)` keep their
+  `{stdout, stderr}` form.
 
   **Process groups** ([WR-55](../../docs/semantics/languages.md#wr-55),
   milestone FU6). A Windmill job leads its own process group, which its
   children join unless they start a session of their own; a timeout or a
   cancellation kills the group, and a normal exit kills nothing. On Bun
-  1.3.10 every `node:child_process` function starts its child through
-  `Bun.spawn` or `Bun.spawnSync`, once, with `detached` set only from
-  `spawn` and `fork`, where Bun honours a step's own (it ignores it for
-  `exec`, `execFile` and the sync forms). So the wrappers of the two Bun
-  functions alone register children (a child is counted once) and:
+  1.4.3 every `node:child_process` function starts its child through
+  `Bun.spawn` or `Bun.spawnSync`, once, with `detached` set only where Bun
+  honours a step's own: `spawn`, `fork` and the sync forms (it ignores it
+  for `exec` and `execFile`). So the wrappers of the two Bun functions
+  alone register children (a child is counted once) and:
   - **in a warm or host process** (`setChildGroups(true)`, from the
     welcome), start each child an invocation starts detached, so it leads
     a group of its own that stands for the job's, and register it as
@@ -328,18 +328,19 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     other than the command, is spawned without a guardian, as Bun spawns
     it. A guarded child counts as `child` while its own process runs: its
     guardian keeps the group, so what it left there after it exited is
-    killed with the group but not counted.
-    A synchronous call (`Bun.spawnSync`, and so `spawnSync`, `execSync`
-    and `execFileSync`) gets no group: its child's pid is known only once
-    it has exited, too late to announce, so it stays in the harness's
-    group, which the engine kills when the process ends; what it left
-    running is not attributed or reported;
+    killed with the group but not counted;
   - **in a fresh process**, which the engine spawned as the leader of the
     job's group, leave each child in that group, which the engine waits
     for or kills: `child` is registered, with a release that does nothing;
   - in either, register a child the step started detached (where Bun
     honours it) as `detached`, alive while its group has a process, never
-    killed: it is outside the job's group on Windmill too.
+    killed: it is outside the job's group on Windmill too;
+  - for a synchronous call (`Bun.spawnSync`, and so `spawnSync`,
+    `execSync` and `execFileSync`), give no group: its child's pid is
+    known only once it has exited, too late to announce. Unless the step
+    started it detached, it stays in the harness's group, which the engine
+    kills when the process ends, and what it left there is neither
+    attributed nor reported.
 
   `Bun.$` starts its processes by neither Bun function and is not wrapped.
   windmill-lite has no log limit, WR-55's third kill trigger.
@@ -347,9 +348,10 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `unhandledRejection` handlers that never exit
   ([ADR 0004](../../docs/design/0004-harness-protocol.md), the
   shared-process failure model, item 1). Each error is written to stderr
-  and attributed through the context the handler runs in (item 2): on Bun
-  1.3.10 a throw from a timer keeps its invocation's context, and an
-  unhandled rejection or a microtask's throw has none.
+  and attributed through the context the handler runs in (item 2). On Bun
+  1.4.3 a throw from a timer, or from a `node:fs` or `node:dns` callback,
+  keeps its invocation's context; an unhandled rejection or a microtask's
+  throw has none.
   - In a **running** invocation's context, the error fixes its outcome:
     `escaped`, exit code 1
     ([Q-WR-2](../../docs/semantics/languages.md#q-wr-2)), the error's text
@@ -1044,7 +1046,7 @@ response, an intercepted reply without a body for `HEAD` or a null-body
 status, and a refused platform call), the log view, the `Bun.env` write trap,
 the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
-sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
+sync forms, detached too, and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
 `test/plugin.test.ts` host plugins: the declaration (its run-end trace
 detail included), each hook's answer
