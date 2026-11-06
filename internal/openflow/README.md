@@ -181,7 +181,7 @@ go test -run '^$' -fuzz FuzzDecodeFlowValue ./internal/openflow
 
 ## Vendored schema
 
-`schema/openflow.openapi.yaml` is Windmill's OpenFlow schema at `v1.767.0`,
+`schema/openflow.openapi.yaml` is Windmill's OpenFlow schema at `v1.862.0`,
 unmodified. Windmill licenses its OpenAPI files under Apache-2.0, so the file
 keeps that licence: [`schema/NOTICE`](schema/NOTICE) records its source,
 commit and digest, and `schema/LICENSE-APACHE` is the licence text. These
