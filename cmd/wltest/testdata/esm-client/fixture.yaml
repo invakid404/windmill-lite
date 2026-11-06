@@ -1,6 +1,6 @@
 # windmill-client under shared code. Codebase scripts of two entries, one
 # CommonJS (the default format) and one format esm, import the stock
-# windmill-client 1.767.0, whose import condition names an ES module entry
+# windmill-client 1.862.0, whose import condition names an ES module entry
 # (dist/index.mjs) that re-exports its services. One step takes a named
 # import and one a namespace import; each reads JobService.getJob, as in
 # its per-script bundle, in every mode: warm, fresh and host, and warm and
