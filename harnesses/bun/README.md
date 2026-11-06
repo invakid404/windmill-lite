@@ -248,12 +248,20 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   (`node:net` and `node:http`'s own) set are part of a socket, which runs
   on (D9), so the fence leaves them alone. On Bun 1.4.3 they time a
   socket's idle time and its connection attempts, close a destroyed
-  socket's handle and track a server's connections. The fence tells them
-  by the caller's file, without running the step's
-  `Error.prepareStackTrace`. JavaScriptCore drops the frame of a function
-  that returns a call, so a timer a step's callback sets so escapes the
-  fence when one of those modules calls the callback directly
-  (`net.connect`'s `lookup` or `onread`, an agent's `createConnection`).
+  socket's handle and track a server's connections.
+  - The fence tells them by the file and function of the frame that calls
+    the timer function: `node:net`'s `setTimeout`, `closeSocketHandle`
+    and `internalConnectMultiple`, and `node:_http_server`'s `setTimeout`
+    and `setupConnectionsTracking`.
+  - The module alone would not do: JavaScriptCore drops the frame of a
+    function that ends by returning a call, so a step's `net.connect`
+    `lookup` callback that returns `setTimeout(…)` shows `node:net` as
+    the caller. Its timer stays fenced.
+  - Reading the frame runs none of the step's code. The fence assigns
+    `Error.prepareStackTrace` and `Error.stackTraceLimit` for the capture
+    only while each is a writable data property, and puts them back. A
+    step that made one an accessor, read-only or removed gets every timer
+    fenced, a socket's included.
 - **The log view.** Inside an invocation, `console`'s methods and
   `process.stdout.write` and `process.stderr.write` write to the
   invocation's log (`InvocationLog`). A console call is formatted by a
