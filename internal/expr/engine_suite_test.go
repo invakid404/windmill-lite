@@ -47,23 +47,28 @@ var engineDeviations = map[string]struct{ deviation, text string }{
 }
 
 // enginePending are the E3a cases, by key, whose error text as CE 1.862.0
-// records it the evaluator does not give yet, each with its retarget
-// marker (cmd/wltest/README.md, "The retarget ledger"). On the retarget
+// records it, or whose outcome as the reference now gives it, the
+// evaluator does not give yet, each with its retarget marker
+// (cmd/wltest/README.md, "The retarget ledger"). On the retarget
 // branch such a case still runs: a failure skips it with the marker, and a
 // pass fails it, since the marker then hides nothing.
 var enginePending = map[string]string{
-	"exprs je-14 je-14-a":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-15 je-15-h":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-21 je-21-a":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-22 je-22-d":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-23 je-23-d":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-24 je-24-d":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-48 je-48-b":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-48 je-48-d":            "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-5 je-5-b":              "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"exprs je-7 je-7-g":              "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"flows cf/cf-19 cf19-b m:c x":    "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
-	"flows je/shortcuts je9-b m:b x": "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-14 je-14-a":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-15 je-15-h":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-21 je-21-a":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-22 je-22-d":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-23 je-23-d":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-24 je-24-d":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-48 je-48-b":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-48 je-48-d":             "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-5 je-5-b":               "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"exprs je-7 je-7-g":               "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"flows cf/cf-19 cf19-b m:c x":     "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"flows je/shortcuts je9-b m:b x":  "retarget-pending: W6f the evaluator gives v1.767.0's QuickJS frames and columns, where CE 1.862.0's expression wrapper records others",
+	"flows je/shortcuts je12 m:b_a x": "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
+	"flows je/shortcuts je12 m:b_c x": "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
+	"flows je/shortcuts je12-d m:b x": "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
+	"flows je/shortcuts je9-l m:b x":  "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
 }
 
 // TestE3aOnEngine is the exit gate of B2b: each E3a case gives the value,

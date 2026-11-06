@@ -13,9 +13,9 @@ model and deployment), [execution.md](execution.md) (flow execution),
 [client-api.md](client-api.md) (the client surface); the licence position is in
 [licensing.md](licensing.md#oracle-image). Oracle findings use the `OR-` prefix.
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`) for the findings whose dated revision says they were re-verified there; every other finding is **verified at v1.767.0 only** (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
+A source pointer names its version, `path:line @ v1.862.0`; a pointer without one is `@ v1.767.0`.
+Pointers are relative to the Windmill repository root. Status, scope and confidence tags are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `OR-` oracle findings (they use `OR-` because
 [openflow.md](openflow.md) keeps `OF-`); `OR-Vn` findings were added during
@@ -2474,7 +2474,7 @@ validation. Open questions are `Q-OR-n`.
     iteration transforms read `flow_input.iter.index` and
     `flow_input.iter.value`. The literal `iter.value` fails at the
     iteration's first step with
-    ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:39)\n"}}``
+    ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:68)\n"}}``
     and no `step_id`: that step has empty args, the iteration's later steps
     do not run, and the loop and the flow fail with the iteration results,
     `[{"error": …}]`.
@@ -2503,6 +2503,7 @@ validation. Open questions are `Q-OR-n`.
   with the error above (runs `loop_seq_multi`, `loop_seq_multi_bare`,
   `loop_par`, `branchone_5`, `branchone_50`, `branchone_m1`).
   [Q-OR-16](#q-or-16) is answered.
+- **Revision 2026-11-06 (v1.862.0):** the recorded message's second frame follows the v1.862.0 expression wrapper ([JE-21](expressions.md#je-21)): `at <anonymous> (eval_script:1:68)`, where v1.767.0 recorded `at <eval> (eval_script:1:39)` (oracle run 42243035193). The rest of the finding is verified at v1.767.0 only.
 
 <a id="probe-catalogue"></a>
 ## Probe catalogue

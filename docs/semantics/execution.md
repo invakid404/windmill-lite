@@ -11,9 +11,9 @@ between steps. Loops and branches are specified in
 [client-api.md](client-api.md), and the oracle harness in
 [oracle.md](oracle.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`) for the findings whose dated revision says they were re-verified there; every other finding is **verified at v1.767.0 only** (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
+A source pointer names its version, `path:line @ v1.862.0`; a pointer without one is `@ v1.767.0`.
+Pointers are relative to the Windmill repository root. Status, scope and confidence tags are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `FX-` flow execution; `FX-Vn` findings were
 added during validation.
@@ -1094,7 +1094,7 @@ run of batch E3f in the [design README](../design/README.md).
   error: ` followed by the engine's rendering of the thrown value and its
   stack frames ([expressions.md](expressions.md#je-21)). Recorded for
   `flow_input.a.b.c` with input `{}`:
-  `` Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n ``
+  `` Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:74)\n ``
   (the frame columns depend on the expression and its wrapper; the text
   ends in a newline). A transform error inside a simple loop
   iteration has the prefix `could not transform input using an expr: `
@@ -1136,6 +1136,7 @@ run of batch E3f in the [design README](../design/README.md).
   40926159329): the failed attempt is the subflow's `Flow` job with args
   `{}` and the transform's `ExecutionErr`, none of its modules ran, and the
   retry ran the subflow with `{}`. New case FX-14/c.
+- **Revision 2026-11-06 (v1.862.0):** the recorded text's second frame follows the v1.862.0 expression wrapper ([JE-21](expressions.md#je-21)): `at <anonymous> (eval_script:1:74)`, where v1.767.0 recorded `at <eval> (eval_script:1:45)` (oracle run 42243035193). The rest of the finding is verified at v1.767.0 only.
 
 <a id="fx-15"></a>
 ### FX-15 · Chaining errors: three contexts
@@ -1210,7 +1211,7 @@ run of batch E3f in the [design README](../design/README.md).
   - `Expected a number value, had error instead: <debug>` (the sleep
     expression threw). `<debug>` is the debug rendering of the evaluation
     error, its quotes and newlines escaped, for example
-    `` ExecutionErr("Error during evaluation of expression `results.a`:\nQuickJS evaluation error: Error: results is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:46)\n") ``,
+    `` ExecutionErr("Error during evaluation of expression `results.a`:\nQuickJS evaluation error: Error: results is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:67)\n") ``,
     where `\n` is two characters and the inner prefix says `evaluation`,
     not `isolated evaluation`.
   - predicate engine errors: `<evaluator text>` is `QuickJS evaluation
@@ -1218,7 +1219,7 @@ run of batch E3f in the [design README](../design/README.md).
 
   Recorded examples (`skip_if: {expr: "null.x"}` unless stated; `<loc>`
   includes its leading space, and the engine text ends in a newline):
-  - context 1: `Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n<loc>`,
+  - context 1: `Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n<loc>`,
     name `InternalError`;
   - context 3: the same text with a second `Error: ` in front and a second
     `<loc>` at the end, name `Anyhow`;
@@ -1251,6 +1252,7 @@ run of batch E3f in the [design README](../design/README.md).
   `conformance/flows/execution/fx-8`, run `sleep_no_results`, oracle run
   40686049913). Added the doubled prefix and suffix at a pickup and the
   recorded texts ([Q-FX-13](#q-fx-13)).
+- **Revision 2026-11-06 (v1.862.0):** the recorded examples' frames follow the v1.862.0 expression wrapper ([JE-21](expressions.md#je-21)): context 1's `null.x` gives `at <anonymous> (eval_script:1:64)` and `at <anonymous> (eval_script:1:73)`, where v1.767.0 recorded `at <anonymous> (eval_script:1:35)` and `at <eval> (eval_script:1:44)`, and the `sleep` example's second frame is `at <anonymous> (eval_script:1:67)`, where v1.767.0 recorded `at <eval> (eval_script:1:46)` (oracle run 42243035193). The contexts and their prefixes are verified at v1.767.0 only.
 
 <a id="fx-16"></a>
 ### FX-16 · `identity` module

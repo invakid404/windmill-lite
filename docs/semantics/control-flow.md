@@ -11,9 +11,9 @@ cancellation) are in [execution.md](execution.md). The expression engine is
 in [expressions.md](expressions.md), and per-language error and result shapes
 are in [languages.md](languages.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`) for the findings whose dated revision says they were re-verified there; every other finding is **verified at v1.767.0 only** (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
+A source pointer names its version, `path:line @ v1.862.0`; a pointer without one is `@ v1.767.0`.
+Pointers are relative to the Windmill repository root. Status, scope and confidence tags are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `CF-` control-flow findings; `CF-Vn` findings were added during validation.
 
@@ -1002,7 +1002,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     `Error: QuickJS evaluation error: Error: <engine message>`, a newline,
     the engine frame lines, then ` @<file>.rs:<line>:<col>`. Recorded:
     ``Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'`` followed by
-    `\n    at eval_script:1:7\n @worker_flow.rs:2451:11`.
+    `\n    at eval_script:1:36\n @worker_flow.rs:2666:11` on CE v1.862.0
+    (`\n    at eval_script:1:7\n @worker_flow.rs:2451:11` on v1.767.0).
   - **Not evaluated** for empty containers (empty iterator, empty loop body,
     zero-branch branchall; [CF-V2](#cf-v2)) or for `branchone`.
 - **Evidence:** `worker_flow.rs:342-407`
@@ -1021,6 +1022,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   says where that object sits (carried by the failed step, the flow's
   result) and gives the recorded `<cause>` form (fixture
   `conformance/flows/control-flow/cf-13`, run `b`).
+- **Revision 2026-11-06 (v1.862.0):** the recorded syntax error's column follows the v1.862.0 expression wrapper ([JE-21](expressions.md#je-21)), and its location suffix moved (oracle run 42243035193); the rest of the finding is verified at v1.767.0 only.
 
 <a id="cf-14"></a>
 ### CF-14 · `branchone`
