@@ -32,7 +32,7 @@ import (
 // this process, so that they read each run's trace and the engine's CPU
 // time:
 //
-//   - host: a warm Bun 1.3.10 host in host mode, testdata/benchhost/host.ts
+//   - host: a warm Bun 1.4.3 host in host mode, testdata/benchhost/host.ts
 //     compiled with `bun build --compile`, which embeds the host SDK; the
 //     SDK starts its engine as its child, as it always does, and that
 //     child is this test binary as an engine proxy (benchProxy), which
@@ -494,9 +494,9 @@ func benchSetup(b testing.TB) string {
 		// A benchmark run asks for figures: a skip, which go test reports
 		// as a pass with no rows, would hide that it measured nothing.
 		if _, benchmark := b.(*testing.B); benchmark || os.Getenv("WL_REQUIRE_BUN") != "" {
-			b.Fatal("WL_BUN is not set: export it, naming the pinned Bun 1.3.10")
+			b.Fatal("WL_BUN is not set: export it, naming the pinned Bun 1.4.3")
 		}
-		b.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
+		b.Skip("WL_BUN is not set; it names the pinned Bun 1.4.3")
 	}
 	benchOnce.Do(func() {
 		if benchDir, benchErr = os.MkdirTemp("", "wl-bench-"); benchErr != nil {

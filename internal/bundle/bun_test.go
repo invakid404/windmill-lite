@@ -45,7 +45,7 @@ func TestBuildIsReproducible(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.BunVersion != "1.3.10" || res.NonconformantRuntime {
+		if res.BunVersion != "1.4.3" || res.NonconformantRuntime {
 			t.Errorf("runtime %s, nonconformant %v", res.BunVersion, res.NonconformantRuntime)
 		}
 		tree := map[string]string{}

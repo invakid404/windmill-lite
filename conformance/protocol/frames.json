@@ -19,7 +19,7 @@
           "kind": "bun",
           "version": "0.0.0-c1"
         },
-        "runtime": "1.3.10",
+        "runtime": "1.4.3",
         "caps": {
           "fetch": false,
           "native": false,
@@ -29,7 +29,7 @@
         "bundle": "sha256:00ff",
         "pid": 4242
       },
-      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":false,\"native\":false,\"fresh\":false,\"host\":false},\"bundle\":\"sha256:00ff\",\"pid\":4242}"
+      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":false,\"native\":false,\"fresh\":false,\"host\":false},\"bundle\":\"sha256:00ff\",\"pid\":4242}"
     },
     {
       "case": "hello-host-workdir",
@@ -41,7 +41,7 @@
           "kind": "bun",
           "version": "0.0.0-c1"
         },
-        "runtime": "1.3.10",
+        "runtime": "1.4.3",
         "caps": {
           "fetch": true,
           "native": true,
@@ -52,7 +52,7 @@
         "pid": 4242,
         "workdir": "/srv/host"
       },
-      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\"}"
+      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\"}"
     },
     {
       "case": "hello-host-plugin",
@@ -64,7 +64,7 @@
           "kind": "bun",
           "version": "0.0.0-c1"
         },
-        "runtime": "1.3.10",
+        "runtime": "1.4.3",
         "caps": {
           "fetch": true,
           "native": true,
@@ -86,7 +86,7 @@
           "on_run_end": true
         }
       },
-      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\",\"plugin\":{\"intercept\":[{\"selector\":{\"flow\":\"f/x\",\"module\":\"a\"}}],\"on_run_end\":true}}"
+      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\",\"plugin\":{\"intercept\":[{\"selector\":{\"flow\":\"f/x\",\"module\":\"a\"}}],\"on_run_end\":true}}"
     },
     {
       "case": "welcome-config",
@@ -114,10 +114,10 @@
         "bundle": "sha256:00ff",
         "reject": {
           "code": "runtime_mismatch",
-          "message": "runtime \"1.4.2\", the bundle pins \"1.3.10\""
+          "message": "runtime \"1.4.2\", the bundle pins \"1.4.3\""
         }
       },
-      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"(devel)\",\"bundle\":\"sha256:00ff\",\"reject\":{\"code\":\"runtime_mismatch\",\"message\":\"runtime \\\"1.4.2\\\", the bundle pins \\\"1.3.10\\\"\"}}"
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"(devel)\",\"bundle\":\"sha256:00ff\",\"reject\":{\"code\":\"runtime_mismatch\",\"message\":\"runtime \\\"1.4.2\\\", the bundle pins \\\"1.4.3\\\"\"}}"
     },
     {
       "case": "invoke",
@@ -1464,7 +1464,7 @@
       "case": "hello-workdir-not-string",
       "title": "a hello's workdir is a string",
       "frames": [
-        "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"workdir\":7}"
+        "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"workdir\":7}"
       ],
       "error": "bad_field"
     },
@@ -1472,7 +1472,7 @@
       "case": "hello-plugin-not-object",
       "title": "a hello's plugin is an object",
       "frames": [
-        "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"plugin\":[]}"
+        "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"plugin\":[]}"
       ],
       "error": "bad_field"
     },

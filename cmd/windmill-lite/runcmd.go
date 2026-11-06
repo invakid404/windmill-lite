@@ -26,7 +26,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	argText := fs.String("args", "{}", "the run's arguments: a JSON object, or @`file` holding one")
 	kind := fs.String("kind", wl.KindFlow, "what path names: flow or script")
 	id := fs.String("id", "", "the run's job `id` (default: a new UUID)")
-	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun `executable`, which must be Bun 1.3.10 (default $WL_BUN, or bun)")
+	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun `executable`, which must be Bun 1.4.3 (default $WL_BUN, or bun)")
 	runtime := fs.String("harness-runtime", os.Getenv("WL_HARNESS_RUNTIME"), "the Bun harness runtime `directory` the bundle was built for (default $WL_HARNESS_RUNTIME)")
 	mode := fs.String("module-state", "", "the module-state `mode`, warm or fresh (default: the bundle's)")
 	data := fs.String("data", "", "the data `directory` the runtime writes into (default: a temporary one, removed afterwards)")

@@ -87,7 +87,7 @@ jobs:
         id: bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.3
 
       - name: Set up Node
         # Deviation D13's Node side (conformance/steps/bun/d13.yaml, run by
@@ -245,7 +245,7 @@ jobs:
         # (harnesses/npm/test/check.sh): npm pack, the packed file list
         # and manifest, bun add into an empty project, tsc on an import of
         # windmill-lite/bun, the test entry windmill-lite/bun/testing on
-        # Bun 1.3.10 and on Node 22, and a smoke host against the engine
+        # Bun 1.4.3 and on Node 22, and a smoke host against the engine
         # of this commit, stamped with the package's version as a release
         # stamps it, which an engine of another version must refuse.
         env:
@@ -327,7 +327,7 @@ jobs:
         id: bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.3
 
       - name: Install the build helper's dependencies
         working-directory: harnesses/bun/build
@@ -479,7 +479,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.3
 
       - name: Install the build helper's dependencies
         working-directory: harnesses/bun/build
@@ -493,7 +493,7 @@ jobs:
     # A host that vendors the Bun host SDK as source (ADR 0009) typechecks
     # it with its own program. This job typechecks harnesses/bun/host and
     # harnesses/bun/runtime as such a host does, against the type
-    # declarations of the pinned Bun (@types/bun 1.3.10, pinned with
+    # declarations of the pinned Bun (@types/bun 1.4.3, pinned with
     # TypeScript in harnesses/bun/test/typecheck), with and without the DOM
     # library, in strict and in non-strict mode. It does so twice: with the
     # newest @types/node and with the oldest one a host is expected to use
@@ -511,7 +511,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.3
 
       - name: Install TypeScript and the type declarations, newest @types/node
         working-directory: harnesses/bun/test/typecheck

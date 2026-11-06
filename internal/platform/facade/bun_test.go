@@ -21,7 +21,7 @@ import (
 )
 
 // The attribution test of ADR 0007, milestone PF1's exit gate, on the
-// pinned Bun 1.3.10 with the stock windmill-client@1.767.0:
+// pinned Bun 1.4.3 with the stock windmill-client@1.767.0:
 //
 //   - two runs at once, in one warm process, with the client first
 //     imported during the first run's module load: every call of each run

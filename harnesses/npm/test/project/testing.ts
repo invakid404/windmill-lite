@@ -5,7 +5,7 @@
 // and nested steps, a thenable that a step returns, and the invocation
 // query.
 //
-// check.sh runs it on Bun 1.3.10, and on Node 22 or newer as the
+// check.sh runs it on Bun 1.4.3, and on Node 22 or newer as the
 // JavaScript that tsc emits from it (tsconfig.node.json). On Node no Bun
 // global exists, so a pass there shows that the entry needs none. It runs
 // every check, prints each failure, and exits 1 if any check failed.
