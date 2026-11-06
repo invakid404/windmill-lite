@@ -62,7 +62,9 @@
         "workspace_id": "<env:WM_WORKSPACE>",
         "permissioned_as": "<env:WM_PERMISSIONED_AS>"
       },
-      "extra": [],
+      "extra": [
+        "job.resolved"
+      ],
       "top/l": {
         "id": "<job:m:l/i:1>",
         "args": {
@@ -180,7 +182,7 @@
               "modules": [
                 {
                   "id": "l",
-                  "job": "<job:m:l/i:0>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "iterator": {
                     "index": 0,
@@ -373,7 +375,7 @@
               "modules": [
                 {
                   "id": "l",
-                  "job": "<job:m:l/i:0>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "iterator": {
                     "index": 0,
@@ -519,7 +521,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/l": {
             "id": "<job:m:l/i:1>",
             "args": {
@@ -637,7 +641,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<job:m:l/i:0>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -830,7 +834,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<job:m:l/i:0>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -985,7 +989,7 @@
                 "modules": [
                   {
                     "id": "l",
-                    "job": "<job:m:l/i:0>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "iterator": {
                       "index": 0,
@@ -1134,7 +1138,7 @@
               "modules": [
                 {
                   "id": "l",
-                  "job": "<job:m:l/i:0>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "iterator": {
                     "index": 0,
@@ -1217,19 +1221,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261104072209-8a73d738d216",
-      "revision": "8a73d738d216c5eb27dc11f4bd844b648433b9cc",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -1237,62 +1241,62 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41791783623"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-11-04T07:24:59Z",
+    "recorded_at": "2026-11-06T15:29:43Z",
     "workers": 2,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:44315"
+      "WL_EFFECT_SINK": "http://host.docker.internal:39015"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 3208,
+      "submit_to_complete_ms": 3013,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-04T07:24:55.833281Z",
-          "started_at": "2026-11-04T07:24:55.839386Z",
-          "completed_at": "2026-11-04T07:24:58.873391Z",
-          "duration_ms": 3034
+          "created_at": "2026-11-06T15:29:40.105411Z",
+          "started_at": "2026-11-06T15:29:40.124879Z",
+          "completed_at": "2026-11-06T15:29:43.029581Z",
+          "duration_ms": 2905
         },
         "m:after": {
           "kind": "script",
-          "created_at": "2026-11-04T07:24:58.812780Z",
-          "started_at": "2026-11-04T07:24:58.834277Z",
-          "completed_at": "2026-11-04T07:24:58.870082Z",
-          "duration_ms": 33
+          "created_at": "2026-11-06T15:29:42.955271Z",
+          "started_at": "2026-11-06T15:29:42.996830Z",
+          "completed_at": "2026-11-06T15:29:43.026052Z",
+          "duration_ms": 26
         },
         "m:l/i:0": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T07:24:55.841069Z",
-          "started_at": "2026-11-04T07:24:55.845057Z",
-          "completed_at": "2026-11-04T07:24:55.888055Z",
-          "duration_ms": 43
+          "created_at": "2026-11-06T15:29:40.127935Z",
+          "started_at": "2026-11-06T15:29:40.133579Z",
+          "completed_at": "2026-11-06T15:29:40.189358Z",
+          "duration_ms": 56
         },
         "m:l/i:0/m:s": {
           "kind": "script",
-          "created_at": "2026-11-04T07:24:55.849665Z",
-          "started_at": "2026-11-04T07:24:55.851848Z",
-          "completed_at": "2026-11-04T07:24:55.884590Z",
-          "duration_ms": 31
+          "created_at": "2026-11-06T15:29:40.142988Z",
+          "started_at": "2026-11-06T15:29:40.152665Z",
+          "completed_at": "2026-11-06T15:29:40.184858Z",
+          "duration_ms": 28
         },
         "m:l/i:1": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T07:24:55.841069Z",
-          "started_at": "2026-11-04T07:24:58.779641Z",
-          "completed_at": "2026-11-04T07:24:58.808978Z",
-          "duration_ms": 29
+          "created_at": "2026-11-06T15:29:40.127935Z",
+          "started_at": "2026-11-06T15:29:42.923530Z",
+          "completed_at": "2026-11-06T15:29:42.948171Z",
+          "duration_ms": 25
         },
         "m:l/i:1/m:s": {
           "kind": "script",
-          "created_at": "2026-11-04T07:24:58.783811Z",
-          "started_at": "2026-11-04T07:24:58.787786Z",
-          "completed_at": "2026-11-04T07:24:58.806Z",
-          "duration_ms": 16
+          "created_at": "2026-11-06T15:29:42.928513Z",
+          "started_at": "2026-11-06T15:29:42.931844Z",
+          "completed_at": "2026-11-06T15:29:42.945391Z",
+          "duration_ms": 11
         }
       }
     }

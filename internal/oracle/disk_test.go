@@ -18,7 +18,7 @@ func TestRefusalForms(t *testing.T) {
 		want string
 	}{
 		// spec: OR-1/b
-		{"OR-1/b", ErrVersionMismatch("EE v1.767.0"), `{"error":"oracle_version_mismatch","got":"EE v1.767.0"}`},
+		{"OR-1/b", ErrVersionMismatch("EE v1.862.0"), `{"error":"oracle_version_mismatch","got":"EE v1.862.0"}`},
 		// spec: OR-5/a
 		{"OR-5/a", ErrRequiresWorkers(2, 1), `{"error":"fixture_requires_workers","need":2,"have":1}`},
 		// spec: OR-16/c
@@ -63,10 +63,10 @@ func TestPullNeed(t *testing.T) {
 		t.Error("nothing missing needs nothing")
 	}
 	got := PullNeed([]string{WindmillImage, PostgresImage}, "amd64")
-	if want := uint64(3*1_373_000_000+288_118_565) + TransientMargin; got != want {
+	if want := uint64(3*1_737_000_000+288_118_565) + TransientMargin; got != want {
 		t.Errorf("amd64 need %d, want %d", got, want)
 	}
-	if got := PullNeed([]string{WindmillImage}, "arm64"); got != 3_940_469_084+TransientMargin {
+	if got := PullNeed([]string{WindmillImage}, "arm64"); got != 3*1_669_000_000+TransientMargin {
 		t.Errorf("arm64 need %d", got)
 	}
 }

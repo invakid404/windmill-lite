@@ -195,6 +195,10 @@ func TestCLIParity(t *testing.T) {
 	defer cancel()
 	version, err := cli.Version(ctx)
 	if err != nil {
+		var r *oracle.Refusal
+		if errors.As(err, &r) && r.Code == "cli_version_mismatch" {
+			t.Skip("retarget-pending: W7a the parity workflow still runs windmill-cli 1.767.0, which the oracle's CLI pin 1.862.0 refuses, until it moves to 1.862.0 with esbuild 0.28.2")
+		}
 		t.Fatalf("the CLI: %v (%s)", err, version)
 	}
 	t.Logf("CLI: %s", version)

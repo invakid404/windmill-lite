@@ -89,7 +89,10 @@
         "workspace_id": "<env:WM_WORKSPACE>",
         "permissioned_as": "<env:WM_PERMISSIONED_AS>"
       },
-      "extra": [],
+      "extra": [
+        "flow_status.no_inherited_flow_env",
+        "job.resolved"
+      ],
       "top/ba": {
         "id": "<job:m:ba/b:4>",
         "args": {},
@@ -258,7 +261,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
           }
         },
         "success": true,
@@ -421,7 +424,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
           }
         },
         "success": true,
@@ -526,7 +529,7 @@
               "modules": [
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -586,7 +589,10 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "flow_status.no_inherited_flow_env",
+            "job.resolved"
+          ],
           "top/ba/0": {
             "id": "<job:m:ba/b:0>",
             "args": {},
@@ -1433,7 +1439,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
           }
         },
         "success": false,
@@ -1561,7 +1567,7 @@
               "modules": [
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -1621,7 +1627,10 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "flow_status.no_inherited_flow_env",
+            "job.resolved"
+          ],
           "top/ba/0": {
             "id": "<job:m:ba/b:0>",
             "args": {},
@@ -2521,7 +2530,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
           }
         },
         "success": false,
@@ -2641,7 +2650,10 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "flow_status.no_inherited_flow_env",
+            "job.resolved"
+          ],
           "top/ba": {
             "id": "<job:m:ba/b:4>",
             "args": {},
@@ -2810,7 +2822,7 @@
             "result": {
               "error": {
                 "name": "ExecutionErr",
-                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
               }
             },
             "success": true,
@@ -2973,7 +2985,7 @@
             "result": {
               "error": {
                 "name": "ExecutionErr",
-                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
               }
             },
             "success": true,
@@ -3078,7 +3090,7 @@
                   "modules": [
                     {
                       "id": "ba",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -3138,7 +3150,10 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "flow_status.no_inherited_flow_env",
+                "job.resolved"
+              ],
               "top/ba/0": {
                 "id": "<job:m:ba/b:0>",
                 "args": {},
@@ -3985,7 +4000,7 @@
             "result": {
               "error": {
                 "name": "ExecutionErr",
-                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
               }
             },
             "success": false,
@@ -4113,7 +4128,7 @@
                   "modules": [
                     {
                       "id": "ba",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -4173,7 +4188,10 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "flow_status.no_inherited_flow_env",
+                "job.resolved"
+              ],
               "top/ba/0": {
                 "id": "<job:m:ba/b:0>",
                 "args": {},
@@ -5073,7 +5091,7 @@
             "result": {
               "error": {
                 "name": "ExecutionErr",
-                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+                "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
               }
             },
             "success": false,
@@ -5113,7 +5131,7 @@
           {
             "error": {
               "name": "ExecutionErr",
-              "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+              "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
             }
           },
           "pure",
@@ -5131,7 +5149,7 @@
           {
             "error": {
               "name": "ExecutionErr",
-              "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+              "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
             }
           },
           {
@@ -5200,7 +5218,7 @@
                 "modules": [
                   {
                     "id": "ba",
-                    "job": "<one of flow_jobs>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "parallel": true,
                     "branchall": {
@@ -5260,7 +5278,10 @@
               "workspace_id": "<env:WM_WORKSPACE>",
               "permissioned_as": "<env:WM_PERMISSIONED_AS>"
             },
-            "extra": [],
+            "extra": [
+              "flow_status.no_inherited_flow_env",
+              "job.resolved"
+            ],
             "top/ba/0": {
               "id": "<job:m:ba/b:0>",
               "args": {},
@@ -6036,7 +6057,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
           }
         }
       },
@@ -6129,7 +6150,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:51)\n"
+            "message": "Error during isolated evaluation of expression `flow_input.nope.deeper`:\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:80)\n"
           }
         }
       },
@@ -6209,7 +6230,7 @@
               "modules": [
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -6269,7 +6290,10 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "flow_status.no_inherited_flow_env",
+            "job.resolved"
+          ],
           "top/ba/0": {
             "id": "<job:m:ba/b:0>",
             "args": {},
@@ -6984,19 +7008,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261104133521-14c5b688b493",
-      "revision": "14c5b688b4935d62c24469710a235b3436b69c28",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -7004,244 +7028,244 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41839478258"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-11-04T13:40:53Z",
+    "recorded_at": "2026-11-06T15:30:50Z",
     "workers": 2,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:35343"
+      "WL_EFFECT_SINK": "http://host.docker.internal:39015"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 10611,
+      "submit_to_complete_ms": 12412,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:43.207643Z",
-          "started_at": "2026-11-04T13:40:43.241228Z",
-          "completed_at": "2026-11-04T13:40:53.790698Z",
-          "duration_ms": 10549
+          "created_at": "2026-11-06T15:30:38.013608Z",
+          "started_at": "2026-11-06T15:30:38.036097Z",
+          "completed_at": "2026-11-06T15:30:50.375498Z",
+          "duration_ms": 12339
         },
         "m:after": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:53.634063Z",
-          "started_at": "2026-11-04T13:40:53.674844Z",
-          "completed_at": "2026-11-04T13:40:53.784240Z",
-          "duration_ms": 107
+          "created_at": "2026-11-06T15:30:50.298643Z",
+          "started_at": "2026-11-06T15:30:50.315381Z",
+          "completed_at": "2026-11-06T15:30:50.370996Z",
+          "duration_ms": 53
         },
         "m:ba/b:0": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.264949Z",
-          "completed_at": "2026-11-04T13:40:53.396161Z",
-          "duration_ms": 10131
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.061272Z",
+          "completed_at": "2026-11-06T15:30:48.147058Z",
+          "duration_ms": 10086
         },
         "m:ba/b:0/m:a0": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.267527Z",
-          "started_at": "2026-11-04T13:40:43.311210Z",
-          "completed_at": "2026-11-04T13:40:43.347415Z",
-          "duration_ms": 33
+          "created_at": "2026-11-06T15:30:38.062907Z",
+          "started_at": "2026-11-06T15:30:38.095909Z",
+          "completed_at": "2026-11-06T15:30:38.115774Z",
+          "duration_ms": 17
         },
         "m:ba/b:0/m:s": {
           "kind": "identity",
-          "created_at": "2026-11-04T13:40:43.361852Z",
-          "started_at": "2026-11-04T13:40:53.389032Z",
-          "completed_at": "2026-11-04T13:40:53.391686Z",
+          "created_at": "2026-11-06T15:30:38.125141Z",
+          "started_at": "2026-11-06T15:30:48.133323Z",
+          "completed_at": "2026-11-06T15:30:48.143214Z",
           "duration_ms": 0
         },
         "m:ba/b:1": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.269427Z",
-          "completed_at": "2026-11-04T13:40:53.362351Z",
-          "duration_ms": 10093
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.065438Z",
+          "completed_at": "2026-11-06T15:30:48.139649Z",
+          "duration_ms": 10074
         },
         "m:ba/b:1/m:a1": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.271807Z",
-          "started_at": "2026-11-04T13:40:43.312333Z",
-          "completed_at": "2026-11-04T13:40:43.347463Z",
-          "duration_ms": 33
+          "created_at": "2026-11-06T15:30:38.067168Z",
+          "started_at": "2026-11-06T15:30:38.099696Z",
+          "completed_at": "2026-11-06T15:30:38.116105Z",
+          "duration_ms": 14
         },
         "m:ba/b:1/m:m": {
           "kind": "identity",
-          "created_at": "2026-11-04T13:40:43.353340Z",
-          "started_at": "2026-11-04T13:40:53.355323Z",
-          "completed_at": "2026-11-04T13:40:53.358028Z",
+          "created_at": "2026-11-06T15:30:38.119568Z",
+          "started_at": "2026-11-06T15:30:48.130797Z",
+          "completed_at": "2026-11-06T15:30:48.133258Z",
           "duration_ms": 0
         },
         "m:ba/b:2": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.273635Z",
-          "completed_at": "2026-11-04T13:40:53.405999Z",
-          "duration_ms": 10132
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.069580Z",
+          "completed_at": "2026-11-06T15:30:48.183758Z",
+          "duration_ms": 10114
         },
         "m:ba/b:2/m:a2": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.275962Z",
-          "started_at": "2026-11-04T13:40:43.347822Z",
-          "completed_at": "2026-11-04T13:40:43.385406Z",
-          "duration_ms": 33
+          "created_at": "2026-11-06T15:30:38.071089Z",
+          "started_at": "2026-11-06T15:30:38.115752Z",
+          "completed_at": "2026-11-06T15:30:38.138249Z",
+          "duration_ms": 18
         },
         "m:ba/b:2/m:i": {
           "kind": "identity",
-          "created_at": "2026-11-04T13:40:43.397214Z",
-          "started_at": "2026-11-04T13:40:53.401283Z",
-          "completed_at": "2026-11-04T13:40:53.403198Z",
+          "created_at": "2026-11-06T15:30:38.144781Z",
+          "started_at": "2026-11-06T15:30:48.177824Z",
+          "completed_at": "2026-11-06T15:30:48.179777Z",
           "duration_ms": 0
         },
         "m:ba/b:3": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.277793Z",
-          "completed_at": "2026-11-04T13:40:53.397764Z",
-          "duration_ms": 10120
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.073146Z",
+          "completed_at": "2026-11-06T15:30:48.174984Z",
+          "duration_ms": 10102
         },
         "m:ba/b:3/m:a3": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.280262Z",
-          "started_at": "2026-11-04T13:40:43.348545Z",
-          "completed_at": "2026-11-04T13:40:43.384766Z",
-          "duration_ms": 32
+          "created_at": "2026-11-06T15:30:38.074630Z",
+          "started_at": "2026-11-06T15:30:38.116727Z",
+          "completed_at": "2026-11-06T15:30:38.137152Z",
+          "duration_ms": 17
         },
         "m:ba/b:3/m:t": {
           "kind": "flowscript",
-          "created_at": "2026-11-04T13:40:43.391784Z",
-          "started_at": "2026-11-04T13:40:53.391862Z",
-          "completed_at": "2026-11-04T13:40:53.393601Z",
+          "created_at": "2026-11-06T15:30:38.143056Z",
+          "started_at": "2026-11-06T15:30:48.170103Z",
+          "completed_at": "2026-11-06T15:30:48.171831Z",
           "duration_ms": 2
         },
         "m:ba/b:4": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.282192Z",
-          "completed_at": "2026-11-04T13:40:53.626611Z",
-          "duration_ms": 10344
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.076871Z",
+          "completed_at": "2026-11-06T15:30:50.291377Z",
+          "duration_ms": 12215
         },
         "m:ba/b:4/m:a4": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.455968Z",
-          "started_at": "2026-11-04T13:40:43.499458Z",
-          "completed_at": "2026-11-04T13:40:43.533781Z",
-          "duration_ms": 31
+          "created_at": "2026-11-06T15:30:38.178714Z",
+          "started_at": "2026-11-06T15:30:38.204072Z",
+          "completed_at": "2026-11-06T15:30:38.221485Z",
+          "duration_ms": 15
         },
         "m:ba/b:4/m:c0": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.287311Z",
-          "started_at": "2026-11-04T13:40:43.385024Z",
-          "completed_at": "2026-11-04T13:40:43.451449Z",
-          "duration_ms": 62
+          "created_at": "2026-11-06T15:30:38.080635Z",
+          "started_at": "2026-11-06T15:30:38.137168Z",
+          "completed_at": "2026-11-06T15:30:38.175287Z",
+          "duration_ms": 35
         },
         "m:ba/b:4/m:c1": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.542075Z",
-          "started_at": "2026-11-04T13:40:53.568433Z",
-          "completed_at": "2026-11-04T13:40:53.622332Z",
-          "duration_ms": 51
+          "created_at": "2026-11-06T15:30:38.230777Z",
+          "started_at": "2026-11-06T15:30:50.256232Z",
+          "completed_at": "2026-11-06T15:30:50.287424Z",
+          "duration_ms": 28
         },
         "m:ba/b:5": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.289305Z",
-          "completed_at": "2026-11-04T13:40:53.462240Z",
-          "duration_ms": 10173
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.082609Z",
+          "completed_at": "2026-11-06T15:30:48.189489Z",
+          "duration_ms": 10107
         },
         "m:ba/b:5/m:a5": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.291952Z",
-          "started_at": "2026-11-04T13:40:43.385402Z",
-          "completed_at": "2026-11-04T13:40:43.423943Z",
-          "duration_ms": 35
+          "created_at": "2026-11-06T15:30:38.084125Z",
+          "started_at": "2026-11-06T15:30:38.138694Z",
+          "completed_at": "2026-11-06T15:30:38.159132Z",
+          "duration_ms": 16
         },
         "m:ba/b:5/m:e": {
           "kind": "flowscript",
-          "created_at": "2026-11-04T13:40:43.440805Z",
-          "started_at": "2026-11-04T13:40:53.455131Z",
-          "completed_at": "2026-11-04T13:40:53.458603Z",
-          "duration_ms": 3
+          "created_at": "2026-11-06T15:30:38.166345Z",
+          "started_at": "2026-11-06T15:30:48.179776Z",
+          "completed_at": "2026-11-06T15:30:48.186527Z",
+          "duration_ms": 7
         },
         "m:ba/b:6": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.293869Z",
-          "completed_at": "2026-11-04T13:40:53.518290Z",
-          "duration_ms": 10224
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.086098Z",
+          "completed_at": "2026-11-06T15:30:48.242351Z",
+          "duration_ms": 10156
         },
         "m:ba/b:6/m:a6": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.296409Z",
-          "started_at": "2026-11-04T13:40:43.424436Z",
-          "completed_at": "2026-11-04T13:40:43.462134Z",
-          "duration_ms": 34
+          "created_at": "2026-11-06T15:30:38.087511Z",
+          "started_at": "2026-11-06T15:30:38.159611Z",
+          "completed_at": "2026-11-06T15:30:38.181890Z",
+          "duration_ms": 19
         },
         "m:ba/b:6/m:l": {
           "kind": "identity",
-          "created_at": "2026-11-04T13:40:43.471810Z",
-          "started_at": "2026-11-04T13:40:53.510495Z",
-          "completed_at": "2026-11-04T13:40:53.513079Z",
+          "created_at": "2026-11-06T15:30:38.189634Z",
+          "started_at": "2026-11-06T15:30:48.234533Z",
+          "completed_at": "2026-11-06T15:30:48.236892Z",
           "duration_ms": 0
         },
         "m:ba/b:7": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.298269Z",
-          "completed_at": "2026-11-04T13:40:53.522576Z",
-          "duration_ms": 10224
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.089324Z",
+          "completed_at": "2026-11-06T15:30:48.246400Z",
+          "duration_ms": 10157
         },
         "m:ba/b:7/m:a7": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.300632Z",
-          "started_at": "2026-11-04T13:40:43.451713Z",
-          "completed_at": "2026-11-04T13:40:43.490296Z",
-          "duration_ms": 36
+          "created_at": "2026-11-06T15:30:38.093367Z",
+          "started_at": "2026-11-06T15:30:38.182145Z",
+          "completed_at": "2026-11-06T15:30:38.204067Z",
+          "duration_ms": 18
         },
         "m:ba/b:7/m:bo": {
           "kind": "identity",
-          "created_at": "2026-11-04T13:40:43.496137Z",
-          "started_at": "2026-11-04T13:40:53.512843Z",
-          "completed_at": "2026-11-04T13:40:53.516214Z",
-          "duration_ms": 1
+          "created_at": "2026-11-06T15:30:38.209172Z",
+          "started_at": "2026-11-06T15:30:48.238770Z",
+          "completed_at": "2026-11-06T15:30:48.241867Z",
+          "duration_ms": 0
         },
         "m:ba/b:8": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.301645Z",
-          "completed_at": "2026-11-04T13:40:53.520916Z",
-          "duration_ms": 10219
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.089356Z",
+          "completed_at": "2026-11-06T15:30:48.242552Z",
+          "duration_ms": 10153
         },
         "m:ba/b:8/m:a8": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.307705Z",
-          "started_at": "2026-11-04T13:40:43.462222Z",
-          "completed_at": "2026-11-04T13:40:43.499425Z",
-          "duration_ms": 34
+          "created_at": "2026-11-06T15:30:38.091187Z",
+          "started_at": "2026-11-06T15:30:38.175285Z",
+          "completed_at": "2026-11-06T15:30:38.195065Z",
+          "duration_ms": 17
         },
         "m:ba/b:8/m:sf": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:43.508032Z",
-          "started_at": "2026-11-04T13:40:53.513944Z",
-          "completed_at": "2026-11-04T13:40:53.515788Z",
+          "created_at": "2026-11-06T15:30:38.200354Z",
+          "started_at": "2026-11-06T15:30:48.236877Z",
+          "completed_at": "2026-11-06T15:30:48.238996Z",
           "duration_ms": 2
         },
         "m:ba/b:9": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:40:43.243543Z",
-          "started_at": "2026-11-04T13:40:43.303770Z",
-          "completed_at": "2026-11-04T13:40:45.188618Z",
-          "duration_ms": 1885
+          "created_at": "2026-11-06T15:30:38.038740Z",
+          "started_at": "2026-11-06T15:30:38.093451Z",
+          "completed_at": "2026-11-06T15:30:39.783143Z",
+          "duration_ms": 1690
         },
         "m:ba/b:9/m:r": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:43.309222Z",
-          "started_at": "2026-11-04T13:40:43.490354Z",
-          "completed_at": "2026-11-04T13:40:45.184864Z",
-          "duration_ms": 1692
+          "created_at": "2026-11-06T15:30:38.097505Z",
+          "started_at": "2026-11-06T15:30:38.195129Z",
+          "completed_at": "2026-11-06T15:30:39.779754Z",
+          "duration_ms": 1582
         }
       }
     }
