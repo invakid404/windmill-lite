@@ -1,7 +1,6 @@
 # cmd/wltest
 
-**Current state:** four verbs, `ledger`, which exists only on the retarget
-branch ([The retarget ledger](#the-retarget-ledger)), and `record` (milestone E2 of
+**Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
 E3a added expression files, E3e `--skip-unmet-workers` and
 `--listen-interval`, and E3f `--session` and `--skip-unmet-session`), `stub` (milestone E4a) and `check`, for step
@@ -19,6 +18,9 @@ embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
 running the oracle and windmill-lite live, is in no milestone of ADR 0012
 yet: it prints that it is not implemented and exits 2.
+
+On the retarget branch only, a fourth verb, `ledger`, guards the retarget
+ledger ([The retarget ledger](#the-retarget-ledger)).
 
 `check` can build every bundle with the shared code of
 [ADR 0013](../../docs/design/0013-shared-module-code.md) (`-shared-code`, below).
@@ -782,8 +784,8 @@ The retarget ledger lists what a pull request into the retarget branch,
 `rt/retarget`, knowingly leaves failing while windmill-lite moves to
 Windmill 1.862.0 and Bun 1.4.3. Each item names the retarget milestone that
 clears it and gives a one-line reason. It is a tool of that branch only:
-the pull request that merges `rt/retarget` into `main` (`W10a`) deletes the
-ledger file, every marker and the code that reads them.
+the pull request that merges `rt/retarget` into `main` deletes the ledger
+file, every marker and the code that reads them.
 
 It has two parts:
 
@@ -793,8 +795,8 @@ It has two parts:
   `retarget-pending: <milestone> <reason>`: the prefix, one space, the
   milestone's id, one space and a one-line reason.
 
-A milestone's id is the prefix of its pull request's title, such as `W4c`
-or `X1`: a letter, a number and an optional lower-case letter.
+A milestone's id is the prefix of its pull request's title: the capital
+letter `W` or `X`, a number, and an optional lower-case letter.
 
 ### The ledger file
 
