@@ -286,33 +286,13 @@
       "milestone": "W5d",
       "reason": "CE 1.862.0 ends the run as failure (ExecutionErr) where the case expects canceled, as for the expression chain of je-51-chain"
     },
-    "conformance/flows/client-api/driven/restart": {
-      "milestone": "W5a",
-      "reason": "CE 1.862.0 answers the restart route with 400 (an enterprise feature), where the expect has v1.767.0's 500"
-    },
-    "conformance/flows/client-api/driven/wa19d": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
     "conformance/flows/client-api/facade-answers/answers": {
       "milestone": "W5e",
       "reason": "a job token can no longer resolve CUSTOM_INSTANCE_DB at CE 1.862.0 (401), and the decrypt text and location suffixes changed"
     },
-    "conformance/flows/client-api/facade-answers/secret_arg": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/client-api/providers/invalid_path": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
     "conformance/flows/client-api/raw-requests/requests": {
       "milestone": "W5e",
       "reason": "CE 1.862.0 accepts the two NUL requests and strips the NUL (1.826.0), so their bodies are job ids that differ per repeat"
-    },
-    "conformance/flows/control-flow/cf-1-30/cf30b": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
     "conformance/flows/control-flow/cf-13/b": {
       "milestone": "W5f",
@@ -337,10 +317,6 @@
     "conformance/flows/control-flow/cf-16/b": {
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
-    },
-    "conformance/flows/control-flow/cf-2/b-step0": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
     "conformance/flows/control-flow/cf-21-throwing/timeout_and_parallelism": {
       "milestone": "W5f",
@@ -422,10 +398,6 @@
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
     },
-    "conformance/flows/control-flow/cf-7/d": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
     "conformance/flows/control-flow/cf-v1/a": {
       "milestone": "W5d",
       "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
@@ -441,10 +413,6 @@
     "conformance/flows/control-flow/cf-v1/c-seq": {
       "milestone": "W5d",
       "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
-    },
-    "conformance/flows/control-flow/cf-v3/a": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
     "conformance/flows/control-flow/cf-v4/a": {
       "milestone": "W5b",
@@ -698,14 +666,6 @@
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
     },
-    "conformance/flows/execution/fx-48-jsonb/jsonvar_range": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/execution/fx-48-jsonb/jsonvar_surrogate": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
     "conformance/flows/execution/fx-48-jsonb/nul_later": {
       "milestone": "W5e",
       "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
@@ -734,46 +694,6 @@
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
     },
-    "conformance/flows/je/je-15-stringify/k_later": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-15-stringify/k_root": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/i1": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/i2": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/i3": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/i4": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/i5": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/j1": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/je/je-20-providers/j2": {
-      "milestone": "W5a",
-      "reason": "CE 1.862.0 gives one decrypt error text (Could not decrypt value) for v1.767.0's Invalid padding and Invalid byte texts"
-    },
-    "conformance/flows/je/je-20-providers/j3": {
-      "milestone": "W5a",
-      "reason": "CE 1.862.0 gives one decrypt error text (Could not decrypt value) for v1.767.0's Invalid padding and Invalid byte texts"
-    },
     "conformance/flows/je/je-51-chain/chain": {
       "milestone": "W5d",
       "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
@@ -781,10 +701,6 @@
     "conformance/flows/je/providers/je38-ab": {
       "milestone": "W5h",
       "reason": "CE 1.862.0 keeps step b's argument as the $var: reference where the run's claims have the resolved value"
-    },
-    "conformance/flows/je/shortcut-texts/fi_first": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
     "conformance/flows/je/shortcuts/je12": {
       "milestone": "W5f",
@@ -805,14 +721,6 @@
     "conformance/flows/languages/bun-results/timeout": {
       "milestone": "W5c",
       "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/languages/codebase-cases/node_esm_bare": {
-      "milestone": "W5a",
-      "reason": "the image's Node is v24.22.1 (1.848.3), where the expect has v20.20.2"
-    },
-    "conformance/flows/languages/codebase-cases/node_version": {
-      "milestone": "W5a",
-      "reason": "the image's Node is v24.22.1 (1.848.3), where the expect has v20.20.2"
     },
     "conformance/flows/languages/native-codebase/cjs_native": {
       "milestone": "W5b",
@@ -845,10 +753,6 @@
     "conformance/flows/languages/wr-28/wr28-e": {
       "milestone": "W5f",
       "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
-    },
-    "conformance/flows/languages/wr-40/wr40_c_nativets": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
     "conformance/flows/languages/wr-40/wr40_f_nativets": {
       "milestone": "W5b",
@@ -918,10 +822,6 @@
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
     },
-    "conformance/flows/languages/wr-43/wr43_f_nativets": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
     "conformance/flows/languages/wr-43/wr43_g_bunnative": {
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
@@ -961,14 +861,6 @@
     "conformance/flows/languages/wr-55-processes/timeout": {
       "milestone": "W5c",
       "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/languages/wr-v2/plain": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
-    },
-    "conformance/flows/languages/wr-v2/step": {
-      "milestone": "W5a",
-      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
     "conformance/flows/openflow/of-deployed/ba_shape": {
       "milestone": "W5h",
