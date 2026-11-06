@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -263,6 +264,21 @@ func TestJSExprWorstCaseTime(t *testing.T) {
 // operation, never after doing the work; where it answers, the engine
 // answers the same. The first case is the review's: a 900 KiB string read
 // 700 times, which took 1.5 s in Go before declining.
+//
+// The bound holds the CPU time the test process uses while jsExpr
+// evaluates, not the wall clock. When other processes load the machine, as
+// other packages' tests do under go test ./..., the wall clock also counts
+// the time the evaluation waits for a CPU, and evaluations that take
+// milliseconds alone went past 100 ms in CI. The process's CPU time counts
+// the evaluation's work and the garbage collection its allocations cause,
+// on whichever threads they run; no other test runs in the process
+// meanwhile, as this one is not parallel. Work costs at least its CPU time
+// under any load, so work that jsExpr does not bound goes over the bound
+// however loaded the machine is. Contention for caches and memory still
+// varies the CPU time, so a run over the bound is repeated, up to three
+// runs, and the least CPU time is held to it. Each run does the same work,
+// as jsExpr keeps no reads between evaluations, so unbounded work goes over
+// in every run.
 func TestJSExprBoundsItsOwnWork(t *testing.T) {
 	l := DefaultLimits()
 	l.Attempt = 5 * time.Second
@@ -284,6 +300,7 @@ func TestJSExprBoundsItsOwnWork(t *testing.T) {
 		{"a large string compared 300 times", strings.Repeat("(flow_input.s === flow_input.s) + ", 300) + "0", `{"s":` + s900 + `}`},
 		{"a template that grows", "`" + strings.Repeat("${flow_input.s}", 40) + "`.length", `{"s":` + s900 + `}`},
 	}
+	bound := l.Attempt/100 + 50*time.Millisecond
 	for _, c := range cases {
 		e := Compile(SiteInputTransform, c.text)
 		x := parseJSExpr(e)
@@ -291,10 +308,21 @@ func TestJSExprBoundsItsOwnWork(t *testing.T) {
 			t.Fatalf("%s: not in jsExpr's grammar (%d bytes)", c.name, len(c.text))
 		}
 		s := &Scope{FlowInput: jsonval.FromProducer([]byte(c.fi))}
+		lim := jsLimits{limits: l, bound: bind(e, s).Strings, memoryReads: true}
+		var out []byte
+		var ok bool
+		var dj time.Duration
+		cj, runs := time.Duration(math.MaxInt64), 0
+		for cj > bound && runs < 3 {
+			runs++
+			c0, t0 := cpuTime(), time.Now()
+			o, k := x.eval(context.Background(), s, lim)
+			cpu, wall := cpuTime()-c0, time.Since(t0)
+			if cpu < cj {
+				out, ok, cj, dj = o, k, cpu, wall
+			}
+		}
 		t0 := time.Now()
-		out, ok := x.eval(context.Background(), s, jsLimits{limits: l, bound: bind(e, s).Strings, memoryReads: true})
-		dj := time.Since(t0)
-		t0 = time.Now()
 		v, err := p.Eval(context.Background(), e, s)
 		dp := time.Since(t0)
 		p.paths = false
@@ -302,9 +330,9 @@ func TestJSExprBoundsItsOwnWork(t *testing.T) {
 		want, werr := p.Eval(context.Background(), e, s)
 		de := time.Since(t0)
 		p.paths = true
-		t.Logf("%-36s jsExpr %-5v in %8v; pipeline in %8v; engine alone in %8v", c.name, ok, dj, dp, de)
-		if bound := l.Attempt/100 + 50*time.Millisecond; dj > bound {
-			t.Errorf("%s: jsExpr took %v, over %v", c.name, dj, bound)
+		t.Logf("%-36s jsExpr %-5v in %8v (CPU %8v, runs %d); pipeline in %8v; engine alone in %8v", c.name, ok, dj, cj, runs, dp, de)
+		if cj > bound {
+			t.Errorf("%s: jsExpr used %v of CPU time, the least of %d runs, over %v", c.name, cj, runs, bound)
 		}
 		if ok && string(out) != string(want.Producer()) {
 			t.Errorf("%s: jsExpr %.60s, engine %.60s", c.name, out, want.Producer())
