@@ -9,14 +9,15 @@
 #    fixture, build tooling or Go code ships. Its manifest has the fields
 #    that npm and provenance need, and its LICENSE is the repository's.
 # 3. bun add installs the tarball into a copy of project/, an empty
-#    project with the tsconfig.json of bun init (Bun 1.3.10) and
-#    TypeScript.
+#    project with the tsconfig.json of bun init (Bun 1.4.3) and the
+#    TypeScript it asks for, 7, with TypeScript 6 and 5 as well.
 # 4. tsc type-checks project/smoke.ts, which imports windmill-lite/bun and
 #    windmill-lite/bun/testing, and project/testing.ts, which imports
-#    windmill-lite/bun/testing: TypeScript 5.9.3 with bun init's
-#    tsconfig.json, then TypeScript 5.9.3 and 6.0.3 with
-#    tsconfig.nodenext.json (NodeNext resolution, with the declarations of
-#    the package and of Bun checked too). TypeScript 5.9.3 and 6.0.3 also
+#    windmill-lite/bun/testing: TypeScript 7.0.2 with bun init's
+#    tsconfig.json, and bun check, the type check of the project's
+#    typecheck script, with it too; then TypeScript 7.0.2, 6.0.3 and 5.9.3
+#    with tsconfig.nodenext.json (NodeNext resolution, with the
+#    declarations of the package and of Bun checked too). The three also
 #    check testing.ts with tsconfig.node.json: Node's type declarations
 #    only, so the test entry's declarations need no Bun types.
 # 5. project/testing.ts checks the SDK's test entry, windmill-lite/bun/testing,
@@ -118,15 +119,19 @@ step "bun add the tarball into an empty project"
 cp -R "$here/project" "$work/project"
 (cd "$work/project" && "$WL_BUN" install --frozen-lockfile && "$WL_BUN" add "$tgz") || fail "bun add failed"
 
-step "tsc: TypeScript 5.9.3, bun init's tsconfig.json"
+step "tsc: TypeScript 7.0.2, bun init's tsconfig.json"
 (cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.json --pretty false) || fail "tsc"
-step "tsc: TypeScript 5.9.3, NodeNext"
-(cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
-step "tsc: TypeScript 6.0.3, NodeNext"
-(cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.nodenext.json --pretty false) || fail "tsc"
-step "tsc: TypeScript 5.9.3 and 6.0.3, NodeNext with Node's types only"
-(cd "$work/project" && "$WL_BUN" node_modules/typescript/bin/tsc -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
-(cd "$work/project" && "$WL_BUN" node_modules/typescript-6/bin/tsc -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
+step "bun check: bun init's tsconfig.json"
+(cd "$work/project" && "$WL_BUN" check -p tsconfig.json --no-pretty) || fail "bun check"
+# typescript is 7.0.2, typescript-6 is 6.0.3 and typescript-5 is 5.9.3
+# (project/package.json).
+for ts in typescript typescript-6 typescript-5; do
+  v=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$work/project/node_modules/$ts/package.json" | head -n 1)
+  step "tsc: TypeScript $v, NodeNext"
+  (cd "$work/project" && "$WL_BUN" "node_modules/$ts/bin/tsc" -p tsconfig.nodenext.json --pretty false) || fail "tsc"
+  step "tsc: TypeScript $v, NodeNext with Node's types only"
+  (cd "$work/project" && "$WL_BUN" "node_modules/$ts/bin/tsc" -p tsconfig.node.json --noEmit --pretty false) || fail "tsc"
+done
 
 step "the test entry on Bun $("$WL_BUN" --version)"
 (cd "$work/project" && "$WL_BUN" testing.ts) || fail "the test entry on Bun"

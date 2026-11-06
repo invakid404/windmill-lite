@@ -29,14 +29,14 @@
       "allowedVersions": "1.4.3"
     },
     {
-      "description": "The packaging test's project is the project that bun init of the pinned Bun makes, whose peer dependency is TypeScript 5 (harnesses/npm/test/project): only updates within 5.",
+      "description": "The packaging test's project is the project that bun init of the pinned Bun makes, whose peer dependency is TypeScript 7 (harnesses/npm/test/project): only updates within 7.",
       "matchFileNames": [
         "harnesses/npm/test/project/package.json"
       ],
       "matchDepNames": [
         "typescript"
       ],
-      "allowedVersions": "<6"
+      "allowedVersions": "<8"
     },
     {
       "description": "The packaging test's second TypeScript is the alias typescript-6 (harnesses/npm/test/project): only updates within 6.",
@@ -47,6 +47,16 @@
         "typescript-6"
       ],
       "allowedVersions": "<7"
+    },
+    {
+      "description": "The packaging test's third TypeScript is the alias typescript-5 (harnesses/npm/test/project): only updates within 5.",
+      "matchFileNames": [
+        "harnesses/npm/test/project/package.json"
+      ],
+      "matchDepNames": [
+        "typescript-5"
+      ],
+      "allowedVersions": "<6"
     },
     {
       "description": "The SDK typecheck's second set of declarations is the oldest @types/node a host is expected to use (harnesses/bun/test/typecheck/oldest): only updates within 24.",

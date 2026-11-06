@@ -256,11 +256,12 @@ jobs:
         if: matrix.checks
         # The packaging test of the npm package windmill-lite
         # (harnesses/npm/test/check.sh): npm pack, the packed file list
-        # and manifest, bun add into an empty project, tsc on an import of
-        # windmill-lite/bun, the test entry windmill-lite/bun/testing on
-        # Bun 1.4.3 and on Node 22, and a smoke host against the engine
-        # of this commit, stamped with the package's version as a release
-        # stamps it, which an engine of another version must refuse.
+        # and manifest, bun add into an empty project, tsc (TypeScript 7,
+        # 6 and 5) and bun check on an import of windmill-lite/bun, the
+        # test entry windmill-lite/bun/testing on Bun 1.4.3 and on Node 22,
+        # and a smoke host against the engine of this commit, stamped with
+        # the package's version as a release stamps it, which an engine of
+        # another version must refuse.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
         run: |
