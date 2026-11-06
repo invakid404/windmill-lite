@@ -452,7 +452,7 @@ export function installEnvView() {
     set(t, k, v) {
       const c = invocations.getStore();
       if (c && typeof k === "string") {
-        c.env[k] = String(v);
+        c.env[k] = envString(v);
         c.unset?.delete(k);
         // Bun.env reads a variable the process has as its own property:
         // move it, so it answers with the written value there too (W1
@@ -515,12 +515,12 @@ export function installEnvView() {
       if (receiver !== real) return Reflect.set(t, k, v, receiver);
       const c = invocations.getStore();
       if (c && typeof k === "string") {
-        c.env[k] = String(v);
+        c.env[k] = envString(v);
         c.unset?.delete(k);
         claimed.add(k);
         return true;
       }
-      if (typeof k !== "string") return writeOwn(k, v);
+      if (typeof k !== "string") return writeOwn(k, envString(v));
       writeProcess(k, v);
       return true;
     },
@@ -528,21 +528,30 @@ export function installEnvView() {
   Object.setPrototypeOf(real, envTrap);
 }
 
+/** A value as the environment keeps it: its string, converted as Bun's
+ * object converts it, so a symbol throws a TypeError, as there (String()
+ * would accept one). The conversion can run the caller's code, which can
+ * claim a variable or write the environment, so every write converts
+ * first and decides where the value goes only afterwards. */
+function envString(v: unknown): string {
+  return `${v}`;
+}
+
 /** Writes the process's value of variable k, outside every invocation:
  * the moved value if an invocation has claimed k, else an own property of
- * the original object. */
+ * the original object. The value is converted before the choice, since
+ * the conversion may claim k. */
 function writeProcess(k: string, v: unknown) {
-  if (claimed.has(k)) moved.set(k, String(v));
-  else writeOwn(k, v);
+  const value = envString(v);
+  if (claimed.has(k)) moved.set(k, value);
+  else writeOwn(k, value);
 }
 
 /** Writes k on the original object with path 2's prototype swapped out,
  * so that Bun 1.4.3's object, which walks a write of a key it does not
- * hold to its prototype, cannot reach the trap again. The value is made a
- * string first, so no code of the caller's runs while the trap is out; a
- * symbol stays one, for Bun to refuse. */
-function writeOwn(k: string | symbol, v: unknown): boolean {
-  const value = typeof v === "symbol" ? v : String(v);
+ * hold to its prototype, cannot reach the trap again. The value is a
+ * string already, so no code of the caller's runs while the trap is out. */
+function writeOwn(k: string | symbol, value: string): boolean {
   Object.setPrototypeOf(real, realProto);
   try {
     return Reflect.set(real, k, value);

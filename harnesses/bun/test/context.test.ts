@@ -111,6 +111,39 @@ test("the process writes a new variable through either object without reaching t
   expect(() => ((Bun.env as Record<symbol, unknown>)[Symbol("s")] = "x")).toThrow(TypeError);
   expect(() => ((process.env as Record<string, unknown>).WL_CONTEXT_TEST_NEW_SYMBOL = Symbol("v"))).toThrow(TypeError);
   expect(() => ((Bun.env as Record<string, unknown>).WL_CONTEXT_TEST_NEW_SYMBOL = Symbol("v"))).toThrow(TypeError);
+  expect(inside({}, () => [
+    () => ((process.env as Record<string, unknown>).WL_CONTEXT_TEST_INV_SYMBOL = Symbol("v")),
+    () => ((Bun.env as Record<string, unknown>).WL_CONTEXT_TEST_INV_SYMBOL = Symbol("v")),
+  ].map((write) => {
+    try {
+      write();
+      return "written";
+    } catch (e) {
+      return e instanceof TypeError ? "TypeError" : String(e);
+    }
+  }))).toEqual(["TypeError", "TypeError"]);
+});
+
+test("a process write whose value's conversion makes an invocation claim the variable leaves it claimed, through either object", () => {
+  for (const [k, write] of [
+    ["WL_CONTEXT_TEST_REENTRY", (v: unknown) => ((process.env as Record<string, unknown>).WL_CONTEXT_TEST_REENTRY = v)],
+    ["WL_CONTEXT_TEST_REENTRY_BUN", (v: unknown) => ((Bun.env as Record<string, unknown>).WL_CONTEXT_TEST_REENTRY_BUN = v)],
+  ] as const) {
+    const ctx = context({});
+    write({
+      toString() {
+        invocations.run(ctx, () => {
+          process.env[k] = "inv";
+        });
+        return "host";
+      },
+    });
+    const read = () => [process.env[k], Bun.env[k], import.meta.env[k]];
+    expect(invocations.run(ctx, read)).toEqual(["inv", "inv", "inv"]);
+    expect([read(), Object.hasOwn(Bun.env, k)]).toEqual([["host", "host", "host"], false]);
+    shadow(ctx.env);
+    expect(invocations.run(ctx, read)).toEqual(["inv", "inv", "inv"]);
+  }
 });
 
 test("a variable the process has that an invocation claims answers per invocation through every name, and the process keeps its own value", async () => {
