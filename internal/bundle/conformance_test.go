@@ -254,6 +254,9 @@ func TestConformanceBuild(t *testing.T) {
 				name += "_" + c.Variant
 			}
 			t.Run(strings.NewReplacer("/", "_", " ", "_").Replace(name), func(t *testing.T) {
+				if name == "D12_lazy-import-no-exports" {
+					t.Skip("retarget-pending: W4f Bun 1.4.3 drops a lazy import() whose exports go unused, so the case's registration guard never fires")
+				}
 				runBuildCase(t, bun, helper, c)
 			})
 			n++
