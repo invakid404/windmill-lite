@@ -515,6 +515,12 @@ comparison. An abandoned invocation has no outcome to replace.
       rejects at once, and in fail mode the step fails with
       `UnsupportedPlatformCall` quoting the refusal.
 
+On the retarget branch, the stock-client cases that need the client's
+import-time token skip with a retarget-pending marker: `TestAttribution`'s
+two warm runs and its fresh runs, `TestTransportsAgree`, and the fresh run
+of each other test above. Bun 1.4.3 evaluates a module that `import()` loads outside its
+invocation's async context, so the client reads no `WM_TOKEN` at import.
+
 The step cases of [conformance/steps](../../../conformance/README.md) run
 the facade through `wltest check` in `warm` and `fresh`: `wa-2.yaml`,
 `wa-5.yaml`, `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`, `wa-14.yaml`,

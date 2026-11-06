@@ -400,6 +400,12 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `D9/module-evaluation`). Once the loading invocation has settled, what
   that work writes goes to the process's streams, and its platform calls
   are refused, as from a process scope.
+- **Module evaluation on Bun 1.4.3.** Bun 1.4.3 evaluates a module that
+  `import()` loads outside every async context, so the rule above does not
+  hold there yet: a step module's top-level code reads the process's
+  environment, and a top-level `process.exit` ends a warm process. The
+  [retarget ledger](../../cmd/wltest/README.md#the-retarget-ledger) lists
+  the tests that wait for the fix.
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client
