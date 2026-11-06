@@ -11,9 +11,13 @@ cancellation) are in [execution.md](execution.md). The expression engine is
 in [expressions.md](expressions.md), and per-language error and result shapes
 are in [languages.md](languages.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`).
+A finding re-verified at that version says so in a revision line, and its
+new pointers are `path:line @ v1.862.0`. Every other finding is **verified
+at v1.767.0 only** (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`): its
+pointers, with or without a version, are `@ v1.767.0`, and all pointers are
+relative to the Windmill repository root. Status, scope and confidence tags
+are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `CF-` control-flow findings; `CF-Vn` findings were added during validation.
 
@@ -382,7 +386,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      - `forloopflow`: `skip_failures: true`, `parallel: false`;
      - `whileloopflow`: `skip_failures: false`;
      - `branchall`: `parallel: true`;
-     - each branch: `skip_failure: true`, `parallel: true`, `expr: ""`.
+     - each branch: `skip_failure: false`, `parallel: true`, `expr: ""`.
+       Before 1.852.0 the job wrote `skip_failure: true`.
 
      The same job builds the lite version ([CF-V4](#cf-v4)).
   3. **When normalization does not happen.** The stored JSON stays as pushed
@@ -391,9 +396,10 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      meanwhile (the update is skipped for the obsolete version). A run
      started before the job finishes uses the un-normalized version: the
      lite lookup falls back to the full version.
-  4. **Consequence.** An absent `forloopflow.skip_failures` or branch
-     `skip_failure` behaves as **false** before successful normalization, or
-     when it never happens, and as **true** after it.
+  4. **Consequence.** An absent `forloopflow.skip_failures` behaves as
+     **false** before successful normalization, or when it never happens,
+     and as **true** after it. An absent branch `skip_failure` behaves as
+     **false** either way, since normalization writes `false`.
   5. **CLI pull.** The workspace export behind `wmill sync pull` writes the
      latest version's stored value, stripping only top-level metadata keys.
      The CLI turns it into `flow.yaml`, extracting only inline script
@@ -439,6 +445,11 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   set, a raw flow-dependencies payload);
   `backend/windmill-worker/src/worker_lockfiles.rs:662-669`, `:843-848`
   (the typed value returned).
+- **Evidence at v1.862.0:** `backend/windmill-types/src/flows.rs:922-937`
+  (the typed branch's `skip_failure` defaults to false, so the
+  re-serialization writes `false`) and `:679-687` (the run-time read, an
+  optional value whose absence counts as false). Release note v1.852.0:
+  "keep retry and branch settings intact when a flow is reserialized".
 - **Conformance:** [CF-6/a, CF-6/b, CF-6/c](conformance.md#cf-6)
 - **Design note (not Windmill behaviour):** treat "absent" as a compatibility
   input and record which state a fixture represents. The proposed default for
@@ -458,6 +469,13 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `skip_failures: true` and `parallel: false` in the pulled `flow.yaml`,
   while a non-container module keeps an unknown field as submitted
   ([SY-6](openflow.md#sy-6)). The rule is unchanged.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the branch default
+  re-verified at v1.862.0):** point 2 said the dependency job writes a
+  branch's absent `skip_failure` as `true`. On CE v1.862.0 it writes
+  `false`, and `generate-metadata` does too: the deployment evidence of
+  [CF-15/a](conformance.md#cf-15) records both (oracle run 42299510925).
+  Points 2 and 4 now say so. The loop defaults and the rest of the finding
+  are verified at v1.767.0 only.
 
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion

@@ -3328,7 +3328,7 @@ Findings: [control-flow.md](control-flow.md).
     branches `[[ret(x.concat([2])) x = results.a], [fail("b")], [ret(x.concat([3])) x = results.a]]`,
     branch 1 with `skip_failure: true`.
   - **Expect:** status success, result `[[1,2], ERR("b"), [1,3]]`.
-  - **Recorded:** [`flows/control-flow/cf-15`](../../conformance/flows/control-flow/cf-15) run `a`, oracle run 40692334073 (deployed through the API, so `parallel` and branches 0 and 2's `skip_failure` reached the server absent).
+  - **Recorded:** [`flows/control-flow/cf-15`](../../conformance/flows/control-flow/cf-15) run `a`, oracle run 40692334073 (deployed through the API, so `parallel` and branches 0 and 2's `skip_failure` reached the server absent). Re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925, whose deployment evidence materializes branch 0's absent `skip_failure` as `false`, where v1.767.0 wrote `true` ([CF-6](control-flow.md#cf-6)).
 - **CF-15/b** · oracle-observed · A non-skippable parallel failure fails the step with the full array.
   - **Given:** as CF-15/a with `skip_failure: false` on branch 1.
   - **Expect:** status failure, result `[[1,2], ERR("b"), [1,3]]`.
