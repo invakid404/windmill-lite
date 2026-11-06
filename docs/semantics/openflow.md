@@ -10,9 +10,13 @@ resolution to [expressions.md](expressions.md), language runtimes to
 oracle procedures to [oracle.md](oracle.md), and the licence map to
 [licensing.md](licensing.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`).
+Source pointers are relative to the Windmill repository root. A pointer
+written `path:line @ v1.862.0` is at this pin; a pointer without a version is
+at the previous pin, `v1.767.0` (commit
+`6de4ec0f665ad856002495c4d86269105ec28ad7`). A finding with no revision note
+re-verifying it at `v1.862.0` is verified at v1.767.0 only. Status, scope and
+confidence tags are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `OF-` OpenFlow model and validation; `SY-`
 sync-folder layout; `PA-` prior art (windmill-ts). `OF-Vn` and `SY-Vn` findings
@@ -58,11 +62,13 @@ Conventions used below:
    does not acquire a trailing virtual slot because the worker later fetches
    lite. OF-3's one-stage sentence is disputed ([Q-OF-11](#q-of-11)), and the
    `[a, a-v]` virtual-step fixture holds for an initial-lite status.
-4. **Skip flags** ([OF-7](#of-7)): an absent for-loop `skip_failures` or
-   `branchall` branch `skip_failure` behaves as `true` after a successful deploy
-   and as `false` in preview runs, during the deploy race and after a failed
-   lock. While-loops are unaffected. The fixtures are source-derived and await
-   the oracle ([Q-OF-1](#q-of-1)).
+4. **Skip flags** ([OF-7](#of-7)): an absent for-loop `skip_failures`
+   behaves as `true` after a successful deploy and as `false` in preview
+   runs, during the deploy race and after a failed lock. An absent
+   `branchall` branch `skip_failure` behaves as `false` in every state at
+   v1.862.0 (at v1.767.0 it followed the for-loop flag). While-loops are
+   unaffected. Recorded by batch E3f and again on CE v1.862.0
+   ([Q-OF-1](#q-of-1)).
 5. **Server validation is minimal** ([OF-2](#of-2), [OF-18](#of-18)): a typed
    decode with two error prefixes (`Invalid flow value:` for the outer decode,
    `Module '<id>':` per module value), workspace-path step references, and a
@@ -271,7 +277,7 @@ the effective decoder decides acceptance (OF-1).
        `whileloopflow`, `branchone`, `branchall` (including each branch),
        `aiagent`, and every rawscript that was (re)locked. Rebuilding
        materialises defaults such as `skip_failures`, `parallel`, branch
-       `skip_failure` and branch `expr`; it drops while-loop
+       `skip_failure` (`false` at v1.862.0, [OF-6](#of-6)) and branch `expr`; it drops while-loop
        `parallel`/`parallelism`, sorts rawscript `input_transforms` keys, and
        drops an empty `tag`.
      - *Module values kept exactly as submitted:* `script`, `flow`,
@@ -452,7 +458,7 @@ the effective decoder decides acceptance (OF-1).
   | `forloopflow` | `iterator` (InputTransform), `modules` | `skip_failures: true` (`null` also selects `true`), `parallel: false`, `parallelism`: none (bare u16 or restricted object, [OF-V2](#of-v2)), `squash`: none |
   | `whileloopflow` | `modules` | `skip_failures: false`, `squash`: none; `parallel`/`parallelism` are not part of the typed value ([OF-8](#of-8)) |
   | `branchone` | `branches`, `default` | branch `expr: ""`, branch `summary`: none |
-  | `branchall` | `branches` | `parallel: true` (module level); per branch `skip_failure: true` and `parallel: true` (per-branch `parallel` is not in the schema and is not used by name in execution) |
+  | `branchall` | `branches` | `parallel: true` (module level); per branch `skip_failure: false` (`true` at v1.767.0) and `parallel: true` (per-branch `parallel` is not in the schema and is not used by name in execution) |
 
   - `null` is not always the same as omission: branch `skip_failure` and
     `parallel` are plain booleans and reject `null` ([OF-V1](#of-v1)).
@@ -461,9 +467,13 @@ the effective decoder decides acceptance (OF-1).
     `whileloopflow.skip_failures` as **required** and gives no defaults.
 - **Evidence:** `backend/windmill-types/src/flows.rs:837-850` (`Branch`),
   `:985-1017`, `:1126-1161` (decoder defaults); `openflow.openapi.yaml:794-926`.
+  At v1.862.0: `backend/windmill-types/src/flows.rs:923-937 @ v1.862.0`
+  (`Branch`, whose absent `skip_failure` is `false`), `:1250-1269 @ v1.862.0`
+  (the loops' defaults, unchanged).
 - **Conformance:** [OF-6/a](conformance.md#of-6); the for-loop defaults are
   covered by [OF-3/a](conformance.md#of-3).
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** the deployed `branchall` shape of [OF-6/a](conformance.md#of-6) is recorded exactly: `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":true}],"parallel":true}` for a submitted `{type: branchall, branches: [{modules: []}]}` (fixture `conformance/flows/openflow/of-deployed`, run `ba_shape`, oracle run 41000318656). The rule is unchanged.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):** the typed `Branch` now defaults an absent `skip_failure` to `false`, the value the worker reads for an absent flag, so a round trip through it no longer turns the flag `true` (1.852.0, "keep retry and branch settings intact when a flow is reserialized"). Re-recorded on CE v1.862.0 ([OF-6/a](conformance.md#of-6), run `ba_shape`, oracle run ORACLE_RUN_W5D): `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":false}],"parallel":true}`. The loop defaults are re-verified unchanged; the rest of the table is verified at v1.767.0 only.
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -471,17 +481,20 @@ the effective decoder decides acceptance (OF-1).
 **Scope:** core · **Confidence:** high (the split and the exact result arrays, deployed and preview: oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - The split covers **`forloopflow.skip_failures`** and **`branchall` branch
-    `skip_failure`** only. A while-loop's `skip_failures` defaults to `false`
-    on every path.
+  - The split covers **`forloopflow.skip_failures`** only. A `branchall`
+    branch's `skip_failure` and a while-loop's `skip_failures` default to
+    `false` on every path. (At v1.767.0 the split covered the branch flag
+    too.)
   - The executor reads both flags from the module JSON it runs and treats an
     absent flag as `false`. A successful dependency job rebuilds every
-    container with the typed defaults (`true` for both) in the full and lite
-    forms ([OF-3](#of-3), [OF-6](#of-6)).
-  - Hence an absent flag behaves as **`true`** when the flow is run by path
-    after its exact version deployed successfully, and as **`false`** in
-    preview runs (which keep raw module values), in runs during the deploy
-    race, and for flows whose locking failed.
+    container with the typed defaults (`true` for the for-loop flag, `false`
+    for a branch's) in the full and lite forms ([OF-3](#of-3),
+    [OF-6](#of-6)).
+  - Hence an absent for-loop flag behaves as **`true`** when the flow is run
+    by path after its exact version deployed successfully, and as **`false`**
+    in preview runs (which keep raw module values), in runs during the
+    deploy race, and for flows whose locking failed. An absent branch flag
+    behaves as **`false`** in all of them.
   - Result shapes follow control-flow: [CF-4](control-flow.md#cf-4) (loop
     arrays), [CF-5](control-flow.md#cf-5) (sequential failure),
     [CF-7](control-flow.md#cf-7) (parallel completion),
@@ -500,7 +513,11 @@ the effective decoder decides acceptance (OF-1).
   values); `backend/windmill-queue/src/jobs.rs:5604-5606, 5914-5928`;
   `backend/windmill-worker/src/bun_executor.rs:1886-1889, 1952-1955` (a Bun
   `Error` supplies `name` and `message`, plus `stack` and an optional
-  `step_id`).
+  `step_id`). At v1.862.0: `backend/windmill-types/src/flows.rs:923-937 @ v1.862.0`
+  (the branch default), `:1250-1269 @ v1.862.0` (the for-loop default);
+  `backend/windmill-worker/src/worker_flow.rs:608-622 @ v1.862.0`,
+  `:970-976 @ v1.862.0`, `:2550-2556 @ v1.862.0` (raw reads, absent means
+  false).
 - **Conformance:** [OF-7/a–d](conformance.md#of-7)
 - **Note:** recording protocol for the oracle ([oracle.md](oracle.md)): wait
   for the version's dependency job to succeed before the by-path run; record
@@ -510,6 +527,7 @@ the effective decoder decides acceptance (OF-1).
   successful-deploy defaults at load time, consistent with
   [CF-6](control-flow.md#cf-6).
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** every result array of [OF-7/a–d](conformance.md#of-7) is recorded as predicted. Deployed (fixture `conformance/flows/openflow/of-deployed`, oracle run 41000318656): with the flag absent or `true` each container keeps the failure as a value and succeeds with `[ERR, 2]`, and `flows/get` shows the stored flag `true`; with it `false` the sequential loop and the `branchall` fail with `[ERR]` and the parallel loop with `[ERR, 2]`. Preview (`openflow/of-drivers`, a driver step on two workers, oracle run 41003988171): absent and `false` give the failures, `true` gives the deployed results. The errors carry `step_id`, which `ERR` does not compare. The medium confidence on the arrays is lifted; the rule is unchanged.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):** a deployed `branchall` now stores an absent branch flag as `false` (1.852.0, [OF-6](#of-6)), so the split is the for-loop's alone. Re-recorded on CE v1.862.0 (fixture `conformance/flows/openflow/of-deployed`, run `f7_ba`, oracle run ORACLE_RUN_W5D): with the flag absent, `flows/get` shows `skip_failure: false` on both branches and the deployed run fails with `[ERR("b")]`, as the preview and `f7_ba_false` do ([OF-7/c](conformance.md#of-7)). The for-loop runs `f7_seq` and `f7_par` and the explicit controls are unchanged at v1.862.0. The rule is re-verified at v1.862.0.
 
 <a id="of-8"></a>
 ### OF-8 · `whileloopflow.parallel` is lost on deploy

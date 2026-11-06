@@ -1,0 +1,20 @@
+# FX-37/b to FX-37/e: early_return on a step inside a branch (1.835.0),
+# answered by run-and-wait (submit: run_wait_result). The early step's
+# value differs from the flow's final result, so the response body shows
+# which one run-and-wait answered with: a script step inside the chosen
+# branch, a loop inside it (its success read from the branch's own flow
+# job), a step in a branch that does not run, and an empty loop inside a
+# branch, which has no child job to find that flow from. Each flow ends
+# with a step that sleeps, so an early answer comes before the run ends.
+# The runs compare as a subset.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-37. Deployed with oracle.deploy api.
+id: execution/fx-37-branches
+spec: [FX-37/b, FX-37/c, FX-37/d, FX-37/e]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

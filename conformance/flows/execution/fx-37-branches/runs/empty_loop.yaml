@@ -1,0 +1,13 @@
+# FX-37/e: early_return names l, a loop over an empty iterator inside the
+# chosen branch. l completes with [] and no child job, so the lookup of its
+# success finds no flow job to read it from and fails; run-and-wait waits
+# and answers with the flow's final result, b's 2.
+spec: [FX-37/e]
+target: f/wl_fx37b/empty_loop
+submit: run_wait_result
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:b": {status: success, result: 2}
+  response: {status: 200, content_type: application/json, body: '2'}

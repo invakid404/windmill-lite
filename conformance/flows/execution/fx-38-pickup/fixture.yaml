@@ -5,7 +5,8 @@
 # counts from the submission). The runs compare as a subset.
 #
 # Each run's expect is the reference's source-derived prediction, written
-# before the oracle ran it. Synthetic, written for this repository from
+# before the oracle ran it; on CE v1.862.0 b's job is stored canceled, not
+# failure (FX-38's revision of 2026-11-06). Synthetic, written for this repository from
 # docs/semantics/conformance.md#fx-38. Deployed with oracle.deploy api.
 id: execution/fx-38-pickup
 spec: [FX-38/b]
