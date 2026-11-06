@@ -455,7 +455,7 @@ comparison. An abandoned invocation has no outcome to replace.
   - the per-run providers (H13): an invocation whose run chose its own
     services reads variables and resources from them, another the
     facade's, and both the shared job registry.
-- `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
+- `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.862.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's
     exit gate: two runs at once in one warm process, the client imported
