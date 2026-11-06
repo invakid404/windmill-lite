@@ -9008,7 +9008,7 @@ them.
 **Scope:** core · **Finding:** [LIC-3](licensing.md#lic-3)
 
 - **LIC-3/a** · source-derived · Schema coverage of windmill-lite's Go OpenFlow types.
-  - **Given:** the vendored `openflow.openapi.yaml` at `v1.767.0`, and
+  - **Given:** the vendored `openflow.openapi.yaml` at `v1.862.0`, and
     windmill-lite's Go OpenFlow types with their lists of mapped and
     explicitly ignored properties.
   - **Expect:** for each of `components.schemas.FlowValue`, `FlowModule`,

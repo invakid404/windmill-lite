@@ -33,12 +33,18 @@ windmill-lite does not serve.
 
 `routes.json` lists every operation of Windmill's REST API: its method, its
 path template relative to the API base (`OpenAPI.BASE`, `<origin>/api`) and
-its operationId. It is generated from the Apache-2.0 `openapi.yaml` that
-milestone E2 vendored with its notice in
-[internal/oracle/openapi](../../oracle/README.md) (778 operations), and
-`TestRouteTable` fails while the two differ
-(`go test ./internal/platform/facade -run TestRouteTable -args -update`
+its operationId. `TestRouteTable` generates it from the Apache-2.0
+`openapi.yaml` vendored with its notice in
+[internal/oracle/openapi](../../oracle/README.md), and fails while the two
+differ (`go test ./internal/platform/facade -run TestRouteTable -args -update`
 rewrites it). Route templates are wire-format literals.
+
+On the retarget branch, `routes.json` still holds the 778 operations of
+Windmill `v1.767.0`, while the vendored `openapi.yaml` is `v1.862.0`, with
+948 operations. Until the table is regenerated, `TestRouteTable` skips its
+comparison with a retarget-pending marker
+([the retarget ledger](../../../cmd/wltest/README.md#the-retarget-ledger));
+`-update` still rewrites the table.
 
 **Matching.** A request path must start with `/api/`. A template's
 parameter matches one segment, except its last, which may take the rest of
