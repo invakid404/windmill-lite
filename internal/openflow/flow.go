@@ -88,6 +88,9 @@ var flowValueFields = []field[FlowValue]{
 		return err
 	}},
 	optIntField("delete_after_secs", func(v *FlowValue) **int32 { return &v.DeleteAfterSecs }),
+	// The reference predates value.timeout; it is decoded as an i32, the
+	// width of the metadata timeout.
+	optIntField("timeout", func(v *FlowValue) **int32 { return &v.Timeout }),
 }
 
 func optionalEnvelope(d *decoder, n *node) (*Module, error) {
@@ -308,6 +311,7 @@ var flowFields = []field[flowDocument]{
 	}},
 	optRawField("schema", func(f *flowDocument) *json.RawMessage { return &f.Schema }),
 	optStringField("on_behalf_of_email", func(f *flowDocument) **string { return &f.OnBehalfOfEmail }),
+	optStringField("on_behalf_of", func(f *flowDocument) **string { return &f.OnBehalfOf }),
 	optIntField("timeout", func(f *flowDocument) **int32 { return &f.Timeout }),
 	optBoolField("ws_error_handler_muted", func(f *flowDocument) **bool { return &f.wsErrorHandlerMuted }),
 }
