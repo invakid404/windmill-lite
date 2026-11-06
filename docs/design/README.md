@@ -272,6 +272,7 @@ Apple M4, macOS, Go 1.27.3, Bun 1.4.2 unless a row names another version
 | `process.env`, `Bun.env` and `import.meta.env` on Bun 1.4.3 (black-box probe) | One object at start. `process.env` can be assigned; `Bun.env` and the global `Bun` cannot be redefined. The object takes only configurable, writable, enumerable data properties, a write of a key it does not hold walks to its prototype, and it is not the C environment | 0004, 0010 |
 | The Q-WA-4 env-view test on Bun 1.4.3, warm and fresh, with and without the variables in the process | 16 of 16 on every channel; fresh runs make no client call | 0004, 0010 |
 | `AsyncLocalStorage.getStore()` at the top level of a module that `import()` loads inside `run()`, Bun 1.4.3 against 1.3.10 | `undefined` on 1.4.3, for ESM and CommonJS modules and their static imports; the caller's store on 1.3.10 | 0004 |
+| The same through `require()` on Bun 1.4.3, then `import()` of the file, against a loading-invocation variable set around `import()` | `require()` keeps the store at the top level, after a top-level `await` and in the work the module starts. With a top-level `await` it throws a `TypeError` once the evaluation started, and `import()` waits for it. `import()` then gives the same namespace without a second evaluation, and loading takes as long. The variable is seen by host code, process-scope timers and microtasks during the load, and misses timers the module starts | 0004 |
 
 ## Unsettled findings
 

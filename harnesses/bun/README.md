@@ -418,12 +418,36 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `D9/module-evaluation`). Once the loading invocation has settled, what
   that work writes goes to the process's streams, and its platform calls
   are refused, as from a process scope.
-- **Module evaluation on Bun 1.4.3.** Bun 1.4.3 evaluates a module that
-  `import()` loads outside every async context, so the rule above does not
-  hold there yet: a step module's top-level code reads the process's
-  environment, and a top-level `process.exit` ends a warm process. The
-  [retarget ledger](../../cmd/wltest/README.md#the-retarget-ledger) lists
-  the tests that wait for the fix.
+- **Errors of a module's work.** An error from work a module started while
+  it evaluated is still the loading invocation's. It fails that invocation
+  while it runs, and is `late` once it has settled, even while another
+  invocation runs (cases `D9/module-evaluation-error` and
+  `D9/module-evaluation-late-error`). Cases `WR-2/top-level-*`,
+  `D9/module-evaluation-context` and `D11/top-level*` check the rest of the
+  rule above.
+- **How a module loads.** Bun 1.4.3 evaluates a module that `import()`
+  loads outside every async context (1.3.10 kept the caller's), and one
+  that `require()` loads inside the caller's. So `loadModule` evaluates a
+  step module with `require()`, then takes its namespace from `import()` of
+  the same file. That `import()` does not evaluate it again, and gives the
+  namespace it always gave.
+- **A top-level `await`** still pending makes `require()` throw a
+  `TypeError` once the evaluation has started, in the loading context;
+  `import()` then waits for that evaluation. An ES module's failure stays
+  with the module, so `import()` rejects with the same error. A CommonJS
+  module's is thrown as it is: `import()` would evaluate it again.
+- **What that changes** against `import()` alone is stack text only.
+  `require()` runs as a promise reaction, so no frame of the runtime's is
+  below the module's in the stack of an error it throws as it evaluates;
+  Bun's own `at unknown` frame is. A link error (an import that the module
+  it names does not export) gets a stack. Loading takes as long either way.
+- **A module that step code imports at run time.** On Bun 1.4.3 a module
+  that step code loads with `import()` while it runs, from a file the
+  bundle does not contain (a codebase asset), evaluates outside every
+  invocation, since the harness does not load it. Its top-level code reads
+  the process's environment, writes to the process's streams, and a
+  `process.exit` there is the real one. A lazy `import()` of bundled code
+  is inlined by the build and keeps the context.
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client
@@ -1069,6 +1093,13 @@ runs host mode end to end in a host compiled with `bun build --compile`.
 
 `test/host.test.ts` also checks that a run frame carries the run's
 write-capable selectors and halts as the host gave them.
+
+`test/load.test.ts` checks [how a module loads](#the-per-invocation-context):
+the caller's context at the top level of an ES module, its static imports
+and a CommonJS module, after a top-level `await`, and in the work the
+module starts. It also checks that the namespace is `import()`'s, that the
+module evaluates once, and that a failure is the module's own error,
+without a frame of the runtime's.
 
 `test/testing.test.ts` checks the [test entry](#the-test-entry) against
 the runtime:
