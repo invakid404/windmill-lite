@@ -625,13 +625,13 @@ failing.
   runs the same expression with a short limit. Nor is JE-11/e's unit case
   (batch E3f): the panic report names a task number that differs between
   runs, so its recording masks the message; pipeline case JE-11/e holds the
-  evaluator's text. On the retarget branch, a case whose run the retarget
-  ledger lists as having no recording yet is still held to its
-  expectation; an error it gives skips with the entry's marker, since no
-  recorded text exists to compare it with
-  ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)). The
-  cases in `enginePending`, whose error text the evaluator does not give as
-  CE 1.862.0 records it, still run: a failure skips with the case's marker,
+  evaluator's text.
+- On the retarget branch, `TestE3aOnEngine` follows the retarget ledger
+  ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)). A case
+  whose run has no recording yet is still held to its expectation, and an
+  error it gives skips with the entry's marker. The cases in
+  `enginePending`, whose error text the evaluator does not give as CE
+  1.862.0 records it, still run. A failure skips with the case's marker,
   and a pass fails the test.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
   runs with `WL_EXPR_BUDGET=gate` (asserts the bounds, on the benchmark

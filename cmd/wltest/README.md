@@ -847,7 +847,7 @@ mode.
 |---|---|---|---|
 | `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite`, and `TestSubflowRetryFixturesFreshAndWarm` for its fixture's runs |
 | `step_suite` | a step case: `<step file>/<case>` | the case fails in a mode the entry covers: `warm` or `fresh` | `TestStepSuite` |
-| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch), `TestStubCasesMatchTheOracle`, and the E3a suite of [internal/expr](../../internal/expr/README.md) |
+| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch), `TestStubCasesMatchTheOracle`, `TestE3aOnEngine` in [internal/expr](../../internal/expr/README.md), and `TestLoadFixtures` in [internal/conformance](../../internal/conformance/README.md), which accepts a listed run with claims but no expect |
 
 `conformance.ParseLedger` refuses unknown fields, a milestone that is not
 an id, an empty or multi-line reason, a mode listed twice, an `oracle`
