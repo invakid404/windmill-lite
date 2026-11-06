@@ -27,19 +27,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261028120533-c396ec663ca6",
-      "revision": "c396ec663ca61940b265a1360fe82abb7ba41229",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -47,48 +47,48 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40685013818"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-10-28T12:07:25Z",
+    "recorded_at": "2026-11-06T15:38:18Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:36321"
+      "WL_EFFECT_SINK": "http://host.docker.internal:41753"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 208,
+      "submit_to_complete_ms": 207,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-28T12:07:25.692367Z",
-          "started_at": "2026-10-28T12:07:25.707094Z",
-          "completed_at": "2026-10-28T12:07:25.866727Z",
-          "duration_ms": 160
+          "created_at": "2026-11-06T15:38:18.658562Z",
+          "started_at": "2026-11-06T15:38:18.675364Z",
+          "completed_at": "2026-11-06T15:38:18.828024Z",
+          "duration_ms": 153
         },
         "m:a": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T12:07:25.708299Z",
-          "started_at": "2026-10-28T12:07:25.711275Z",
-          "completed_at": "2026-10-28T12:07:25.732343Z",
-          "duration_ms": 19
+          "created_at": "2026-11-06T15:38:18.676591Z",
+          "started_at": "2026-11-06T15:38:18.678617Z",
+          "completed_at": "2026-11-06T15:38:18.694813Z",
+          "duration_ms": 14
         },
         "m:b": {
           "kind": "identity",
-          "created_at": "2026-10-28T12:07:25.738539Z",
-          "started_at": "2026-10-28T12:07:25.784122Z",
-          "completed_at": "2026-10-28T12:07:25.786932Z",
+          "created_at": "2026-11-06T15:38:18.699298Z",
+          "started_at": "2026-11-06T15:38:18.748371Z",
+          "completed_at": "2026-11-06T15:38:18.752029Z",
           "duration_ms": 0
         },
         "m:c": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T12:07:25.791236Z",
-          "started_at": "2026-10-28T12:07:25.838509Z",
-          "completed_at": "2026-10-28T12:07:25.862789Z",
-          "duration_ms": 20
+          "created_at": "2026-11-06T15:38:18.755990Z",
+          "started_at": "2026-11-06T15:38:18.809077Z",
+          "completed_at": "2026-11-06T15:38:18.825034Z",
+          "duration_ms": 13
         }
       }
     }

@@ -66,7 +66,9 @@
         "workspace_id": "<env:WM_WORKSPACE>",
         "permissioned_as": "<env:WM_PERMISSIONED_AS>"
       },
-      "extra": [],
+      "extra": [
+        "job.resolved"
+      ],
       "top/n": {
         "id": "<job:m:n>",
         "args": {},
@@ -286,7 +288,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/n": {
             "id": "<job:m:n>",
             "args": {},
@@ -441,19 +445,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261104044210-3d33254c4cfd",
-      "revision": "3d33254c4cfd26d0c0ef18751940eb9d65910144",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -461,69 +465,69 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41774793150"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-11-04T04:44:41Z",
+    "recorded_at": "2026-11-06T15:28:55Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:34781"
+      "WL_EFFECT_SINK": "http://host.docker.internal:41753"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 605,
+      "submit_to_complete_ms": 409,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-04T04:44:40.737352Z",
-          "started_at": "2026-11-04T04:44:40.766303Z",
-          "completed_at": "2026-11-04T04:44:41.177038Z",
-          "duration_ms": 411
+          "created_at": "2026-11-06T15:28:54.896762Z",
+          "started_at": "2026-11-06T15:28:54.901039Z",
+          "completed_at": "2026-11-06T15:28:55.287092Z",
+          "duration_ms": 386
         },
         "m:core": {
           "kind": "flow",
-          "created_at": "2026-11-04T04:44:41.011473Z",
-          "started_at": "2026-11-04T04:44:41.062594Z",
-          "completed_at": "2026-11-04T04:44:41.064553Z",
-          "duration_ms": 2
+          "created_at": "2026-11-06T15:28:55.128054Z",
+          "started_at": "2026-11-06T15:28:55.167486Z",
+          "completed_at": "2026-11-06T15:28:55.172080Z",
+          "duration_ms": 5
         },
         "m:n": {
           "kind": "flowscript",
-          "created_at": "2026-11-04T04:44:40.768503Z",
-          "started_at": "2026-11-04T04:44:40.770575Z",
-          "completed_at": "2026-11-04T04:44:40.809294Z",
-          "duration_ms": 37
+          "created_at": "2026-11-06T15:28:54.902362Z",
+          "started_at": "2026-11-06T15:28:54.905026Z",
+          "completed_at": "2026-11-06T15:28:54.935198Z",
+          "duration_ms": 28
         },
         "m:read": {
           "kind": "script",
-          "created_at": "2026-11-04T04:44:41.067571Z",
-          "started_at": "2026-11-04T04:44:41.116195Z",
-          "completed_at": "2026-11-04T04:44:41.174478Z",
-          "duration_ms": 56
+          "created_at": "2026-11-06T15:28:55.176879Z",
+          "started_at": "2026-11-06T15:28:55.225244Z",
+          "completed_at": "2026-11-06T15:28:55.281282Z",
+          "duration_ms": 52
         },
         "m:warm": {
           "kind": "flow",
-          "created_at": "2026-11-04T04:44:40.813046Z",
-          "started_at": "2026-11-04T04:44:40.862539Z",
-          "completed_at": "2026-11-04T04:44:41.006560Z",
-          "duration_ms": 144
+          "created_at": "2026-11-06T15:28:54.940818Z",
+          "started_at": "2026-11-06T15:28:54.987328Z",
+          "completed_at": "2026-11-06T15:28:55.119619Z",
+          "duration_ms": 132
         },
         "m:warm/m:a": {
           "kind": "flowscript",
-          "created_at": "2026-11-04T04:44:40.867640Z",
-          "started_at": "2026-11-04T04:44:40.870037Z",
-          "completed_at": "2026-11-04T04:44:40.909322Z",
-          "duration_ms": 36
+          "created_at": "2026-11-06T15:28:54.992921Z",
+          "started_at": "2026-11-06T15:28:54.996038Z",
+          "completed_at": "2026-11-06T15:28:55.026330Z",
+          "duration_ms": 27
         },
         "m:warm/m:b": {
           "kind": "flowscript",
-          "created_at": "2026-11-04T04:44:40.912554Z",
-          "started_at": "2026-11-04T04:44:40.962133Z",
-          "completed_at": "2026-11-04T04:44:41.003671Z",
-          "duration_ms": 38
+          "created_at": "2026-11-06T15:28:55.030948Z",
+          "started_at": "2026-11-06T15:28:55.077138Z",
+          "completed_at": "2026-11-06T15:28:55.113526Z",
+          "duration_ms": 31
         }
       }
     }

@@ -31,9 +31,12 @@ const stubDir = "../../conformance/flows/stub"
 // call resolved, its attempt, the job, flow, root flow and root ids the
 // step saw, and the arguments it received. They run in fresh mode, one
 // harness process per invocation as on Windmill, and in warm mode.
-// TestFlowSuite requires the same runs against their expects, in warm.
+// TestFlowSuite requires the same runs against their expects, in warm. On
+// the retarget branch, a fixture with a run whose recording the ledger
+// lists as pending is checked against its expects only.
 func TestStubCasesMatchTheOracle(t *testing.T) {
 	bun := bunOrSkip(t)
+	pending := retargetLedger(t).Oracle
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -59,8 +62,19 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 					t.Errorf("%s: not a stub fixture with effects", dir)
 					continue
 				}
-				recorded := true
+				rel, err := filepath.Rel(repo(t), mustAbs(t, dir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				recorded, held := true, false
 				for i, r := range f.Runs {
+					if e, ok := pending[filepath.ToSlash(rel)+"/"+r.Name]; ok && r.Recorded == nil {
+						if against == "recording" {
+							t.Logf("%s/%s: no recording, pending in the retarget ledger (%s)", dir, r.Name, e.Marker())
+						}
+						held = true
+						continue
+					}
 					if r.Recorded == nil || len(r.Recorded.Observation.Effects) == 0 {
 						t.Errorf("%s/%s: no recording with effects", dir, r.Name)
 						recorded = false
@@ -69,7 +83,7 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 						f.Runs[i].Expect = nil
 					}
 				}
-				if !recorded {
+				if !recorded || held && against == "recording" {
 					continue
 				}
 				for _, res := range fc.runFixture(context.Background(), f) {

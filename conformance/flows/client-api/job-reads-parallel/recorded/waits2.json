@@ -79,7 +79,7 @@
             "modules": [
               {
                 "id": "ba",
-                "job": "<one of flow_jobs>",
+                "job": "<job:>",
                 "type": "InProgress",
                 "parallel": true,
                 "branchall": {
@@ -123,7 +123,10 @@
           "workspace_id": "<env:WM_WORKSPACE>",
           "permissioned_as": "<env:WM_PERMISSIONED_AS>"
         },
-        "extra": [],
+        "extra": [
+          "flow_status.no_inherited_flow_env",
+          "job.resolved"
+        ],
         "top/ba/0": {
           "id": "<job:m:ba/b:0>",
           "args": {},
@@ -636,7 +639,7 @@
                 "modules": [
                   {
                     "id": "ba",
-                    "job": "<one of flow_jobs>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "parallel": true,
                     "branchall": {
@@ -680,7 +683,10 @@
               "workspace_id": "<env:WM_WORKSPACE>",
               "permissioned_as": "<env:WM_PERMISSIONED_AS>"
             },
-            "extra": [],
+            "extra": [
+              "flow_status.no_inherited_flow_env",
+              "job.resolved"
+            ],
             "top/ba/0": {
               "id": "<job:m:ba/b:0>",
               "args": {},
@@ -1206,8 +1212,10 @@
           "error": {
             "name": "Error",
             "stack": "<stack>",
+            "job_id": "<job:m:ba/b:3/m:sf/r:0/m:o>",
             "message": "first attempt",
-            "step_id": "o"
+            "step_id": "o",
+            "flow_path": "f/wl_jrp/flakysub"
           }
         }
       },
@@ -1221,8 +1229,10 @@
           "error": {
             "name": "Error",
             "stack": "<stack>",
+            "job_id": "<job:m:ba/b:3/m:sf/r:0/m:o>",
             "message": "first attempt",
-            "step_id": "o"
+            "step_id": "o",
+            "flow_path": "f/wl_jrp/flakysub"
           }
         }
       },
@@ -1260,8 +1270,10 @@
           "error": {
             "name": "Error",
             "stack": "<stack>",
+            "job_id": "<job:m:ba/b:4/m:rl/r:0/m:q>",
             "message": "first attempt",
-            "step_id": "q"
+            "step_id": "q",
+            "flow_path": "f/wl_jrp/waits2/branchall-4/loop-0"
           }
         }
       },
@@ -1275,8 +1287,10 @@
           "error": {
             "name": "Error",
             "stack": "<stack>",
+            "job_id": "<job:m:ba/b:4/m:rl/r:0/m:q>",
             "message": "first attempt",
-            "step_id": "q"
+            "step_id": "q",
+            "flow_path": "f/wl_jrp/waits2/branchall-4/loop-0"
           }
         }
       },
@@ -1356,7 +1370,7 @@
               "modules": [
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -1400,7 +1414,10 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "flow_status.no_inherited_flow_env",
+            "job.resolved"
+          ],
           "top/ba/0": {
             "id": "<job:m:ba/b:0>",
             "args": {},
@@ -1836,19 +1853,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261104133521-14c5b688b493",
-      "revision": "14c5b688b4935d62c24469710a235b3436b69c28",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -1856,202 +1873,202 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41839478258"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-11-04T13:40:34Z",
+    "recorded_at": "2026-11-06T15:30:29Z",
     "workers": 2,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:35343"
+      "WL_EFFECT_SINK": "http://host.docker.internal:39015"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 8613,
+      "submit_to_complete_ms": 8413,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:26.036496Z",
-          "started_at": "2026-11-04T13:40:26.070723Z",
-          "completed_at": "2026-11-04T13:40:34.497875Z",
-          "duration_ms": 8427
+          "created_at": "2026-11-06T15:30:21.031664Z",
+          "started_at": "2026-11-06T15:30:21.050688Z",
+          "completed_at": "2026-11-06T15:30:29.300755Z",
+          "duration_ms": 8250
         },
         "m:ba/b:0": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.073205Z",
-          "started_at": "2026-11-04T13:40:26.090236Z",
-          "completed_at": "2026-11-04T13:40:34.309609Z",
-          "duration_ms": 8219
+          "created_at": "2026-11-06T15:30:21.052108Z",
+          "started_at": "2026-11-06T15:30:21.070113Z",
+          "completed_at": "2026-11-06T15:30:29.236095Z",
+          "duration_ms": 8166
         },
         "m:ba/b:0/m:a": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.098656Z",
-          "started_at": "2026-11-04T13:40:26.124716Z",
-          "completed_at": "2026-11-04T13:40:26.207003Z",
-          "duration_ms": 80
+          "created_at": "2026-11-06T15:30:21.075328Z",
+          "started_at": "2026-11-06T15:30:21.111727Z",
+          "completed_at": "2026-11-06T15:30:21.151835Z",
+          "duration_ms": 37
         },
         "m:ba/b:0/m:s": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:26.227926Z",
-          "started_at": "2026-11-04T13:40:34.250220Z",
-          "completed_at": "2026-11-04T13:40:34.305183Z",
-          "duration_ms": 55
+          "created_at": "2026-11-06T15:30:21.161767Z",
+          "started_at": "2026-11-06T15:30:29.187348Z",
+          "completed_at": "2026-11-06T15:30:29.229471Z",
+          "duration_ms": 42
         },
         "m:ba/b:0/m:s/m:o": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:34.253157Z",
-          "started_at": "2026-11-04T13:40:34.261720Z",
-          "completed_at": "2026-11-04T13:40:34.298863Z",
-          "duration_ms": 33
+          "created_at": "2026-11-06T15:30:29.190990Z",
+          "started_at": "2026-11-06T15:30:29.203228Z",
+          "completed_at": "2026-11-06T15:30:29.222457Z",
+          "duration_ms": 17
         },
         "m:ba/b:1": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.073205Z",
-          "started_at": "2026-11-04T13:40:26.092323Z",
-          "completed_at": "2026-11-04T13:40:34.377535Z",
-          "duration_ms": 8285
+          "created_at": "2026-11-06T15:30:21.052108Z",
+          "started_at": "2026-11-06T15:30:21.078387Z",
+          "completed_at": "2026-11-06T15:30:29.281851Z",
+          "duration_ms": 8203
         },
         "m:ba/b:1/m:c": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.101276Z",
-          "started_at": "2026-11-04T13:40:26.128917Z",
-          "completed_at": "2026-11-04T13:40:26.207618Z",
-          "duration_ms": 76
+          "created_at": "2026-11-06T15:30:21.080339Z",
+          "started_at": "2026-11-06T15:30:21.116059Z",
+          "completed_at": "2026-11-06T15:30:21.154894Z",
+          "duration_ms": 36
         },
         "m:ba/b:1/m:l/i:0": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.214694Z",
-          "started_at": "2026-11-04T13:40:34.241590Z",
-          "completed_at": "2026-11-04T13:40:34.365427Z",
-          "duration_ms": 124
+          "created_at": "2026-11-06T15:30:21.165506Z",
+          "started_at": "2026-11-06T15:30:29.193933Z",
+          "completed_at": "2026-11-06T15:30:29.278935Z",
+          "duration_ms": 85
         },
         "m:ba/b:1/m:l/i:0/m:x": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:34.246758Z",
-          "started_at": "2026-11-04T13:40:34.255806Z",
-          "completed_at": "2026-11-04T13:40:34.290897Z",
-          "duration_ms": 32
+          "created_at": "2026-11-06T15:30:29.196127Z",
+          "started_at": "2026-11-06T15:30:29.216808Z",
+          "completed_at": "2026-11-06T15:30:29.242533Z",
+          "duration_ms": 23
         },
         "m:ba/b:1/m:l/i:0/m:y": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:34.300271Z",
-          "started_at": "2026-11-04T13:40:34.325530Z",
-          "completed_at": "2026-11-04T13:40:34.359252Z",
-          "duration_ms": 31
+          "created_at": "2026-11-06T15:30:29.246941Z",
+          "started_at": "2026-11-06T15:30:29.256506Z",
+          "completed_at": "2026-11-06T15:30:29.276435Z",
+          "duration_ms": 16
         },
         "m:ba/b:2": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.073205Z",
-          "started_at": "2026-11-04T13:40:26.102594Z",
-          "completed_at": "2026-11-04T13:40:34.331497Z",
-          "duration_ms": 8229
+          "created_at": "2026-11-06T15:30:21.052108Z",
+          "started_at": "2026-11-06T15:30:21.083233Z",
+          "completed_at": "2026-11-06T15:30:29.222462Z",
+          "duration_ms": 8139
         },
         "m:ba/b:2/m:cl/i:0/m:z": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.268007Z",
-          "started_at": "2026-11-04T13:40:34.291691Z",
-          "completed_at": "2026-11-04T13:40:34.325270Z",
-          "duration_ms": 31
+          "created_at": "2026-11-06T15:30:21.182702Z",
+          "started_at": "2026-11-06T15:30:29.199111Z",
+          "completed_at": "2026-11-06T15:30:29.216761Z",
+          "duration_ms": 15
         },
         "m:ba/b:2/m:d": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.107547Z",
-          "started_at": "2026-11-04T13:40:26.207735Z",
-          "completed_at": "2026-11-04T13:40:26.252373Z",
-          "duration_ms": 41
+          "created_at": "2026-11-06T15:30:21.084998Z",
+          "started_at": "2026-11-06T15:30:21.152246Z",
+          "completed_at": "2026-11-06T15:30:21.176063Z",
+          "duration_ms": 20
         },
         "m:ba/b:3": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.073205Z",
-          "started_at": "2026-11-04T13:40:26.105615Z",
-          "completed_at": "2026-11-04T13:40:34.408268Z",
-          "duration_ms": 8303
+          "created_at": "2026-11-06T15:30:21.052108Z",
+          "started_at": "2026-11-06T15:30:21.087921Z",
+          "completed_at": "2026-11-06T15:30:29.263830Z",
+          "duration_ms": 8176
         },
         "m:ba/b:3/m:sf": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:26.334878Z",
-          "started_at": "2026-11-04T13:40:34.359764Z",
-          "completed_at": "2026-11-04T13:40:34.403437Z",
-          "duration_ms": 44
+          "created_at": "2026-11-06T15:30:21.214262Z",
+          "started_at": "2026-11-06T15:30:29.222505Z",
+          "completed_at": "2026-11-06T15:30:29.259820Z",
+          "duration_ms": 37
         },
         "m:ba/b:3/m:sf/m:o": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:34.363029Z",
-          "started_at": "2026-11-04T13:40:34.365818Z",
-          "completed_at": "2026-11-04T13:40:34.398938Z",
-          "duration_ms": 30
+          "created_at": "2026-11-06T15:30:29.226963Z",
+          "started_at": "2026-11-06T15:30:29.238817Z",
+          "completed_at": "2026-11-06T15:30:29.256139Z",
+          "duration_ms": 15
         },
         "m:ba/b:3/m:sf/r:0": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:26.119735Z",
-          "started_at": "2026-11-04T13:40:26.220013Z",
-          "completed_at": "2026-11-04T13:40:26.329244Z",
-          "duration_ms": 109
+          "created_at": "2026-11-06T15:30:21.092764Z",
+          "started_at": "2026-11-06T15:30:21.155718Z",
+          "completed_at": "2026-11-06T15:30:21.205132Z",
+          "duration_ms": 49
         },
         "m:ba/b:3/m:sf/r:0/m:o": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.224642Z",
-          "started_at": "2026-11-04T13:40:26.289263Z",
-          "completed_at": "2026-11-04T13:40:26.324400Z",
-          "duration_ms": 35
+          "created_at": "2026-11-06T15:30:21.171195Z",
+          "started_at": "2026-11-06T15:30:21.181358Z",
+          "completed_at": "2026-11-06T15:30:21.199804Z",
+          "duration_ms": 18
         },
         "m:ba/b:4": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.073205Z",
-          "started_at": "2026-11-04T13:40:26.111884Z",
-          "completed_at": "2026-11-04T13:40:34.490642Z",
-          "duration_ms": 8379
+          "created_at": "2026-11-06T15:30:21.052108Z",
+          "started_at": "2026-11-06T15:30:21.097976Z",
+          "completed_at": "2026-11-06T15:30:29.296549Z",
+          "duration_ms": 8199
         },
         "m:ba/b:4/m:rl/i:0": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.310310Z",
-          "started_at": "2026-11-04T13:40:34.350979Z",
-          "completed_at": "2026-11-04T13:40:34.484699Z",
-          "duration_ms": 134
+          "created_at": "2026-11-06T15:30:21.228079Z",
+          "started_at": "2026-11-06T15:30:29.231719Z",
+          "completed_at": "2026-11-06T15:30:29.293713Z",
+          "duration_ms": 62
         },
         "m:ba/b:4/m:rl/i:0/m:q": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:34.354358Z",
-          "started_at": "2026-11-04T13:40:34.359855Z",
-          "completed_at": "2026-11-04T13:40:34.398102Z",
-          "duration_ms": 35
+          "created_at": "2026-11-06T15:30:29.234761Z",
+          "started_at": "2026-11-06T15:30:29.242763Z",
+          "completed_at": "2026-11-06T15:30:29.263373Z",
+          "duration_ms": 17
         },
         "m:ba/b:4/m:rl/i:0/m:qq": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:34.405906Z",
-          "started_at": "2026-11-04T13:40:34.451027Z",
-          "completed_at": "2026-11-04T13:40:34.480568Z",
-          "duration_ms": 27
+          "created_at": "2026-11-06T15:30:29.269103Z",
+          "started_at": "2026-11-06T15:30:29.275817Z",
+          "completed_at": "2026-11-06T15:30:29.291684Z",
+          "duration_ms": 13
         },
         "m:ba/b:4/m:rl/r:0": {
           "kind": "flownode",
-          "created_at": "2026-11-04T13:40:26.118186Z",
-          "started_at": "2026-11-04T13:40:26.208875Z",
-          "completed_at": "2026-11-04T13:40:26.298754Z",
-          "duration_ms": 90
+          "created_at": "2026-11-06T15:30:21.100541Z",
+          "started_at": "2026-11-06T15:30:21.175122Z",
+          "completed_at": "2026-11-06T15:30:21.222006Z",
+          "duration_ms": 47
         },
         "m:ba/b:4/m:rl/r:0/m:q": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.213798Z",
-          "started_at": "2026-11-04T13:40:26.252690Z",
-          "completed_at": "2026-11-04T13:40:26.289010Z",
-          "duration_ms": 36
+          "created_at": "2026-11-06T15:30:21.179144Z",
+          "started_at": "2026-11-06T15:30:21.199830Z",
+          "completed_at": "2026-11-06T15:30:21.219323Z",
+          "duration_ms": 19
         },
         "m:ba/b:5": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:40:26.073205Z",
-          "started_at": "2026-11-04T13:40:26.123002Z",
-          "completed_at": "2026-11-04T13:40:27.915605Z",
-          "duration_ms": 1793
+          "created_at": "2026-11-06T15:30:21.052108Z",
+          "started_at": "2026-11-06T15:30:21.104924Z",
+          "completed_at": "2026-11-06T15:30:22.857377Z",
+          "duration_ms": 1752
         },
         "m:ba/b:5/m:r": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:26.126264Z",
-          "started_at": "2026-11-04T13:40:26.229131Z",
-          "completed_at": "2026-11-04T13:40:27.911535Z",
-          "duration_ms": 1680
+          "created_at": "2026-11-06T15:30:21.108654Z",
+          "started_at": "2026-11-06T15:30:21.176278Z",
+          "completed_at": "2026-11-06T15:30:22.853131Z",
+          "duration_ms": 1672
         }
       }
     }

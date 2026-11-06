@@ -3,7 +3,7 @@
   "live": [
     {
       "case": "OR-1/a",
-      "by": "every session: WaitReady requires /api/version to be exactly CE v1.767.0, and Pinned.CheckIdentity requires the pinned digest in RepoDigests"
+      "by": "every session: WaitReady requires /api/version to be exactly CE v1.862.0, and Pinned.CheckIdentity requires the pinned digest in RepoDigests"
     },
     {
       "case": "OR-4/a",
