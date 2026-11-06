@@ -902,9 +902,9 @@ func TestSessionRefusals(t *testing.T) {
 	t.Run("OR-1/b: a version mismatch aborts the session", func(t *testing.T) {
 		// spec: OR-1/b
 		rig := newRig(t)
-		rig.oracle.version = "EE v1.767.0"
+		rig.oracle.version = "EE v1.862.0"
 		_, err := rig.session(20*GiB).Run(ctx, []*conformance.Fixture{rig.load(t)})
-		if code(err) != "oracle_version_mismatch" || err.Error() != `{"error":"oracle_version_mismatch","got":"EE v1.767.0"}` || rig.docker.up {
+		if code(err) != "oracle_version_mismatch" || err.Error() != `{"error":"oracle_version_mismatch","got":"EE v1.862.0"}` || rig.docker.up {
 			t.Fatalf("got %v, up %v", err, rig.docker.up)
 		}
 	})
@@ -1242,9 +1242,9 @@ func TestSessionRefusesARecordingOfAnotherOracle(t *testing.T) {
 		name, provenance, field string
 	}{
 		{"another version", `{"oracle":{"version":"EE v1.766.0","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`, "oracle.version"},
-		{"another image", `{"oracle":{"version":"CE v1.767.0","image":"ghcr.io/windmill-labs/windmill-ee:1.767.0@sha256:0e743cd6","cli":"` + CLIPackage + `"}}`, "oracle.image"},
-		{"another CLI", `{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.766.0"}}`, "oracle.cli"},
-		{"no CLI", `{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `"}}`, "oracle.cli"},
+		{"another image", `{"oracle":{"version":"CE v1.862.0","image":"ghcr.io/windmill-labs/windmill-ee:1.862.0@sha256:0e743cd6","cli":"` + CLIPackage + `"}}`, "oracle.image"},
+		{"another CLI", `{"oracle":{"version":"CE v1.862.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.861.0"}}`, "oracle.cli"},
+		{"no CLI", `{"oracle":{"version":"CE v1.862.0","image":"` + WindmillImage + `"}}`, "oracle.cli"},
 		{"no oracle", `{"recorded_at":"2026-10-28T00:00:00Z"}`, "oracle"},
 		{"not an object", `[]`, "oracle"},
 	} {

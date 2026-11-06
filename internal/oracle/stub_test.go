@@ -194,7 +194,7 @@ func TestStubRunsOnBun(t *testing.T) {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
 			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
 		}
-		t.Skip("WL_BUN is not set; it names the pinned Bun " + BunVersion)
+		t.Skip("WL_BUN is not set; it names the Bun windmill-lite pins (PinnedBun in internal/harness)")
 	}
 	tree := filepath.Join(t.TempDir(), "stubbed")
 	if _, err := StubTree("../../conformance/flows/stub/collapsed/windmill", tree); err != nil {
@@ -357,7 +357,7 @@ func TestStubIsolationOnBun(t *testing.T) {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
 			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
 		}
-		t.Skip("WL_BUN is not set; it names the pinned Bun " + BunVersion)
+		t.Skip("WL_BUN is not set; it names the Bun windmill-lite pins (PinnedBun in internal/harness)")
 	}
 	const replay = "http://replay.invalid"
 	for _, c := range []struct {
@@ -483,7 +483,7 @@ func TestExportListsOnBun(t *testing.T) {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
 			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
 		}
-		t.Skip("WL_BUN is not set; it names the pinned Bun " + BunVersion)
+		t.Skip("WL_BUN is not set; it names the Bun windmill-lite pins (PinnedBun in internal/harness)")
 	}
 	typeofMain := func(t *testing.T, src string) string {
 		t.Helper()

@@ -807,8 +807,8 @@ WL_BUN=/path/to/bun-1.4.3/bun go test -race ./internal/bundle
   [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 4
   ([Q-WR-24](../../docs/semantics/languages.md#q-wr-24)). With
   `WL_WMILL_CLI` naming the command that runs the unmodified
-  `windmill-cli@1.767.0` (CI's `parity.yml`: `npx --yes
-  windmill-cli@1.767.0`; never run locally, never a dependency), it pushes
+  `windmill-cli` at the oracle's pinned version (`oracle.CLIPackage`;
+  never run locally, never a dependency), it pushes
   each synthetic WR-47 fixture with `wmill script push` to a recording HTTP
   stub and checks that the bundle the CLI uploads (`main.js`, or a tar of
   it and the assets) equals `CLIBundle`'s, byte for byte. Without it, it
@@ -823,6 +823,11 @@ WL_BUN=/path/to/bun-1.4.3/bun go test -race ./internal/bundle
   builds and reads its asset, and one whose asset collides, and checks that
   only the one that built has its metadata and asset, and runs; and that
   assets that cannot form one tree write nothing.
+- On the retarget branch, CI's `parity.yml` still runs
+  `windmill-cli@1.767.0` while the oracle pins 1.862.0. `TestCLIParity`
+  then skips with its retarget marker when the CLI is refused for its
+  version (`cli_version_mismatch`), and fails on any other error
+  ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)).
 - `TestBuildIsReproducible`, `TestMetaFile`, `TestBuildLocks`,
   `TestBuildRefusesAnotherBun`, `TestBuildIgnoresNodeEnv`,
   `TestBuildRefusesAncestorPackages`, `TestHelperRefusesPathsOutsideTheFolder`,

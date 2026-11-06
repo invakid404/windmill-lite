@@ -2,6 +2,8 @@ package oracle
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +53,8 @@ func TestPendingRunsNeedNoRecording(t *testing.T) {
 	if err := os.CopyFS(filepath.Join(root, dir), os.DirFS(filepath.Join(flowsRoot, "oracle", "smoke"))); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(root, dir, "recorded", "fail.json")); err != nil {
+	// The committed ledger may list fail too, and then it has no recording.
+	if err := os.Remove(filepath.Join(root, dir, "recorded", "fail.json")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal(err)
 	}
 	b := batch{Batch: "E2", Fixtures: []string{dir}, Cases: []string{"OR-20/b"}}

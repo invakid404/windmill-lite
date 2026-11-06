@@ -6,7 +6,7 @@ the recording batches E3a to E3f). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
-fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
+fixtures on an unmodified Windmill CE `v1.862.0`, which runs in public CI
 only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
 and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
 records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)),
@@ -55,7 +55,7 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    and `docker compose up -d`. A two-worker session enables the `workers2`
    profile ([OR-5](../../docs/semantics/oracle.md#or-5)). The disk watchdog
    covers the start and the rest of the session.
-3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.767.0`,
+3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.862.0`,
    then for a healthy status with enough workers; log in as the seeded
    superadmin ([OR-6](../../docs/semantics/oracle.md#or-6)).
 4. **Per fixture.** Skip a fixture with host-provided sites
@@ -183,7 +183,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
-| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
+| `cli.go` | Runs the published `windmill-cli@1.862.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.862.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
 | `redact.go` | Keeps the session's bearer token out of everything the session writes ([The session token](#the-session-token)). |
 | `layout.go` | Copies of a sync tree (milestone E4c): `PlanLayout` finds the paths outside the tree that its codebase entries name, `CopyLayout` copies the tree with them beside it ([Copies of a sync tree](#copies-of-a-sync-tree)). |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
@@ -589,8 +589,11 @@ does not exist on `main`, where every run needs its recording.
   that read its recording, logging the entry's marker.
 - `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings` and
   `TestUnitCasesMatchRecordings` pass over it.
-- `TestReplayRecordedCaptures`, and the tests that read one recording
-  through `recordedRun`, skip with the marker.
+- `TestReplayRecordedCaptures`, the tests that read one recording
+  through `recordedRun` or `recordedDeployment`, and
+  `TestRecordedParallelismReleaseOrder` skip with the marker.
+  `TestRecordedDeploymentEvidence` checks each run in a subtest of its
+  own, so only a pending run's checks are skipped.
 - `TestCommittedRecordingsNameThePinnedOracle` checks only the recordings
   that exist, so it needs no exception. A listed run's recording, when
   present, is checked as any other.
@@ -636,7 +639,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestSessionWritesMismatchedObservations`, `TestSessionMismatchDirRefusals` | whole sessions as above with `MismatchDir`. An `expect_mismatch` run's observation is written beside the fixture as a recording and named in the report, and a later session finds it unchanged once the run's expect follows the oracle. The directory is refused at the repository root and at `OutDir`, and a fixture outside the root or a failed write fails the run with its differences | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestRedactingWriter`, `TestClientHidesItsToken`, `TestCLIOutputHidesTheToken`, `TestSessionNeverWritesTheToken` | where the session token is replaced: in output split across writes; in the client's bodies, `Content-Type` headers, errors, run-and-wait responses and captures, with the login not captured; and in the CLI's output and error. A whole session whose run hands the token back in a trigger event's headers, a result, an effect and the run-and-wait response's body and `Content-Type`, with a CLI that prints it, writes no recording, raw capture, report or log that holds it | the smoke fixture |
-| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
+| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording, of a flow run or of an expression case, names the pinned oracle, image and CLI; the previous pin's identity is refused | `conformance/flows`, `conformance/exprs` |
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language, as the sync folder reads it) | `conformance/flows` |
 | `TestTreeScriptsAreSources` | only a script's source file makes a script there: a flow directory, a resource, a variable or a script's metadata of the same name does not (E3a review R1-2) | a synthetic tree |

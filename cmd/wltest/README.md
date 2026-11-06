@@ -29,7 +29,7 @@ ledger ([The retarget ledger](#the-retarget-ledger)).
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
 flow fixtures (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
 loaded by [internal/conformance](../../internal/conformance/README.md)) on
-the pinned Windmill CE `v1.767.0` oracle through
+the pinned Windmill CE `v1.862.0` oracle through
 [internal/oracle](../../internal/oracle/README.md), and writes
 `recorded/<run>.json` with provenance. It also takes expression-case files
 (`conformance/exprs/<finding>.yaml`), lifts each into a generated one-step
@@ -52,8 +52,8 @@ fixtures are recorded first, then the expression files, with files marked
 `slow` last, so that what a slow case leaves running on the oracle (the
 spinning evaluation of [JE-2](../../docs/semantics/expressions.md#je-2))
 cannot slow the others. It needs Docker, which pulls the CE image
-(1,373 MB compressed on amd64, [OR-2](../../docs/semantics/oracle.md#or-2))
-and Postgres, and `npx` on `PATH` to run `windmill-cli@1.767.0`. Pulls are
+(1,737 MB compressed on amd64, [OR-2](../../docs/semantics/oracle.md#or-2))
+and Postgres, and `npx` on `PATH` to run `windmill-cli@1.862.0`. Pulls are
 refused without enough free disk ([OR-30](../../docs/semantics/oracle.md#or-30)).
 The oracle runs in public CI; see
 [the oracle workflow](../../.github/workflows/oracle.yml).
@@ -72,7 +72,7 @@ The oracle runs in public CI; see
 | `--session NAME` | `""` | The oracle configuration of the session, a name of `SessionConfigs` in [internal/oracle](../../internal/oracle/README.md#a-session): `native` (a worker that serves `nativets`), `long`, `result_size` or `flow_script_off`; empty is the reference configuration. A fixture runs only in the session its `oracle.session` names; an unknown name is refused (batch E3f). |
 | `--skip-unmet-session` | off | Skip a fixture that needs another session's configuration, reporting its runs as `skipped`, instead of refusing it; the oracle workflow runs one session per configuration. |
 | `--listen-interval N` | 1 | The oracle's `LISTEN_NEW_EVENTS_INTERVAL_SEC`, for the knob comparison of [OR-7/a](../../docs/semantics/conformance.md#or-7); the value is in every recording's provenance, which is never compared. |
-| `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must report exactly `1.767.0` (a pre-release such as `1.767.0-beta` is refused). |
+| `--cli CMD` | `npx -y windmill-cli@1.862.0` | The command that runs the CLI; its `--version` must report exactly `1.862.0` (a pre-release such as `1.862.0-beta` is refused). |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
 | `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
@@ -166,7 +166,7 @@ outside the tree that a spelling passes through (made empty), and a
 `tree <root>` line
 ([internal/oracle](../../internal/oracle/README.md#copies-of-a-sync-tree)).
 The copy's metadata still describes the originals, so run `npx -y
-windmill-cli@1.767.0 generate-metadata` in the stubbed tree before pushing
+windmill-cli@1.862.0 generate-metadata` in the stubbed tree before pushing
 it. A tree in which some executed script would keep its body is refused,
 with `{"error":"stub_unsupported","file":…,"reason":…}` on standard output
 and exit 1.
@@ -845,9 +845,9 @@ mode.
 
 | Section | Item | What it allows | Read by |
 |---|---|---|---|
-| `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite` |
+| `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite`, and `TestSubflowRetryFixturesFreshAndWarm` for its fixture's runs |
 | `step_suite` | a step case: `<step file>/<case>` | the case fails in a mode the entry covers: `warm` or `fresh` | `TestStepSuite` |
-| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, and the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch) |
+| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch), `TestStubCasesMatchTheOracle`, `TestE3aOnEngine` in [internal/expr](../../internal/expr/README.md), and `TestLoadFixtures` in [internal/conformance](../../internal/conformance/README.md), which accepts a listed run with claims but no expect |
 
 `conformance.ParseLedger` refuses unknown fields, a milestone that is not
 an id, an empty or multi-line reason, a mode listed twice, an `oracle`
@@ -864,6 +864,11 @@ case, or a run of a fixture or expression file.
 - A listed run or case that passes in a mode its entry covers fails the
   test. The entry then hides nothing in that mode, so the pull request
   that made it pass removes the mode or the entry.
+- `TestSubflowRetryFixturesFreshAndWarm` judges its fixture's runs in
+  `fresh` and `warm` by their `flow_suite` entries, as `TestFlowSuite`
+  does.
+- `TestStubCasesMatchTheOracle` checks a stub fixture with a run whose
+  recording is pending against its expects only.
 - `record --pending` changes no output: new and changed recordings still
   go under `--out`, and an `expect_mismatch` run's observation under
   `--mismatched`. Only the session's verdict changes. A listed run

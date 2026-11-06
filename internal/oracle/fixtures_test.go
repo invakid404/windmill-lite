@@ -172,7 +172,7 @@ func TestFlowFixtureTreesResolve(t *testing.T) {
 // iterations' scripts, not their child flows: CF-7/a, the same loop with
 // parallelism 2, records child flows that start before the previous one
 // completed, so the predicate holds for b because of parallelism and
-// fails for a.
+// fails for a. A run pending in the retarget ledger skips the test.
 func TestRecordedParallelismReleaseOrder(t *testing.T) {
 	// spec: CF-7/b, CF-7/a
 	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, "control-flow", "cf-7"))
@@ -187,6 +187,11 @@ func TestRecordedParallelismReleaseOrder(t *testing.T) {
 		for i := range f.Runs {
 			if f.Runs[i].Name == name {
 				run = &f.Runs[i]
+			}
+		}
+		if run != nil && run.Recorded == nil {
+			if e, ok := pendingRecordings(t)["conformance/flows/control-flow/cf-7/"+name]; ok {
+				t.Skip(e.Marker())
 			}
 		}
 		if run == nil || run.Recorded == nil {
@@ -239,7 +244,8 @@ func TestRecordedParallelismReleaseOrder(t *testing.T) {
 // absent and come back filled after the dependency job (CF-6 rule 2), and
 // generate-metadata writes the same defaults into flow.yaml; a pull writes
 // them back too (CF-6/b, SY-6/c); FX-40/d's body is pinned to the hash the
-// deployment assigned its script.
+// deployment assigned its script. Each run is a subtest, which a run
+// pending in the retarget ledger skips.
 func TestRecordedDeploymentEvidence(t *testing.T) {
 	// spec: CF-6/a, CF-6/b, SY-6/c, CF-15/a, CF-15/b, FX-40/d
 	const absent = "(absent)"
@@ -266,55 +272,64 @@ func TestRecordedDeploymentEvidence(t *testing.T) {
 			{branchall + "/branches/1/skip_failure", "false", "false", "false"},
 		}},
 	} {
-		d := recordedDeployment(t, c.fixture, c.run)
-		for _, ck := range c.checks {
-			for _, v := range []struct {
-				name, want string
-				doc        json.RawMessage
-			}{
-				{"submitted", ck.submitted, d.Submitted},
-				{"materialized", ck.materialized, d.Materialized},
-				{"cli_generated", ck.cliMade, d.CLIGenerated},
-			} {
-				if got := jsonAt(t, v.doc, ck.pointer, absent); got != v.want {
-					t.Errorf("%s %s: %s at %s is %s, want %s", c.fixture, c.run, v.name, ck.pointer, got, v.want)
+		t.Run(c.fixture+"/"+c.run, func(t *testing.T) {
+			d := recordedDeployment(t, c.fixture, c.run)
+			for _, ck := range c.checks {
+				for _, v := range []struct {
+					name, want string
+					doc        json.RawMessage
+				}{
+					{"submitted", ck.submitted, d.Submitted},
+					{"materialized", ck.materialized, d.Materialized},
+					{"cli_generated", ck.cliMade, d.CLIGenerated},
+				} {
+					if got := jsonAt(t, v.doc, ck.pointer, absent); got != v.want {
+						t.Errorf("%s %s: %s at %s is %s, want %s", c.fixture, c.run, v.name, ck.pointer, got, v.want)
+					}
 				}
 			}
-		}
+		})
 	}
 
 	// CF-6/b and SY-6/c: what the CLI's sync pull writes back for a flow
 	// the API created as written (oracle.pull). The identity module's
 	// extra field survives the round trip, and the loop that was
 	// submitted without skip_failures is pulled with it filled in.
-	d := recordedDeployment(t, "control-flow/pull", "pulled")
-	for _, ck := range []struct {
-		name, pointer, want string
-		doc                 json.RawMessage
-	}{
-		{"submitted", "/modules/1/value/skip_failures", absent, d.Submitted},
-		{"submitted", "/modules/0/value/extra", "7", d.Submitted},
-		{"pulled", "/modules/0/value/extra", "7", d.Pulled},
-		{"pulled", "/modules/1/value/skip_failures", "true", d.Pulled},
-	} {
-		if got := jsonAt(t, ck.doc, ck.pointer, absent); got != ck.want {
-			t.Errorf("control-flow/pull: %s at %s is %s, want %s", ck.name, ck.pointer, got, ck.want)
+	t.Run("control-flow/pull/pulled", func(t *testing.T) {
+		d := recordedDeployment(t, "control-flow/pull", "pulled")
+		for _, ck := range []struct {
+			name, pointer, want string
+			doc                 json.RawMessage
+		}{
+			{"submitted", "/modules/1/value/skip_failures", absent, d.Submitted},
+			{"submitted", "/modules/0/value/extra", "7", d.Submitted},
+			{"pulled", "/modules/0/value/extra", "7", d.Pulled},
+			{"pulled", "/modules/1/value/skip_failures", "true", d.Pulled},
+		} {
+			if got := jsonAt(t, ck.doc, ck.pointer, absent); got != ck.want {
+				t.Errorf("control-flow/pull: %s at %s is %s, want %s", ck.name, ck.pointer, got, ck.want)
+			}
 		}
-	}
+	})
 
 	hash := "/modules/1/value/modules/0/value/hash"
 	for _, run := range []string{"d-hash", "d-hash-script-ttl"} {
-		d := recordedDeployment(t, "execution/fx-40-hash", run)
-		sub, mat := jsonAt(t, d.Submitted, hash, absent), jsonAt(t, d.Materialized, hash, absent)
-		if len(sub) != 18 || sub == `"`+PinToDeployedHash+`"` || mat != sub {
-			t.Errorf("fx-40-hash %s: submitted hash %s, materialized %s; want the deployed script's hash in both", run, sub, mat)
-		}
-		if cli := jsonAt(t, d.CLIGenerated, hash, absent); cli != `"`+PinToDeployedHash+`"` {
-			t.Errorf("fx-40-hash %s: generate-metadata's copy pins %s, want the tree's %s", run, cli, PinToDeployedHash)
-		}
+		t.Run("execution/fx-40-hash/"+run, func(t *testing.T) {
+			d := recordedDeployment(t, "execution/fx-40-hash", run)
+			sub, mat := jsonAt(t, d.Submitted, hash, absent), jsonAt(t, d.Materialized, hash, absent)
+			if len(sub) != 18 || sub == `"`+PinToDeployedHash+`"` || mat != sub {
+				t.Errorf("fx-40-hash %s: submitted hash %s, materialized %s; want the deployed script's hash in both", run, sub, mat)
+			}
+			if cli := jsonAt(t, d.CLIGenerated, hash, absent); cli != `"`+PinToDeployedHash+`"` {
+				t.Errorf("fx-40-hash %s: generate-metadata's copy pins %s, want the tree's %s", run, cli, PinToDeployedHash)
+			}
+		})
 	}
 }
 
+// recordedDeployment returns the deployment evidence in a committed run's
+// provenance. A run without a recording, which the retarget ledger lists
+// as pending, skips the test with its marker.
 func recordedDeployment(t *testing.T, fixture, run string) FlowDeployment {
 	t.Helper()
 	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, filepath.FromSlash(fixture)))
@@ -329,6 +344,9 @@ func recordedDeployment(t *testing.T, fixture, run string) FlowDeployment {
 			continue
 		}
 		if r.Recorded == nil {
+			if e, ok := pendingRecordings(t)["conformance/flows/"+fixture+"/"+run]; ok {
+				t.Skip(e.Marker())
+			}
 			t.Fatalf("%s run %s has no recording", fixture, run)
 		}
 		var p Provenance

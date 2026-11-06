@@ -72,7 +72,7 @@ host upgrades the engine and rebuilds the bundle together.
    does only in ESM output. In CommonJS output `import.meta` stays empty, as
    it does in the CLI's esbuild bundles, so code that reads
    `import.meta.env` there fails as it would on Windmill. A rewrite at run
-   time cannot do this: on Bun 1.3.10 the global `Bun` and its `env` are
+   time cannot do this: on Bun 1.4.3 the global `Bun` and its `env` are
    read-only and non-configurable. Every bundle imports the support module
    before its own code; being a module of its own, its references to the
    real globals are kept apart from a script's bindings by the bundler,
@@ -506,6 +506,13 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   in unbundled code. Step 5 stays: it keeps a bundle's reads on
   `process.env`, the one name the view replaces, so their isolation does
   not depend on the run-time mechanism alone.
+- The retarget to Bun 1.4.3 measured that its `process.env` object takes
+  only data properties. So the view's third path moves a variable that an
+  invocation claims out of that object, into the view's own store, instead
+  of making it an accessor, and reads by name stay isolated through every
+  name. Code the rewrite does not reach that enumerates `Bun.env` no longer
+  lists a claimed variable; step 5 makes a bundle enumerate `process.env`,
+  the view, instead.
 - Milestone F8a's record, [0013](0013-shared-module-code.md), adds
   **shared code**, a build setting. With it, the bundle carries one closure
   per build group (the Bun-built scripts, and each codebase entry) and a
