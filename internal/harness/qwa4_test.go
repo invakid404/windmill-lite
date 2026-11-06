@@ -26,7 +26,7 @@ import (
 // the stock pinned windmill-client? It runs the experiment design of WA-31
 // and Q-WA-4 on the real harness:
 //
-//   - the stock windmill-client@1.767.0 (WL_WINDMILL_CLIENT names a
+//   - the stock windmill-client@1.862.0 (WL_WINDMILL_CLIENT names a
 //     directory whose node_modules holds it; CI fetches it by its npm
 //     integrity hash), through a namespace import and a default import;
 //   - each step bundled three ways: not at all, by Bun.build with
@@ -52,13 +52,13 @@ func TestQWA4EnvView(t *testing.T) {
 	client := os.Getenv("WL_WINDMILL_CLIENT")
 	if client == "" {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
-			t.Fatal("WL_REQUIRE_BUN is set but WL_WINDMILL_CLIENT is not; it names a directory whose node_modules holds windmill-client@1.767.0")
+			t.Fatal("WL_REQUIRE_BUN is set but WL_WINDMILL_CLIENT is not; it names a directory whose node_modules holds windmill-client@1.862.0")
 		}
 		t.Skip("WL_WINDMILL_CLIENT is not set")
 	}
 	pkg, err := os.ReadFile(filepath.Join(client, "node_modules", "windmill-client", "package.json"))
-	if err != nil || !strings.Contains(string(pkg), `"version": "1.767.0"`) {
-		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.767.0: %v", err)
+	if err != nil || !strings.Contains(string(pkg), `"version": "1.862.0"`) {
+		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.862.0: %v", err)
 	}
 	bundle, variants := qwa4Bundle(t, bun, client)
 	digest := digestOf(t, bundle)
