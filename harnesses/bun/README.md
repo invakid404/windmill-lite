@@ -244,6 +244,24 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   imports of them unwrapped (default imports and `require` always see the
   wrappers), which is why the host SDK requires `node:child_process`. The
   runtime's own timers use `realTimers`, the functions as Bun has them.
+- **A socket's timers.** The timers that Bun's networking modules
+  (`node:net` and `node:http`'s own) set are part of a socket, which runs
+  on (D9), so the fence leaves them alone. On Bun 1.4.3 they time a
+  socket's idle time and its connection attempts, close a destroyed
+  socket's handle and track a server's connections.
+  - The fence tells them by the file and function of the frame that calls
+    the timer function: `node:net`'s `setTimeout`, `closeSocketHandle`
+    and `internalConnectMultiple`, and `node:_http_server`'s `setTimeout`
+    and `setupConnectionsTracking`.
+  - The module alone would not do: JavaScriptCore drops the frame of a
+    function that ends by returning a call, so a step's `net.connect`
+    `lookup` callback that returns `setTimeout(…)` shows `node:net` as
+    the caller. Its timer stays fenced.
+  - Reading the frame runs none of the step's code. The fence assigns
+    `Error.prepareStackTrace` and `Error.stackTraceLimit` for the capture
+    only while each is a writable data property, and puts them back. A
+    step that made one an accessor, read-only or removed gets every timer
+    fenced, a socket's included.
 - **The log view.** Inside an invocation, `console`'s methods and
   `process.stdout.write` and `process.stderr.write` write to the
   invocation's log (`InvocationLog`). A console call is formatted by a
@@ -381,7 +399,7 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   or after `revoke(kind)` for its kind, is released at once. The
   connection's end settles every invocation too. Nothing global is keyed
   by invocation, and the counts are the only leak report:
-  `process._getActiveHandles()` lists nothing on Bun 1.3.10. The fence
+  `process._getActiveHandles()` lists nothing on Bun 1.4.3. The fence
   never touches sockets or shared objects, and cannot stop promise
   continuations already queued (`Bun.sleep`, `node:timers/promises`); what
   they do through the fenced channels is refused.
@@ -769,7 +787,7 @@ this mode cannot reproduce is deviation D5 of
   the ECMAScript built-ins and the web APIs WR-45 lists, taken from this
   realm once fetch is wrapped and before any step loads (`fetch`, `URL`,
   `URLPattern`, `crypto`, the streams, `structuredClone`, `console` and the
-  rest; Bun 1.3.10 has no `FileReader`), a `Deno` object holding only an
+  rest; Bun 1.4.3 has no `FileReader`), a `Deno` object holding only an
   empty `core`, and `addEventListener`, `removeEventListener` and
   `dispatchEvent` on `globalThis`. Nothing of Bun's: no `Bun`, `Buffer`,
   `require`, `module`, `process`, `setImmediate` or `ShadowRealm`.

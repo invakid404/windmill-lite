@@ -443,10 +443,11 @@ A module the runtime has built in is neither an external import nor a kept
 
 `builtins` holds the specifiers the build helper accepts on its Bun: each
 name that `node:module`'s `builtinModules` lists, alone or after `node:`,
-that Bun's resolver resolves to a built-in module. Bun 1.3.10 resolves its
-own modules only bare, so `node:ws` and `node:bun:sqlite`, for example, are
-external modules, while `node:fs/promises` is built in. The build requires
-the pinned Bun, 1.4.3, unless `BunConfig.AllowBunMismatch` is set.
+that Bun's resolver resolves to a built-in module. Bun resolves its own
+modules only bare, so `node:ws` and `node:bun:sqlite`, for example, are
+external modules, while `node:fs/promises` is built in, and Bun 1.4.3 lists
+`node:sqlite` only with its prefix. The build requires the pinned Bun,
+1.4.3, unless `BunConfig.AllowBunMismatch` is set.
 
 The build helper finds namespace imports and kept imports by parsing with
 Babel: its `namespaces` op parses each module, and its `kept` op parses the
@@ -575,10 +576,16 @@ of the bundle holds one alone.
 - The late shim always exports `then`, from the registry like its other
   names. An `import()` reads `then` on the namespace it resolves to, so it
   rejects before the module registers, a module without exports included.
+- Bun 1.4.3 gives an `import()` whose value goes unused, or only has
+  exports read, an empty object in place of the namespace. Nothing reads
+  `then` then, so in a Bun-built copy such an `import()` resolves before
+  the module registers, without its load effects. esbuild keeps the
+  namespace. A module that waits for another's load effects keeps the
+  namespace its `import()` gives.
 - Both bundlers initialise a module once, so a plain shim that failed can
-  never yield the registered values. On Bun 1.3.10 and esbuild, every later
-  import gets its exports undefined, or seems to succeed for a module
-  without exports.
+  never yield the registered values. On esbuild every later import gets
+  its exports undefined, or seems to succeed for a module without
+  exports; Bun 1.4.3 throws the first failure again on every later import.
 
 ## BuildBun
 
@@ -712,6 +719,9 @@ WL_BUN=/path/to/bun-1.4.3/bun go test -race ./internal/bundle
     registers, caught and uncaught (`run.register_error`), a module
     whose loading awaits one, and an `import()` of a module without exports
     attempted twice before its registration.
+  - An `import()` made to wait for a module's load effects keeps the
+    namespace it gives, and a Bun-built copy's `import()` whose value goes
+    unused resolves before the registration.
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's

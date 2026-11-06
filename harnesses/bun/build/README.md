@@ -250,7 +250,7 @@ A module the runtime has built in is neither an external module nor a kept
 ([ADR 0013](../../../docs/design/0013-shared-module-code.md), decision item
 5). `builtinModule` decides it from `BUILTIN_SPECIFIERS`: each name that
 `node:module`'s `builtinModules` lists on the helper's Bun, alone or after
-`node:`, that `Bun.resolveSync` resolves to a built-in module. Bun 1.3.10
+`node:`, that `Bun.resolveSync` resolves to a built-in module. Bun
 resolves its own modules only bare: `node:ws` and `node:bun:sqlite`, for
 example, are external modules, while `node:fs/promises` is built in. An
 `import()` counts only with a literal specifier.
