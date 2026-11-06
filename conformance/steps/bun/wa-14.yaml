@@ -10,7 +10,7 @@ note: >-
   setFlowUserState and getFlowUserState make (the root lookup, then the
   state route at the root), by fetch at BASE_URL with its token; the
   helpers' own reactions (the swallowed 404 and its log line, the strict
-  rejection) are checked with windmill-client@1.767.0 by
+  rejection) are checked with windmill-client@1.862.0 by
   internal/platform/facade's TestFlowUserStateOnTheClient.
 cases:
   - spec: WA-14/a

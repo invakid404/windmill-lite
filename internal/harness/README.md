@@ -562,19 +562,16 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 
 - `frames_test.go` runs the codec cases of `conformance/protocol/frames.json`
   and, with `-args -update`, rewrites their payloads from Go's encoder.
-- `qwa4_test.go` is W1's Q-WA-4 env-view test
+- `qwa4_test.go` is the Q-WA-4 env-view test
   ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4),
-  [WA-31](../../docs/semantics/client-api.md#wa-31)): the stock
-  `windmill-client@1.767.0`, by namespace and default import, in steps that
-  are not bundled, bundled by `Bun.build` with Windmill's settings, and
-  bundled with the define rewrite, plus an unbundled dependency that reads
-  `Bun.env`. Sixteen concurrent invocations per variant must each read their
-  own variables through `process.env`, `Bun.env`, `import.meta.env`, a copy
-  of `process.env`, a variable they write, a process variable half of them
-  delete, the dependency and the client's call, whose platform frame must
-  be attributed to them; in a process without the variables and in one that
-  has them. It needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules`
-  holds that client.
+  [WA-31](../../docs/semantics/client-api.md#wa-31)). Its steps use the
+  stock `windmill-client@1.862.0` unbundled, bundled with Windmill's
+  settings or bundled with the define rewrite, plus an unbundled dependency
+  that reads `Bun.env`. Sixteen invocations per variant at once, warm and
+  fresh, with and without the variables in the process, must each read
+  their own through every channel, and a warm one's client call must be
+  attributed to it. It needs `WL_WINDMILL_CLIENT`, a directory whose
+  `node_modules` holds that client.
 - `host_test.go` plays a host on a socketpair: the handshake's parent check,
   a host gone before its hello, runs and their invocations, `run_cancel`, a
   lost host (also with a gap between the end of the runs' contexts and the
