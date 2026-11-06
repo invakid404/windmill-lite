@@ -1,7 +1,7 @@
 // A Bun host for the host-mode benchmarks (cmd/windmill-lite/bench_test.go,
 // ADR 0005's benchmark plan): it embeds the host SDK, connects the engine
 // on the bundle, and does nothing else, so that its process is a warm Bun
-// 1.3.10 host whose only work is the steps the engine invokes in it. The
+// 1.4.3 host whose only work is the steps the engine invokes in it. The
 // benchmarks compile it with `bun build --compile`, as a host's own program
 // is compiled, and submit the runs from the engine's side (the SDK's engine
 // is the benchmark's process, through the engine proxy of bench_test.go),

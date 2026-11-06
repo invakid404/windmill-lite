@@ -176,9 +176,9 @@ go run ./cmd/windmill-lite selfcheck    # starts the expression engine
 go test -race ./...
 ```
 
-The harness, build, skeleton and host-mode tests also need Bun 1.3.10, the
-version Windmill v1.767.0 ships; without it they skip. Point `WL_BUN` at its
-executable, and install the build helper's parser once. The Q-WA-4 test,
+The harness, build, skeleton and host-mode tests also need the pinned Bun
+1.4.3; without it they skip. Point `WL_BUN` at its executable, and install
+the build helper's parser once. The Q-WA-4 test,
 the facade's attribution test and `cmd/wltest`'s test of the client under
 shared code also need the stock `windmill-client@1.767.0`: point
 `WL_WINDMILL_CLIENT` at a directory whose `node_modules` holds it (CI
@@ -186,7 +186,7 @@ fetches it by its npm integrity hash):
 
 ```sh
 (cd harnesses/bun/build && bun install --frozen-lockfile)
-WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client \
+WL_BUN=/path/to/bun-1.4.3/bun WL_WINDMILL_CLIENT=/path/to/client \
   go test -race ./internal/harness ./internal/bundle ./internal/engine ./internal/platform/... ./cmd/windmill-lite
 ```
 
@@ -197,7 +197,7 @@ Node executable; CI uses Node 20, the major of Windmill v1.767.0's image.
 To build a bundle from the synthetic fixture folder and verify it:
 
 ```sh
-export WL_BUN=/path/to/bun-1.3.10/bun WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts
+export WL_BUN=/path/to/bun-1.4.3/bun WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts
 go run ./cmd/windmill-lite build internal/bundle/testdata/fixture/windmill \
   -contract internal/bundle/testdata/fixture/contract.yaml -o /tmp/fixture.wlb
 go run ./cmd/windmill-lite verify /tmp/fixture.wlb
@@ -213,7 +213,7 @@ go run ./cmd/windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
 ### Install the Bun host SDK
 
 A Bun program runs flows in its own process through the Bun host SDK, from
-the npm package `windmill-lite`. The host also needs Bun 1.3.10, and the
+the npm package `windmill-lite`. The host also needs Bun 1.4.3, and the
 engine and bundles of the package's version
 ([harnesses/README.md](harnesses/README.md#install)).
 
@@ -248,7 +248,7 @@ import { connect } from "windmill-lite/bun";
 | [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base), the Bun side of the build, which runs the Bun build helper, and codebase scripts, which esbuild bundles through its Go API as the `wmill` CLI does, with their assets and the CLI parity check. |
 | [internal/bench](internal/bench/README.md) | What the benchmarks share: the synthetic payloads of the step boundary benchmarks, nearest-rank percentiles, and workers that start together and report the concurrency they reach. Only test files use it. |
 | [harnesses](harnesses/README.md) | The npm package `windmill-lite`: its manifest, which holds the one version of the package and the engine, its build and its packaging test. Its subpath `windmill-lite/bun` is the Bun host SDK, bundled with the harness runtime, and `windmill-lite/bun/testing` is the SDK's test entry, which a host's tests run on Bun or Node to check its process-level code against the settle-time fence. |
-| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment, log and `fetch` views and child-process wrapping, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the settle-time fence on the per-invocation registry and the process scope, `fresh` mode, codebase modules (CommonJS on Bun's CommonJS loader) and their assets in the working directory, the native boundary mode for `nativets` and `//native` steps, and the host SDK (working-directory checks, host-provided modules, assets, runs and their settlement, health with recycle triggers, drain, the watchdog option, and a host plugin), and host plugins answered over `host_call`, with `around` wrappers, and the step API (`wl.latch`, `wl.signal`). |
+| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.4.3: the runtime side of the protocol, with the per-invocation environment, log and `fetch` views and child-process wrapping, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the settle-time fence on the per-invocation registry and the process scope, `fresh` mode, codebase modules (CommonJS on Bun's CommonJS loader) and their assets in the working directory, the native boundary mode for `nativets` and `//native` steps, and the host SDK (working-directory checks, host-provided modules, assets, runs and their settlement, health with recycle triggers, drain, the watchdog option, and a host plugin), and host plugins answered over `host_call`, with `around` wrappers, and the step API (`wl.latch`, `wl.signal`). |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, the export scan of host-provided modules, the source parse of codebase scripts, and the native form of native steps with their embedded client. |
 | [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases (host mode's working-directory cases among them), the host-plugin cases, the Bun build cases (codebase scripts included), the Bun step cases (with D13's, Node against Bun), the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's and N3c's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture, PF1's job-identity fixture, PF2's platform-services fixture, and batch E3e's remaining recordings) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
 | [scripts](scripts/README.md) | Repository tooling: the documentation check, and the release helper, which reads the one version of the engine and the npm package and builds the release engine. The scripts that acknowledge Renovate dependency bumps are installed, awaiting activation (a repository secret). |
@@ -267,7 +267,7 @@ reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
 and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race -timeout 45m ./...` (with Bun 1.3.10, the build
+`go vet ./...` and `go test -race -timeout 45m ./...` (with Bun 1.4.3, the build
 helper's parser and `windmill-client@1.767.0` installed, so the harness,
 build and host-mode tests cannot skip, and Node 20, on which the step suite
 runs each CommonJS codebase bundle as Windmill does, deviation D13; the

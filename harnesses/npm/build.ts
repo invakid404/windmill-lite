@@ -21,7 +21,7 @@
 //   declarations reach. They keep the sources' relative imports, which end
 //   in .ts; TypeScript resolves each to its .d.ts file.
 //
-// It runs on Bun 1.3.10, the harness's pinned Bun, and refuses any other:
+// It runs on Bun 1.4.3, the harness's pinned Bun, and refuses any other:
 // Bun's bundler transpiles the runtime, so another Bun could ship other
 // code. It needs the package's devDependencies (bun install
 // --frozen-lockfile in harnesses/).
@@ -29,7 +29,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
-const PINNED_BUN = "1.3.10";
+const PINNED_BUN = "1.4.3";
 
 const root = join(import.meta.dir, "..");
 const dist = join(root, "dist");

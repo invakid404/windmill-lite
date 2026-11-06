@@ -24,8 +24,7 @@ protocol of [ADR 0004](../../docs/design/0004-harness-protocol.md);
 [ADR 0009](../../docs/design/0009-host-adapters.md) and its test entry; and
 `test/`, the developer checks. The build helper, which bundles scripts and parses their
 signatures, has its own README: [build/](build/README.md). The harness runs
-on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
-([WR-3](../../docs/semantics/languages.md#wr-3)).
+on the pinned Bun 1.4.3 ([WR-3](../../docs/semantics/languages.md#wr-3)).
 
 The runtime and the host SDK have no dependencies and no `package.json` of
 their own. The npm package `windmill-lite`, whose root is `harnesses/`,
@@ -613,7 +612,7 @@ describes them for a host
   as the runtime settles a step, and `left` is what that returns.
 - **Where it runs.** `context.ts` reads the `Bun` global only in the
   child-process wrappers, which the entry never installs. So the entry runs
-  on Node 22 or newer as well as on Bun 1.3.10.
+  on Node 22 or newer as well as on Bun 1.4.3.
 - **Vendored.** A host that vendors the SDK imports `host/testing.ts` from
   its copy of `host/`.
 
@@ -857,7 +856,7 @@ this mode cannot reproduce is deviation D5 of
     base URLs are the facade's origin: the welcome's, or in a fresh
     process, which the welcome does not tell, the `BASE_URL` it was spawned
     with.
-- **Compiled once, run in each realm.** Under the pinned Bun 1.3.10, every
+- **Compiled once, run in each realm.** Under Bun 1.3.10, every
   script that `node:vm` compiles from a string stays reachable after a full
   collection, so one compiled per invocation grows the process with every
   native invocation. So never compile a script from a string with
@@ -1066,7 +1065,7 @@ cd harnesses/bun && bun test
 vendors them as source sees them
 ([ADR 0009](../../docs/design/0009-host-adapters.md)). It copies both
 directories into a temporary package of type module. There it runs
-TypeScript 6.0.3 against `@types/bun` 1.3.10, the type declarations of the
+TypeScript 6.0.3 against `@types/bun` 1.4.3, the type declarations of the
 pinned Bun.
 
 `@types/bun` accepts any version of `@types/node`, and a host brings its
@@ -1083,7 +1082,7 @@ by its own lockfile:
   each in strict and in non-strict mode. It exits 1 if any of the eight
   runs reports an error.
 - CI's non-required `Bun SDK types` job runs it.
-- Renovate keeps `@types/bun` at 1.3.10 in both sets, and the oldest set's
+- Renovate keeps `@types/bun` at 1.4.3 in both sets, and the oldest set's
   `@types/node` within major version 24.
 
 The code uses only names that Bun's type declarations define, with or

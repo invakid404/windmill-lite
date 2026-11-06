@@ -242,7 +242,7 @@ what the steps' synchronous child calls started, which gets no group of
 its own.
 
 **The handshake.** The harness's `hello` must match `Kind`, `Runtime`
-(`PinnedBun`, 1.3.10, for Bun), `Bundle` and the protocol version, and its
+(`PinnedBun`, 1.4.3, for Bun), `Bundle` and the protocol version, and its
 `pid` must be the process `Spawn` started, and a process spawned in `fresh`
 mode must offer the `fresh` capability. Otherwise the welcome carries a
 `reject` (`proto_mismatch`, `harness_mismatch`, `runtime_mismatch`,
@@ -599,7 +599,7 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   `Pool.Plugin` in `TestPoolHostCall`).
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
-  the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture
+  the C1 exit gate: protocol golden tests on Bun 1.4.3. The fixture
   bundle's scripts take named parameters, each with the `.meta.json`
   signature the build helper would record; C3a added the transcripts of
   an intercepted `process.exit` (`exit-caught`, `exit-zero`,
@@ -725,7 +725,7 @@ The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and
 `WL_REQUIRE_BUN` is set, as CI sets it.
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
+WL_BUN=/path/to/bun-1.4.3/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
 ```
 
 ## Benchmarks
@@ -796,6 +796,6 @@ other two need the pinned Bun in `WL_BUN`, and fail without it rather
 than skip. They run only with `-bench`:
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun go test ./internal/harness -run '^$' \
+WL_BUN=/path/to/bun-1.4.3/bun go test ./internal/harness -run '^$' \
   -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
 ```
