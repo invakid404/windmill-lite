@@ -150,7 +150,8 @@ Each is the smallest reading consistent with the reference.
   are decoded as i64. Rawscript `concurrent_limit` and
   `concurrency_time_window_s` are i32, like the flow-level fields.
 - `assets` is checked as a list and kept verbatim. AI-agent tools follow
-  OF-9's outline; the kind is out of scope.
+  [OF-9](../../docs/semantics/openflow.md#of-9)'s outline; the kind is out
+  of scope.
 - The fields the `v1.862.0` schema adds are decoded with the types it
   declares, under the rules above:
   - `on_behalf_of` and `agent` as strings, and an AI-agent tool's
@@ -163,9 +164,10 @@ Each is the smallest reading consistent with the reference.
 
   Every module kind type-checks `agent` and `tool_inputs`.
 - The tool type `question` and the module kind `aidecision`, which the
-  `v1.862.0` schema declares, are rejected as unknown variants: OF-9 lists
-  neither, and its variant lists and messages stay as the reference gives
-  them. The question tool's own `timeout` is therefore never read.
+  `v1.862.0` schema declares, are rejected as unknown variants. The
+  reference lists neither ([OF-9](../../docs/semantics/openflow.md#of-9)),
+  and the variant lists and messages stay as it gives them. The question
+  tool's own `timeout` is therefore never read.
 - Nesting is limited to 10000 levels, against stack exhaustion.
 
 ## Tests
