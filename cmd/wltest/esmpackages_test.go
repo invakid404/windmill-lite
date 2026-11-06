@@ -44,7 +44,7 @@ func TestESModulePackagesShareTheClosure(t *testing.T) {
 }
 
 // TestWindmillClientSharesTheClosure is TestESModulePackagesShareTheClosure
-// for the stock windmill-client 1.767.0, whose import condition names an ES
+// for the stock windmill-client 1.862.0, whose import condition names an ES
 // module entry (dist/index.mjs) that re-exports its services. The scripts of
 // testdata/esm-client read JobService.getJob through a named and a
 // namespace import. WL_WINDMILL_CLIENT names a directory whose node_modules
@@ -55,14 +55,14 @@ func TestWindmillClientSharesTheClosure(t *testing.T) {
 	client := os.Getenv("WL_WINDMILL_CLIENT")
 	if client == "" {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
-			t.Fatal("WL_REQUIRE_BUN is set but WL_WINDMILL_CLIENT is not; it names a directory whose node_modules holds windmill-client@1.767.0")
+			t.Fatal("WL_REQUIRE_BUN is set but WL_WINDMILL_CLIENT is not; it names a directory whose node_modules holds windmill-client@1.862.0")
 		}
 		t.Skip("WL_WINDMILL_CLIENT is not set")
 	}
 	modules := filepath.Join(client, "node_modules")
 	pkg, err := os.ReadFile(filepath.Join(modules, "windmill-client", "package.json"))
-	if err != nil || !strings.Contains(string(pkg), `"version": "1.767.0"`) {
-		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.767.0: %v", err)
+	if err != nil || !strings.Contains(string(pkg), `"version": "1.862.0"`) {
+		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.862.0: %v", err)
 	}
 	checkSharedFixture(t, bun, filepath.Join("testdata", "esm-client"), os.DirFS(modules))
 }

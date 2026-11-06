@@ -455,7 +455,7 @@ comparison. An abandoned invocation has no outcome to replace.
   - the per-run providers (H13): an invocation whose run chose its own
     services reads variables and resources from them, another the
     facade's, and both the shared job registry.
-- `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
+- `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.862.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's
     exit gate: two runs at once in one warm process, the client imported
@@ -507,6 +507,13 @@ comparison. An abandoned invocation has no outcome to replace.
       The async helpers resolve to the refusal's body, the synchronous one
       rejects at once, and in fail mode the step fails with
       `UnsupportedPlatformCall` quoting the refusal.
+
+On the retarget branch, the stock-client cases that need the client's
+import-time token skip with a retarget-pending marker
+([the retarget ledger](../../../cmd/wltest/README.md#the-retarget-ledger)):
+`TestAttribution`'s two warm runs and its fresh runs, `TestTransportsAgree`,
+and the fresh run of each other test above. Bun 1.4.3 evaluates a module that `import()` loads outside its
+invocation's async context, so the client reads no `WM_TOKEN` at import.
 
 The step cases of [conformance/steps](../../../conformance/README.md) run
 the facade through `wltest check` in `warm` and `fresh`: `wa-2.yaml`,
