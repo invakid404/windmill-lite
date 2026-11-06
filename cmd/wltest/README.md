@@ -3,8 +3,7 @@
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
 E3a added expression files, E3e `--skip-unmet-workers` and
-`--listen-interval`, E3f `--session` and `--skip-unmet-session`, and
-the retarget to Windmill 1.862.0 (W8a) `--mismatched`), `stub` (milestone E4a) and `check`, for step
+`--listen-interval`, and E3f `--session` and `--skip-unmet-session`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a), with the for loops of milestone N3a, the
@@ -79,14 +78,11 @@ It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
 `expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
 more workers, under `--skip-unmet-workers`, one that needs another
 session's configuration, under `--skip-unmet-session`, or one with host-provided
-sites, which only windmill-lite runs), the fixture and the run, then,
-under `--mismatched`, an `observation: <file>` line for an `expect_mismatch`
-run, then any error and the JSON-pointer differences
-(`/steps/m:b/args/tag: "ho" != "hi"`, actual before expected). It exits 1
-when a run failed, was refused, was unstable or did not match its
-`expect`, and in check mode also when a recording is new or changed. The
-report (`--report`) holds the same per run: `outcome`, `differences`,
-`error`, `wrote` and `observation`. A run whose committed recording names another
+sites, which only windmill-lite runs), the fixture and the run, then any
+error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
+actual before expected). It exits 1 when a run failed, was refused, was
+unstable or did not match its `expect`, and in check mode also when a
+recording is new or changed. A run whose committed recording names another
 oracle, image or CLI is `refused` (`recording_identity_mismatch`) before
 anything runs; delete the recording to re-record it. A refusal of the whole
 session (for example `{"error":"insufficient_disk",…}`) is printed as JSON on
@@ -116,21 +112,26 @@ workspaces besides `admins`.
 
 A run whose observation does not match its `expect` is `expect_mismatch`
 and writes no recording, in place or under `--out`: a recording must meet
-its run's `expect`. With `--mismatched DIR`, `record` still writes that
-observation, the one it compared, under `DIR`, as
-`DIR/<fixture path>/recorded/<run>.json` (an expression case's under
-`DIR/conformance/exprs/recorded/<finding>/`), in the recording format,
-`{"observation": …, "provenance": …}`. The run stays `expect_mismatch` and
-still fails the session; the printed `observation:` line and the report's
-`observation` field name the file. A run that is `unstable`, `failed` or
-`refused` has no single observation and writes nothing there. When the
-file cannot be written, or the fixture lies outside the working directory,
-the run is `failed`, with the error and its differences.
+its run's `expect`. With `--mismatched DIR`, `record` writes that
+observation under `DIR` instead, in the recording format with its
+provenance (`{"observation": …, "provenance": …}`), at the path `--out`
+would give its recording.
+
+- The path is `DIR/<fixture path>/recorded/<run>.json`, or
+  `DIR/conformance/exprs/recorded/<finding>/<case>.json` for an expression
+  case.
+- The run stays `expect_mismatch` and still fails the session. An
+  `observation: <file>` line under the run's line, and the `observation`
+  field of its entry in the report (`--report`), name the file.
+- An `unstable`, `failed` or `refused` run has no single observation and
+  writes nothing there.
+- A file that cannot be written, or a fixture outside the working
+  directory, makes the run `failed`, with the error and the differences.
 
 One oracle pass thus gives both the recordings of the runs whose `expect`
 still holds (`--out`) and the new observations of the others. Once a run's
-`expect` is changed to what the oracle now does, its file is the recording
-to commit: copied over the repository (`cp -R DIR/. .`), the next
+`expect` says what the oracle now does, its file is the recording to
+commit: copied over the repository (`cp -R DIR/. .`), the next
 `record --check` reports it `unchanged`. The
 [oracle workflow](../../.github/workflows/oracle.yml) passes
 `--mismatched` and uploads the directory with the recordings, the raw

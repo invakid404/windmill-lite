@@ -117,14 +117,7 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    OR-14/a). Compare the observation with the run's `expect`, under the
    fixture's compare options, and with its committed recording, exactly
    (two oracle observations are never compared as a subset), then write the
-   recording as the session's policy says. A run that does not match its
-   `expect` writes no recording; with `MismatchDir` (`--mismatched`) its
-   observation and provenance go there instead, in the recording format,
-   at the path `OutDir` would give the recording, and the run's report
-   names the file (`observation`). A write that fails, or a fixture outside
-   `RepoRoot`, fails the run with its differences kept. The session refuses
-   to start when `MismatchDir` is `RepoRoot` (it would replace the
-   fixtures' recordings) or `OutDir`.
+   recording as the session's policy says.
 6. **Teardown.** Record the containers' cgroup memory peaks where the host
    exposes them, `docker compose down -v`, and require that no container,
    volume or network with the project label is left (OR-18/a). Teardown
@@ -132,6 +125,15 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    Docker and CLI commands run in a process group of their own, killed as a
    whole when the session is canceled, so a launcher such as `npx` cannot
    leave the CLI running and block the teardown.
+
+A run that does not match its `expect` writes no recording. A session's
+`MismatchDir` (`--mismatched`) receives its observation instead, with its
+provenance, in the recording format, at the path `OutDir` would give its
+recording, and the run's report names the file (`observation`). A write
+that fails, or a fixture outside `RepoRoot`, fails the run with its
+differences kept. The session refuses to start when `MismatchDir` is
+`RepoRoot`, where the observations would replace the fixtures' recordings,
+or `OutDir`.
 
 A session's `ListenInterval` (`--listen-interval`) sets the oracle's
 `LISTEN_NEW_EVENTS_INTERVAL_SEC` through compose's
@@ -600,7 +602,8 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | Test | What it checks | Cases |
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
-| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionWritesMismatchedObservations`, `TestSessionMismatchDirRefusals`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionDeploysThroughTheAPI`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, the observation of an `expect_mismatch` run written to `--mismatched` as a recording that a later session finds unchanged once the expect follows the oracle, `--mismatched` refused at the repository root or `--out` and a write to it that fails failing the run, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
+| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionDeploysThroughTheAPI`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
+| `TestSessionWritesMismatchedObservations`, `TestSessionMismatchDirRefusals` | whole sessions as above with `MismatchDir`. An `expect_mismatch` run's observation is written beside the fixture as a recording and named in the report, and a later session finds it unchanged once the run's expect follows the oracle. The directory is refused at the repository root and at `OutDir`, and a fixture outside the root or a failed write fails the run with its differences | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestRedactingWriter`, `TestClientHidesItsToken`, `TestCLIOutputHidesTheToken`, `TestSessionNeverWritesTheToken` | where the session token is replaced: in output split across writes; in the client's bodies, `Content-Type` headers, errors, run-and-wait responses and captures, with the login not captured; and in the CLI's output and error. A whole session whose run hands the token back in a trigger event's headers, a result, an effect and the run-and-wait response's body and `Content-Type`, with a CLI that prints it, writes no recording, raw capture, report or log that holds it | the smoke fixture |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
