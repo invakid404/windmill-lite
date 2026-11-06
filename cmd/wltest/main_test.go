@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/oracle"
 )
 
 func TestUsage(t *testing.T) {
+	outDir := t.TempDir()
 	for _, c := range []struct {
 		args []string
 		code int
@@ -33,12 +36,47 @@ func TestUsage(t *testing.T) {
 		{[]string{"record", "--no-such-flag", "x"}, 2, "flag provided but not defined"},
 		{[]string{"record", t.TempDir()}, 1, "no fixtures"},
 		{[]string{"record", "main.go"}, 2, "neither a fixture directory nor an expression file"},
+		{[]string{"record", "-h"}, 2, "write the observation of every run that does not match its expect"},
+		// Both refused before Docker is asked anything.
+		{[]string{"record", "--mismatched", ".", "../../conformance/flows/oracle/smoke"}, 1, "is the repository root"},
+		{[]string{"record", "--out", outDir, "--mismatched", outDir, "../../conformance/flows/oracle/smoke"}, 1, "--mismatched and --out are both"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), c.args, &stdout, &stderr)
 		if code != c.code || !strings.Contains(stdout.String()+stderr.String(), c.out) {
 			t.Errorf("%q: exit %d, output %q; want exit %d with %q", c.args, code, stdout.String()+stderr.String(), c.code, c.out)
 		}
+	}
+}
+
+// TestPrintRuns: record prints one line per run, then the file that holds
+// a mismatched run's observation (--mismatched), any error and the
+// differences; a mismatch fails the session whether or not its observation
+// was written.
+func TestPrintRuns(t *testing.T) {
+	var out bytes.Buffer
+	failed := printRuns(&out, []oracle.RunReport{
+		{Fixture: "conformance/flows/x", Run: "a", Outcome: oracle.OutcomeNew, Wrote: "o/conformance/flows/x/recorded/a.json"},
+		{Fixture: "conformance/flows/x", Run: "b", Outcome: oracle.OutcomeExpectMismatch, Observation: "m/conformance/flows/x/recorded/b.json", Differences: []string{"/result: 2 != 1"}},
+		{Fixture: "conformance/flows/x", Run: "c", Outcome: oracle.OutcomeFailed, Error: "oracle: boom", Differences: []string{"/status: \"failure\" != \"success\""}},
+	}, false)
+	want := `new        conformance/flows/x a -> o/conformance/flows/x/recorded/a.json
+expect_mismatch conformance/flows/x b
+  observation: m/conformance/flows/x/recorded/b.json
+  /result: 2 != 1
+failed     conformance/flows/x c
+  error: oracle: boom
+  /status: "failure" != "success"
+`
+	if !failed || out.String() != want {
+		t.Fatalf("failed %v, output:\n%s", failed, out.String())
+	}
+	out.Reset()
+	if printRuns(&out, []oracle.RunReport{{Fixture: "f", Run: "a", Outcome: oracle.OutcomeNew}}, false) {
+		t.Fatal("a new recording outside check mode fails the session")
+	}
+	if !printRuns(&out, []oracle.RunReport{{Fixture: "f", Run: "a", Outcome: oracle.OutcomeNew}}, true) {
+		t.Fatal("a new recording in check mode passes the session")
 	}
 }
 

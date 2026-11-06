@@ -3,7 +3,8 @@
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
 E3a added expression files, E3e `--skip-unmet-workers` and
-`--listen-interval`, and E3f `--session` and `--skip-unmet-session`), `stub` (milestone E4a) and `check`, for step
+`--listen-interval`, E3f `--session` and `--skip-unmet-session`, and
+the retarget to Windmill 1.862.0 (W8a) `--mismatched`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a), with the for loops of milestone N3a, the
@@ -59,6 +60,7 @@ The oracle runs in public CI; see
 |---|---|---|
 | `--check` | off | Fail when a run has no committed recording or its observation differs from it, and never write into a fixture. |
 | `--out DIR` | — | Write new and changed recordings under `DIR`, at their committed path (`DIR/<fixture path>/recorded/`, `DIR/conformance/exprs/recorded/<finding>/`), instead of in place. |
+| `--mismatched DIR` | — | Write the observation of every `expect_mismatch` run under `DIR`, normalised and in the recording format with its provenance, at the path `--out` would give its recording; see [Mismatched observations](#mismatched-observations). `DIR` must not be the repository root (the working directory) or the `--out` directory. |
 | `--raw DIR` | — | Write the raw API captures of every run to `DIR`. |
 | `--report FILE` | — | Write the session report: disk readings, pulls, images, boot times, CLI version, deployments, memory peaks, teardown. |
 | `--repeat N` | 1 | Run each run `N` times and require equal observations. |
@@ -77,11 +79,14 @@ It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
 `expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
 more workers, under `--skip-unmet-workers`, one that needs another
 session's configuration, under `--skip-unmet-session`, or one with host-provided
-sites, which only windmill-lite runs), the fixture and the run, then any
-error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
-actual before expected). It exits 1 when a run failed, was refused, was
-unstable or did not match its `expect`, and in check mode also when a
-recording is new or changed. A run whose committed recording names another
+sites, which only windmill-lite runs), the fixture and the run, then,
+under `--mismatched`, an `observation: <file>` line for an `expect_mismatch`
+run, then any error and the JSON-pointer differences
+(`/steps/m:b/args/tag: "ho" != "hi"`, actual before expected). It exits 1
+when a run failed, was refused, was unstable or did not match its
+`expect`, and in check mode also when a recording is new or changed. The
+report (`--report`) holds the same per run: `outcome`, `differences`,
+`error`, `wrote` and `observation`. A run whose committed recording names another
 oracle, image or CLI is `refused` (`recording_identity_mismatch`) before
 anything runs; delete the recording to re-record it. A refusal of the whole
 session (for example `{"error":"insufficient_disk",…}`) is printed as JSON on
@@ -106,6 +111,30 @@ Runs that share a `group` are submitted together, as concurrent outer runs,
 and fail together when one fails or when they did not overlap. Each
 fixture's workspace is deleted after its runs, because CE admits only two
 workspaces besides `admins`.
+
+### Mismatched observations
+
+A run whose observation does not match its `expect` is `expect_mismatch`
+and writes no recording, in place or under `--out`: a recording must meet
+its run's `expect`. With `--mismatched DIR`, `record` still writes that
+observation, the one it compared, under `DIR`, as
+`DIR/<fixture path>/recorded/<run>.json` (an expression case's under
+`DIR/conformance/exprs/recorded/<finding>/`), in the recording format,
+`{"observation": …, "provenance": …}`. The run stays `expect_mismatch` and
+still fails the session; the printed `observation:` line and the report's
+`observation` field name the file. A run that is `unstable`, `failed` or
+`refused` has no single observation and writes nothing there. When the
+file cannot be written, or the fixture lies outside the working directory,
+the run is `failed`, with the error and its differences.
+
+One oracle pass thus gives both the recordings of the runs whose `expect`
+still holds (`--out`) and the new observations of the others. Once a run's
+`expect` is changed to what the oracle now does, its file is the recording
+to commit: copied over the repository (`cp -R DIR/. .`), the next
+`record --check` reports it `unchanged`. The
+[oracle workflow](../../.github/workflows/oracle.yml) passes
+`--mismatched` and uploads the directory with the recordings, the raw
+captures and the report.
 
 ## stub
 
@@ -712,6 +741,12 @@ Windmill v1.767.0's image).
     other failing with `group_not_concurrent`, a failed run with
     `group_member_failed`, and a run that starts no module holding up no
     other.
+- `TestPrintRuns` checks `record`'s per-run lines: the `observation:` line
+  of a mismatched run under `--mismatched`, the error and the differences,
+  and which outcomes fail the session. `TestUsage` covers the verbs' flag
+  refusals, among them `--mismatched` at the working directory or at
+  `--out`, refused before Docker is asked anything. The sessions behind
+  `record` are tested in [internal/oracle](../../internal/oracle/README.md#tests).
 
 ### Host mode
 
