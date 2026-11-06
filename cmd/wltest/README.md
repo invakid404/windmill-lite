@@ -174,7 +174,7 @@ and exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.4.3/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of

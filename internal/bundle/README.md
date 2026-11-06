@@ -446,7 +446,7 @@ name that `node:module`'s `builtinModules` lists, alone or after `node:`,
 that Bun's resolver resolves to a built-in module. Bun 1.3.10 resolves its
 own modules only bare, so `node:ws` and `node:bun:sqlite`, for example, are
 external modules, while `node:fs/promises` is built in. The build requires
-that Bun to be 1.3.10 unless `BunConfig.AllowBunMismatch` is set.
+the pinned Bun, 1.4.3, unless `BunConfig.AllowBunMismatch` is set.
 
 The build helper finds namespace imports and kept imports by parsing with
 Babel: its `namespaces` op parses each module, and its `kept` op parses the
@@ -668,12 +668,12 @@ failure and preprocessor slots; [internal/ir](../ir/README.md) decides, and
 ## Tests
 
 The build tests run the real helper on the pinned Bun. Install the helper's
-parser once, then point `WL_BUN` at Bun 1.3.10; without it they skip, unless
+parser once, then point `WL_BUN` at Bun 1.4.3; without it they skip, unless
 `WL_REQUIRE_BUN` is set, as CI sets it:
 
 ```sh
 (cd harnesses/bun/build && bun install --frozen-lockfile)
-WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
+WL_BUN=/path/to/bun-1.4.3/bun go test -race ./internal/bundle
 ```
 
 - `TestConformanceBuild` runs every case of

@@ -5,7 +5,7 @@
 covers `harnesses/bun/build`. The Go build in
 [internal/bundle](../../../internal/bundle/README.md), behind
 `windmill-lite build` (F4), runs it; nothing else does. It runs on the
-pinned Bun 1.3.10 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
+pinned Bun 1.4.3 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
 refuses another unless the caller allows it. Codebase scripts are not
 bundled here: esbuild bundles them in Go (C2b), and the helper only parses
 their sources (`parse`, below). Milestone C3n added the native form of
