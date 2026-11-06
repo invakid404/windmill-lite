@@ -923,6 +923,11 @@ this mode cannot reproduce is deviation D5 of
     about 72 KiB of heap per call. A new context keeps nothing. The realm's
     own `eval` and `Function` keep no script and no heap, though each
     compiles anew.
+  - *On Bun 1.4.3.* No script that `node:vm` compiles from a string stays
+    reachable after a full collection, so the test below cannot tell a
+    harness that compiles per invocation from one that compiles once. The
+    rule stays: compiling once still saves a compile per invocation, and
+    keeps the process bounded on a Bun that keeps the scripts.
   - *What is compiled once.* The realm's global read (`GLOBAL_SCRIPT`) and
     its helpers (`REALM_SCRIPT`), once per process. A module, once per
     process for each of its first 16 preambles (`MAX_VARIANTS`). Any further
@@ -1049,9 +1054,9 @@ untracked, and when a pending entrypoint fails as one that nothing can
 settle), and
 `test/fit.test.ts` how a warning's message
 is cut to fit `max_message`, and `test/describe.test.ts` the text the
-harness's own messages give an error: Bun 1.3.10 builds the stack of an
-error that a garbage collection formats before anything read it without
-the message, which `describe` puts back. `test/sender.test.ts`
+harness's own messages give an error: its stack as Bun builds it, which
+on Bun 1.4.3 keeps the message even when a collection formats the stack
+before anything read it. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation (a result held behind a large
 platform call of its invocation included), partial writes,

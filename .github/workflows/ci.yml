@@ -234,6 +234,47 @@ jobs:
           WL_EXPR_BUDGET_SECONDS: "1"
         run: go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr
 
+      - name: Report the native realms and the process groups
+        if: matrix.checks
+        # The Test step runs without -v, so a test that skips passes there
+        # unseen. This step runs, by name and with -v, the tests whose
+        # coverage rests on the pinned Bun: TestNativeInvocationsKeepNoScript
+        # (cmd/windmill-lite), whose log gives the Script objects, heap and
+        # resident set that native invocations leave in a long-lived Bun
+        # process, and the tests of the process groups that a job's
+        # children join (internal/harness, the Linux-only subreaper test
+        # included, and the host's TestHostChildUnderBackpressure). It
+        # fails if any of them skips or does not run.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_REQUIRE_BUN: "1"
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/realms-and-groups.log"
+          cmd=(TestNativeInvocationsKeepNoScript TestHostChildUnderBackpressure)
+          harness=(TestChildGroupIdentity TestChildGroupGuardian TestChildGroupUndecided
+            TestChildGroupEndsOnce TestReapChildGroups TestReviewOwnedGuardianReaped
+            TestRetireChildren TestBunWarmRetiresEndedChildren TestBunWarmGuardedHandoff
+            TestBunWaitAllChild TestBunFreshChildHoldsTheJob TestBunFreshTimeoutKillsTheGroup
+            TestBunWarmChildren TestBunWarmCancelKillsChildren TestBunWarmStalledChildren
+            TestBunFreshKilledHeldResult)
+          if [ "$RUNNER_OS" = Linux ]; then harness+=(TestReapAdoptedOrphans); fi
+          pattern() { local IFS='|'; echo "^($*)\$"; }
+          go test -count=1 -v -run "$(pattern "${cmd[@]}")" ./cmd/windmill-lite | tee "$log"
+          go test -count=1 -v -run "$(pattern "${harness[@]}")" ./internal/harness | tee -a "$log"
+          status=0
+          if grep -E -- '--- SKIP:' "$log"; then
+            echo "::error::these tests skipped; each must run here"
+            status=1
+          fi
+          for t in "${cmd[@]}" "${harness[@]}"; do
+            if ! grep -q -E -- "^--- PASS: $t \(" "$log"; then
+              echo "::error::$t did not run"
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: Test repository scripts
         if: matrix.checks
         # Unit tests for the helpers in scripts/: the Renovate auto-ack
@@ -256,11 +297,12 @@ jobs:
         if: matrix.checks
         # The packaging test of the npm package windmill-lite
         # (harnesses/npm/test/check.sh): npm pack, the packed file list
-        # and manifest, bun add into an empty project, tsc on an import of
-        # windmill-lite/bun, the test entry windmill-lite/bun/testing on
-        # Bun 1.4.3 and on Node 22, and a smoke host against the engine
-        # of this commit, stamped with the package's version as a release
-        # stamps it, which an engine of another version must refuse.
+        # and manifest, bun add into an empty project, tsc (TypeScript 7,
+        # 6 and 5) and bun check on an import of windmill-lite/bun, the
+        # test entry windmill-lite/bun/testing on Bun 1.4.3 and on Node 22,
+        # and a smoke host against the engine of this commit, stamped with
+        # the package's version as a release stamps it, which an engine of
+        # another version must refuse.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
         run: |
