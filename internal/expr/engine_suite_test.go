@@ -69,12 +69,13 @@ var enginePending = map[string]string{
 // TestE3aOnEngine is the exit gate of B2b: each E3a case gives the value,
 // the text or the error its recording expects, and each error that the
 // oracle recorded holds the evaluator's text exactly. On the retarget
-// branch, a case whose recording is pending in the ledger skips with its
-// marker, and enginePending's cases may fail.
+// branch, a case whose recording is pending in the ledger is held to its
+// expectation, and an error it gives skips with the entry's marker, since
+// the text to compare is not recorded yet; enginePending's cases may fail.
 func TestE3aOnEngine(t *testing.T) {
 	e3a := loadE3a(t)
 	p := NewPipeline(realEngine(t, DefaultLimits(), 0))
-	var ran, exact, held, skipped int
+	var ran, exact, held, unrecorded, skipped int
 	deviations := map[string][]string{}
 	for _, k := range slices.Sorted(maps.Keys(e3a)) {
 		c := e3a[k]
@@ -82,10 +83,6 @@ func TestE3aOnEngine(t *testing.T) {
 			if why, ok := engineSkipped[c.spec]; ok {
 				skipped++
 				t.Skip(why)
-			}
-			if c.pending != "" {
-				skipped++
-				t.Skip(c.pending)
 			}
 			marker, listed := enginePending[k]
 			// fail reports a failure of the case, or holds it when the
@@ -116,6 +113,10 @@ func TestE3aOnEngine(t *testing.T) {
 			if err := engineCheck(c, out, ee, deviations); err != nil {
 				fail("%s %q: %v", c.spec, c.text, err)
 			}
+			if ee != nil && c.pending != "" {
+				unrecorded++
+				t.Skip(c.pending)
+			}
 			if ee != nil && !holdsText(c.recorded, ee.Message) {
 				fail("%s %q: no recorded message holds the evaluator's text %q; recorded %q", c.spec, c.text, ee.Message, c.recorded)
 				return
@@ -137,7 +138,7 @@ func TestE3aOnEngine(t *testing.T) {
 	for k, d := range deviations {
 		t.Logf("%s: the %s engine gives %s", k, testCLibrary, strings.Join(d, ", "))
 	}
-	t.Logf("%d E3a expressions on the engine, %d skipped; %d recorded error texts matched byte for byte, %d held by enginePending", ran, skipped, exact, held)
+	t.Logf("%d E3a expressions on the engine, %d skipped; %d recorded error texts matched byte for byte, %d held by enginePending, %d not recorded yet", ran, skipped, exact, held, unrecorded)
 }
 
 // holdsText reports whether one of the recorded messages holds the

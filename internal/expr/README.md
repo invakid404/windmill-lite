@@ -626,7 +626,9 @@ failing.
   (batch E3f): the panic report names a task number that differs between
   runs, so its recording masks the message; pipeline case JE-11/e holds the
   evaluator's text. On the retarget branch, a case whose run the retarget
-  ledger lists as having no recording yet skips with the entry's marker
+  ledger lists as having no recording yet is still held to its
+  expectation; an error it gives skips with the entry's marker, since no
+  recorded text exists to compare it with
   ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)). The
   cases in `enginePending`, whose error text the evaluator does not give as
   CE 1.862.0 records it, still run: a failure skips with the case's marker,
