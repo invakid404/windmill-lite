@@ -36,7 +36,11 @@ import (
 //     external in every build;
 //   - 16 concurrent invocations per variant, each with its own WM_*
 //     values, every one making a client call that reads WM_WORKSPACE and
-//     WM_JOB_ID at call time and goes to the facade by fetch.
+//     WM_JOB_ID at call time and goes to the facade by fetch;
+//   - the same 16 invocations in fresh mode, each in a process of its own,
+//     all at once, without the client call: a fresh process reaches the
+//     facade over TCP with the token the client read at import, which the
+//     facade package's TestAttribution checks.
 //
 // Every channel must read the invocation's own value, 16 of 16: direct
 // process.env, Bun.env and import.meta.env reads before and after awaits,
@@ -46,7 +50,8 @@ import (
 // dependency's Bun.env
 // read, and the client call, whose platform frame must be attributed to
 // the invocation that made it and carry its variables, and whose answer
-// must reach that invocation.
+// must reach that invocation. It holds in a process without the variables
+// and in one that has them, warm and fresh.
 func TestQWA4EnvView(t *testing.T) {
 	bun := bunPath(t)
 	client := os.Getenv("WL_WINDMILL_CLIENT")
@@ -70,37 +75,47 @@ func TestQWA4EnvView(t *testing.T) {
 	}{
 		{"process without WM_*", nil},
 		// The host process of host mode may itself have the variables:
-		// the harness turns each into an accessor (path 3 of the view).
+		// the harness moves each out of the original object, into the
+		// view's own store (path 3 of the view).
 		{"process with WM_*", []string{"WM_JOB_ID=process", "WM_WORKSPACE=process", "WM_TOKEN=process"}},
 	} {
-		t.Run(proc.name, func(t *testing.T) {
-			t.Skip("retarget-pending: W4c Bun 1.4.3's process.env refuses the accessor descriptors through which the env view shadows a variable")
-			f := &qwa4Facade{calls: map[string]qwa4Call{}}
-			main := repoPath(t, "harnesses/bun/runtime/main.ts")
-			path, args := BunCommand(bun, main, bundle)
-			diag := &syncBuffer{}
-			p := spawn(t, ProcessConfig{
-				Path: path, Args: args, WorkRoot: t.TempDir(), Kind: "bun", Runtime: PinnedBun, Bundle: digest, Diagnostics: diag,
-				Env:    append(append(BaseEnv(), "BASE_URL="+facade, "WL_QWA4_PROCESS=process"), proc.env...),
-				Facade: facade, Platform: f.handle,
-			})
-			var report []string
-			for _, v := range variants {
-				counts := qwa4Run(t, p, f, v)
-				line := v + ":"
-				for _, ch := range qwa4Channels {
-					line += fmt.Sprintf(" %s %d/16", ch, counts[ch])
-					if counts[ch] != 16 {
-						t.Errorf("%s: channel %s isolated %d of 16", v, ch, counts[ch])
-					}
+		for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
+			t.Run(proc.name+", "+string(mode), func(t *testing.T) {
+				f := &qwa4Facade{calls: map[string]qwa4Call{}}
+				main := repoPath(t, "harnesses/bun/runtime/main.ts")
+				path, args := BunCommand(bun, main, bundle)
+				diag := &syncBuffer{}
+				cfg := ProcessConfig{
+					Path: path, Args: args, WorkRoot: t.TempDir(), Kind: "bun", Runtime: PinnedBun, Bundle: digest, Diagnostics: diag,
+					Env:    append(append(BaseEnv(), "BASE_URL="+facade, "WL_QWA4_PROCESS=process"), proc.env...),
+					Facade: facade, Platform: f.handle,
 				}
-				report = append(report, line)
-			}
-			t.Logf("Q-WA-4 on Bun %s, %s:\n%s", PinnedBun, proc.name, strings.Join(report, "\n"))
-			if t.Failed() {
-				t.Logf("diagnostics:\n%s", diag)
-			}
-		})
+				var x engine.StepExecutor
+				channels := qwa4Channels
+				if mode == engine.ModuleStateFresh {
+					x = newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+					channels = slices.DeleteFunc(slices.Clone(channels), func(ch string) bool { return ch == "client call" })
+				} else {
+					x = spawn(t, cfg)
+				}
+				var report []string
+				for _, v := range variants {
+					counts := qwa4Run(t, x, f, v, mode)
+					line := v + ":"
+					for _, ch := range channels {
+						line += fmt.Sprintf(" %s %d/16", ch, counts[ch])
+						if counts[ch] != 16 {
+							t.Errorf("%s: channel %s isolated %d of 16", v, ch, counts[ch])
+						}
+					}
+					report = append(report, line)
+				}
+				t.Logf("Q-WA-4 on Bun %s, %s, %s:\n%s", PinnedBun, proc.name, mode, strings.Join(report, "\n"))
+				if t.Failed() {
+					t.Logf("diagnostics:\n%s", diag)
+				}
+			})
+		}
 	}
 }
 
@@ -138,7 +153,10 @@ func (f *qwa4Facade) answer(req PlatformRequest) PlatformReply {
 	return PlatformReply{Status: 200, Headers: map[string]string{"content-type": "application/json"}, Body: body}
 }
 
-func qwa4Run(t *testing.T, p *Process, f *qwa4Facade, variant string) map[string]int {
+// qwa4Run runs the 16 invocations of a variant at once on x and counts,
+// per channel, those that read their own values. A fresh invocation makes
+// no client call.
+func qwa4Run(t *testing.T, x engine.StepExecutor, f *qwa4Facade, variant string, mode engine.ModuleState) map[string]int {
 	t.Helper()
 	type res struct {
 		i   int
@@ -153,18 +171,19 @@ func qwa4Run(t *testing.T, p *Process, f *qwa4Facade, variant string) map[string
 				Run:    "run-" + variant,
 				Script: "qwa4/" + variant,
 				Entry:  "main",
-				Args:   jsonval.FromProducer(fmt.Appendf(nil, `{"delay":%d,"del":%t}`, (i*7)%16, i%2 == 0)),
+				Args:   jsonval.FromProducer(fmt.Appendf(nil, `{"delay":%d,"del":%t,"call":%t}`, (i*7)%16, i%2 == 0, mode != engine.ModuleStateFresh)),
 				Env: map[string]string{
 					"WM_JOB_ID":    fmt.Sprintf("job-%s-%d", variant, i),
 					"WM_WORKSPACE": fmt.Sprintf("ws-%d", i),
 					"WM_TOKEN":     fmt.Sprintf("token-%d", i),
 				},
-				Boundary: engine.BoundaryBun,
-				Report:   engine.NopReporter{},
+				Boundary:    engine.BoundaryBun,
+				ModuleState: mode,
+				Report:      engine.NopReporter{},
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			out, err := p.Execute(ctx, inv)
+			out, err := x.Execute(ctx, inv)
 			results <- res{i, out, err}
 		}()
 	}
@@ -240,7 +259,7 @@ func qwa4Bundle(t *testing.T, bun, client string) (string, []string) {
 		return imp + `
 import { jobId } from "wl-env-reader";
 
-export async function main(delay, del) {
+export async function main(delay, del, call) {
   await Bun.sleep(delay);
   const process_ = process.env.WM_JOB_ID;
   const bun = Bun.env.WM_JOB_ID;
@@ -249,7 +268,7 @@ export async function main(delay, del) {
   process.env.WL_WRITTEN = "wrote-" + process.env.WM_JOB_ID;
   if (del) delete process.env.WL_QWA4_PROCESS;
   const dep = jobId();
-  const root = await wmill.getRootJobId();
+  const root = call ? await wmill.getRootJobId() : null;
   await Bun.sleep(delay);
   return { process: process_, bun, meta, copy, written: process.env.WL_WRITTEN, kept: Bun.env.WL_QWA4_PROCESS ?? null, dep, root, after: process.env.WM_JOB_ID, afterbun: Bun.env.WM_JOB_ID };
 }
@@ -288,7 +307,7 @@ export async function main(delay, del) {
 	slices.Sort(variants)
 	// The signature the build helper would record for main (ADR 0002).
 	for _, v := range variants {
-		write("bundle/scripts/bun/qwa4/"+v+".meta.json", `{"signatures":{"main":{"params":[{"name":"delay","date":false},{"name":"del","date":false}]}}}`)
+		write("bundle/scripts/bun/qwa4/"+v+".meta.json", `{"signatures":{"main":{"params":[{"name":"delay","date":false},{"name":"del","date":false},{"name":"call","date":false}]}}}`)
 	}
 	// The bundled variants must have inlined the client and kept the
 	// dependency external, and the define rewrite must have applied.
