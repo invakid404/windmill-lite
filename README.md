@@ -317,6 +317,13 @@ The [release workflow](.github/workflows/release.yml) releases a tag
 change it, the package's manifest, lockfile, build or packaging test, or
 `scripts/release.py`.
 
+The Go jobs on Ubuntu and macOS also run the guard of the retarget ledger,
+a tool of the retarget branch `rt/retarget`
+([cmd/wltest](cmd/wltest/README.md#the-retarget-ledger)). It lists what
+pull requests into that branch knowingly leave failing. It fails a pull
+request into `main`, or a push to it, while the ledger file or any marker
+exists.
+
 The [benchmark workflow](.github/workflows/bench.yml) compares builds of
 the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
 runs only when started by hand and gates nothing
