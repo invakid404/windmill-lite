@@ -5,7 +5,8 @@
 // model, item 3). With size, the error's message is that many "x"s. With
 // gc, one timer makes the error and the next runs a full collection before
 // it rejects: nothing has read the error's stack by then, and Bun 1.3.10
-// builds a stack the collection formats without the message.
+// built a stack the collection formatted without the message (Bun 1.4.3
+// keeps it).
 export async function main(ms, size, gc) {
   const message = size ? "x".repeat(size) : "detached";
   if (!gc) {
