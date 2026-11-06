@@ -11,9 +11,13 @@ between steps. Loops and branches are specified in
 [client-api.md](client-api.md), and the oracle harness in
 [oracle.md](oracle.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`),
+re-pinned from `v1.767.0` on 2026-11-06 ([index](README.md#pinned-version)).
+Source pointers are `path:line` relative to the Windmill repository root,
+at `v1.862.0`. A finding whose tag line ends `verified at v1.767.0 only`
+has not been re-checked at `v1.862.0` yet: its pointers are at `v1.767.0`
+unless they say `@ v1.862.0`. Status, scope and confidence tags are
+defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `FX-` flow execution; `FX-Vn` findings were
 added during validation.
@@ -144,7 +148,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-1"></a>
 ### FX-1 · Flow run state: a cursor plus one status per module
 
-**Scope:** core · **Confidence:** high (oracle-observed: FX-1/a) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-1/a) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A flow run keeps:
   - a step cursor `step` (an integer): `-1` while the preprocessor runs,
@@ -182,7 +186,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-2"></a>
 ### FX-2 · How a flow advances (decision list)
 
-**Scope:** core · **Confidence:** high (source-traced) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The flow alternates between a start phase and a completion phase.
 
@@ -313,7 +317,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-3"></a>
 ### FX-3 · A flow with no modules returns its input
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A flow whose `modules` is empty, and that has no preprocessor to
   run, completes successfully with the flow input object as its result. The
@@ -348,7 +352,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-4"></a>
 ### FX-4 · Trailing virtual identity step when the last module sleeps or suspends
 
-**Scope:** core · **Confidence:** high (call sites read; oracle-observed: FX-4/a on a deployed flow); medium (that every deployed-flow path goes through the lock step) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (call sites read; oracle-observed: FX-4/a on a deployed flow); medium (that every deployed-flow path goes through the lock step) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** If the last module of a module list has `sleep` or `suspend`,
   Windmill appends a synthetic `identity` module with id `<last id>-v` and
@@ -374,7 +378,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-5"></a>
 ### FX-5 · Inline bodies versus subflows by path
 
-**Scope:** core (inline bodies, loop collapse); later (subflows by path) · **Confidence:** high (source-traced; oracle-observed: a subflow by path skips its preprocessor, FX-5/a, and the failure-module copy's id) · **Status:** confirmed
+**Scope:** core (inline bodies, loop collapse); later (subflows by path) · **Confidence:** high (source-traced; oracle-observed: a subflow by path skips its preprocessor, FX-5/a, and the failure-module copy's id) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Inline body.** A branch body, or a loop body that does not collapse,
@@ -443,7 +447,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-46"></a>
 ### FX-46 · Collapsed single-step loops change which settings apply
 
-**Scope:** core (later for cache) · **Confidence:** high (collapse conditions, settings source); medium (`continue_on_error` consequence) · **Status:** confirmed
+**Scope:** core (later for cache) · **Confidence:** high (collapse conditions, settings source); medium (`continue_on_error` consequence) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A loop is **collapsed** when it is
   - a `forloopflow` with `parallel: false` in a **non-preview** flow, or
@@ -506,7 +510,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-49"></a>
 ### FX-49 · Cursor-0 checks run on every start phase at cursor 0
 
-**Scope:** later · **Confidence:** high (oracle-observed: a mid-run true and a mid-run throw in a sequential loop at module 0); medium (the retry and failure-module re-entries, traced) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed: a mid-run true and a mid-run throw in a sequential loop at module 0); medium (the retry and failure-module re-entries, traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The cursor-0 checks (the flow-level `skip_expr` and, for
   scheduled root flows with `no_flow_overlap`, the overlap check) run on
@@ -564,7 +568,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-6"></a>
 ### FX-6 · What `previous_result` is
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **First top-level step:** the flow input object, after any preprocessor
@@ -605,7 +609,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-7"></a>
 ### FX-7 · Step input transforms
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A step's args object is built from its `input_transforms` map,
   one entry per argument name.
@@ -678,7 +682,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-8"></a>
 ### FX-8 · Scope of each flow-level expression
 
-**Scope:** core · **Confidence:** high (oracle-observed for the `stop_after_if` and `sleep` rows; source-traced for the others) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for the `stop_after_if` and `sleep` rows; source-traced for the others) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** For each expression: when it is evaluated, what `result` and
   `previous_result` are bound to, and the other names it can see.
@@ -737,7 +741,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-9"></a>
 ### FX-9 · Boolean predicates use JavaScript truthiness
 
-**Scope:** core · **Confidence:** high (oracle-observed for `skip_if`) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for `skip_if`) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `skip_if`, `stop_after_if`, `stop_after_all_iters_if`,
   `retry_if`, the flow `skip_expr` and branch predicates are evaluated as
@@ -765,7 +769,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-10"></a>
 ### FX-10 · `results.<id>` resolution routes
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** An expression that mentions `results` is answered by the first
   route that applies. The text is trimmed first.
@@ -864,7 +868,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-v6"></a>
 ### FX-V6 · Dynamic preceding-result lookup depends on all context-binding triggers
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** For an engine expression (route 3 of [FX-10](#fx-10)), the
   results proxy returns the in-memory preceding result only if the requested
@@ -896,7 +900,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-11"></a>
 ### FX-11 · `flow_env`
 
-**Scope:** later · **Confidence:** high (oracle-observed: FX-11/a, FX-11/b); high (source-traced: the completion-phase cache) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed: FX-11/a, FX-11/b); high (source-traced: the completion-phase cache) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A flow's `flow_env` is a map from name to JSON value, exposed to
   expressions as the object `flow_env`; a missing key is `undefined`.
@@ -952,7 +956,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-12"></a>
 ### FX-12 · Failure values of script and worker jobs
 
-**Scope:** core (Bun, flow-level); later (Deno, Python) · **Confidence:** high (oracle-observed for the Bun and Deno wrappers and the unwrapped flow result; source-traced for the rest) · **Status:** confirmed
+**Scope:** core (Bun, flow-level); later (Deno, Python) · **Confidence:** high (oracle-observed for the Bun and Deno wrappers and the unwrapped flow result; source-traced for the rest) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** This rule covers **script jobs and pre-run failures** only. A
   failed **flow** job (root, inline child or subflow) stores its final value
@@ -1013,11 +1017,21 @@ run of batch E3f in the [design README](../design/README.md).
   [FX-36](#fx-36); fixture
   [`execution/fx-36-http`](../../conformance/flows/execution/fx-36-http), run
   `extra`, oracle run 40794872025).
+- **Revision 2026-11-06 (retarget to v1.862.0):** not re-checked at
+  v1.862.0. Its Deno case can no longer be recorded: the standard CE image
+  ships no Deno since 1.830.0 (`Dockerfile @ v1.862.0` installs none;
+  `docker/DockerfileFull:4-5 @ v1.862.0`, the full image the oracle does not
+  run, does), and a Deno step's lock job fails with the worker's
+  `Deno is not installed on this worker …` error
+  (`backend/windmill-worker/src/common.rs:2100-2110 @ v1.862.0`). The
+  fixture `fx-12-deno` was removed; [FX-12/c](conformance.md#fx-12) stays as
+  recorded on CE v1.767.0 (oracle run 40685766017). windmill-lite has no
+  Deno.
 
 <a id="fx-13"></a>
 ### FX-13 · A successful result with `wm_failure` is turned into a failure
 
-**Scope:** later · **Confidence:** high (insertion read; oracle-observed for a step at the end of a flow); medium (downstream path); high (identity jobs, oracle-observed) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (insertion read; oracle-observed for a step at the end of a flow); medium (downstream path); high (identity jobs, oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A step that returns successfully is treated as **failed** if its
   result is an object with a string field `wm_failure`. The result is kept
@@ -1082,7 +1096,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-14"></a>
 ### FX-14 · An input-transform error fails that step; a retry runs with empty args
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** If evaluating a step's input transforms throws, the step's job is
   still launched, with **empty args** and a pre-run error. It fails without
@@ -1140,7 +1154,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-15"></a>
 ### FX-15 · Chaining errors: three contexts
 
-**Scope:** core · **Confidence:** high (oracle-observed: the three contexts and their texts); medium (context 2 re-entry outcome) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: the three contexts and their texts); medium (context 2 re-entry outcome) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** These errors raised during the start phase ([FX-2](#fx-2), start
   steps 2–10) are chaining errors:
@@ -1255,7 +1269,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-16"></a>
 ### FX-16 · `identity` module
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** An identity job returns its args' `previous_result` field, or
   `{}` if that field is missing. Which args it gets depends on the args rule
@@ -1279,7 +1293,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-17"></a>
 ### FX-17 · `skip_if`
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The predicate (scope in [FX-8](#fx-8)) is evaluated before the
   module starts, for any module type, and again when a retry re-enters it.
@@ -1330,7 +1344,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-18"></a>
 ### FX-18 · `mock`
 
-**Scope:** later · **Confidence:** high (oracle-observed, the main rule and the `skip_if` interplay) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed, the main rule and the `skip_if` interplay) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** If `mock.enabled` is true, the module (of any type, loops and
   branches included) does not run; an identity job returns
@@ -1362,7 +1376,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-19"></a>
 ### FX-19 · `stop_after_if` on a step, with its interactions
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `stop_after_if` is evaluated only after the module's job
   **succeeded**. It is not evaluated on a failed job, on a skipped identity,
@@ -1437,7 +1451,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-20"></a>
 ### FX-20 · How a stop-early propagates through containers
 
-**Scope:** core · **Confidence:** high (oracle-observed for `branchone`); high (read, other containers); medium (exact branch results) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for `branchone`); high (read, other containers); medium (exact branch results) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Non-parallel loop body:** a stop that fires there (from the loop
@@ -1479,7 +1493,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-21"></a>
 ### FX-21 · A `stop_after_if` that throws fails the step unrecoverably
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** If evaluating `stop_after_if` on a successful step throws,
   Windmill re-processes the completion as a failure:
@@ -1521,7 +1535,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-22"></a>
 ### FX-22 · Flow-level `skip_expr`
 
-**Scope:** later · **Confidence:** high (main rule: oracle-observed for a root flow); low (by-path first-module quirk) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (main rule: oracle-observed for a root flow); low (by-path first-module quirk) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** At cursor 0 of **every** flow job whose definition has a
   `skip_expr` (roots and subflows by path; inline children never have one),
@@ -1553,7 +1567,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-23"></a>
 ### FX-23 · `sleep`
 
-**Scope:** core · **Confidence:** high (oracle-observed: FX-23/a–c) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-23/a–c) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `sleep` on module `i` is an input transform (static or
   javascript; scope in [FX-8](#fx-8)). It is evaluated when module `i+1` is
@@ -1596,7 +1610,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-24"></a>
 ### FX-24 · Per-step `timeout`: value, cap and enforcement by execution path
 
-**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; path 4 rests on an exhaustive search for readers; oracle-observed: FX-24/a, /c, /e, /f, /g, the deployed half of /d, and path 4 for loops, branches and subflow steps); medium (path 2) · **Status:** confirmed
+**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; path 4 rests on an exhaustive search for readers; oracle-observed: FX-24/a, /c, /e, /f, /g, the deployed half of /d, and path 4 for loops, branches and subflow steps); medium (path 2) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Value.** `timeout` on a module is an input transform (a bare number is
@@ -1707,7 +1721,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-25"></a>
 ### FX-25 · Process timeout: enforcement and error
 
-**Scope:** core · **Confidence:** high (message, oracle-observed); medium (that the canceled step status leaves the flow uncanceled) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (message, oracle-observed); medium (that the canceled step status leaves the flow uncanceled) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** When a step's **process** outlives its timeout, the worker:
   1. marks the job canceled with reason `duration > <secs>` and canceler
@@ -1740,7 +1754,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-26"></a>
 ### FX-26 · `retry`: the delay schedule and its exact arithmetic
 
-**Scope:** core (formula); the out-of-range domain is a design decision · **Confidence:** high (formula; oracle-observed: FX-26/a to FX-26/f, the 16-bit wrap, the cap, saturation and the jitter's support); high (source-traced: the check at push) · **Status:** confirmed; drafted (the check at push, added 2026-10-30 by SC5)
+**Scope:** core (formula); the out-of-range domain is a design decision · **Confidence:** high (formula; oracle-observed: FX-26/a to FX-26/f, the 16-bit wrap, the cap, saturation and the jitter's support); high (source-traced: the check at push) · **Status:** confirmed; drafted (the check at push, added 2026-10-30 by SC5) · verified at v1.767.0 only
 
 - **Rule:** `retry = {constant: {attempts, seconds}, exponential: {attempts,
   multiplier, seconds, random_factor}, retry_if?}`. Missing parts default to
@@ -1884,7 +1898,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-27"></a>
 ### FX-27 · `retry`: what is retried and how state evolves
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending); high (oracle-observed: a retried script or `flow` step reuses the failed attempt's args; each child flow keeps its own retry state; a retried parallel loop lists no failed attempt, and one that fails for good never reaches the flow's failure module) · **Status:** confirmed; drafted (the second `skip_if` evaluation, added 2026-10-29 by SC3)
+**Scope:** core · **Confidence:** high (source-traced; oracle pending); high (oracle-observed: a retried script or `flow` step reuses the failed attempt's args; each child flow keeps its own retry state; a retried parallel loop lists no failed attempt, and one that fails for good never reaches the flow's failure module) · **Status:** confirmed; drafted (the second `skip_if` evaluation, added 2026-10-29 by SC3) · verified at v1.767.0 only
 
 - **Rule:** When a module fails, a retry is scheduled if its `retry` (or,
   while the failure module runs, the failure module's `retry`) still has
@@ -2004,7 +2018,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-28"></a>
 ### FX-28 · `retry_if`
 
-**Scope:** core · **Confidence:** high (oracle-observed: FX-28/a–c) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-28/a–c) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `retry.retry_if.expr` is a boolean predicate (scope in
   [FX-8](#fx-8): `result` and `previous_result` are the failed step's wrapped
@@ -2045,7 +2059,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-29"></a>
 ### FX-29 · Quirk: the retry counter carries over after a tolerated failure
 
-**Scope:** core · **Confidence:** high (oracle-observed: the counter and the carried-over list) · **Status:** confirmed; drafted (a parallel container lists nothing, added 2026-10-29 by SC4)
+**Scope:** core · **Confidence:** high (oracle-observed: the counter and the carried-over list) · **Status:** confirmed; drafted (a parallel container lists nothing, added 2026-10-29 by SC4) · verified at v1.767.0 only
 
 - **Rule:** The retry counter is flow-wide and is cleared only when a module
   **succeeds**. If module `k` exhausts its retries and is then tolerated by
@@ -2091,7 +2105,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-30"></a>
 ### FX-30 · `continue_on_error`
 
-**Scope:** core · **Confidence:** high (oracle-observed, a due retry at the last module and the exclusions added 2026-10-29 included) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed, a due retry at the last module and the exclusions added 2026-10-29 included) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** When a module with `continue_on_error: true` fails (after
   retries are exhausted, [FX-27](#fx-27)):
@@ -2175,7 +2189,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-31"></a>
 ### FX-31 · `failure_module`: when it runs
 
-**Scope:** core · **Confidence:** high (oracle-observed for an untolerated failure, cancel, the chaining contexts and inline bodies; source-traced for the other triggers) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for an untolerated failure, cancel, the chaining contexts and inline bodies; source-traced for the other triggers) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The failure module runs at most once per flow run (repeated only
   through its own `retry`). It runs when the continue decision ([FX-2](#fx-2),
@@ -2224,7 +2238,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-32"></a>
 ### FX-32 · `failure_module`: what it sees
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The failure module is a normal module (usually a script); its
   input transforms have the usual scope ([FX-7](#fx-7)). On its initial run:
@@ -2278,7 +2292,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-33"></a>
 ### FX-33 · `failure_module`: the flow's final result and `recover`
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** After the failure module ran, the flow completes with
   the **failure module's result as its result**, stored as-is with no
@@ -2337,7 +2351,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-34"></a>
 ### FX-34 · `failure_module` inside inline bodies runs at the innermost level
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Inline bodies carry a copy of the flow's failure module
   ([FX-5](#fx-5)). When a step inside a branch or loop body fails and is not
@@ -2396,7 +2410,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-35"></a>
 ### FX-35 · `preprocessor_module`
 
-**Scope:** later · **Confidence:** high (oracle-observed for a run-API start, a non-object result and the refusal of a slot that is not a script; source-traced for the rest) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed for a run-API start, a non-object result and the refusal of a slot that is not a script; source-traced for the rest) · **Status:** confirmed · verified at v1.767.0 only, except the refused container slot (re-checked at v1.862.0)
 
 - **Rule:**
   - **When it runs:** only when a root flow is started with preprocessing
@@ -2414,8 +2428,8 @@ run of batch E3f in the [design README](../design/README.md).
     the deployed version to build the runnable's argument format, and any
     other module value (a `branchone`, a loop, a `flow`, an `identity`, …)
     fails that read: HTTP 500
-    `Internal: Unsupported preprocessor module @trigger_helpers.rs:343:36`,
-    and no job is created. Deploy accepts such a slot, and
+    `Internal: Unsupported preprocessor module @trigger_helpers.rs:344:36`
+    (`@trigger_helpers.rs:343:36` at v1.767.0), and no job is created. Deploy accepts such a slot, and
     `skip_preprocessor=true` skips the read along with the preprocessor, so
     a container preprocessor never runs on CE
     ([CF-30](control-flow.md#cf-30), recorded as
@@ -2471,11 +2485,17 @@ run of batch E3f in the [design README](../design/README.md).
   deployed flow whose `preprocessor_module` is a `branchone` refused by the
   run API with HTTP 500 and no job, where the reference had predicted the
   branch would run ([CF-30](control-flow.md#cf-30) has the correction).
+- **Revision 2026-11-06 (retarget to v1.862.0):** the refusal of a
+  slot that holds another module value was re-recorded on CE v1.862.0
+  ([CF-30/b](conformance.md#cf-30)): the same HTTP 500 and text, with the
+  location `@trigger_helpers.rs:344:36`, raised at
+  `backend/windmill-trigger/src/trigger_helpers.rs:344 @ v1.862.0`. The rest
+  of the finding is not re-checked.
 
 <a id="fx-36"></a>
 ### FX-36 · The flow's final result and the HTTP response
 
-**Scope:** core (executor result selection; HTTP for oracle interpretation); later (HTTP adapter) · **Confidence:** high (oracle-observed: executor result selection, the run-and-wait response and the positional array decoding); high (source-traced: the error responses, an array of another length, an alias given twice) · **Status:** confirmed
+**Scope:** core (executor result selection; HTTP for oracle interpretation); later (HTTP adapter) · **Confidence:** high (oracle-observed: executor result selection, the run-and-wait response and the positional array decoding); high (source-traced: the error responses, an array of another length, an alias given twice) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Executor result.** When the flow stops ([FX-2](#fx-2)) its result is:
@@ -2595,7 +2615,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-37"></a>
 ### FX-37 · `early_return`
 
-**Scope:** later · **Confidence:** high (oracle-observed: poll loop); medium (lookup details) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed: poll loop); medium (lookup details) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `early_return` is a **step id**, not an expression, and it only
   affects the synchronous run-and-wait API. As soon as that step has a
@@ -2627,7 +2647,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-38"></a>
 ### FX-38 · Cancellation
 
-**Scope:** core (host-initiated cancel with the same result shape) · **Confidence:** high (oracle-observed: the steady state and a step waiting to start); low (race) · **Status:** confirmed
+**Scope:** core (host-initiated cancel with the same result shape) · **Confidence:** high (oracle-observed: the steady state and a step waiting to start); low (race) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Canceling a flow sets its cancel flag and the flag of every
   queued descendant job, up to depth 500. Queued children are made due
@@ -2720,7 +2740,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-39"></a>
 ### FX-39 · `suspend` / approval: behaviour when a flow meets it
 
-**Scope:** out · **Confidence:** high (source-traced) · **Status:** confirmed
+**Scope:** out · **Confidence:** high (source-traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `suspend` on module `i` with `required_events > 0` makes module
   `i+1` wait. The flow parks until enough resume events arrive, or until
@@ -2754,7 +2774,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-40"></a>
 ### FX-40 · `cache_ttl` (step and flow)
 
-**Scope:** later (the entry store and its permissions: out) · **Confidence:** high (oracle-observed: hits, failed-flow caching, the TTL matrix's loop rows, sharing between collapsed iterations, the store conditions, argument equality and raw-submission bodies, a hit that resolves no `$var:`, `stop_after_if` on a hit, a zero TTL, S3-aware hashing without workspace storage); high (source-traced: where the lookup sits, the rest of what a hit skips); medium (S3-aware hashing with workspace storage, whose storage client is closed source on CE; who can read an entry) · **Status:** confirmed; drafted (where the lookup sits, what a hit skips and what still applies beyond FX-40/j and FX-40/l, S3-aware hashing with workspace storage, where entries live)
+**Scope:** later (the entry store and its permissions: out) · **Confidence:** high (oracle-observed: hits, failed-flow caching, the TTL matrix's loop rows, sharing between collapsed iterations, the store conditions, argument equality and raw-submission bodies, a hit that resolves no `$var:`, `stop_after_if` on a hit, a zero TTL, S3-aware hashing without workspace storage); high (source-traced: where the lookup sits, the rest of what a hit skips); medium (S3-aware hashing with workspace storage, whose storage client is closed source on CE; who can read an entry) · **Status:** confirmed; drafted (where the lookup sits, what a hit skips and what still applies beyond FX-40/j and FX-40/l, S3-aware hashing with workspace storage, where entries live) · verified at v1.767.0 only
 
 - **Rule:**
   - **Lookup.** Before any job with a `cache_ttl` (seconds) runs, including
@@ -3051,7 +3071,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-41"></a>
 ### FX-41 · `priority`, `same_worker`, deletion, squash and scheduling settings
 
-**Scope:** later (`same_worker` shared directory); out (priority, deletion, concurrency, debouncing, worker tags); EE (squash) · **Confidence:** high (pinning exclusions, linking for all jobs); medium (behaviour across workers and platforms) · **Status:** confirmed
+**Scope:** later (`same_worker` shared directory); out (priority, deletion, concurrency, debouncing, worker tags); EE (squash) · **Confidence:** high (pinning exclusions, linking for all jobs); medium (behaviour across workers and platforms) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **`priority`** (flow or module; the module wins) only orders the queue
@@ -3114,7 +3134,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-42"></a>
 ### FX-42 · Where JSON serialisation happens between steps
 
-**Scope:** core (boundary ordering, in-memory handoff, `flow_input` shortcut); later (number rewriting for non-JavaScript consumers); resolver behaviour per the expressions and client-API areas · **Confidence:** high (map types, source-traced); high (oracle-observed: the in-memory handoff's key order, a static object's jsonb order, `$jsonvar:` key order and spelling); high (oracle-observed: nested key order of a stored value, an engine-built object, the `flow_input` shortcut, jsonb's number rewriting as Python sees it and the scale of a stored `1.50e3`); medium (`$res:` ordering); high (oracle-observed: rule 9's number notation; a child result the read cannot decode, in the flow's own leaf jobs and in child flows, ended by the zombie-flow monitor); high (source-traced: the tie rule) · **Status:** confirmed; drafted (rule 9's tie rule)
+**Scope:** core (boundary ordering, in-memory handoff, `flow_input` shortcut); later (number rewriting for non-JavaScript consumers); resolver behaviour per the expressions and client-API areas · **Confidence:** high (map types, source-traced); high (oracle-observed: the in-memory handoff's key order, a static object's jsonb order, `$jsonvar:` key order and spelling); high (oracle-observed: nested key order of a stored value, an engine-built object, the `flow_input` shortcut, jsonb's number rewriting as Python sees it and the scale of a stored `1.50e3`); medium (`$res:` ordering); high (oracle-observed: rule 9's number notation; a child result the read cannot decode, in the flow's own leaf jobs and in child flows, ended by the zombie-flow monitor); high (source-traced: the tie rule) · **Status:** confirmed; drafted (rule 9's tie rule) · verified at v1.767.0 only
 
 - **Rule:** Values cross step boundaries as JSON text, and most
   of it passes through PostgreSQL `jsonb`: flow and step args
@@ -3551,7 +3571,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-43"></a>
 ### FX-43 · Result size limits
 
-**Scope:** out · **Confidence:** high (source-traced) · **Status:** confirmed
+**Scope:** out · **Confidence:** high (source-traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Size is measured as `floor(bytes / 1024 / 1024)` in whole MiB,
   using integer division twice.
@@ -3574,7 +3594,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-44"></a>
 ### FX-44 · Unrecoverable failures
 
-**Scope:** core (status-update paths); out (zombie jobs) · **Confidence:** high (source-traced) · **Status:** confirmed
+**Scope:** core (status-update paths); out (zombie jobs) · **Confidence:** high (source-traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A failure is unrecoverable in these cases:
   - an error while processing a completion: a throwing `stop_after_if`
@@ -3597,7 +3617,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
 
-**Scope:** core · **Confidence:** high (oracle-observed: `WM_FLOW_STEP_ID`) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: `WM_FLOW_STEP_ID`) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Each step's job carries the module id as its flow step id.
   Wrappers expose it as `WM_FLOW_STEP_ID`, and it ends up in error objects as
@@ -3628,7 +3648,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-47"></a>
 ### FX-47 · Thrown non-Error values in Bun
 
-**Scope:** core (strings and objects); later (`null`/`undefined`) · **Confidence:** high (string, oracle-observed); medium (plain object); high (`null`, oracle-observed: the exit-code shape); medium (`undefined`, the same property access) · **Status:** confirmed
+**Scope:** core (strings and objects); later (`null`/`undefined`) · **Confidence:** high (string, oracle-observed); medium (plain object); high (`null`, oracle-observed: the exit-code shape); medium (`undefined`, the same property access) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The Bun wrapper builds the error from whatever was thrown
   ([FX-12](#fx-12)).
@@ -3660,7 +3680,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-48"></a>
 ### FX-48 · NUL characters at storage boundaries
 
-**Scope:** core · **Confidence:** high (oracle-observed: case 1 for a Bun result); high (oracle-observed: case 2 at root pickup and at a later transition; case 3's response) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: case 1 for a Bun result); high (oracle-observed: case 2 at root pickup and at a later transition; case 3's response) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** jsonb rejects the escaped NUL character in strings and keys.
   Windmill's behaviour depends on where the NUL appears:
@@ -3739,7 +3759,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-50"></a>
 ### FX-50 · How error messages gain an `Error: ` prefix and location suffixes
 
-**Scope:** core · **Confidence:** high (oracle-observed: the recorded shapes, FX-50/a's push failures included); high (source-traced: the layer list, the masking rule and derived values) · **Status:** confirmed; drafted (the layer list, the masking rule and derived values)
+**Scope:** core · **Confidence:** high (oracle-observed: the recorded shapes, FX-50/a's push failures included); high (source-traced: the layer list, the masking rule and derived values) · **Status:** confirmed; drafted (the layer list, the masking rule and derived values) · verified at v1.767.0 only, except the pickup and lookup locations (re-checked at v1.862.0)
 
 - **Rule:** Windmill's internal error kind `Anyhow` ([FX-12](#fx-12))
   displays as `Error: <inner text> @<location>`. `<inner text>` is the
@@ -3758,7 +3778,8 @@ run of batch E3f in the [design README](../design/README.md).
   In flows the layers come from two places: the helper that evaluates every
   boolean predicate converts the evaluator's error (`@worker_flow.rs:2451:11`),
   and the worker converts any error of a flow job it has just picked up
-  (`@worker.rs:3822:13`). That gives these recorded shapes:
+  (`@worker.rs:5065:13`; `@worker.rs:3822:13` at v1.767.0). That gives
+  these recorded shapes:
 
   | Error | Later transition ([FX-15](#fx-15) context 1, `InternalError`) | Pickup (contexts 2 and 3, `Anyhow`) |
   |---|---|---|
@@ -3768,8 +3789,8 @@ run of batch E3f in the [design README](../design/README.md).
 
   `<loc>` is one suffix **including its leading space**: ` @<file>.rs:<line>:<col>`,
   or the parenthesised form ` (<file>.rs:<line>)` that some not-found
-  messages end in (for example ` (jobs.rs:9074)`,
-  [CF-19](control-flow.md#cf-19)); two suffixes are `<loc><loc>`. The location literal is the
+  messages end in (for example ` (jobs.rs:12065)`, ` (jobs.rs:9074)` at
+  v1.767.0, [CF-19](control-flow.md#cf-19)); two suffixes are `<loc><loc>`. The location literal is the
   source position at the pin and moves between Windmill versions;
   [0001](../design/0001-equivalence-contract.md) §7 matches error text
   except location suffixes, and the catalogue writes each as `<loc>`
@@ -3927,11 +3948,22 @@ run of batch E3f in the [design README](../design/README.md).
   `Error: SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5 @worker.rs:3822:13`
   (name `Anyhow`) (fixture `conformance/flows/execution/fx-48-jsonb`, runs
   `nul_later` and `nul_root`, oracle run 40994947681).
+- **Revision 2026-11-06 (retarget to v1.862.0):** two locations were
+  re-checked. The worker's conversion of a picked-up flow job's error is
+  the call at `backend/windmill-worker/src/worker.rs:5065-5082 @ v1.862.0`
+  (`Box::pin(handle_flow(…))…await?`, the same call as at v1.767.0), so a
+  pickup suffix reads ` @worker.rs:5065:13`; and the completed-job lookup of
+  `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0` gives
+  ` (jobs.rs:12065)`. CE v1.862.0 recorded both
+  ([CF-2/b](conformance.md#cf-2), [JE-15/k](conformance.md#je-15),
+  [WA-19/d](conformance.md#wa-19)). The layer list, the masking rule and
+  the other locations are not re-checked; the recordings of FX-50/a are
+  pending a later revision.
 
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries
 
-**Scope:** core (JavaScript results and transform args); later (`$jsonvar:`, raw input, other languages) · **Confidence:** high (oracle-observed: rules 1 to 5, FX-51/a–e, raw input included); medium (a number out of range in a deployed static value, source-traced) · **Status:** confirmed
+**Scope:** core (JavaScript results and transform args); later (`$jsonvar:`, raw input, other languages) · **Confidence:** high (oracle-observed: rules 1 to 5, FX-51/a–e, raw input included); medium (a number out of range in a deployed static value, source-traced) · **Status:** confirmed · verified at v1.767.0 only, except rule 5's location (re-checked at v1.862.0)
 
 - **Rule:** PostgreSQL `jsonb` input rejects two kinds of JSON text besides
   the NUL escape of [FX-48](#fx-48): a UTF-16 surrogate escape without its
@@ -4011,7 +4043,7 @@ run of batch E3f in the [design README](../design/README.md).
     `JSON.stringify` output), `:1977-1981` (a resolver error while writing
     the arguments file ends the job before the script starts)
   - `backend/windmill-worker/src/common.rs:122-136` (resolution before the
-    arguments file), `:299` (the `$jsonvar:` parse error)
+    arguments file), `:299` (the `$jsonvar:` parse error; `:319 @ v1.862.0`)
   - `backend/windmill-worker/src/result_processor.rs:621-627` (an executor
     error becomes `ExecutionErr` with the `execution error:\n` prefix and the
     step id), `:2021-2028` (its fields; `exit_code` omitted when absent),
@@ -4076,11 +4108,17 @@ run of batch E3f in the [design README](../design/README.md).
   routes; `$jsonvar:` failed at columns 14 and 11 with the location
   `@common.rs:299:17`; and the run requests answered 400 as rules 3 and 4
   say. The finding is now `confirmed`.
+- **Revision 2026-11-06 (retarget to v1.862.0):** rule 5's error is
+  raised at `backend/windmill-worker/src/common.rs:319 @ v1.862.0`, so its
+  location reads `@common.rs:319:17` (`@common.rs:299:17` at v1.767.0). CE
+  v1.862.0 recorded [FX-51/c](conformance.md#fx-51)'s two runs with that
+  location and the envelope as stated. The rest of the finding is not
+  re-checked.
 
 <a id="fx-v1"></a>
 ### FX-V1 · A throwing `stop_after_all_iters_if` uses the EarlyStopError path
 
-**Scope:** core · **Confidence:** high (oracle-observed: FX-V1/a, FX-V1/b) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-V1/a, FX-V1/b) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** An exception while evaluating the aggregate stop predicate of a
   loop or branchall is caught locally, after the container's results have
@@ -4109,7 +4147,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-v2"></a>
 ### FX-V2 · Stored child-job result and effective module outcome can differ
 
-**Scope:** core · **Confidence:** high (oracle-observed: FX-V2/a, and FX-40/f's error stop) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: FX-V2/a, and FX-40/f's error stop) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A successful script result is stored before flow-level stop
   predicates run. A later `stop_after_if` error-stop, or a throwing stop
@@ -4137,7 +4175,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-v3"></a>
 ### FX-V3 · Synchronous HTTP completion treats a stored `skipped` status as failure
 
-**Scope:** core (oracle interpretation); later (compatible synchronous HTTP adapter) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (oracle interpretation); later (compatible synchronous HTTP adapter) · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The synchronous run-and-wait query computes success from stored
   status `success` only. A completed `skipped` flow therefore reaches the
@@ -4160,7 +4198,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-v4"></a>
 ### FX-V4 · A tolerated error-stop at the final module enters the failure module
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** When an error-stop occurs with `continue_on_error: true` and no
   retry due, the cursor advances. If another regular module exists, the flow
@@ -4185,7 +4223,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-v5"></a>
 ### FX-V5 · Argument resolution can introduce objects after the jsonb boundary
 
-**Scope:** core (boundary ordering, when references are supported); resolver per the expressions and client-API areas · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (boundary ordering, when references are supported); resolver per the expressions and client-API areas · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Queued args pass through jsonb before execution, but worker-side
   variable, resource and decryption resolution can replace values after that

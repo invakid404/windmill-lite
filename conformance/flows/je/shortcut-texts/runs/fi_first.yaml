@@ -7,7 +7,7 @@ target: f/wl_je_texts/fi_first
 args: {o: {b: 1, a: 2}}
 expect:
   status: failure
-  result: {"error": {"name": "Anyhow", "message": "Error: Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1} @worker.rs:3822:13"}}
+  result: {"error": {"name": "Anyhow", "message": "Error: Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1} @worker.rs:5065:13"}}
   steps:
     "m:q": {"status": "failure", "ran": false}
 unit:

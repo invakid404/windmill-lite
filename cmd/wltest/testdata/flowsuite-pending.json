@@ -486,10 +486,6 @@
       "milestone": "W5c",
       "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
     },
-    "conformance/flows/execution/fx-12-deno/error_extra": {
-      "milestone": "W5a",
-      "reason": "the standard CE 1.862.0 image ships no Deno (1.830.0), so the fixture's lock job fails"
-    },
     "conformance/flows/execution/fx-12/error_extra": {
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"

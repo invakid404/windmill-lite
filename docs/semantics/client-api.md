@@ -12,9 +12,13 @@ transforms in [expressions.md](expressions.md); language runtimes, result stream
 and error shapes in [languages.md](languages.md); the oracle in
 [oracle.md](oracle.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`),
+re-pinned from `v1.767.0` on 2026-11-06 ([index](README.md#pinned-version)).
+Source pointers are `path:line` relative to the Windmill repository root,
+at `v1.862.0`. A finding whose tag line ends `verified at v1.767.0 only`
+has not been re-checked at `v1.862.0` yet: its pointers are at `v1.767.0`
+unless they say `@ v1.862.0`. Status, scope and confidence tags are
+defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `WA-` (the wmill client API and the platform
 interface); `WA-Vn` findings were added during validation.
@@ -128,7 +132,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-1"></a>
 ### WA-1 · The TS client is a thin HTTP layer configured from env vars; token and base URL are captured at import
 
-**Scope:** core (client configuration); later (mock-file retry) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (client configuration); later (mock-file retry) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `windmill-client` consists of (a) a module generated from
@@ -167,7 +171,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-2"></a>
 ### WA-2 · Which base-URL variables a job sees
 
-**Scope:** core (Bun); later (Python) · **Confidence:** high; oracle-observed (the Bun half, [WA-2/a](conformance.md#wa-2)) · **Status:** confirmed
+**Scope:** core (Bun); later (Python) · **Confidence:** high; oracle-observed (the Bun half, [WA-2/a](conformance.md#wa-2)) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Bun (non-native).** The worker clears the environment, then sets, in
@@ -205,7 +209,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-3"></a>
 ### WA-3 · Python client: one global client, created lazily from env
 
-**Scope:** later (Python) · **Confidence:** high · **Status:** confirmed
+**Scope:** later (Python) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Module-level `wmill.*` functions share one global `Windmill()` instance,
@@ -229,7 +233,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v9"></a>
 ### WA-V9 · Python S3 upload distinguishes transport/JSON errors from response-shape errors
 
-**Scope:** later (Python) · **Confidence:** high · **Status:** confirmed
+**Scope:** later (Python) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `write_s3_file` handles errors in three stages:
   1. **Preflight, before any request.** It parses the S3 object, which can
@@ -256,7 +260,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v11"></a>
 ### WA-V11 · Python S3 delete error boundaries, including an unwrapped preflight
 
-**Scope:** later (Python) · **Confidence:** high · **Status:** confirmed
+**Scope:** later (Python) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Preflight, before any request.** `delete_s3_object` parses the S3 object
@@ -275,7 +279,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-4"></a>
 ### WA-4 · Reserved ("contextual") variables injected into every job
 
-**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); oracle-observed (WA-4/a); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check)
+**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); oracle-observed (WA-4/a); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check) · verified at v1.767.0 only
 
 - **Rule:** every job's process env contains the variables below. "Parent" is
   the job's `parent_job`: the enclosing flow, or a loop-iteration or branch
@@ -368,7 +372,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-5"></a>
 ### WA-5 · State path formula
 
-**Scope:** core (the value; the state store is WA-13) · **Confidence:** high; oracle-observed (WA-5/a; inside bodies, [WA-6](#wa-6); dispatched jobs, [WA-V1](#wa-v1)) · **Status:** confirmed
+**Scope:** core (the value; the state store is WA-13) · **Confidence:** high; oracle-observed (WA-5/a; inside bodies, [WA-6](#wa-6); dispatched jobs, [WA-V1](#wa-v1)) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** let `trigger` be the job's `created_by` username when the job has a
   schedule path, otherwise the literal `user`. Then:
@@ -396,7 +400,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-6"></a>
 ### WA-6 · When loop and branch bodies run as sub-flows, and the runnable paths that drive `WM_FLOW_PATH`, `WM_JOB_PATH` and `WM_STATE_PATH`
 
-**Scope:** core (top-level steps); later (exact parity inside bodies) · **Confidence:** high (oracle-observed: WA-6/a to WA-6/d, with the `WM_JOB_PATH` and `WM_STATE_PATH` that follow) · **Status:** confirmed
+**Scope:** core (top-level steps); later (exact parity inside bodies) · **Confidence:** high (oracle-observed: WA-6/a to WA-6/d, with the `WM_JOB_PATH` and `WM_STATE_PATH` that follow) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - A step job's runnable path is `<parent runnable path>/<module id>` for
@@ -441,7 +445,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v1"></a>
 ### WA-V1 · Stored root fields, effective root identity and innermost flow scope are distinct
 
-**Scope:** core · **Confidence:** high (enqueue arguments, storage normalisation, env and API lookup traced); high (oracle-observed: jobs a step dispatches, [WA-V1/b](conformance.md#wa-v1)) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (enqueue arguments, storage normalisation, env and API lookup traced); high (oracle-observed: jobs a step dispatches, [WA-V1/b](conformance.md#wa-v1)) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** for ordinary OpenFlow execution:
   - **Effective root.** A flow-created child's effective root is the effective
@@ -507,7 +511,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v10"></a>
 ### WA-V10 · Runnable identity depends on the flow-step representation
 
-**Scope:** later (hybrid delegation fidelity) · **Confidence:** high (payload, queue storage and env construction traced) · **Status:** confirmed
+**Scope:** later (hybrid delegation fidelity) · **Confidence:** high (payload, queue storage and env construction traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** with no custom env overrides:
   - an ordinary deployed workspace-script step has `WM_RUNNABLE_ID` equal to
@@ -539,7 +543,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-7"></a>
 ### WA-7 · Windmill's own warm processes do not provide per-job env
 
-**Scope:** EE (dedicated worker); the precedent informs core design · **Confidence:** high (read) · **Status:** confirmed
+**Scope:** EE (dedicated worker); the precedent informs core design · **Confidence:** high (read) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Windmill's dedicated-worker mode (a warm Bun process per script) computes
@@ -564,7 +568,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-8"></a>
 ### WA-8 · Catalogue of client functions → endpoints → platform service
 
-**Scope:** core (TS runtime and type surfaces); later (Python); out (workflow-as-code helpers); per-row scopes in the table · **Confidence:** high (surface 3 conditional on the fetch transport, Q-WA-6) · **Status:** confirmed
+**Scope:** core (TS runtime and type surfaces); later (Python); out (workflow-as-code helpers); per-row scopes in the table · **Confidence:** high (surface 3 conditional on the fetch transport, Q-WA-6) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule (surfaces).** A shim or conformance test must enumerate five surfaces
   separately ([WA-V4](#wa-v4)):
@@ -714,7 +718,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-9"></a>
 ### WA-9 · Scripts use the generated services and `OpenAPI` directly
 
-**Scope:** core (import forms; a coherent `OpenAPI.BASE`/`TOKEN`); later (job introspection fidelity, WA-19) · **Confidence:** high (surface; the claim about how scripts use it is a usage observation, not a source fact) · **Status:** confirmed
+**Scope:** core (import forms; a coherent `OpenAPI.BASE`/`TOKEN`); later (job introspection fidelity, WA-19) · **Confidence:** high (surface; the claim about how scripts use it is a usage observation, not a source fact) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Scripts can call the generated `*Service` classes directly, for example
@@ -750,7 +754,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v4"></a>
 ### WA-V4 · TS default and named export surfaces are not interchangeable
 
-**Scope:** core (shim and export compatibility) · **Confidence:** high (explicit build export lists) · **Status:** confirmed
+**Scope:** core (shim and export compatibility) · **Confidence:** high (explicit build export lists) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** the build appends an explicit named helper-export list and
   separately constructs a default object. Helpers such as `getWorkspace`,
@@ -769,7 +773,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v8"></a>
 ### WA-V8 · Generated core exports, error objects and transport selection
 
-**Scope:** core (generated-client compatibility; the artifact's transport is a packaging gate) · **Confidence:** high (generator behaviour; the transport of a given artifact depends on its generation configuration) · **Status:** confirmed
+**Scope:** core (generated-client compatibility; the artifact's transport is a packaging gate) · **Confidence:** high (generator behaviour; the transport of a given artifact depends on its generation configuration) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** for `@hey-api/openapi-ts@0.43.0`, the generator pinned by the build:
   - **Root exports.** With core output enabled, the generated root exports
@@ -805,7 +809,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-10"></a>
 ### WA-10 · `getResource` / `get_resource`: path syntax, mocked API, error wrapping
 
-**Scope:** core · **Confidence:** high; oracle-observed (the server's answer in WA-10/a) · **Status:** confirmed
+**Scope:** core · **Confidence:** high; oracle-observed (the server's answer in WA-10/a) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **TS path handling:** the path is taken from `$res:<p>` (prefix stripped),
@@ -839,7 +843,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-11"></a>
 ### WA-11 · Variables: `getVariable` / `setVariable`
 
-**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; oracle-observed (WA-11/a's two reads; a secret that cannot be decrypted, its padding outcome; the `already_encrypted` check; the answers to a write: WA-11/c to WA-11/e); high (the rarer decryption outcomes and the clients' write paths, source-traced) · **Status:** confirmed
+**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; oracle-observed (WA-11/a's two reads; a secret that cannot be decrypted, its padding outcome; the `already_encrypted` check; the answers to a write: WA-11/c to WA-11/e); high (the rarer decryption outcomes and the clients' write paths, source-traced) · **Status:** confirmed · verified at v1.767.0 only, except the secret that cannot be decrypted and the shape check (re-checked at v1.862.0)
 
 - **Rule:**
   - **Reads.**
@@ -858,16 +862,15 @@ interface); `WA-Vn` findings were added during validation.
       `get_value` and on `get` with decryption alike, with HTTP 500 and the
       body
       `Internal: Error decrypting variable <p>: Internal: <cause> @<loc> @<loc>`
-      (`@variables.rs:<line>:<col> @resolver.rs:262:17` at the pin). `<cause>`
-      is one of the texts of [JE-42](expressions.md#je-42)'s `$encrypted:`:
-      normally `Could not decrypt value. The value may have been encrypted with a different key.`
-      (ciphertext under another key, or a length that is not a whole number
-      of 16-byte blocks), the base64 decoder's message for a value that is
-      not base64, or rarely a UTF-8 message when another key happens to leave
-      valid padding. More rarely still, ciphertext under another key decrypts
-      to valid padding **and** valid UTF-8, and the read then succeeds with
-      that text: nothing else checks the plaintext (magic-crypt 3.1.13
-      `src/traits.rs:75-90` decrypts, then converts to UTF-8). So no stored
+      (`@variables.rs:519:9 @resolver.rs:311:17` at the pin). `<cause>` is
+      always `Could not decrypt value. The value may have been encrypted with a different key.`,
+      the one text of [JE-42](expressions.md#je-42)'s `$encrypted:` for
+      every decryption failure: ciphertext under another key, a value that
+      is not standard padded base64, or bytes that are not UTF-8. Rarely,
+      ciphertext under another key still decrypts: a value that does not
+      open as AES-256-GCM is tried as AES-256-CBC, whose only checks are
+      the padding and UTF-8, so it can decrypt to valid padding **and**
+      valid UTF-8, and the read then succeeds with that text. So no stored
       ciphertext fails under every key; the shape check admits only whole
       16-byte blocks. The audit event is written first. An empty stored value
       is not decrypted and reads as `""`. Every reader sees this body:
@@ -898,8 +901,9 @@ interface); `WA-Vn` findings were added during validation.
       pulled folder unless it is told they are plain
       ([SY-11](openflow.md#sy-11)). The server checks only the shape: the
       value must be standard base64 decoding to a non-zero multiple of 16
-      bytes (an external backend's `$vault:`, `$aws_sm:` or `$azure_kv:`
-      marker is also let through). Ciphertext pulled from a workspace with
+      bytes (a value that names an external store, `$vault:`, `$aws_sm:`,
+      `$azure_kv:` or `$http_store:`, or an `$external:` reference, is also
+      let through). Ciphertext pulled from a workspace with
       another key passes, and every later read fails as above. A value of
       any other shape is refused with HTTP 400
       `Bad request: Variable <p> was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.`
@@ -987,11 +991,36 @@ interface); `WA-Vn` findings were added during validation.
   `variable <path> updated (npath: "<path>")` (the path after the update,
   quoted), and its create HTTP 201 with `variable <path> created`; neither
   text reaches a script through the stock clients.
+- **Revision 2026-11-06 (retarget to v1.862.0):** the read of a secret
+  that cannot be decrypted and the shape check were re-checked. Since
+  Windmill 1.829.0 the cause is always the one decryption text, so a
+  stored value the shape check admits but the decoder refuses (WA-11/d's,
+  which gave `Invalid byte 36, offset 0.` at v1.767.0) fails like any
+  other. Values are written as AES-256-GCM since 1.831.0, and CBC values
+  are still read; the shape check is unchanged, and also lets through an
+  `$http_store:` value or an `$external:` reference. Evidence at v1.862.0:
+  `backend/windmill-store/src/variables.rs:1706-1724 @ v1.862.0`
+  (`get_value`: the audit, then decryption of a non-empty value),
+  `:396-434` (`get` with decryption);
+  `backend/windmill-common/src/secret_backend/resolver.rs:94-97 @ v1.862.0`
+  (CE has only the database backend), `:294-311` (the decryption and its
+  outer text); `backend/windmill-common/src/variables.rs:511-521
+  @ v1.862.0` (the one inner text); `backend/windmill-common/src/workspace_crypt.rs:155-160`,
+  `:186-195 @ v1.862.0` (base64, the GCM format, then CBC, then UTF-8);
+  `backend/windmill-store/src/variables.rs:596-626 @ v1.862.0` (the shape
+  check), `:644-666` (it applies to a create and an update),
+  `backend/windmill-common/src/secret_backend/resolver.rs:358-363` and
+  `external_ref.rs:85-93 @ v1.862.0` (the values let through). CE v1.862.0
+  recorded [WA-11/c](conformance.md#wa-11) (run `secret_arg`) with the
+  locations `@variables.rs:519:9 @resolver.rs:311:17`; run `answers`,
+  which holds WA-11/c's read and WA-11/d, is re-recorded with the
+  job-token change of [WA-12](#wa-12). The rest of the finding is not
+  re-checked.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
 
-**Scope:** core · **Confidence:** high (traced); oracle-observed (WA-12/c, WA-12/d, and WA-12/a but for its array depth; an unusable `job_id`, WA-12/g; `CUSTOM_INSTANCE_DB/` for a super admin, WA-12/h) · **Status:** confirmed; drafted (`CUSTOM_INSTANCE_DB/` for a caller who is not a super admin, the `$jsonvar:` body)
+**Scope:** core · **Confidence:** high (traced); oracle-observed (WA-12/c, WA-12/d, and WA-12/a but for its array depth; an unusable `job_id`, WA-12/g; `CUSTOM_INSTANCE_DB/` for a super admin, WA-12/h) · **Status:** confirmed; drafted (`CUSTOM_INSTANCE_DB/` for a caller who is not a super admin, the `$jsonvar:` body) · verified at v1.767.0 only
 
 - **Rule:** `get_value_interpolated` loads the stored value (a NULL value gives
   JSON `null`) and transforms it recursively.
@@ -1119,7 +1148,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v3"></a>
 ### WA-V3 · Shared interpolation needs separate resource and argument contexts
 
-**Scope:** core · **Confidence:** high (both callers and transformations traced); oracle-observed (WA-V3/a, WA-V3/b) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (both callers and transformations traced); oracle-observed (WA-V3/a, WA-V3/b) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Client resource reads start API interpolation at depth 0 with no job id.
@@ -1153,7 +1182,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **TS `getState(path?)`** is `getResource(path ?? statePath, undefinedIfEmpty=true)`:
@@ -1186,7 +1215,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-14"></a>
 ### WA-14 · Flow user state: a key/value map on the root flow job, live while it runs
 
-**Scope:** core (TS); later (Python; access after the run) · **Confidence:** high (handlers traced; oracle-observed: the routes' answers, sharing across parallel iterations and the stored form, [WA-14/e](conformance.md#wa-14); access after the run and the request rejections, [WA-14/c, WA-14/d](conformance.md#wa-14)) · **Status:** confirmed
+**Scope:** core (TS); later (Python; access after the run) · **Confidence:** high (handlers traced; oracle-observed: the routes' answers, sharing across parallel iterations and the stored form, [WA-14/e](conformance.md#wa-14); access after the run and the request rejections, [WA-14/c, WA-14/d](conformance.md#wa-14)) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Keying.** Both clients first resolve `root = getRootJobId(WM_JOB_ID)`,
@@ -1308,7 +1337,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-15"></a>
 ### WA-15 · Dispatch: `run*Async`, `run*`, `waitJob`
 
-**Scope:** core (interface); later (local execution vs delegation, WA-50; Python result helpers) · **Confidence:** high; medium (the key order of a failure's message, source-traced) · **Status:** confirmed; drafted (the key order of a failure's message)
+**Scope:** core (interface); later (local execution vs delegation, WA-50; Python result helpers) · **Confidence:** high; medium (the key order of a failure's message, source-traced) · **Status:** confirmed; drafted (the key order of a failure's message) · verified at v1.767.0 only
 
 - **Rule:**
   - **TS script async.** Args are POSTed as JSON to `/w/{ws}/jobs/run/p/{path}`
@@ -1376,7 +1405,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v2"></a>
 ### WA-V2 · Unfinished and unknown-job polling responses carry explicit nulls
 
-**Scope:** core (dispatch interface) · **Confidence:** high (response struct and all response branches read); oracle-observed (WA-V2/a, WA-V2/b; an id that is not a UUID, WA-V2/c); high (anonymous reads, source-traced) · **Status:** confirmed; drafted (anonymous reads)
+**Scope:** core (dispatch interface) · **Confidence:** high (response struct and all response branches read); oracle-observed (WA-V2/a, WA-V2/b; an id that is not a UUID, WA-V2/c); high (anonymous reads, source-traced) · **Status:** confirmed; drafted (anonymous reads) · verified at v1.767.0 only
 
 - **Rule:** `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}`:
   - **Default query.** A job without a completed row returns all four fields:
@@ -1441,7 +1470,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-16"></a>
 ### WA-16 · Object store (S3) client contract
 
-**Scope:** core (client contract); later (auto keys, storages, presigning, credential helpers); EE (advanced S3 permissions) · **Confidence:** high (client contract); high (why the public source cannot settle CE's server side, source-traced); medium (public-docs CE statements); oracle-observed (an upload with no workspace storage answers HTTP 500, WA-16/d; medium, read from the stock client's message); low (the rest of CE's server behaviour, Q-WA-3) · **Status:** confirmed; drafted (where CE's handlers come from)
+**Scope:** core (client contract); later (auto keys, storages, presigning, credential helpers); EE (advanced S3 permissions) · **Confidence:** high (client contract); high (why the public source cannot settle CE's server side, source-traced); medium (public-docs CE statements); oracle-observed (an upload with no workspace storage answers HTTP 500, WA-16/d; medium, read from the stock client's message); low (the rest of CE's server behaviour, Q-WA-3) · **Status:** confirmed; drafted (where CE's handlers come from) · verified at v1.767.0 only
 
 - **Rule:**
   - **`S3Object`** is either a record `{s3, storage?, presigned?}` or a URI.
@@ -1550,7 +1579,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-17"></a>
 ### WA-17 · `WM_MOCKED_API_FILE`: an upstream local-mode hook for resources and variables
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - If `WM_MOCKED_API_FILE` is set, the clients load a JSON file
@@ -1585,7 +1614,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-18"></a>
 ### WA-18 · Resume URLs (the step asks for them; resuming is a separate suspend feature)
 
-**Scope:** core (call shape); out (resuming) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (call shape); out (resuming) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Client call:**
@@ -1621,7 +1650,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-19"></a>
 ### WA-19 · Job introspection from scripts (`getJob`, `getJobArgs`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
-**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/p); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run)
+**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/p); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run) · verified at v1.767.0 only, except WA-19/d's text (re-checked at v1.862.0)
 
 - **Rule:** scripts can read their own job tree, list queues and cancel
   jobs. `JobService.getJob({id})` returns a `Job` (`oneOf`
@@ -1808,8 +1837,9 @@ interface); `WA-Vn` findings were added during validation.
     `GET /w/{ws}/jobs_u/completed/get_result/{id}`, which reads completed
     jobs only. A job still queued or running, and an unknown id alike,
     answer 404
-    `Not found: Completed Job not found at name <id> (jobs.rs:9074)`; the
-    parenthesised location is part of the text ([FX-50](execution.md#fx-50)).
+    `Not found: Completed Job not found at name <id> (jobs.rs:12065)`
+    (`(jobs.rs:9074)` at v1.767.0); the parenthesised location is part of
+    the text ([FX-50](execution.md#fx-50)).
     A completed job read anonymously gets the 400 of [WA-V2](#wa-v2).
     `getResultMaybe` is the polling route of [WA-V2](#wa-v2).
 - **Evidence:** `backend/windmill-api/openapi.yaml:13896` (`getJob`), `:24558`
@@ -1911,11 +1941,15 @@ interface); `WA-Vn` findings were added during validation.
   forgets ended runs, and noted that Windmill keeps the row. Added what
   Windmill answers: 200 with the root id until the job retention removes
   the job (30 days by default), then the 400 of an unknown id.
+- **Revision 2026-11-06 (retarget to v1.862.0):** WA-19/d was
+  re-recorded on CE v1.862.0: the same 404, with the completed-job lookup
+  at `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0`, so the text ends
+  ` (jobs.rs:12065)`. The rest of the finding is not re-checked.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **`appendToResultStream(t)`** prints the single stdout line `WM_STREAM: `
@@ -1956,7 +1990,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-30"></a>
 ### WA-30 · How the client reaches a job, and the options for serving it without Windmill
 
-**Scope:** core (Bun); later (Python and other languages) · **Confidence:** medium (inferred design; mechanisms read) · **Status:** confirmed
+**Scope:** core (Bun); later (Python and other languages) · **Confidence:** medium (inferred design; mechanisms read) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `windmill-client` reaches a Bun job as an ordinary lockfile dependency: the
@@ -2007,7 +2041,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-31"></a>
 ### WA-31 · Per-invocation identity: process-global env and token require per-step isolation
 
-**Scope:** core · **Confidence:** high (requirement); medium (candidate mechanism, Bun 1.4.2); low (pinned Bun 1.3.10, Q-WA-4) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (requirement); medium (candidate mechanism, Bun 1.4.2); low (pinned Bun 1.3.10, Q-WA-4) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule (established from source):**
   - The client reads `WM_*` from `process.env` at call time ([WA-1](#wa-1)),
@@ -2062,7 +2096,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-32"></a>
 ### WA-32 · TS `task()` switches to HTTP dispatch when `WM_FLOW_JOB_ID` is empty
 
-**Scope:** core (env invariant); out (workflow-as-code) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (env invariant); out (workflow-as-code) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **TS.** `task(fn)` outside a workflow context runs `fn` directly **unless**
@@ -2088,7 +2122,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-33"></a>
 ### WA-33 · Workflow-as-code is a separate execution model
 
-**Scope:** out · **Confidence:** medium (execution model read, not traced); high (detection paths) · **Status:** confirmed; drafted (the parsed path's declaration rules, revised 2026-10-28)
+**Scope:** out · **Confidence:** medium (execution model read, not traced); high (detection paths) · **Status:** confirmed; drafted (the parsed path's declaration rules, revised 2026-10-28) · verified at v1.767.0 only
 
 - **Rule:**
   - `workflow()`/`task()`/`step()`/`waitForApproval()` with a `WorkflowCtx`
@@ -2140,7 +2174,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-40"></a>
 ### WA-40 · Platform services, and the three resource-read contracts they must keep apart
 
-**Scope:** core (resources, variable reads, flow user state, root id, dispatch interface, explicit-key object store, resume via host provider); later (the rest) · **Confidence:** medium (design synthesis; the resource-read contracts are source-traced) · **Status:** confirmed
+**Scope:** core (resources, variable reads, flow user state, root id, dispatch interface, explicit-key object store, resume via host provider); later (the rest) · **Confidence:** medium (design synthesis; the resource-read contracts are source-traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule (upstream contracts the design must respect):**
   - Upstream has three distinct resource-read contracts:
@@ -2216,7 +2250,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-41"></a>
 ### WA-41 · Unsupported platform calls: what the stock clients do with an error response
 
-**Scope:** core · **Confidence:** high (stock-client behaviour, conditional on the fetch transport, Q-WA-6); medium (the failure policy, a proposal) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (stock-client behaviour, conditional on the fetch transport, Q-WA-6); medium (the failure policy, a proposal) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **404 means "absent" to several helpers.** TS `getResource(…, true)` and
@@ -2269,7 +2303,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v5"></a>
 ### WA-V5 · An unsupported HTTP response does not imply a rejected helper call
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** endpoint behaviour and client-observable behaviour are distinct. On
   an HTTP 501 with text body B:
@@ -2291,7 +2325,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-42"></a>
 ### WA-42 · Error status codes and bodies
 
-**Scope:** core · **Confidence:** high; oracle-observed (WA-42/b, WA-42/c; the request-extraction rejections a client meets, [WA-14/d](conformance.md#wa-14), [WA-19/c](conformance.md#wa-19), [WA-V2/c](conformance.md#wa-v2); the content types of error and text answers, [WA-11/e](conformance.md#wa-11)) · **Status:** confirmed; drafted (authentication rejections)
+**Scope:** core · **Confidence:** high; oracle-observed (WA-42/b, WA-42/c; the request-extraction rejections a client meets, [WA-14/d](conformance.md#wa-14), [WA-19/c](conformance.md#wa-19), [WA-V2/c](conformance.md#wa-v2); the content types of error and text answers, [WA-11/e](conformance.md#wa-11)) · **Status:** confirmed; drafted (authentication rejections) · verified at v1.767.0 only
 
 - **Rule:** every variant of the API `Error` type is rendered as `text/plain`
   with its display string as the body. The full mapping:
@@ -2418,7 +2452,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-50"></a>
 ### WA-50 · Delegation endpoints and their semantics
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** paths here are given from the instance root (with `/api`), as a
   delegating caller sends them.
@@ -2487,7 +2521,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v6"></a>
 ### WA-V6 · Preview delegation needs a transitive code snapshot
 
-**Scope:** later (hybrid execution) · **Confidence:** high (preview and import boundary) · **Status:** confirmed
+**Scope:** later (hybrid execution) · **Confidence:** high (preview and import boundary) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Script previews** carry the entrypoint `content` and `lock`, plus
@@ -2511,7 +2545,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v7"></a>
 ### WA-V7 · Flow wait-result can finish before the remote flow
 
-**Scope:** later (hybrid route choice) · **Confidence:** high (handler and guard traced) · **Status:** confirmed
+**Scope:** later (hybrid route choice) · **Confidence:** high (handler and guard traced) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** flow `run_wait_result` passes the flow's `early_return` node to the
   waiter, which can return that node's result before a completed-flow row
@@ -2530,7 +2564,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-51"></a>
 ### WA-51 · Platform calls made by delegated steps, and token scopes
 
-**Scope:** later · **Confidence:** high (scope checks); medium (hybrid modes, a design) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (scope checks); medium (hybrid modes, a design) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - A delegated step runs on real Windmill, so its
@@ -2573,7 +2607,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-60"></a>
 ### WA-60 · What windmill-lite can reuse from windmill-ts
 
-**Scope:** core (loader overlap, owned by openflow.md); later (typed adapters) · **Confidence:** high (read) · **Status:** confirmed
+**Scope:** core (loader overlap, owned by openflow.md); later (typed adapters) · **Confidence:** high (read) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** [windmill-ts](https://github.com/invakid404/windmill-ts)
   (`master` @ `af2b1e325320`, Unlicense, the same licence as windmill-lite, so
