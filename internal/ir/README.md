@@ -75,6 +75,9 @@ applies, once:
   `preserve_step_tags`), and a `script` or `flow` value's own
   `pass_flow_input_directly`, which only the envelope's triggers
   ([OF-V4](../../docs/semantics/openflow.md#of-v4));
+- **dropped permission fields:** the flow's `on_behalf_of` and
+  `on_behalf_of_email`, and a step's `job_token_scopes`
+  ([0001](../../docs/design/0001-equivalence-contract.md) §3);
 - **locks** are kept exactly as the folder gives them, never generated or
   relocked; an empty or absent lock is not an error by itself
   ([OF-15](../../docs/semantics/openflow.md#of-15),
@@ -212,7 +215,7 @@ sites.
 | `Kind` | When |
 |---|---|
 | `load` | the folder cannot supply an item the closure reaches, or it fails to read: the wrapped `*syncfolder.Error` says which (`not_in_folder`, `filtered`, `hub_path`, `invalid_flow`, …, [SY-15](../../docs/semantics/openflow.md#sy-15)); an inline step's files (`missing_inline_file`, `invalid_text`, `path_escape`) fail that step |
-| `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler` when it is set (JavaScript-truthy, [WR-48](../../docs/semantics/languages.md#wr-48)), and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a) |
+| `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler` when it is set (JavaScript-truthy, [WR-48](../../docs/semantics/languages.md#wr-48)), and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a). Also `unsupported: value.timeout`, naming the flow, for a flow whose `value` sets `timeout`: the engine does not enforce that wall-clock limit yet (§5a) |
 | `unsupported_language` | a leaf whose language has no harness in this release |
 | `pinned_hash` | a `script` step with a `hash` ([OF-14](../../docs/semantics/openflow.md#of-14)): a folder never records the hash Windmill gave its version, so no pin can be shown to be the folder's |
 | `absent_skip_flag` | under `Strict`, an absent or null for-loop `skip_failures` or branchall branch `skip_failure` |
