@@ -570,8 +570,8 @@ JE-48/a, which does not overflow the 1 MiB stack (D17).
 `go test ./cmd/wltest` runs both suites. The Bun tests need `WL_BUN`;
 without it they skip, unless `WL_REQUIRE_BUN` is set, as CI sets it. The
 Node side needs `WL_NODE`; without it the step suite runs on Bun only,
-unless `WL_REQUIRE_NODE` is set, as CI sets it (with Node 20, the major of
-Windmill v1.767.0's image).
+unless `WL_REQUIRE_NODE` is set, as CI sets it (with Node 24.22.1, the Node
+of Windmill 1.862.0's image).
 
 - `TestStepSuite` is the exit gate of milestones C3a and C3b, and with
   `wr-40.yaml` to `wr-45.yaml` and `d5.yaml` milestone C3n's: every step
@@ -652,7 +652,7 @@ Windmill v1.767.0's image).
     `warm` and `host` with shared code.
 - `TestWindmillClientSharesTheClosure` does the same with
   `testdata/esm-client`, whose scripts read `JobService.getJob` of the
-  stock `windmill-client` 1.767.0 by a named and a namespace import. It
+  stock `windmill-client` 1.862.0 by a named and a namespace import. It
   needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules` holds the
   client.
 - `TestEndedRunJobRead` checks deviation D22 on

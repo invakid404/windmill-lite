@@ -565,7 +565,7 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 - `qwa4_test.go` is W1's Q-WA-4 env-view test
   ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4),
   [WA-31](../../docs/semantics/client-api.md#wa-31)): the stock
-  `windmill-client@1.767.0`, by namespace and default import, in steps that
+  `windmill-client@1.862.0`, by namespace and default import, in steps that
   are not bundled, bundled by `Bun.build` with Windmill's settings, and
   bundled with the define rewrite, plus an unbundled dependency that reads
   `Bun.env`. Sixteen concurrent invocations per variant must each read their

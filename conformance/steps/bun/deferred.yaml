@@ -195,14 +195,14 @@ deferred:
     expected_in: L1
   - spec: WA-16/b
     reason: a bare string is refused by the stock client's own parsing, before any request; a script without the client makes none
-    expected_in: PF3 (internal/platform/facade TestObjectsOnTheClient, on windmill-client@1.767.0)
+    expected_in: PF3 (internal/platform/facade TestObjectsOnTheClient, on windmill-client@1.862.0)
   - spec: WA-16/d
     reason: >-
       an upload on a CE server with no workspace storage answers HTTP 500,
       so the stock client throws "Internal Server Error". With no object
       store configured, the facade's job helpers answer 500 too
       (internal/platform/facade TestObjectRoutes, and
-      TestNoObjectStoreOnTheClient on windmill-client@1.767.0), but every
+      TestNoObjectStoreOnTheClient on windmill-client@1.862.0), but every
       step case runs with an object store, so no step case can have none.
       CE's body was not recorded, and windmill-lite's is its own
     expected_in: internal/platform/facade TestObjectRoutes and TestNoObjectStoreOnTheClient
@@ -307,7 +307,7 @@ deferred:
     reason: >-
       a generated service's ApiError needs the stock client, which the
       step level does not install; its 501 reply is checked on
-      windmill-client@1.767.0's JobService.getJobLogs and getIdToken
+      windmill-client@1.862.0's JobService.getJobLogs and getIdToken
     expected_in: PF1 (internal/platform/facade TestUnsupportedPolicyOnTheClient)
   - spec: WA-11/b
     reason: >-
@@ -363,7 +363,7 @@ deferred:
       not found at name <path>` typed text/plain, without CE's location
       (ADR 0001 D14). setVariable on an existing variable, which asks
       variables/exists, updates and resolves to undefined, is checked on
-      windmill-client@1.767.0 by internal/platform/facade's
+      windmill-client@1.862.0 by internal/platform/facade's
       TestSetVariableOnTheClient
     expected_in: a later milestone that implements createVariable (ADR 0007, Variables); the update half, the WA-11 step case update-answers
   - spec: WA-12/f

@@ -8,7 +8,7 @@ note: >-
   script makes the requests the stock client's writeS3File and loadS3File
   make, by fetch at BASE_URL with its token, and builds their results as
   they do; the client's own parsing of an S3 object (WA-16/b) and its
-  error texts are checked with windmill-client@1.767.0 by
+  error texts are checked with windmill-client@1.862.0 by
   internal/platform/facade's TestObjectsOnTheClient.
 cases:
   - spec: WA-16/a
