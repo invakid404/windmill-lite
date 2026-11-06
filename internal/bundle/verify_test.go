@@ -106,7 +106,7 @@ func testManifest() *Manifest {
 	return &Manifest{
 		Format:          FormatVersion,
 		Engine:          Engine{Version: "v0.0.0-test", ExpressionStackBytes: 1 << 20},
-		Bundlers:        Bundlers{Bun: "1.3.10"},
+		Bundlers:        Bundlers{Bun: "1.4.3"},
 		ModuleState:     engine.ModuleStateWarm,
 		Deviations:      []string{"D3"},
 		Contract:        ir.Contract{Roots: []ir.Root{{Flow: "f/a/flow"}}},

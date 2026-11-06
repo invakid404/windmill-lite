@@ -22,7 +22,7 @@ import (
 )
 
 // The Q-WA-4 test, W1's exit gate "the Q-WA-4 env-view test 16/16": does
-// the per-invocation isolation of WA-31 hold on the pinned Bun 1.3.10 with
+// the per-invocation isolation of WA-31 hold on the pinned Bun 1.4.3 with
 // the stock pinned windmill-client? It runs the experiment design of WA-31
 // and Q-WA-4 on the real harness:
 //

@@ -138,7 +138,7 @@ type PlatformHandler func(req PlatformRequest) func(ctx context.Context) Platfor
 
 // PinnedBun is the Bun version the harness must run on: the version of
 // Windmill v1.767.0's images (WR-3, ADR 0001).
-const PinnedBun = "1.3.10"
+const PinnedBun = "1.4.3"
 
 // BunCommand returns the Path and Args that run the Bun harness runtime at
 // runtimeMain (harnesses/bun/runtime/main.ts) with bun, on the bundle in

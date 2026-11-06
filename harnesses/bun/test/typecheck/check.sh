@@ -2,7 +2,7 @@
 # Typechecks the Bun host SDK (harnesses/bun/host) and the harness runtime
 # (harnesses/bun/runtime) as a host that vendors them as source sees them
 # (ADR 0009): copied into a package of type module, against the type
-# declarations of the pinned Bun (@types/bun 1.3.10, with TypeScript).
+# declarations of the pinned Bun (@types/bun 1.4.3, with TypeScript).
 #
 # @types/bun accepts any @types/node, and a host brings its own, so the
 # check runs against two sets of declarations, each pinned by its own

@@ -109,7 +109,7 @@ function resolvesToBuiltin(spec: string): boolean {
 // name that node:module's builtinModules lists on the Bun that runs the
 // build, alone or after node:, kept only when the runtime's resolver
 // resolves it to a built-in module (resolvesToBuiltin). The build requires
-// that Bun to be the pinned Bun 1.3.10 unless its caller allows another.
+// that Bun to be the pinned Bun 1.4.3 unless its caller allows another.
 //
 //   - Bun 1.3.10 lists Node's modules without the node: prefix, subpaths
 //     such as fs/promises among them, and its own: bun, bun:ffi, bun:jsc,

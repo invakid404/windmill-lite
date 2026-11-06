@@ -20,7 +20,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// bunOrSkip returns the Bun of WL_BUN, the pinned 1.3.10; without it the
+// bunOrSkip returns the Bun of WL_BUN, the pinned 1.4.3; without it the
 // test is skipped, unless WL_REQUIRE_BUN is set, as CI sets it.
 func bunOrSkip(t *testing.T) string {
 	t.Helper()

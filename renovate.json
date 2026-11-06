@@ -12,7 +12,7 @@
       "matchPackageNames": [
         "bun"
       ],
-      "allowedVersions": "1.3.10"
+      "allowedVersions": "1.4.3"
     },
     {
       "description": "The SDK typecheck, the npm package's declaration build and its packaging test use the type declarations of the pinned Bun (harnesses/bun/test/typecheck, harnesses/package.json, harnesses/npm/test/project); they move only with Bun.",
@@ -26,7 +26,7 @@
         "@types/bun",
         "bun-types"
       ],
-      "allowedVersions": "1.3.10"
+      "allowedVersions": "1.4.3"
     },
     {
       "description": "The packaging test's project is the project that bun init of the pinned Bun makes, whose peer dependency is TypeScript 5 (harnesses/npm/test/project): only updates within 5.",
