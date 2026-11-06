@@ -62,6 +62,7 @@ The oracle runs in public CI; see
 |---|---|---|
 | `--check` | off | Fail when a run has no committed recording or its observation differs from it, and never write into a fixture. |
 | `--out DIR` | — | Write new and changed recordings under `DIR`, at their committed path (`DIR/<fixture path>/recorded/`, `DIR/conformance/exprs/recorded/<finding>/`), instead of in place. |
+| `--mismatched DIR` | — | Write the observation of every `expect_mismatch` run under `DIR`, normalised and in the recording format with its provenance, at the path `--out` would give its recording; see [Mismatched observations](#mismatched-observations). `DIR` must not be the repository root (the working directory) or the `--out` directory. |
 | `--raw DIR` | — | Write the raw API captures of every run to `DIR`. |
 | `--report FILE` | — | Write the session report: disk readings, pulls, images, boot times, CLI version, deployments, memory peaks, teardown. |
 | `--repeat N` | 1 | Run each run `N` times and require equal observations. |
@@ -110,6 +111,35 @@ Runs that share a `group` are submitted together, as concurrent outer runs,
 and fail together when one fails or when they did not overlap. Each
 fixture's workspace is deleted after its runs, because CE admits only two
 workspaces besides `admins`.
+
+### Mismatched observations
+
+A run whose observation does not match its `expect` is `expect_mismatch`
+and writes no recording, in place or under `--out`: a recording must meet
+its run's `expect`. With `--mismatched DIR`, `record` writes that
+observation under `DIR` instead, in the recording format with its
+provenance (`{"observation": …, "provenance": …}`), at the path `--out`
+would give its recording.
+
+- The path is `DIR/<fixture path>/recorded/<run>.json`, or
+  `DIR/conformance/exprs/recorded/<finding>/<case>.json` for an expression
+  case.
+- The run stays `expect_mismatch` and still fails the session. An
+  `observation: <file>` line under the run's line, and the `observation`
+  field of its entry in the report (`--report`), name the file.
+- An `unstable`, `failed` or `refused` run has no single observation and
+  writes nothing there.
+- A file that cannot be written, or a fixture outside the working
+  directory, makes the run `failed`, with the error and the differences.
+
+One oracle pass thus gives both the recordings of the runs whose `expect`
+still holds (`--out`) and the new observations of the others. Once a run's
+`expect` says what the oracle now does, its file is the recording to
+commit: copied over the repository (`cp -R DIR/. .`), the next
+`record --check` reports it `unchanged`. The
+[oracle workflow](../../.github/workflows/oracle.yml) passes
+`--mismatched` and uploads the directory with the recordings, the raw
+captures and the report.
 
 ## stub
 
@@ -720,6 +750,12 @@ Windmill v1.767.0's image).
     other failing with `group_not_concurrent`, a failed run with
     `group_member_failed`, and a run that starts no module holding up no
     other.
+- `TestPrintRuns` checks `record`'s per-run lines: the `observation:` line
+  of a mismatched run under `--mismatched`, the error and the differences,
+  and which outcomes fail the session. `TestUsage` covers the verbs' flag
+  refusals, among them `--mismatched` at the working directory or at
+  `--out`, refused before Docker is asked anything. The sessions behind
+  `record` are tested in [internal/oracle](../../internal/oracle/README.md#tests).
 - The retarget ledger's tests need no Bun ([The retarget ledger](#the-retarget-ledger)):
   - `TestLedgerGuard` runs the guard on generated Git trees. With `--base
     main` it fails on a ledger file, with an entry or empty, and on a
@@ -826,10 +862,11 @@ case, or a run of a fixture or expression file.
 - A listed run or case that passes in a mode its entry covers fails the
   test. The entry then hides nothing in that mode, so the pull request
   that made it pass removes the mode or the entry.
-- `record --pending` changes no recording: it writes new and changed
-  recordings under `--out` as always. Only the session's verdict changes.
-  A listed run reported `unchanged` already has its recording, so its
-  entry is stale; a refused run fails as always.
+- `record --pending` changes no output: new and changed recordings still
+  go under `--out`, and an `expect_mismatch` run's observation under
+  `--mismatched`. Only the session's verdict changes. A listed run
+  reported `unchanged` already has its recording, so its entry is stale;
+  a refused run fails as always.
 
 ### Markers in test code
 

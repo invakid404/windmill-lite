@@ -100,6 +100,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	check := fs.Bool("check", false, "fail when a run has no committed recording or its observation differs from it; never write into fixtures")
 	out := fs.String("out", "", "write new and changed recordings under this directory instead of in place")
+	mismatched := fs.String("mismatched", "", "write the observation of every run that does not match its expect, as a recording, under this directory")
 	raw := fs.String("raw", "", "write the raw API captures of every run under this directory")
 	report := fs.String("report", "", "write the session report (JSON) to this file")
 	repeat := fs.Int("repeat", 1, "run every run this many times and require equal observations")
@@ -213,6 +214,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		RegenerateMetadata: *regen,
 		Check:              *check,
 		OutDir:             *out,
+		MismatchDir:        *mismatched,
 		RawDir:             *raw,
 		RepoRoot:           root,
 		Harness:            harnessInfo(),
@@ -245,25 +247,30 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// printRuns prints one line per run, then its error, its differences and
-// any note of the retarget ledger, and reports whether a run fails the
-// session (recordVerdict).
-func printRuns(stdout io.Writer, runs []oracle.RunReport, check bool, pending map[string]conformance.LedgerEntry) (failed bool) {
+// printRuns prints one line per run, then the file holding a mismatched
+// run's observation, any error, the differences and any note of the
+// retarget ledger, and reports whether a run failed the session
+// (recordVerdict).
+func printRuns(w io.Writer, runs []oracle.RunReport, check bool, pending map[string]conformance.LedgerEntry) bool {
+	failed := false
 	for _, r := range runs {
 		line := fmt.Sprintf("%-10s %s %s", r.Outcome, r.Fixture, r.Run)
 		if r.Wrote != "" {
 			line += " -> " + r.Wrote
 		}
-		fmt.Fprintln(stdout, line)
+		fmt.Fprintln(w, line)
+		if r.Observation != "" {
+			fmt.Fprintln(w, "  observation:", r.Observation)
+		}
 		if r.Error != "" {
-			fmt.Fprintln(stdout, "  error:", r.Error)
+			fmt.Fprintln(w, "  error:", r.Error)
 		}
 		for _, d := range r.Differences {
-			fmt.Fprintln(stdout, "  "+d)
+			fmt.Fprintln(w, "  "+d)
 		}
 		fails, note := recordVerdict(r, check, pending)
 		if note != "" {
-			fmt.Fprintln(stdout, "  "+note)
+			fmt.Fprintln(w, "  "+note)
 		}
 		failed = failed || fails
 	}
