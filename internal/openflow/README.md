@@ -206,9 +206,10 @@ commit and digest, and `schema/LICENSE-APACHE` is the licence text. These
 files are not covered by the Unlicense of the rest of the repository. Only
 the coverage test reads the schema; no code is generated from it.
 
-The reference still describes Windmill `v1.767.0`. Every property this
-schema declares is decoded or listed as ignored. Of the nine it added since,
-all but the question tool's `timeout` are decoded, as
+The reference still describes Windmill `v1.767.0`. The coverage test finds
+every property that a flow document reaches in this schema decoded or listed
+as ignored. Of the nine added since, all but the question tool's `timeout`
+are decoded, as
 [Readings the reference does not settle](#readings-the-reference-does-not-settle)
 says. At run time they follow
 [0001](../../docs/design/0001-equivalence-contract.md):
