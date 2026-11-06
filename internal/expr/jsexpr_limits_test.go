@@ -269,9 +269,9 @@ func TestJSExprWorstCaseTime(t *testing.T) {
 // evaluates, not the wall clock. When other processes load the machine, as
 // other packages' tests do under go test ./..., the wall clock also counts
 // the time the evaluation waits for a CPU, and evaluations that take
-// milliseconds alone went past 100 ms in CI. The process's CPU time counts
-// the evaluation's work and the garbage collection its allocations cause,
-// on whichever threads they run; no other test runs in the process
+// milliseconds alone can take over 100 ms in CI. The process's CPU time
+// counts the evaluation's work and the garbage collection its allocations
+// cause, on whichever threads they run; no other test runs in the process
 // meanwhile, as this one is not parallel. Work costs at least its CPU time
 // under any load, so work that jsExpr does not bound goes over the bound
 // however loaded the machine is. Contention for caches and memory still

@@ -552,8 +552,9 @@ context-free case's recorded argument as its stored form.
   `TestJSExprKeepsTheAttemptLimit`, `TestJSExprBoundsItsOwnWork` and
   `TestJSExprWorstCaseTime` hold it to the evaluation's limits.
   `TestJSExprBoundsItsOwnWork` holds the process's CPU time to its bound,
-  not the wall clock, so that other processes' load cannot fail it, and
-  takes the least of up to three runs.
+  not the wall clock, so the time an evaluation waits for a CPU while other
+  processes run does not count. It takes the least CPU time of up to three
+  runs.
 - `TestJSExprIsolation` checks that evaluations share nothing, and
   `TestJSExprReadMemoKeys` that reads differing only in a key's spelling
   never share a memo entry. `TestJSExprConcurrentPipeline` evaluates from
