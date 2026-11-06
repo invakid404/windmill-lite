@@ -231,7 +231,7 @@ microtask see none.
    the exit then cuts the work off and the engine waits for the job's
    group (item 8), so a script that leaves work behind is flagged in both
    modes. The counts come from the invocation's own registry, since Bun
-   1.3.10's `process._getActiveHandles()` lists nothing.
+   1.4.3's `process._getActiveHandles()` lists nothing.
 
    Killing a `child` at settlement is windmill-lite's reading. On
    Windmill a process left in the job's group after the script returns
@@ -246,7 +246,9 @@ microtask see none.
    - promise continuations already queued, `Bun.sleep` and
      `node:timers/promises` waits included (what they do through the
      fenced channels is refused);
-   - sockets and clients the step opened itself, and shared objects;
+   - sockets and clients the step opened itself, with the timers that
+     Bun's networking modules (`node:net` and `node:http`'s own) set for
+     them, and shared objects;
    - a child the step started detached, in a session of its own, and
      processes `Bun.$` starts, which the harness does not wrap;
    - what a synchronous child call left running after its child exited,

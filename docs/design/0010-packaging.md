@@ -188,6 +188,14 @@ the host was a compiled Bun executable.
      to wait for a module's load effects fails before they ran, a module
      without exports included. The namespace an import gets therefore lists
      a `then` key even when the module exports none.
+   - **Unless Bun drops the namespace:** Bun 1.4.3 gives an `import()`
+     whose value goes unused, or only has exports read, an empty object in
+     place of the namespace. Nothing then reads the late shim's `then`, so
+     in a Bun-built copy such an `import()` resolves before the module
+     registers, without its load effects; a read of an export still fails,
+     and esbuild's copies still reject. A module that waits for another's
+     load effects keeps the namespace its `import()` gives (D12 cases
+     `lazy-import-no-exports` and `lazy-import-unused-result`).
    - **A module whose own loading awaits such an import** at its top level
      fails to load, with the same error. The bundlers keep that failure, so
      every later import of the module fails the same way, as an ES module
@@ -195,9 +203,11 @@ the host was a compiled Bun executable.
      exports.
    - **A late shim, not the plain one:** both bundlers run a module's
      initialisation once, so a plain shim that failed can never yield the
-     registered values. On Bun 1.3.10 and esbuild, every later import of it
-     gets its exports undefined, or, for a module without exports, seems to
-     succeed although the module has not loaded.
+     registered values. On esbuild, every later import of it gets its
+     exports undefined, or, for a module without exports, seems to succeed
+     although the module has not loaded. Bun 1.4.3 throws the first
+     failure again on every later import (1.3.10 behaved as esbuild does),
+     so the module never loads, even once it is registered.
    - Rejected: counting every import. It refuses a cycle that closes only
      through an `import()` in a function, such as a hook that loads a
      module lazily. A host then leaves those modules unlisted, and every
