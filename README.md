@@ -180,7 +180,7 @@ The harness, build, skeleton and host-mode tests also need the pinned Bun
 1.4.3; without it they skip. Point `WL_BUN` at its executable, and install
 the build helper's parser once. The Q-WA-4 test,
 the facade's attribution test and `cmd/wltest`'s test of the client under
-shared code also need the stock `windmill-client@1.767.0`: point
+shared code also need the stock `windmill-client@1.862.0`: point
 `WL_WINDMILL_CLIENT` at a directory whose `node_modules` holds it (CI
 fetches it by its npm integrity hash):
 
@@ -192,7 +192,7 @@ WL_BUN=/path/to/bun-1.4.3/bun WL_WINDMILL_CLIENT=/path/to/client \
 
 The step suite (`go test ./cmd/wltest`) also runs each CommonJS codebase
 bundle on Node, as Windmill does (deviation D13), when `WL_NODE` names a
-Node executable; CI uses Node 20, the major of Windmill v1.767.0's image.
+Node executable; CI uses Node 24.22.1, the Node of Windmill 1.862.0's image.
 
 To build a bundle from the synthetic fixture folder and verify it:
 
@@ -268,8 +268,8 @@ and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
 `go vet ./...` and `go test -race -timeout 45m ./...` (with Bun 1.4.3, the build
-helper's parser and `windmill-client@1.767.0` installed, so the harness,
-build and host-mode tests cannot skip, and Node 20, on which the step suite
+helper's parser and `windmill-client@1.862.0` installed, so the harness,
+build and host-mode tests cannot skip, and Node 24.22.1, on which the step suite
 runs each CommonJS codebase bundle as Windmill does, deviation D13; the
 tests include the image lint and the manifest guard), builds a fixture
 bundle twice with `windmill-lite build` and compares the digests and the

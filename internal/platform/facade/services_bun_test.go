@@ -123,7 +123,7 @@ func TestFlowUserStateOnTheClient(t *testing.T) {
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
 			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 			}
 			f := newFacade(t, Config{})
 			x := f.Executor(r.pool(t, f, mode))
@@ -165,7 +165,7 @@ func TestObjectsOnTheClient(t *testing.T) {
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
 			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 			}
 			objects, err := platform.NewDirObjects(t.TempDir())
 			if err != nil {
@@ -207,7 +207,7 @@ func TestNoObjectStoreOnTheClient(t *testing.T) {
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
 			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 			}
 			f := newFacade(t, Config{})
 			x := f.Executor(r.pool(t, f, mode))
@@ -235,7 +235,7 @@ func TestSetVariableOnTheClient(t *testing.T) {
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
 			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 			}
 			store := platform.NewStore()
 			store.SetVariable("u/x/w", platform.Variable{Value: "a"})
@@ -279,7 +279,7 @@ func TestDispatchRefusedOnTheClient(t *testing.T) {
 		}{{PolicyObserve, engine.OutcomeOK, observed}, {PolicyFail, engine.OutcomeError, failed}} {
 			t.Run(string(mode)+" "+string(c.policy), func(t *testing.T) {
 				if mode == engine.ModuleStateFresh {
-					t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+					t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 				}
 				f := newFacade(t, Config{Policy: c.policy})
 				x := f.Executor(r.pool(t, f, mode))

@@ -9,7 +9,7 @@ note: >-
   own outcome. Each script calls the facade as the stock client does, by
   fetch at BASE_URL with its token, so the cases need no client; the stock
   client's own reactions (WA-41/a, WA-V5/a–c, getIdToken) are checked with
-  windmill-client@1.767.0 by internal/platform/facade's
+  windmill-client@1.862.0 by internal/platform/facade's
   TestUnsupportedPolicyOnTheClient, in fail and observe mode. The same calls
   are recorded through the intercepted fetch (warm) and over loopback TCP
   (fresh), as WA-30/a requires. Since milestone PF3 serves dispatch and
