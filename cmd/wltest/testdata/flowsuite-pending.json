@@ -15,14 +15,6 @@
       "milestone": "W4e",
       "reason": "on Bun 1.4.3 a process.exit at a warm module's top level escapes the harness and ends the process",
       "modes": ["warm"]
-    },
-    "conformance/steps/bun/d18.yaml/d18-b-namespace-shape": {
-      "milestone": "W4f",
-      "reason": "Bun 1.4.3's bundler lists the keys of an import * namespace sorted"
-    },
-    "conformance/steps/bun/wa-31.yaml/wa-31-node-http": {
-      "milestone": "W4f",
-      "reason": "on Bun 1.4.3 a settled node:http request leaves a handle that settlement reports as left_behind"
     }
   },
   "oracle": {}

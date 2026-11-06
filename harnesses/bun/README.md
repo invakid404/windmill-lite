@@ -244,6 +244,16 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   imports of them unwrapped (default imports and `require` always see the
   wrappers), which is why the host SDK requires `node:child_process`. The
   runtime's own timers use `realTimers`, the functions as Bun has them.
+- **A socket's timers.** The timers that Bun's networking modules
+  (`node:net` and `node:http`'s own) set are part of a socket, which runs
+  on (D9), so the fence leaves them alone. On Bun 1.4.3 they time a
+  socket's idle time and its connection attempts, close a destroyed
+  socket's handle and track a server's connections. The fence tells them
+  by the caller's file, without running the step's
+  `Error.prepareStackTrace`. JavaScriptCore drops the frame of a function
+  that returns a call, so a timer a step's callback sets so escapes the
+  fence when one of those modules calls the callback directly
+  (`net.connect`'s `lookup` or `onread`, an agent's `createConnection`).
 - **The log view.** Inside an invocation, `console`'s methods and
   `process.stdout.write` and `process.stderr.write` write to the
   invocation's log (`InvocationLog`). A console call is formatted by a
@@ -381,7 +391,7 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   or after `revoke(kind)` for its kind, is released at once. The
   connection's end settles every invocation too. Nothing global is keyed
   by invocation, and the counts are the only leak report:
-  `process._getActiveHandles()` lists nothing on Bun 1.3.10. The fence
+  `process._getActiveHandles()` lists nothing on Bun 1.4.3. The fence
   never touches sockets or shared objects, and cannot stop promise
   continuations already queued (`Bun.sleep`, `node:timers/promises`); what
   they do through the fenced channels is refused.
@@ -769,7 +779,7 @@ this mode cannot reproduce is deviation D5 of
   the ECMAScript built-ins and the web APIs WR-45 lists, taken from this
   realm once fetch is wrapped and before any step loads (`fetch`, `URL`,
   `URLPattern`, `crypto`, the streams, `structuredClone`, `console` and the
-  rest; Bun 1.3.10 has no `FileReader`), a `Deno` object holding only an
+  rest; Bun 1.4.3 has no `FileReader`), a `Deno` object holding only an
   empty `core`, and `addEventListener`, `removeEventListener` and
   `dispatchEvent` on `globalThis`. Nothing of Bun's: no `Bun`, `Buffer`,
   `require`, `module`, `process`, `setImmediate` or `ShadowRealm`.

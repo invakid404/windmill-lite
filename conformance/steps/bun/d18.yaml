@@ -203,7 +203,7 @@ cases:
   - spec: D18
     variant: b-namespace-shape
     provenance: policy
-    title: the namespace object a Bun-built script's entry takes of an ES module dependency has the module's names, in the bundler's order (Bun's is the source's), and no CommonJS interop marker
+    title: the namespace object a Bun-built script's entry takes of an ES module dependency has the module's names, in the bundler's order (Bun's is sorted, as esbuild's is), and no CommonJS interop marker
     note: >-
       Only the entry takes the namespace object, so the script runs its
       shared-layout module in warm mode; its reference lists the module's
@@ -221,7 +221,7 @@ cases:
       }
     runs:
       - args: '{}'
-        expect: {status: success, result: {names: [value, default, alpha], keys: [value, default, alpha], marker: false, value: 1, alpha: a, def: the default}}
+        expect: {status: success, result: {names: [alpha, default, value], keys: [alpha, default, value], marker: false, value: 1, alpha: a, def: the default}}
   - spec: D18
     variant: b-namespace-shape-cjs
     provenance: policy

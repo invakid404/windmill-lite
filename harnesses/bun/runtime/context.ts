@@ -80,9 +80,9 @@ function workOf(): InvocationResources | undefined {
  * Work started in a process scope (PROCESS_SCOPE) has no invocation, and
  * work a step module starts while it evaluates belongs to the module, so
  * neither registers here or is ever fenced. What pending() counts just
- * before settlement is the leak report: Bun 1.3.10's
- * process._getActiveHandles() lists nothing, so this registry is the only
- * record of what an invocation left behind. */
+ * before settlement is the leak report: Bun's process._getActiveHandles()
+ * lists nothing (1.4.3, as 1.3.10), so this registry is the only record of
+ * what an invocation left behind. */
 export class InvocationResources {
   /** Set once the invocation has settled; it never clears. */
   settled = false;
@@ -769,6 +769,50 @@ export const realTimers = {
 
 let timersInstalled = false;
 
+/** Error as the harness found it: a step may replace the global. */
+const HarnessError = Error as unknown as {
+  prepareStackTrace?: unknown;
+  stackTraceLimit: number;
+  captureStackTrace(o: object, fn: unknown): void;
+};
+
+/** The files of Bun's networking modules, as a call site names them. A
+ * timer one of them sets is part of a socket's own machinery
+ * (calledBySocketModule). */
+const SOCKET_MODULES = new Set(["node:net", "node:_http_agent", "node:_http_client", "node:_http_server"]);
+
+/** The prepareStackTrace calledBySocketModule sets while it captures a frame: it
+ * keeps the call sites, and runs none of the step's code. */
+const callSites = (_: Error, sites: unknown[]) => sites;
+
+/** Whether fn was called by one of Bun's networking modules (SOCKET_MODULES)
+ * rather than by the step's code (its bundle and its packages): the file
+ * name of the frame that called it. Error's stack hooks are the step's to
+ * set, so they are swapped for the capture and put back; where they cannot
+ * be, the caller counts as the step's. */
+function calledBySocketModule(fn: (...args: never[]) => unknown): boolean {
+  const E = HarnessError;
+  const prepare = E.prepareStackTrace;
+  const limit = E.stackTraceLimit;
+  let file: unknown;
+  try {
+    E.prepareStackTrace = callSites;
+    E.stackTraceLimit = 1;
+    const at: { stack?: unknown } = {};
+    E.captureStackTrace(at, fn);
+    file = (at.stack as { getFileName?: () => unknown }[] | undefined)?.[0]?.getFileName?.();
+  } catch {
+    // A hook the step made read-only: the caller counts as the step's.
+  }
+  try {
+    E.prepareStackTrace = prepare;
+    E.stackTraceLimit = limit;
+  } catch {
+    // Nothing was changed.
+  }
+  return typeof file === "string" && SOCKET_MODULES.has(file);
+}
+
 /** Installs the timer fence (D9, decisions 2026-10-28), before any step
  * module loads: setTimeout, setInterval and setImmediate, on globalThis
  * and on node:timers, register each handle an invocation creates in its
@@ -780,7 +824,20 @@ let timersInstalled = false;
  *
  * Handles created outside every invocation, in a process scope, or by a
  * step module while it evaluates belong to no invocation: they are never
- * registered or cleared. Promise-based waits (Bun.sleep,
+ * registered or cleared. Nor are those Bun's networking modules set
+ * (calledBySocketModule): they are part of a socket, which the fence leaves
+ * running (D9). On Bun 1.4.3, node:net times a socket's idle time with a
+ * setTimeout, which the node:http agent arms on each socket it keeps
+ * alive and socket.setTimeout arms too, waits between connection
+ * attempts with one, and closes a destroyed socket's handle in a
+ * setImmediate; a node:http server tracks its connections with a
+ * setInterval. Clearing them would leave the socket without its
+ * timeouts. The caller is told by its frame, and JavaScriptCore drops the
+ * frame of a function that ends by returning a call (a proper tail
+ * call): a timer that a step's own callback sets that way, where one of
+ * those modules calls the callback directly (net.connect's lookup or
+ * onread callback, an agent's createConnection), is taken for the
+ * module's and is not fenced either. Promise-based waits (Bun.sleep,
  * node:timers/promises) do not go through these functions and are not
  * fenced. node:timers is patched before any step module imports it. On
  * Bun 1.3.10 the first named import of a builtin fixes its named bindings
@@ -830,7 +887,7 @@ export function installTimers() {
   const wrap = (name: string, real: TimerFn, kind: string, clear: (h: any) => void, once: boolean): TimerFn => {
     const w = function (fn: unknown, ...rest: unknown[]) {
       const work = workOf();
-      if (typeof fn !== "function" || work === undefined) return real(fn, ...rest);
+      if (typeof fn !== "function" || work === undefined || calledBySocketModule(w)) return real(fn, ...rest);
       // A timeout or an immediate fires once: it is unregistered first.
       const cb = once
         ? function (this: unknown, ...a: unknown[]) {

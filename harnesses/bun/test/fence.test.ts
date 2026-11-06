@@ -93,6 +93,64 @@ test("a timer made after settlement is cleared at once; one outside every invoca
   expect(fired.sort()).toEqual(["module", "outside"]);
 });
 
+test("the timers Bun's networking modules set are a socket's, not the invocation's: a node:http client's and server's run on with their sockets; the step's own are fenced, also one a listener sets in a tail call, whose frame JavaScriptCore drops", async () => {
+  const http = require("node:http") as typeof import("node:http");
+  const { EventEmitter } = require("node:events") as typeof import("node:events");
+  const get = (url: string) =>
+    new Promise((resolve) => {
+      http.get(url, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      }).on("error", (e: NodeJS.ErrnoException) => resolve(e.code));
+    });
+  const c = context();
+  let server: import("node:http").Server | undefined;
+  try {
+    await invocations.run(c, async () => {
+      // The server tracks its connections; the client's agent keeps the
+      // socket alive, timing its idle time.
+      server = http.createServer((_req, res) => res.end("ok"));
+      await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
+      expect(await get(`http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/`)).toBe(200);
+      // Refused: the socket's handle is closed in a setImmediate.
+      expect(await get("http://127.0.0.1:1/")).toBe("ECONNREFUSED");
+      // The step's own: called directly, by a native function, and by a
+      // listener that node:events calls.
+      setTimeout(() => {}, 1000);
+      [() => {}].forEach(setImmediate);
+      const e = new EventEmitter();
+      e.on("tail", () => setTimeout(() => {}, 1000));
+      e.emit("tail");
+    });
+    expect(c.resources.settle()).toEqual({ immediate: 1, timeout: 2 });
+  } finally {
+    http.globalAgent.destroy();
+    server?.closeAllConnections();
+    server?.close();
+  }
+});
+
+test("finding who set a timer runs none of the step's stack hooks and puts them back", async () => {
+  const E = Error as unknown as { prepareStackTrace?: unknown; stackTraceLimit: number };
+  const [prepare, limit] = [E.prepareStackTrace, E.stackTraceLimit];
+  let calls = 0;
+  const hook = () => {
+    calls++;
+    return "the step's";
+  };
+  const c = context();
+  try {
+    E.prepareStackTrace = hook;
+    E.stackTraceLimit = 0;
+    invocations.run(c, () => setTimeout(() => {}, 1000));
+    expect([calls, E.prepareStackTrace === hook, E.stackTraceLimit]).toEqual([0, true, 0]);
+  } finally {
+    E.prepareStackTrace = prepare;
+    E.stackTraceLimit = limit;
+  }
+  expect(c.resources.settle()).toEqual({ timeout: 1 });
+});
+
 test("util.promisify(setTimeout) keeps Bun's promise form", async () => {
   expect(await invocations.run(context(), () => promisify(setTimeout)(1, "v"))).toBe("v");
 });

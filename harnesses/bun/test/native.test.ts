@@ -285,6 +285,40 @@ describe("a native realm", () => {
     expect([typeof g.performance.now(), g.performance.timeOrigin]).toEqual(["number", performance.timeOrigin]);
   });
 
+  test("what Bun 1.4.3 adds to or reshapes in the web APIs reaches the realm as the rest does, and FileReader is still missing", async () => {
+    const { native, j, ctx } = registered();
+    const g = j.g;
+    expect(g.FileReader).toBeUndefined();
+    await invocations.run(ctx, async () => {
+      // crypto.subtle is an accessor of Crypto's prototype, which throws
+      // off its receiver; the forwarder applies it to the shared crypto.
+      expect(Object.hasOwn(crypto, "subtle")).toBe(false);
+      expect(typeof Object.getOwnPropertyDescriptor(g.Crypto.prototype, "subtle")?.get).toBe("function");
+      expect(g.crypto.subtle instanceof g.SubtleCrypto).toBe(true);
+      // A static that makes a stream gives the realm's stream.
+      const from = g.ReadableStream.from(["a", "b"]);
+      expect(from instanceof g.ReadableStream).toBe(true);
+      const reader = from.getReader();
+      expect(reader instanceof g.ReadableStreamDefaultReader).toBe(true);
+      expect([await reader.read(), await reader.read()]).toEqual([
+        { value: "a", done: false },
+        { value: "b", done: false },
+      ]);
+      // A sink's controller has the signal a writer's abort aborts, as the
+      // realm's AbortSignal.
+      let signal: AbortSignal | undefined;
+      const writer = new g.WritableStream({ start: (ctl: WritableStreamDefaultController) => (signal = ctl.signal) }).getWriter();
+      await writer.abort("stop");
+      expect([signal instanceof g.AbortSignal, signal?.aborted, signal?.reason]).toEqual([true, true, "stop"]);
+      // A web API object inspects as Bun inspects it: its class's
+      // inspect.custom, now on the prototype, reaches it.
+      const inspect = Symbol.for("nodejs.util.inspect.custom");
+      expect(typeof g.URL.prototype[inspect]).toBe("function");
+      expect(Bun.inspect(new g.URL("https://a.example/x?y=1"))).toBe(Bun.inspect(new URL("https://a.example/x?y=1")));
+      expect(native.jobOfPromise(reader.cancel()) === j).toBe(true);
+    });
+  });
+
   test("what a web API returns, and every continuation of it, is the calling invocation's (c3n review, finding 1)", async () => {
     const { native, j, ctx } = registered();
     const g = j.g;
@@ -397,7 +431,7 @@ describe("a native realm", () => {
     });
   });
 
-  test.skip("retarget-pending: W4f Bun 1.4.3 refuses a BYOB request answered with 0 bytes, as the test's pull answers it; events, event handlers and stream callbacks get the realm's objects, and a listener runs as the invocation that registered it (c3n review r3, finding 1)", async () => {
+  test("events, event handlers and stream callbacks get the realm's objects, and a listener runs as the invocation that registered it (c3n review r3, finding 1)", async () => {
     const { native, j, ctx } = registered();
     const g = j.g;
     const owned = (p: unknown) => native.jobOfPromise(p) === j;
@@ -463,16 +497,20 @@ describe("a native realm", () => {
       });
       ts.writable.getWriter().write("t");
       await ts.readable.getReader().read();
+      // A BYOB request is answered with at least one byte: web streams
+      // refuse respond(0) on a stream that is not closed.
       const bytes = new g.ReadableStream({
         type: "bytes",
         autoAllocateChunkSize: 4,
         pull(ctl: ReadableByteStreamController) {
           got.bytes = [ctl instanceof g.ReadableByteStreamController, ctl.byobRequest instanceof g.ReadableStreamBYOBRequest];
-          ctl.byobRequest!.respond(0);
+          (ctl.byobRequest!.view as Uint8Array)[0] = 98;
+          ctl.byobRequest!.respond(1);
           ctl.close();
         },
       });
-      await bytes.getReader().read();
+      const chunk = await bytes.getReader().read();
+      expect([...(chunk.value as Uint8Array)]).toEqual([98]);
       expect(got).toEqual({ readable: [true, true], writable: [true, true], transform: true, bytes: [true, true] });
     });
   });
