@@ -68,6 +68,7 @@ var moduleFields = []field[Module]{
 		m.Debouncing, err = optionalStruct(d, n, "struct DebouncingSettings", debouncingFields, nil)
 		return err
 	}},
+	optStringsField("job_token_scopes", func(m *Module) *[]string { return &m.JobTokenScopes }),
 }
 
 // optionalStruct decodes an optional struct-valued field; null is absent.
@@ -141,6 +142,7 @@ var suspendFields = []field[Suspend]{
 	optBoolField("self_approval_disabled", func(s *Suspend) **bool { return &s.SelfApprovalDisabled }),
 	optBoolField("hide_cancel", func(s *Suspend) **bool { return &s.HideCancel }),
 	optBoolField("continue_on_disapprove_timeout", func(s *Suspend) **bool { return &s.ContinueOnDisapproveTimeout }),
+	optStringField("skin", func(s *Suspend) **string { return &s.Skin }),
 }
 
 var mockFields = []field[Mock]{
