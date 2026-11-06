@@ -93,6 +93,133 @@ test("a timer made after settlement is cleared at once; one outside every invoca
   expect(fired.sort()).toEqual(["module", "outside"]);
 });
 
+test("the timers Bun's networking modules set are a socket's, not the invocation's: a node:http client's and server's run on with their sockets; the step's own are fenced, also one a listener sets in a tail call, whose frame JavaScriptCore drops", async () => {
+  const http = require("node:http") as typeof import("node:http");
+  const { EventEmitter } = require("node:events") as typeof import("node:events");
+  const get = (url: string) =>
+    new Promise((resolve) => {
+      http.get(url, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      }).on("error", (e: NodeJS.ErrnoException) => resolve(e.code));
+    });
+  const c = context();
+  let server: import("node:http").Server | undefined;
+  try {
+    await invocations.run(c, async () => {
+      // The server tracks its connections; the client's agent keeps the
+      // socket alive, timing its idle time.
+      server = http.createServer((_req, res) => res.end("ok"));
+      await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
+      expect(await get(`http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/`)).toBe(200);
+      // Refused: the socket's handle is closed in a setImmediate.
+      expect(await get("http://127.0.0.1:1/")).toBe("ECONNREFUSED");
+      // The step's own: called directly, by a native function, and by a
+      // listener that node:events calls.
+      setTimeout(() => {}, 1000);
+      [() => {}].forEach(setImmediate);
+      const e = new EventEmitter();
+      e.on("tail", () => setTimeout(() => {}, 1000));
+      e.emit("tail");
+    });
+    expect(c.resources.settle()).toEqual({ immediate: 1, timeout: 2 });
+  } finally {
+    http.globalAgent.destroy();
+    server?.closeAllConnections();
+    server?.close();
+  }
+});
+
+test("a step's own callback that node:net calls keeps its timers fenced, also one it sets in a tail call, whose frame shows node:net as the caller; none fires after settlement", async () => {
+  const net = require("node:net") as typeof import("node:net");
+  type Lookup = (host: string, options: unknown, cb: (err: null, address: string, family: number) => void) => unknown;
+  const fired: string[] = [];
+  const sockets: import("node:net").Socket[] = [];
+  const connect = (lookup: Lookup) => {
+    const socket = net.connect({ host: "test.invalid", port: 1234, lookup: lookup as never });
+    socket.on("error", () => {});
+    sockets.push(socket);
+  };
+  const c = context();
+  try {
+    await invocations.run(c, async () => {
+      connect((_host, _options, cb) =>
+        setTimeout(() => {
+          fired.push("tail");
+          cb(null, "127.0.0.1", 4);
+        }, 30),
+      );
+      connect((_host, _options, cb) => {
+        setTimeout(() => {
+          fired.push("statement");
+          cb(null, "127.0.0.1", 4);
+        }, 30);
+      });
+      // Both lookups have run, and neither timer has fired.
+      await Bun.sleep(5);
+    });
+    expect(c.resources.settle()).toEqual({ timeout: 2 });
+    await Bun.sleep(60);
+    expect(fired).toEqual([]);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+  }
+});
+
+test("finding who set a timer runs none of the step's stack hooks, data, accessor, read-only or throwing, nor a replaced captureStackTrace, and puts each back as it was", () => {
+  const E = Error as unknown as Record<string, unknown>;
+  const keys = ["prepareStackTrace", "stackTraceLimit", "captureStackTrace"];
+  const saved = keys.map((k) => Object.getOwnPropertyDescriptor(E, k));
+  let calls = 0;
+  const hit = () => {
+    calls++;
+    throw new Error("a step's hook ran");
+  };
+  const cases: Record<string, PropertyDescriptor>[] = [
+    { prepareStackTrace: { value: hit, writable: true, configurable: true }, stackTraceLimit: { value: 0, writable: true, enumerable: true, configurable: true } },
+    { prepareStackTrace: { get: hit, set: hit, configurable: true }, stackTraceLimit: { get: hit, set: hit, configurable: true } },
+    { prepareStackTrace: { value: hit, writable: false, configurable: true }, stackTraceLimit: { value: 3, writable: false, configurable: true } },
+  ];
+  // Checked once the hooks are put back, since a failing expect reads them.
+  const seen: { before: unknown[]; after: unknown[]; left: Record<string, number>; thrown?: unknown }[] = [];
+  try {
+    for (const hooks of cases) {
+      for (const [k, d] of Object.entries(hooks)) Object.defineProperty(E, k, d);
+      Object.defineProperty(E, "captureStackTrace", { value: hit, writable: true, configurable: true });
+      const before = keys.map((k) => Object.getOwnPropertyDescriptor(E, k));
+      const c = context();
+      let thrown: unknown;
+      try {
+        invocations.run(c, () => setTimeout(() => {}, 1000));
+      } catch (e) {
+        thrown = e;
+      }
+      seen.push({ before, after: keys.map((k) => Object.getOwnPropertyDescriptor(E, k)), left: c.resources.settle(), thrown });
+    }
+  } finally {
+    keys.forEach((k, i) => (saved[i] === undefined ? delete E[k] : Object.defineProperty(E, k, saved[i]!)));
+  }
+  expect(calls).toBe(0);
+  for (const { before, after, left, thrown } of seen) {
+    expect(thrown).toBeUndefined();
+    expect(after).toEqual(before);
+    expect(left).toEqual({ timeout: 1 });
+  }
+});
+
+test("with Error frozen, so that its hooks cannot be swapped, a timer counts as the step's", () => {
+  const code = [
+    `import { installTimers, InvocationLog, InvocationResources, invocations } from ${JSON.stringify(join(import.meta.dir, "../runtime/context.ts"))};`,
+    "installTimers();",
+    "Object.freeze(Error);",
+    "const resources = new InvocationResources();",
+    'invocations.run({ id: "i", run: "r", env: {}, signal: new AbortController().signal, resources, work: resources, log: new InvocationLog() }, () => setTimeout(() => {}, 1000));',
+    "console.log(JSON.stringify(resources.settle()));",
+  ].join("\n");
+  const out = Bun.spawnSync([process.execPath, "-e", code], { stdout: "pipe", stderr: "pipe" });
+  expect([out.exitCode, out.stdout.toString().trim(), out.stderr.toString()]).toEqual([0, '{"timeout":1}', ""]);
+});
+
 test("util.promisify(setTimeout) keeps Bun's promise form", async () => {
   expect(await invocations.run(context(), () => promisify(setTimeout)(1, "v"))).toBe("v");
 });

@@ -110,8 +110,18 @@ describe("import transforms (WR-26, WR-28)", () => {
 });
 
 describe("shared code: built-in modules and kept imports", () => {
-  test.skip("retarget-pending: W4f Bun 1.4.3 lists node:sqlite already prefixed, and the test prefixes it again; the built-in specifiers are the runtime's listed names, alone and after node: where its resolver accepts that", () => {
+  test("the built-in specifiers are the runtime's listed names, alone and after node: where its resolver accepts that", () => {
     for (const m of ["async_hooks", "fs", "fs/promises", "node:fs/promises", "stream/web", "bun", "bun:sqlite", "ws", "undici"]) expect(BUILTIN_SPECIFIERS).toContain(m);
+    // Bun lists node:sqlite with its prefix, and only that spelling names it.
+    expect(builtinModules).toContain("node:sqlite");
+    expect(BUILTIN_SPECIFIERS).toContain("node:sqlite");
+    for (const m of ["sqlite", "node:node:sqlite"]) expect(BUILTIN_SPECIFIERS).not.toContain(m);
+    // A name the list leaves out names none, although the resolver accepts it.
+    for (const m of ["bun:wrap", "node:test"]) {
+      expect(builtinModules).not.toContain(m);
+      expect(Bun.resolveSync(m, import.meta.dir)).toBe(m);
+      expect(BUILTIN_SPECIFIERS).not.toContain(m);
+    }
     // Every listed name is a built-in specifier alone, and every specifier is one the runtime calls built in.
     for (const m of builtinModules) expect(BUILTIN_SPECIFIERS).toContain(m);
     for (const m of BUILTIN_SPECIFIERS) expect(isBuiltin(m)).toBe(true);
@@ -121,11 +131,11 @@ describe("shared code: built-in modules and kept imports", () => {
       expect(BUILTIN_SPECIFIERS).not.toContain(m);
     }
     // Each of Node's listed names is also built in after node:.
-    for (const m of builtinModules) if (!m.startsWith("bun") && m !== "ws" && m !== "undici") expect(BUILTIN_SPECIFIERS).toContain(`node:${m}`);
+    for (const m of builtinModules) if (!m.startsWith("bun") && m !== "ws" && m !== "undici") expect(BUILTIN_SPECIFIERS).toContain(m.startsWith("node:") ? m : `node:${m}`);
   });
   test("a built-in is one of the specifiers, spelled exactly", () => {
-    for (const m of ["async_hooks", "node:async_hooks", "fs/promises", "node:fs/promises", "bun", "bun:sqlite", "ws", "undici"]) expect(builtinModule(m)).toBe(true);
-    for (const m of ["node:nope", "bun:nope", "left-pad", "./async_hooks", "/abs/fs", "async_hooks/nope", "node:bun", "node:bun:sqlite", "node:ws", "node:undici", "node:test"]) {
+    for (const m of ["async_hooks", "node:async_hooks", "fs/promises", "node:fs/promises", "bun", "bun:sqlite", "ws", "undici", "node:sqlite"]) expect(builtinModule(m)).toBe(true);
+    for (const m of ["node:nope", "bun:nope", "left-pad", "./async_hooks", "/abs/fs", "async_hooks/nope", "node:bun", "node:bun:sqlite", "node:ws", "node:undici", "node:test", "sqlite"]) {
       expect(builtinModule(m)).toBe(false);
     }
   });

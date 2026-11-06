@@ -551,20 +551,23 @@ instance of every module it imports, as on Windmill.
        rather than rejecting it or resolving it to a file. The Bun build
        helper computes the specifiers, and the Go build uses the
        helper's, so both builds accept the same spellings.
-     - On Bun 1.3.10 that list holds Node's modules and their subpaths,
-       such as `fs/promises`, and Bun's own: `bun`, `bun:ffi`, `bun:jsc`,
-       `bun:sqlite`, `bun:test`, `bun:wrap`, `ws` and `undici`. Bun 1.3.10
-       loads its own `ws` and `undici` whatever `node_modules` holds.
+     - On Bun 1.4.3 that list holds Node's modules and their subpaths,
+       such as `fs/promises`, `node:sqlite`, which it lists only with its
+       prefix, and Bun's own: `bun`, `bun:ffi`, `bun:jsc`, `bun:sqlite`,
+       `bun:test`, `ws` and `undici`. Bun loads its own `ws` and `undici`
+       whatever `node_modules` holds. Bun 1.3.10 listed `bun:wrap` too,
+       and had no `node:sqlite`.
      - Every listed name resolves alone. After `node:`, Node's names
        resolve, so `node:fs/promises` is a built-in specifier, but Bun's
-       own do not: Bun 1.3.10 rejects `node:bun`, `node:bun:sqlite`,
-       `node:ws`, `node:undici` and the rest with "No such built-in
-       module". Such a specifier counts as an external module: an
-       `import()` of it keeps a script on its per-script bundle, as does a
-       static import of it where a static external import does.
+       own do not: Bun rejects `node:bun`, `node:bun:sqlite`, `node:ws`,
+       `node:undici` and the rest with "No such built-in module". Such a
+       specifier counts as an external module: an `import()` of it keeps a
+       script on its per-script bundle, as does a static import of it
+       where a static external import does.
      - The list and the resolver decide, not the `node:` prefix. Bun
-       1.3.10 loads `node:test` but does not list `test`, so `node:test`
-       counts as an external module too.
+       1.4.3 loads `node:test`, `node:quic` and `bun:wrap` but does not
+       list them, so each counts as an external module too; `sqlite` and
+       `node:node:sqlite` name no built-in module.
      - Published packages import built-in modules lazily. The AWS SDK for
        JavaScript v3 reaches `@aws/lambda-invoke-store` 0.2.4, whose
        `dist-es/invoke-store.js` runs `await import("node:async_hooks")`;
@@ -709,7 +712,7 @@ cases of the semantics catalogue:
 |---|---|
 | D18/a | Module state per script: two scripts that count in a shared dependency's state each count their own calls (1 and 1, then 2 and 2 in `warm`; 1 and 1 in `fresh`); a script's own state, WR-1/a and WR-1/b, gives in shared code what it gives in `warm` |
 | D18/b | Identity per script: an object and a class a dependency exports are different for two scripts (`instanceof` across them is false) |
-| D18/b, namespaces | Within a script, an ES module dependency's namespace object is one object for its entry and its dependencies, directly and through a namespace re-export. The namespace object an entry takes has the module's names in its bundler's order and no `__esModule`. Both hold for Bun-built scripts and CommonJS and ES module codebase entries |
+| D18/b, namespaces | Within a script, an ES module dependency's namespace object is one object for its entry and its dependencies, directly and through a namespace re-export. The namespace object an entry takes has the module's names in its bundler's order, which Bun 1.4.3 and esbuild both sort (Bun 1.3.10 kept the source's), and no `__esModule`. Both hold for Bun-built scripts and CommonJS and ES module codebase entries |
 | D18/c | A registry per script: two scripts that each register the same name in a dependency's registry, which refuses a second registration, both succeed (the `Order` probe, synthetic) |
 | D18/d | Lazy initialisation: a dependency a script never reaches runs no load effect in its instance; one required inside a function initialises at its first call, and its log line belongs to that invocation |
 | D18/e | Initialisation order: a script importing an ES module dependency and a CommonJS dependency, each with a load effect, sees them initialise in import order in both layouts, as both bundlers keep it |

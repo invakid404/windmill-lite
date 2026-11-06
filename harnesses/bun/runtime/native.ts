@@ -77,8 +77,8 @@ export type NativeInvocation = {
   stopped?: () => boolean;
 };
 
-/** The web APIs the native runtime installs (WR-45), by name. Bun 1.3.10
- * has no FileReader, so a native step finds none. */
+/** The web APIs the native runtime installs (WR-45), by name. Bun 1.4.3
+ * has no FileReader, as 1.3.10 had none, so a native step finds none. */
 export const WEB_GLOBALS = [
   "Request", "Response", "Headers", "FormData",
   "URL", "URLSearchParams", "URLPattern",
@@ -99,8 +99,9 @@ export const WEB_GLOBALS = [
 // a web API hands to a native invocation is either tracked, the moment the
 // boundary hands it over, or counted, and the count is reported when the
 // invocation settles. The harness realm's prototypes cannot be changed (Bun
-// 1.3.10 makes most of their methods read-only, and Bun steps share them),
-// so the boundary sits between the realm and them:
+// makes many of their members read-only or non-configurable, 1.4.3 as
+// 1.3.10, and Bun steps share them), so the boundary sits between the
+// realm and them:
 //
 // - Every web API class above is given to the realm as a realm-facing
 //   subclass (Native.realmClass), made once per process. Its constructor
@@ -315,8 +316,9 @@ export class Native {
   /** The arrays, maps, sets and plain objects of the harness realm whose
    * contents were passed on already. */
   private walked = new WeakSet<object>();
-  /** The realm-facing File's prototype: Bun 1.3.10's File shares Blob's
-   * prototype, so a File the harness made is told apart by instanceof. */
+  /** The realm-facing File's prototype: Bun's File shares Blob's
+   * prototype (1.4.3, as 1.3.10), so a File the harness made is told apart
+   * by instanceof. */
   private fileProto: object | undefined;
   /** Each event target's listener wrappers, by the listener. */
   private listeners = new WeakMap<object, WeakMap<object, (e: unknown) => unknown>>();
@@ -363,7 +365,7 @@ export class Native {
     this.console = console;
     this.trackedProto ??= this.trackedPromise().prototype;
     // Each class gets its own, even one whose prototype another shares
-    // (Bun 1.3.10's File has Blob's); an instance takes the first's.
+    // (Bun's File has Blob's); an instance takes the first's.
     const made: [object, object][] = [];
     for (const name of WEB_GLOBALS) {
       const v = this.web[name];
