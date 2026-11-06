@@ -562,6 +562,24 @@ coverage is `conformance/exprs/deferred.yaml`, checked by
 `TestBatchCoverage`, and its runs are checked by
 `TestRecordingsSatisfyClaims` and the other tests of `recordings_test.go`.
 
+### Pending recordings on the retarget branch
+
+On the retarget branch, a run that the retarget ledger's `oracle` section
+lists may lack its recording until the milestone its entry names
+([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)). The ledger
+does not exist on `main`, where every run needs its recording.
+
+- `TestRecordingBatches` counts such a run as recording its cases, and
+  passes over the prefixes, texts, contradictions and deployment checks
+  that read its recording, logging the entry's marker.
+- `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings` and
+  `TestUnitCasesMatchRecordings` pass over it.
+- `TestReplayRecordedCaptures`, and the tests that read one recording
+  through `recordedRun`, skip with the marker.
+- `TestCommittedRecordingsNameThePinnedOracle` checks only the recordings
+  that exist, so it needs no exception. A listed run's recording, when
+  present, is checked as any other.
+
 ## Repository checks
 
 Two Go tests run on every pull request in the `Go` CI jobs (ADR 0011, CI
@@ -628,4 +646,5 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestExprFilesLift`, `TestBatchFixturesDecode` | every expression file lifts into flows that the walker reads back as their cases describe them; every flow fixture's tree decodes and holds its runs' targets | `conformance/exprs`, `conformance/flows` |
 | `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings`, `TestUnitCasesMatchRecordings` | committed recordings against what their cases say (batch E3a's form): claims and delays hold, a recorded case is `oracle-observed`, an expected evaluator text has the recorded argument as its stored form, and each unit case's expression and previous id match its flow, and its flow input, previous result and database reads have the recorded texts as their stored forms; at a `timeout` site the expected text is exactly the value the recorded i32 parse error quotes ([JE-29](../../docs/semantics/expressions.md#je-29)), and a timeout case whose recording quotes none fails (FU5) | `conformance/exprs`, `conformance/flows` |
 | `TestBatchCoverage` | every JE case of the catalogue, and every CF-19 and CF-V6 case, is an expression case, a flow fixture's run, or deferred with a reason and a milestone (batch E3a) | `conformance/exprs/deferred.yaml` |
+| `TestPendingRunsNeedNoRecording` | the batch check on a copy of the smoke fixture without one run's recording: with the run listed as pending, the batch counts it as recording its case and passes over a text check that reads it ([Pending recordings](#pending-recordings-on-the-retarget-branch)) | the smoke fixture |
 | `TestRecordingBatches` | each recording batch against its ADR 0012 row: the batch covers the finding ranges and cases its row names; every catalogue case of its findings is recorded by a run of its fixtures or deferred with a milestone and a reason; every run has an `expect` and a recording of the pinned oracle that meets it; the catalogue's prefix-only assertions (`<starts "…">`) hold on the recorded text; each catalogue claim the oracle contradicted is listed with the value it recorded; a batch with `gates` names for every run a milestone that needs the batch merged | `testdata/batches/` |

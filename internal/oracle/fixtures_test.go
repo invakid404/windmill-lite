@@ -381,7 +381,8 @@ func jsonAt(t *testing.T, doc json.RawMessage, pointer, absent string) string {
 }
 
 // recordedRun returns a committed run of a fixture under conformance/flows
-// and its provenance.
+// and its provenance. A run without a recording, which the retarget ledger
+// lists as pending, skips the test with its marker.
 func recordedRun(t *testing.T, fixture, run string) (conformance.Run, Provenance) {
 	t.Helper()
 	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, filepath.FromSlash(fixture)))
@@ -393,6 +394,9 @@ func recordedRun(t *testing.T, fixture, run string) (conformance.Run, Provenance
 			continue
 		}
 		if r.Recorded == nil {
+			if e, ok := pendingRecordings(t)["conformance/flows/"+fixture+"/"+run]; ok {
+				t.Skip(e.Marker())
+			}
 			t.Fatalf("%s run %s has no recording", fixture, run)
 		}
 		var p Provenance

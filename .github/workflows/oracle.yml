@@ -14,7 +14,10 @@ name: Oracle
 # them (OR-5) and the smoke fixture under another
 # LISTEN_NEW_EVENTS_INTERVAL_SEC (OR-7/a), and one session per changed
 # configuration, which records only the fixtures that declare it
-# (oracle.session; SessionConfigs in internal/oracle).
+# (oracle.session; SessionConfigs in internal/oracle). On the retarget
+# branch, a run that the retarget ledger's oracle section lists may be new,
+# changed, expect_mismatch, failed or unstable without failing its session
+# (wltest record --pending; cmd/wltest/README.md, "The retarget ledger").
 
 on:
   schedule:
@@ -132,10 +135,13 @@ jobs:
         # wltest measures free disk itself and refuses to pull without the
         # reserve of OR-30. A run that has not completed after 2 minutes is
         # canceled and fails, so a hung run cannot exhaust the job; the
-        # slowest runs (JE-2's three 20 s attempts) take about 75 s.
+        # slowest runs (JE-2's three 20 s attempts) take about 75 s. The
+        # retarget ledger lists the runs whose recording is pending; a
+        # missing ledger lists none.
         run: |
           df -h /
           bin/wltest record --check --regenerate-metadata --repeat 2 --run-timeout 2m \
+            --pending cmd/wltest/testdata/flowsuite-pending.json \
             --out "$RUNNER_TEMP/oracle/recorded" \
             --raw "$RUNNER_TEMP/oracle/raw" \
             --report "$RUNNER_TEMP/oracle/report.json" \

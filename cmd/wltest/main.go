@@ -1,9 +1,10 @@
 // Command wltest is windmill-lite's conformance and oracle runner (ADR
-// 0011). It has three verbs so far:
+// 0011). It has four verbs so far:
 //
 //	wltest record [flags] <fixture, expression file or directory>...
 //	wltest stub --out <dir> <sync tree>
 //	wltest check [flags] <step file, fixture or directory>...
+//	wltest ledger [--base BRANCH] [--repo DIR]
 //
 // record runs flow fixtures, and the expression cases of conformance/exprs
 // lifted into generated one-step flows, on the pinned Windmill CE oracle
@@ -11,7 +12,9 @@
 // stubbed, with the replay service answering from each run's table. stub
 // writes a stubbed copy of a sync tree. check runs the step cases of
 // conformance/steps on windmill-lite's Bun harness (milestone C3a) and the
-// flow fixtures of conformance/flows on its engine (milestone E1). diff,
+// flow fixtures of conformance/flows on its engine (milestone E1). ledger
+// checks the retarget ledger and its markers, which exist only on the
+// retarget branch (ledger.go). diff,
 // which would run the oracle and windmill-lite live and compare them, is
 // not implemented: no milestone of ADR 0012 has it yet.
 package main
@@ -49,6 +52,7 @@ func main() {
 const usage = `usage: wltest record [flags] <fixture, expression file or directory>...
        wltest stub --out <dir> <sync tree>
        wltest check [flags] <step file, fixture or directory>...
+       wltest ledger [--base BRANCH] [--repo DIR]
 
 record runs flow fixtures, and expression-case files lifted into generated
 one-step flows, on the Windmill CE v1.767.0 oracle and writes their
@@ -61,7 +65,9 @@ compares each step's stored value with the case's, and runs flow fixtures
 (conformance/flows) on windmill-lite, in warm mode, with --mode fresh, or
 with --mode host on a Bun host that embeds the host SDK, and compares each
 run's observation with its expect or recording. Run wltest check -h for
-its flags. diff is not implemented yet.
+its flags. ledger lists the retarget ledger and the retarget-pending markers
+and checks their form; with --base main it fails while either exists.
+diff is not implemented yet.
 `
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -76,6 +82,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return stub(args[1:], stdout, stderr)
 	case "check":
 		return check(ctx, args[1:], stdout, stderr)
+	case "ledger":
+		return ledger(args[1:], stdout, stderr)
 	case "diff":
 		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0011; no milestone of ADR 0012 has it): wltest check compares windmill-lite with the committed recordings\n", args[0])
 		return 2
@@ -105,6 +113,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	listen := fs.Int("listen-interval", 0, "the oracle's LISTEN_NEW_EVENTS_INTERVAL_SEC (default 1), for the knob comparison of OR-7/a")
 	session := fs.String("session", "", "the oracle configuration to run (native, result_size, flow_script_off, long; default the reference configuration); only the fixtures that need it are recorded")
 	skipSession := fs.Bool("skip-unmet-session", false, "skip fixtures that need another oracle configuration than --session, reporting their runs as skipped, instead of refusing them")
+	pendingFile := fs.String("pending", "", "the retarget ledger, whose oracle runs may be new, changed, expect_mismatch, failed or unstable without failing the session (a missing file lists none)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -119,6 +128,15 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "wltest: %s is neither a fixture directory nor an expression file (exprs/<finding>.yaml)\n", a)
 			return 2
 		}
+	}
+	pending := map[string]conformance.LedgerEntry{}
+	if *pendingFile != "" {
+		l, err := conformance.LoadLedger(*pendingFile)
+		if err != nil {
+			fmt.Fprintln(stderr, "wltest:", err)
+			return 1
+		}
+		pending = l.Oracle
 	}
 	found, err := conformance.FindFixtures(fs.Args()...)
 	if err != nil {
@@ -218,7 +236,20 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "wltest:", runErr)
 	}
-	for _, r := range rep.Runs {
+	if printRuns(stdout, rep.Runs, *check, pending) {
+		failed = true
+	}
+	if failed {
+		return 1
+	}
+	return 0
+}
+
+// printRuns prints one line per run, then its error, its differences and
+// any note of the retarget ledger, and reports whether a run fails the
+// session (recordVerdict).
+func printRuns(stdout io.Writer, runs []oracle.RunReport, check bool, pending map[string]conformance.LedgerEntry) (failed bool) {
+	for _, r := range runs {
 		line := fmt.Sprintf("%-10s %s %s", r.Outcome, r.Fixture, r.Run)
 		if r.Wrote != "" {
 			line += " -> " + r.Wrote
@@ -230,14 +261,13 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		for _, d := range r.Differences {
 			fmt.Fprintln(stdout, "  "+d)
 		}
-		if r.Failed(*check) {
-			failed = true
+		fails, note := recordVerdict(r, check, pending)
+		if note != "" {
+			fmt.Fprintln(stdout, "  "+note)
 		}
+		failed = failed || fails
 	}
-	if failed {
-		return 1
-	}
-	return 0
+	return failed
 }
 
 // stub writes the stubbed copy of a sync tree (ADR 0011 stub mode). Its

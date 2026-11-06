@@ -154,8 +154,10 @@ func TestBatchFixturesDecode(t *testing.T) {
 // TestRecordingsSatisfyClaims holds every committed recording to the
 // claims and delays of its run: what the catalogue says of the case. A run
 // that states claims, delays or unit cases must have a recording, and a
-// recorded case is oracle-observed (ADR 0001 section 6, ADR 0003).
+// recorded case is oracle-observed (ADR 0001 section 6, ADR 0003). A run
+// whose recording the retarget ledger lists as pending may lack one.
 func TestRecordingsSatisfyClaims(t *testing.T) {
+	pending := pendingRecordings(t)
 	for _, f := range batchFixtures(t) {
 		for _, r := range f.Runs {
 			name := filepath.ToSlash(f.Dir) + " " + r.Name
@@ -163,6 +165,10 @@ func TestRecordingsSatisfyClaims(t *testing.T) {
 				continue
 			}
 			if r.Recorded == nil {
+				if e, ok := pending[runKey(t, f, r.Name)]; ok {
+					t.Logf("%s: no recording, pending in the retarget ledger (%s)", name, e.Marker())
+					continue
+				}
 				t.Errorf("%s: no recording", name)
 				continue
 			}
@@ -221,8 +227,10 @@ func checkDelay(tm RunTimings, d conformance.Delay) error {
 // TestExprCasesAgreeWithRecordings checks each expression case against the
 // recording of its generated flow: the case's expectation holds (through
 // its claims, above), a recorded case is oracle-observed, and an expected
-// evaluator text (O1) has the recorded argument as its stored form.
+// evaluator text (O1) has the recorded argument as its stored form. A case
+// whose recording the retarget ledger lists as pending may lack one.
 func TestExprCasesAgreeWithRecordings(t *testing.T) {
+	pending := pendingRecordings(t)
 	for _, ef := range loadExprFiles(t) {
 		f, err := conformance.LiftExprFile(ef, filepath.Join(t.TempDir(), "lifted"))
 		if err != nil {
@@ -237,6 +245,10 @@ func TestExprCasesAgreeWithRecordings(t *testing.T) {
 			r := runs[c.Name()]
 			name := filepath.Base(ef.Path) + " " + c.Name()
 			if r.Recorded == nil {
+				if e, ok := pending[runKey(t, f, c.Name())]; ok {
+					t.Logf("%s: no recording, pending in the retarget ledger (%s)", name, e.Marker())
+					continue
+				}
 				t.Errorf("%s: no recording", name)
 				continue
 			}
@@ -280,8 +292,10 @@ func sameStored(text string, recorded []byte) error {
 // one at the site, the previous id is the module before it, the previous
 // result's and the database reads' stored forms are the recorded results,
 // and, at an input transform, the expected text's stored form is the
-// recorded argument and an expected error is the recorded one.
+// recorded argument and an expected error is the recorded one. A run whose
+// recording the retarget ledger lists as pending may lack one.
 func TestUnitCasesMatchRecordings(t *testing.T) {
+	pending := pendingRecordings(t)
 	dirs, err := conformance.FindFixtures(flowsDir)
 	if err != nil {
 		t.Fatal(err)
@@ -296,6 +310,12 @@ func TestUnitCasesMatchRecordings(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, r := range f.Runs {
+			if r.Recorded == nil && len(r.Unit) > 0 {
+				if e, ok := pending[runKey(t, f, r.Name)]; ok {
+					t.Logf("%s %s: no recording for its unit cases, pending in the retarget ledger (%s)", filepath.ToSlash(d), r.Name, e.Marker())
+					continue
+				}
+			}
 			for _, u := range r.Unit {
 				name := filepath.ToSlash(d) + " " + r.Name + " " + u.Spec + " " + u.Site + " " + u.Input
 				if err := checkUnit(tree, r, u); err != nil {
