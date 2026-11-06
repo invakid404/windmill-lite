@@ -999,7 +999,7 @@ interface); `WA-Vn` findings were added during validation.
   other. Values are written as AES-256-GCM since 1.831.0, and CBC values
   are still read; the shape check is unchanged, and also lets through an
   `$http_store:` value or an `$external:` reference. Evidence at v1.862.0:
-  `backend/windmill-store/src/variables.rs:1706-1724 @ v1.862.0`
+  `backend/windmill-store/src/variables.rs:1701-1724 @ v1.862.0`
   (`get_value`: the audit, then decryption of a non-empty value),
   `:396-434` (`get` with decryption);
   `backend/windmill-common/src/secret_backend/resolver.rs:94-97 @ v1.862.0`

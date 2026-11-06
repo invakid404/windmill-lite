@@ -3949,10 +3949,11 @@ run of batch E3f in the [design README](../design/README.md).
   (name `Anyhow`) (fixture `conformance/flows/execution/fx-48-jsonb`, runs
   `nul_later` and `nul_root`, oracle run 40994947681).
 - **Revision 2026-11-06 (retarget to v1.862.0):** two locations were
-  re-checked. The worker's conversion of a picked-up flow job's error is
-  the call at `backend/windmill-worker/src/worker.rs:5065-5082 @ v1.862.0`
-  (`Box::pin(handle_flow(…))…await?`, the same call as at v1.767.0), so a
-  pickup suffix reads ` @worker.rs:5065:13`; and the completed-job lookup of
+  re-checked. When the worker starts a flow job it has just picked up, an
+  error that this start returns is converted where the worker hands the job
+  to its flow handler (`backend/windmill-worker/src/worker.rs:5065-5082
+  @ v1.862.0`, the same place as at v1.767.0), so the error gains the
+  pickup suffix ` @worker.rs:5065:13`; and the completed-job lookup of
   `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0` gives
   ` (jobs.rs:12065)`. CE v1.862.0 recorded both
   ([CF-2/b](conformance.md#cf-2), [JE-15/k](conformance.md#je-15),

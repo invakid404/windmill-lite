@@ -1965,9 +1965,10 @@ defined in the [index](README.md#legend).
   alignment: on route 3 a `branchone` parent receives the aborted branch's
   last carried value, never the stored `InternalError`.
 - **Revision 2026-11-06 (retarget to v1.862.0):** route 1's conversion
-  is the call at `backend/windmill-worker/src/worker.rs:5065-5082
-  @ v1.862.0`, the same `handle_flow` call as at v1.767.0, and CE v1.862.0
-  recorded its suffix as `@worker.rs:5065:13` ([CF-2/b](conformance.md#cf-2),
+  still happens where the worker hands a picked-up flow job to its flow
+  handler, now at `backend/windmill-worker/src/worker.rs:5065-5082
+  @ v1.862.0`, and CE v1.862.0 recorded its suffix as
+  `@worker.rs:5065:13` ([CF-2/b](conformance.md#cf-2),
   [CF-7/d](conformance.md#cf-7), [CF-V3/a](conformance.md#cf-v3)). The rest
   of the finding is not re-checked.
 
