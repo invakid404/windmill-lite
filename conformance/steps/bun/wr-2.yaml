@@ -1,0 +1,57 @@
+# WR-2: the wrapper imports the user module statically, so its top-level
+# code runs in the job's process before the arguments are read: it reads
+# the job's environment and writes to the job's log. A warm harness
+# evaluates a step module once, on its first invocation and inside that
+# invocation's context (ADR 0004, loading), so what the top-level code read
+# stays the first run's for every later run of the process (D1).
+finding: WR-2
+scope: core
+cases:
+  - spec: WR-2
+    variant: top-level-env
+    provenance: policy
+    title: top-level code reads its job's environment through process.env, Bun.env and import.meta.env; a warm process keeps the first run's values
+    deviation: D1
+    script: |
+      const atLoad = [process.env.WM_JOB_ID, Bun.env.WM_JOB_ID, import.meta.env.WM_JOB_ID];
+      export function main() {
+        return atLoad.map((v) => v === process.env.WM_JOB_ID);
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [true, true, true]}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: [false, false, false]}}
+          fresh: {expect: {status: success, result: [true, true, true]}}
+  - spec: WR-2
+    variant: top-level-await-env
+    provenance: policy
+    title: top-level code after a top-level await still reads its job's environment
+    deviation: D1
+    script: |
+      await Bun.sleep(5);
+      const atLoad = process.env.WM_JOB_ID;
+      export function main() {
+        return atLoad === process.env.WM_JOB_ID;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: false}}
+          fresh: {expect: {status: success, result: true}}
+  - spec: WR-2
+    variant: top-level-log
+    provenance: policy
+    title: what top-level code writes is in its job's log, so an escaped failure's tail quotes it
+    script: |
+      console.log("written at load");
+      export function main() { throw null; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\nwritten at load\n"}
+          - {at: /result/error/exit_code, equals: 1}

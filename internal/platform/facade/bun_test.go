@@ -39,7 +39,6 @@ func TestAttribution(t *testing.T) {
 	r := newBunRig(t)
 
 	t.Run("warm: two runs at once", func(t *testing.T) {
-		t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 		f := newFacade(t, Config{})
 		p := r.spawn(t, f, engine.ModuleStateWarm)
 		x := f.Executor(p)
@@ -131,7 +130,6 @@ func TestAttribution(t *testing.T) {
 	})
 
 	t.Run("fresh: each process's TCP calls carry its own token; a replayed token gets the 401", func(t *testing.T) {
-		t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 		f := newFacade(t, Config{})
 		x := f.Executor(r.pool(t, f, engine.ModuleStateFresh))
 		ids := []platform.Identity{r.identity("f/t/attr", "a"), r.identity("f/t/attr", "a")}
@@ -191,7 +189,6 @@ func TestAttribution(t *testing.T) {
 // same recorded calls (method, path, query, body), once job ids are
 // normalised.
 func TestTransportsAgree(t *testing.T) {
-	t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 	r := newBunRig(t)
 	results := map[engine.ModuleState]string{}
 	calls := map[engine.ModuleState][]string{}
@@ -244,9 +241,6 @@ func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 			want   string
 		}{{PolicyObserve, engine.OutcomeOK, observed}, {PolicyFail, engine.OutcomeError, failed}} {
 			t.Run(string(mode)+" "+string(c.policy), func(t *testing.T) {
-				if mode == engine.ModuleStateFresh {
-					t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
-				}
 				f := newFacade(t, Config{Policy: c.policy})
 				unserved := func(_ context.Context, c *Call) Reply { return text(501, UnsupportedPrefix+c.Route.Name()) }
 				f.Handle("runScriptByPath", unserved)
@@ -294,9 +288,6 @@ func TestProvidersOnTheClient(t *testing.T) {
 		`"state":{"value":"undefined"}}`
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
-			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
-			}
 			f := newFacade(t, Config{Platform: &platform.Services{Resources: store, Variables: store}})
 			x := f.Executor(r.pool(t, f, mode))
 			id := r.identity("f/t/providers", "a")
@@ -337,9 +328,6 @@ func TestHandlerPanicReleasesTheStep(t *testing.T) {
 	r := newBunRig(t)
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
-			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
-			}
 			f := newFacade(t, Config{})
 			f.Handle("getRootJobId", func(context.Context, *Call) Reply { panic("a provider failed") })
 			x := f.Executor(r.pool(t, f, mode))
