@@ -21,7 +21,7 @@ import (
 )
 
 // The attribution test of ADR 0007, milestone PF1's exit gate, on the
-// pinned Bun 1.4.3 with the stock windmill-client@1.767.0:
+// pinned Bun 1.4.3 with the stock windmill-client@1.862.0:
 //
 //   - two runs at once, in one warm process, with the client first
 //     imported during the first run's module load: every call of each run
@@ -39,7 +39,7 @@ func TestAttribution(t *testing.T) {
 	r := newBunRig(t)
 
 	t.Run("warm: two runs at once", func(t *testing.T) {
-		t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+		t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 		f := newFacade(t, Config{})
 		p := r.spawn(t, f, engine.ModuleStateWarm)
 		x := f.Executor(p)
@@ -131,7 +131,7 @@ func TestAttribution(t *testing.T) {
 	})
 
 	t.Run("fresh: each process's TCP calls carry its own token; a replayed token gets the 401", func(t *testing.T) {
-		t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+		t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 		f := newFacade(t, Config{})
 		x := f.Executor(r.pool(t, f, engine.ModuleStateFresh))
 		ids := []platform.Identity{r.identity("f/t/attr", "a"), r.identity("f/t/attr", "a")}
@@ -191,7 +191,7 @@ func TestAttribution(t *testing.T) {
 // same recorded calls (method, path, query, body), once job ids are
 // normalised.
 func TestTransportsAgree(t *testing.T) {
-	t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+	t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 	r := newBunRig(t)
 	results := map[engine.ModuleState]string{}
 	calls := map[engine.ModuleState][]string{}
@@ -245,7 +245,7 @@ func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 		}{{PolicyObserve, engine.OutcomeOK, observed}, {PolicyFail, engine.OutcomeError, failed}} {
 			t.Run(string(mode)+" "+string(c.policy), func(t *testing.T) {
 				if mode == engine.ModuleStateFresh {
-					t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+					t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 				}
 				f := newFacade(t, Config{Policy: c.policy})
 				unserved := func(_ context.Context, c *Call) Reply { return text(501, UnsupportedPrefix+c.Route.Name()) }
@@ -295,7 +295,7 @@ func TestProvidersOnTheClient(t *testing.T) {
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
 			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 			}
 			f := newFacade(t, Config{Platform: &platform.Services{Resources: store, Variables: store}})
 			x := f.Executor(r.pool(t, f, mode))
@@ -338,7 +338,7 @@ func TestHandlerPanicReleasesTheStep(t *testing.T) {
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
 		t.Run(string(mode), func(t *testing.T) {
 			if mode == engine.ModuleStateFresh {
-				t.Skip("retarget-pending: W4c Bun 1.4.3's process.env breaks the env view, so the stock client does not read its invocation's token")
+				t.Skip("retarget-pending: W4e revealed by W4c: Bun 1.4.3 evaluates a module that import() loads outside its invocation's async context, so the stock client reads no WM_TOKEN at import")
 			}
 			f := newFacade(t, Config{})
 			f.Handle("getRootJobId", func(context.Context, *Call) Reply { panic("a provider failed") })
@@ -383,13 +383,13 @@ func newBunRig(t *testing.T) *bunRig {
 	client := os.Getenv("WL_WINDMILL_CLIENT")
 	if bun == "" || client == "" {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
-			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN or WL_WINDMILL_CLIENT is not; WL_WINDMILL_CLIENT names a directory whose node_modules holds windmill-client@1.767.0")
+			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN or WL_WINDMILL_CLIENT is not; WL_WINDMILL_CLIENT names a directory whose node_modules holds windmill-client@1.862.0")
 		}
 		t.Skip("WL_BUN and WL_WINDMILL_CLIENT name the pinned Bun and the stock client")
 	}
 	pkg, err := os.ReadFile(filepath.Join(client, "node_modules", "windmill-client", "package.json"))
-	if err != nil || !strings.Contains(string(pkg), `"version": "1.767.0"`) {
-		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.767.0: %v", err)
+	if err != nil || !strings.Contains(string(pkg), `"version": "1.862.0"`) {
+		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.862.0: %v", err)
 	}
 	main, err := filepath.Abs(filepath.Join("..", "..", "..", "harnesses", "bun", "runtime", "main.ts"))
 	if err != nil {

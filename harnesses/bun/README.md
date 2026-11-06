@@ -166,33 +166,39 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 
 - **The environment view.** Each of `process.env`, `Bun.env` and
   `import.meta.env` answers from the current invocation's variables first.
-  On Bun 1.3.10 the three start as one object, and assigning `process.env`
-  leaves the other two on it, so the view has three parts:
+  On Bun 1.4.3 the three start as one object. Assigning `process.env`
+  leaves the other two on it, and neither `Bun.env` nor the global `Bun`
+  can be redefined, so the view has three parts:
   1. `process.env` becomes a Proxy over the process environment. It also
      keeps a step's writes and deletes in its own copy, so they never reach
      the process or other invocations, and lists its variables when the
      environment is copied or enumerated.
   2. The original object gets a Proxy as its prototype, which answers a
-     read of a variable the process does not have from the current
+     read of a variable the object does not hold from the current
      invocation. This reaches code that reads `Bun.env` or
      `import.meta.env` at run time, bundled or not, so it does not depend on
-     the build's define rewrite (C2a).
-  3. A variable that the process has and an invocation sets or deletes, or
-     that the process writes while invocations are in flight, is turned
-     into an accessor that answers from the current invocation first.
+     the build's define rewrite. Its `set` trap never writes into the object
+     directly, since Bun 1.4.3's object would walk that write back to it.
+  3. Bun 1.4.3's object takes only data properties, which answer every
+     invocation alike. So a variable that an invocation is given, writes or
+     deletes is claimed for good: if the object holds it, its value moves
+     into the view's own store, and the prototype answers it from then on.
 
-  Outside any invocation every name reads the process environment. W1's
-  Q-WA-4 test in [internal/harness](../../internal/harness/README.md)
-  measures every channel. A step's first write of a variable the process
-  has makes it an accessor too, so `Bun.env` reads the written value. A
-  write through the original object itself (`Bun.env.X = …` in code the
-  build does not rewrite) stays with the invocation: one of a variable the
-  process lacks reaches the prototype's `set` trap, one of an accessor its
-  setter. Two still reach the process, since an ordinary object cannot
-  trap them: a delete through the original object, and a write of a
-  process variable that no invocation has set yet. Enumerating `Bun.env`
-  lists the process's variables; enumerating `process.env`, which the
-  build's define rewrite puts in its place, lists the invocation's view.
+  - Outside every invocation each name reads the process environment. The
+    Q-WA-4 test in [internal/harness](../../internal/harness/README.md)
+    measures every channel, warm and fresh, with and without the variables
+    in the process.
+  - A write through the original object itself (`Bun.env.X = …` in code
+    the build does not rewrite) of a variable it does not hold reaches the
+    prototype's `set` trap, so it stays with the invocation. Bun's object
+    cannot trap the rest: a write of a process variable that no invocation
+    has claimed reaches the process, and so does a delete of one.
+  - A delete through the original object of a claimed variable changes
+    nothing. Enumerating `process.env`, which the build's define rewrite
+    puts in the place of the other two, lists the invocation's view.
+    Enumerating `Bun.env`, or asking it for an own property, sees only what
+    the object holds: the process's variables that no invocation has
+    claimed.
 - **The fetch view.** `globalThis.fetch` is wrapped. A request to the
   welcome's `facade` origin becomes a `platform` frame attributed to the
   invocation whose context made it, with its body's bytes, and its
@@ -412,6 +418,12 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `D9/module-evaluation`). Once the loading invocation has settled, what
   that work writes goes to the process's streams, and its platform calls
   are refused, as from a process scope.
+- **Module evaluation on Bun 1.4.3.** Bun 1.4.3 evaluates a module that
+  `import()` loads outside every async context, so the rule above does not
+  hold there yet: a step module's top-level code reads the process's
+  environment, and a top-level `process.exit` ends a warm process. The
+  [retarget ledger](../../cmd/wltest/README.md#the-retarget-ledger) lists
+  the tests that wait for the fix.
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client
