@@ -1,0 +1,5259 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "own": {
+        "id": "<job:m:after>",
+        "args": {},
+        "type": "QueuedJob",
+        "email": "<env:WM_EMAIL>",
+        "running": true,
+        "canceled": false,
+        "language": "bun",
+        "root_job": "<job:>",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jrp/read",
+        "flow_step_id": "after",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "up1": {
+        "id": "<job:>",
+        "args": {},
+        "type": "QueuedJob",
+        "email": "<env:WM_EMAIL>",
+        "running": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "flow_status": {
+          "step": 2,
+          "modules": [
+            {
+              "id": "b1",
+              "job": "<job:m:b1/b:1>",
+              "type": "Success",
+              "skipped": false,
+              "flow_jobs": [
+                "<job:m:b1/b:0>",
+                "<job:m:b1/b:1>"
+              ],
+              "flow_jobs_success": [
+                true,
+                true
+              ]
+            },
+            {
+              "id": "b2",
+              "job": "<job:m:b2/b:0>",
+              "type": "Success",
+              "skipped": false,
+              "flow_jobs": [
+                "<job:m:b2/b:0>",
+                "<job:m:b2/b:1>"
+              ],
+              "flow_jobs_success": [
+                true,
+                true
+              ]
+            },
+            {
+              "id": "after",
+              "job": "<job:m:after>",
+              "type": "InProgress"
+            }
+          ],
+          "user_states": {
+            "p1_fast": true,
+            "p2_fast": true
+          },
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jrp/partial",
+        "is_flow_step": false,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "extra": [
+        "job.resolved"
+      ],
+      "top/b1": {
+        "id": "<job:m:b1/b:1>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "own": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "flow_step_id": "y",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "InProgress"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "flow_step_id": "b1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up2": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:>",
+                  "type": "InProgress",
+                  "parallel": true,
+                  "branchall": {
+                    "len": 2,
+                    "branch": 1
+                  },
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    null
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "type": "WaitingForPriorSteps"
+                },
+                {
+                  "id": "after",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        },
+        "success": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "flow_status": {
+          "step": 1,
+          "modules": [
+            {
+              "id": "y",
+              "job": "<job:m:b1/b:1/m:y>",
+              "type": "Success",
+              "skipped": false
+            }
+          ],
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jrp/partial/branchall-1",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b2": {
+        "id": "<job:m:b2/b:0>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "own": {
+            "id": "<job:m:b2/b:0/m:y>",
+            "args": {
+              "k": "p2",
+              "role": "readafter"
+            },
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "flow_step_id": "y",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:m:b2/b:0>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b2/b:0/m:y>",
+                  "type": "InProgress"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "flow_step_id": "b2",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up2": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:m:b1/b:1>",
+                  "type": "Success",
+                  "skipped": false,
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    true
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "job": "<job:>",
+                  "type": "InProgress",
+                  "parallel": true,
+                  "branchall": {
+                    "len": 2,
+                    "branch": 1
+                  },
+                  "flow_jobs": [
+                    "<job:m:b2/b:0>",
+                    "<job:m:b2/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    null,
+                    true
+                  ]
+                },
+                {
+                  "id": "after",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true,
+                "p2_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/y": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1": {
+            "id": "<job:m:b2/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b2/b:1/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1/x": {
+            "id": "<job:m:b2/b:1/m:x>",
+            "args": {
+              "k": "p2",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        },
+        "success": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "flow_status": {
+          "step": 1,
+          "modules": [
+            {
+              "id": "y",
+              "job": "<job:m:b2/b:0/m:y>",
+              "type": "Success",
+              "skipped": false
+            }
+          ],
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jrp/partial/branchall-0",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b1/0": {
+        "id": "<job:m:b1/b:0>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": "fast",
+        "success": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "flow_status": {
+          "step": 1,
+          "modules": [
+            {
+              "id": "x",
+              "job": "<job:m:b1/b:0/m:x>",
+              "type": "Success",
+              "skipped": false
+            }
+          ],
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jrp/partial/branchall-0",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b1/y": {
+        "id": "<job:m:b1/b:1/m:y>",
+        "args": {
+          "k": "p1",
+          "role": "readafter"
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "own": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "flow_step_id": "y",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "InProgress"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "flow_step_id": "b1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up2": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:>",
+                  "type": "InProgress",
+                  "parallel": true,
+                  "branchall": {
+                    "len": 2,
+                    "branch": 1
+                  },
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    null
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "type": "WaitingForPriorSteps"
+                },
+                {
+                  "id": "after",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        },
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:b1/b:1>",
+        "script_path": "f/wl_jrp/role",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b2/1": {
+        "id": "<job:m:b2/b:1>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": "fast",
+        "success": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "flow_status": {
+          "step": 1,
+          "modules": [
+            {
+              "id": "x",
+              "job": "<job:m:b2/b:1/m:x>",
+              "type": "Success",
+              "skipped": false
+            }
+          ],
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jrp/partial/branchall-1",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b2/y": {
+        "id": "<job:m:b2/b:0/m:y>",
+        "args": {
+          "k": "p2",
+          "role": "readafter"
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "own": {
+            "id": "<job:m:b2/b:0/m:y>",
+            "args": {
+              "k": "p2",
+              "role": "readafter"
+            },
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "flow_step_id": "y",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:m:b2/b:0>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b2/b:0/m:y>",
+                  "type": "InProgress"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "flow_step_id": "b2",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up2": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:m:b1/b:1>",
+                  "type": "Success",
+                  "skipped": false,
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    true
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "job": "<job:>",
+                  "type": "InProgress",
+                  "parallel": true,
+                  "branchall": {
+                    "len": 2,
+                    "branch": 1
+                  },
+                  "flow_jobs": [
+                    "<job:m:b2/b:0>",
+                    "<job:m:b2/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    null,
+                    true
+                  ]
+                },
+                {
+                  "id": "after",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true,
+                "p2_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/y": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1": {
+            "id": "<job:m:b2/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b2/b:1/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1/x": {
+            "id": "<job:m:b2/b:1/m:x>",
+            "args": {
+              "k": "p2",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        },
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:b2/b:0>",
+        "script_path": "f/wl_jrp/role",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b1/0/x": {
+        "id": "<job:m:b1/b:0/m:x>",
+        "args": {
+          "k": "p1",
+          "role": "fastmark"
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": "fast",
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:b1/b:0>",
+        "script_path": "f/wl_jrp/role",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/b2/1/x": {
+        "id": "<job:m:b2/b:1/m:x>",
+        "args": {
+          "k": "p2",
+          "role": "fastmark"
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": "fast",
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:b2/b:1>",
+        "script_path": "f/wl_jrp/role",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      }
+    },
+    "steps": {
+      "m:after": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "own": {
+            "id": "<job:m:after>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jrp/read",
+            "flow_step_id": "after",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 2,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:m:b1/b:1>",
+                  "type": "Success",
+                  "skipped": false,
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    true
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "job": "<job:m:b2/b:0>",
+                  "type": "Success",
+                  "skipped": false,
+                  "flow_jobs": [
+                    "<job:m:b2/b:0>",
+                    "<job:m:b2/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    true
+                  ]
+                },
+                {
+                  "id": "after",
+                  "job": "<job:m:after>",
+                  "type": "InProgress"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true,
+                "p2_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2": {
+            "id": "<job:m:b2/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b2/b:0/m:y>",
+                "args": {
+                  "k": "p2",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b2/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b2/b:0>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b2/b:0/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "flow_step_id": "b2",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:m:b1/b:1>",
+                      "type": "Success",
+                      "skipped": false,
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        true
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b2/b:0>",
+                        "<job:m:b2/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        null,
+                        true
+                      ]
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true,
+                    "p2_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": {
+                  "own": {
+                    "id": "<job:m:b1/b:1/m:y>",
+                    "args": {
+                      "k": "p1",
+                      "role": "readafter"
+                    },
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:1>",
+                    "script_path": "f/wl_jrp/role",
+                    "flow_step_id": "y",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up1": {
+                    "id": "<job:m:b1/b:1>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "y",
+                          "job": "<job:m:b1/b:1/m:y>",
+                          "type": "InProgress"
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-1",
+                    "flow_step_id": "b1",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up2": {
+                    "id": "<job:>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "b1",
+                          "job": "<job:>",
+                          "type": "InProgress",
+                          "parallel": true,
+                          "branchall": {
+                            "len": 2,
+                            "branch": 1
+                          },
+                          "flow_jobs": [
+                            "<job:m:b1/b:0>",
+                            "<job:m:b1/b:1>"
+                          ],
+                          "flow_jobs_success": [
+                            true,
+                            null
+                          ]
+                        },
+                        {
+                          "id": "b2",
+                          "type": "WaitingForPriorSteps"
+                        },
+                        {
+                          "id": "after",
+                          "type": "WaitingForPriorSteps"
+                        }
+                      ],
+                      "user_states": {
+                        "p1_fast": true
+                      },
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial",
+                    "is_flow_step": false,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "extra": [
+                    "job.resolved"
+                  ],
+                  "top/b1/0": {
+                    "id": "<job:m:b1/b:0>",
+                    "args": {},
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 1,
+                      "modules": [
+                        {
+                          "id": "x",
+                          "job": "<job:m:b1/b:0/m:x>",
+                          "type": "Success",
+                          "skipped": false
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-0",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "top/b1/0/x": {
+                    "id": "<job:m:b1/b:0/m:x>",
+                    "args": {
+                      "k": "p1",
+                      "role": "fastmark"
+                    },
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:0>",
+                    "script_path": "f/wl_jrp/role",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  }
+                },
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/y": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": {
+                  "own": {
+                    "id": "<job:m:b1/b:1/m:y>",
+                    "args": {
+                      "k": "p1",
+                      "role": "readafter"
+                    },
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:1>",
+                    "script_path": "f/wl_jrp/role",
+                    "flow_step_id": "y",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up1": {
+                    "id": "<job:m:b1/b:1>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "y",
+                          "job": "<job:m:b1/b:1/m:y>",
+                          "type": "InProgress"
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-1",
+                    "flow_step_id": "b1",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up2": {
+                    "id": "<job:>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "b1",
+                          "job": "<job:>",
+                          "type": "InProgress",
+                          "parallel": true,
+                          "branchall": {
+                            "len": 2,
+                            "branch": 1
+                          },
+                          "flow_jobs": [
+                            "<job:m:b1/b:0>",
+                            "<job:m:b1/b:1>"
+                          ],
+                          "flow_jobs_success": [
+                            true,
+                            null
+                          ]
+                        },
+                        {
+                          "id": "b2",
+                          "type": "WaitingForPriorSteps"
+                        },
+                        {
+                          "id": "after",
+                          "type": "WaitingForPriorSteps"
+                        }
+                      ],
+                      "user_states": {
+                        "p1_fast": true
+                      },
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial",
+                    "is_flow_step": false,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "extra": [
+                    "job.resolved"
+                  ],
+                  "top/b1/0": {
+                    "id": "<job:m:b1/b:0>",
+                    "args": {},
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 1,
+                      "modules": [
+                        {
+                          "id": "x",
+                          "job": "<job:m:b1/b:0/m:x>",
+                          "type": "Success",
+                          "skipped": false
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-0",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "top/b1/0/x": {
+                    "id": "<job:m:b1/b:0/m:x>",
+                    "args": {
+                      "k": "p1",
+                      "role": "fastmark"
+                    },
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:0>",
+                    "script_path": "f/wl_jrp/role",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  }
+                },
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b2/1": {
+                "id": "<job:m:b2/b:1>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b2/b:1/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b2/1/x": {
+                "id": "<job:m:b2/b:1/m:x>",
+                "args": {
+                  "k": "p2",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b2/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b2/b:0/m:y>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/y": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1": {
+            "id": "<job:m:b2/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b2/b:1/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/y": {
+            "id": "<job:m:b2/b:0/m:y>",
+            "args": {
+              "k": "p2",
+              "role": "readafter"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b2/b:0/m:y>",
+                "args": {
+                  "k": "p2",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b2/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b2/b:0>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b2/b:0/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "flow_step_id": "b2",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:m:b1/b:1>",
+                      "type": "Success",
+                      "skipped": false,
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        true
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b2/b:0>",
+                        "<job:m:b2/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        null,
+                        true
+                      ]
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true,
+                    "p2_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": {
+                  "own": {
+                    "id": "<job:m:b1/b:1/m:y>",
+                    "args": {
+                      "k": "p1",
+                      "role": "readafter"
+                    },
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:1>",
+                    "script_path": "f/wl_jrp/role",
+                    "flow_step_id": "y",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up1": {
+                    "id": "<job:m:b1/b:1>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "y",
+                          "job": "<job:m:b1/b:1/m:y>",
+                          "type": "InProgress"
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-1",
+                    "flow_step_id": "b1",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up2": {
+                    "id": "<job:>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "b1",
+                          "job": "<job:>",
+                          "type": "InProgress",
+                          "parallel": true,
+                          "branchall": {
+                            "len": 2,
+                            "branch": 1
+                          },
+                          "flow_jobs": [
+                            "<job:m:b1/b:0>",
+                            "<job:m:b1/b:1>"
+                          ],
+                          "flow_jobs_success": [
+                            true,
+                            null
+                          ]
+                        },
+                        {
+                          "id": "b2",
+                          "type": "WaitingForPriorSteps"
+                        },
+                        {
+                          "id": "after",
+                          "type": "WaitingForPriorSteps"
+                        }
+                      ],
+                      "user_states": {
+                        "p1_fast": true
+                      },
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial",
+                    "is_flow_step": false,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "extra": [
+                    "job.resolved"
+                  ],
+                  "top/b1/0": {
+                    "id": "<job:m:b1/b:0>",
+                    "args": {},
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 1,
+                      "modules": [
+                        {
+                          "id": "x",
+                          "job": "<job:m:b1/b:0/m:x>",
+                          "type": "Success",
+                          "skipped": false
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-0",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "top/b1/0/x": {
+                    "id": "<job:m:b1/b:0/m:x>",
+                    "args": {
+                      "k": "p1",
+                      "role": "fastmark"
+                    },
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:0>",
+                    "script_path": "f/wl_jrp/role",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  }
+                },
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/y": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": {
+                  "own": {
+                    "id": "<job:m:b1/b:1/m:y>",
+                    "args": {
+                      "k": "p1",
+                      "role": "readafter"
+                    },
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:1>",
+                    "script_path": "f/wl_jrp/role",
+                    "flow_step_id": "y",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up1": {
+                    "id": "<job:m:b1/b:1>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "root_job": "<job:>",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "y",
+                          "job": "<job:m:b1/b:1/m:y>",
+                          "type": "InProgress"
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-1",
+                    "flow_step_id": "b1",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "up2": {
+                    "id": "<job:>",
+                    "args": {},
+                    "type": "QueuedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "running": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "flow_status": {
+                      "step": 0,
+                      "modules": [
+                        {
+                          "id": "b1",
+                          "job": "<job:>",
+                          "type": "InProgress",
+                          "parallel": true,
+                          "branchall": {
+                            "len": 2,
+                            "branch": 1
+                          },
+                          "flow_jobs": [
+                            "<job:m:b1/b:0>",
+                            "<job:m:b1/b:1>"
+                          ],
+                          "flow_jobs_success": [
+                            true,
+                            null
+                          ]
+                        },
+                        {
+                          "id": "b2",
+                          "type": "WaitingForPriorSteps"
+                        },
+                        {
+                          "id": "after",
+                          "type": "WaitingForPriorSteps"
+                        }
+                      ],
+                      "user_states": {
+                        "p1_fast": true
+                      },
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial",
+                    "is_flow_step": false,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "extra": [
+                    "job.resolved"
+                  ],
+                  "top/b1/0": {
+                    "id": "<job:m:b1/b:0>",
+                    "args": {},
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:>",
+                    "flow_status": {
+                      "step": 1,
+                      "modules": [
+                        {
+                          "id": "x",
+                          "job": "<job:m:b1/b:0/m:x>",
+                          "type": "Success",
+                          "skipped": false
+                        }
+                      ],
+                      "cleanup_module": {},
+                      "failure_module": {
+                        "id": "failure",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      "preprocessor_module": null
+                    },
+                    "script_path": "f/wl_jrp/partial/branchall-0",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  },
+                  "top/b1/0/x": {
+                    "id": "<job:m:b1/b:0/m:x>",
+                    "args": {
+                      "k": "p1",
+                      "role": "fastmark"
+                    },
+                    "type": "CompletedJob",
+                    "email": "<env:WM_EMAIL>",
+                    "result": "fast",
+                    "success": true,
+                    "canceled": false,
+                    "language": "bun",
+                    "created_by": "<env:WM_USERNAME>",
+                    "parent_job": "<job:m:b1/b:0>",
+                    "script_path": "f/wl_jrp/role",
+                    "is_flow_step": true,
+                    "workspace_id": "<env:WM_WORKSPACE>",
+                    "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                  }
+                },
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b2/1": {
+                "id": "<job:m:b2/b:1>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b2/b:1/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b2/1/x": {
+                "id": "<job:m:b2/b:1/m:x>",
+                "args": {
+                  "k": "p2",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b2/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1/x": {
+            "id": "<job:m:b2/b:1/m:x>",
+            "args": {
+              "k": "p2",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        }
+      },
+      "m:b1": {
+        "status": "success",
+        "result": [
+          "fast",
+          {
+            "own": {
+              "id": "<job:m:b1/b:1/m:y>",
+              "args": {
+                "k": "p1",
+                "role": "readafter"
+              },
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "language": "bun",
+              "root_job": "<job:>",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:m:b1/b:1>",
+              "script_path": "f/wl_jrp/role",
+              "flow_step_id": "y",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "up1": {
+              "id": "<job:m:b1/b:1>",
+              "args": {},
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "root_job": "<job:>",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "flow_status": {
+                "step": 0,
+                "modules": [
+                  {
+                    "id": "y",
+                    "job": "<job:m:b1/b:1/m:y>",
+                    "type": "InProgress"
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial/branchall-1",
+              "flow_step_id": "b1",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "up2": {
+              "id": "<job:>",
+              "args": {},
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "flow_status": {
+                "step": 0,
+                "modules": [
+                  {
+                    "id": "b1",
+                    "job": "<job:>",
+                    "type": "InProgress",
+                    "parallel": true,
+                    "branchall": {
+                      "len": 2,
+                      "branch": 1
+                    },
+                    "flow_jobs": [
+                      "<job:m:b1/b:0>",
+                      "<job:m:b1/b:1>"
+                    ],
+                    "flow_jobs_success": [
+                      true,
+                      null
+                    ]
+                  },
+                  {
+                    "id": "b2",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  {
+                    "id": "after",
+                    "type": "WaitingForPriorSteps"
+                  }
+                ],
+                "user_states": {
+                  "p1_fast": true
+                },
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial",
+              "is_flow_step": false,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "extra": [
+              "job.resolved"
+            ],
+            "top/b1/0": {
+              "id": "<job:m:b1/b:0>",
+              "args": {},
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": "fast",
+              "success": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "flow_status": {
+                "step": 1,
+                "modules": [
+                  {
+                    "id": "x",
+                    "job": "<job:m:b1/b:0/m:x>",
+                    "type": "Success",
+                    "skipped": false
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial/branchall-0",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "top/b1/0/x": {
+              "id": "<job:m:b1/b:0/m:x>",
+              "args": {
+                "k": "p1",
+                "role": "fastmark"
+              },
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": "fast",
+              "success": true,
+              "canceled": false,
+              "language": "bun",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:m:b1/b:0>",
+              "script_path": "f/wl_jrp/role",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            }
+          }
+        ]
+      },
+      "m:b1/b:0/m:x": {
+        "status": "success",
+        "args": {
+          "k": "p1",
+          "role": "fastmark"
+        },
+        "result": "fast"
+      },
+      "m:b1/b:1/m:y": {
+        "status": "success",
+        "args": {
+          "k": "p1",
+          "role": "readafter"
+        },
+        "result": {
+          "own": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "flow_step_id": "y",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "InProgress"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "flow_step_id": "b1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up2": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:>",
+                  "type": "InProgress",
+                  "parallel": true,
+                  "branchall": {
+                    "len": 2,
+                    "branch": 1
+                  },
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    null
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "type": "WaitingForPriorSteps"
+                },
+                {
+                  "id": "after",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        }
+      },
+      "m:b2": {
+        "status": "success",
+        "result": [
+          {
+            "own": {
+              "id": "<job:m:b2/b:0/m:y>",
+              "args": {
+                "k": "p2",
+                "role": "readafter"
+              },
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "language": "bun",
+              "root_job": "<job:>",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:m:b2/b:0>",
+              "script_path": "f/wl_jrp/role",
+              "flow_step_id": "y",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "up1": {
+              "id": "<job:m:b2/b:0>",
+              "args": {},
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "root_job": "<job:>",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "flow_status": {
+                "step": 0,
+                "modules": [
+                  {
+                    "id": "y",
+                    "job": "<job:m:b2/b:0/m:y>",
+                    "type": "InProgress"
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial/branchall-0",
+              "flow_step_id": "b2",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "up2": {
+              "id": "<job:>",
+              "args": {},
+              "type": "QueuedJob",
+              "email": "<env:WM_EMAIL>",
+              "running": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "flow_status": {
+                "step": 1,
+                "modules": [
+                  {
+                    "id": "b1",
+                    "job": "<job:m:b1/b:1>",
+                    "type": "Success",
+                    "skipped": false,
+                    "flow_jobs": [
+                      "<job:m:b1/b:0>",
+                      "<job:m:b1/b:1>"
+                    ],
+                    "flow_jobs_success": [
+                      true,
+                      true
+                    ]
+                  },
+                  {
+                    "id": "b2",
+                    "job": "<job:>",
+                    "type": "InProgress",
+                    "parallel": true,
+                    "branchall": {
+                      "len": 2,
+                      "branch": 1
+                    },
+                    "flow_jobs": [
+                      "<job:m:b2/b:0>",
+                      "<job:m:b2/b:1>"
+                    ],
+                    "flow_jobs_success": [
+                      null,
+                      true
+                    ]
+                  },
+                  {
+                    "id": "after",
+                    "type": "WaitingForPriorSteps"
+                  }
+                ],
+                "user_states": {
+                  "p1_fast": true,
+                  "p2_fast": true
+                },
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial",
+              "is_flow_step": false,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "extra": [
+              "job.resolved"
+            ],
+            "top/b1": {
+              "id": "<job:m:b1/b:1>",
+              "args": {},
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": {
+                "own": {
+                  "id": "<job:m:b1/b:1/m:y>",
+                  "args": {
+                    "k": "p1",
+                    "role": "readafter"
+                  },
+                  "type": "QueuedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "running": true,
+                  "canceled": false,
+                  "language": "bun",
+                  "root_job": "<job:>",
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:m:b1/b:1>",
+                  "script_path": "f/wl_jrp/role",
+                  "flow_step_id": "y",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "up1": {
+                  "id": "<job:m:b1/b:1>",
+                  "args": {},
+                  "type": "QueuedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "running": true,
+                  "canceled": false,
+                  "root_job": "<job:>",
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:>",
+                  "flow_status": {
+                    "step": 0,
+                    "modules": [
+                      {
+                        "id": "y",
+                        "job": "<job:m:b1/b:1/m:y>",
+                        "type": "InProgress"
+                      }
+                    ],
+                    "cleanup_module": {},
+                    "failure_module": {
+                      "id": "failure",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    "preprocessor_module": null
+                  },
+                  "script_path": "f/wl_jrp/partial/branchall-1",
+                  "flow_step_id": "b1",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "up2": {
+                  "id": "<job:>",
+                  "args": {},
+                  "type": "QueuedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "running": true,
+                  "canceled": false,
+                  "created_by": "<env:WM_USERNAME>",
+                  "flow_status": {
+                    "step": 0,
+                    "modules": [
+                      {
+                        "id": "b1",
+                        "job": "<job:>",
+                        "type": "InProgress",
+                        "parallel": true,
+                        "branchall": {
+                          "len": 2,
+                          "branch": 1
+                        },
+                        "flow_jobs": [
+                          "<job:m:b1/b:0>",
+                          "<job:m:b1/b:1>"
+                        ],
+                        "flow_jobs_success": [
+                          true,
+                          null
+                        ]
+                      },
+                      {
+                        "id": "b2",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      {
+                        "id": "after",
+                        "type": "WaitingForPriorSteps"
+                      }
+                    ],
+                    "user_states": {
+                      "p1_fast": true
+                    },
+                    "cleanup_module": {},
+                    "failure_module": {
+                      "id": "failure",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    "preprocessor_module": null
+                  },
+                  "script_path": "f/wl_jrp/partial",
+                  "is_flow_step": false,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "extra": [
+                  "job.resolved"
+                ],
+                "top/b1/0": {
+                  "id": "<job:m:b1/b:0>",
+                  "args": {},
+                  "type": "CompletedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "result": "fast",
+                  "success": true,
+                  "canceled": false,
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:>",
+                  "flow_status": {
+                    "step": 1,
+                    "modules": [
+                      {
+                        "id": "x",
+                        "job": "<job:m:b1/b:0/m:x>",
+                        "type": "Success",
+                        "skipped": false
+                      }
+                    ],
+                    "cleanup_module": {},
+                    "failure_module": {
+                      "id": "failure",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    "preprocessor_module": null
+                  },
+                  "script_path": "f/wl_jrp/partial/branchall-0",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "top/b1/0/x": {
+                  "id": "<job:m:b1/b:0/m:x>",
+                  "args": {
+                    "k": "p1",
+                    "role": "fastmark"
+                  },
+                  "type": "CompletedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "result": "fast",
+                  "success": true,
+                  "canceled": false,
+                  "language": "bun",
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:m:b1/b:0>",
+                  "script_path": "f/wl_jrp/role",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                }
+              },
+              "success": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "flow_status": {
+                "step": 1,
+                "modules": [
+                  {
+                    "id": "y",
+                    "job": "<job:m:b1/b:1/m:y>",
+                    "type": "Success",
+                    "skipped": false
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial/branchall-1",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "top/b1/0": {
+              "id": "<job:m:b1/b:0>",
+              "args": {},
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": "fast",
+              "success": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "flow_status": {
+                "step": 1,
+                "modules": [
+                  {
+                    "id": "x",
+                    "job": "<job:m:b1/b:0/m:x>",
+                    "type": "Success",
+                    "skipped": false
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial/branchall-0",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "top/b1/y": {
+              "id": "<job:m:b1/b:1/m:y>",
+              "args": {
+                "k": "p1",
+                "role": "readafter"
+              },
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": {
+                "own": {
+                  "id": "<job:m:b1/b:1/m:y>",
+                  "args": {
+                    "k": "p1",
+                    "role": "readafter"
+                  },
+                  "type": "QueuedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "running": true,
+                  "canceled": false,
+                  "language": "bun",
+                  "root_job": "<job:>",
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:m:b1/b:1>",
+                  "script_path": "f/wl_jrp/role",
+                  "flow_step_id": "y",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "up1": {
+                  "id": "<job:m:b1/b:1>",
+                  "args": {},
+                  "type": "QueuedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "running": true,
+                  "canceled": false,
+                  "root_job": "<job:>",
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:>",
+                  "flow_status": {
+                    "step": 0,
+                    "modules": [
+                      {
+                        "id": "y",
+                        "job": "<job:m:b1/b:1/m:y>",
+                        "type": "InProgress"
+                      }
+                    ],
+                    "cleanup_module": {},
+                    "failure_module": {
+                      "id": "failure",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    "preprocessor_module": null
+                  },
+                  "script_path": "f/wl_jrp/partial/branchall-1",
+                  "flow_step_id": "b1",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "up2": {
+                  "id": "<job:>",
+                  "args": {},
+                  "type": "QueuedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "running": true,
+                  "canceled": false,
+                  "created_by": "<env:WM_USERNAME>",
+                  "flow_status": {
+                    "step": 0,
+                    "modules": [
+                      {
+                        "id": "b1",
+                        "job": "<job:>",
+                        "type": "InProgress",
+                        "parallel": true,
+                        "branchall": {
+                          "len": 2,
+                          "branch": 1
+                        },
+                        "flow_jobs": [
+                          "<job:m:b1/b:0>",
+                          "<job:m:b1/b:1>"
+                        ],
+                        "flow_jobs_success": [
+                          true,
+                          null
+                        ]
+                      },
+                      {
+                        "id": "b2",
+                        "type": "WaitingForPriorSteps"
+                      },
+                      {
+                        "id": "after",
+                        "type": "WaitingForPriorSteps"
+                      }
+                    ],
+                    "user_states": {
+                      "p1_fast": true
+                    },
+                    "cleanup_module": {},
+                    "failure_module": {
+                      "id": "failure",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    "preprocessor_module": null
+                  },
+                  "script_path": "f/wl_jrp/partial",
+                  "is_flow_step": false,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "extra": [
+                  "job.resolved"
+                ],
+                "top/b1/0": {
+                  "id": "<job:m:b1/b:0>",
+                  "args": {},
+                  "type": "CompletedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "result": "fast",
+                  "success": true,
+                  "canceled": false,
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:>",
+                  "flow_status": {
+                    "step": 1,
+                    "modules": [
+                      {
+                        "id": "x",
+                        "job": "<job:m:b1/b:0/m:x>",
+                        "type": "Success",
+                        "skipped": false
+                      }
+                    ],
+                    "cleanup_module": {},
+                    "failure_module": {
+                      "id": "failure",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    "preprocessor_module": null
+                  },
+                  "script_path": "f/wl_jrp/partial/branchall-0",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                },
+                "top/b1/0/x": {
+                  "id": "<job:m:b1/b:0/m:x>",
+                  "args": {
+                    "k": "p1",
+                    "role": "fastmark"
+                  },
+                  "type": "CompletedJob",
+                  "email": "<env:WM_EMAIL>",
+                  "result": "fast",
+                  "success": true,
+                  "canceled": false,
+                  "language": "bun",
+                  "created_by": "<env:WM_USERNAME>",
+                  "parent_job": "<job:m:b1/b:0>",
+                  "script_path": "f/wl_jrp/role",
+                  "is_flow_step": true,
+                  "workspace_id": "<env:WM_WORKSPACE>",
+                  "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+                }
+              },
+              "success": true,
+              "canceled": false,
+              "language": "bun",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:m:b1/b:1>",
+              "script_path": "f/wl_jrp/role",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "top/b2/1": {
+              "id": "<job:m:b2/b:1>",
+              "args": {},
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": "fast",
+              "success": true,
+              "canceled": false,
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:>",
+              "flow_status": {
+                "step": 1,
+                "modules": [
+                  {
+                    "id": "x",
+                    "job": "<job:m:b2/b:1/m:x>",
+                    "type": "Success",
+                    "skipped": false
+                  }
+                ],
+                "cleanup_module": {},
+                "failure_module": {
+                  "id": "failure",
+                  "type": "WaitingForPriorSteps"
+                },
+                "preprocessor_module": null
+              },
+              "script_path": "f/wl_jrp/partial/branchall-1",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "top/b1/0/x": {
+              "id": "<job:m:b1/b:0/m:x>",
+              "args": {
+                "k": "p1",
+                "role": "fastmark"
+              },
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": "fast",
+              "success": true,
+              "canceled": false,
+              "language": "bun",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:m:b1/b:0>",
+              "script_path": "f/wl_jrp/role",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            },
+            "top/b2/1/x": {
+              "id": "<job:m:b2/b:1/m:x>",
+              "args": {
+                "k": "p2",
+                "role": "fastmark"
+              },
+              "type": "CompletedJob",
+              "email": "<env:WM_EMAIL>",
+              "result": "fast",
+              "success": true,
+              "canceled": false,
+              "language": "bun",
+              "created_by": "<env:WM_USERNAME>",
+              "parent_job": "<job:m:b2/b:1>",
+              "script_path": "f/wl_jrp/role",
+              "is_flow_step": true,
+              "workspace_id": "<env:WM_WORKSPACE>",
+              "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+            }
+          },
+          "fast"
+        ]
+      },
+      "m:b2/b:0/m:y": {
+        "status": "success",
+        "args": {
+          "k": "p2",
+          "role": "readafter"
+        },
+        "result": {
+          "own": {
+            "id": "<job:m:b2/b:0/m:y>",
+            "args": {
+              "k": "p2",
+              "role": "readafter"
+            },
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "flow_step_id": "y",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:m:b2/b:0>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b2/b:0/m:y>",
+                  "type": "InProgress"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "flow_step_id": "b2",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up2": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "b1",
+                  "job": "<job:m:b1/b:1>",
+                  "type": "Success",
+                  "skipped": false,
+                  "flow_jobs": [
+                    "<job:m:b1/b:0>",
+                    "<job:m:b1/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    true,
+                    true
+                  ]
+                },
+                {
+                  "id": "b2",
+                  "job": "<job:>",
+                  "type": "InProgress",
+                  "parallel": true,
+                  "branchall": {
+                    "len": 2,
+                    "branch": 1
+                  },
+                  "flow_jobs": [
+                    "<job:m:b2/b:0>",
+                    "<job:m:b2/b:1>"
+                  ],
+                  "flow_jobs_success": [
+                    null,
+                    true
+                  ]
+                },
+                {
+                  "id": "after",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "user_states": {
+                "p1_fast": true,
+                "p2_fast": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "job.resolved"
+          ],
+          "top/b1": {
+            "id": "<job:m:b1/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "y",
+                  "job": "<job:m:b1/b:1/m:y>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0": {
+            "id": "<job:m:b1/b:0>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b1/b:0/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/y": {
+            "id": "<job:m:b1/b:1/m:y>",
+            "args": {
+              "k": "p1",
+              "role": "readafter"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "own": {
+                "id": "<job:m:b1/b:1/m:y>",
+                "args": {
+                  "k": "p1",
+                  "role": "readafter"
+                },
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "language": "bun",
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:1>",
+                "script_path": "f/wl_jrp/role",
+                "flow_step_id": "y",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up1": {
+                "id": "<job:m:b1/b:1>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "root_job": "<job:>",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "y",
+                      "job": "<job:m:b1/b:1/m:y>",
+                      "type": "InProgress"
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-1",
+                "flow_step_id": "b1",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "up2": {
+                "id": "<job:>",
+                "args": {},
+                "type": "QueuedJob",
+                "email": "<env:WM_EMAIL>",
+                "running": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "flow_status": {
+                  "step": 0,
+                  "modules": [
+                    {
+                      "id": "b1",
+                      "job": "<job:>",
+                      "type": "InProgress",
+                      "parallel": true,
+                      "branchall": {
+                        "len": 2,
+                        "branch": 1
+                      },
+                      "flow_jobs": [
+                        "<job:m:b1/b:0>",
+                        "<job:m:b1/b:1>"
+                      ],
+                      "flow_jobs_success": [
+                        true,
+                        null
+                      ]
+                    },
+                    {
+                      "id": "b2",
+                      "type": "WaitingForPriorSteps"
+                    },
+                    {
+                      "id": "after",
+                      "type": "WaitingForPriorSteps"
+                    }
+                  ],
+                  "user_states": {
+                    "p1_fast": true
+                  },
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial",
+                "is_flow_step": false,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "extra": [
+                "job.resolved"
+              ],
+              "top/b1/0": {
+                "id": "<job:m:b1/b:0>",
+                "args": {},
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:>",
+                "flow_status": {
+                  "step": 1,
+                  "modules": [
+                    {
+                      "id": "x",
+                      "job": "<job:m:b1/b:0/m:x>",
+                      "type": "Success",
+                      "skipped": false
+                    }
+                  ],
+                  "cleanup_module": {},
+                  "failure_module": {
+                    "id": "failure",
+                    "type": "WaitingForPriorSteps"
+                  },
+                  "preprocessor_module": null
+                },
+                "script_path": "f/wl_jrp/partial/branchall-0",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              },
+              "top/b1/0/x": {
+                "id": "<job:m:b1/b:0/m:x>",
+                "args": {
+                  "k": "p1",
+                  "role": "fastmark"
+                },
+                "type": "CompletedJob",
+                "email": "<env:WM_EMAIL>",
+                "result": "fast",
+                "success": true,
+                "canceled": false,
+                "language": "bun",
+                "created_by": "<env:WM_USERNAME>",
+                "parent_job": "<job:m:b1/b:0>",
+                "script_path": "f/wl_jrp/role",
+                "is_flow_step": true,
+                "workspace_id": "<env:WM_WORKSPACE>",
+                "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+              }
+            },
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1": {
+            "id": "<job:m:b2/b:1>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "x",
+                  "job": "<job:m:b2/b:1/m:x>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jrp/partial/branchall-1",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b1/0/x": {
+            "id": "<job:m:b1/b:0/m:x>",
+            "args": {
+              "k": "p1",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b1/b:0>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/b2/1/x": {
+            "id": "<job:m:b2/b:1/m:x>",
+            "args": {
+              "k": "p2",
+              "role": "fastmark"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "fast",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:b2/b:1>",
+            "script_path": "f/wl_jrp/role",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        }
+      },
+      "m:b2/b:1/m:x": {
+        "status": "success",
+        "args": {
+          "k": "p2",
+          "role": "fastmark"
+        },
+        "result": "fast"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
+    },
+    "recorded_at": "2026-11-06T15:30:02Z",
+    "workers": 2,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:39015"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 2410,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T15:29:59.605285Z",
+          "started_at": "2026-11-06T15:29:59.622307Z",
+          "completed_at": "2026-11-06T15:30:01.939784Z",
+          "duration_ms": 2317
+        },
+        "m:after": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:30:01.870012Z",
+          "started_at": "2026-11-06T15:30:01.896758Z",
+          "completed_at": "2026-11-06T15:30:01.933807Z",
+          "duration_ms": 34
+        },
+        "m:b1/b:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-06T15:29:59.623666Z",
+          "started_at": "2026-11-06T15:29:59.628240Z",
+          "completed_at": "2026-11-06T15:29:59.660812Z",
+          "duration_ms": 33
+        },
+        "m:b1/b:0/m:x": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:29:59.631900Z",
+          "started_at": "2026-11-06T15:29:59.639649Z",
+          "completed_at": "2026-11-06T15:29:59.655950Z",
+          "duration_ms": 14
+        },
+        "m:b1/b:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-06T15:29:59.623666Z",
+          "started_at": "2026-11-06T15:29:59.634619Z",
+          "completed_at": "2026-11-06T15:30:00.692745Z",
+          "duration_ms": 1058
+        },
+        "m:b1/b:1/m:y": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:29:59.637209Z",
+          "started_at": "2026-11-06T15:29:59.656868Z",
+          "completed_at": "2026-11-06T15:30:00.688538Z",
+          "duration_ms": 1029
+        },
+        "m:b2/b:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-06T15:30:00.699037Z",
+          "started_at": "2026-11-06T15:30:00.708056Z",
+          "completed_at": "2026-11-06T15:30:01.864864Z",
+          "duration_ms": 1157
+        },
+        "m:b2/b:0/m:y": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:30:00.710892Z",
+          "started_at": "2026-11-06T15:30:00.717806Z",
+          "completed_at": "2026-11-06T15:30:01.860929Z",
+          "duration_ms": 1141
+        },
+        "m:b2/b:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-06T15:30:00.699037Z",
+          "started_at": "2026-11-06T15:30:00.713377Z",
+          "completed_at": "2026-11-06T15:30:00.761270Z",
+          "duration_ms": 48
+        },
+        "m:b2/b:1/m:x": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:30:00.715912Z",
+          "started_at": "2026-11-06T15:30:00.740930Z",
+          "completed_at": "2026-11-06T15:30:00.757412Z",
+          "duration_ms": 14
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,196 @@
+{
+  "observation": {
+    "status": "success",
+    "result": null,
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {
+          "x": 0
+        },
+        "result": 0
+      },
+      "m:b": {
+        "status": "success",
+        "args": {
+          "x": null
+        },
+        "result": null
+      },
+      "m:l": {
+        "status": "success",
+        "result": [
+          10,
+          20,
+          30
+        ]
+      },
+      "m:l/i:0/m:h": {
+        "status": "success",
+        "args": {
+          "x": 0
+        },
+        "result": 0
+      },
+      "m:l/i:0/m:i": {
+        "status": "success",
+        "args": {
+          "x": 10
+        },
+        "result": 10
+      },
+      "m:l/i:1/m:h": {
+        "status": "success",
+        "args": {
+          "x": 0
+        },
+        "result": 0
+      },
+      "m:l/i:1/m:i": {
+        "status": "success",
+        "args": {
+          "x": 20
+        },
+        "result": 20
+      },
+      "m:l/i:2/m:h": {
+        "status": "success",
+        "args": {
+          "x": 0
+        },
+        "result": 0
+      },
+      "m:l/i:2/m:i": {
+        "status": "success",
+        "args": {
+          "x": 30
+        },
+        "result": 30
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
+    },
+    "recorded_at": "2026-11-06T15:47:55Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:41753"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 410,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T15:47:55.036299Z",
+          "started_at": "2026-11-06T15:47:55.082177Z",
+          "completed_at": "2026-11-06T15:47:55.331165Z",
+          "duration_ms": 249
+        },
+        "m:a": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.086114Z",
+          "started_at": "2026-11-06T15:47:55.089094Z",
+          "completed_at": "2026-11-06T15:47:55.107127Z",
+          "duration_ms": 16
+        },
+        "m:b": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.273963Z",
+          "started_at": "2026-11-06T15:47:55.314343Z",
+          "completed_at": "2026-11-06T15:47:55.328062Z",
+          "duration_ms": 11
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T15:47:55.110045Z",
+          "started_at": "2026-11-06T15:47:55.158255Z",
+          "completed_at": "2026-11-06T15:47:55.236722Z",
+          "duration_ms": 78
+        },
+        "m:l/i:0/m:h": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.160522Z",
+          "started_at": "2026-11-06T15:47:55.173805Z",
+          "completed_at": "2026-11-06T15:47:55.187255Z",
+          "duration_ms": 11
+        },
+        "m:l/i:0/m:i": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.191568Z",
+          "started_at": "2026-11-06T15:47:55.217154Z",
+          "completed_at": "2026-11-06T15:47:55.231859Z",
+          "duration_ms": 12
+        },
+        "m:l/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T15:47:55.110045Z",
+          "started_at": "2026-11-06T15:47:55.164747Z",
+          "completed_at": "2026-11-06T15:47:55.250873Z",
+          "duration_ms": 86
+        },
+        "m:l/i:1/m:h": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.166487Z",
+          "started_at": "2026-11-06T15:47:55.187426Z",
+          "completed_at": "2026-11-06T15:47:55.201539Z",
+          "duration_ms": 11
+        },
+        "m:l/i:1/m:i": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.206481Z",
+          "started_at": "2026-11-06T15:47:55.232139Z",
+          "completed_at": "2026-11-06T15:47:55.247255Z",
+          "duration_ms": 12
+        },
+        "m:l/i:2": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T15:47:55.110045Z",
+          "started_at": "2026-11-06T15:47:55.169375Z",
+          "completed_at": "2026-11-06T15:47:55.265161Z",
+          "duration_ms": 96
+        },
+        "m:l/i:2/m:h": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.171196Z",
+          "started_at": "2026-11-06T15:47:55.201813Z",
+          "completed_at": "2026-11-06T15:47:55.216892Z",
+          "duration_ms": 12
+        },
+        "m:l/i:2/m:i": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:47:55.222546Z",
+          "started_at": "2026-11-06T15:47:55.247451Z",
+          "completed_at": "2026-11-06T15:47:55.262319Z",
+          "duration_ms": 12
+        }
+      }
+    }
+  }
+}

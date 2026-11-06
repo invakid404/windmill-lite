@@ -1,0 +1,611 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "own": {
+        "id": "<job:m:read>",
+        "args": {},
+        "type": "QueuedJob",
+        "email": "<env:WM_EMAIL>",
+        "running": true,
+        "canceled": false,
+        "language": "bun",
+        "root_job": "<job:>",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "script_path": "f/wl_jr/read",
+        "flow_step_id": "read",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "up1": {
+        "id": "<job:>",
+        "args": {},
+        "type": "QueuedJob",
+        "email": "<env:WM_EMAIL>",
+        "running": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "flow_status": {
+          "step": 1,
+          "modules": [
+            {
+              "id": "l",
+              "job": "<job:m:l/i:0>",
+              "type": "Success",
+              "skipped": false,
+              "flow_jobs": [
+                "<job:m:l/i:0>"
+              ],
+              "failed_retries": [
+                "<job:m:l/r:0>"
+              ],
+              "flow_jobs_success": [
+                true
+              ]
+            },
+            {
+              "id": "read",
+              "job": "<job:m:read>",
+              "type": "InProgress"
+            }
+          ],
+          "user_states": {
+            "loopflaky": true
+          },
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jr/loopretry",
+        "is_flow_step": false,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "extra": [
+        "flow_status.no_inherited_flow_env",
+        "job.resolved"
+      ],
+      "top/l": {
+        "id": "<job:m:l/i:0>",
+        "args": {
+          "iter": {
+            "index": 0,
+            "value": 1
+          },
+          "iter_parent": {
+            "index": 0,
+            "value": 1
+          }
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": 2,
+        "success": true,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "flow_status": {
+          "step": 2,
+          "modules": [
+            {
+              "id": "s",
+              "job": "<job:m:l/i:0/m:s>",
+              "type": "Success",
+              "skipped": false
+            },
+            {
+              "id": "t",
+              "job": "<job:m:l/i:0/m:t>",
+              "type": "Success",
+              "skipped": false
+            }
+          ],
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jr/loopretry/loop-0",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/l/s": {
+        "id": "<job:m:l/i:0/m:s>",
+        "args": {
+          "key": "loopflaky"
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": "second attempt",
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:l/i:0>",
+        "script_path": "f/wl_jr/loopretry/loop-0/s",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/l/t": {
+        "id": "<job:m:l/i:0/m:t>",
+        "args": {},
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": 2,
+        "success": true,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:l/i:0>",
+        "script_path": "f/wl_jr/loopretry/loop-0/t",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/l/r0": {
+        "id": "<job:m:l/r:0>",
+        "args": {
+          "iter": {
+            "index": 0,
+            "value": 1
+          }
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:l/r:0/m:s>",
+            "message": "first attempt",
+            "step_id": "s",
+            "flow_path": "f/wl_jr/loopretry/loop-0"
+          }
+        },
+        "success": false,
+        "canceled": false,
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:>",
+        "flow_status": {
+          "step": 0,
+          "modules": [
+            {
+              "id": "s",
+              "job": "<job:m:l/r:0/m:s>",
+              "type": "Failure"
+            },
+            {
+              "id": "t",
+              "type": "WaitingForPriorSteps"
+            }
+          ],
+          "cleanup_module": {},
+          "failure_module": {
+            "id": "failure",
+            "type": "WaitingForPriorSteps"
+          },
+          "preprocessor_module": null
+        },
+        "script_path": "f/wl_jr/loopretry/loop-0",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      },
+      "top/l/r0/s": {
+        "id": "<job:m:l/r:0/m:s>",
+        "args": {
+          "key": "loopflaky"
+        },
+        "type": "CompletedJob",
+        "email": "<env:WM_EMAIL>",
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:l/r:0/m:s>",
+            "message": "first attempt",
+            "step_id": "s",
+            "flow_path": "f/wl_jr/loopretry/loop-0"
+          }
+        },
+        "success": false,
+        "canceled": false,
+        "language": "bun",
+        "created_by": "<env:WM_USERNAME>",
+        "parent_job": "<job:m:l/r:0>",
+        "script_path": "f/wl_jr/loopretry/loop-0/s",
+        "is_flow_step": true,
+        "workspace_id": "<env:WM_WORKSPACE>",
+        "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+      }
+    },
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          2
+        ]
+      },
+      "m:l/i:0/m:s": {
+        "status": "success",
+        "args": {
+          "key": "loopflaky"
+        },
+        "result": "second attempt"
+      },
+      "m:l/i:0/m:t": {
+        "status": "success",
+        "args": {},
+        "result": 2
+      },
+      "m:l/r:0": {
+        "status": "failure",
+        "args": {
+          "iter": {
+            "index": 0,
+            "value": 1
+          }
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:l/r:0/m:s>",
+            "message": "first attempt",
+            "step_id": "s",
+            "flow_path": "f/wl_jr/loopretry/loop-0"
+          }
+        }
+      },
+      "m:l/r:0/m:s": {
+        "status": "failure",
+        "args": {
+          "key": "loopflaky"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:l/r:0/m:s>",
+            "message": "first attempt",
+            "step_id": "s",
+            "flow_path": "f/wl_jr/loopretry/loop-0"
+          }
+        }
+      },
+      "m:l/r:0/m:t": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:read": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "own": {
+            "id": "<job:m:read>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "language": "bun",
+            "root_job": "<job:>",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "script_path": "f/wl_jr/read",
+            "flow_step_id": "read",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "up1": {
+            "id": "<job:>",
+            "args": {},
+            "type": "QueuedJob",
+            "email": "<env:WM_EMAIL>",
+            "running": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "flow_status": {
+              "step": 1,
+              "modules": [
+                {
+                  "id": "l",
+                  "job": "<job:m:l/i:0>",
+                  "type": "Success",
+                  "skipped": false,
+                  "flow_jobs": [
+                    "<job:m:l/i:0>"
+                  ],
+                  "failed_retries": [
+                    "<job:m:l/r:0>"
+                  ],
+                  "flow_jobs_success": [
+                    true
+                  ]
+                },
+                {
+                  "id": "read",
+                  "job": "<job:m:read>",
+                  "type": "InProgress"
+                }
+              ],
+              "user_states": {
+                "loopflaky": true
+              },
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jr/loopretry",
+            "is_flow_step": false,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "extra": [
+            "flow_status.no_inherited_flow_env",
+            "job.resolved"
+          ],
+          "top/l": {
+            "id": "<job:m:l/i:0>",
+            "args": {
+              "iter": {
+                "index": 0,
+                "value": 1
+              },
+              "iter_parent": {
+                "index": 0,
+                "value": 1
+              }
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": 2,
+            "success": true,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 2,
+              "modules": [
+                {
+                  "id": "s",
+                  "job": "<job:m:l/i:0/m:s>",
+                  "type": "Success",
+                  "skipped": false
+                },
+                {
+                  "id": "t",
+                  "job": "<job:m:l/i:0/m:t>",
+                  "type": "Success",
+                  "skipped": false
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jr/loopretry/loop-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/l/s": {
+            "id": "<job:m:l/i:0/m:s>",
+            "args": {
+              "key": "loopflaky"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": "second attempt",
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:l/i:0>",
+            "script_path": "f/wl_jr/loopretry/loop-0/s",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/l/t": {
+            "id": "<job:m:l/i:0/m:t>",
+            "args": {},
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": 2,
+            "success": true,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:l/i:0>",
+            "script_path": "f/wl_jr/loopretry/loop-0/t",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/l/r0": {
+            "id": "<job:m:l/r:0>",
+            "args": {
+              "iter": {
+                "index": 0,
+                "value": 1
+              }
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "error": {
+                "name": "Error",
+                "stack": "<stack>",
+                "job_id": "<job:m:l/r:0/m:s>",
+                "message": "first attempt",
+                "step_id": "s",
+                "flow_path": "f/wl_jr/loopretry/loop-0"
+              }
+            },
+            "success": false,
+            "canceled": false,
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:>",
+            "flow_status": {
+              "step": 0,
+              "modules": [
+                {
+                  "id": "s",
+                  "job": "<job:m:l/r:0/m:s>",
+                  "type": "Failure"
+                },
+                {
+                  "id": "t",
+                  "type": "WaitingForPriorSteps"
+                }
+              ],
+              "cleanup_module": {},
+              "failure_module": {
+                "id": "failure",
+                "type": "WaitingForPriorSteps"
+              },
+              "preprocessor_module": null
+            },
+            "script_path": "f/wl_jr/loopretry/loop-0",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          },
+          "top/l/r0/s": {
+            "id": "<job:m:l/r:0/m:s>",
+            "args": {
+              "key": "loopflaky"
+            },
+            "type": "CompletedJob",
+            "email": "<env:WM_EMAIL>",
+            "result": {
+              "error": {
+                "name": "Error",
+                "stack": "<stack>",
+                "job_id": "<job:m:l/r:0/m:s>",
+                "message": "first attempt",
+                "step_id": "s",
+                "flow_path": "f/wl_jr/loopretry/loop-0"
+              }
+            },
+            "success": false,
+            "canceled": false,
+            "language": "bun",
+            "created_by": "<env:WM_USERNAME>",
+            "parent_job": "<job:m:l/r:0>",
+            "script_path": "f/wl_jr/loopretry/loop-0/s",
+            "is_flow_step": true,
+            "workspace_id": "<env:WM_WORKSPACE>",
+            "permissioned_as": "<env:WM_PERMISSIONED_AS>"
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
+    },
+    "recorded_at": "2026-11-06T15:29:02Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:41753"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 409,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T15:29:02.081803Z",
+          "started_at": "2026-11-06T15:29:02.121861Z",
+          "completed_at": "2026-11-06T15:29:02.420112Z",
+          "duration_ms": 298
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T15:29:02.178696Z",
+          "started_at": "2026-11-06T15:29:02.222564Z",
+          "completed_at": "2026-11-06T15:29:02.336627Z",
+          "duration_ms": 114
+        },
+        "m:l/i:0/m:s": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:29:02.226210Z",
+          "started_at": "2026-11-06T15:29:02.229351Z",
+          "completed_at": "2026-11-06T15:29:02.247791Z",
+          "duration_ms": 15
+        },
+        "m:l/i:0/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:29:02.251574Z",
+          "started_at": "2026-11-06T15:29:02.301104Z",
+          "completed_at": "2026-11-06T15:29:02.332529Z",
+          "duration_ms": 27
+        },
+        "m:l/r:0": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T15:29:02.124278Z",
+          "started_at": "2026-11-06T15:29:02.129107Z",
+          "completed_at": "2026-11-06T15:29:02.173228Z",
+          "duration_ms": 44
+        },
+        "m:l/r:0/m:s": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:29:02.131001Z",
+          "started_at": "2026-11-06T15:29:02.133906Z",
+          "completed_at": "2026-11-06T15:29:02.168951Z",
+          "duration_ms": 35
+        },
+        "m:read": {
+          "kind": "script",
+          "created_at": "2026-11-06T15:29:02.340334Z",
+          "started_at": "2026-11-06T15:29:02.384534Z",
+          "completed_at": "2026-11-06T15:29:02.416513Z",
+          "duration_ms": 28
+        }
+      }
+    }
+  }
+}

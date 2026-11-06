@@ -1,0 +1,202 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      {
+        "to": "ana",
+        "sent": true
+      },
+      {
+        "to": "ben",
+        "sent": true
+      }
+    ],
+    "steps": {
+      "m:send": {
+        "status": "success",
+        "result": [
+          {
+            "to": "ana",
+            "sent": true
+          },
+          {
+            "to": "ben",
+            "sent": true
+          }
+        ]
+      },
+      "m:send/i:0/m:post": {
+        "status": "success",
+        "args": {
+          "to": "ana",
+          "team": "red"
+        },
+        "result": {
+          "to": "ana",
+          "sent": true
+        }
+      },
+      "m:send/i:1/m:post": {
+        "status": "success",
+        "args": {
+          "to": "ben",
+          "team": "red"
+        },
+        "result": {
+          "to": "ben",
+          "sent": true
+        }
+      },
+      "m:who": {
+        "status": "success",
+        "args": {
+          "team": "red"
+        },
+        "result": [
+          "ana",
+          "ben"
+        ]
+      },
+      "m:who/m:lookup": {
+        "status": "success",
+        "args": {
+          "team": "red"
+        },
+        "result": [
+          "ana",
+          "ben"
+        ]
+      }
+    },
+    "effects": [
+      {
+        "site": "m:who/m:lookup",
+        "attempt": 0,
+        "step": "lookup",
+        "job": "<job:m:who/m:lookup>",
+        "flow": "<job:m:who>",
+        "root_flow": "<job:m:who>",
+        "root": "<job:>",
+        "args": [
+          "red"
+        ]
+      },
+      {
+        "site": "m:send/i:0/m:post",
+        "attempt": 0,
+        "step": "post",
+        "job": "<job:m:send/i:0/m:post>",
+        "flow": "<job:m:send/i:0>",
+        "root_flow": "<job:m:send/i:0>",
+        "root": "<job:>",
+        "args": [
+          "ana",
+          "red"
+        ]
+      },
+      {
+        "site": "m:send/i:1/m:post",
+        "attempt": 0,
+        "step": "post",
+        "job": "<job:m:send/i:1/m:post>",
+        "flow": "<job:m:send/i:1>",
+        "root_flow": "<job:m:send/i:1>",
+        "root": "<job:>",
+        "args": [
+          "ben",
+          "red"
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
+    },
+    "recorded_at": "2026-11-06T15:51:38Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:41753"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 205,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T15:51:38.256866Z",
+          "started_at": "2026-11-06T15:51:38.313736Z",
+          "completed_at": "2026-11-06T15:51:38.448657Z",
+          "duration_ms": 135
+        },
+        "m:send/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-06T15:51:38.362663Z",
+          "started_at": "2026-11-06T15:51:38.380695Z",
+          "completed_at": "2026-11-06T15:51:38.421773Z",
+          "duration_ms": 41
+        },
+        "m:send/i:0/m:post": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:51:38.385340Z",
+          "started_at": "2026-11-06T15:51:38.396095Z",
+          "completed_at": "2026-11-06T15:51:38.418515Z",
+          "duration_ms": 19
+        },
+        "m:send/i:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-06T15:51:38.362663Z",
+          "started_at": "2026-11-06T15:51:38.388418Z",
+          "completed_at": "2026-11-06T15:51:38.443928Z",
+          "duration_ms": 56
+        },
+        "m:send/i:1/m:post": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:51:38.393512Z",
+          "started_at": "2026-11-06T15:51:38.418740Z",
+          "completed_at": "2026-11-06T15:51:38.441047Z",
+          "duration_ms": 18
+        },
+        "m:who": {
+          "kind": "flow",
+          "created_at": "2026-11-06T15:51:38.316902Z",
+          "started_at": "2026-11-06T15:51:38.319749Z",
+          "completed_at": "2026-11-06T15:51:38.359522Z",
+          "duration_ms": 40
+        },
+        "m:who/m:lookup": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:51:38.325438Z",
+          "started_at": "2026-11-06T15:51:38.334475Z",
+          "completed_at": "2026-11-06T15:51:38.356178Z",
+          "duration_ms": 18
+        }
+      }
+    },
+    "group": "rt"
+  }
+}

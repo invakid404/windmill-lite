@@ -1,0 +1,191 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      "throw Error(\"x\");",
+      "Error: x"
+    ],
+    "steps": {
+      "m:a": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:a>",
+            "message": "x",
+            "step_id": "a",
+            "flow_path": "f/wl_n43s/stack_bunnative"
+          }
+        }
+      },
+      "m:b": {
+        "status": "success",
+        "args": {
+          "lines": [
+            "throw Error(\"x\");",
+            "Error: x"
+          ]
+        },
+        "result": [
+          "throw Error(\"x\");",
+          "Error: x"
+        ]
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
+    },
+    "recorded_at": "2026-11-06T15:29:27Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:33709",
+      "WORKER_TAGS": "nativets"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T15:29:27.496182Z",
+          "started_at": "2026-11-06T15:29:27.512012Z",
+          "completed_at": "2026-11-06T15:29:27.594809Z",
+          "duration_ms": 83
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:29:27.513348Z",
+          "started_at": "2026-11-06T15:29:27.515996Z",
+          "completed_at": "2026-11-06T15:29:27.526355Z",
+          "duration_ms": 10
+        },
+        "m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T15:29:27.529884Z",
+          "started_at": "2026-11-06T15:29:27.578406Z",
+          "completed_at": "2026-11-06T15:29:27.592184Z",
+          "duration_ms": 11
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "continue_on_error": true,
+            "id": "a",
+            "value": {
+              "content": "//native\nexport function main() {\n  throw new Error(\"x\");\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "content": "export function main(lines: string[]) { return lines; }\n",
+              "input_transforms": {
+                "lines": {
+                  "expr": "results.a.error.stack.split(\"\\n\").slice(0, 2).map((l) => l.trim())",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "//native\nexport function main() {\n  throw new Error(\"x\");\n}\n",
+              "language": "bunnative",
+              "input_transforms": {}
+            },
+            "continue_on_error": true
+          },
+          {
+            "id": "b",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export function main(lines: string[]) { return lines; }\n",
+              "language": "bun",
+              "input_transforms": {
+                "lines": {
+                  "expr": "results.a.error.stack.split(\"\\n\").slice(0, 2).map((l) => l.trim())",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bunnative"
+            },
+            "continue_on_error": true
+          },
+          {
+            "id": "b",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline b.ts",
+              "input_transforms": {
+                "lines": {
+                  "type": "javascript",
+                  "expr": "results.a.error.stack.split(\"\\n\").slice(0, 2).map((l) => l.trim())"
+                }
+              },
+              "lock": "!inline b.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
