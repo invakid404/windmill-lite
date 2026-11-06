@@ -787,7 +787,8 @@ harness follow SC2's answers (FU6).
     kill reaches a group that took the id after the child's ended. A synchronous child
     call gets no group of its own (its pid comes too late to announce): it
     stays in the harness's group, which the end of the process kills, and
-    what it leaves running is not attributed. Should a warm process hold
+    what it leaves running is not attributed. One the step started detached
+    is the step's own, as above. Should a warm process hold
     the invocation's result until its children's groups are empty, as
     Windmill holds the job, with the timer, `fetch`, log and platform
     fences applied at the return? The reference
