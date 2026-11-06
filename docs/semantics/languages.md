@@ -2,8 +2,7 @@
 
 This area covers how one script step runs: from the args map the worker hands it, through the language wrapper, to the JSON value (or error) that comes back. Bun, the default TypeScript runtime, is covered in depth and tagged `core`, together with codebase bundles ([WR-47](#wr-47) to [WR-50](#wr-50)) and the in-worker native runtime that runs `nativets` and `bunnative` steps ([section H](#h-the-native-runtime-nativets-and-bunnative)); Deno, Python, Go and Bash are covered at summary level and tagged `later`. Neighbouring areas take over at the edges: [execution](execution.md) and [control flow](control-flow.md) for what a flow does with a step's result or error, [expressions](expressions.md) for expression evaluation, [client API](client-api.md) for the `wmill` client surface, [OpenFlow](openflow.md) for the flow model and sync-folder loader, and [oracle](oracle.md) for the oracle harness.
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`). A finding re-verified at that version says so in a revision line, and its new pointers are `path:line @ v1.862.0`. Every other finding is **verified at v1.767.0 only** (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`): its pointers, with or without a version, are `@ v1.767.0`, and all pointers are relative to the Windmill repository root. Status, scope and confidence tags are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `WR-` script-wrapper findings; `WR-Vn` findings were added during validation; `Q-WR-` open questions; `PD-` proposed design decisions (only in [Design notes](#design-notes-not-windmill-behaviour)).
 
@@ -32,7 +31,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
    No single sort reproduces all of this. What an *expression* sees is a separate question ([expressions](expressions.md)).
 5. **Results are serialised as `JSON.stringify(value ?? null)`, with an `undefined`→`null` replacer and a BigInt→string patch.** So `undefined` fields are kept as `null` ([WR-13](#wr-13), [WR-14](#wr-14), [WR-9](#wr-9)). Exit 0 is only the *initial* success classification. Completion can still fail the job, through `wm_failure`, an empty result or the size limits ([WR-4](#wr-4), [WR-17](#wr-17), [WR-V2](#wr-v2), [WR-15](#wr-15)).
 6. **Error shapes.** There are four:
-   - **Wrapper catch:** `{message, name, stack, step_id?, extra?}` ([WR-18](#wr-18)).
+   - **Wrapper catch:** `{message, name, stack, step_id?, job_id?, flow_path?, extra?}` ([WR-18](#wr-18)).
    - **Escaped failure:** a log-tail `ExecutionErr` with `exit_code`. The exit code Bun produces is pending ([WR-19](#wr-19), [WR-20](#wr-20), [Q-WR-2](#q-wr-2)).
    - **Execution-handler error:** `execution error:\n…` ([WR-37](#wr-37)).
    - **Empty result:** `InternalErr` without `step_id` ([WR-V2](#wr-v2)).
@@ -51,7 +50,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 11. **Native steps run in an in-worker V8 isolate with their own boundary rules** ([WR-40](#wr-40) to [WR-46](#wr-46)). `nativets` steps, and Bun steps whose header says `//native`, get a fresh isolate per job, no process and no files. Compared with Bun:
     - arguments bind by name with `JSON.parse` and no `Date` hydration ([WR-41](#wr-41));
     - the result is `JSON.stringify(value ?? null)` with **no replacer**, so `undefined` fields are **omitted** and a `BigInt` fails the job ([WR-42](#wr-42));
-    - a thrown `Error` is stored as exactly `{message, stack, name}`, with no `step_id` and no `extra`, and any other thrown value gives three `null`s ([WR-43](#wr-43));
+    - a thrown `Error` is stored as `{message, stack, name}` followed by the step context keys `step_id`, `job_id` and `flow_path`, with no `extra`, and any other thrown value gives three `null`s and the same keys ([WR-43](#wr-43));
     - the timeout text is `Query timeout after (>Ns)` ([WR-44](#wr-44));
     - `process` is a module-level `{env}` object, and the global surface is a fixed list of web APIs ([WR-45](#wr-45));
     - a native job carries the `nativets` tag, which no worker of the reference configuration serves, so on the oracle as configured a native step never starts ([WR-40](#wr-40)); batch E3f recorded the native cases on a worker that adds the tag with `WORKER_TAGS=nativets`.
@@ -546,6 +545,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
   - An object is built:
     - `message` = `e.message`, `name` = `e.name`, `stack` = `e.stack`;
     - `step_id` = the `WM_FLOW_STEP_ID` env var, added only when it is non-empty;
+    - `job_id` = the `WM_JOB_ID` env var and `flow_path` = the `WM_FLOW_PATH` env var, each added only when it is non-empty (since 1.847.0): the failing job's own id and its parent job's runnable path, as [FX-12](execution.md#fx-12) details;
     - `extra` = every **own** property of `e` (as listed by `Object.getOwnPropertyNames`) except `line`, `name`, `stack`, `column`, `message`, `sourceURL`, `originalLine` and `originalColumn`. It is added only when it has at least one key.
   - The object is serialised with plain `JSON.stringify`: there is no `undefined` replacer, but the BigInt patch still applies. So fields whose value is `undefined` are **omitted**.
   - The text goes to `result.json` and the process exits with code 1. The worker uses that text verbatim as the error value ([WR-4](#wr-4)), then wraps it ([WR-21](#wr-21)).
@@ -553,11 +553,13 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - The `name` of an `Error` subclass is `Error`, unless the class sets `name`.
     - Properties the user attaches (`code`, `cause`, `errors` on `AggregateError`) appear under `extra`.
     - Values inside `extra` serialise by ordinary JSON rules. A nested Error with no enumerable own properties gives `{}`; enumerable own properties survive.
-    - Throwing a **non-Error** value gives odd shapes. A string gives an `extra` of indexed characters plus `length`, and no `message`. A number gives only `step_id`.
+    - Throwing a **non-Error** value gives odd shapes. A string gives an `extra` of indexed characters plus `length`, and no `message`. A number gives only the context keys, `step_id`, `job_id` and `flow_path`.
     - If serialising `extra` throws (a cycle, for example), the handler itself fails, `result.json` stays empty, and [WR-19](#wr-19) applies.
   - Which own properties Bun-native errors carry is [Q-WR-7](#q-wr-7).
 - **Evidence:** `backend/windmill-worker/src/bun_executor.rs:1948-1969`; `backend/tests/bun_jobs.rs:326-367` (a runtime error's `message` contains the thrown text) (all @ v1.767.0).
+- **Evidence for the context keys** (@ v1.862.0): `backend/windmill-worker/src/bun_executor.rs:2848-2875`, `:2922-2949`, with the keys at `:2851-2862` and `:2925-2936`.
 - **Conformance:** [WR-18/a–h](conformance.md#wr-18)
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; re-verified at v1.862.0):** 1.847.0 added `job_id` and `flow_path` after `step_id`, under the same non-empty rule. Both Bun wrappers at v1.862.0 build the object as listed above; the cases now show the two keys. The rest of the rule is unchanged.
 
 <a id="wr-19"></a>
 ### WR-19 · Failures that escape the wrapper's error shaping
@@ -1287,7 +1289,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - the same async-iterable stream rule;
     - preprocessor support.
   - **Different from Bun:**
-    - **Error object:** `{message, name, stack}` plus `step_id`, **without `extra`**.
+    - **Error object:** `{message, name, stack}` plus `step_id`, `job_id` and `flow_path` when set (the last two since 1.847.0, `backend/windmill-worker/src/deno_executor.rs:430-445` @ v1.862.0; [FX-12](execution.md#fx-12)), **without `extra`**.
     - **No [WR-V1](#wr-v1) fallback:** Deno always binds by name, so an override with an empty parsed list gets **no** arguments.
     - **Imports:** an import map points `/`, `./` and `../` at the API's `raw` endpoint. Both `raw` and `raw_unpinned` serve the latest deployed, non-archived version; only `raw_unpinned` strips package pins. Bun's runtime loader and Bun lock generation both use `raw_unpinned` ([WR-V9](#wr-v9)).
     - **Command:** `deno run --no-check --import-map … --reload=<base>`.
@@ -1327,7 +1329,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
   - **Streams:** any non-container iterable result is streamed as `WM_STREAM: ` lines. A numpy array or a pandas Series takes this path. Chunks must be `str`.
   - **Neither `main` nor the preprocessor is awaited** by the normal wrapper. An async `main`'s coroutine is therefore serialised via `str()`. Runtime-specific coroutine text should be normalised. This does not carry over to the separate workflow-as-code wrapper.
   - **Errors:**
-    - `except BaseException` writes `{message: str(e), name: <class name>, stack: <formatted traceback minus the first frame>, extra?: e.__dict__ when non-empty, step_id?}`, then exits 1.
+    - `except BaseException` writes `{message: str(e), name: <class name>, stack: <formatted traceback minus the first frame>, extra?: e.__dict__ when non-empty, step_id?, job_id?, flow_path?}`, then exits 1. The last two keys came in 1.847.0 (`backend/windmill-worker/src/python_executor.rs:1003-1010`, `:1079-1086` @ v1.862.0; [FX-12](execution.md#fx-12)).
     - So `sys.exit(0)` inside `main` is an error.
   - **Preprocessor** ([WR-V6](#wr-v6)):
     - it runs under the same condition as Bun's ([WR-11](#wr-11)) and is suppressed on the flow preprocessor step;
@@ -1535,7 +1537,8 @@ This section answers semantics request 1: the boundary rules of the native runti
 
 - **Rule:** a failed native job stores `{"error": E}` ([WR-21](#wr-21)). `E` takes one of two forms.
   1. **A JavaScript exception reached the end of the run.** It came from the entrypoint, from evaluating the module, from a failed dynamic `import()` that the script did not catch ([WR-40](#wr-40)), or from serialising the result.
-     - `E` has exactly the keys `message`, `stack` and `name`: `{"message": M, "stack": S, "name": N}`. There is **no `step_id`**, even inside a flow, and **no `extra`**: own properties such as `code` or `cause` are dropped (compare [WR-18](#wr-18)).
+     - `E` has the keys `message`, `stack` and `name`, `{"message": M, "stack": S, "name": N}`, followed by the step context keys of [FX-12](execution.md#fx-12): `step_id`, `job_id` and `flow_path`, each only when its variable is non-empty (since 1.850.0). The worker adds them to the error value after the run, whatever was thrown. There is **no `extra`**: own properties such as `code` or `cause` are dropped (compare [WR-18](#wr-18)).
+     - So inside a flow, `{"message": M, "stack": S, "name": N, "step_id": <module id>, "job_id": <the job's id>, "flow_path": <the parent job's path>}`. Form 2 below gets neither `job_id` nor `flow_path`.
      - **For an `Error` instance** (any object whose prototype chain reaches `Error.prototype`), the `name` and `message` properties, own or inherited, are read **together** as two optional strings:
        - when both are strings (or `String` objects), `N` and `M` are those strings. So `new Error()` gives `M` = `""`, and a subclass that does not set `name` gives `Error`;
        - a property that is `null` or `undefined` gives `null` for that field alone;
@@ -1560,9 +1563,14 @@ This section answers semantics request 1: the boundary rules of the native runti
 
      A `bunnative` syntax error fails earlier, while bundling, with the [WR-20](#wr-20) error of program `bun build`.
 - **Evidence:** `backend/windmill-worker/src/worker.rs:3557-3560` (the transpile runs before the runtime is called); `backend/windmill-runtime-nativets/src/lib.rs:384-401` (transpile errors), `:876-940` (load failure, exception shaping, the source line), `:1045-1058` (exception versus other failure), `:845-848` (heap), `:752-755` (proxy); `backend/windmill-worker/src/result_processor.rs:621-627` (a raw error value kept as is; other failures as `execution error:`), `:2020-2028`; `backend/windmill-common/src/error.rs:71-74`, `:146-151` (`Error: … @<location>`); `backend/windmill-worker/src/handle_child.rs:733-738` (timeout); deno_core 0.352.1 `error.rs:736-930` (fields read only from `Error` instances; other values give none), `:649-655` and `:763-769` (`name` and `message` decoded together, defaulting to none on failure), `:794-852` (`stack` read first so that the frames are stored; kept only when it is a string; the frames read back, else one frame from the exception's message), `:1604-1614` (the frames stored when V8 formats `stack`), `:975-1000` (the prototype test); serde_v8 0.261.1 `de.rs:197-220` (a string or `String` object is required; `null` and `undefined` give none); `:76-78` (pending resolution), `runtime/jsruntime.rs:1921-1944`, `:2029` (event-loop exceptions and unhandled rejections end the run) (all @ v1.767.0 unless named).
+- **Evidence for the step context keys** (all @ v1.862.0):
+  - `backend/windmill-worker/src/js_eval.rs:110-133`: the keys go into a raw error value that is a JSON object, from `WM_FLOW_STEP_ID`, `WM_JOB_ID` and `WM_FLOW_PATH`, each when non-empty; any other error is left as it is.
+  - Every native run applies it: `backend/windmill-worker/src/bun_executor.rs:3174`, `:3207`, `:3236` (`bunnative`) and `backend/windmill-worker/src/worker.rs:6704` (`nativets`).
+  - A worker-side error is not a raw value, so it keeps `step_id` alone: `backend/windmill-worker/src/result_processor.rs:671-677`.
 - **Conformance:** [WR-43/a–i](conformance.md#wr-43)
 - **Revision 2026-10-29 (source re-check, design request 1, chain C3n):** WR-43/c expected the first stack line to contain `throw new Error("x")` for both kinds. The `bunnative` bundle is syntax-minified, and Bun `1.3.10` drops the `new` from a call of the built-in `Error` constructor (checked on the release binary, outside Windmill, with Windmill's build options), so for `bunnative` the line holds `throw Error("x")`. The rule now says that a `bunnative` line is the minified code, and WR-43/c gives one expectation per kind.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** recorded every WR-43 case in both kinds (fixtures `conformance/flows/languages/native`, `wr-43` and `wr-43-stack`; oracle runs 40989292429, 40990751153 and 41020447570). All held as written except WR-43/i: the reference predicted a `stack` of one source line and a newline for an error whose script assigns `stack = 5`, and the oracle recorded `null`. Windmill takes the source line from the first frame deno_core reports (`backend/windmill-runtime-nativets/src/lib.rs:910-933`, `:1049-1055`), and deno_core stores frames only when V8 formats `stack` (deno_core 0.352.1 `error.rs:794-852`, `:1604-1614`); an assignment before any read means the error is never formatted. The rule now says so. Also recorded: the whole texts of a `nativets` syntax error (WR-43/f: the transpiler's diagnostic with the source excerpt, then ` @worker.rs:3560:9`) and of an entrypoint left pending with nothing to run (WR-43/e: at once, not after the step's timeout), and the stack's first two lines (WR-43/c).
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the keys re-verified at v1.862.0):** form 1 had no `step_id`. Since 1.850.0 every form 1 error gets the step context keys of [FX-12](execution.md#fx-12), recorded on WR-43/a–d, WR-43/g–i, WR-40/f, WR-40/h, WR-42/c, WR-44/b and WR-50/f (oracle run ORACLE_RUN_W5B). Form 2 has neither new key, as the native timeout of [FX-24/g](conformance.md#fx-24) shows on CE v1.862.0 (oracle run 42243035193). The rest is verified at v1.767.0 only.
 
 <a id="wr-44"></a>
 ### WR-44 · Timeout, heap and stack limits

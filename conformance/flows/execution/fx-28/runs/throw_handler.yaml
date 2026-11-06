@@ -13,7 +13,7 @@ expect:
     "m:a":
       status: failure
       args: {msg: x}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx28/throw_handler}}
       carried: {error: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}
     "s:failure": {status: success, args: {x: string}, result: string}
 note: >-

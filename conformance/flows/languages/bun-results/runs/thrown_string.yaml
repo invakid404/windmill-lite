@@ -5,10 +5,10 @@ spec: [FX-47/a, FX-36, OR-11]
 target: f/wl_e1_wr/thrown
 expect:
   status: failure
-  result: {error: {step_id: a, extra: {"0": a, "1": b, length: 2}}}
+  result: {error: {step_id: a, job_id: "<job:m:a>", flow_path: f/wl_e1_wr/thrown, extra: {"0": a, "1": b, length: 2}}}
   steps:
     "m:a":
       status: failure
       args: {}
-      result: {error: {step_id: a, extra: {"0": a, "1": b, length: 2}}}
+      result: {error: {step_id: a, job_id: "<job:m:a>", flow_path: f/wl_e1_wr/thrown, extra: {"0": a, "1": b, length: 2}}}
     "m:b": {status: not_run}

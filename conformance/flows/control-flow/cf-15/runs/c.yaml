@@ -11,6 +11,8 @@ expect:
         stack: "<stack>"
         message: b
         step_id: b1
+        job_id: "<job:m:ba/b:1/m:b1>"
+        flow_path: f/cf15/sequential_fail/branchall-1
   steps:
     "m:a": {status: success, args: {}, result: [1]}
     "m:ba":
@@ -22,6 +24,8 @@ expect:
             stack: "<stack>"
             message: b
             step_id: b1
+            job_id: "<job:m:ba/b:1/m:b1>"
+            flow_path: f/cf15/sequential_fail/branchall-1
     "m:ba/b:0/m:b0": {status: success, args: {x: [1]}, result: [1, 2]}
     "m:ba/b:1/m:b1":
       status: failure
@@ -32,3 +36,5 @@ expect:
           stack: "<stack>"
           message: b
           step_id: b1
+          job_id: "<job:m:ba/b:1/m:b1>"
+          flow_path: f/cf15/sequential_fail/branchall-1
