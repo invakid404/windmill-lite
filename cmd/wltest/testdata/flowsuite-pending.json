@@ -991,15 +991,15 @@
       "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
     },
     "conformance/flows/openflow/of-drivers/preview_absent": {
-      "milestone": "W8a",
+      "milestone": "W5e",
       "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
     },
     "conformance/flows/openflow/of-drivers/preview_false": {
-      "milestone": "W8a",
+      "milestone": "W5e",
       "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
     },
     "conformance/flows/openflow/of-drivers/preview_true": {
-      "milestone": "W8a",
+      "milestone": "W5e",
       "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
     },
     "conformance/flows/oracle/key-order/retry_keys": {
