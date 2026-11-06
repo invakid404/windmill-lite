@@ -76,7 +76,7 @@ The oracle runs in public CI; see
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
 | `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
-| `--pending FILE` | — | The retarget ledger. A run its `oracle` section lists may be `new`, `changed`, `expect_mismatch`, `failed` or `unstable` without failing the session, and gets a `pending:` line; an `unchanged` one gets a `stale:` line and fails a `--check` session ([The retarget ledger](#the-retarget-ledger)). A missing file lists no run. |
+| `--pending FILE` | — | The retarget ledger. A run its `oracle` section lists may be `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable` without failing the session, and gets a `pending:` line. An `unchanged` one gets a `stale:` line and fails a `--check` session ([The retarget ledger](#the-retarget-ledger)). A missing file lists no run. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
 `expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
@@ -767,6 +767,8 @@ Windmill v1.767.0's image).
   - `TestRetargetLedger` holds the committed ledger to the runs and cases
     it names, `TestRecordVerdict` checks how `record --pending` judges and
     prints a listed run, and `TestJudgeSuite` how the suites judge one.
+    The verdict on the reports of real sessions is tested in
+    [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch).
 
 ### Host mode
 
@@ -845,7 +847,7 @@ mode.
 |---|---|---|---|
 | `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite` |
 | `step_suite` | a step case: `<step file>/<case>` | the case fails in a mode the entry covers: `warm` or `fresh` | `TestStepSuite` |
-| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, and the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch) |
+| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, and the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch) |
 
 `conformance.ParseLedger` refuses unknown fields, a milestone that is not
 an id, an empty or multi-line reason, a mode listed twice, an `oracle`
@@ -867,6 +869,11 @@ case, or a run of a fixture or expression file.
   `--mismatched`. Only the session's verdict changes. A listed run
   reported `unchanged` already has its recording, so its entry is stale;
   a refused run fails as always.
+- A listed run that failed in the session itself still fails it. Its
+  report has `local_failure` set: a recording, observation or raw capture
+  that could not be placed or written, or a failed comparison with the
+  committed recording. No milestone clears that, and the run's evidence
+  would be missing.
 
 ### Markers in test code
 

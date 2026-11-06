@@ -243,9 +243,11 @@ func TestRetargetLedger(t *testing.T) {
 }
 
 // A run the ledger's oracle section lists may be new, changed,
-// expect_mismatch, failed or unstable without failing the session, and its
-// line says so; unchanged, its entry is stale and fails a check session; a
-// refusal still fails; a run the ledger does not list is judged as always.
+// expect_mismatch, failed on the oracle or unstable without failing the
+// session, and its line says so; unchanged, its entry is stale and fails a
+// check session; a local failure and a refusal still fail; a run the
+// ledger does not list is judged as always. internal/oracle's
+// TestPendingVerdictOnSessions judges the reports of real sessions.
 func TestRecordVerdict(t *testing.T) {
 	e := conformance.LedgerEntry{Milestone: "W5b", Reason: "step errors gain job_id"}
 	pending := map[string]conformance.LedgerEntry{"conformance/flows/x/f/r": e}
@@ -273,6 +275,13 @@ func TestRecordVerdict(t *testing.T) {
 		if fails != tc.fails || (tc.note == "") != (note == "") || !strings.HasPrefix(note, tc.note) {
 			t.Errorf("%s %s, check %v: fails %v, note %q; want %v, %q", tc.outcome, tc.fixture, tc.check, fails, note, tc.fails, tc.note)
 		}
+	}
+
+	// A listed run that failed in the session itself, such as a write of
+	// its observation, fails it: no milestone clears that.
+	local := oracle.RunReport{Fixture: "conformance/flows/x/f", Run: "r", Outcome: oracle.OutcomeFailed, LocalFailure: true, Error: "open m/x: not a directory"}
+	if fails, note := recordVerdict(local, true, pending); !fails || !strings.HasPrefix(note, "not pending: the run failed in this session, not on the oracle") {
+		t.Errorf("a listed local failure: fails %v, note %q", fails, note)
 	}
 
 	// printRuns prints the note below the run's line and its differences,

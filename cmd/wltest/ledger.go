@@ -226,23 +226,14 @@ func (s *ledgerScan) print(w io.Writer) {
 }
 
 // recordVerdict reports whether run r fails a record session, and a note
-// to print below its line when the ledger's oracle section lists it. A
-// listed run may be new, changed, expect_mismatch, failed or unstable: its
-// recording is what its milestone brings. A listed run that is unchanged
-// has its recording, so in check mode its entry is stale and fails the
-// session. A refusal fails as it always does.
+// to print below its line when the ledger's oracle section lists it
+// (oracle.RunReport.PendingVerdict).
 func recordVerdict(r oracle.RunReport, check bool, pending map[string]conformance.LedgerEntry) (fails bool, note string) {
 	e, listed := pending[r.Fixture+"/"+r.Run]
 	if !listed {
 		return r.Failed(check), ""
 	}
-	switch r.Outcome {
-	case oracle.OutcomeNew, oracle.OutcomeChanged, oracle.OutcomeExpectMismatch, oracle.OutcomeFailed, oracle.OutcomeUnstable:
-		return false, "pending: " + e.Marker()
-	case oracle.OutcomeUnchanged:
-		return check, "stale: the run is unchanged; remove its entry from the retarget ledger (" + e.Marker() + ")"
-	}
-	return r.Failed(check), ""
+	return r.PendingVerdict(check, e)
 }
 
 // A suite verdict is how a run of the flow suite or a step case went in one

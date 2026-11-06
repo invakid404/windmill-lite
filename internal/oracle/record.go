@@ -165,7 +165,19 @@ type RunReport struct {
 	// Observation is the file in MismatchDir that holds the observation
 	// of a run that did not match its expect.
 	Observation string `json:"observation,omitempty"`
+	// LocalFailure marks a failed run that failed in the session itself,
+	// after the oracle's part: its observation could not be compared with
+	// the committed recording, or its recording, observation or raw
+	// capture could not be placed or written.
+	LocalFailure bool `json:"local_failure,omitempty"`
 }
+
+// An outputError is a failure to write a run's raw capture, which the run
+// reports as a local failure.
+type outputError struct{ err error }
+
+func (e outputError) Error() string { return e.err.Error() }
+func (e outputError) Unwrap() error { return e.err }
 
 // Failed reports whether the run fails the session: always for a failure,
 // refusal, instability or expectation mismatch, and in check mode also for
@@ -864,6 +876,8 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 			switch {
 			case res.err != nil:
 				fail(k, OutcomeFailed, res.err, nil)
+				var oe outputError
+				out[k].LocalFailure = errors.As(res.err, &oe)
 			case i == 0:
 				first[k], prov[k] = res.obs, res.prov
 				prov[k].Group = group
@@ -934,6 +948,11 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 		}
 		return out
 	}
+	// A failure after the oracle's part is the session's own.
+	local := func(err error) *RunReport {
+		out.LocalFailure = true
+		return fail(OutcomeFailed, err, nil)
+	}
 	if r.Expect != nil {
 		ro := expectOpts
 		ro.WithRecording = true
@@ -950,7 +969,7 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 				err = writeRecording(dest, first, prov)
 			}
 			if err != nil {
-				return fail(OutcomeFailed, err, nil)
+				return local(err)
 			}
 			out.Observation = dest
 			return out
@@ -960,7 +979,7 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 	if r.Recorded != nil {
 		diffs, err := conformance.Compare(first, r.Recorded.Observation, opts)
 		if err != nil {
-			return fail(OutcomeFailed, err, nil)
+			return local(err)
 		}
 		out.Outcome = OutcomeUnchanged
 		for _, d := range diffs {
@@ -976,14 +995,14 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 	case s.OutDir != "":
 		var err error
 		if dest, err = s.place(s.OutDir, "--out", f, r.Name); err != nil {
-			return fail(OutcomeFailed, err, nil)
+			return local(err)
 		}
 	case !s.Check:
 		dest = f.RecordingPath(r.Name)
 	}
 	if dest != "" {
 		if err := writeRecording(dest, first, prov); err != nil {
-			return fail(OutcomeFailed, err, nil)
+			return local(err)
 		}
 		out.Wrote = dest
 	}
@@ -1120,7 +1139,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	w, err := (&Walker{Client: &wc, Workspace: ws, Tree: tree}).Walk(ctx, id, r.Target, r.IsScript())
 	if s.RawDir != "" {
 		if werr := s.writeRaw(f, r, rep, ws, root, effects, resp, capture); werr != nil && err == nil {
-			err = werr
+			err = outputError{werr}
 		}
 	}
 	if err != nil {
