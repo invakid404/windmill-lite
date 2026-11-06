@@ -30,10 +30,9 @@ question. Disputed findings are shown with both claims and are not settled.
 windmill-lite's code and tests cite these findings; this reference describes
 Windmill only.
 
-On 2026-11-06 the reference began moving from Windmill `v1.767.0` to
-`v1.862.0`, the release windmill-lite now follows. The move goes one area
-file at a time, as revisions touch them; [Pinned version](#pinned-version)
-says how to read a file during the move.
+The reference is moving from Windmill `v1.767.0` to `v1.862.0`, the
+release windmill-lite now follows, one area file at a time.
+[Pinned version](#pinned-version) says how to read a file during the move.
 
 ## Pinned version
 

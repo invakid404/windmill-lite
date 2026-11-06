@@ -547,6 +547,11 @@ the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
 HTTP adapter, WR-28/f to C2a, WR-50/c, WR-50/f and WR-50/h to C3n, and
 WR-50/g to E3f, whose fixture records it.
 
+`e3c.json` defers the Deno case of
+[FX-12](../../docs/semantics/execution.md#fx-12), the error object of a
+failed Deno step, to `none`: the oracle's standard CE image ships no Deno,
+so no run can record it.
+
 Batch E3f's manifest has no `gates` either. Its fixtures name the session
 they need, its deployment checks hold the deploy-shape cases of
 [Q-OF-1](../../docs/semantics/openflow.md#q-of-1), and it defers to
