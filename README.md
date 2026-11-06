@@ -348,3 +348,10 @@ scans each commit of a pull request with
 [gitleaks](https://github.com/gitleaks/gitleaks) (MIT licence), using its
 default rules and [.gitleaks.toml](.gitleaks.toml); it is not a required
 check.
+
+The Go jobs' step `Report the native realms and the process groups` runs,
+by name and with `-v`, the native realm check of
+[cmd/windmill-lite](cmd/windmill-lite/README.md#tests) and the tests of the
+process groups that a job's children join
+([WR-55](docs/semantics/languages.md#wr-55)). The `Test` step shows no
+skips, so this step fails when one of these tests skips or does not run.

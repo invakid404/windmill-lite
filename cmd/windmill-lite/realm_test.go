@@ -19,10 +19,12 @@ import (
 
 // These check what native-boundary invocations leave behind in a
 // long-lived Bun process. Each native invocation runs in a fresh node:vm
-// realm (harnesses/bun/runtime/native.ts). Under the pinned Bun 1.3.10,
-// every script that node:vm compiles from a string stays reachable after a
-// full collection, so a harness that compiles one per invocation grows with
-// every invocation it serves, without bound. The probe step f/native/probe
+// realm (harnesses/bun/runtime/native.ts). Under Bun 1.3.10, every script
+// that node:vm compiles from a string stays reachable after a full
+// collection, so a harness that compiles one per invocation grows with
+// every invocation it serves, without bound. Bun 1.4.3 keeps none of them;
+// these checks still hold the harness to compiling each script once, as
+// it does on any Bun. The probe step f/native/probe
 // reads, after a full collection, the count of JavaScriptCore Script
 // objects (heapStats().objectTypeCounts.Script, from bun:jsc), the
 // JavaScript heap and the resident set of the process it runs in: the
