@@ -40,9 +40,9 @@ operation's method, path template and operationId), which the facade
 embeds as data. No code is generated from it.
 
 Its references to ../../openflow.openapi.yaml are kept as Windmill wrote
-them. They are relative to backend/windmill-api/ in Windmill's repository,
-where they name the OpenFlow schema at the repository's root. From this
-directory they would name internal/openflow.openapi.yaml, which does not
-exist, and nothing in windmill-lite resolves them. That OpenFlow schema is
-vendored from the same commit as
-../../openflow/schema/openflow.openapi.yaml.
+them. They are relative to the file's place in Windmill's repository,
+backend/windmill-api/openapi.yaml, where they name the OpenFlow schema at
+the repository's root. From this directory they would name
+internal/openflow.openapi.yaml, which does not exist, and nothing in
+windmill-lite resolves them. That OpenFlow schema is vendored from the
+same commit as ../../openflow/schema/openflow.openapi.yaml.
