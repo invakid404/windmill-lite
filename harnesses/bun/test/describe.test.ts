@@ -1,7 +1,8 @@
 // Developer checks of describe (runtime/runtime.ts), the text the
-// harness's own messages give an error. Bun 1.3.10 builds the stack of an
-// Error that a garbage collection formats before anything read it without
-// the message; describe puts the message back.
+// harness's own messages give an error: its stack as Bun builds it. Bun
+// 1.3.10 built the stack of an Error that a garbage collection formatted
+// before anything read it without the message; Bun 1.4.3 keeps it, which
+// the first test checks.
 
 import { expect, test } from "bun:test";
 import { describe as describeError } from "../runtime/runtime.ts";
@@ -16,33 +17,26 @@ function made(message: string): Error {
   return e!;
 }
 
-test("a stack a collection built before anything read it gets its message back", () => {
+test("a stack a collection built before anything read it has its message", () => {
   for (const message of ["x".repeat(5000), "short", "two\nlines"]) {
-    const e = made(message);
-    Bun.gc(true);
-    const text = describeError(e);
-    expect(text.startsWith(`Error: ${message}\n`)).toBe(true);
-    expect(text).toContain("    at ");
+    for (let i = 0; i < 20; i++) {
+      const e = made(message);
+      Bun.gc(true);
+      const text = describeError(e);
+      expect(text.startsWith(`Error: ${message}\n`)).toBe(true);
+      expect(text).toContain("    at ");
+    }
   }
 });
 
-test("a stack whose first line is the name alone gets the message after it", () => {
-  const e = new TypeError("boom");
-  e.stack = "TypeError\n    at f (file:///s.ts:1:1)";
-  expect(describeError(e)).toBe("TypeError: boom\n    at f (file:///s.ts:1:1)");
-  const bare = new Error("only");
-  bare.stack = "Error";
-  expect(describeError(bare)).toBe("Error: only");
-});
-
-test("a stack that names its message, or an error without one, is kept as it is", () => {
+test("a stack is kept as it is", () => {
   const e = new Error("kept");
   void e.stack;
   Bun.gc(true);
   expect(describeError(e)).toBe(e.stack!);
-  const empty = new Error();
-  empty.stack = "Error\n    at f (file:///s.ts:1:1)";
-  expect(describeError(empty)).toBe("Error\n    at f (file:///s.ts:1:1)");
+  const bare = new TypeError("boom");
+  bare.stack = "TypeError\n    at f (file:///s.ts:1:1)";
+  expect(describeError(bare)).toBe("TypeError\n    at f (file:///s.ts:1:1)");
   const named = new RangeError("r");
   named.stack = "RangeError: something else\n    at g";
   expect(describeError(named)).toBe("RangeError: something else\n    at g");

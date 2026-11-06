@@ -1013,9 +1013,9 @@ untracked, and when a pending entrypoint fails as one that nothing can
 settle), and
 `test/fit.test.ts` how a warning's message
 is cut to fit `max_message`, and `test/describe.test.ts` the text the
-harness's own messages give an error: Bun 1.3.10 builds the stack of an
-error that a garbage collection formats before anything read it without
-the message, which `describe` puts back. `test/sender.test.ts`
+harness's own messages give an error: its stack as Bun builds it, which
+on Bun 1.4.3 keeps the message even when a garbage collection formats the
+stack before anything has read it. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation (a result held behind a large
 platform call of its invocation included), partial writes,
