@@ -241,10 +241,10 @@ jobs:
         # coverage rests on the pinned Bun: TestNativeInvocationsKeepNoScript
         # (cmd/windmill-lite), whose log gives the Script objects, heap and
         # resident set that native invocations leave in a long-lived Bun
-        # process, and the process-group tests of WR-55 (internal/harness,
-        # the Linux-only subreaper test included, and the host's
-        # TestHostChildUnderBackpressure). It fails if any of them skips or
-        # does not run.
+        # process, and the tests of the process groups that a job's
+        # children join (internal/harness, the Linux-only subreaper test
+        # included, and the host's TestHostChildUnderBackpressure). It
+        # fails if any of them skips or does not run.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
           WL_REQUIRE_BUN: "1"
