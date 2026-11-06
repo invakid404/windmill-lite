@@ -389,7 +389,7 @@ a few at a time (`flows.go`):
    run that has not ended after 150 s fails: sleeps and retry delays are
    waited for on the real clock, and the monitor of flows that hang between
    steps ends a runaway expression's run after 60 s, as on the oracle
-   (JE-2/a, milestone N2). Each run has its own id, which its
+   after a first step ([JE-2](../../docs/semantics/expressions.md#je-2)). Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
    `WM_ROOT_JOB_ID`; the trace records each step's job id (`WM_JOB_ID`),
    superseded attempts' included, with its site.
