@@ -562,6 +562,8 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 
 - `frames_test.go` runs the codec cases of `conformance/protocol/frames.json`
   and, with `-args -update`, rewrites their payloads from Go's encoder.
+  Without `-update` it fails unless the file is exactly what `-update`
+  writes, so `-update` changes only what the encoder changes.
 - `qwa4_test.go` is W1's Q-WA-4 env-view test
   ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4),
   [WA-31](../../docs/semantics/client-api.md#wa-31)): the stock
