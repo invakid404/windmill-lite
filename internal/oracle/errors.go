@@ -9,7 +9,7 @@ import (
 
 // Refusal is a run the harness refuses to start or continue, in the JSON
 // form the reference gives it, for example
-// {"error":"oracle_version_mismatch","got":"EE v1.767.0"} (OR-1/b). Its
+// {"error":"oracle_version_mismatch","got":"EE v1.862.0"} (OR-1/b). Its
 // Error text is that JSON.
 type Refusal struct {
 	// Code is the "error" member.

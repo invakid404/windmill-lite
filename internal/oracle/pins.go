@@ -5,10 +5,10 @@ package oracle
 const (
 	// WindmillRepo is the CE image repository.
 	WindmillRepo = "ghcr.io/windmill-labs/windmill"
-	// WindmillDigest is the digest of the multi-arch index of 1.767.0.
-	WindmillDigest = "sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43"
+	// WindmillDigest is the digest of the multi-arch index of 1.862.0.
+	WindmillDigest = "sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19"
 	// WindmillImage is the full image reference the compose file uses.
-	WindmillImage = WindmillRepo + ":1.767.0@" + WindmillDigest
+	WindmillImage = WindmillRepo + ":1.862.0@" + WindmillDigest
 
 	// PostgresRepo is the database image repository.
 	PostgresRepo = "postgres"
@@ -19,14 +19,17 @@ const (
 	PostgresImage = PostgresRepo + ":16-alpine@" + PostgresDigest
 
 	// OracleVersion is what GET /api/version must return, exactly (OR-1).
-	OracleVersion = "CE v1.767.0"
+	OracleVersion = "CE v1.862.0"
 	// CLIVersion is the version of the published windmill-cli package
 	// the harness runs as a black-box tool (OR-8).
-	CLIVersion = "1.767.0"
+	CLIVersion = "1.862.0"
 	// CLIPackage is the npm package spec of that CLI.
 	CLIPackage = "windmill-cli@" + CLIVersion
-	// BunVersion is the Bun inside the image (OR-2, WR-3).
-	BunVersion = "1.3.10"
+	// BunVersion is the Bun inside the image (OR-2, WR-3), as the env
+	// probe's run observes it. It is recorded for provenance only and is
+	// never the engine's Bun: windmill-lite pins its own (PinnedBun in
+	// internal/harness), and the two may differ.
+	BunVersion = "1.4.4"
 
 	// ProjectName is the compose project of an oracle session (OR-18).
 	ProjectName = "wl-oracle"

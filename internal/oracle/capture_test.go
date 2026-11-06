@@ -120,7 +120,8 @@ func TestReplayRecordedCaptures(t *testing.T) {
 }
 
 // TestCommittedRecordingsNameThePinnedOracle: every recording committed
-// under conformance/flows was made on the pinned oracle with the pinned
+// under conformance/flows, and every recording of an expression case
+// under conformance/exprs, was made on the pinned oracle with the pinned
 // loader (OR-V5/b), so a recording of another reference fails the Go CI,
 // not only the next oracle run.
 func TestCommittedRecordingsNameThePinnedOracle(t *testing.T) {
@@ -129,30 +130,47 @@ func TestCommittedRecordingsNameThePinnedOracle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recordings := 0
+	var fixtures []*conformance.Fixture
 	for _, d := range dirs {
 		f, err := conformance.LoadFixture(d)
 		if err != nil {
 			t.Fatal(err)
 		}
+		fixtures = append(fixtures, f)
+	}
+	for _, ef := range loadExprFiles(t) {
+		f, err := conformance.LiftExprFile(ef, filepath.Join(t.TempDir(), "lifted"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixtures = append(fixtures, f)
+	}
+	flows, exprs := 0, 0
+	for i, f := range fixtures {
 		for _, r := range f.Runs {
 			if r.Recorded == nil {
 				continue
 			}
-			recordings++
+			if i < len(dirs) {
+				flows++
+			} else {
+				exprs++
+			}
 			if err := CheckRecordingIdentity(r.Recorded.Provenance); err != nil {
-				t.Errorf("%s run %s: %v", d, r.Name, err)
+				t.Errorf("%s run %s: %v", f.Dir, r.Name, err)
 			}
 		}
 	}
-	if recordings == 0 {
-		t.Fatal("no committed recordings")
+	if flows == 0 || exprs == 0 {
+		t.Fatalf("committed recordings: %d of flow runs, %d of expression cases; want both", flows, exprs)
 	}
 	for _, bad := range []string{
-		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.767.0-beta"}}`,
-		`{"oracle":{"version":"CE v1.767.0 ","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
-		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillRepo + `:1.767.0","cli":"` + CLIPackage + `"}}`,
+		`{"oracle":{"version":"CE v1.862.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.862.0-beta"}}`,
+		`{"oracle":{"version":"CE v1.862.0 ","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
+		`{"oracle":{"version":"CE v1.862.0","image":"` + WindmillRepo + `:1.862.0","cli":"` + CLIPackage + `"}}`,
 		`{"oracle":{"version":null,"image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
+		// The previous pin's identity.
+		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillRepo + `:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43","cli":"windmill-cli@1.767.0"}}`,
 		`not json`,
 	} {
 		if err := CheckRecordingIdentity(json.RawMessage(bad)); err == nil {

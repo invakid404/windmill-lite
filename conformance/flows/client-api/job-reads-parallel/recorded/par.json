@@ -82,7 +82,9 @@
         "workspace_id": "<env:WM_WORKSPACE>",
         "permissioned_as": "<env:WM_PERMISSIONED_AS>"
       },
-      "extra": [],
+      "extra": [
+        "job.resolved"
+      ],
       "top/l": {
         "id": "<job:m:l/i:0>",
         "args": {
@@ -232,7 +234,7 @@
               "modules": [
                 {
                   "id": "l",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "iterator": {
                     "index": 0,
@@ -460,7 +462,7 @@
                 },
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -498,7 +500,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/l": {
             "id": "<job:m:l/i:0>",
             "args": {
@@ -616,7 +620,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -869,7 +873,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -1121,7 +1125,7 @@
               "modules": [
                 {
                   "id": "l",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "iterator": {
                     "index": 0,
@@ -1317,7 +1321,7 @@
                 },
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -1355,7 +1359,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/l": {
             "id": "<job:m:l/i:0>",
             "args": {
@@ -1473,7 +1479,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -1726,7 +1732,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -1951,7 +1957,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/l": {
             "id": "<job:m:l/i:0>",
             "args": {
@@ -2101,7 +2109,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -2329,7 +2337,7 @@
                     },
                     {
                       "id": "ba",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -2367,7 +2375,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/l": {
                 "id": "<job:m:l/i:0>",
                 "args": {
@@ -2485,7 +2495,7 @@
                       "modules": [
                         {
                           "id": "l",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "iterator": {
                             "index": 0,
@@ -2738,7 +2748,7 @@
                       "modules": [
                         {
                           "id": "l",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "iterator": {
                             "index": 0,
@@ -2990,7 +3000,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -3186,7 +3196,7 @@
                     },
                     {
                       "id": "ba",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -3224,7 +3234,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/l": {
                 "id": "<job:m:l/i:0>",
                 "args": {
@@ -3342,7 +3354,7 @@
                       "modules": [
                         {
                           "id": "l",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "iterator": {
                             "index": 0,
@@ -3595,7 +3607,7 @@
                       "modules": [
                         {
                           "id": "l",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "iterator": {
                             "index": 0,
@@ -3820,7 +3832,7 @@
                   },
                   {
                     "id": "ba",
-                    "job": "<one of flow_jobs>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "parallel": true,
                     "branchall": {
@@ -3858,7 +3870,9 @@
               "workspace_id": "<env:WM_WORKSPACE>",
               "permissioned_as": "<env:WM_PERMISSIONED_AS>"
             },
-            "extra": [],
+            "extra": [
+              "job.resolved"
+            ],
             "top/l": {
               "id": "<job:m:l/i:0>",
               "args": {
@@ -3976,7 +3990,7 @@
                     "modules": [
                       {
                         "id": "l",
-                        "job": "<one of flow_jobs>",
+                        "job": "<job:>",
                         "type": "InProgress",
                         "iterator": {
                           "index": 0,
@@ -4229,7 +4243,7 @@
                     "modules": [
                       {
                         "id": "l",
-                        "job": "<one of flow_jobs>",
+                        "job": "<job:>",
                         "type": "InProgress",
                         "iterator": {
                           "index": 0,
@@ -4454,7 +4468,7 @@
                 },
                 {
                   "id": "ba",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -4492,7 +4506,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/l": {
             "id": "<job:m:l/i:0>",
             "args": {
@@ -4610,7 +4626,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -4863,7 +4879,7 @@
                   "modules": [
                     {
                       "id": "l",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "iterator": {
                         "index": 0,
@@ -5067,7 +5083,7 @@
                 "modules": [
                   {
                     "id": "l",
-                    "job": "<one of flow_jobs>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "iterator": {
                       "index": 0,
@@ -5251,7 +5267,7 @@
               "modules": [
                 {
                   "id": "l",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "iterator": {
                     "index": 0,
@@ -5354,19 +5370,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261104133521-14c5b688b493",
-      "revision": "14c5b688b4935d62c24469710a235b3436b69c28",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -5374,90 +5390,90 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41839478258"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-11-04T13:39:59Z",
+    "recorded_at": "2026-11-06T15:29:55Z",
     "workers": 2,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:35343"
+      "WL_EFFECT_SINK": "http://host.docker.internal:39015"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 4210,
+      "submit_to_complete_ms": 4217,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:39:55.666836Z",
-          "started_at": "2026-11-04T13:39:55.686436Z",
-          "completed_at": "2026-11-04T13:39:59.741820Z",
-          "duration_ms": 4055
+          "created_at": "2026-11-06T15:29:51.271535Z",
+          "started_at": "2026-11-06T15:29:51.283274Z",
+          "completed_at": "2026-11-06T15:29:55.292897Z",
+          "duration_ms": 4010
         },
         "m:after": {
           "kind": "script",
-          "created_at": "2026-11-04T13:39:59.646003Z",
-          "started_at": "2026-11-04T13:39:59.691114Z",
-          "completed_at": "2026-11-04T13:39:59.737154Z",
-          "duration_ms": 42
+          "created_at": "2026-11-06T15:29:55.234804Z",
+          "started_at": "2026-11-06T15:29:55.248922Z",
+          "completed_at": "2026-11-06T15:29:55.288340Z",
+          "duration_ms": 36
         },
         "m:ba/b:0": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:39:57.668199Z",
-          "started_at": "2026-11-04T13:39:57.679838Z",
-          "completed_at": "2026-11-04T13:39:59.641230Z",
-          "duration_ms": 1961
+          "created_at": "2026-11-06T15:29:53.243059Z",
+          "started_at": "2026-11-06T15:29:53.283944Z",
+          "completed_at": "2026-11-06T15:29:55.229839Z",
+          "duration_ms": 1946
         },
         "m:ba/b:0/m:s0": {
           "kind": "script",
-          "created_at": "2026-11-04T13:39:57.683144Z",
-          "started_at": "2026-11-04T13:39:57.690805Z",
-          "completed_at": "2026-11-04T13:39:59.638104Z",
-          "duration_ms": 1945
+          "created_at": "2026-11-06T15:29:53.287038Z",
+          "started_at": "2026-11-06T15:29:53.296439Z",
+          "completed_at": "2026-11-06T15:29:55.226522Z",
+          "duration_ms": 1927
         },
         "m:ba/b:1": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:39:57.668199Z",
-          "started_at": "2026-11-04T13:39:57.685981Z",
-          "completed_at": "2026-11-04T13:39:58.080750Z",
-          "duration_ms": 395
+          "created_at": "2026-11-06T15:29:53.243059Z",
+          "started_at": "2026-11-06T15:29:53.289908Z",
+          "completed_at": "2026-11-06T15:29:53.649682Z",
+          "duration_ms": 360
         },
         "m:ba/b:1/m:s1": {
           "kind": "script",
-          "created_at": "2026-11-04T13:39:57.688813Z",
-          "started_at": "2026-11-04T13:39:57.711638Z",
-          "completed_at": "2026-11-04T13:39:58.076009Z",
-          "duration_ms": 361
+          "created_at": "2026-11-06T15:29:53.292699Z",
+          "started_at": "2026-11-06T15:29:53.300569Z",
+          "completed_at": "2026-11-06T15:29:53.644994Z",
+          "duration_ms": 342
         },
         "m:l/i:0": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:39:55.688425Z",
-          "started_at": "2026-11-04T13:39:55.694616Z",
-          "completed_at": "2026-11-04T13:39:57.660949Z",
-          "duration_ms": 1966
+          "created_at": "2026-11-06T15:29:51.285497Z",
+          "started_at": "2026-11-06T15:29:51.289971Z",
+          "completed_at": "2026-11-06T15:29:53.235414Z",
+          "duration_ms": 1945
         },
         "m:l/i:0/m:s": {
           "kind": "script",
-          "created_at": "2026-11-04T13:39:55.698179Z",
-          "started_at": "2026-11-04T13:39:55.707601Z",
-          "completed_at": "2026-11-04T13:39:57.655305Z",
-          "duration_ms": 1945
+          "created_at": "2026-11-06T15:29:51.293729Z",
+          "started_at": "2026-11-06T15:29:51.295905Z",
+          "completed_at": "2026-11-06T15:29:53.230768Z",
+          "duration_ms": 1931
         },
         "m:l/i:1": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:39:55.688425Z",
-          "started_at": "2026-11-04T13:39:55.700869Z",
-          "completed_at": "2026-11-04T13:39:56.071174Z",
-          "duration_ms": 370
+          "created_at": "2026-11-06T15:29:51.285497Z",
+          "started_at": "2026-11-06T15:29:51.294414Z",
+          "completed_at": "2026-11-06T15:29:51.638081Z",
+          "duration_ms": 344
         },
         "m:l/i:1/m:s": {
           "kind": "script",
-          "created_at": "2026-11-04T13:39:55.705335Z",
-          "started_at": "2026-11-04T13:39:55.718862Z",
-          "completed_at": "2026-11-04T13:39:56.068172Z",
-          "duration_ms": 346
+          "created_at": "2026-11-06T15:29:51.299115Z",
+          "started_at": "2026-11-06T15:29:51.302192Z",
+          "completed_at": "2026-11-06T15:29:51.635499Z",
+          "duration_ms": 331
         }
       }
     }

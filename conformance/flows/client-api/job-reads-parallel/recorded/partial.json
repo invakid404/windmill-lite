@@ -80,7 +80,9 @@
         "workspace_id": "<env:WM_WORKSPACE>",
         "permissioned_as": "<env:WM_PERMISSIONED_AS>"
       },
-      "extra": [],
+      "extra": [
+        "job.resolved"
+      ],
       "top/b1": {
         "id": "<job:m:b1/b:1>",
         "args": {},
@@ -152,7 +154,7 @@
               "modules": [
                 {
                   "id": "b1",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -192,7 +194,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1/0": {
             "id": "<job:m:b1/b:0>",
             "args": {},
@@ -356,7 +360,7 @@
                 },
                 {
                   "id": "b2",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -393,7 +397,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1": {
             "id": "<job:m:b1/b:1>",
             "args": {},
@@ -465,7 +471,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -505,7 +511,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -690,7 +698,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -730,7 +738,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -996,7 +1006,7 @@
               "modules": [
                 {
                   "id": "b1",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -1036,7 +1046,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1/0": {
             "id": "<job:m:b1/b:0>",
             "args": {},
@@ -1219,7 +1231,7 @@
                 },
                 {
                   "id": "b2",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -1256,7 +1268,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1": {
             "id": "<job:m:b1/b:1>",
             "args": {},
@@ -1328,7 +1342,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -1368,7 +1382,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -1553,7 +1569,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -1593,7 +1609,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -1859,7 +1877,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1": {
             "id": "<job:m:b1/b:1>",
             "args": {},
@@ -1931,7 +1951,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -1971,7 +1991,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -2135,7 +2157,7 @@
                     },
                     {
                       "id": "b2",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -2172,7 +2194,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1": {
                 "id": "<job:m:b1/b:1>",
                 "args": {},
@@ -2244,7 +2268,7 @@
                       "modules": [
                         {
                           "id": "b1",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "parallel": true,
                           "branchall": {
@@ -2284,7 +2308,9 @@
                     "workspace_id": "<env:WM_WORKSPACE>",
                     "permissioned_as": "<env:WM_PERMISSIONED_AS>"
                   },
-                  "extra": [],
+                  "extra": [
+                    "job.resolved"
+                  ],
                   "top/b1/0": {
                     "id": "<job:m:b1/b:0>",
                     "args": {},
@@ -2469,7 +2495,7 @@
                       "modules": [
                         {
                           "id": "b1",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "parallel": true,
                           "branchall": {
@@ -2509,7 +2535,9 @@
                     "workspace_id": "<env:WM_WORKSPACE>",
                     "permissioned_as": "<env:WM_PERMISSIONED_AS>"
                   },
-                  "extra": [],
+                  "extra": [
+                    "job.resolved"
+                  ],
                   "top/b1/0": {
                     "id": "<job:m:b1/b:0>",
                     "args": {},
@@ -2775,7 +2803,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -2815,7 +2843,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -2998,7 +3028,7 @@
                     },
                     {
                       "id": "b2",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -3035,7 +3065,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1": {
                 "id": "<job:m:b1/b:1>",
                 "args": {},
@@ -3107,7 +3139,7 @@
                       "modules": [
                         {
                           "id": "b1",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "parallel": true,
                           "branchall": {
@@ -3147,7 +3179,9 @@
                     "workspace_id": "<env:WM_WORKSPACE>",
                     "permissioned_as": "<env:WM_PERMISSIONED_AS>"
                   },
-                  "extra": [],
+                  "extra": [
+                    "job.resolved"
+                  ],
                   "top/b1/0": {
                     "id": "<job:m:b1/b:0>",
                     "args": {},
@@ -3332,7 +3366,7 @@
                       "modules": [
                         {
                           "id": "b1",
-                          "job": "<one of flow_jobs>",
+                          "job": "<job:>",
                           "type": "InProgress",
                           "parallel": true,
                           "branchall": {
@@ -3372,7 +3406,9 @@
                     "workspace_id": "<env:WM_WORKSPACE>",
                     "permissioned_as": "<env:WM_PERMISSIONED_AS>"
                   },
-                  "extra": [],
+                  "extra": [
+                    "job.resolved"
+                  ],
                   "top/b1/0": {
                     "id": "<job:m:b1/b:0>",
                     "args": {},
@@ -3626,7 +3662,7 @@
                 "modules": [
                   {
                     "id": "b1",
-                    "job": "<one of flow_jobs>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "parallel": true,
                     "branchall": {
@@ -3666,7 +3702,9 @@
               "workspace_id": "<env:WM_WORKSPACE>",
               "permissioned_as": "<env:WM_PERMISSIONED_AS>"
             },
-            "extra": [],
+            "extra": [
+              "job.resolved"
+            ],
             "top/b1/0": {
               "id": "<job:m:b1/b:0>",
               "args": {},
@@ -3801,7 +3839,7 @@
               "modules": [
                 {
                   "id": "b1",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -3841,7 +3879,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1/0": {
             "id": "<job:m:b1/b:0>",
             "args": {},
@@ -3978,7 +4018,7 @@
                   },
                   {
                     "id": "b2",
-                    "job": "<one of flow_jobs>",
+                    "job": "<job:>",
                     "type": "InProgress",
                     "parallel": true,
                     "branchall": {
@@ -4015,7 +4055,9 @@
               "workspace_id": "<env:WM_WORKSPACE>",
               "permissioned_as": "<env:WM_PERMISSIONED_AS>"
             },
-            "extra": [],
+            "extra": [
+              "job.resolved"
+            ],
             "top/b1": {
               "id": "<job:m:b1/b:1>",
               "args": {},
@@ -4087,7 +4129,7 @@
                     "modules": [
                       {
                         "id": "b1",
-                        "job": "<one of flow_jobs>",
+                        "job": "<job:>",
                         "type": "InProgress",
                         "parallel": true,
                         "branchall": {
@@ -4127,7 +4169,9 @@
                   "workspace_id": "<env:WM_WORKSPACE>",
                   "permissioned_as": "<env:WM_PERMISSIONED_AS>"
                 },
-                "extra": [],
+                "extra": [
+                  "job.resolved"
+                ],
                 "top/b1/0": {
                   "id": "<job:m:b1/b:0>",
                   "args": {},
@@ -4312,7 +4356,7 @@
                     "modules": [
                       {
                         "id": "b1",
-                        "job": "<one of flow_jobs>",
+                        "job": "<job:>",
                         "type": "InProgress",
                         "parallel": true,
                         "branchall": {
@@ -4352,7 +4396,9 @@
                   "workspace_id": "<env:WM_WORKSPACE>",
                   "permissioned_as": "<env:WM_PERMISSIONED_AS>"
                 },
-                "extra": [],
+                "extra": [
+                  "job.resolved"
+                ],
                 "top/b1/0": {
                   "id": "<job:m:b1/b:0>",
                   "args": {},
@@ -4575,7 +4621,7 @@
                 },
                 {
                   "id": "b2",
-                  "job": "<one of flow_jobs>",
+                  "job": "<job:>",
                   "type": "InProgress",
                   "parallel": true,
                   "branchall": {
@@ -4612,7 +4658,9 @@
             "workspace_id": "<env:WM_WORKSPACE>",
             "permissioned_as": "<env:WM_PERMISSIONED_AS>"
           },
-          "extra": [],
+          "extra": [
+            "job.resolved"
+          ],
           "top/b1": {
             "id": "<job:m:b1/b:1>",
             "args": {},
@@ -4684,7 +4732,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -4724,7 +4772,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -4909,7 +4959,7 @@
                   "modules": [
                     {
                       "id": "b1",
-                      "job": "<one of flow_jobs>",
+                      "job": "<job:>",
                       "type": "InProgress",
                       "parallel": true,
                       "branchall": {
@@ -4949,7 +4999,9 @@
                 "workspace_id": "<env:WM_WORKSPACE>",
                 "permissioned_as": "<env:WM_PERMISSIONED_AS>"
               },
-              "extra": [],
+              "extra": [
+                "job.resolved"
+              ],
               "top/b1/0": {
                 "id": "<job:m:b1/b:0>",
                 "args": {},
@@ -5096,19 +5148,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.860.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.863.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261104133521-14c5b688b493",
-      "revision": "14c5b688b4935d62c24469710a235b3436b69c28",
+      "version": "v0.0.0-20261106152614-854dda44b0fa",
+      "revision": "854dda44b0fa1b9be8305debab0b066aed821851",
       "go": "go1.27.3"
     },
     "host": {
@@ -5116,90 +5168,90 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/41839478258"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42243035193"
     },
-    "recorded_at": "2026-11-04T13:40:06Z",
+    "recorded_at": "2026-11-06T15:30:02Z",
     "workers": 2,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:35343"
+      "WL_EFFECT_SINK": "http://host.docker.internal:39015"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 2609,
+      "submit_to_complete_ms": 2410,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-04T13:40:04.206772Z",
-          "started_at": "2026-11-04T13:40:04.232015Z",
-          "completed_at": "2026-11-04T13:40:06.646799Z",
-          "duration_ms": 2415
+          "created_at": "2026-11-06T15:29:59.605285Z",
+          "started_at": "2026-11-06T15:29:59.622307Z",
+          "completed_at": "2026-11-06T15:30:01.939784Z",
+          "duration_ms": 2317
         },
         "m:after": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:06.552964Z",
-          "started_at": "2026-11-04T13:40:06.590893Z",
-          "completed_at": "2026-11-04T13:40:06.641621Z",
-          "duration_ms": 48
+          "created_at": "2026-11-06T15:30:01.870012Z",
+          "started_at": "2026-11-06T15:30:01.896758Z",
+          "completed_at": "2026-11-06T15:30:01.933807Z",
+          "duration_ms": 34
         },
         "m:b1/b:0": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:40:04.234256Z",
-          "started_at": "2026-11-04T13:40:04.238213Z",
-          "completed_at": "2026-11-04T13:40:04.287393Z",
-          "duration_ms": 49
+          "created_at": "2026-11-06T15:29:59.623666Z",
+          "started_at": "2026-11-06T15:29:59.628240Z",
+          "completed_at": "2026-11-06T15:29:59.660812Z",
+          "duration_ms": 33
         },
         "m:b1/b:0/m:x": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:04.240791Z",
-          "started_at": "2026-11-04T13:40:04.247062Z",
-          "completed_at": "2026-11-04T13:40:04.283116Z",
-          "duration_ms": 34
+          "created_at": "2026-11-06T15:29:59.631900Z",
+          "started_at": "2026-11-06T15:29:59.639649Z",
+          "completed_at": "2026-11-06T15:29:59.655950Z",
+          "duration_ms": 14
         },
         "m:b1/b:1": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:40:04.234256Z",
-          "started_at": "2026-11-04T13:40:04.242820Z",
-          "completed_at": "2026-11-04T13:40:05.318692Z",
-          "duration_ms": 1076
+          "created_at": "2026-11-06T15:29:59.623666Z",
+          "started_at": "2026-11-06T15:29:59.634619Z",
+          "completed_at": "2026-11-06T15:30:00.692745Z",
+          "duration_ms": 1058
         },
         "m:b1/b:1/m:y": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:04.245132Z",
-          "started_at": "2026-11-04T13:40:04.261886Z",
-          "completed_at": "2026-11-04T13:40:05.314428Z",
-          "duration_ms": 1049
+          "created_at": "2026-11-06T15:29:59.637209Z",
+          "started_at": "2026-11-06T15:29:59.656868Z",
+          "completed_at": "2026-11-06T15:30:00.688538Z",
+          "duration_ms": 1029
         },
         "m:b2/b:0": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:40:05.325077Z",
-          "started_at": "2026-11-04T13:40:05.368426Z",
-          "completed_at": "2026-11-04T13:40:06.543270Z",
-          "duration_ms": 1175
+          "created_at": "2026-11-06T15:30:00.699037Z",
+          "started_at": "2026-11-06T15:30:00.708056Z",
+          "completed_at": "2026-11-06T15:30:01.864864Z",
+          "duration_ms": 1157
         },
         "m:b2/b:0/m:y": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:05.371929Z",
-          "started_at": "2026-11-04T13:40:05.375807Z",
-          "completed_at": "2026-11-04T13:40:06.538811Z",
-          "duration_ms": 1160
+          "created_at": "2026-11-06T15:30:00.710892Z",
+          "started_at": "2026-11-06T15:30:00.717806Z",
+          "completed_at": "2026-11-06T15:30:01.860929Z",
+          "duration_ms": 1141
         },
         "m:b2/b:1": {
           "kind": "flowpreview",
-          "created_at": "2026-11-04T13:40:05.325077Z",
-          "started_at": "2026-11-04T13:40:05.370939Z",
-          "completed_at": "2026-11-04T13:40:05.416086Z",
-          "duration_ms": 45
+          "created_at": "2026-11-06T15:30:00.699037Z",
+          "started_at": "2026-11-06T15:30:00.713377Z",
+          "completed_at": "2026-11-06T15:30:00.761270Z",
+          "duration_ms": 48
         },
         "m:b2/b:1/m:x": {
           "kind": "script",
-          "created_at": "2026-11-04T13:40:05.374326Z",
-          "started_at": "2026-11-04T13:40:05.377138Z",
-          "completed_at": "2026-11-04T13:40:05.412581Z",
-          "duration_ms": 33
+          "created_at": "2026-11-06T15:30:00.715912Z",
+          "started_at": "2026-11-06T15:30:00.740930Z",
+          "completed_at": "2026-11-06T15:30:00.757412Z",
+          "duration_ms": 14
         }
       }
     }
