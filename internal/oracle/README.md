@@ -6,7 +6,7 @@ the recording batches E3a to E3f). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
-fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
+fixtures on an unmodified Windmill CE `v1.862.0`, which runs in public CI
 only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
 and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
 records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)),
@@ -55,7 +55,7 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    and `docker compose up -d`. A two-worker session enables the `workers2`
    profile ([OR-5](../../docs/semantics/oracle.md#or-5)). The disk watchdog
    covers the start and the rest of the session.
-3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.767.0`,
+3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.862.0`,
    then for a healthy status with enough workers; log in as the seeded
    superadmin ([OR-6](../../docs/semantics/oracle.md#or-6)).
 4. **Per fixture.** Skip a fixture with host-provided sites
@@ -183,7 +183,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
-| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
+| `cli.go` | Runs the published `windmill-cli@1.862.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.862.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
 | `redact.go` | Keeps the session's bearer token out of everything the session writes ([The session token](#the-session-token)). |
 | `layout.go` | Copies of a sync tree (milestone E4c): `PlanLayout` finds the paths outside the tree that its codebase entries name, `CopyLayout` copies the tree with them beside it ([Copies of a sync tree](#copies-of-a-sync-tree)). |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |

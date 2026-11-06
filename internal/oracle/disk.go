@@ -23,16 +23,19 @@ const (
 )
 
 // imageDiskEstimate is the on-disk size assumed for an image that is not
-// present yet (OR-30 step 2): the measured arm64 size of the Windmill image,
-// three times the compressed amd64 size until the amd64 size is measured
-// (Q-OR-2), and the measured size of the Postgres image for both.
+// present yet (OR-30 step 2). For the Windmill image it is three times the
+// compressed size of its layers, rounded up to the megabyte: the stand-in
+// OR-30 gives before a measurement. On amd64 (1,736,847,431 bytes
+// compressed) the stand-in stays, since it lies above the 4,505,115,011
+// bytes measured in CI; arm64 (1,668,393,162 bytes compressed) is
+// unmeasured. For the Postgres image it is the measured size on both.
 func imageDiskEstimate(image, arch string) uint64 {
 	switch image {
 	case WindmillImage:
 		if arch == "arm64" {
-			return 3_940_469_084
+			return 3 * 1_669_000_000
 		}
-		return 3 * 1_373_000_000
+		return 3 * 1_737_000_000
 	case PostgresImage:
 		return 288_118_565
 	}

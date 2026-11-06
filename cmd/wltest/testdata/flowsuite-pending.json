@@ -2,5 +2,754 @@
   "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
   "flow_suite": {},
   "step_suite": {},
-  "oracle": {}
+  "oracle": {
+    "conformance/flows/client-api/driven/restart": {
+      "milestone": "W5a",
+      "reason": "CE 1.862.0 answers the restart route with 400 (an enterprise feature), where the expect has v1.767.0's 500"
+    },
+    "conformance/flows/client-api/driven/wa19d": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/client-api/facade-answers/answers": {
+      "milestone": "W5e",
+      "reason": "a job token can no longer resolve CUSTOM_INSTANCE_DB at CE 1.862.0 (401), and the decrypt text and location suffixes changed"
+    },
+    "conformance/flows/client-api/facade-answers/secret_arg": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/client-api/providers/invalid_path": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/client-api/raw-requests/requests": {
+      "milestone": "W5e",
+      "reason": "CE 1.862.0 accepts the two NUL requests and strips the NUL (1.826.0), so their bodies are job ids that differ per repeat"
+    },
+    "conformance/flows/control-flow/cf-1-30/cf30b": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/control-flow/cf-13/b": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/control-flow/cf-15/a": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-15/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-15/c": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-16/a": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-16/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-2/b-step0": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/control-flow/cf-21-throwing/timeout_and_parallelism": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/control-flow/cf-21/skip_mid": {
+      "milestone": "W5d",
+      "reason": "CE 1.862.0 stops re-evaluating skip_if once a loop runs (1.812.0), so the loop returns every iteration"
+    },
+    "conformance/flows/control-flow/cf-21/skip_mid_flows": {
+      "milestone": "W5d",
+      "reason": "CE 1.862.0 stops re-evaluating skip_if once a loop runs (1.812.0), so the loop returns every iteration"
+    },
+    "conformance/flows/control-flow/cf-21/skip_mid_while": {
+      "milestone": "W5d",
+      "reason": "CE 1.862.0 stops re-evaluating skip_if once a loop runs (1.812.0), so the loop returns every iteration"
+    },
+    "conformance/flows/control-flow/cf-21/timeout_scope_collapsed": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/control-flow/cf-21/timeout_scope_flows": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/control-flow/cf-22/collapsed_input": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-22/exhausted": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-22/iter_parent": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-22/prev_fallback": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-27-flow-timeouts/subflow": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 enforces a flow-level wall-clock timeout (1.861.0), so the run fails where the expect has a result"
+    },
+    "conformance/flows/control-flow/cf-27/a": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/control-flow/cf-27/b": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/control-flow/cf-27/fx24_d": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 honours the step's own timeout when it is a loop's only step (1.852.0), so the step succeeds"
+    },
+    "conformance/flows/control-flow/cf-4/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-5/a": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-5/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-6/a": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-7/a": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-7/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-7/d": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/control-flow/cf-v1/a": {
+      "milestone": "W5d",
+      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
+    },
+    "conformance/flows/control-flow/cf-v1/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-v1/c-par": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/cf-v1/c-seq": {
+      "milestone": "W5d",
+      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
+    },
+    "conformance/flows/control-flow/cf-v3/a": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/control-flow/cf-v4/a": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/waits/body_retry_exhausted": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/waits/body_retry_par": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/waits/body_retry_seq": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/waits/body_timeout_js": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/control-flow/waits/body_timeout_negative_later": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/control-flow/waits/body_timeout_negative_pickup": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/control-flow/waits/branch_retry": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/control-flow/waits/loop_timeout_negative_later": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/control-flow/waits/loop_timeout_negative_root": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/execution/fx-12-deno/error_extra": {
+      "milestone": "W5a",
+      "reason": "the standard CE 1.862.0 image ships no Deno (1.830.0), so the fixture's lock job fails"
+    },
+    "conformance/flows/execution/fx-12/error_extra": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-12/handled": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-12/object_throw": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-14/bad_transform": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-14/bad_transform_handled": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-14/retry_empty": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-15/child_pickup": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-15/later_transition": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-15/root_pickup": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/execution/fx-17/skip_on_retry": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-21/throwing_stop": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-23/after_tolerated": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-23/canceled_sleep": {
+      "milestone": "W5d",
+      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
+    },
+    "conformance/flows/execution/fx-24/js_error": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-24/js_timeout": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/execution/fx-24/negative_later": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/execution/fx-24/negative_root": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/execution/fx-24/negative_static": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/execution/fx-24/process_timeout": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/execution/fx-24/zero": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
+    },
+    "conformance/flows/execution/fx-25/retried": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/execution/fx-25/tolerated": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/execution/fx-26/multiplier": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-26/phases": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-27/reuses_args": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-28/false_prevents": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-28/throw_handler": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-28/throw_no_handler": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-29/carries_over": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-29/reset_by_success": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-30/tolerated_last": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-30/tolerated_middle": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-31/untolerated": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-32/handler_retry": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-32/sees": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/array_empty": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/array_false": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/array_null": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/array_true": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/array_two": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/object_string": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/object_true": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-33/parent_view": {
+      "milestone": "W5d",
+      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
+    },
+    "conformance/flows/execution/fx-34/loop": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-34/step_id": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-36-http/array": {
+      "milestone": "W5d",
+      "reason": "CE 1.862.0 no longer reads an array result as an HTTP response (1.813.0)"
+    },
+    "conformance/flows/execution/fx-36-http/extra": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-36-http/failed": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-36/failed_branchall": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-38-pickup/bun": {
+      "milestone": "W5d",
+      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
+    },
+    "conformance/flows/execution/fx-38-pickup/retried": {
+      "milestone": "W5d",
+      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
+    },
+    "conformance/flows/execution/fx-38-pickup/subflow": {
+      "milestone": "W5d",
+      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
+    },
+    "conformance/flows/execution/fx-40/b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-48-jsonb/jsonvar_range": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/execution/fx-48-jsonb/jsonvar_surrogate": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/execution/fx-48-jsonb/nul_later": {
+      "milestone": "W5e",
+      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
+    },
+    "conformance/flows/execution/fx-48-jsonb/nul_root": {
+      "milestone": "W5e",
+      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
+    },
+    "conformance/flows/execution/fx-49/throws": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-6/after_tolerated": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-6/rederived_on_retry": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/execution/fx-7/result_unbound": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-8/sleep_no_results": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/je/je-15-stringify/k_later": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-15-stringify/k_root": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/i1": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/i2": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/i3": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/i4": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/i5": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/j1": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/je-20-providers/j2": {
+      "milestone": "W5a",
+      "reason": "CE 1.862.0 gives one decrypt error text (Could not decrypt value) for v1.767.0's Invalid padding and Invalid byte texts"
+    },
+    "conformance/flows/je/je-20-providers/j3": {
+      "milestone": "W5a",
+      "reason": "CE 1.862.0 gives one decrypt error text (Could not decrypt value) for v1.767.0's Invalid padding and Invalid byte texts"
+    },
+    "conformance/flows/je/je-51-chain/chain": {
+      "milestone": "W5d",
+      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
+    },
+    "conformance/flows/je/shortcut-texts/fi_first": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/languages/bun-results/thrown_string": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/bun-results/timeout": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/languages/codebase-cases/node_esm_bare": {
+      "milestone": "W5a",
+      "reason": "the image's Node is v24.22.1 (1.848.3), where the expect has v20.20.2"
+    },
+    "conformance/flows/languages/codebase-cases/node_version": {
+      "milestone": "W5a",
+      "reason": "the image's Node is v24.22.1 (1.848.3), where the expect has v20.20.2"
+    },
+    "conformance/flows/languages/native-codebase/cjs_native": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/native/throws_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/native/throws_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-16/wr16-b": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-28/wr28-a": {
+      "milestone": "W5f",
+      "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
+    },
+    "conformance/flows/languages/wr-28/wr28-b": {
+      "milestone": "W5f",
+      "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
+    },
+    "conformance/flows/languages/wr-28/wr28-c": {
+      "milestone": "W5f",
+      "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
+    },
+    "conformance/flows/languages/wr-28/wr28-e": {
+      "milestone": "W5f",
+      "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
+    },
+    "conformance/flows/languages/wr-40/wr40_c_nativets": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/languages/wr-40/wr40_f_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-40/wr40_hglobal_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-42/wr42_c_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-42/wr42_c_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43-stack/stack_nativets": {
+      "milestone": "W5f",
+      "reason": "the native prelude grew three lines at CE 1.862.0, so the stack line numbers moved"
+    },
+    "conformance/flows/languages/wr-43/wr43_a_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_a_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_b_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_b_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_bnull_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_bnull_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_bobject_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_bobject_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_c_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_c_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_d_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_d_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_f_nativets": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/languages/wr-43/wr43_g_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_g_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_h_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_h_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_i_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-43/wr43_i_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-44/wr44_b_bunnative": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-44/wr44_b_nativets": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/languages/wr-45/wr45_c_nativets": {
+      "milestone": "W5f",
+      "reason": "the native prelude grew three lines at CE 1.862.0, so the stack line numbers moved"
+    },
+    "conformance/flows/languages/wr-55-processes/timeout": {
+      "milestone": "W5c",
+      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
+    },
+    "conformance/flows/languages/wr-v2/plain": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/languages/wr-v2/step": {
+      "milestone": "W5a",
+      "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/openflow/of-deployed/f7_ba": {
+      "milestone": "W5d",
+      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
+    },
+    "conformance/flows/openflow/of-drivers/preview_absent": {
+      "milestone": "W8a",
+      "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
+    },
+    "conformance/flows/openflow/of-drivers/preview_false": {
+      "milestone": "W8a",
+      "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
+    },
+    "conformance/flows/openflow/of-drivers/preview_true": {
+      "milestone": "W8a",
+      "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
+    },
+    "conformance/flows/oracle/key-order/retry_keys": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/oracle/nul/nul": {
+      "milestone": "W5e",
+      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
+    },
+    "conformance/flows/oracle/nul/nul_key": {
+      "milestone": "W5e",
+      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
+    },
+    "conformance/flows/oracle/nul/nul_nested": {
+      "milestone": "W5e",
+      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
+    },
+    "conformance/flows/oracle/probes/env": {
+      "milestone": "W5e",
+      "reason": "at CE 1.862.0 the image runs Bun 1.4.4, WM_END_USER_EMAIL is set and WM_ROOT_WORKSPACE is new, so the env probe is split"
+    },
+    "conformance/flows/oracle/probes/fail_handler": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/oracle/probes/fail_mid": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/oracle/probes/loop_seq_multi_bare": {
+      "milestone": "W5f",
+      "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/oracle/probes/retry": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/oracle/smoke/fail": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/stub/codebase/ok": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/stub/retry_loop/exhausted": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/stub/retry_loop/ok": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/stub/subflow_retry/ok": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    },
+    "conformance/flows/stub/subflow_retry/skipped": {
+      "milestone": "W5b",
+      "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
+    }
+  }
 }

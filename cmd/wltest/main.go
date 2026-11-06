@@ -55,7 +55,7 @@ const usage = `usage: wltest record [flags] <fixture, expression file or directo
        wltest ledger [--base BRANCH] [--repo DIR]
 
 record runs flow fixtures, and expression-case files lifted into generated
-one-step flows, on the Windmill CE v1.767.0 oracle and writes their
+one-step flows, on the Windmill CE v1.862.0 oracle and writes their
 recordings with provenance. Run wltest record -h for its flags.
 stub copies a sync tree to <dir> with every Bun script body replaced by a
 replay stub (ADR 0011).
