@@ -18,7 +18,7 @@ import (
 )
 
 // The oracle client is written against the Apache-2.0 REST schema of
-// Windmill v1.767.0, vendored in openapi/ (LIC-1). This test calls every
+// Windmill v1.862.0, vendored in openapi/ (LIC-1). This test calls every
 // method of Client against a server that records the requests, and
 // requires each request to match an operation of that schema: the method,
 // the path template, and, for a JSON body, only properties the operation's

@@ -87,7 +87,7 @@ func writeBundleOf(t *testing.T, flows map[string]string, contract []byte, versi
 	m := &bundle.Manifest{
 		Format:          bundle.FormatVersion,
 		Engine:          bundle.Engine{Version: version, ExpressionStackBytes: 1 << 20},
-		Bundlers:        bundle.Bundlers{Bun: "1.3.10"},
+		Bundlers:        bundle.Bundlers{Bun: "1.4.3"},
 		ModuleState:     engine.ModuleStateWarm,
 		Deviations:      []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"},
 		Contract:        ir.Contract{Roots: []ir.Root{{Flow: "f/t/echo"}, {Flow: "f/t/which"}}},
@@ -144,7 +144,7 @@ func TestOpenAndRun(t *testing.T) {
 	}
 	bi := rt.BuildInfo()
 	digest, _ := os.ReadFile(filepath.Join(dir, bundle.ManifestFile))
-	if bi.BundleDigest != bundle.Digest(digest) || bi.EngineVersion != Version() || bi.BunVersion != "1.3.10" || bi.ModuleState != ModuleStateWarm ||
+	if bi.BundleDigest != bundle.Digest(digest) || bi.EngineVersion != Version() || bi.BunVersion != "1.4.3" || bi.ModuleState != ModuleStateWarm ||
 		!slices.Equal(bi.Deviations, []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}) || !strings.Contains(string(bi.Contract), "f/t/which") {
 		t.Fatalf("build info %+v", bi)
 	}

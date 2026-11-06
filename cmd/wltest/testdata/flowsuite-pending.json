@@ -264,9 +264,31 @@
     "conformance/flows/je/waits/je32-b": {
       "milestone": "W6a",
       "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/oracle/probes/env": {
+      "milestone": "W8c",
+      "reason": "the recorded bun field is the oracle image's Bun 1.3.10 and the engine now runs the pinned Bun 1.4.3, a difference the env probe cannot carry until it is a named deviation"
     }
   },
-  "step_suite": {},
+  "step_suite": {
+    "conformance/steps/bun/d11.yaml/d11-refused-codes": {
+      "milestone": "W4d",
+      "reason": "Bun 1.4.3 words the RangeError for an out-of-range exit code differently (&& and digit separators); the code is still refused"
+    },
+    "conformance/steps/bun/d11.yaml/d11-top-level": {
+      "milestone": "W4e",
+      "reason": "on Bun 1.4.3 a process.exit at a warm module's top level escapes the harness and ends the process",
+      "modes": ["warm"]
+    },
+    "conformance/steps/bun/d18.yaml/d18-b-namespace-shape": {
+      "milestone": "W4f",
+      "reason": "Bun 1.4.3's bundler lists the keys of an import * namespace sorted"
+    },
+    "conformance/steps/bun/wa-31.yaml/wa-31-node-http": {
+      "milestone": "W4f",
+      "reason": "on Bun 1.4.3 a settled node:http request leaves a handle that settlement reports as left_behind"
+    }
+  },
   "oracle": {
     "conformance/exprs/je-2.yaml/je-2-a": {
       "milestone": "W5d",

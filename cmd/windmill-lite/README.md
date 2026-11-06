@@ -33,7 +33,7 @@ with status 2; any other failure with status 1.
 [ADR 0010](../../docs/design/0010-packaging.md) with
 [internal/bundle](../../internal/bundle/README.md): it reads the sync folder
 from the root above `<folder>` (the directory of `wmill.yaml`), compiles it,
-bundles its Bun scripts on the pinned Bun 1.3.10, and writes the bundle. It
+bundles its Bun scripts on the pinned Bun 1.4.3, and writes the bundle. It
 prints the bundle digest on standard output, and warnings on standard
 error.
 
@@ -94,7 +94,7 @@ SIGINT and SIGTERM cancel the run.
 | `--args` | the arguments: a JSON object, or `@file` holding one; `{}` by default |
 | `-kind` | `flow` (default) or `script` |
 | `-id` | the run's job id; a new UUID by default |
-| `-bun` | the Bun executable, which must be Bun 1.3.10; `$WL_BUN`, or `bun` on the `PATH` |
+| `-bun` | the Bun executable, which must be Bun 1.4.3; `$WL_BUN`, or `bun` on the `PATH` |
 | `-harness-runtime` | the Bun harness runtime directory the bundle was built for, whose digest must be the manifest's; `$WL_HARNESS_RUNTIME`. A bundle with steps needs it |
 | `-module-state` | `warm` or `fresh`; the bundle's by default |
 | `-data` | the data directory the runtime writes into; a temporary one, removed afterwards, by default |
@@ -479,7 +479,7 @@ are in [ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
 One run of both, in one process:
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
+WL_BUN=/path/to/bun-1.4.3/bun go test ./cmd/windmill-lite -run '^$' \
   -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 3s -count 3
 ```
 
@@ -633,7 +633,7 @@ shape or configuration, which `-bench` already runs alone. `go test`'s
 needs more than its default 10 minutes:
 
 ```sh
-WL_BENCH_FRESH=1 WL_BUN=/path/to/bun-1.3.10/bun go test ./cmd/windmill-lite -run '^$' \
+WL_BENCH_FRESH=1 WL_BUN=/path/to/bun-1.4.3/bun go test ./cmd/windmill-lite -run '^$' \
   -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 10x -count 3 -timeout 60m
 ```
 

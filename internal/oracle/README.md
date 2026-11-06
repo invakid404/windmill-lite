@@ -197,7 +197,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `record.go` | The session, `Observe` (walk to normalised observation) and provenance. |
 | `pending.go` | `RunReport.PendingVerdict`: how a run that the retarget ledger lists fares in a session, on the retarget branch only ([Pending recordings](#pending-recordings-on-the-retarget-branch)). |
 | `lint.go` | The repository checks: `LintImages` and `GuardManifests`. |
-| `openapi/` | `openapi.yaml` and `LICENSE-APACHE`, copied unmodified from Windmill `v1.767.0`, with their [NOTICE](openapi/NOTICE). Apache-2.0, not Unlicense. |
+| `openapi/` | `openapi.yaml` and `LICENSE-APACHE`, copied unmodified from Windmill `v1.862.0`, with their [NOTICE](openapi/NOTICE). Apache-2.0, not Unlicense. |
 
 ### The CLI is a tool, not a dependency
 

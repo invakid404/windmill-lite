@@ -9,4 +9,4 @@ cases:
       export function main() { return Bun.version; }
     runs:
       - args: '{}'
-        expect: {status: success, result: "1.3.10"}
+        expect: {status: success, result: "1.4.3"}

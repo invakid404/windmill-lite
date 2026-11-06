@@ -73,13 +73,13 @@
             {
               "result": [
                 "object",
-                "1.3.10",
+                "1.4.3",
                 "function",
                 true,
                 true,
                 true,
                 "Attempted to assign to readonly property.",
-                "1.3.10",
+                "1.4.3",
                 true,
                 "hi\n"
               ]

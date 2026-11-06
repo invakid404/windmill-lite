@@ -21,10 +21,10 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("build", stderr)
 	out := fs.String("o", "", "the bundle to write: a directory, or a `file` ending in .wlb")
 	contract := fs.String("contract", "", "the host contract `file` (YAML or JSON); without one, every flow and script is a root")
-	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun `executable`, which must be Bun 1.3.10 (default $WL_BUN, or bun)")
+	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun `executable`, which must be Bun 1.4.3 (default $WL_BUN, or bun)")
 	helper := fs.String("helper", os.Getenv("WL_BUILD_HELPER"), "the Bun build helper, harnesses/bun/build/main.ts with its dependencies installed (default $WL_BUILD_HELPER)")
 	runtime := fs.String("harness-runtime", os.Getenv("WL_HARNESS_RUNTIME"), "the Bun harness runtime `directory` the bundle is built for (default $WL_HARNESS_RUNTIME, or runtime/ beside the helper's directory)")
-	mismatch := fs.Bool("bun-mismatch", false, "build on a Bun other than 1.3.10 and mark the bundle nonconformant_runtime")
+	mismatch := fs.Bool("bun-mismatch", false, "build on a Bun other than 1.4.3 and mark the bundle nonconformant_runtime")
 	mode := fs.String("module-state", string(engine.ModuleStateWarm), "the module-state `mode`: warm or fresh")
 	strict := fs.Bool("strict", false, "refuse absent for-loop skip_failures and branchall skip_failure instead of defaulting them")
 	shared := fs.Bool("shared-code", false, "build with shared code (ADR 0013): warm and host-mode processes compile each build group's dependency modules once and give each step module its own instance of them (D18)")
@@ -110,7 +110,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if res.Manifest.NonconformantRuntime {
-		fmt.Fprintf(stderr, "windmill-lite build: warning: built on Bun %s, not the pinned 1.3.10; the bundle is marked nonconformant_runtime\n", res.Manifest.Bundlers.Bun)
+		fmt.Fprintf(stderr, "windmill-lite build: warning: built on Bun %s, not the pinned 1.4.3; the bundle is marked nonconformant_runtime\n", res.Manifest.Bundlers.Bun)
 	}
 	if cfg.EngineVersion == "(devel)" {
 		fmt.Fprintln(stderr, "windmill-lite build: warning: this engine has no version, so the bundle records (devel)")

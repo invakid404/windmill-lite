@@ -20,7 +20,7 @@
 #    check testing.ts with tsconfig.node.json: Node's type declarations
 #    only, so the test entry's declarations need no Bun types.
 # 5. project/testing.ts checks the SDK's test entry, windmill-lite/bun/testing,
-#    on Bun 1.3.10, and on the node on the PATH, which must be Node 22 or
+#    on Bun 1.4.3, and on the node on the PATH, which must be Node 22 or
 #    newer, as the JavaScript that tsc emits from it (tsconfig.node.json).
 # 6. The engine of this commit, stamped with the package's version as a
 #    release stamps it (scripts/release.py build-engine), builds a bundle
@@ -33,7 +33,7 @@
 #    So the packed SDK carries the package's version; an unstamped SDK
 #    would pair with any engine.
 #
-# Needs Bun 1.3.10 (WL_BUN, default bun), Node 22 or newer as node on the
+# Needs Bun 1.4.3 (WL_BUN, default bun), Node 22 or newer as node on the
 # PATH, npm, python3, go with a C compiler, and the dependencies of the
 # package (bun install --frozen-lockfile in harnesses/) and of the build
 # helper (the same in harnesses/bun/build).

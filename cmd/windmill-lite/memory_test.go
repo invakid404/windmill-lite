@@ -74,7 +74,7 @@ func memoryBun(t *testing.T) string {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
 			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
 		}
-		t.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
+		t.Skip("WL_BUN is not set; it names the pinned Bun 1.4.3")
 	}
 	return bun
 }

@@ -47,7 +47,7 @@ const (
 // over the same calls.
 type Options struct {
 	// Bun is the Bun executable that harness processes run on; it must be
-	// the pinned Bun 1.3.10, which the harness's handshake checks. Empty
+	// the pinned Bun 1.4.3, which the harness's handshake checks. Empty
 	// means "bun" on PATH.
 	Bun string
 	// HarnessRuntime is the directory of the Bun harness runtime

@@ -81,7 +81,7 @@ A runtime runs bundles built with the shared code of
    Harness processes start lazily, on the first step: one pool of warm
    processes, or one process per step in `fresh` mode, on `Options.Bun`
    (`bun` on the `PATH` by default), whose handshake checks the harness's
-   kind, the pinned Bun 1.3.10 and the bundle digest. A warm process reaches
+   kind, the pinned Bun 1.4.3 and the bundle digest. A warm process reaches
    the facade through its intercepted `fetch`, a fresh one over loopback
    TCP. Their working directories are under `<data>/work`.
 7. **Engine.** The program's expressions are compiled once, on a
