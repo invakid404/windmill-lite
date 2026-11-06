@@ -177,7 +177,8 @@ go test -race ./...
 ```
 
 The harness, build, skeleton and host-mode tests also need the pinned Bun
-1.4.3; without it they skip. Point `WL_BUN` at its executable, and install the build helper's parser once. The Q-WA-4 test,
+1.4.3; without it they skip. Point `WL_BUN` at its executable, and install
+the build helper's parser once. The Q-WA-4 test,
 the facade's attribution test and `cmd/wltest`'s test of the client under
 shared code also need the stock `windmill-client@1.767.0`: point
 `WL_WINDMILL_CLIENT` at a directory whose `node_modules` holds it (CI
