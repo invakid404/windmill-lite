@@ -834,6 +834,10 @@
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
     },
+    "conformance/flows/languages/wr-28-lock/wr28-e": {
+      "milestone": "W5f",
+      "reason": "the new fixture that records WR-28/e's failed lock on CE 1.862.0 has no recording yet"
+    },
     "conformance/flows/languages/wr-28/wr28-a": {
       "milestone": "W5f",
       "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
@@ -843,10 +847,6 @@
       "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
     },
     "conformance/flows/languages/wr-28/wr28-c": {
-      "milestone": "W5f",
-      "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
-    },
-    "conformance/flows/languages/wr-28/wr28-e": {
       "milestone": "W5f",
       "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
     },
