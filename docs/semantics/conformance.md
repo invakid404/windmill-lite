@@ -1210,7 +1210,7 @@ Findings: [execution.md](execution.md).
   - **Expect:** `{success: true, result: {"error": {"message": "e", "name":
     "Error", "stack": <any>, "step_id": "a", "job_id": <a's job>,
     "flow_path": <the flow's path>}}}`.
-  - **Recorded:** [`flows/execution/fx-6`](../../conformance/flows/execution/fx-6) run `after_tolerated`, oracle run 40685013818; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/execution/fx-6`](../../conformance/flows/execution/fx-6) run `after_tolerated`, oracle run 40685013818; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 
 <a id="fx-7"></a>
 ### FX-7 · Step input transforms
@@ -1351,7 +1351,7 @@ Findings: [execution.md](execution.md).
     [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http)
     run `extra`, oracle run 40794872025, whose body is the stored error in
     `jsonb` key order ([FX-36/b](#fx-36)). Both re-recorded on CE v1.862.0
-    with `job_id` and `flow_path`, oracle run ORACLE_RUN_W5B.
+    with `job_id` and `flow_path`, oracle run 42299510925.
 - **FX-12/b** · oracle-observed · Bun plain-object throw omits absent keys.
   - **Given:** `[a: bun: throw {message: "boom", code: 7}]` in flow `f/x`.
   - **Expect:** `{"error": {"message": "boom", "step_id": "a", "job_id":
@@ -1359,7 +1359,7 @@ Findings: [execution.md](execution.md).
     and no `stack`.
   - **Recorded:** [`flows/execution/fx-12`](../../conformance/flows/execution/fx-12)
     run `object_throw`, oracle run 40685766017; re-recorded on CE v1.862.0,
-    oracle run ORACLE_RUN_W5B.
+    oracle run 42299510925.
 - **FX-12/c** · oracle-observed · later · Deno collects no `extra`.
   - **Given:** a Deno step `throw Object.assign(new Error("boom"), {code: 7})`.
   - **Expect:** the error object has no `extra`.
@@ -1370,7 +1370,7 @@ Findings: [execution.md](execution.md).
   - **Expect:** the flow fails with result `"H"`, not `{"error": "H"}`.
   - **Recorded:** [`flows/execution/fx-12`](../../conformance/flows/execution/fx-12)
     run `handled`, oracle run 40685766017; re-recorded on CE v1.862.0, oracle
-    run ORACLE_RUN_W5B, the failed step's error with `job_id` and
+    run 42299510925, the failed step's error with `job_id` and
     `flow_path`.
 - The step context keys' values in loop, branch and subflow bodies, and the
   errors that carry none, are cases [FX-45/b–FX-45/f](#fx-45).
@@ -1853,7 +1853,7 @@ present, is `bun: return "H"`.
     "job_id": <a's job>, "flow_path": <the flow's path>}}}`; the handler
     never runs. Contrast FX-19/i.
   - **Recorded:** [`flows/execution/fx-30`](../../conformance/flows/execution/fx-30)
-    run `tolerated_last`, oracle run 40685766017; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+    run `tolerated_last`, oracle run 40685766017; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **FX-30/b** · oracle-observed · At the last module a due retry runs before the failure is tolerated.
   - **Given:** `[a: bun: throw new Error("x") (continue_on_error: true,
     retry: {constant: {attempts: 2, seconds: 0}})]`.
@@ -1891,7 +1891,7 @@ present, is `bun: return "H"`.
     path>}}`; `y` is the same value.
   - **Recorded:** [`flows/execution/fx-32`](../../conformance/flows/execution/fx-32)
     run `sees`, oracle run 40685766017, which also shows `error` as the
-    inner object and the handler's `WM_FLOW_STEP_ID` as `failure`; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+    inner object and the handler's `WM_FLOW_STEP_ID` as `failure`; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **FX-32/b** · oracle-observed · A handler retry keeps its own failed value
   and reuses its args.
   - **Given:** a flow whose step fails, with handler `bun(n): throw new
@@ -2008,7 +2008,7 @@ each `:` and `,`, keys shorter first, then by bytes.
   - **Expect:** HTTP 422, content type `application/json`, with the body
     text `{"error": {"name": "Error", "stack": <stack>, "job_id": <a's job>, "message": "z", "step_id": "a", "flow_path": <the flow's path>}}`,
     the members in that order.
-  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `failed`, oracle run 40798097155; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `failed`, oracle run 40798097155; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
   - **Correction 2026-10-29:** the case wrote the members as `message`,
     `name`, `stack`, `step_id`. The handler sends the stored result's
     `jsonb` text, so they come in `jsonb` key order ([FX-36](execution.md#fx-36),
@@ -2492,7 +2492,7 @@ contested and now carry their own provenance.
     run `a` (`f/cf7/parallelism_two/forloop-1`) and
     [`flows/control-flow/cf-15`](../../conformance/flows/control-flow/cf-15)
     run `a` (`f/cf15/parallel_skip/branchall-1`), oracle run
-    ORACLE_RUN_W5B; the nested loop by
+    42299510925; the nested loop by
     [`flows/client-api/job-reads-parallel`](../../conformance/flows/client-api/job-reads-parallel)
     run `waits2` (`f/wl_jrp/waits2/branchall-4/loop-0`), oracle run
     42243035193.
@@ -2517,7 +2517,7 @@ contested and now carry their own provenance.
     `flow_path` the enclosing flow's own path, `f/cf22/collapsed_input`,
     with no `loop-<i>` suffix.
   - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22)
-    run `collapsed_input`, oracle run ORACLE_RUN_W5B; a collapsed while loop
+    run `collapsed_input`, oracle run 42299510925; a collapsed while loop
     the same way (`step_id` `w`, `flow_path` `f/cfsr/while_retry`) by
     [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry)
     run `while_retry`, oracle run 42243035193.
@@ -2535,7 +2535,7 @@ contested and now carry their own provenance.
     [`flows/execution/fx-40`](../../conformance/flows/execution/fx-40) run
     `b` (`f/fx40/flow_cached_fail`) and
     [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run
-    `retry`, oracle run ORACLE_RUN_W5B. The dispatched case as the
+    `retry`, oracle run 42299510925. The dispatched case as the
     `WM_FLOW_PATH` the key copies, `f/wl_pf3_disp/identity/a`, by
     [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch)
     run `identity` ([WA-V1/b](#wa-v1)), oracle run 42243035193.
@@ -2580,7 +2580,7 @@ contested and now carry their own provenance.
   - **Expect:** `{"error": {"step_id": "a", "job_id": <a's job>,
     "flow_path": <the flow's path>, "extra": {"0": "a", "1": "b", "length":
     2}}}`.
-  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `thrown_string`, oracle run 40771900586; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B
+  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `thrown_string`, oracle run 40771900586; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925
     (`"flow_path": "f/wl_e1_wr/thrown"`).
 - **FX-47/b** · oracle-observed · later · A thrown `null`.
   - **Given:** `[a: bun: throw null]`.
@@ -3691,7 +3691,7 @@ afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
     "no", "step_id": "b", "job_id": <b's job in the second attempt>,
     "flow_path": "<flow>/loop-0"}}]`; `l` lists the first attempt's iteration
     child flow (its `b` failed, its `c` never ran).
-  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `exhausted`, oracle run 40857510216; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/control-flow/cf-22`](../../conformance/flows/control-flow/cf-22) run `exhausted`, oracle run 40857510216; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **CF-22/e** · oracle-observed · A retried parallel `branchall` runs every
   branch again and lists no attempt.
   - **Given:** `[ba: branchall(parallel: true, branches: [[b0: flaky(v) v =
@@ -5735,7 +5735,7 @@ All seven cases were recorded as one-step flows whose step `s` runs the script; 
 - **WR-16/b** · oracle-observed · a numeric chunk fails
   - **Given:** `export async function* main() { yield 7; }`, as step `s`.
   - **Expect:** the job fails with ``{"error":{"name":"TypeError","stack":"<stack>","message":"chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)","step_id":"s","job_id":"<job:m:s>","flow_path":"f/wl_wr16/wr16_b"}}``; the message is Bun `1.3.10`'s and quotes the wrapper's call.
-  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-b`, oracle run 40794872025; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-b`, oracle run 40794872025; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
   - **Correction 2026-10-29:** the case named only `error.name`; the recording gives the whole error, message included.
 - **WR-16/c** · oracle-observed · an inherited custom `replace` returning a string
   - **Given:** `class C { replace() { return "x"; } }`, and the entrypoint is an async generator that yields `new C()`.
@@ -6135,7 +6135,7 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
   - **Given:** no file `/missing.ts` on the worker host; step `a`: `export async function main() { await import("./missing.ts"); return 1; }`
   - **Expect:** `{"error":{"message":"Failed to load file:///missing.ts\n  Caused by:\n    No such file or directory (os error 2)","stack":<stack>,"name":"TypeError","step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`: the three fields and the step context keys ([WR-43](languages.md#wr-43)). No `failed to load module` text.
   - **Correction 2026-10-29 (SC4):** the case matched `message` on its prefix and left `name` to [Q-WR-21](languages.md#q-wr-21). deno_core 0.352.1 rejects a dynamic import whose load fails with a `TypeError` carrying the loader's message and a `Caused by:` line ([WR-40](languages.md#wr-40)), so both are now exact (medium).
-  - **Recorded:** [`flows/languages/wr-40`](../../conformance/flows/languages/wr-40) run `wr40_f_nativets` (native session), oracle run 40990751153: `name` and `message` exactly as written; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-40`](../../conformance/flows/languages/wr-40) run `wr40_f_nativets` (native session), oracle run 40990751153: `name` and `message` exactly as written; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-40/g** · oracle-observed · later · the module-level `this` (both kinds, different values)
   - **Given:** step `a`, on a worker that serves the `nativets` tag: `const t = this; export function main() { return [t === null, t === undefined]; }`.
   - **Expect:** `[true,false]` as `bunnative`, because Bun's bundler writes the top-level `this` as `null` (on Bun `1.3.10`, run outside Windmill with Windmill's build options); `[false,true]` as `nativets`, whose transpiled ES module keeps `undefined`.
@@ -6150,7 +6150,7 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
     ```
     and a variant `b` that uses a global `Buffer` without importing it: `//native` then `export async function main() { return Buffer.from("hi").length; }`.
   - **Expect:** the bundle builds for both. `a` returns `["aGk=","undefined","string"]`: `node:buffer` is inlined as a browser polyfill, `node:fs` is an empty object, and `__dirname` was replaced by the build directory's path. `b` fails with [WR-43](languages.md#wr-43)'s exception shape, `name` `ReferenceError`, `message` `Buffer is not defined`. The bundling half was checked on Bun `1.3.10` outside Windmill with Windmill's build options; the recording shows the polyfill working inside the native runtime.
-  - **Recorded:** [`flows/languages/wr-40`](../../conformance/flows/languages/wr-40) runs `wr40_h_bunnative` (`a`) and `wr40_hglobal_bunnative` (`b`) (native session), oracle run 40990751153; `b` re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-40`](../../conformance/flows/languages/wr-40) runs `wr40_h_bunnative` (`a`) and `wr40_hglobal_bunnative` (`b`) (native session), oracle run 40990751153; `b` re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-40/i** · oracle-observed · later · A Node built-in whose spelling decides the build (medium)
   - **Given:** on a worker that serves the `nativets` tag, three inline `//native` steps: `c` with `import { spawn } from "node:child_process"; export async function main() { return typeof spawn; }`; `d`, the same with `"child_process"`; `e` with `import { test } from "node:test"; export async function main() { return typeof test; }`.
   - **Expect:** `c` builds and returns `"undefined"` (an empty object). `d` and `e` fail their build at deploy: the dependency job of the flow holding each, which builds every inline `//native` step's bundle ahead of time, fails with `Browser build cannot import Node.js builtin: "child_process"` (for `e`: `"node:test"`). A run of such a flow afterwards builds again and fails the step before running with [WR-20](languages.md#wr-20)'s `ExecutionErr` for the program `bun build`: a message starting `exit code for "bun build": 1, last log lines:` whose tail contains the same build error and `Failed to build node bundle` (source-derived: read from the source, not run). The build outcomes were checked on Bun `1.3.10` outside Windmill with Windmill's build options.
@@ -6202,7 +6202,7 @@ All cases run on both kinds.
 - **WR-42/c** · oracle-observed · a `BigInt` fails the job
   - **Given:** step `a` is `export function main() { return { n: 10n }; }`
   - **Expect:** `{"error":{"message":"Do not know how to serialize a BigInt","stack":<stack>,"name":"TypeError","step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`. Match `name` exactly; the message is V8's ([Q-WR-21](languages.md#q-wr-21)).
-  - **Recorded:** [`flows/languages/wr-42`](../../conformance/flows/languages/wr-42) runs `wr42_c_bunnative` and `wr42_c_nativets` (native session), oracle run 40989292429: V8's message exactly as written, in both kinds; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-42`](../../conformance/flows/languages/wr-42) runs `wr42_c_bunnative` and `wr42_c_nativets` (native session), oracle run 40989292429: V8's message exactly as written, in both kinds; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-42/d** · oracle-observed · `toJSON` and non-finite numbers
   - **Given:** `export function main() { return { d: new Date(Date.UTC(2024, 0, 2)), x: NaN, m: new Map([[1, 2]]) }; }`
   - **Expect:** `{"d":"2024-01-02T00:00:00.000Z","x":null,"m":{}}`.
@@ -6216,12 +6216,12 @@ All cases run on both kinds.
 - **WR-43/a** · oracle-observed · an `Error` gives three fields and the step context keys (both kinds)
   - **Given:** step `a`: `export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }`
   - **Expect:** `{"error":{"message":"boom","stack":<stack>,"name":"TypeError","step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`: exactly these keys, so no `extra`.
-  - **Recorded:** [`flows/languages/native`](../../conformance/flows/languages/native) runs `throws_bunnative` and `throws_nativets`, and [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_a_bunnative` and `wr43_a_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B
+  - **Recorded:** [`flows/languages/native`](../../conformance/flows/languages/native) runs `throws_bunnative` and `throws_nativets`, and [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_a_bunnative` and `wr43_a_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925
   - **Correction 2026-11-06 (retarget to Windmill 1.862.0):** the case said there is no `step_id`. Since 1.850.0 the worker adds `step_id`, `job_id` and `flow_path` to the native error ([WR-43](languages.md#wr-43)).
 - **WR-43/b** · oracle-observed · any other thrown value gives three `null`s (both kinds)
   - **Given:** step `a` throwing, in three variants, `"s"`, `{ message: "m", name: "N" }` and `null`.
   - **Expect:** each time `{"error":{"message":null,"stack":null,"name":null,"step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`: three `null`s, then the step context keys.
-  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_b_*` (`"s"`), `wr43_bobject_*` and `wr43_bnull_*`, each in both kinds (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_b_*` (`"s"`), `wr43_bobject_*` and `wr43_bnull_*`, each in both kinds (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-43/c** · oracle-observed · the stack starts with the failing source line (both kinds, as loaded)
   - **Given:**
     ```ts
@@ -6235,7 +6235,7 @@ All cases run on both kinds.
 - **WR-43/d** · oracle-observed · an unhandled rejection fails the job (medium; both kinds)
   - **Given:** step `a`: `export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }`
   - **Expect:** `{"error":{"message":"late","stack":<stack>,"name":"Error","step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`, not `1`.
-  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_d_bunnative` and `wr43_d_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_d_bunnative` and `wr43_d_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-43/e** · oracle-observed · later · a promise that never settles, with nothing pending (both kinds)
   - **Given:** step `a`: `export function main() { return new Promise(() => {}); }`
   - **Expect:** `{"error":{"message":"execution error:\nPromise resolution is still pending but the event loop has already resolved","name":"ExecutionErr","step_id":"a"}}`, at once, not after a timeout.
@@ -6247,15 +6247,15 @@ All cases run on both kinds.
 - **WR-43/g** · oracle-observed · a non-string `message` nulls both `message` and `name` (both kinds)
   - **Given:** step `a`: `export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }`
   - **Expect:** `{"error":{"message":null,"stack":<stack>,"name":null,"step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`: `name` is `null` even though it was a valid string, and `stack` is a non-null string.
-  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_g_bunnative` and `wr43_g_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_g_bunnative` and `wr43_g_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-43/h** · oracle-observed · a non-string `name` nulls both as well (both kinds)
   - **Given:** step `a`: `export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }`
   - **Expect:** `{"error":{"message":null,"stack":<stack>,"name":null,"step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`, with `stack` a non-null string.
-  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_h_bunnative` and `wr43_h_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_h_bunnative` and `wr43_h_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-43/i** · oracle-observed · later · a non-string `stack` is dropped (both kinds; medium)
   - **Given:** step `a`: `export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }`
   - **Expect:** `message` is `"m"` and `name` is `"Error"`. `stack` is `null`: not `5`, no V8 stack text, and no source line either.
-  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_i_bunnative` and `wr43_i_nativets` (native session), oracle run 40990751153: `{"message":"m","stack":null,"name":"Error"}` in both kinds; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-43`](../../conformance/flows/languages/wr-43) runs `wr43_i_bunnative` and `wr43_i_nativets` (native session), oracle run 40990751153: `{"message":"m","stack":null,"name":"Error"}` in both kinds; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
   - **Correction 2026-10-30 (SC5, batch E3f):** the case predicted from the source that `stack` would hold one source line of `main` and a newline. The source line comes from the error's first stack frame, which deno_core collects only when V8 first formats `stack`; assigning `stack` before it is ever read means the error is never formatted, so there is no frame and no line, and with the non-string value dropped `stack` is `null` ([WR-43](languages.md#wr-43)).
 
 <a id="wr-44"></a>
@@ -6272,7 +6272,7 @@ All cases run on both kinds.
 - **WR-44/b** · oracle-observed · later · stack overflow is an ordinary `RangeError`
   - **Given:** step `a`: `export function main() { const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1); return f(1e6); }`
   - **Expect:** `{"error":{"message":"Maximum call stack size exceeded","stack":<stack>,"name":"RangeError","step_id":"a","job_id":<a's job>,"flow_path":<the flow's path>}}`.
-  - **Recorded:** [`flows/languages/wr-44`](../../conformance/flows/languages/wr-44) runs `wr44_b_bunnative` and `wr44_b_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/wr-44`](../../conformance/flows/languages/wr-44) runs `wr44_b_bunnative` and `wr44_b_nativets` (native session), oracle run 40989292429; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-44/c** · oracle-observed · later · the heap cap, with the script waiting between allocations (medium)
   - **Given:** step `a`:
     ```ts
@@ -6483,7 +6483,7 @@ These cases test when a push deploys and which bytes then run, not how the bundl
 - **WR-50/f** · oracle-observed · later · a CJS codebase bundle under `//native` fails when it is evaluated
   - **Given:** the WR-50/c entry without `format: esm`, so the bundle is CJS; `f/cb/native-cjs.ts` has the first line `//native`, then the probe body.
   - **Expect:** on a deployment with a worker that serves the `nativets` tag, the step fails with the exception error of [WR-43](languages.md#wr-43): `"name":"ReferenceError"`, `"message":"module is not defined"`, a `stack`, and the step context keys. On the reference oracle the job never starts, as for WR-50/c.
-  - **Recorded:** [`flows/languages/native-codebase`](../../conformance/flows/languages/native-codebase) run `cjs_native` (native session), oracle run 40989292429, and unchanged in every oracle run on CE v1.767.0 after it; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/languages/native-codebase`](../../conformance/flows/languages/native-codebase) run `cjs_native` (native session), oracle run 40989292429, and unchanged in every oracle run on CE v1.767.0 after it; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **WR-50/g** · oracle-observed · later · an ESM bundle with a `createRequire` banner loads under `//native`, and `typeof require` is `"function"`
   - **Given:** a codebase entry with `format: esm` and `banner: {js: "const require = (await import('node:module').catch(() => null))?.createRequire(import.meta.url);"}`; its script has the first line `//native`, then `export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version, typeof require]; }`.
   - **Expect:** on a worker that serves `nativets`, `["undefined","undefined","function"]`. The third value is esbuild's `__require` helper, which replaced the script's bare `require` in the bundle; it does not show that `node:module` loaded (WR-50/h, [WR-50](languages.md#wr-50)).
@@ -8318,7 +8318,7 @@ Findings: [oracle.md](oracle.md).
     and `steps.a.result` is `{"doubled":120,"seen":60}`. The raw stack was
     `Error: too big: 120\n    at main (/tmp/windmill/cache/bun/<64-hex>:5:16)\n    at run (/tmp/windmill/<worker>/<job>/wrapper.mjs:30:21)\n    at /tmp/windmill/<worker>/<job>/wrapper.mjs:42:11\n    at asyncModuleEvaluation (native:2)`.
   - **Recorded:** [`flows/oracle/smoke`](../../conformance/flows/oracle/smoke)
-    run `fail`, oracle run 40649910412; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B (`job_id` and
+    run `fail`, oracle run 40649910412; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925 (`job_id` and
     `flow_path` normalised as above).
 - **OR-12/b** · oracle-observed · A failure handler's plain result becomes the
   failed root's result.
@@ -8327,12 +8327,12 @@ Findings: [oracle.md](oracle.md).
     the handler job has kind `preview`, args `{"error": <a's error object>}`
     and `parent_module: "a"`; step `b` is `not_run`. The error object
     carries `a`'s step context keys ([FX-12](execution.md#fx-12)).
-  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `fail_handler`, oracle run 40794872025; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `fail_handler`, oracle run 40794872025; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **OR-12/c** · oracle-observed · Error subclass with an own property.
   - **Given:** probe `fail_mid`.
   - **Expect:** root `status: failure`, result
     `{"error":{"name":"MyErr","message":"boom","stack":"<stack>","extra":{"code":42},"step_id":"a","job_id":"<job:m:a>","flow_path":"f/wl_probe/fail_mid"}}`.
-  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `fail_mid`, oracle run 40794872025; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `fail_mid`, oracle run 40794872025; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 - **OR-12/d** · oracle-observed · Missing variable reference.
   - **Given:** probe `args_vs_received` with the variable `f/wl_probe/v` absent.
   - **Expect:** step `a` and the root fail with
@@ -8536,7 +8536,7 @@ schema:
     `{"doubled":120,"seen":60}`. Stable over 2 oracle runs.
   - **Recorded:** [`flows/oracle/smoke`](../../conformance/flows/oracle/smoke)
     run `fail`, oracle run 40649910412; `unchanged` in every later session
-    on CE v1.767.0; re-recorded on CE v1.862.0 with the step context keys, oracle run ORACLE_RUN_W5B.
+    on CE v1.767.0; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
 
 <a id="or-21"></a>
 ### OR-21 · Edition differences that matter to a CE oracle

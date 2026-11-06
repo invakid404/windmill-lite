@@ -994,9 +994,9 @@ run of batch E3f in the [design README](../design/README.md).
   - **An error file that is not valid JSON:** `{"message": "Non serializable
     error: <raw>"}`.
 
-  **The step context keys** (Bun, Deno and Python since 1.847.0; native
-  since 1.850.0). Each is added only when the variable it reads is
-  non-empty in the job's environment:
+  **The step context keys** (Bun since 1.847.0, Deno and Python by
+  v1.862.0, native since 1.850.0). Each is added only when the variable it
+  reads is non-empty in the job's environment:
   - `step_id` = `WM_FLOW_STEP_ID`, the module id the job runs for
     ([FX-45](#fx-45)). A step of a collapsed loop has the loop's id
     ([FX-46](#fx-46)).
@@ -1108,7 +1108,7 @@ run of batch E3f in the [design README](../design/README.md).
   wrappers, the native error, the worker-built errors and the variables;
   the pre-run, pickup and non-JSON shapes are verified at v1.767.0 only.
   FX-12/a, FX-12/b and FX-12/d were re-recorded on CE v1.862.0 (oracle run
-  ORACLE_RUN_W5B); new cases FX-45/b to FX-45/f cite committed recordings.
+  42299510925); new cases FX-45/b to FX-45/f cite committed recordings.
 
 <a id="fx-13"></a>
 ### FX-13 · A successful result with `wm_failure` is turned into a failure
@@ -2692,7 +2692,7 @@ run of batch E3f in the [design README](../design/README.md).
   sends them in `jsonb` order too. On CE v1.862.0, FX-36/b's body reads
   `name`, `stack`, `job_id`, `message`, `step_id`, `flow_path` (fixture
   [`execution/fx-36-http`](../../conformance/flows/execution/fx-36-http), runs
-  `failed` and `extra`, oracle run ORACLE_RUN_W5B). The rest of the finding is
+  `failed` and `extra`, oracle run 42299510925). The rest of the finding is
   verified at v1.767.0 only.
 
 <a id="fx-37"></a>
@@ -3775,7 +3775,7 @@ run of batch E3f in the [design README](../design/README.md).
 - **Revision 2026-11-06 (retarget to Windmill 1.862.0):** a thrown value now
   gets the step context keys of [FX-12](#fx-12) as well: on CE v1.862.0,
   FX-47/a's string gave `step_id`, `job_id` and `flow_path` before `extra`
-  (run `thrown_string`, oracle run ORACLE_RUN_W5B). FX-47/b's non-zero exit
+  (run `thrown_string`, oracle run 42299510925). FX-47/b's non-zero exit
   keeps `step_id` and `exit_code` alone, as the worker builds that error (run
   `fx47b`, oracle run 42243035193). Verified at v1.767.0 only for the rest.
 

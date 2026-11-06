@@ -23,7 +23,7 @@ records the Windmill behaviour windmill-lite must reproduce, as numbered
 findings with a scope, a confidence level and a status. Expected outputs were
 first derived from the pinned source; recording batches E3a to E3f (design
 record 0012) and the recordings the build milestones committed with their
-fixtures have since recorded 666 of the catalogue's cases on the CE
+fixtures have since recorded 671 of the catalogue's cases on the CE
 oracle, and the findings and cases they settled or corrected say so in dated
 revision and correction notes. Each pending recording is tracked as an open
 question. Disputed findings are shown with both claims and are not settled.
@@ -34,9 +34,14 @@ Windmill only.
 
 | | |
 |---|---|
-| Windmill release | `v1.767.0` |
-| Commit | `6de4ec0f665ad856002495c4d86269105ec28ad7` |
-| Source pointers | `path:line @ v1.767.0`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.767.0) |
+| Windmill release | `v1.862.0` for the findings re-verified against it, `v1.767.0` for the rest |
+| Commit | `120415af151593716d39140c8a7d7f3bbe9d99cf` (`v1.862.0`), `6de4ec0f665ad856002495c4d86269105ec28ad7` (`v1.767.0`) |
+| Source pointers | `path:line @ <release>`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.862.0) |
+
+The reference is moving from `v1.767.0` to `v1.862.0`. An area file whose
+header pins `v1.862.0` marks each finding with no `v1.862.0` revision line as
+verified at v1.767.0 only, and that finding's pointers stay `@ v1.767.0`. An
+area file whose header still pins `v1.767.0` is wholly at that release.
 
 The reference claims nothing about other Windmill versions. Where the source
 and the [public documentation](https://www.windmill.dev/docs) disagree, the
@@ -190,8 +195,8 @@ before `out`).
 
 A qualifier in parentheses gives the provenance: `source-traced` (no oracle
 recording yet), `oracle pending` (an open question asks for a recording), or
-`oracle-observed` (recorded on a running Windmill CE `v1.767.0`; see
-[oracle.md](oracle.md)).
+`oracle-observed` (recorded on a running Windmill CE, whose release the
+recording's provenance names; see [oracle.md](oracle.md)).
 
 ### Status
 

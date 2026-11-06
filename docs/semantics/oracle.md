@@ -1053,7 +1053,7 @@ validation. Open questions are `Q-OR-n`.
 - **Revision 2026-11-06 (retarget to Windmill 1.862.0):** Bun errors carry
   `job_id` and `flow_path` after `step_id` since 1.847.0. On CE v1.862.0 the
   smoke `fail` run and the probes `fail_mid`, `fail_handler` and `retry`
-  recorded them (oracle run ORACLE_RUN_W5B), the handler's `error` input
+  recorded them (oracle run 42299510925), the handler's `error` input
   included; the missing variable's `ExecutionErr` has neither (run `removed`
   of `oracle/seeded`, recorded by oracle run 42243035193). The rest of the
   finding is verified at v1.767.0 only.
