@@ -456,6 +456,60 @@ func TestKinds(t *testing.T) {
 	})
 }
 
+// The fields the schema gained by v1.862.0 decode with the types it
+// declares, under the rules above: optional, null as absent, and checked on
+// every module kind (OF-V1).
+func TestFieldsAddedAtV1862(t *testing.T) {
+	v := decodeOK(t, `{"timeout":30,"modules":[
+		{"id":"a","value":{"type":"identity"},"job_token_scopes":["oidc:write"],"suspend":{"skin":"minimal"}},
+		{"id":"b","value":{"type":"identity"},"job_token_scopes":[],"suspend":{"skin":"unlisted"}},
+		{"id":"c","value":{"type":"identity"},"job_token_scopes":null,"suspend":{"skin":null}},
+		{"id":"g","value":{"type":"aiagent","agent":"f/x/agent","tool_inputs":{"t": {"x": {"type": "static", "value": 1}}},"tools":[
+			{"id":"t","job_token_scopes":["jobs:read"],"requires_approval":true,"value":{"tool_type":"websearch"}},
+			{"id":"u","job_token_scopes":null,"requires_approval":null,"value":{"tool_type":"websearch"}}]}}]}`)
+	if v.Timeout == nil || *v.Timeout != 30 {
+		t.Errorf("value.timeout = %v", v.Timeout)
+	}
+	if m := v.Modules[0]; len(m.JobTokenScopes) != 1 || m.JobTokenScopes[0] != "oidc:write" || *m.Suspend.Skin != "minimal" {
+		t.Errorf("module a = %+v, suspend %+v", m, m.Suspend)
+	}
+	// An empty scope list is kept: it differs from an absent one.
+	if m := v.Modules[1]; m.JobTokenScopes == nil || len(m.JobTokenScopes) != 0 || *m.Suspend.Skin != "unlisted" {
+		t.Errorf("module b = %+v, suspend %+v", m, m.Suspend)
+	}
+	if m := v.Modules[2]; m.JobTokenScopes != nil || m.Suspend.Skin != nil {
+		t.Errorf("module c = %+v, suspend %+v", m, m.Suspend)
+	}
+	g := v.Modules[3].Value.(*AIAgent)
+	if *g.Agent != "f/x/agent" || string(g.ToolInputs) != `{"t": {"x": {"type": "static", "value": 1}}}` {
+		t.Errorf("aiagent = %+v (%s)", g, g.ToolInputs)
+	}
+	if tl := g.Tools[0]; len(tl.JobTokenScopes) != 1 || tl.JobTokenScopes[0] != "jobs:read" || !*tl.RequiresApproval {
+		t.Errorf("tool t = %+v", tl)
+	}
+	if tl := g.Tools[1]; tl.JobTokenScopes != nil || tl.RequiresApproval != nil {
+		t.Errorf("tool u = %+v", tl)
+	}
+	if v := decodeOK(t, `{"modules":[],"timeout":null}`); v.Timeout != nil {
+		t.Errorf("value.timeout null = %v", *v.Timeout)
+	}
+
+	checkRejects(t, []rejectCase{
+		{"value.timeout string", `{"modules":[],"timeout":"30"}`, ErrFlowValue, `invalid type: string "30", expected i32`},
+		{"value.timeout width", `{"modules":[],"timeout":2147483648}`, ErrFlowValue, "expected i32"},
+		{"scopes not a list", identityWith(`,"job_token_scopes":"oidc:write"`), ErrFlowValue, "expected a sequence"},
+		{"scope not a string", identityWith(`,"job_token_scopes":[1]`), ErrFlowValue, "expected a string"},
+		{"skin not a string", identityWith(`,"suspend":{"skin":1}`), ErrFlowValue, "expected a string"},
+		{"agent on rawscript", valueWith(`{"type":"rawscript","content":"","language":"bun","agent":1}`), ErrModule, "expected a string"},
+		{"tool_inputs on identity", valueWith(`{"type":"identity","tool_inputs":[]}`), ErrModule, "expected a map"},
+		{"tool scopes", valueWith(`{"type":"aiagent","tools":[{"id":"t","job_token_scopes":{},"value":{"tool_type":"websearch"}}]}`), ErrModule, "expected a sequence"},
+		{"tool approval", valueWith(`{"type":"aiagent","tools":[{"id":"t","requires_approval":"yes","value":{"tool_type":"websearch"}}]}`), ErrModule, "expected a boolean"},
+		// The question tool is not among OF-9's tool types, so its timeout
+		// is never read.
+		{"question tool", valueWith(`{"type":"aiagent","tools":[{"id":"t","value":{"tool_type":"question","timeout":5}}]}`), ErrModule, "unknown variant `question`"},
+	})
+}
+
 func TestLanguages(t *testing.T) {
 	if len(Languages) != 24 {
 		t.Fatalf("%d languages, OF-13 lists 24", len(Languages))

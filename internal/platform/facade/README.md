@@ -39,13 +39,6 @@ its operationId. `TestRouteTable` generates it from the Apache-2.0
 differ (`go test ./internal/platform/facade -run TestRouteTable -args -update`
 rewrites it). Route templates are wire-format literals.
 
-On the retarget branch, `routes.json` still holds the 778 operations of
-Windmill `v1.767.0`, while the vendored `openapi.yaml` is `v1.862.0`, with
-948 operations. Until the table is regenerated, `TestRouteTable` skips its
-comparison with a retarget-pending marker
-([the retarget ledger](../../../cmd/wltest/README.md#the-retarget-ledger));
-`-update` still rewrites the table.
-
 **Matching.** A request path must start with `/api/`. A template's
 parameter matches one segment, except its last, which may take the rest of
 the path: Windmill's paths (`u/x/script`) travel with their slashes, since

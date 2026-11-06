@@ -98,6 +98,7 @@ func coverageMap() map[string]schemaMapping {
 			opaque: map[string]string{
 				"assets":           "not executed; kept verbatim",
 				"input_transforms": "a map of input transforms by parameter name (OF-9); AiAgent's listed keys are conventions, not fields",
+				"tool_inputs":      "AiAgent's tool input wiring, checked as a map and kept verbatim; the kind is out of scope (OF-9)",
 			},
 		},
 		"BranchOne.branches[]": {
@@ -115,7 +116,12 @@ func coverageMap() map[string]schemaMapping {
 			},
 		},
 		"AgentTool": {decoded: fieldNames(agentToolFields)},
-		"ToolValue": {decoded: tool},
+		"ToolValue": {
+			decoded: tool,
+			ignored: map[string]string{
+				"timeout": "QuestionToolValue's own field: the decoder accepts the tool types OF-9 lists (flowmodule, mcp, websearch), not question",
+			},
+		},
 	}
 }
 
@@ -155,7 +161,6 @@ func TestVendoredSchema(t *testing.T) {
 
 // spec: LIC-3/a
 func TestSchemaCoverage(t *testing.T) {
-	t.Skip("retarget-pending: W7b the v1.862.0 OpenFlow schema declares nine properties the decoder neither decodes nor ignores yet (FlowValue.timeout, OpenFlow.on_behalf_of and seven more)")
 	data, err := os.ReadFile(schemaFile)
 	if err != nil {
 		t.Fatal(err)

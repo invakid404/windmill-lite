@@ -35,6 +35,8 @@ type valueFields struct {
 	defaults               []Module
 	tools                  []AgentTool
 	omitOutput             *bool
+	agent                  *string
+	toolInputs             json.RawMessage
 
 	hasModules, hasBranches, hasDefault, hasTools bool
 }
@@ -124,6 +126,19 @@ var valueFieldTable = []field[valueFields]{
 		return err
 	}},
 	optBoolField("omit_output_from_conversation", func(v *valueFields) **bool { return &v.omitOutput }),
+	optStringField("agent", func(v *valueFields) **string { return &v.agent }),
+	// tool_inputs maps tool ids to input transforms by name. The kind is
+	// out of scope: the map is type-checked as a map and kept verbatim.
+	{name: "tool_inputs", decode: func(_ *decoder, n *node, v *valueFields) error {
+		switch n.kind {
+		case kindNull:
+			return nil
+		case kindObject:
+			v.toolInputs = raw(n)
+			return nil
+		}
+		return invalidType(n, "a map")
+	}},
 }
 
 func decodeLanguage(n *node) (Language, error) {
@@ -231,7 +246,7 @@ func decodeValue(d *decoder, n *node) (Value, error) {
 			return nil, missingField(n, "tools")
 		}
 		return &AIAgent{
-			Tools: f.tools, InputTransforms: transforms, Tag: f.tag,
+			Tools: f.tools, InputTransforms: transforms, Tag: f.tag, Agent: f.agent, ToolInputs: f.toolInputs,
 			OmitOutputFromConversation: f.omitOutput != nil && *f.omitOutput,
 		}, nil
 	case "flowscript":
@@ -287,6 +302,8 @@ var agentToolFields = []field[AgentTool]{
 		t.Value, err = decodeToolValue(n)
 		return err
 	}},
+	optStringsField("job_token_scopes", func(t *AgentTool) *[]string { return &t.JobTokenScopes }),
+	optBoolField("requires_approval", func(t *AgentTool) **bool { return &t.RequiresApproval }),
 }
 
 var toolTypes = []string{"flowmodule", "mcp", "websearch"}

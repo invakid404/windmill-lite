@@ -43,6 +43,7 @@ func (f *Flow) MarshalJSON() ([]byte, error) {
 		}
 		o.optRaw("schema", f.Schema)
 		o.optString("on_behalf_of_email", f.OnBehalfOfEmail)
+		o.optString("on_behalf_of", f.OnBehalfOf)
 		optInt(o, "timeout", f.Timeout)
 	})
 	return e.buf, nil
@@ -194,6 +195,7 @@ func (e *encoder) flowValue(v *FlowValue) {
 			})
 		}
 		optInt(o, "delete_after_secs", v.DeleteAfterSecs)
+		optInt(o, "timeout", v.Timeout)
 	})
 }
 
@@ -239,6 +241,7 @@ func (e *encoder) module(m *Module) {
 				so.optBool("self_approval_disabled", s.SelfApprovalDisabled)
 				so.optBool("hide_cancel", s.HideCancel)
 				so.optBool("continue_on_disapprove_timeout", s.ContinueOnDisapproveTimeout)
+				so.optString("skin", s.Skin)
 			})
 		}
 		if m.Mock != nil {
@@ -258,6 +261,7 @@ func (e *encoder) module(m *Module) {
 			o.key("debouncing")
 			e.object(func(do *object) { e.debouncingFields(do, m.Debouncing) })
 		}
+		o.strings("job_token_scopes", m.JobTokenScopes)
 	})
 }
 
@@ -413,6 +417,8 @@ func (e *encoder) valueFields(o *object, v Value) {
 		e.transforms(o, v.InputTransforms)
 		o.optString("tag", v.Tag)
 		o.bool("omit_output_from_conversation", v.OmitOutputFromConversation)
+		o.optString("agent", v.Agent)
+		o.optRaw("tool_inputs", v.ToolInputs)
 	}
 }
 
@@ -421,6 +427,8 @@ func (e *encoder) tool(t *AgentTool) {
 		o.string("id", t.ID)
 		o.optString("summary", t.Summary)
 		o.optString("description", t.Description)
+		o.strings("job_token_scopes", t.JobTokenScopes)
+		o.optBool("requires_approval", t.RequiresApproval)
 		o.key("value")
 		if mt, ok := t.Value.(*ModuleTool); ok {
 			if fs, ok := mt.Value.(*FlowScript); ok {

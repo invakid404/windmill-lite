@@ -3,10 +3,11 @@ package openflow
 import "encoding/json"
 
 // Flow is a flow document: the OpenFlow object that `flow.yaml` holds
-// (summary, description, value, schema) plus the flow metadata fields that
-// windmill-lite reads (OF-16). Other metadata keys of `flow.yaml` (tag,
-// dedicated_worker, labels, permissions and deploy controls) are placement or
-// deploy settings and are not decoded.
+// (summary, description, value, schema, on_behalf_of_email, on_behalf_of)
+// plus the flow metadata fields that windmill-lite reads (OF-16). Other
+// metadata keys of `flow.yaml` (tag, dedicated_worker, labels, permissions,
+// job token scopes and deploy controls) are placement or deploy settings and
+// are not decoded.
 type Flow struct {
 	Summary     *string
 	Description *string
@@ -15,7 +16,12 @@ type Flow struct {
 	// semantics (OF-18). Nil when absent or null.
 	Schema          json.RawMessage
 	OnBehalfOfEmail *string
-	// Timeout is the whole-flow timeout in seconds.
+	// OnBehalfOf is the identity the flow runs as (`u/<user>`, `g/<group>`
+	// or an email), added to the schema at v1.862.0. Like OnBehalfOfEmail
+	// it is a permission setting, decoded and not used.
+	OnBehalfOf *string
+	// Timeout is the whole-flow timeout in seconds, from the flow's
+	// metadata.
 	Timeout *int32
 }
 
@@ -44,6 +50,11 @@ type FlowValue struct {
 	// FlowEnv maps names to verbatim JSON values, in input order.
 	FlowEnv         []EnvVar
 	DeleteAfterSecs *int32
+	// Timeout is `value.timeout`, the flow's wall-clock limit in seconds,
+	// added to the schema at v1.862.0. It is not the metadata timeout
+	// Flow.Timeout. The compiler refuses a flow that sets it until the
+	// engine enforces it (internal/ir).
+	Timeout *int32
 }
 
 // EnvVar is one `flow_env` entry. Value is the JSON text as written; it may
@@ -84,6 +95,11 @@ type Module struct {
 	// flow's args (OF-V4).
 	PassFlowInputDirectly *bool
 	Debouncing            *Debouncing
+	// JobTokenScopes are the scopes the step's job token is restricted to,
+	// added to the schema at v1.862.0; nil when absent or null, and an
+	// empty list is kept. windmill-lite has no job-token permissions, so
+	// it is decoded and not used.
+	JobTokenScopes []string
 
 	// at and raw are the envelope and its undecoded value, held between
 	// the outer decode and the module-value stage (OF-2).
@@ -158,6 +174,10 @@ type Suspend struct {
 	SelfApprovalDisabled        *bool
 	HideCancel                  *bool
 	ContinueOnDisapproveTimeout *bool
+	// Skin is how the approval request is presented, added to the schema
+	// at v1.862.0. Any string is kept; the schema's two values are not
+	// enforced.
+	Skin *string
 }
 
 // Mock replaces a step's result. ReturnValue is verbatim JSON, nil when
@@ -347,6 +367,11 @@ type AIAgent struct {
 	InputTransforms            Transforms
 	Tag                        *string
 	OmitOutputFromConversation bool
+	// Agent and ToolInputs were added to the schema at v1.862.0: the path
+	// of a reusable agent resource, and the tools' input wiring, a map
+	// kept verbatim.
+	Agent      *string
+	ToolInputs json.RawMessage
 }
 
 // AgentTool is one tool of an AIAgent.
@@ -355,6 +380,10 @@ type AgentTool struct {
 	Summary     *string
 	Description *string
 	Value       ToolValue
+	// JobTokenScopes and RequiresApproval were added to the schema at
+	// v1.862.0. JobTokenScopes is nil when absent or null.
+	JobTokenScopes   []string
+	RequiresApproval *bool
 }
 
 // ToolValue is one of *ModuleTool, *MCPTool and *WebsearchTool.
