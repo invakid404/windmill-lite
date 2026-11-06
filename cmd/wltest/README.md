@@ -845,9 +845,9 @@ mode.
 
 | Section | Item | What it allows | Read by |
 |---|---|---|---|
-| `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite` |
+| `flow_suite` | a run the flow suite requires: `<fixture directory>/<run>`, or `<expression file>/<case>` | the run fails or is unsupported in a mode the entry covers: `warm`, `fresh`, `host`, `warm-shared-code` or `host-shared-code` | `TestFlowSuite`, and `TestSubflowRetryFixturesFreshAndWarm` for its fixture's runs |
 | `step_suite` | a step case: `<step file>/<case>` | the case fails in a mode the entry covers: `warm` or `fresh` | `TestStepSuite` |
-| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, and the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch) |
+| `oracle` | a run, named as in `flow_suite` | the oracle reports the run `new`, `changed`, `expect_mismatch`, `failed` on the oracle or `unstable`, and the run has no committed recording; the entry names no modes | `record --pending`, the recording tests of [internal/oracle](../../internal/oracle/README.md#pending-recordings-on-the-retarget-branch), `TestStubCasesMatchTheOracle`, and the E3a suite of [internal/expr](../../internal/expr/README.md) |
 
 `conformance.ParseLedger` refuses unknown fields, a milestone that is not
 an id, an empty or multi-line reason, a mode listed twice, an `oracle`
@@ -864,6 +864,11 @@ case, or a run of a fixture or expression file.
 - A listed run or case that passes in a mode its entry covers fails the
   test. The entry then hides nothing in that mode, so the pull request
   that made it pass removes the mode or the entry.
+- `TestSubflowRetryFixturesFreshAndWarm` judges its fixture's runs in
+  `fresh` and `warm` by their `flow_suite` entries, as `TestFlowSuite`
+  does.
+- `TestStubCasesMatchTheOracle` checks a stub fixture with a run whose
+  recording is pending against its expects only.
 - `record --pending` changes no output: new and changed recordings still
   go under `--out`, and an `expect_mismatch` run's observation under
   `--mismatched`. Only the session's verdict changes. A listed run

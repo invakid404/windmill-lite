@@ -589,8 +589,11 @@ does not exist on `main`, where every run needs its recording.
   that read its recording, logging the entry's marker.
 - `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings` and
   `TestUnitCasesMatchRecordings` pass over it.
-- `TestReplayRecordedCaptures`, and the tests that read one recording
-  through `recordedRun`, skip with the marker.
+- `TestReplayRecordedCaptures`, the tests that read one recording
+  through `recordedRun` or `recordedDeployment`, and
+  `TestRecordedParallelismReleaseOrder` skip with the marker.
+  `TestRecordedDeploymentEvidence` checks each run in a subtest of its
+  own, so only a pending run's checks are skipped.
 - `TestCommittedRecordingsNameThePinnedOracle` checks only the recordings
   that exist, so it needs no exception. A listed run's recording, when
   present, is checked as any other.
@@ -636,7 +639,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestSessionWritesMismatchedObservations`, `TestSessionMismatchDirRefusals` | whole sessions as above with `MismatchDir`. An `expect_mismatch` run's observation is written beside the fixture as a recording and named in the report, and a later session finds it unchanged once the run's expect follows the oracle. The directory is refused at the repository root and at `OutDir`, and a fixture outside the root or a failed write fails the run with its differences | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestRedactingWriter`, `TestClientHidesItsToken`, `TestCLIOutputHidesTheToken`, `TestSessionNeverWritesTheToken` | where the session token is replaced: in output split across writes; in the client's bodies, `Content-Type` headers, errors, run-and-wait responses and captures, with the login not captured; and in the CLI's output and error. A whole session whose run hands the token back in a trigger event's headers, a result, an effect and the run-and-wait response's body and `Content-Type`, with a CLI that prints it, writes no recording, raw capture, report or log that holds it | the smoke fixture |
-| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
+| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording, of a flow run or of an expression case, names the pinned oracle, image and CLI; the previous pin's identity is refused | `conformance/flows`, `conformance/exprs` |
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language, as the sync folder reads it) | `conformance/flows` |
 | `TestTreeScriptsAreSources` | only a script's source file makes a script there: a flow directory, a resource, a variable or a script's metadata of the same name does not (E3a review R1-2) | a synthetic tree |

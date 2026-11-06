@@ -1,8 +1,277 @@
 {
   "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
-  "flow_suite": {},
+  "flow_suite": {
+    "conformance/exprs/je-14.yaml/je-14-a": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-15.yaml/je-15-h": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-21.yaml/je-21-a": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-22.yaml/je-22-d": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-23.yaml/je-23-d": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-24.yaml/je-24-d": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-48.yaml/je-48-b": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-48.yaml/je-48-d": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-5.yaml/je-5-b": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/exprs/je-7.yaml/je-7-g": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/cf/cf-19/cf19-b": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/client-api/dispatch/identity": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/client-api/job-reads-parallel/held": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads-parallel/held1": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads-parallel/held2": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads-parallel/par": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads-parallel/partial": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads-parallel/waits": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads-parallel/waits2": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads-parallel/waits3": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the QuickJS frames of W6f"
+    },
+    "conformance/flows/client-api/job-reads/answers": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/cached": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/deep": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/edges": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/fail": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads/handled": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads/incollapsed": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/inloop": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/inpar": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/loopretry": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads/ok": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/prerun": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the QuickJS frames of W6f"
+    },
+    "conformance/flows/client-api/job-reads/retried": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads/shapes": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/skipsub": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/client-api/job-reads/subretry": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+    },
+    "conformance/flows/client-api/job-reads/walk": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/branchone_retry": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/delay": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/exhausted": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/exhausted_continue": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/exhausted_failure": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/loop_par": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/loop_seq": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/nested": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/once": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/pre_run": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/control-flow/subflow-retry/while_retry": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/je/branches/je27-b-branchall": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/branches/je31-a": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/errors/je17-a": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/je/errors/je26-b": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/errors/je35-a": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/errors/je35-b": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/errors/je35-d": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/loops/je-v1-e": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/loops/je27-b-loop": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/loops/je39-a": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/shortcuts/je9-b": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/waits/je-v2-a": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/je/waits/je-v2-b": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/je/waits/je-v2-c": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/waits/je22-a": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/waits/je28-c": {
+      "milestone": "W6f",
+      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/waits/je32-a": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/je/waits/je32-b": {
+      "milestone": "W6a",
+      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    }
+  },
   "step_suite": {},
   "oracle": {
+    "conformance/exprs/je-2.yaml/je-2-a": {
+      "milestone": "W5d",
+      "reason": "CE 1.862.0 ends the run as failure (ExecutionErr) where the case expects canceled, as for the expression chain of je-51-chain"
+    },
     "conformance/flows/client-api/driven/restart": {
       "milestone": "W5a",
       "reason": "CE 1.862.0 answers the restart route with 400 (an enterprise feature), where the expect has v1.767.0's 500"
@@ -499,9 +768,25 @@
       "milestone": "W5d",
       "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
     },
+    "conformance/flows/je/providers/je38-ab": {
+      "milestone": "W5h",
+      "reason": "CE 1.862.0 keeps step b's argument as the $var: reference where the run's claims have the resolved value"
+    },
     "conformance/flows/je/shortcut-texts/fi_first": {
       "milestone": "W5a",
       "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/je/shortcuts/je12": {
+      "milestone": "W5f",
+      "reason": "CE 1.862.0 resolves results inside nested functions of an input transform (1.818.0), which contradicts the run's claims and unit cases"
+    },
+    "conformance/flows/je/shortcuts/je12-d": {
+      "milestone": "W5f",
+      "reason": "CE 1.862.0 resolves results inside nested functions of an input transform (1.818.0), so the run succeeds where its claims and unit case have an error"
+    },
+    "conformance/flows/je/shortcuts/je9-l": {
+      "milestone": "W5f",
+      "reason": "CE 1.862.0 evaluates the multi-line results expression (1.818.0), so the run succeeds where its claims and unit case have an error"
     },
     "conformance/flows/languages/bun-results/thrown_string": {
       "milestone": "W5b",
@@ -674,6 +959,10 @@
     "conformance/flows/languages/wr-v2/step": {
       "milestone": "W5a",
       "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
+    },
+    "conformance/flows/openflow/of-deployed/ba_shape": {
+      "milestone": "W5h",
+      "reason": "CE 1.862.0 materialises the branchall branch with skip_failure false, where batch E3f's deployment check of OF-6/a has true"
     },
     "conformance/flows/openflow/of-deployed/f7_ba": {
       "milestone": "W5d",
