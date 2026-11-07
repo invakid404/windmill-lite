@@ -279,9 +279,10 @@ with none.
    invocation's outcome (`empty` for code 0 with no result written,
    `escaped` otherwise) and throws a sentinel. `finally` blocks run and a
    `catch` can swallow the sentinel and keep going; whatever the code does
-   afterwards is reported as `late` (D11). A call made while a step module
-   evaluates is the loading invocation's (lifecycle item 2), so every
-   invocation of the script fails with that exit.
+   afterwards is reported as `late` (D11). A call while a step module
+   evaluates fixes the loading invocation's outcome (lifecycle item 2); a
+   sentinel that escapes the evaluation fails the module's load for every
+   later invocation.
 7. **Child processes and other output paths.** The harness wraps
    `child_process.spawn`, `exec`, `execFile` and `fork` (and the sync
    forms) and `Bun.spawn`/`Bun.spawnSync`, so that a child started without

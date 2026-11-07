@@ -438,11 +438,12 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `import()` then waits for that evaluation. An ES module's failure stays
   with the module, so `import()` rejects with the same error. A CommonJS
   module's is thrown as it is: `import()` would evaluate it again.
-- **What that changes** against `import()` alone is stack text only.
-  `require()` runs as a promise reaction, so no frame of the runtime's is
-  below the module's in the stack of an error it throws as it evaluates;
-  Bun's own `at unknown` frame is. A link error (an import that the module
-  it names does not export) gets a stack. Loading takes as long either way.
+- **What that changes** against `import()` alone is stack text only. An
+  error the module throws as it evaluates has Bun's own `at unknown` frame
+  and `loadModule`'s below the module's frames, and a link error (an import
+  that the module it names does not export) gets a stack. What `require()`
+  returns is dropped, so an exported `then`, or a CommonJS module's
+  thenable exports, is resolved by `import()` alone, as before.
 - **A module that step code imports at run time.** On Bun 1.4.3 a module
   that step code loads with `import()` while it runs, from a file the
   bundle does not contain (a codebase asset), evaluates outside every
@@ -759,8 +760,8 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    read is `escaped`.
 2. **The module** loads; a failure to load or evaluate it is `escaped`
    ([WR-19](../../docs/semantics/languages.md#wr-19)), on every invocation
-   of the script, and an intercepted `process.exit` during its evaluation
-   ends every invocation of it as that exit did.
+   of the script, and an intercepted `process.exit` whose sentinel escapes
+   its evaluation ends every invocation of it as that exit did.
 3. **The export** must be a function, or the step fails with `<entry>
    function is missing` in the wrapper-catch shape
    ([WR-7](../../docs/semantics/languages.md#wr-7),
@@ -1103,10 +1104,10 @@ write-capable selectors and halts as the host gave them.
 
 `test/load.test.ts` checks [how a module loads](#the-per-invocation-context):
 the caller's context at the top level of an ES module, its static imports
-and a CommonJS module, after a top-level `await`, and in the work the
-module starts. It also checks that the namespace is `import()`'s, that the
-module evaluates once, and that a failure is the module's own error,
-without a frame of the runtime's.
+and a CommonJS module, after a top-level `await`, and in the work it
+starts. It checks `import()`'s namespace, one evaluation, and a failure's
+own error. A differential check against `import()` alone covers an exported `then`,
+a CommonJS module's thenable exports and a pending promise as its exports.
 
 `test/testing.test.ts` checks the [test entry](#the-test-entry) against
 the runtime:
