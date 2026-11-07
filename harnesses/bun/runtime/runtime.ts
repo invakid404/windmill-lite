@@ -69,7 +69,7 @@ import {
 import { Native, type NativeJob } from "./native.ts";
 import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
-import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
+import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
 export { TAIL_LENGTH } from "./context.ts";
 
@@ -1019,7 +1019,7 @@ export class Runtime {
    * a late error that settles nothing (D9). Its body is the error's WR-18
    * object (a native invocation's WR-43 one), or none when that cannot be
    * built. */
-  private lateError(id: string, e: unknown, text: () => string = () => errorText(e, stepId())) {
+  private lateError(id: string, e: unknown, text: () => string = () => errorText(e, stepContext(process.env))) {
     let body: Raw | undefined;
     try {
       body = new Raw(text());
@@ -1438,15 +1438,16 @@ function caught(e: unknown): Outcome {
     // Printing is for the logs; it never changes the outcome.
   }
   try {
-    return { outcome: "error", body: errorText(e, stepId()) };
+    return { outcome: "error", body: errorText(e, stepContext(process.env)) };
   } catch (inner) {
     return escaped(describe(inner));
   }
 }
 
-/** The step id a wrapper error carries: WM_FLOW_STEP_ID as the invocation
- * sees it, when it is not empty (WR-18). It is read through the
- * environment view, in the invocation's context. */
+/** The step id the worker's own errors carry: WM_FLOW_STEP_ID as the
+ * invocation sees it, when it is not empty (WR-37). It is read through the
+ * environment view, in the invocation's context, as a wrapper error reads
+ * its step context keys (WR-18). */
 function stepId(): string | undefined {
   return process.env.WM_FLOW_STEP_ID || undefined;
 }

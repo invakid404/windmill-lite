@@ -766,10 +766,14 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    serialisation is printed to the invocation's stderr, its log, and
    shaped as
    [WR-18](../../docs/semantics/languages.md#wr-18)'s object: `message`,
-   `name`, `stack`, `step_id` from `WM_FLOW_STEP_ID` as the step sees it,
-   `extra` with the other own properties. When that object cannot be built
+   `name`, `stack`, then the step context keys of
+   [FX-12](../../docs/semantics/execution.md#fx-12), `step_id`, `job_id`
+   and `flow_path` from `WM_FLOW_STEP_ID`, `WM_JOB_ID` and `WM_FLOW_PATH`
+   as the step sees them, each when it is not empty, then `extra` with the
+   other own properties. When that object cannot be built
    or serialised (`throw null`, a cycle in `extra`) the failure is
-   `escaped`, with the handler's error at the end of its log.
+   `escaped`, with the handler's error at the end of its log. An
+   unparsable signature's error is the worker's, with `step_id` alone.
 
 | The call | Outcome |
 |---|---|
@@ -954,10 +958,18 @@ this mode cannot reproduce is deviation D5 of
   serialisation, is `{message, stack, name}`: for an `Error` of the realm
   or of a web API, name and message decoded together, and the stack with
   the source line its first frame points at in front when that frame is in
-  the script; three `null`s for anything else. A transpile error, a
+  the script; three `null`s for anything else.
+- **Its step context keys.** That object then gets `step_id`, `job_id`
+  and `flow_path` from the job's `WM_FLOW_STEP_ID`, `WM_JOB_ID` and
+  `WM_FLOW_PATH`, each when it is not empty, as the worker adds them after
+  the run ([FX-12](../../docs/semantics/execution.md#fx-12)). They come
+  from the invocation's environment, not from the realm's `process.env`,
+  which the script may have changed.
+- **The worker's errors.** A transpile error, a
   signature that did not parse, a `//proxy` header (an EE feature) and a
-  load or link failure are the worker's `execution error:` object. Both
-  are `error` outcomes; the second kind's `result` frame says `origin`
+  load or link failure are the worker's `execution error:` object, with
+  `step_id` alone. They are `error` outcomes, as a thrown value's object
+  is, but their `result` frame says `origin`
   `harness`, as a Bun step's unparsable signature does (WR-37), so that the
   engine records the message as generated (ADR 0004, FU5).
 - **Process-level errors** of a native invocation are its own: by its

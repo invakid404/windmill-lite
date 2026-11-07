@@ -144,7 +144,7 @@ cases:
       export function main() { throw new AppError("boom"); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, name: AppError, stack: "<stack>", step_id: a, extra: {code: 42}}}}
+        expect: {status: failure, result: {error: {message: boom, name: AppError, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {code: 42}}}}
   - spec: D13
     variant: load-failure
     provenance: policy

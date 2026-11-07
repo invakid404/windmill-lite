@@ -579,7 +579,7 @@ func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls 
 	inv := engine.Invocation{
 		ID:          invID,
 		Run:         runID,
-		Site:        conformance.SitePath{}.Child(conformance.Module(cmp(step, conformance.StepModule))),
+		Site:        stepSite(step),
 		Script:      script,
 		Entry:       entry,
 		Args:        args,
@@ -609,7 +609,7 @@ func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls 
 	default:
 		stored = engine.StoreOutcome(out, step)
 	}
-	text, err := stored.Value.Stored()
+	text, err := ownJob(stored.Value, invID, inv.Site)
 	if err != nil {
 		return []string{"the stored value: " + err.Error()}, rec
 	}
@@ -617,7 +617,7 @@ func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls 
 	if stored.Failed {
 		status = conformance.RunFailure
 	}
-	got := conformance.Observation{Status: status, Result: json.RawMessage(text)}
+	got := conformance.Observation{Status: status, Result: text}
 	problems, err := conformance.CompareStep(c, r, sc.mode, got)
 	if err != nil {
 		return []string{"compare: " + err.Error()}, rec
@@ -820,8 +820,9 @@ func (sc *stepChecker) runNode(ctx context.Context, c *conformance.StepCase, r *
 		return conformance.Observation{}, err
 	}
 	step := c.ModuleID()
+	invID := newUUID()
 	env := []string{"PATH=" + os.Getenv("PATH")}
-	for k, v := range jobEnv(c, step, newUUID(), runID) {
+	for k, v := range jobEnv(c, step, invID, runID) {
 		env = append(env, k+"="+v)
 	}
 	rctx, cancel := context.WithTimeout(ctx, runTimeout)
@@ -863,7 +864,7 @@ func (sc *stepChecker) runNode(ctx context.Context, c *conformance.StepCase, r *
 		o = engine.StepOutcome{Kind: engine.OutcomeEscaped, Tail: tail, ExitCode: ee.ExitCode()}
 	}
 	stored := engine.StoreOutcome(o, step)
-	text, err := stored.Value.Stored()
+	text, err := ownJob(stored.Value, invID, stepSite(step))
 	if err != nil {
 		return conformance.Observation{}, fmt.Errorf("the stored value: %v", err)
 	}
@@ -871,7 +872,27 @@ func (sc *stepChecker) runNode(ctx context.Context, c *conformance.StepCase, r *
 	if stored.Failed {
 		status = conformance.RunFailure
 	}
-	return conformance.Observation{Status: status, Result: json.RawMessage(text)}, nil
+	return conformance.Observation{Status: status, Result: text}, nil
+}
+
+// stepSite is the site a step case's invocation runs at: its module's,
+// m:<step id>, or m:a for a script job outside any flow.
+func stepSite(step string) conformance.SitePath {
+	return conformance.SitePath{}.Child(conformance.Module(cmp(step, conformance.StepModule)))
+}
+
+// ownJob is the stored value's text with the invocation's own job id,
+// invID, written as the job placeholder of its site, as the flow suite's
+// normaliser writes a walked job's (OR-14 rule 1). So a case states the
+// job_id of a wrapper or native error (FX-12) as "<job:m:a>", and any
+// other text is kept, escaped only where EncodeText escapes it.
+func ownJob(v jsonval.Value, invID string, site conformance.SitePath) (json.RawMessage, error) {
+	text, err := v.Stored()
+	if err != nil {
+		return nil, err
+	}
+	n := conformance.Normaliser{IDs: map[string]conformance.SitePath{invID: site}}
+	return n.Value(json.RawMessage(text))
 }
 
 func writeJobFile(job, name string, data []byte) error {

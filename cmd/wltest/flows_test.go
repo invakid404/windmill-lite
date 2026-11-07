@@ -272,6 +272,58 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	}
 }
 
+// The flow outcomes that two run-and-wait runs of execution/fx-36-http
+// answer with match their expects on windmill-lite in fresh and in warm
+// mode: FX-12/a's error with its own property under extra (run extra) and
+// FX-36/b's plain error (run failed), each with the step context keys of
+// FX-12. The flow suite leaves every run-and-wait run unsupported, since
+// its response is the HTTP adapter's (milestone F7b); here each run is
+// submitted as an ordinary run and checked without its response
+// (flowChecker.runWaitOutcome). The fixture's other runs are logged.
+func TestRunWaitOutcomes(t *testing.T) {
+	bun := bunOrSkip(t)
+	root := repo(t)
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	dir := filepath.Join(flowsDir, "execution", "fx-36-http")
+	required := []string{"extra", "failed"}
+	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {
+		t.Run(mode, func(t *testing.T) {
+			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js, runWaitOutcome: true}
+			seen := map[string]bool{}
+			for _, fr := range fc.runFixtures(context.Background(), []string{dir}) {
+				if fr.err != nil {
+					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
+				}
+				for _, r := range fr.runs {
+					seen[r.run] = true
+					var what string
+					switch {
+					case r.unsupported != "":
+						what = "is unsupported: " + r.unsupported
+					case len(r.problems) > 0:
+						what = "failed:\n  " + strings.Join(r.problems, "\n  ") + "\nharness diagnostics:\n" + r.diag
+					}
+					switch {
+					case !slices.Contains(required, r.run):
+						t.Logf("run %s (not checked here): %s", r.run, cmp(strings.SplitN(what, "\n", 2)[0], "passed"))
+					case what != "":
+						t.Errorf("run %s %s", r.run, what)
+					}
+				}
+			}
+			for _, run := range required {
+				if !seen[run] {
+					t.Errorf("the fixture has no run %s", run)
+				}
+			}
+		})
+	}
+}
+
 // Milestone N5's gate (ADR 0012): the control-flow/subflow-retry runs, a
 // retry on a flow step recorded on the oracle, and a retry on a while loop
 // and a branchone, match their recordings on windmill-lite in fresh and in
