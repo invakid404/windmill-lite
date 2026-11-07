@@ -272,14 +272,19 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	}
 }
 
-// The flow outcomes that two run-and-wait runs of execution/fx-36-http
-// answer with match their expects on windmill-lite in fresh and in warm
-// mode: FX-12/a's error with its own property under extra (run extra) and
+// The flow outcomes of run-and-wait runs match their expects on
+// windmill-lite in fresh and in warm mode. Of execution/fx-36-http:
+// FX-12/a's error with its own property under extra (run extra) and
 // FX-36/b's plain error (run failed), each with the step context keys of
-// FX-12. The flow suite leaves every run-and-wait run unsupported, since
-// its response is the HTTP adapter's (milestone F7b); here each run is
-// submitted as an ordinary run and checked without its response
-// (flowChecker.runWaitOutcome). The fixture's other runs are logged.
+// FX-12, and FX-36/h's array of five, an ordinary successful result that
+// no step turns into anything else (run array). Of
+// execution/fx-37-branches, every run: FX-37/b to FX-37/e's flows with an
+// early_return step inside a branch, which complete with their last
+// step's result whatever the early answer was. The flow suite leaves every
+// run-and-wait run unsupported, since its response is the HTTP adapter's
+// (milestone F7b); here each run is submitted as an ordinary run and
+// checked without its response (flowChecker.runWaitOutcome). The fixtures'
+// other runs are logged.
 func TestRunWaitOutcomes(t *testing.T) {
 	bun := bunOrSkip(t)
 	root := repo(t)
@@ -288,18 +293,22 @@ func TestRunWaitOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer js.Close()
-	dir := filepath.Join(flowsDir, "execution", "fx-36-http")
-	required := []string{"extra", "failed"}
+	required := map[string][]string{
+		filepath.Join(flowsDir, "execution", "fx-36-http"):     {"extra", "failed", "array"},
+		filepath.Join(flowsDir, "execution", "fx-37-branches"): {"script_in_branch", "loop_in_branch", "untaken_branch", "empty_loop"},
+	}
+	dirs := slices.Sorted(maps.Keys(required))
 	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {
 		t.Run(mode, func(t *testing.T) {
 			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js, runWaitOutcome: true}
 			seen := map[string]bool{}
-			for _, fr := range fc.runFixtures(context.Background(), []string{dir}) {
+			for _, fr := range fc.runFixtures(context.Background(), dirs) {
 				if fr.err != nil {
 					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
 				}
+				name := filepath.Base(fr.dir)
 				for _, r := range fr.runs {
-					seen[r.run] = true
+					seen[fr.dir+"/"+r.run] = true
 					var what string
 					switch {
 					case r.unsupported != "":
@@ -308,16 +317,18 @@ func TestRunWaitOutcomes(t *testing.T) {
 						what = "failed:\n  " + strings.Join(r.problems, "\n  ") + "\nharness diagnostics:\n" + r.diag
 					}
 					switch {
-					case !slices.Contains(required, r.run):
-						t.Logf("run %s (not checked here): %s", r.run, cmp(strings.SplitN(what, "\n", 2)[0], "passed"))
+					case !slices.Contains(required[fr.dir], r.run):
+						t.Logf("run %s/%s (not checked here): %s", name, r.run, cmp(strings.SplitN(what, "\n", 2)[0], "passed"))
 					case what != "":
-						t.Errorf("run %s %s", r.run, what)
+						t.Errorf("run %s/%s %s", name, r.run, what)
 					}
 				}
 			}
-			for _, run := range required {
-				if !seen[run] {
-					t.Errorf("the fixture has no run %s", run)
+			for _, dir := range dirs {
+				for _, run := range required[dir] {
+					if !seen[dir+"/"+run] {
+						t.Errorf("the fixture %s has no run %s", filepath.Base(dir), run)
+					}
 				}
 			}
 		})

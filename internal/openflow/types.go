@@ -351,10 +351,11 @@ type Branch struct {
 	Parallel bool
 }
 
-// EffectiveSkipFailure is the decoder's default: absent means true
-// (OF-6).
+// EffectiveSkipFailure is the decoder's default: absent means false
+// (OF-6), the value a run reads for an absent flag too, so a deployed
+// branch and a raw one agree (OF-7).
 func (b *Branch) EffectiveSkipFailure() bool {
-	return b.SkipFailure == nil || *b.SkipFailure
+	return b.SkipFailure != nil && *b.SkipFailure
 }
 
 // Identity returns its input.

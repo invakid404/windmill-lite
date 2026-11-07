@@ -226,6 +226,8 @@ func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Ori
 		return
 	}
 	r.trace.ResultOrigin, r.trace.ResultNested = origin, nested
+	// The flow's result is stored without its NUL escapes (FX-48 case 1).
+	result = result.WithoutNUL()
 	if stored, err := result.Stored(); err == nil {
 		r.trace.Result = jsonval.FromProducer(stored)
 	} else {
@@ -1882,26 +1884,34 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	}
 	r.ended(fr, &o)
 	st := StoreOutcome(out, fr.stepID(i))
-	if _, err := st.Value.Stored(); err != nil && job != "" {
-		// FX-48 case 1, OR-27: the completion insert refuses a result, or
-		// a failure value, that jsonb rejects, and the job fails with the
-		// storage error, with no step_id, which the flow handles as any
+	// FX-48 case 1, OR-27: the completion stores the result, or the failure
+	// value, without its NUL escapes, and every reader of storage reads it
+	// so; the flow carries the producer's text on in memory (FX-42 rule 3),
+	// so the next module's previous_result keeps them.
+	kept := st.Value.WithoutNUL()
+	if _, err := kept.Stored(); err != nil && job != "" {
+		// FX-51 case 1: the completion insert refuses a result, or a
+		// failure value, that jsonb still rejects, and the job fails with
+		// the storage error, with no step_id, which the flow handles as any
 		// failure. Windmill retries the insert for about 30 s first, a
 		// delay windmill-lite does not reproduce (OR-27: out of scope).
 		st = Stored{Failed: true, Value: engineError("InternalErr", "Internal: Could not add completed job "+job+": "+databaseError(err).Error()), Origin: OriginEngine}
+		kept = st.Value
 	}
-	r.recordJob(fr, i, st.Value)
+	r.recordJob(fr, i, kept)
 	if st.Failed {
 		if intercepted {
 			st.Origin = OriginHost
 		}
-		return fail(st.Value, st.Origin)
+		res := fail(st.Value, st.Origin)
+		res.rec.Result = kept
+		return res
 	}
-	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, st.Value, st.Value
+	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, kept, st.Value
 	o.carried = st.Value
 	if cacheKey != "" && cacheTTL.stores() {
-		// The job succeeded: its result is cached (FX-40).
-		r.store(ctx, cacheKey, cacheTTL.duration(), st.Value, st.Origin, nil)
+		// The job succeeded: its stored result is cached (FX-40).
+		r.store(ctx, cacheKey, cacheTTL.duration(), kept, st.Origin, nil)
 	}
 	if skipped {
 		// An intercepted identity is classified as its identity job would

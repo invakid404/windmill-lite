@@ -453,9 +453,7 @@ a few at a time (`flows.go`):
    ([CF-22](../../docs/semantics/control-flow.md#cf-22)), which a later
    module that lists the attempt (FX-29) shows again below its own
    `r:<k>`, with everything below it, its modules' own attempts
-   included, as the walker walks the attempt's flow there; what a loop ran
-   before its `skip_if` held mid-loop
-   ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
+   included, as the walker walks the attempt's flow there; and a collapsed
    iteration's job that was never pushed.
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
@@ -636,8 +634,12 @@ of Windmill 1.862.0's image).
   in its native mode), FU5 the `oracle/nul` runs that
   N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
-  made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
-  inside a branchone (CF-23/d to f). A required run stays required. The test runs every
+  made checkable, FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
+  inside a branchone (CF-23/d to f), and the retarget to Windmill 1.862.0
+  `je/je-20-providers`' decryption runs `j1` to `j3` and
+  `execution/fx-48-jsonb`'s `nul_memory`, once windmill-lite gave CE's
+  decryption text and removed a NUL at storage. A required run stays
+  required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log
@@ -733,14 +735,13 @@ of Windmill 1.862.0's image).
   run of `control-flow/subflow-retry` (a retry on a flow step, and on a
   while loop and a branchone) matches its recording in `fresh` and in
   `warm`.
-- `TestRunWaitOutcomes` checks the flow outcomes of two run-and-wait runs
-  of `execution/fx-36-http`, which the flow suite leaves unsupported:
-  `extra`, an error with an own property, and `failed`, a plain error.
-  Each is submitted as an ordinary run and must match its `expect`
-  without the `response`, which needs windmill-lite's HTTP adapter, in
-  `fresh` and in `warm`: the stored error with its step context keys
-  ([FX-12](../../docs/semantics/execution.md#fx-12)). The fixture's other
-  runs are only logged.
+- `TestRunWaitOutcomes` checks the flow outcomes of run-and-wait runs,
+  which the flow suite leaves unsupported. Each is submitted as an
+  ordinary run and must match its `expect` without the `response`, which
+  needs windmill-lite's HTTP adapter, in `fresh` and in `warm`. The runs
+  are `execution/fx-36-http`'s `extra`, `failed` and `array`, and every
+  run of `execution/fx-37-branches`, an `early_return` step inside a
+  branch. Other runs are only logged.
 - `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a

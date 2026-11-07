@@ -310,8 +310,13 @@ func (n *nestSpec) UnmarshalJSON(b []byte) error {
 }
 
 // TestSecrets: a secret's plaintext is revealed by Secrets and passes
-// through the value resolvers; ciphertext with no host resolver fails with
-// secret_unavailable, in a read and in worker resolution (ADR 0007).
+// through the value resolvers; ciphertext and an $encrypted: value that no
+// host secret service supplies fail as Windmill fails a value it cannot
+// decrypt, since 1.829.0 with one text whatever the cause (WA-11/c,
+// JE-42/j), in a read and in worker resolution, without Windmill's
+// locations (D14; ADR 0007, Secrets). These pin the texts that
+// client-api/facade-answers (runs answers and secret_arg) and
+// je/je-20-providers (runs j1 to j3) record on CE.
 func TestSecrets(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore()
@@ -322,18 +327,29 @@ func TestSecrets(t *testing.T) {
 	if v, err := s.VariableValue(ctx, "u/x/plain"); err != nil || v != "p" {
 		t.Fatalf("plain: %q %v", v, err)
 	}
+	const cause = "Internal: Could not decrypt value. The value may have been encrypted with a different key."
 	_, err := s.VariableValue(ctx, "u/x/cipher")
 	var pe *Error
-	if !errors.As(err, &pe) || pe.HTTPStatus() != 500 || !strings.HasPrefix(pe.Body(), "Internal: secret_unavailable: the secret variable u/x/cipher is ciphertext") {
+	if !errors.As(err, &pe) || pe.HTTPStatus() != 500 || pe.Body() != "Internal: Error decrypting variable u/x/cipher: "+cause {
 		t.Fatalf("cipher: %v", err)
 	}
 	if _, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"a":"$var:u/x/cipher"}`)), nil, nil); err == nil ||
-		!strings.HasPrefix(err.Error(), "Not found: Variable u/x/cipher not found for `a`: Internal: secret_unavailable:") {
+		err.Error() != "Not found: Variable u/x/cipher not found for `a`: Internal: Error decrypting variable u/x/cipher: "+cause {
 		t.Fatalf("cipher argument: %v", err)
 	}
-	if _, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"a":"$encrypted:AAAA"}`)), nil, nil); err == nil ||
-		!strings.HasPrefix(err.Error(), "Internal: secret_unavailable: an $encrypted: value") {
-		t.Fatalf("$encrypted: %v", err)
+	for _, blob := range []string{"AAAA", "abcd", "secret", "not!base64"} {
+		_, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"a":"$encrypted:`+blob+`"}`)), nil, nil)
+		if !errors.As(err, &pe) || pe.HTTPStatus() != 500 || pe.Body() != cause {
+			t.Fatalf("$encrypted:%s: %v", blob, err)
+		}
+	}
+	// A host secret service's own failure is its own.
+	s.Secrets = failingSecrets{}
+	if _, err := s.VariableValue(ctx, "u/x/cipher"); err == nil || err.Error() != "Internal: vault down" {
+		t.Fatalf("host failure: %v", err)
+	}
+	if _, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"a":"$encrypted:AAAA"}`)), nil, nil); err == nil || err.Error() != "Internal: vault down" {
+		t.Fatalf("host failure: %v", err)
 	}
 
 	// A host's resolver chain replaces its own marker, in a secret and in
@@ -353,6 +369,64 @@ func TestSecrets(t *testing.T) {
 	}
 	if out, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"a":"$encrypted:[1]"}`)), nil, nil); err != nil || string(out.Producer()) != `{"a":[1]}` {
 		t.Fatalf("host $encrypted: %s %v", out.Producer(), err)
+	}
+	// Decrypted text that is not JSON fails with serde's message (JE-42).
+	if _, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"a":"$encrypted:hello"}`)), nil, nil); err == nil ||
+		err.Error() != "Internal: Failed to decrypt '$encrypted:' value: expected value at line 1 column 1" {
+		t.Fatalf("host $encrypted: not JSON: %v", err)
+	}
+}
+
+type failingSecrets struct{}
+
+func (failingSecrets) Reveal(context.Context, string, Variable) (string, error) {
+	return "", errors.New("vault down")
+}
+
+func (failingSecrets) Decrypt(context.Context, string) (string, error) {
+	return "", errors.New("vault down")
+}
+
+// WA-12/h at CE v1.862.0: the interpolated read refuses its own path under
+// CUSTOM_INSTANCE_DB/ to a caller that authenticated with a job's token,
+// before anything else, with 401 and its text, and every caller of a read
+// windmill-lite serves is a job: the route, resource() and a step's $res:
+// argument, which quotes it as the not-found cause of JE-42. The raw read
+// looks the path up as any other, and so does a nested $res:, which is not
+// the read's own path. This pins what client-api/facade-answers, run
+// answers (part wa12h), records on CE.
+func TestCustomInstanceDB(t *testing.T) {
+	ctx := context.Background()
+	store := NewStore()
+	if err := store.SetResource("CUSTOM_INSTANCE_DB/held", Resource{Value: json.RawMessage(`{"host":"h"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetResource("u/x/outer", Resource{Value: json.RawMessage(`{"db":"$res:CUSTOM_INSTANCE_DB/held"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Services{Resources: store, Variables: store}
+	const refused = "Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)"
+	for _, p := range []string{"CUSTOM_INSTANCE_DB/demo", "CUSTOM_INSTANCE_DB/held"} {
+		_, err := s.InterpolatedResource(ctx, p, map[string]string{"WM_JOB_ID": "j"})
+		var pe *Error
+		if !errors.As(err, &pe) || pe.HTTPStatus() != 401 || pe.Body() != refused {
+			t.Errorf("interpolated %s: %v", p, err)
+		}
+		if _, err := s.ResolveArgs(ctx, jsonval.FromProducer([]byte(`{"x":"$res:`+p+`"}`)), nil, nil); err == nil ||
+			err.Error() != "Not found: Resource "+p+" not found for `x`: "+refused {
+			t.Errorf("argument %s: %v", p, err)
+		}
+	}
+	_, err := s.RawResource(ctx, "CUSTOM_INSTANCE_DB/demo")
+	var pe *Error
+	if !errors.As(err, &pe) || pe.HTTPStatus() != 404 || pe.Body() != "Not found: Resource CUSTOM_INSTANCE_DB/demo not found" {
+		t.Errorf("raw: %v", err)
+	}
+	if b, err := s.RawResource(ctx, "CUSTOM_INSTANCE_DB/held"); err != nil || string(b) != `{"host":"h"}` {
+		t.Errorf("raw held: %s %v", b, err)
+	}
+	if b, err := s.InterpolatedResource(ctx, "u/x/outer", nil); err != nil || string(b) != `{"db":{"host":"h"}}` {
+		t.Errorf("nested: %s %v", b, err)
 	}
 }
 

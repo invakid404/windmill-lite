@@ -141,7 +141,7 @@ type Resource struct {
 // Variable is a variable the host provides. A secret's Value is its
 // plaintext, unless Ciphertext says it is Windmill ciphertext under the
 // workspace key, which windmill-lite never decrypts (JE-43): reading it
-// then fails with secret_unavailable.
+// then fails as Windmill fails a secret it cannot decrypt (WA-11).
 type Variable struct {
 	Value      string
 	Secret     bool

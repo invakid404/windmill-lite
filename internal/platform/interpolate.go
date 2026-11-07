@@ -25,6 +25,11 @@ import (
 //     where a nested $res: is a read of contract (b) with the job's id,
 //     which starts a depth counter of its own (WA-V3).
 
+// customInstanceDB is the prefix of the paths that name one of Windmill's
+// own databases, which the interpolated read does not look up as a
+// resource (WA-12).
+const customInstanceDB = "CUSTOM_INSTANCE_DB/"
+
 // maxDepth is the depth at which both walkers fail, before they look at
 // the value there: the deepest node allowed is at depth 49 (WA-12,
 // JE-42).
@@ -200,7 +205,9 @@ func (s *Services) variableService() Variables {
 // VariableValue answers variables/get_value (WA-11): the variable's value,
 // a secret's plaintext as Secrets reveals it and the value resolvers
 // leave it. A missing variable is the 404 `Not found: Variable <p> not
-// found`; a secret no resolver supplies fails with secret_unavailable.
+// found`; a secret no host secret service supplies is one that cannot be
+// decrypted, the 500 `Internal: Error decrypting variable <p>: Internal:
+// Could not decrypt value. …`, without Windmill's two locations (D14).
 func (s *Services) VariableValue(ctx context.Context, path string) (string, error) {
 	v, e := s.variableValue(ctx, path)
 	if e != nil {
@@ -220,6 +227,9 @@ func (s *Services) variableValue(ctx context.Context, path string) (string, *Err
 		return v.Value, nil
 	}
 	plain, err := s.secrets().Reveal(ctx, path, v)
+	if errors.Is(err, ErrSecretUnavailable) {
+		return "", internal("Error decrypting variable %s: Internal: %s", path, couldNotDecrypt)
+	}
 	if err != nil {
 		return "", internal("%v", err)
 	}
@@ -266,7 +276,16 @@ type apiWalk struct {
 // WA-42, or the depth of the $res: string that names it plus one, whose
 // absence is the not-found of a nested reference (written without
 // Windmill's Rust location, D14).
+//
+// A read's own path under CUSTOM_INSTANCE_DB/ is refused before anything
+// else (WA-12/h): the route answers a caller that authenticated with a
+// job's token 401, whatever the job runs as, and every caller of a read
+// windmill-lite serves is a job, whose token the facade checked, or the
+// engine on a job's behalf (a $res: argument, resource()).
 func (w *apiWalk) resource(path string, depth int, nested bool) (*node, *Error) {
+	if depth == 0 && !nested && strings.HasPrefix(path, customInstanceDB) {
+		return nil, &Error{Variant: "NotAuthorized", Message: "CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)"}
+	}
 	r, ok, err := w.s.resource(w.ctx, path)
 	switch {
 	case err != nil:
@@ -491,7 +510,7 @@ func (w *workerWalk) walk(name string, n *node, depth int) (*node, *Error) {
 			return parsed, nil
 		case strings.HasPrefix(s, "$res:"):
 			p := s[len("$res:"):]
-			if len(strings.Split(p, "/")) < 2 && !strings.HasPrefix(p, "CUSTOM_INSTANCE_DB/") {
+			if len(strings.Split(p, "/")) < 2 && !strings.HasPrefix(p, customInstanceDB) {
 				return nil, internal("Argument `%s` is an invalid resource path: %s", name, p)
 			}
 			r, e := (&apiWalk{s: w.s, ctx: w.ctx, job: heldJob(w.apiEnv)}).resource(p, 0, false)
@@ -503,14 +522,19 @@ func (w *workerWalk) walk(name string, n *node, depth int) (*node, *Error) {
 			plain, err := w.s.secrets().Decrypt(w.ctx, s[len("$encrypted:"):])
 			if err != nil {
 				var pe *Error
-				if errors.As(err, &pe) {
+				switch {
+				case errors.As(err, &pe):
 					return nil, pe
+				case errors.Is(err, ErrSecretUnavailable):
+					// JE-42/j: a value no host secret service decrypts
+					// fails as one Windmill cannot decrypt.
+					return nil, internal("%s", couldNotDecrypt)
 				}
 				return nil, internal("%v", err)
 			}
 			parsed, err := parseJSON([]byte(plain))
 			if err != nil {
-				return nil, internal("windmill-lite: the decrypted $encrypted: value of `%s` is not JSON: %v", name, err)
+				return nil, internal("Failed to decrypt '$encrypted:' value: %v", err)
 			}
 			return parsed, nil
 		case strings.HasPrefix(s, "$"):

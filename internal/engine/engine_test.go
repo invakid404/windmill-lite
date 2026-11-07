@@ -405,7 +405,7 @@ func TestEngineStopAfterIf(t *testing.T) {
 		{"error", `{"expr":"result > 2","skip_if_stopped":false,"error_message":"too big"}`, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"too big"}}`, conformance.ModuleFailure, false},
 		{"empty message", `{"expr":" result > 2 ","skip_if_stopped":false,"error_message":"","error_include_result":true}`, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"stop after if:  result > 2 ","result":3}}`, conformance.ModuleFailure, false},
 		{"throws", `{"expr":"null.x","skip_if_stopped":false}`, conformance.RunFailure,
-			`{"error":"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n"}`, conformance.ModuleFailure, false},
+			`{"error":"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n"}`, conformance.ModuleFailure, false},
 		{"not a boolean", `{"expr":"false ||\nresults.b\n","skip_if_stopped":false}`, conformance.RunFailure, `{"error":"Expected a boolean value, found: \"3\""}`, conformance.ModuleFailure, false},
 		// results is bound only when the text holds results., results[ or
 		// results?.; flow_env only when it holds flow_env.
@@ -439,7 +439,7 @@ func TestEngineStopAfterIf(t *testing.T) {
 // InternalError and the module never starts. windmill-lite writes no Rust
 // location (D14).
 func TestEngineSkipIfChainingErrors(t *testing.T) {
-	const thrown = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n`
+	const thrown = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n`
 	for _, c := range []struct {
 		name, flow, result string
 		at                 string
@@ -463,10 +463,12 @@ func TestEngineSkipIfChainingErrors(t *testing.T) {
 	}
 }
 
-// FX-14, WR-12, FX-48, FX-50/a: a failing transform launches the step with
-// empty arguments and fails it without running; an entrypoint override
-// selects the export, and an invalid one fails the job before it runs; an
-// argument jsonb refuses fails the push, a chaining error whose text is the
+// FX-14, WR-12, FX-48, FX-51, FX-50/a: a failing transform launches the
+// step with empty arguments and fails it without running; an entrypoint
+// override selects the export, and an invalid one fails the job before it
+// runs; a NUL in an argument is removed when the job is pushed, at the
+// root's pickup and at a later transition alike, while an argument jsonb
+// still refuses fails the push, a chaining error whose text is the
 // database error's, SqlErr.
 func TestEngineArgumentFailures(t *testing.T) {
 	s := &scripts{}
@@ -475,9 +477,10 @@ func TestEngineArgumentFailures(t *testing.T) {
 		"f/t/entry": flowOf(mod("a", "echo", inputs("_ENTRYPOINT_OVERRIDE", static(`"other"`)), ""), mod("b", "echo", inputs("_ENTRYPOINT_OVERRIDE", static(`"no-way"`)), "")),
 		"f/t/nul":   flowOf(mod("a", "echo", inputs("x", static(`"a\u0000b"`)), "")),
 		"f/t/nul2":  flowOf(mod("a", "echo", "", ""), mod("b", "echo", inputs("x", js(`"a\u0000b"`)), "")),
+		"f/t/sur":   flowOf(mod("a", "echo", "", ""), mod("b", "echo", inputs("x", js(`"a\ud800b"`)), "")),
 	}, s)
 	tr := runIt(t, e, `{}`, nil)
-	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"Error during isolated evaluation of expression ` null.x `:\\nQuickJS evaluation error: Error: cannot read property 'x' of null\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:35)\\n\"}}")
+	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"Error during isolated evaluation of expression ` null.x `:\\nQuickJS evaluation error: Error: cannot read property 'x' of null\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:64)\\n\"}}")
 	if a := step(t, tr, "a"); !a.Ran || string(a.RecordedArgs.Producer()) != "{}" || a.ResultOrigin != OriginEngine || len(s.calls()) != 0 {
 		t.Fatalf("a %+v, calls %v", a, s.calls())
 	}
@@ -494,8 +497,9 @@ func TestEngineArgumentFailures(t *testing.T) {
 	if inv := s.invs[0]; inv.Entry != "other" || len(s.invs) != 1 {
 		t.Fatalf("invocations %+v", s.invs)
 	}
-	wantStatus(t, run("f/t/nul"), conformance.RunFailure, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
-	wantStatus(t, run("f/t/nul2"), conformance.RunFailure, `{"error":{"name":"InternalError","message":"SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
+	wantStatus(t, run("f/t/nul"), conformance.RunSuccess, `{"x":"ab"}`)
+	wantStatus(t, run("f/t/nul2"), conformance.RunSuccess, `{"x":"ab"}`)
+	wantStatus(t, run("f/t/sur"), conformance.RunFailure, `{"error":{"name":"InternalError","message":"SqlErr: error returned from database: invalid input syntax for type json"}}`)
 }
 
 // JE-15/k, FX-50/a: an input transform whose replaced JSON.stringify
@@ -805,15 +809,16 @@ func TestEngineIdentityJobs(t *testing.T) {
 }
 
 // ADR 0005 step 3, FX-48, FX-51: the storage boundary checks every
-// argument's key as well as its value, after H2; a key jsonb refuses
-// fails the push before the step runs. A key jsonb accepts is stored in
-// its escaping, and of two keys that store alike the last value stays.
+// argument's key as well as its value, after H2; a NUL is removed from a
+// key, and a key jsonb still refuses fails the push before the step runs.
+// A key jsonb accepts is stored in its escaping, and of two keys that
+// store alike the last value stays.
 func TestEngineArgumentKeys(t *testing.T) {
 	for _, c := range []struct {
 		name, args, result string
 		calls              int
 	}{
-		{"NUL key", `{"\u0000":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`, 0},
+		{"NUL key", `{"\u0000":1,"v":7}`, `7`, 1},
 		{"unpaired surrogate key", `{"\ud800":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: invalid input syntax for type json"}}`, 0},
 		{"unusual key", `{"\u00e9\n":1,"v":7}`, `7`, 1},
 		{"duplicate keys", `{"v":1,"\u0076":7}`, `7`, 1},
@@ -827,7 +832,7 @@ func TestEngineArgumentKeys(t *testing.T) {
 				t.Fatalf("calls %v", s.calls())
 			}
 			if c.calls == 1 {
-				if args := string(s.invs[0].Args.Producer()); c.name == "unusual key" && !strings.Contains(args, `"é\n":1`) || c.name == "duplicate keys" && args != `{"v":7}` {
+				if args := string(s.invs[0].Args.Producer()); c.name == "unusual key" && !strings.Contains(args, `"é\n":1`) || c.name == "duplicate keys" && args != `{"v":7}` || c.name == "NUL key" && args != `{"":1,"v":7}` {
 					t.Fatalf("the stored arguments: %s", args)
 				}
 			}

@@ -155,7 +155,7 @@ func TestEngineFailureModule(t *testing.T) {
 		// FX-15 context 1: a chaining error while it starts fails the flow
 		// at once with an InternalError, and it never starts.
 		{name: "chaining", flow: withFailure(handler("echo", "", `"skip_if":{"expr":"nope"}`), mod("a", "fail", "", "")),
-			status: conformance.RunFailure, result: `{"error":{"name":"InternalError","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n"}}`, calls: []string{"m:a"},
+			status: conformance.RunFailure, result: `{"error":{"name":"InternalError","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n"}}`, calls: []string{"m:a"},
 			check: func(t *testing.T, f StepRecord) {
 				if f.Ran || f.Status != conformance.StepNotRun {
 					t.Fatalf("failure module %+v", f)
@@ -278,7 +278,7 @@ func TestEngineErrorStops(t *testing.T) {
 // continue_on_error does not apply, and the failure module runs, its error
 // the string.
 func TestEngineUnrecoverableStop(t *testing.T) {
-	const text = `"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n"`
+	const text = `"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n"`
 	throwing := mod("a", "value", inputs("v", static("1")), `"stop_after_if":{"expr":"null.x","skip_if_stopped":false},"continue_on_error":true`)
 	b := mod("b", "value", "", "")
 	s := &scripts{}
@@ -306,7 +306,7 @@ func TestEngineUnrecoverableStop(t *testing.T) {
 // flow fails at once with an InternalError and the failure module does not
 // run (JE-35/a).
 func TestEngineChainingErrorsWithFailureModule(t *testing.T) {
-	const anyhow = `{"error":{"name":"Anyhow","message":"Error: Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n"}}`
+	const anyhow = `{"error":{"name":"Anyhow","message":"Error: Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n"}}`
 	throwing := `"skip_if":{"expr":"nope"}`
 	fm := handler("echo", inputs("e", js("error"), "r", js("results.a")), "")
 	s := &scripts{}
@@ -507,9 +507,12 @@ func TestEngineIdentityResultText(t *testing.T) {
 	wantStatus(t, tr, conformance.RunSuccess, `{"j":{"x":"a,b"},"k":[1,2]}`)
 }
 
-// nulResults answers f/t/obj with a result jsonb refuses, a string holding
-// a NUL escape, and every other script as scripts does.
-type nulResults struct{ scripts }
+// nulResults answers f/t/obj with body, a string holding a NUL escape by
+// default, and every other script as scripts does.
+type nulResults struct {
+	scripts
+	body string
+}
 
 func (n *nulResults) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
 	if inv.Script != "f/t/obj" {
@@ -519,25 +522,95 @@ func (n *nulResults) Execute(ctx context.Context, inv Invocation) (StepOutcome, 
 	n.invs = append(n.invs, inv)
 	n.mu.Unlock()
 	inv.Report.Settled(SettleCompleted)
-	return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"x\u0000y"`))}, nil
+	body := n.body
+	if body == "" {
+		body = `"x\u0000y"`
+	}
+	return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(body))}, nil
 }
 
-// FX-48, OR-27: a result jsonb refuses fails its job at the completion
-// insert with InternalErr and no step_id, an ordinary failure that the
-// failure module handles; arguments jsonb refuses fail the push, a
-// chaining error, which at the root's first pickup the failure module
-// handles too (FX-15 context 2).
-func TestEngineStorageFailures(t *testing.T) {
+// FX-48, OR-27: Windmill removes every NUL escape before it stores a
+// result or a job's arguments. A result holding one is stored without it
+// and its job succeeds; the next module's transforms read the producer's
+// text from memory, so previous_result keeps the NUL while a read of the
+// step from storage does not (FX-48/e), and the arguments they compute
+// are pushed without it (case 2), as are those a transform gives a NUL at
+// the root's first pickup.
+func TestEngineStorageRemovesNUL(t *testing.T) {
 	s := &nulResults{}
 	e := mustOpen(t, map[string]string{
+		"f/t/main": flowOf(
+			mod("a", "obj", "", ""),
+			mod("b", "echo", inputs("len", js("previous_result.length"), "code", js("previous_result.charCodeAt(1)"), "p", js("previous_result")), ""),
+			mod("c", "echo", inputs("len", js("results.a.length"), "code", js("results.a.charCodeAt(1)")), "")),
+		"f/t/push": flowOf(mod("a", "echo", inputs("x", js("String.fromCharCode(0)"), "y", js("'a' + String.fromCharCode(0) + 'b'")), "")),
+	}, s)
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, `{"len":2,"code":121}`)
+	a := step(t, tr, "a")
+	if a.Status != conformance.StepSuccess {
+		t.Fatalf("a %+v", a)
+	}
+	if string(a.Result.Producer()) != `"xy"` || string(a.Carried.Producer()) != `"x\u0000y"` {
+		t.Fatalf("a's stored result %s, carried %s; want \"xy\" and the producer's text", a.Result, a.Carried)
+	}
+	sameJSON(t, "b's arguments", step(t, tr, "b").RecordedArgs, `{"len":3,"code":0,"p":"xy"}`)
+	sameJSON(t, "c's arguments", step(t, tr, "c").RecordedArgs, `{"len":2,"code":121}`)
+
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/push", Args: jsonval.FromProducer([]byte(`{}`))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, tr, conformance.RunSuccess, `{"x":"","y":"ab"}`)
+	sameJSON(t, "a's arguments", step(t, tr, "a").RecordedArgs, `{"x":"","y":"ab"}`)
+}
+
+// FX-40, FX-48: a flow whose result holds a NUL escape, carried in memory
+// from its last module, stores its result in the cache without it, as a
+// stored result, so the next call of the flow, as a run and as a subflow,
+// is a cache hit that runs nothing and answers the stored result.
+func TestEngineFlowCacheStoresWithoutNUL(t *testing.T) {
+	s := &nulResults{}
+	e := mustOpen(t, map[string]string{
+		"f/t/main":  withTTL(flowOf(mod("a", "obj", "", "")), 60),
+		"f/t/child": withTTL(flowOf(mod("a", "obj", "", "")), 60),
+		"f/t/outer": flowOf(subflowOf("s1", "f/t/child", "", ""), subflowOf("s2", "f/t/child", "", "")),
+	}, s)
+	first := runIt(t, e, `{}`, nil)
+	wantStatus(t, first, conformance.RunSuccess, `"xy"`)
+	second := runIt(t, e, `{}`, nil)
+	wantStatus(t, second, conformance.RunSuccess, `"xy"`)
+	if first.Cached || !second.Cached || len(s.invs) != 1 {
+		t.Fatalf("cached %v then %v, %d invocations; want a hit on the second run and one invocation", first.Cached, second.Cached, len(s.invs))
+	}
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/outer", Args: jsonval.FromProducer([]byte(`{}`))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, tr, conformance.RunSuccess, `"xy"`)
+	s1, s2 := at(t, tr, "m:s1"), at(t, tr, "m:s2")
+	if s1.Cached || !s2.Cached || len(s.invs) != 2 {
+		t.Fatalf("s1 cached %v, s2 cached %v, %d invocations; want s2 a hit", s1.Cached, s2.Cached, len(s.invs))
+	}
+	sameJSON(t, "s2's result", s2.Result, `"xy"`)
+}
+
+// FX-51, OR-27: a result jsonb still refuses, an unpaired surrogate escape,
+// fails its job at the completion insert with InternalErr and no step_id,
+// an ordinary failure that the failure module handles; arguments it
+// refuses fail the push, a chaining error, which at the root's first
+// pickup the failure module handles too (FX-15 context 2).
+func TestEngineStorageFailures(t *testing.T) {
+	s := &nulResults{body: `"x\ud800y"`}
+	e := mustOpen(t, map[string]string{
 		"f/t/main": withFailure(handler("echo", inputs("e", js("error")), ""), mod("a", "obj", "", ""), mod("b", "value", "", "")),
-		"f/t/push": withFailure(handler("echo", inputs("e", js("error")), ""), mod("a", "echo", inputs("x", js("String.fromCharCode(0)")), "")),
+		"f/t/push": withFailure(handler("echo", inputs("e", js("error")), ""), mod("a", "echo", inputs("x", js("String.fromCharCode(0xd800)")), "")),
 	}, s)
 	tr := runIt(t, e, `{}`, nil)
 	wantStatus(t, tr, conformance.RunFailure, "")
 	noStep(t, tr, "b")
 	a := step(t, tr, "a")
-	want := `{"error":{"message":"Internal: Could not add completed job ` + s.invs[0].ID + `: error returned from database: unsupported Unicode escape sequence","name":"InternalErr"}}`
+	want := `{"error":{"message":"Internal: Could not add completed job ` + s.invs[0].ID + `: error returned from database: invalid input syntax for type json","name":"InternalErr"}}`
 	if a.Status != conformance.StepFailure || a.ResultOrigin != OriginEngine || !a.Ran {
 		t.Fatalf("a %+v", a)
 	}
@@ -552,7 +625,7 @@ func TestEngineStorageFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, tr, conformance.RunFailure, `{"e":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
+	wantStatus(t, tr, conformance.RunFailure, `{"e":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: invalid input syntax for type json"}}`)
 	if a := step(t, tr, "a"); a.Ran || a.Status != conformance.StepFailure {
 		t.Fatalf("a %+v", a)
 	}

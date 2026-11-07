@@ -12,7 +12,7 @@
         "shortcut": {"previous_id": "a", "results_path": {"step": "a"}},
         "mode": "expression",
         "binds": ["result", "results"],
-        "code": "(await results.a)",
+        "code": "results.a",
         "route": "previous_id",
         "text": "{\"n\": 12345678901234567890}"
       }
@@ -27,7 +27,7 @@
       "expect": {
         "shortcut": {},
         "binds": ["result", "results"],
-        "code": "((await results.a))",
+        "code": "(results.a)",
         "route": "engine",
         "bound": {"previous_result": "{\"n\": 12345678901234567890}", "__wl_previous_id": "a"},
         "results_lookup": true
@@ -42,7 +42,7 @@
       "text": "results[\"\"]",
       "expect": {
         "shortcut": {"previous_id": ""},
-        "code": "(await results[\"\"])",
+        "code": "results[\"\"]",
         "route": "previous_id",
         "text": "{\"seed\":4}"
       }
@@ -133,7 +133,7 @@
       "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"k\": 1}"}},
       "expect": {
         "shortcut": {"previous_id": "a"},
-        "code": "(await results[\"a\"])",
+        "code": "results[\"a\"]",
         "route": "engine",
         "bound": {},
         "results_lookup": true

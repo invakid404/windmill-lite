@@ -6,5 +6,7 @@ expect:
   status: success
   result: {"p": {"a": ["x"]}, "r": {"a": ["x"]}}
   steps:
-    "m:a": {"status": "success", "args": {}, "result": {"a": ["x"]}}
+    # The value a carries on in memory keeps the NUL (FX-48 case 1), which
+    # only windmill-lite's observation holds.
+    "m:a": {"status": "success", "args": {}, "result": {"a": ["x"]}, "carried": {"a": ["x\u0000"]}}
     "m:b": {"status": "success", "args": {"p": {"a": ["x"]}, "r": {"a": ["x"]}}, "result": {"p": {"a": ["x"]}, "r": {"a": ["x"]}}}

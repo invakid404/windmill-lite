@@ -23,10 +23,18 @@ import (
 // A record has the fields that windmill-lite serves exactly, as the oracle
 // recorded them (fixture conformance/flows/client-api/job-reads): type,
 // id, parent_job, root_job, running and flow_step_id while the job runs,
-// canceled, success and result once it has completed, args, script_path,
-// is_flow_step, language, the workspace and the user the run is
-// permissioned as, and a flow job's flow_status. The other fields of
+// canceled, success, result and resolved once it has completed, args,
+// script_path, is_flow_step, language, the workspace and the user the run
+// is permissioned as, and a flow job's flow_status. The other fields of
 // Windmill's record are left out; WA-19 names each with its reason.
+//
+// CE 1.862.0 added two fields the reference does not describe yet, which
+// its recordings show (the job-reads fixtures): resolved, false in every
+// completed job's record, and a flow status's no_inherited_flow_env, true
+// for a child flow whose body the deploy stored as a node (frame.storedNode)
+// and absent otherwise. It also names a running parallel container's job
+// as the flow job it runs in, where CE 1.767.0 named one of its children
+// (containerJobs).
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 
@@ -257,6 +265,7 @@ func (x *recordView) leafRecord(id string, ref *jobRef) ([]byte, error) {
 	if done {
 		o.field("success", jsonBool(rec.Status == conformance.StepSuccess))
 		o.field("result", databaseText(result))
+		o.field("resolved", []byte("false"))
 	}
 	o.field("args", argsText(args))
 	if !ref.identity {
@@ -320,6 +329,7 @@ func (x *recordView) flowRecord(id string, ref *jobRef, states json.RawMessage) 
 	if done {
 		o.field("success", jsonBool(end.status == conformance.RunSuccess))
 		o.field("result", databaseText(result))
+		o.field("resolved", []byte("false"))
 	}
 	o.field("args", argsText(args))
 	o.field("script_path", jsonText(fr.path))
@@ -396,6 +406,9 @@ func (x *recordView) flowStatus(fr *frame, end *flowEnd, states json.RawMessage)
 	o.field("cleanup_module", []byte("{}"))
 	if states != nil {
 		o.field("user_states", states)
+	}
+	if fr.storedNode() {
+		o.field("no_inherited_flow_env", []byte("true"))
 	}
 	return o.close(), nil
 }
@@ -500,10 +513,9 @@ func jobOf(rec StepRecord) string {
 // or a branch's child flow, or a collapsed iteration's job; ended orders
 // the ends of a run's child flows, 0 while the child runs.
 type child struct {
-	id       string
-	success  []byte // true, false, or null while it runs
-	ended    uint64
-	released bool
+	id      string
+	success []byte // true, false, or null while it runs
+	ended   uint64
 }
 
 // children are the children of the current attempt of module k of fr, in
@@ -530,7 +542,7 @@ func (x *recordView) children(fr *frame, k int) []child {
 			out = append(out, ch)
 			continue
 		}
-		ch := child{id: c.id, success: []byte("null"), released: c.released}
+		ch := child{id: c.id, success: []byte("null")}
 		if ref := x.r.jobs[c.id]; ref != nil && ref.end != nil {
 			ch.success, ch.ended = jsonBool(ref.end.status == conformance.RunSuccess), ref.ended
 		}
@@ -548,7 +560,7 @@ func (x *recordView) loopEntry(o *object, fr *frame, k int, rec StepRecord) {
 	m := fr.moduleAt(k)
 	parallel := m.Kind == ir.KindForLoop && m.ForLoop.Parallel
 	kids := x.children(fr, k)
-	x.containerJobs(o, kids, rec, parallel, true)
+	x.containerJobs(o, fr, kids, rec, parallel)
 	if rec.Status != "" {
 		return
 	}
@@ -576,13 +588,14 @@ func (x *recordView) loopEntry(o *object, fr *frame, k int, rec StepRecord) {
 	}
 }
 
-// containerJobs writes a loop's or a branchall's children, rec being its
-// record: flow_jobs and flow_jobs_success, and its job: the last child; a
-// running parallel loop's last child released to run, and a completed
-// parallel container's child that completed last (CF-22); the nil job
-// once it has completed with no child (CF-14), with no children's fields
-// when its start failed.
-func (x *recordView) containerJobs(o *object, kids []child, rec StepRecord, parallel, loop bool) {
+// containerJobs writes the children of a loop or a branchall of fr, rec
+// being its record: flow_jobs and flow_jobs_success, and its job: the
+// last child; a running parallel container's flow job, fr's own, as CE
+// 1.862.0 names it whichever children run (the job-reads-parallel
+// recordings), and a completed parallel container's child that completed
+// last (CF-22); the nil job once it has completed with no child (CF-14),
+// with no children's fields when its start failed.
+func (x *recordView) containerJobs(o *object, fr *frame, kids []child, rec StepRecord, parallel bool) {
 	done := rec.Status != ""
 	ids := make([][]byte, len(kids))
 	ok := make([][]byte, len(kids))
@@ -605,13 +618,8 @@ func (x *recordView) containerJobs(o *object, kids []child, rec StepRecord, para
 		// job, and no children's fields.
 		o.field("job", jsonText(nilJob))
 		return
-	case parallel && !done && loop:
-		for i := len(kids) - 1; i >= 0; i-- {
-			if kids[i].released {
-				o.field("job", ids[i])
-				break
-			}
-		}
+	case parallel && !done && len(kids) > 0:
+		o.field("job", jsonText(fr.id))
 	case parallel && done:
 		o.field("job", ids[last])
 	case len(kids) > 0:
@@ -673,7 +681,7 @@ func branchChosen(n, branches int) []byte {
 func (x *recordView) branchAllEntry(o *object, fr *frame, k int, rec StepRecord) {
 	m := fr.moduleAt(k)
 	kids := x.children(fr, k)
-	x.containerJobs(o, kids, rec, m.BranchAll.Parallel, false)
+	x.containerJobs(o, fr, kids, rec, m.BranchAll.Parallel)
 	if rec.Status != "" {
 		return
 	}
@@ -703,11 +711,12 @@ func recordType(done bool) string {
 }
 
 // recordText is a value's text as the job's stored column gives it back,
-// or null for none.
+// which holds no NUL escape (FX-48), or null for none.
 func recordText(v jsonval.Value) []byte {
 	if v.IsZero() {
 		return []byte("null")
 	}
+	v = v.WithoutNUL()
 	if s, err := v.Stored(); err == nil {
 		return s
 	}
@@ -837,6 +846,7 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 	if v.done {
 		o.field("success", jsonBool(v.success))
 		o.field("result", databaseText(result))
+		o.field("resolved", []byte("false"))
 	}
 	o.field("args", argsText(args))
 	o.field("script_path", jsonText(v.script.Path))
@@ -978,14 +988,6 @@ func (r *run) takeScheduled(idx int) (string, bool) {
 		delete(r.sched, idx)
 	}
 	return s.id, ok
-}
-
-// released records that c, a parallel container's child flow, is released
-// to run (frame.released).
-func (r *run) released(c *frame) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	c.released = true
 }
 
 // subflowScheduled pushes module i of fr's child flow, a flow step's

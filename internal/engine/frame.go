@@ -147,11 +147,19 @@ type frame struct {
 	// container that its retry kept: the child flow that failed it, which
 	// the record of the attempt does not name (run.attempt).
 	attempts map[int]string
-	// released marks a parallel child flow that its container released to
-	// run, one that a parallelism holds not being released yet (CF-7), and
-	// scheduled a flow job pushed for later that waits to be picked up,
-	// after a sleep or a retry delay (CF-21, FX-26). run.mu guards them.
-	released, scheduled bool
+	// scheduled marks a flow job pushed for later that waits to be picked
+	// up, after a sleep or a retry delay (CF-21, FX-26). run.mu guards it.
+	scheduled bool
+}
+
+// storedNode reports whether fr is a child flow whose body the deploy
+// stored as a node, which Windmill runs as a FlowNode job, where an inline
+// body runs as a FlowPreview one: a loop iteration's or a branch's child
+// flow whose body is not empty and is not the simple body of CF-8, which a
+// flow with a failure module never has (CF-V4, ir.StoredNode). A subflow
+// is a flow job of its own path, and a collapsed iteration no flow.
+func (fr *frame) storedNode() bool {
+	return fr.child && !fr.subflow && fr.collapsed == nil && ir.StoredNode(fr.modules, fr.failure != nil)
 }
 
 // nodeScope is one scope of the result-by-node-id map (JE-19, CF-19): the
@@ -243,9 +251,11 @@ func (r *run) jobPath(fr *frame, i int) string {
 }
 
 // recordJob records the stored result of module i's job, which results
-// lookups read (JE-18, JE-19). A collapsed iteration registers nothing
+// lookups read (JE-18, JE-19): v without its NUL escapes, which no stored
+// result holds (FX-48 case 1). A collapsed iteration registers nothing
 // under its body module's id (CF-8).
 func (r *run) recordJob(fr *frame, i int, v jsonval.Value) {
+	v = v.WithoutNUL()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fr.jobs[i] = v

@@ -10,8 +10,10 @@
 //     transform or the host wrote it;
 //   - the stored text, its jsonb-canonical form, computed the first time a
 //     storage route asks for it;
-//   - a NUL flag, computed when the Value is made, because Windmill stores
-//     every result and PostgreSQL rejects the escape \u0000 (OR-27, FX-48).
+//   - a NUL flag, computed when the Value is made, because PostgreSQL
+//     rejects the escape \u0000, which Windmill removes from every result
+//     and every job's arguments before it stores them (OR-27, FX-48,
+//     WithoutNUL).
 //
 // Which consumer sees which text is the routing table of ADR 0005, applied
 // by the engine. This package does not decode what it holds: the
@@ -76,9 +78,10 @@ func (v Value) Producer() []byte {
 }
 
 // HasNUL reports whether the value's text holds the escape \u0000 in a
-// string or a key. Such a value fails at every storage boundary (OR-27).
-// It is the one rejection known without canonicalising (ADR 0005); Stored
-// reports the others.
+// string or a key, which jsonb rejects, and which Windmill removes before
+// it stores a result or a job's arguments (OR-27, WithoutNUL). It is the
+// one rejection known without canonicalising (ADR 0005); Stored reports
+// the others.
 func (v Value) HasNUL() bool { return v.r != nil && v.r.nul }
 
 // Stored returns the stored text of v: the text PostgreSQL jsonb gives back
@@ -133,13 +136,58 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WithoutNUL returns v with every NUL escape removed from its text, as
+// Windmill removes them from a job's result and arguments before it stores
+// them (OR-27, FX-48): the stored copy loses them, so its stored text is
+// that of the stripped text, while v, the producer's text, keeps them for
+// what reads it from memory. It returns v itself when v holds none, and
+// the zero Value for the zero Value.
+func (v Value) WithoutNUL() Value {
+	if !v.HasNUL() {
+		return v
+	}
+	return FromProducer(StripNUL(v.r.producer))
+}
+
+// StripNUL returns JSON text with every NUL escape \u0000 removed, in keys
+// and values at any depth: only a real escape, whose backslash is not
+// itself escaped, so an escaped backslash followed by "u0000" is kept
+// (OR-27). It returns text itself when it holds none, and otherwise a new
+// slice. Removing a NUL from two keys of one object can make them equal;
+// the stored text keeps the one written last, as jsonb does.
+func StripNUL(text []byte) []byte {
+	if !hasNULEscape(text) {
+		return text
+	}
+	out := make([]byte, 0, len(text))
+	from := 0
+	for i := bytes.IndexByte(text, '\\'); i >= 0 && i+1 < len(text); {
+		if isNULEscape(text, i) {
+			out = append(out, text[from:i]...)
+			from = i + 6
+		}
+		next := bytes.IndexByte(text[i+2:], '\\')
+		if next < 0 {
+			break
+		}
+		i += 2 + next
+	}
+	return append(out, text[from:]...)
+}
+
+// isNULEscape reports whether the escape that starts at text[i], a
+// backslash, is \u0000.
+func isNULEscape(text []byte, i int) bool {
+	return text[i+1] == 'u' && i+6 <= len(text) && string(text[i+2:i+6]) == "0000"
+}
+
 // hasNULEscape reports whether JSON text holds the escape \u0000. In valid
 // JSON a backslash occurs only inside a string or a key and always starts an
 // escape, so the scan needs no string state: it steps over each escape
 // whole, which keeps an escaped backslash followed by "u0000" from counting.
 func hasNULEscape(text []byte) bool {
 	for i := bytes.IndexByte(text, '\\'); i >= 0 && i+1 < len(text); {
-		if text[i+1] == 'u' && i+6 <= len(text) && string(text[i+2:i+6]) == "0000" {
+		if isNULEscape(text, i) {
 			return true
 		}
 		next := bytes.IndexByte(text[i+2:], '\\')

@@ -9,7 +9,7 @@
       "site": "input_transform",
       "text": "(() => { throw new Error(\"bad \\ud83d\") })()",
       "context": {"previous_id": ""},
-      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error:\n    at <anonymous> (eval_script:1:46)\n    at <anonymous> (eval_script:1:66)\n    at <eval> (eval_script:1:72)\n"}}
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error:\n    at <anonymous> (eval_script:1:75)\n    at <anonymous> (eval_script:1:95)\n    at <anonymous> (eval_script:1:101)\n"}}
     },
     {
       "spec": "JE-52",

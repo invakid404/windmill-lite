@@ -73,13 +73,14 @@ func TestJSExprConcurrentPipeline(t *testing.T) {
 // engine's thread) as with one that does not (on goroutines), the helper's
 // answer wins the race well inside the attempt limit. The alias keeps the
 // helper call concurrent with the loop instead of awaited where it is
-// written.
+// written, and the loop's read has a computed key, so that no prefetch
+// answers it and each read is a lookup (JE-12).
 func TestInlineLookupsLetHelpersSettle(t *testing.T) {
 	l := DefaultLimits()
 	l.Attempt = 5 * time.Second
 	p := NewPipeline(realEngine(t, l, 1))
 	setRetry(p, 1, 0)
-	e := Compile(SiteInputTransform, `const get = variable; return Promise.race([get("u/done"), (async () => { for (;;) await results.a; })()])`)
+	e := Compile(SiteInputTransform, `const get = variable, k = "a"; return Promise.race([get("u/done"), (async () => { for (;;) await results[k]; })()])`)
 	for _, memory := range []bool{false, true} {
 		r := &fakeResults{stored: map[string]string{"a": "1"}}
 		s := &Scope{PreviousID: "other", Helpers: &fakeHelpers{variables: map[string]string{"u/done": "done"}}, Results: r}

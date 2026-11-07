@@ -58,12 +58,23 @@
       "spec": "JE-16",
       "variant": "fetched-replaced-parse",
       "provenance": "source-derived",
-      "title": "a fetched read uses JSON.parse as it is when the read runs",
-      "note": "JSON.parse is looked up when the read runs, so a replacement made before it gives the read its return value (JE-16); the helpers resource and flow_user_state read the same way",
+      "title": "a read that fetches at the read uses JSON.parse as it is then",
+      "note": "JSON.parse is looked up when the fetched text is parsed, so a replacement made before a computed read of a step that no static read names gives the read its return value (JE-16, JE-12 consequence 4); the helpers resource and flow_user_state read the same way",
+      "site": "input_transform",
+      "text": "const k = \"a\"; JSON.parse = () => \"replaced\"; return results[k]",
+      "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"v\": 1}"}},
+      "expect": {"prefetch": [], "route": "engine", "engine": {"text": "\"replaced\""}}
+    },
+    {
+      "spec": "JE-16",
+      "variant": "prefetched-replaced-parse",
+      "provenance": "source-derived",
+      "title": "a static read was parsed by the prefetch, before the expression could replace JSON.parse",
+      "note": "the prefetch resolves every step the text names before the expression's code runs (JE-12), so its parse is the engine's own",
       "site": "input_transform",
       "text": "(JSON.parse = () => \"replaced\", results.a)",
       "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"v\": 1}"}},
-      "expect": {"route": "engine", "engine": {"text": "\"replaced\""}}
+      "expect": {"prefetch": ["\"a\""], "route": "engine", "engine": {"text": "{\"v\":1}"}}
     },
     {
       "spec": "JE-16",

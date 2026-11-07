@@ -31,11 +31,11 @@
     {
       "spec": "JE-10/d",
       "provenance": "oracle-observed",
-      "title": "a trailing results is bound but not rewritten",
+      "title": "a trailing results is bound but names no step",
       "recorded": {"exprs": "je-10", "case": "je-10-d"},
       "site": "input_transform",
       "text": "typeof globalThis.results",
-      "expect": {"binds": ["result", "results"], "code": "typeof globalThis.results", "route": "engine", "results_lookup": true}
+      "expect": {"binds": ["result", "results"], "code": "typeof globalThis.results", "prefetch": [], "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-10",
@@ -75,7 +75,7 @@
       "site": "input_transform",
       "text": "Object.keys(results.a)",
       "context": {"previous_id": "a", "previous_result": "{\"b\":1}"},
-      "expect": {"binds": ["result", "results"], "code": "Object.keys((await results.a))", "route": "engine", "bound": {"previous_result": "{\"b\":1}", "__wl_previous_id": "a"}, "results_lookup": true}
+      "expect": {"binds": ["result", "results"], "code": "Object.keys(results.a)", "route": "engine", "bound": {"previous_result": "{\"b\":1}", "__wl_previous_id": "a"}, "results_lookup": true}
     },
     {
       "spec": "JE-10",
@@ -106,7 +106,7 @@
       "site": "input_transform",
       "text": "(results = 1, 2)",
       "context": {"previous_id": "a", "previous_result": "{\"v\":1}"},
-      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: 'results' is read-only\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: 'results' is read-only\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:74)\n"}}
     },
     {
       "spec": "JE-10/e",
