@@ -443,18 +443,6 @@
     "conformance/flows/languages/wr-55-processes/timeout": {
       "milestone": "W5c",
       "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/openflow/of-drivers/preview_absent": {
-      "milestone": "W8c",
-      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
-    },
-    "conformance/flows/openflow/of-drivers/preview_false": {
-      "milestone": "W8c",
-      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
-    },
-    "conformance/flows/openflow/of-drivers/preview_true": {
-      "milestone": "W8c",
-      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
     }
   }
 }
