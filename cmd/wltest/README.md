@@ -455,6 +455,15 @@ a few at a time (`flows.go`):
    `r:<k>`, with everything below it, its modules' own attempts
    included, as the walker walks the attempt's flow there; and a collapsed
    iteration's job that was never pushed.
+   - *The platform origin.* The runtime's platform origin, which a native
+     step reads as `BASE_URL` and `BASE_INTERNAL_URL` and its stack can
+     hold (WR-43/c), then becomes the oracle's base URL,
+     `http://localhost:8000`, unless a further digit of a port follows it
+     (`asOracleBase`). Each side reads a value of its own deployment, which
+     the oracle keeps stable because jobs can observe it
+     ([OR-7](../../docs/semantics/oracle.md#or-7)). A Bun step's
+     `BASE_URL` still differs: the oracle rewrites its `localhost`
+     ([WA-2](../../docs/semantics/client-api.md#wa-2)).
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location

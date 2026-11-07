@@ -454,12 +454,6 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		return nil, err
 	}
-	// A warm process reaches the facade through its intercepted fetch, at
-	// an origin where nothing listens; a fresh one over loopback TCP.
-	origin := rt.fac.WarmOrigin()
-	if rt.state == engine.ModuleStateFresh {
-		origin = rt.fac.FreshOrigin()
-	}
 	path, args := harness.BunCommand(bun, filepath.Join(runtimeDir, "main.ts"), rt.dir)
 	if opts.Plugin != "" {
 		extra, err := pluginArgs(opts.Plugin)
@@ -473,7 +467,7 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
 			Bundle: rt.digest, EngineVersion: rt.version,
-			Diagnostics: opts.Diagnostics, Facade: origin, Platform: rt.fac.Platform(),
+			Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
 		},
 	})
 }
@@ -558,6 +552,18 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 		Deviations:           bundle.ModeDeviations(rt.manifest.Deviations, rt.state, rt.manifest.SharedCode),
 		NonconformantRuntime: rt.manifest.NonconformantRuntime,
 	}
+}
+
+// PlatformOrigin is the origin at which the runtime's steps reach its
+// platform facade: what a step reads as BASE_URL, and a native step as
+// BASE_INTERNAL_URL too (WA-2, WR-45). A warm or host-mode process reaches
+// it through its intercepted fetch, at an origin where nothing listens; a
+// fresh one over loopback TCP.
+func (rt *Runtime) PlatformOrigin() string {
+	if rt.state == engine.ModuleStateFresh {
+		return rt.fac.FreshOrigin()
+	}
+	return rt.fac.WarmOrigin()
 }
 
 // sharedCode reports whether the runtime's steps run shared-layout modules

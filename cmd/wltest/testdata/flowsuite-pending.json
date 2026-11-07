@@ -185,10 +185,6 @@
       "milestone": "W6b",
       "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
     },
-    "conformance/flows/languages/wr-43-stack/stack_nativets": {
-      "milestone": "W6g",
-      "reason": "on CE 1.862.0 the first frame's line of a nativets error is mapped through the transpiler's source map before Windmill reads the stack's source line (WR-43), which windmill-lite's native boundary does not give yet"
-    },
     "conformance/flows/oracle/nul/nul": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"

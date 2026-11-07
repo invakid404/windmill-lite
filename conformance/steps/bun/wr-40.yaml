@@ -55,6 +55,17 @@ cases:
     runs:
       - args: '{}'
         expect: {status: success, result: ["1.326.0", true, wl-step-token]}
+  - spec: WR-40
+    variant: client-without-edit-deploy-to
+    provenance: source-derived
+    title: the embedded client has no WorkspaceService.editDeployTo, the one method Windmill 1.862.0's bundle has fewer than v1.767.0's
+    language: nativets
+    script: |
+      import * as wmill from "./windmill.ts";
+      export function main() { return [typeof wmill.WorkspaceService.editDeployTo, typeof wmill.WorkspaceService.editAutoInvite, wmill.OpenAPI.VERSION]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ["undefined", function, "1.326.0"]}
   - spec: WR-40/c
     provenance: oracle-observed
     title: "a static import of a missing host file fails the load with the loader's text and the operating system's error, joined by \": \""

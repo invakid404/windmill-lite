@@ -485,7 +485,11 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - A **nativets** script is transpiled, not bundled
     ([WR-40](../semantics/languages.md#wr-40)); one that does not transpile
     builds, and its diagnostic fails the step when it runs
-    ([WR-43](../semantics/languages.md#wr-43)).
+    ([WR-43](../semantics/languages.md#wr-43)). Its metadata records its
+    transpile's line map, which the build derives because the transpiler
+    writes no source map, and in which the harness reads a stack's source
+    line as Windmill 1.862.0's native runtime does through its transpiler's
+    map ([WR-43](../semantics/languages.md#wr-43)).
   - A **`//native`** script is bundled for the browser target, without the
     env rewrite, and inlines host-provided modules instead of using their
     shims: a realm does not reach the process-wide registry, so D12 does not
@@ -500,6 +504,8 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     `./windmill.ts` is `windmill-client@1.326.0` (Apache-2.0), pinned in the
     Bun helper's lock, bundled as CommonJS for the browser target into
     `scripts/native/windmill.js` when the bundle has a nativets script.
+    Like Windmill 1.862.0's bundle of that version, it lacks
+    `WorkspaceService.editDeployTo` ([WR-40](../semantics/languages.md#wr-40)).
 - Milestone W1 measured on Bun 1.3.10 that the harness's environment view
   isolates `Bun.env` and `import.meta.env` reads at run time even without
   the env rewrite of step 5 ([0004](0004-harness-protocol.md)), including

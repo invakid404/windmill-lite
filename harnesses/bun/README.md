@@ -917,9 +917,12 @@ this mode cannot reproduce is deviation D5 of
   no `arguments`, as a module's has none, and its module-level `this` is
   `undefined`. It is compiled for each preamble, as the next item says.
   - *Its preamble* declares `process = { env }`, `BASE_URL` and
-    `BASE_INTERNAL_URL`, and for nativets each job variable its code can
-    name as a `const` of its name. A top-level declaration of one of those
-    names fails the load.
+    `BASE_INTERNAL_URL`, and for nativets a `const` of each job variable
+    its code can name, if the name can be one. At v1.862.0 that is an
+    ASCII identifier that is neither a reserved word of strict mode nor
+    `process`, `BASE_URL` or `BASE_INTERNAL_URL`. Any other variable is in
+    `process.env` alone, so its name fails no load, while a top-level
+    declaration of a declared name fails it.
   - *The values* are the invocation's job variables and nothing else. Both
     base URLs are the facade's origin: the welcome's, or in a fresh
     process, which the welcome does not tell, the `BASE_URL` it was spawned
@@ -948,13 +951,13 @@ this mode cannot reproduce is deviation D5 of
     preamble is compiled by the realm's own `eval` on each load, with the
     module's URL in a `sourceURL` comment at the end of its first line, so
     its bindings, errors and stacks are the same.
-  - *Which names a preamble declares.* Each job variable the module's text
-    spells, with its `\u` escapes or without. It also declares every name
-    that is not plain ASCII, whose `const` fails to compile (a reserved
-    word, `await`, `eval`, `arguments`), or that the preamble binds itself
-    (`process`, so a variable of that name still fails the load). Code
-    cannot read or declare a name it never spells, so leaving it out
-    changes nothing; a text that spells `eval` declares every variable.
+  - *Which names a preamble declares.* Of the variables that get a
+    `const`, each one the module's text spells, with its `\u` escapes or
+    without, or every one when the text spells `eval`. Also `eval` and
+    `arguments`: they are not reserved words, so they get a `const`, which
+    fails to compile, and a variable of either name still fails the load.
+    Code cannot read or declare a name it never spells, so leaving it out
+    changes nothing.
   - *Why the bound holds.* The reserved job variables have the same names in
     every invocation. A host's environment hook
     ([H12](../../docs/design/0008-host-hooks.md)), which sets an
@@ -989,8 +992,30 @@ this mode cannot reproduce is deviation D5 of
 - **Errors.** A thrown value, from the module, the call or the
   serialisation, is `{message, stack, name}`. For an `Error` of the realm
   or of a web API, name and message are decoded together, and the stack
-  has the source line its first frame points at in front when that frame
-  is in the script. Anything else gives three `null`s.
+  has a source line in front when its first frame is in the script.
+  Anything else gives three `null`s.
+  - *The source line of a `//native` script* is the line the frame points
+    at.
+  - *The source line of a nativets script* is the one Windmill 1.862.0
+    reads ([WR-43](../../docs/semantics/languages.md#wr-43)). The frame's
+    line in the code, after the lines of Windmill's preamble, is looked up
+    in the transpile's line map ([build/](build/README.md)), as a position
+    in the code alone. The line read, at the source line found, is in that
+    preamble and the code together.
+  - *So a script shorter than the preamble* reads the line numbered as its
+    last mapped line. For `WR-43/c`'s three lines that is the preamble's
+    third, `const BASE_INTERNAL_URL = '<the facade's origin>';`.
+  - *Windmill's preamble* is written for this alone
+    (`NativeJob.windmillPreamble`): four fixed lines (the `process`
+    object, `BASE_URL`, `BASE_INTERNAL_URL`, the copy of both into
+    `process.env`), then each variable, sorted, then an empty line. A
+    variable is its `const`, when it gets one, and its `process.env`
+    entry, single-quoted with backslash, quote, LF and CR escaped, and an
+    empty line separates two. So with n variables, all `const`s, the code
+    starts on line 3n + 5.
+  - *What can differ.* Only the preamble's third line is recorded. The
+    code lines are the native form's, and the map is of Bun's transpile,
+    not deno_ast's (ADR 0001, D5).
 - **Its step context keys.** That object then gets `step_id`, `job_id`
   and `flow_path` from the job's `WM_FLOW_STEP_ID`, `WM_JOB_ID` and
   `WM_FLOW_PATH`, each when it is not empty, as the worker adds them after

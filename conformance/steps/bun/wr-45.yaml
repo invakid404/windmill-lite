@@ -122,15 +122,18 @@ cases:
     variant: invalid-variable-name
     provenance: source-derived
     scope: later
-    title: a variable whose name is not an identifier fails every nativets load
+    title: a variable whose name cannot be a binding gets no const, so a nativets module loads and finds it in process.env alone (v1.862.0)
+    note: >-
+      Up to v1.767.0 such a name failed every nativets load. At v1.862.0
+      only an ASCII identifier that is neither a reserved word of strict
+      mode nor process, BASE_URL or BASE_INTERNAL_URL gets a const.
     language: nativets
-    env: {WL-DASHED: "1"}
+    env: {WL-DASHED: "1", while: "2", process: "3"}
     script: |
-      export function main() { return 1; }
+      export function main() { return [process.env["WL-DASHED"], process.env["while"], process.env.process, typeof process]; }
     runs:
       - args: '{}'
-        claims:
-          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+        expect: {status: success, result: ["1", "2", "3", object]}
   - spec: WR-45/d
     variant: nativets
     provenance: oracle-observed
