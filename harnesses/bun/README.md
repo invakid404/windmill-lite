@@ -57,7 +57,7 @@ cannot corrupt the protocol.
 | `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
 | `runtime/runtime.ts` | The handshake, the step runner and how it loads a step module, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
-| `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
+| `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result, the error shapes and a stack's source line |
 | `runtime/context.ts` | The per-invocation context: the environment view, the fetch view, the timer fence, the log view, child-process wrapping, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
 | `runtime/frame.ts` | The codec and the send queue: canonical envelopes, the decoding rules and error codes of the Go side, the frame reader, whose buffer grows by doubling so that a frame read in small pieces is copied a bounded number of times, part streams, and the order of messages about one invocation |
 

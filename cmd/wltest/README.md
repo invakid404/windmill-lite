@@ -740,6 +740,9 @@ of Windmill 1.862.0's image).
 - `TestObserveTraceUnwalkedJobs` needs no Bun either. A job that an error
   object names and no record does reads `<job:?N>`, numbered in sorted
   member order, while the step's own job keeps its site's placeholder.
+- `TestAsOracleBase` needs no Bun: the platform origin reads as the
+  oracle's base URL in each value of an observation, but not where a
+  further digit of a port follows it.
 - `TestSubflowRetryFixturesFreshAndWarm` is milestone N5's gate. Every
   run of `control-flow/subflow-retry` (a retry on a flow step, and on a
   while loop and a branchone) matches its recording in `fresh` and in
