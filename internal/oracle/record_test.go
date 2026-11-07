@@ -544,7 +544,7 @@ func (o *fakeOracle) start(r *http.Request) string {
 	}
 	bType := "Success"
 	if !success {
-		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b"}}`, n, n, b)
+		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b","job_id":%q,"flow_path":"f/wl_smoke/two_step"}}`, n, n, b, b)
 		bType = "Failure"
 	}
 	fs := fmt.Sprintf(`{"step":2,"modules":[{"type":"Success","id":"a","job":%q},{"type":%q,"id":"b","job":%q}],"failure_module":{"type":"WaitingForPriorSteps","id":"failure"}}`, a, bType, b)
@@ -673,7 +673,7 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 	// and fail (OR-11/a, OR-12/a) was compared during the session.
 	b := rec["fail"].Observation.Steps[conformance.SitePath{}.Child(conformance.Module("b"))]
 	var compact bytes.Buffer
-	if err := json.Compact(&compact, b.Result); err != nil || compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"\u003cstack\u003e","step_id":"b"}}` && compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b"}}` {
+	if err := json.Compact(&compact, b.Result); err != nil || compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"\u003cstack\u003e","step_id":"b","job_id":"\u003cjob:m:b\u003e","flow_path":"f/wl_smoke/two_step"}}` && compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b","job_id":"<job:m:b>","flow_path":"f/wl_smoke/two_step"}}` {
 		t.Fatalf("fail run step b: %s", b.Result)
 	}
 	// Effects are grouped by the outer run and normalised (OR-16, OR-V6).

@@ -3,9 +3,9 @@ spec: [FX-26/b]
 target: f/wl_fx26/multiplier
 expect:
   status: failure
-  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
+  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx26/multiplier}}
   steps:
-    "m:a/r:0": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:0": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:0>", flow_path: f/wl_fx26/multiplier}}}
+    "m:a": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx26/multiplier}}}
 delays:
   - {from: "m:a/r:0", to: "m:a", at_least_ms: 6000}

@@ -4,6 +4,12 @@ note: >-
   cmd/wltest fails unless every catalogue case of such a finding is a step
   case or listed here.
 deferred:
+  - spec: WR-2/b
+    reason: >-
+      its run succeeds, and the step suite observes no log of a successful
+      run; the same order (top-level writes ahead of the entrypoint's) is
+      checked through an escaped failure's tail
+    expected_in: conformance/steps/bun/wr-2.yaml (WR-2/top-level-log)
   - spec: WR-21/b
     reason: >-
       later: a script that writes result.json itself and exits 1; the

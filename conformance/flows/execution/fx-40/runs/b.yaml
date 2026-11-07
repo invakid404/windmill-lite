@@ -1,6 +1,6 @@
 # FX-40/b (Q-FX-6): a failed flow whose handler ran without recover caches
 # the handler's result, which the second call serves as a success.
-spec: [FX-40/b, Q-FX-6]
+spec: [FX-40/b, Q-FX-6, FX-45/e]
 target: f/fx40/b_twice
 expect:
   status: success
@@ -20,6 +20,8 @@ expect:
           stack: "<stack>"
           message: x
           step_id: a
+          job_id: "<job:m:s1/m:a>"
+          flow_path: f/fx40/flow_cached_fail
     "m:s1/s:failure": {status: success, args: {}, result: H}
     "m:s2":
       status: success

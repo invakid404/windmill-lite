@@ -3,10 +3,10 @@ spec: [FX-30/a, FX-36]
 target: f/wl_fx30/tolerated_last
 expect:
   status: success
-  result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+  result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_last}}
   steps:
     "m:a":
       status: failure
       args: {}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_last}}
     "s:failure": {status: not_run}

@@ -21,10 +21,10 @@ expect:
       status: success
       result: [{item: apple, held: 1}, {item: pear, held: 2}, {item: fig, held: 3}]
     "m:loop/i:0/m:call": {status: success, args: {item: apple}, result: {item: apple, held: 1}}
-    "m:loop/i:1/m:call/r:0": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: call}}}
+    "m:loop/i:1/m:call/r:0": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:1/m:call/r:0>", flow_path: f/wl_stub/retry_loop/loop-1}}}
     "m:loop/i:1/m:call": {status: success, args: {item: pear}, result: {item: pear, held: 2}}
-    "m:loop/i:2/m:call/r:0": {status: failure, args: {item: fig}, result: {error: {name: Busy, message: "inventory busy", stack: "<stack>", extra: {retry_in: 0}, step_id: call}}}
-    "m:loop/i:2/m:call/r:1": {status: failure, args: {item: fig}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: call}}}
+    "m:loop/i:2/m:call/r:0": {status: failure, args: {item: fig}, result: {error: {name: Busy, message: "inventory busy", stack: "<stack>", extra: {retry_in: 0}, step_id: call, job_id: "<job:m:loop/i:2/m:call/r:0>", flow_path: f/wl_stub/retry_loop/loop-2}}}
+    "m:loop/i:2/m:call/r:1": {status: failure, args: {item: fig}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:2/m:call/r:1>", flow_path: f/wl_stub/retry_loop/loop-2}}}
     "m:loop/i:2/m:call": {status: success, args: {item: fig}, result: {item: fig, held: 3}}
   effects:
     - site: "m:loop/i:0/m:call"

@@ -5,14 +5,14 @@ spec: [FX-29/b, FX-27]
 target: f/wl_fx29/reset_by_success
 expect:
   status: failure
-  result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}
+  result: {error: {message: b, name: Error, stack: "<stack>", step_id: b, job_id: "<job:m:b>", flow_path: f/wl_fx29/reset_by_success}}
   steps:
-    "m:a/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
-    "m:s/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
-    "m:s/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:0>", flow_path: f/wl_fx29/reset_by_success}}}
+    "m:a/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:1>", flow_path: f/wl_fx29/reset_by_success}}}
+    "m:a": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx29/reset_by_success}}}
+    "m:s/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:0>", flow_path: f/wl_fx29/reset_by_success}}}
+    "m:s/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:1>", flow_path: f/wl_fx29/reset_by_success}}}
     "m:s": {status: success, args: {x: 0}, result: 0}
-    "m:b/r:0": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}
-    "m:b/r:1": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}
-    "m:b": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}
+    "m:b/r:0": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b, job_id: "<job:m:b/r:0>", flow_path: f/wl_fx29/reset_by_success}}}
+    "m:b/r:1": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b, job_id: "<job:m:b/r:1>", flow_path: f/wl_fx29/reset_by_success}}}
+    "m:b": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b, job_id: "<job:m:b>", flow_path: f/wl_fx29/reset_by_success}}}

@@ -6,7 +6,7 @@ expect:
   status: success
   result: ["{}"]
   steps:
-    "m:a": {status: failure, args: {msg: "a fails"}, result: {error: {name: Error, stack: "<stack>", message: "a fails", step_id: a}}}
-    "m:l/r:0": {status: failure, args: {tag: b, v: {error: {name: Error, stack: "<stack>", message: "a fails", step_id: a}}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: l}}}
+    "m:a": {status: failure, args: {msg: "a fails"}, result: {error: {name: Error, stack: "<stack>", message: "a fails", step_id: a, job_id: "<job:m:a>", flow_path: f/cf22/prev_fallback}}}
+    "m:l/r:0": {status: failure, args: {tag: b, v: {error: {name: Error, stack: "<stack>", message: "a fails", step_id: a, job_id: "<job:m:a>", flow_path: f/cf22/prev_fallback}}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: l, job_id: "<job:m:l/r:0>", flow_path: f/cf22/prev_fallback}}}
     "m:l": {status: success, result: ["{}"]}
     "m:l/i:0/m:b": {status: success, args: {tag: b, v: "{}"}, result: "{}"}

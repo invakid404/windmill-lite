@@ -6,5 +6,5 @@ expect:
   status: success
   result: true
   steps:
-    "m:a/r:0": {status: failure, args: {x: "<masked>"}, result: {error: {message: "first attempt", name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:0": {status: failure, args: {x: "<masked>"}, result: {error: {message: "first attempt", name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:0>", flow_path: f/wl_fx27/reuses_args}}}
     "m:a": {status: success, args: {x: "<masked>"}, result: true}
