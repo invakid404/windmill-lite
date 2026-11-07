@@ -271,10 +271,6 @@
     }
   },
   "step_suite": {
-    "conformance/steps/bun/d11.yaml/d11-refused-codes": {
-      "milestone": "W4d",
-      "reason": "Bun 1.4.3 words the RangeError for an out-of-range exit code differently (&& and digit separators); the code is still refused"
-    },
     "conformance/steps/bun/d11.yaml/d11-top-level": {
       "milestone": "W4e",
       "reason": "on Bun 1.4.3 a process.exit at a warm module's top level escapes the harness and ends the process",

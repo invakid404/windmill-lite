@@ -167,6 +167,10 @@ handlers, a throw from a timer sees the throwing invocation's
 `AsyncLocalStorage` store, but an unhandled rejection and a throw from a
 microtask see none.
 
+On Bun 1.4.3 a throw from a `node:fs` or `node:dns` callback sees the
+store too, as a timer's does; 1.3.10 raised it as an unhandled rejection
+with none.
+
 1. **Handlers.** Before any step module loads, the harness installs
    `uncaughtException` and `unhandledRejection` handlers that never exit.
 2. **Attribution.** An error whose context names an invocation is
@@ -277,13 +281,13 @@ microtask see none.
    `child_process.spawn`, `exec`, `execFile` and `fork` (and the sync
    forms) and `Bun.spawn`/`Bun.spawnSync`, so that a child started without
    an explicit environment receives the invocation's view, not the process
-   environment. On Bun 1.3.10, `spawnSync`, `execSync` and `Bun.spawn`
-   would otherwise pass the process's own environment, since they read
-   neither `process.env` nor its view. Output written through
+   environment. On Bun 1.4.3, `Bun.spawn` and `Bun.spawnSync` would
+   otherwise pass the environment the process started with, since they
+   read neither `process.env` nor its view. Output written through
    `Bun.stdout`, a raw file descriptor or a child's inherited stdio is not
    attributed: it reaches the process log, not the invocation's log tail.
    The wrappers, like the timer fence's, replace the functions on the
-   builtins' CommonJS objects before any step module loads. On Bun 1.3.10
+   builtins' CommonJS objects before any step module loads. On Bun 1.4.3
    the first named import of a builtin fixes its named bindings for every
    later importer, so the host SDK reaches `node:child_process` through
    `require`. A host whose own modules import `node:child_process` or
@@ -299,11 +303,11 @@ microtask see none.
    invocation starts leads a group of its own instead, which stands for the
    job's: the wrapper starts it detached and registers it as `child`, its
    group being what is alive and what is killed, so a child's own children
-   are reached after it has exited. On Bun 1.3.10 every `node:child_process`
+   are reached after it has exited. On Bun 1.4.3 every `node:child_process`
    function starts its child through `Bun.spawn` (the asynchronous ones) or
    `Bun.spawnSync` (the sync ones), once each, and passes `detached` on
-   only from `spawn` and `fork`, the functions that honour a step's own
-   `detached`; `exec`, `execFile` and the sync forms ignore it, so their
+   only from `spawn`, `fork` and the sync forms, the functions that honour
+   a step's own `detached`; `exec` and `execFile` ignore it, so their
    children are in the job's group on Windmill. The wrapper of `Bun.spawn`
    therefore registers every asynchronous child, once, and gives each its
    group. A child the step started detached where Bun honours it registers
@@ -383,7 +387,8 @@ microtask see none.
    ends, a watchdog's kill included, and at once for a group announced
    after any of these. Every process the engine spawns leads a
    process group of its own, which its kill and its end reach. A
-   synchronous call's child gets no group of its own, because its pid is
+   synchronous call's child that the step did not start detached gets no
+   group of its own, because its pid is
    known only once it has exited, too late to announce: it stays in the
    harness's group, which the end of the process kills, so a call that
    blocks the event loop past the watchdog ends with the process. What a
@@ -944,7 +949,7 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     other, and one from there ends the process.
   - **A signature that did not parse** fails the step before its module
     loads (§Entrypoints).
-  - **`process.exit`** checks its code as Bun 1.3.10 does: a safe integer
+  - **`process.exit`** checks its code as Bun 1.4.3 does: a safe integer
     (within ±(2^53 − 1)), or a string other than `""` that `Number` reads
     as one (`" "` is 0), modulo 256 (`process.exit(258)` exits 2), no code
     being `process.exitCode` or 0; any other code makes Bun throw before it
