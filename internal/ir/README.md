@@ -123,7 +123,12 @@ sequential for loop or any while loop, its body as written is exactly one
 `script` or `rawscript` step with none of `sleep`, `suspend`, `cache_ttl`,
 `retry`, `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or an enabled
 `mock`, and its flow has no failure module. A body module that is a
-provided site keeps its original kind for the rule.
+provided site keeps its original kind for the rule. A deploy applies the
+same body test to choose which container bodies it stores as nodes
+([CF-V4](../../docs/semantics/control-flow.md#cf-v4)): `StoredNode`
+reports it for a compiled body, every body but an empty or simple one,
+and the engine's job records follow it (a child flow of a stored body
+reads as a `FlowNode` job's).
 
 ## Harness classes
 
