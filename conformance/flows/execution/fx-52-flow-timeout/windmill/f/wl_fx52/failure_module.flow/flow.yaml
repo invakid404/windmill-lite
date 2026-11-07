@@ -1,0 +1,23 @@
+summary: "FX-52 the failure module runs after the flow timeout"
+value:
+  timeout: 1
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: "!inline failure.ts"
+      language: bun
+      input_transforms:
+        e: {type: javascript, expr: error}
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline sleep.ts"
+        language: bun
+        input_transforms:
+          ms: {type: static, value: 6000}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

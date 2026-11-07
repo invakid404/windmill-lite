@@ -185,6 +185,22 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/control-flow/cf-27-flow-timeouts/subflow": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 enforces a subflow step's timeout as the subflow's wall-clock limit (1.861.0), which windmill-lite does not"
+    },
+    "conformance/flows/control-flow/cf-27/a": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
+    },
+    "conformance/flows/control-flow/cf-27/b": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
+    },
+    "conformance/flows/control-flow/cf-27/fx24_d": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 does not collapse a loop body whose step has its own timeout (1.852.0), where windmill-lite collapses it under the loop's timeout"
+    },
     "conformance/flows/control-flow/cf-4/b": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
@@ -277,9 +293,29 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/control-flow/waits/body_timeout_js": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
+    },
+    "conformance/flows/control-flow/waits/body_timeout_negative_later": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
+    "conformance/flows/control-flow/waits/body_timeout_negative_pickup": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
     "conformance/flows/control-flow/waits/branch_retry": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/waits/loop_timeout_negative_later": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
+    "conformance/flows/control-flow/waits/loop_timeout_negative_root": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
     },
     "conformance/flows/execution/fx-12/error_extra": {
       "milestone": "W6a",
@@ -293,6 +329,10 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/execution/fx-15/root_pickup": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
     "conformance/flows/execution/fx-17/skip_on_retry": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
@@ -300,6 +340,38 @@
     "conformance/flows/execution/fx-23/after_tolerated": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/execution/fx-24/js_timeout": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
+    },
+    "conformance/flows/execution/fx-24/negative_later": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
+    "conformance/flows/execution/fx-24/negative_root": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
+    "conformance/flows/execution/fx-24/negative_static": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
+    "conformance/flows/execution/fx-24/process_timeout": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
+    },
+    "conformance/flows/execution/fx-24/zero": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
+    },
+    "conformance/flows/execution/fx-25/retried": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
+    },
+    "conformance/flows/execution/fx-25/tolerated": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
     },
     "conformance/flows/execution/fx-26/multiplier": {
       "milestone": "W6a",
@@ -476,6 +548,10 @@
     "conformance/flows/languages/bun-results/thrown_string": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/languages/bun-results/timeout": {
+      "milestone": "W6b",
+      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
     },
     "conformance/flows/languages/native-codebase/cjs_native": {
       "milestone": "W6a",
@@ -742,6 +818,10 @@
       "milestone": "W5c",
       "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
     },
+    "conformance/flows/execution/fx-15/root_pickup_i32": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
     "conformance/flows/execution/fx-21/throwing_stop": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
@@ -821,6 +901,50 @@
     "conformance/flows/execution/fx-49/throws": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/concurrency": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/failure_module": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/negative": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/root": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/sleep": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_failure_module": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_override": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_own": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_step_zero": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_tolerated": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
+    },
+    "conformance/flows/execution/fx-52-flow-timeout/zero": {
+      "milestone": "W5c",
+      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
     },
     "conformance/flows/execution/fx-7/result_unbound": {
       "milestone": "W5f",

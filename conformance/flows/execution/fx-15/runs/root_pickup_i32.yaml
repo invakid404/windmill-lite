@@ -1,0 +1,25 @@
+# FX-15/b: context 2. A timeout whose value is not an i32 fails module a
+# at the root pickup with an Anyhow error, and the failure module runs.
+# Module a never got a job: its entry is a Failure with a nil job. (At
+# v1.767.0 run root_pickup recorded this context with a negative timeout,
+# which CE 1.862.0 treats as unset: FX-24/b.)
+spec: [FX-15/b, JE-29]
+target: f/wl_fx15/root_pickup_i32
+expect:
+  status: failure
+  result: {n: Anyhow, m: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:0:0'}
+  steps:
+    "m:a": {status: failure, ran: false}
+    "s:failure":
+      status: success
+      args: {e: {name: Anyhow, message: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:0:0'}}
+      result: {n: Anyhow, m: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:0:0'}
+# The failure module's argument e is a's error, which windmill-lite
+# generates at the root's pickup, and its result's m is that error's
+# message, which the flow ends with: copies of a's generated error, so the
+# location rule reaches them (ADR 0011).
+copies:
+  - {at: "/steps/s:failure/args/e", of: "m:a"}
+  - {at: "/steps/s:failure/result/m", of: "m:a"}
+  - {at: "/steps/s:failure/carried/m", of: "m:a"}
+  - {at: /result/m, of: "m:a"}

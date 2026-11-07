@@ -6,7 +6,7 @@
 # root and of every child flow are in each recording's provenance
 # (timings.jobs).
 id: control-flow/cf-27
-spec: [CF-27, CF-27/a, CF-27/b, CF-27/c, FX-24, FX-24/d, FX-24/e, FX-25]
+spec: [CF-27, CF-27/a, CF-27/b, CF-27/c, FX-24, FX-24/d, FX-24/e, FX-25, FX-46]
 scope: later
 provenance: oracle-observed
 languages: [bun]

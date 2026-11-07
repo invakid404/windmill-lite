@@ -1,0 +1,10 @@
+summary: "FX-52 a zero step timeout keeps the subflow's"
+value:
+  modules:
+    - id: c
+      value: {type: flow, path: f/wl_fx52/slow1, input_transforms: {}}
+      timeout: {type: static, value: 0}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,6 +1,13 @@
-# Q-FX-1, CF-27: a timeout of 1 s on a subflow step whose body sleeps 3 s is
-# not enforced: a branch flow and a subflow job are flow jobs, which nothing
-# times, so it succeeds with its body's result.
-spec: [CF-27]
+# CF-27, FX-52/f: a timeout of 1 s on a subflow step replaces the subflow's
+# own timeout, which the server's monitor enforces (CE 1.861.0): the
+# subflow is canceled while its step sleeps 3 s, and the step fails with
+# the timeout error. (At v1.767.0 nothing timed the subflow, and it
+# succeeded with its body's result.)
+spec: [CF-27, FX-52/f]
 target: f/wl_qfx1/subflow
-expect: {status: success, result: 3000}
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "flow terminated due to timeout: the flow exceeded its 1s timeout"}}
+  steps:
+    "m:c": {status: canceled, args: {}, result: {error: {name: Canceled, message: "Job canceled: the flow exceeded its 1s timeout by timeout", reason: "the flow exceeded its 1s timeout", canceler: timeout}}}
+    "m:c/m:x": {status: canceled, args: {}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to cancelled by timeout (reason: the flow exceeded its 1s timeout)", step_id: x}}}

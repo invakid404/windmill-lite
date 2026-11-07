@@ -1,0 +1,9 @@
+summary: "FX-52 a subflow ends at its own timeout"
+value:
+  modules:
+    - id: c
+      value: {type: flow, path: f/wl_fx52/slow1, input_transforms: {}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
