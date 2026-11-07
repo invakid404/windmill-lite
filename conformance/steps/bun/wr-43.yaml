@@ -70,7 +70,7 @@ cases:
   - spec: WR-43/c
     variant: nativets
     provenance: oracle-observed
-    title: the stack starts with the preamble's third line, BASE_INTERNAL_URL's, then Error: x (nativets, v1.862.0)
+    title: "the stack starts with the preamble's third line, BASE_INTERNAL_URL's, then Error: x (nativets, v1.862.0)"
     note: >-
       The frame's line, which counts the preamble's lines, is mapped through
       the transpile's source map as a position in the code alone: past the

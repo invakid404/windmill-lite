@@ -286,35 +286,41 @@ func TestNativeInvocationsKeepNoScript(t *testing.T) {
 	}
 }
 
-// TestNativeProcessVariable checks that an environment variable named
-// process fails the load of a nativets step whose text never spells
-// process, as the preamble declares process itself, with the same error
-// on the module's compiled variants and past their bound. Each run of
-// f/native/steps fails at its second step, f/native/nativets: the first is
-// bunnative, whose preamble names no job variable. The run's environment
-// hook (H12) gives every invocation process and a name that is not plain
-// ASCII, which every preamble declares, so each nativets invocation has a
-// preamble of its own: the first nativeVariants compile, and the rest go
-// through the realm's eval. Without process the run returns its input.
-func TestNativeProcessVariable(t *testing.T) {
+// TestNativeVariableNames checks, through the runtime, which environment
+// variables a nativets step's preamble declares (WR-45, v1.862.0). A
+// variable named process, a reserved word, or a name that is not an ASCII
+// identifier gets no const, so f/native/steps returns its input. A
+// variable named arguments gets one, which strict code refuses: it fails
+// the load of f/native/varying's first step, f/native/evals, whose text
+// spells eval, so that its preamble declares every variable. The run's
+// environment hook (H12) also gives every invocation a name of its own, so
+// each invocation of that step has a preamble of its own: the first
+// nativeVariants compile, and the rest go through the realm's eval, all
+// with the same error. Without arguments the run returns its input.
+func TestNativeVariableNames(t *testing.T) {
 	bun := benchSetup(t)
 	bundlePath := nativeBundle(t, bun)
-	const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'process'."
+	const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a variable named arguments in strict mode."
 	for _, topology := range []string{"host", "subprocess"} {
 		t.Run("topology="+topology, func(t *testing.T) {
 			rt := benchRuntimeOn(t, bun, topology, bundlePath, func(*wl.Options) {})
 			var seq atomic.Int64
-			hooks := func(process bool) *wl.Hooks {
+			hooks := func(extra map[string]string) *wl.Hooks {
 				return &wl.Hooks{InvocationEnv: func(_ context.Context, _ wl.RunHandle, _ wl.Site, env map[string]string) error {
-					env[fmt.Sprintf("WL_\u00c9_%d", seq.Add(1))] = "v"
-					if process {
-						env["process"] = "x"
+					env[fmt.Sprintf("WL_NAME_%d", seq.Add(1))] = "v"
+					for k, v := range extra {
+						env[k] = v
 					}
 					return nil
 				}}
 			}
+			unbound := map[string]string{"process": "x", "while": "x", "WL-DASHED": "x", "WL_\u00c9": "x"}
+			res, err := rt.Run(context.Background(), "f/native/steps", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(unbound)})
+			if err != nil || res.Status != wl.StatusSuccess || string(res.Result) != "1" {
+				t.Fatalf("with names that get no const: %+v, %v; want the result 1", res, err)
+			}
 			for i := range nativeVariants + 4 {
-				res, err := rt.Run(context.Background(), "f/native/steps", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(true)})
+				res, err := rt.Run(context.Background(), "f/native/varying", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(map[string]string{"arguments": "x"})})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -324,13 +330,13 @@ func TestNativeProcessVariable(t *testing.T) {
 						StepID  string `json:"step_id"`
 					} `json:"error"`
 				}
-				if res.Status == wl.StatusSuccess || json.Unmarshal(res.Result, &out) != nil || out.Error.Message != failed || out.Error.StepID != "b" {
-					t.Fatalf("run %d with process: %s, %s; want step b's load to fail with %q", i, res.Status, res.Result, failed)
+				if res.Status == wl.StatusSuccess || json.Unmarshal(res.Result, &out) != nil || out.Error.Message != failed || out.Error.StepID != "a" {
+					t.Fatalf("run %d with arguments: %s, %s; want step a's load to fail with %q", i, res.Status, res.Result, failed)
 				}
 			}
-			res, err := rt.Run(context.Background(), "f/native/steps", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(false)})
+			res, err = rt.Run(context.Background(), "f/native/varying", []byte(`{"p":1}`), wl.RunOptions{Hooks: hooks(nil)})
 			if err != nil || res.Status != wl.StatusSuccess || string(res.Result) != "1" {
-				t.Fatalf("without process: %+v, %v; want the result 1", res, err)
+				t.Fatalf("without arguments: %+v, %v; want the result 1", res, err)
 			}
 		})
 	}
