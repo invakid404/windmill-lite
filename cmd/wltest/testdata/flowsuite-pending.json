@@ -327,18 +327,6 @@
     "conformance/flows/je/providers/je38-ab": {
       "milestone": "W5h",
       "reason": "CE 1.862.0 keeps step b's argument as the $var: reference where the run's claims have the resolved value"
-    },
-    "conformance/flows/openflow/of-drivers/preview_absent": {
-      "milestone": "W8c",
-      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
-    },
-    "conformance/flows/openflow/of-drivers/preview_false": {
-      "milestone": "W8c",
-      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
-    },
-    "conformance/flows/openflow/of-drivers/preview_true": {
-      "milestone": "W8c",
-      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
     }
   }
 }

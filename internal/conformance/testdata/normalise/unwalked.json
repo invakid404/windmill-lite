@@ -1,0 +1,137 @@
+{
+  "about": "Unwalked job ids (OR-14 item 1): each case gives a run's raw observation and its normalised one. In strings, ${name} stands for the id of the walked job named in ids, and ${uN} for an unwalked job's id, which the test draws twice, the second time in the opposite order of value, so both executions must give the same numbers. Only a UUID that is the whole value of job_id in an object under a member error, and no walked job's, is numbered: from 1, in the order of first occurrence over the observation read with sorted members (effects, result, steps by site path), then replaced anywhere as <job:?N>.",
+  "ids": {
+    "a": {"id": "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "path": "m:a"},
+    "root": {"id": "33333333-cccc-4ccc-8ccc-cccccccccccc", "path": ""}
+  },
+  "cases": [
+    {
+      "name": "OR-14/c: the previews' failed steps, numbered in sorted member order",
+      "spec": ["OR-14/c"], "provenance": "source-derived",
+      "raw": {
+        "status": "success",
+        "result": {
+          "seq": {"success": true, "result": [{"error": {"name": "Error", "job_id": "${u1}", "message": "boom", "step_id": "b", "flow_path": "tmp/main/loop-0"}}, 2]},
+          "par": {"success": true, "result": [{"error": {"name": "Error", "job_id": "${u2}", "message": "boom", "step_id": "b", "flow_path": "tmp/main/forloop-0"}}, 2]},
+          "ba": {"success": true, "result": [{"error": {"name": "Error", "job_id": "${u3}", "message": "b", "step_id": "f", "flow_path": "tmp/main/branchall-0"}}, 2]}
+        },
+        "steps": {
+          "m:d": {"status": "success", "args": {}, "result": {
+            "seq": {"success": true, "result": [{"error": {"name": "Error", "job_id": "${u1}", "message": "boom", "step_id": "b", "flow_path": "tmp/main/loop-0"}}, 2]},
+            "par": {"success": true, "result": [{"error": {"name": "Error", "job_id": "${u2}", "message": "boom", "step_id": "b", "flow_path": "tmp/main/forloop-0"}}, 2]},
+            "ba": {"success": true, "result": [{"error": {"name": "Error", "job_id": "${u3}", "message": "b", "step_id": "f", "flow_path": "tmp/main/branchall-0"}}, 2]}
+          }}
+        }
+      },
+      "want": {
+        "status": "success",
+        "result": {
+          "seq": {"success": true, "result": [{"error": {"name": "Error", "job_id": "<job:?3>", "message": "boom", "step_id": "b", "flow_path": "tmp/main/loop-0"}}, 2]},
+          "par": {"success": true, "result": [{"error": {"name": "Error", "job_id": "<job:?2>", "message": "boom", "step_id": "b", "flow_path": "tmp/main/forloop-0"}}, 2]},
+          "ba": {"success": true, "result": [{"error": {"name": "Error", "job_id": "<job:?1>", "message": "b", "step_id": "f", "flow_path": "tmp/main/branchall-0"}}, 2]}
+        },
+        "steps": {
+          "m:d": {"status": "success", "args": {}, "result": {
+            "seq": {"success": true, "result": [{"error": {"name": "Error", "job_id": "<job:?3>", "message": "boom", "step_id": "b", "flow_path": "tmp/main/loop-0"}}, 2]},
+            "par": {"success": true, "result": [{"error": {"name": "Error", "job_id": "<job:?2>", "message": "boom", "step_id": "b", "flow_path": "tmp/main/forloop-0"}}, 2]},
+            "ba": {"success": true, "result": [{"error": {"name": "Error", "job_id": "<job:?1>", "message": "b", "step_id": "f", "flow_path": "tmp/main/branchall-0"}}, 2]}
+          }}
+        }
+      }
+    },
+    {
+      "name": "OR-14/c: a walked job's id in the same place keeps its site's placeholder and takes no number",
+      "spec": ["OR-14/c"], "provenance": "source-derived",
+      "raw": {
+        "status": "success",
+        "result": {"mine": {"error": {"name": "Error", "job_id": "${a}"}}, "theirs": {"error": {"name": "Error", "job_id": "${u1}"}}}
+      },
+      "want": {
+        "status": "success",
+        "result": {"mine": {"error": {"name": "Error", "job_id": "<job:m:a>"}}, "theirs": {"error": {"name": "Error", "job_id": "<job:?1>"}}}
+      }
+    },
+    {
+      "name": "OR-14/c: a UUID that no error object's job_id names stays as it is",
+      "spec": ["OR-14/c"], "provenance": "source-derived",
+      "raw": {
+        "status": "success",
+        "result": {
+          "top": {"job_id": "${u1}"},
+          "upper": {"error": {"job_id": "01A1B47F-0FBB-67DE-AAF0-DFC021FCEABE"}},
+          "within": {"error": {"job_id": "job ${u2}"}},
+          "string": {"error": "${u3}"},
+          "array": {"error": [{"job_id": "${u4}"}]},
+          "other": {"error": {"id": "${u5}"}},
+          "said": "${u1} ${u2} ${u3} ${u4} ${u5}"
+        }
+      },
+      "want": {
+        "status": "success",
+        "result": {
+          "top": {"job_id": "${u1}"},
+          "upper": {"error": {"job_id": "01A1B47F-0FBB-67DE-AAF0-DFC021FCEABE"}},
+          "within": {"error": {"job_id": "job ${u2}"}},
+          "string": {"error": "${u3}"},
+          "array": {"error": [{"job_id": "${u4}"}]},
+          "other": {"error": {"id": "${u5}"}},
+          "said": "${u1} ${u2} ${u3} ${u4} ${u5}"
+        }
+      }
+    },
+    {
+      "name": "the order: effects, result, steps by site path, members sorted at every depth",
+      "spec": ["OR-14"], "provenance": "policy",
+      "raw": {
+        "status": "failure",
+        "effects": [{"error": {"job_id": "${u1}"}}],
+        "result": {
+          "z": {"error": {"job_id": "${u2}"}},
+          "a": {"error": {"job_id": "${u4}", "cause": {"error": {"job_id": "${u3}"}}}}
+        },
+        "steps": {
+          "m:b": {"status": "failure", "args": {}, "result": {"error": {"job_id": "${u5}", "message": "job ${u1} failed"}}},
+          "m:a": {"status": "success", "args": {"x": {"error": {"job_id": "${u6}"}}}, "result": {"error": {"job_id": "${u7}"}, "${u2}": 1}}
+        }
+      },
+      "want": {
+        "status": "failure",
+        "effects": [{"error": {"job_id": "<job:?1>"}}],
+        "result": {
+          "z": {"error": {"job_id": "<job:?4>"}},
+          "a": {"error": {"job_id": "<job:?3>", "cause": {"error": {"job_id": "<job:?2>"}}}}
+        },
+        "steps": {
+          "m:b": {"status": "failure", "args": {}, "result": {"error": {"job_id": "<job:?7>", "message": "job <job:?1> failed"}}},
+          "m:a": {"status": "success", "args": {"x": {"error": {"job_id": "<job:?5>"}}}, "result": {"error": {"job_id": "<job:?6>"}, "<job:?4>": 1}}
+        }
+      }
+    },
+    {
+      "name": "members sort by their names with walked ids replaced, not by the raw ids",
+      "spec": ["OR-14"], "provenance": "policy",
+      "raw": {
+        "status": "success",
+        "result": {"${a}": {"error": {"job_id": "${u1}"}}, "9": {"error": {"job_id": "${u2}"}}}
+      },
+      "want": {
+        "status": "success",
+        "result": {"<job:m:a>": {"error": {"job_id": "<job:?2>"}}, "9": {"error": {"job_id": "<job:?1>"}}}
+      }
+    },
+    {
+      "name": "a response body is replaced, and user text that looks like the placeholder is escaped",
+      "spec": ["OR-14", "Q-OR-17"], "provenance": "policy",
+      "raw": {
+        "status": "success",
+        "result": {"error": {"job_id": "${u1}"}, "note": "<job:?1> and <${u1}"},
+        "response": {"status": 200, "content_type": "application/json", "body": "{\"error\": {\"job_id\": \"${u2}\"}, \"of\": \"${u1}\"}"}
+      },
+      "want": {
+        "status": "success",
+        "result": {"error": {"job_id": "<job:?1>"}, "note": "<<job:?1> and <<<job:?1>"},
+        "response": {"status": 200, "content_type": "application/json", "body": "{\"error\": {\"job_id\": \"${u2}\"}, \"of\": \"<job:?1>\"}"}
+      }
+    }
+  ]
+}
