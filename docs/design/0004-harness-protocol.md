@@ -260,8 +260,11 @@ with none.
    - CPU work.
 
    Their errors are reported as `late` (D9). Work started in a process
-   scope, or while a step module evaluates (item 2 of the lifecycle),
-   belongs to no invocation and is never fenced.
+   scope belongs to no invocation, and work a step module starts while it
+   evaluates is the module's (item 2 of the lifecycle): neither is ever
+   fenced. An error from the module's work is still the loading
+   invocation's, `late` once that has settled; one from a process scope is
+   unattributed (item 3).
 5. **Working directory.** Each harness process the engine spawns gets one
    private directory, created at spawn, as its working directory for all
    invocations ([WR-1](../semantics/languages.md#wr-1) gives each job its
@@ -276,7 +279,10 @@ with none.
    invocation's outcome (`empty` for code 0 with no result written,
    `escaped` otherwise) and throws a sentinel. `finally` blocks run and a
    `catch` can swallow the sentinel and keep going; whatever the code does
-   afterwards is reported as `late` (D11).
+   afterwards is reported as `late` (D11). A call while a step module
+   evaluates fixes the loading invocation's outcome (lifecycle item 2); a
+   sentinel that escapes the evaluation fails the module's load for every
+   later invocation.
 7. **Child processes and other output paths.** The harness wraps
    `child_process.spawn`, `exec`, `execFile` and `fork` (and the sync
    forms) and `Bun.spawn`/`Bun.spawnSync`, so that a child started without
@@ -550,6 +556,20 @@ sequenceDiagram
    unless the host sets a cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
    ones, sends `drain`, and the harness exits after `bye`.
+
+**Loading on Bun 1.4.3.** Bun 1.4.3 evaluates a module that `import()`
+loads outside every async context, and one that `require()` loads inside
+the caller's. So the harness evaluates a step module with `require()` in
+the loading context, then takes its namespace from `import()` of the same
+file, which does not evaluate it again. A pending top-level `await` makes
+`require()` throw once the evaluation has started, and `import()` waits for
+that evaluation ([harness README](../../harnesses/bun/README.md)).
+
+That reaches only what the harness loads. A module that step code itself
+imports at run time from a file outside the bundle, such as a codebase
+asset, evaluates outside every invocation on Bun 1.4.3. Its top-level code
+reads the process's environment, and a `process.exit` there is the real
+one (failure model item 6, D11).
 
 ### Pooling (processes the engine spawns)
 

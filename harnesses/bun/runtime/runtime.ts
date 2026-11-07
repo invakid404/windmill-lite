@@ -71,6 +71,8 @@ import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, typ
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
+const require = createRequire(import.meta.url);
+
 export { TAIL_LENGTH } from "./context.ts";
 
 /** The protocol version this harness speaks. */
@@ -765,13 +767,14 @@ export class Runtime {
    * writes to its log, and a throw fails it; but the timers, requests and
    * children its evaluation starts belong to the module, which outlives
    * the invocation (D1), so they are registered in no invocation and never
-   * fenced (ADR 0004, loading). */
+   * fenced (ADR 0004, loading). loadModule keeps that context through the
+   * evaluation, its top-level awaits and what it starts. */
   private load(script: string, meta: unknown): Promise<Record<string, unknown>> {
     let p = this.modules.get(script);
     if (!p) {
       const c = current();
       const shared = this.mode !== "fresh" && sharedClosure(meta) !== undefined;
-      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir, shared).then((path) => import(pathToFileURL(path).href));
+      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir, shared).then(loadModule);
       p = c === undefined ? evaluate() : invocations.run({ ...c, work: undefined }, evaluate);
       this.modules.set(script, p);
     }
@@ -1584,6 +1587,28 @@ export async function moduleFile(bundleDir: string, script: string, meta: unknow
   const copy = join(workdir, ".windmill-lite-" + new Bun.CryptoHasher("sha256").update(script).digest("hex").slice(0, 16) + ext);
   copyFileSync(file, copy);
   return copy;
+}
+
+/** Loads the module at path and returns its namespace, evaluating it in
+ * the caller's async context. Bun 1.4.3 evaluates a module that import()
+ * loads outside every async context (1.3.10 kept the caller's), and one
+ * that require() loads inside the caller's. So require() evaluates it, and
+ * import() of the same file then returns the namespace it always did,
+ * without evaluating the module again. What require() returns is dropped,
+ * so an exported then, or a CommonJS module's thenable exports, is called
+ * or awaited by import() alone, as before. A top-level await still
+ * pending makes require() throw a TypeError once the evaluation has
+ * started, in that context, and import() waits for that evaluation. An ES
+ * module's failure stays with the module, so import() rejects with the
+ * same error; a CommonJS module's does not, and import() would evaluate
+ * the module again, so its error is thrown as it is. */
+export async function loadModule(path: string): Promise<Record<string, unknown>> {
+  try {
+    require(path);
+  } catch (e) {
+    if (path.endsWith(".cjs")) throw e;
+  }
+  return import(pathToFileURL(path).href);
 }
 
 /** Extracts a bundle's codebase assets, assets/ in the bundle (ADR 0010),
