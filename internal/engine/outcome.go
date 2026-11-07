@@ -209,19 +209,21 @@ func LogTail(log string) string {
 }
 
 // TimeoutError is the stored value of a step that its timeout d ended,
-// with the step abandoned (FX-24, D2). A Bun step's text is WR-37's, which
-// names the job-specific limit unless the duration was the instance's
-// maximum; a native step's is WR-44's, `Query timeout after (>Ns)` with the
-// duration in whole seconds, rounded down, whichever limit applied.
-func TimeoutError(b Boundary, stepID string, d time.Duration, instanceWide bool) jsonval.Value {
+// with the step abandoned (FX-24, D2). A Bun step's text is FX-25's
+// (1.825.0): its process phase, `bun run`, exceeded the limit, named by
+// its source, the custom timeout or, when atMax is set, the instance
+// maximum, with d in whole seconds, rounded down. A native step's is
+// WR-44's, `Query timeout after (>Ns)`, whichever limit applied.
+func TimeoutError(b Boundary, stepID string, d time.Duration, atMax bool) jsonval.Value {
+	secs := int64(d / time.Second)
 	if b == BoundaryNative {
-		return workerError(stepID, fmt.Sprintf("execution error:\nQuery timeout after (>%ds)", int64(d/time.Second)))
+		return workerError(stepID, fmt.Sprintf("execution error:\nQuery timeout after (>%ds)", secs))
 	}
-	limit := "job-specific duration limit"
-	if instanceWide {
-		limit = "instance-wide job duration limit"
+	limit := fmt.Sprintf("the %ds custom timeout set on the script or flow step", secs)
+	if atMax {
+		limit = fmt.Sprintf("the %ds instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed", secs)
 	}
-	return workerError(stepID, "execution error:\njob process terminated due to timeout after exceeding "+limit)
+	return workerError(stepID, "execution error:\njob process terminated due to timeout: `bun run` exceeded "+limit)
 }
 
 // workerError is a failure the worker raises around a job, wrapped:

@@ -2,15 +2,19 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
 // waitResult polls a dispatched run until it has completed.
@@ -256,21 +260,116 @@ func TestDispatcherDetachedAndClose(t *testing.T) {
 	}
 }
 
-// A script job's own timeout fails it with the worker's text, without a
-// step id (WR-37); f/t/zero's metadata asks for 0 s.
+// A script job's timeout fails it with the worker's text, without a step
+// id (WR-37, FX-25); f/t/zero's metadata asks for 0 s, which is unset
+// (FX-24), so the instance maximum applies.
 func TestRunScriptTimeout(t *testing.T) {
 	g := &gate{release: make(chan struct{}), started: make(chan Invocation, 1)}
 	e := openWithPlatform(t, map[string]string{}, g, &platform.Services{})
+	e.cap = 20 * time.Millisecond
 	r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/zero", Args: jsonval.FromProducer([]byte(`{}`))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr"}}`
+	want := "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 0s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed\",\"name\":\"ExecutionErr\"}}"
 	if !r.Failed || string(r.Result.Producer()) != want {
 		t.Errorf("%+v %s", r, r.Result.Producer())
 	}
 	if _, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/none", Args: jsonval.FromProducer([]byte(`{}`))}); err == nil {
 		t.Error("a script that is not a root")
+	}
+}
+
+// FX-24 path 1, FX-25, FX-38, ADR 0007: a script job that windmill-lite
+// canceled, a Bun job its process timeout killed or one its run's
+// cancellation killed, is stored canceled. While the parent its dispatch
+// tracked it in lives, its record is not served, as a canceled step's is
+// not, though its arguments are; its result is still a failure, which the
+// dispatcher's result poll reports. A native job's timeout leaves an
+// ordinary failed job, whose record is served.
+func TestRunScriptCanceledRecord(t *testing.T) {
+	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
+	if jsErr != nil {
+		t.Fatal(jsErr)
+	}
+	fsys := testFolder(nil)
+	// f/t/headed is a //native script (bunnative).
+	fsys["f/t/headed.ts"] = &fstest.MapFile{Data: []byte("//native\nexport async function main() { return null }\n")}
+	folder, err := syncfolder.Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer folder.Close()
+	prog, err := ir.Compile(folder, nil, ir.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := &platform.Services{}
+	e, err := New(Config{Program: prog, Bundle: "sha256:test", Exec: waits{}, JS: jsEng, Platform: services})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The instance maximum times every job out.
+	e.cap = 20 * time.Millisecond
+	defer services.JobRegistry().Begin(platform.Job{ID: "parent", Kind: platform.JobFlow, Root: "parent"})()
+
+	// A Bun job dispatched tracked in the parent times out: the result
+	// poll reports its failure, and its record is refused.
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchScript, Target: "f/t/echo", Args: []byte(`{"x":1}`), ParentJob: "parent", RootJob: "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := waitResult(t, d, id); r.Success || !strings.Contains(string(r.Result), "job process terminated due to timeout: `bun run` exceeded") {
+		t.Fatalf("the timed-out dispatch's result %+v (%s)", r, r.Result)
+	}
+	var ns *platform.NotServed
+	if body, err := services.GetJob(id); !errors.As(err, &ns) || ns.Reason != "the job was canceled" {
+		t.Fatalf("the timed-out job's record: %s, %v", body, err)
+	}
+	if args, err := services.GetJobArgs(id); err != nil || string(args) != `{"x": 1}` {
+		t.Fatalf("the timed-out job's arguments: %s, %v", args, err)
+	}
+
+	for _, c := range []struct {
+		name, path, text string
+		kill, canceled   bool
+	}{
+		{"native timeout", "f/t/headed", "execution error:\\nQuery timeout after (>0s)", false, false},
+		{"killed", "f/t/echo", "execution error:\\njob process terminated due to cancelled by unknown (reason: no reason given)", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var exec StepExecutor = waits{}
+			if c.kill {
+				// The run is canceled while the job runs.
+				exec = execFunc(func(sctx context.Context, inv Invocation) (StepOutcome, error) {
+					cancel()
+					return waits{}.Execute(sctx, inv)
+				})
+			}
+			r, err := e.RunScript(ctx, ScriptRequest{Path: c.path, Args: jsonval.FromProducer([]byte(`{}`)), Exec: exec, ParentJob: "parent", RootJob: "parent"})
+			if err != nil || !r.Failed || r.Canceled != c.canceled || !strings.Contains(string(r.Result.Producer()), c.text) {
+				t.Fatalf("%+v %s, %v", r, r.Result.Producer(), err)
+			}
+			body, err := services.GetJob(r.ID)
+			if c.canceled {
+				if !errors.As(err, &ns) || ns.Reason != "the job was canceled" {
+					t.Fatalf("the canceled job's record: %s, %v", body, err)
+				}
+				return
+			}
+			var rec struct {
+				Type     string `json:"type"`
+				Canceled bool   `json:"canceled"`
+				Success  *bool  `json:"success"`
+			}
+			if err != nil || json.Unmarshal(body, &rec) != nil || rec.Type != "CompletedJob" || rec.Canceled || rec.Success == nil || *rec.Success {
+				t.Fatalf("the failed job's record: %s, %v", body, err)
+			}
+		})
 	}
 }
 

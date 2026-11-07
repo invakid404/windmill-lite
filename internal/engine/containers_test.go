@@ -102,14 +102,14 @@ func TestContainerEnvPerTransition(t *testing.T) {
 			if strings.HasSuffix(mode, "flow") {
 				body = append(body, mod("c", "value", inputs("v", js("results.b")), ""))
 			}
-			envelope := `"timeout":` + js("flow_env.flag === '1' ? -1 : 10")
+			envelope := `"timeout":` + js("flow_env.flag === '1' ? '5' : 10")
 			container := loopOf("l", body, `"iterator":{"type":"static","value":[1,2,3]},"skip_failures":false`, envelope)
 			if mode == "timeout branchall" {
 				container = branchAllOf("l", []string{branch(skipFailure(false), value("b", "1", "")), branch(skipFailure(false), value("c", "2", ""))}, false, envelope)
 			}
 			e := openWithPlatform(t, map[string]string{"f/t/main": `{"modules":[` + container + `],"flow_env":{"flag":"$var:u/t/flag"}}`}, exec, &platform.Services{Variables: store, Resources: store})
 			tr := runReq(t, e, RunRequest{})
-			wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`)
+			wantStatus(t, tr, conformance.RunFailure, internalError(timeoutNotI32))
 			if n := len(s.calls()); n != len(body) {
 				t.Fatalf("calls %v", s.calls())
 			}
@@ -124,20 +124,20 @@ func TestContainerEnvPerTransition(t *testing.T) {
 func TestContainerTimeoutPerChild(t *testing.T) {
 	two := []string{mod("b", "value", inputs("v", js("flow_input.iter.value")), ""), mod("c", "value", inputs("v", js("results.b")), "")}
 	// The second child's push reads one iteration in results.l, whose
-	// timeout is then negative: a later transition's chaining error.
-	e := mustOpen(t, map[string]string{"f/t/main": flowOf(loopOf("l", two, `"iterator":{"type":"static","value":[1,2]},"skip_failures":false`, `"timeout":`+js("results.l.length > 0 ? -1 : 0")))}, &scripts{})
+	// timeout is then not an i32: a later transition's chaining error.
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(loopOf("l", two, `"iterator":{"type":"static","value":[1,2]},"skip_failures":false`, `"timeout":`+js("results.l.length > 0 ? '5' : 0")))}, &scripts{})
 	s := e.exec.(*scripts)
 	tr := runReq(t, e, RunRequest{})
-	wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`)
+	wantStatus(t, tr, conformance.RunFailure, internalError(timeoutNotI32))
 	wantCalls(t, s, "m:l/i:0/m:b", "m:l/i:0/m:c")
 
 	for _, c := range []struct {
 		name, flow, result string
 	}{
-		{"branchone at the root's pickup", flowOf(branchOneOf("l", nil, []string{value("b", "1", "")}, `"timeout":`+static("-1"))),
-			`{"error":{"message":"Error: Timeout value cannot be negative","name":"Anyhow"}}`},
-		{"parallel branchall later", flowOf(mod("a", "value", "", ""), branchAllOf("l", []string{branch(skipFailure(false), value("b", "1", ""))}, true, `"timeout":`+js("-1"))),
-			`{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`},
+		{"branchone at the root's pickup", flowOf(branchOneOf("l", nil, []string{value("b", "1", "")}, `"timeout":`+js(`"5"`))),
+			anyhowError(timeoutNotI32)},
+		{"parallel branchall later", flowOf(mod("a", "value", "", ""), branchAllOf("l", []string{branch(skipFailure(false), value("b", "1", ""))}, true, `"timeout":`+js(`"5"`))),
+			internalError(timeoutNotI32)},
 		// The timeout is evaluated before the parallelism.
 		{"parallel loop later", flowOf(mod("a", "value", "", ""), loopOf("l", two, `"iterator":{"type":"static","value":[1]},"parallel":true,"parallelism":`+js("never")+`,"skip_failures":false`, `"timeout":`+js("nope"))),
 			"{\"error\":{\"message\":\"Error during evaluation of expression `nope`:\\nQuickJS evaluation error: Error: nope is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:62)\\n\",\"name\":\"InternalError\"}}"},

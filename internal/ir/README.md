@@ -102,6 +102,13 @@ envelope already decoded (`skip_if`, `stop_after_if`,
 | `identity` | none | `virtual` marks the `<id>-v` step |
 | `provided` | `Provided` | the contract's site index, the static value or provider name, the original target and its input transforms |
 
+**Flow timeouts.** A `Flow` keeps two timeouts apart. `ValueTimeout` is
+the flow's `value.timeout`, its wall-clock limit, as written; the engine
+treats a value of 0 or less as unset
+([FX-52](../../docs/semantics/execution.md#fx-52)). `Timeout` is the
+metadata `timeout` beside `value`, which is stored and enforces nothing
+([OF-16](../../docs/semantics/openflow.md#of-16)).
+
 **Occurrences.** Windmill does not check ids
 ([OF-2](../../docs/semantics/openflow.md#of-2)). A module whose id occurs
 more than once in its module list records its occurrence, counted from 0 in
@@ -117,19 +124,23 @@ transforms of the failure module itself have the site
 
 **Collapse** ([FX-46](../../docs/semantics/execution.md#fx-46),
 [CF-8](../../docs/semantics/control-flow.md#cf-8),
-[CF-V5](../../docs/semantics/control-flow.md#cf-v5)) is decided once, by one
+[CF-V5](../../docs/semantics/control-flow.md#cf-v5)) is decided by one
 function, `collapses`. In the lite form nested bodies are stored nodes, so
 the deployed rule holds at every depth: a loop collapses when it is a
 sequential for loop or any while loop, its body as written is exactly one
 `script` or `rawscript` step with none of `sleep`, `suspend`, `cache_ttl`,
-`retry`, `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or an enabled
-`mock`, and its flow has no failure module. A body module that is a
-provided site keeps its original kind for the rule. A deploy applies the
-same body test to choose which container bodies it stores as nodes
-([CF-V4](../../docs/semantics/control-flow.md#cf-v4)): `StoredNode`
+`retry`, `timeout`, `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or
+an enabled `mock`, and its flow has no failure module. A body module that is a
+provided site keeps its original kind for the rule.
+
+A deploy applies the same body test, except that `timeout` does not count,
+to choose which container bodies it stores as nodes
+([CF-V4](../../docs/semantics/control-flow.md#cf-v4)). `StoredNode`
 reports it for a compiled body, every body but an empty or simple one,
 and the engine's job records follow it (a child flow of a stored body
-reads as a `FlowNode` job's).
+reads as a `FlowNode` job's). [CF-8](../../docs/semantics/control-flow.md#cf-8)'s
+test, which the deploy's follows, predates `timeout` joining the collapse
+test ([FX-46](../../docs/semantics/execution.md#fx-46), 1.852.0).
 
 ## Harness classes
 
@@ -221,7 +232,7 @@ sites.
 | `Kind` | When |
 |---|---|
 | `load` | the folder cannot supply an item the closure reaches, or it fails to read: the wrapped `*syncfolder.Error` says which (`not_in_folder`, `filtered`, `hub_path`, `invalid_flow`, …, [SY-15](../../docs/semantics/openflow.md#sy-15)); an inline step's files (`missing_inline_file`, `invalid_text`, `path_escape`) fail that step |
-| `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler` when it is set (JavaScript-truthy, [WR-48](../../docs/semantics/languages.md#wr-48)), and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a). Also `unsupported: value.timeout`, naming the flow, for a flow whose `value` sets `timeout`: the engine does not enforce that wall-clock limit yet (§5a) |
+| `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler` when it is set (JavaScript-truthy, [WR-48](../../docs/semantics/languages.md#wr-48)), and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a) |
 | `unsupported_language` | a leaf whose language has no harness in this release |
 | `pinned_hash` | a `script` step with a `hash` ([OF-14](../../docs/semantics/openflow.md#of-14)): a folder never records the hash Windmill gave its version, so no pin can be shown to be the folder's |
 | `absent_skip_flag` | under `Strict`, an absent or null for-loop `skip_failures` or branchall branch `skip_failure` |

@@ -639,7 +639,7 @@ func TestHostNeverSettlingStep(t *testing.T) {
 		other <- res{r, err, time.Now()}
 	}()
 	n, o := <-never, <-other
-	const timeoutText = `{"error":{"name":"ExecutionErr","message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","step_id":"a"}}`
+	const timeoutText = "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step\",\"step_id\":\"a\"}}"
 	if n.e != nil || n.r.Status != "failure" || string(n.r.Result) != timeoutText {
 		t.Fatalf("the never-settling run: %+v, %v", n.r, n.e)
 	}

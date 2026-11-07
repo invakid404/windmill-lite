@@ -74,7 +74,7 @@ func TestSleepDelay(t *testing.T) {
 
 // JE-29: a javascript timeout's value deserialises as an i32, with
 // serde_json's error and the evaluator's text as it is; a negative one
-// fails with its own text.
+// deserialises too, since it is unset rather than refused (1.768.0).
 func TestTimeoutResult(t *testing.T) {
 	const p = "Error parsing result as i32: "
 	for _, c := range []struct {
@@ -85,8 +85,8 @@ func TestTimeoutResult(t *testing.T) {
 		{"5", 5, ""},
 		{"0", 0, ""},
 		{"2147483647", math.MaxInt32, ""},
-		{"-1", 0, "Timeout value cannot be negative"},
-		{"-2147483648", 0, "Timeout value cannot be negative"},
+		{"-1", -1, ""},
+		{"-2147483648", math.MinInt32, ""},
 		// The recorded JE-29/a.
 		{"1.5", 0, p + "invalid type: floating point `1.5`, expected i32 at line 1 column 3. Value was: 1.5"},
 		{"2e0", 0, p + "invalid type: floating point `2.0`, expected i32 at line 1 column 3. Value was: 2e0"},
@@ -120,9 +120,6 @@ func TestTimeoutResult(t *testing.T) {
 		case c.err == "" && (err != nil || got != c.want):
 			t.Errorf("%q: %d, %v, want %d", c.text, got, err, c.want)
 		}
-	}
-	if _, err := timeoutResult([]byte("-1")); !errors.Is(err, errNegativeTimeout) {
-		t.Fatalf("a negative timeout's error is %v", err)
 	}
 }
 

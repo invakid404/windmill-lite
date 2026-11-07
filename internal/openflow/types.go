@@ -21,7 +21,7 @@ type Flow struct {
 	// it is a permission setting, decoded and not used.
 	OnBehalfOf *string
 	// Timeout is the whole-flow timeout in seconds, from the flow's
-	// metadata.
+	// metadata, which is stored only and enforces nothing (OF-16).
 	Timeout *int32
 }
 
@@ -51,9 +51,8 @@ type FlowValue struct {
 	FlowEnv         []EnvVar
 	DeleteAfterSecs *int32
 	// Timeout is `value.timeout`, the flow's wall-clock limit in seconds,
-	// added to the schema at v1.862.0. It is not the metadata timeout
-	// Flow.Timeout. The compiler refuses a flow that sets it until the
-	// engine enforces it (internal/ir).
+	// added to the schema at v1.862.0 (FX-52). It is not the metadata
+	// timeout Flow.Timeout.
 	Timeout *int32
 }
 

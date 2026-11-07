@@ -57,6 +57,12 @@ type ScriptResult struct {
 	ID     string
 	Failed bool
 	Result jsonval.Value
+	// Canceled marks a failed job that is stored canceled: a Bun job its
+	// process timeout killed (FX-24 path 1, FX-25), or one the run's
+	// cancellation killed (FX-38). A native job's timeout leaves it an
+	// ordinary failed job. Its record is not served, as a canceled
+	// step's is not (ADR 0007).
+	Canceled bool
 	// Latched, when not nil, is the error the job's step latched on its
 	// run (H5, milestone F2c): its own wl.latch, or an around wrapper's
 	// failure. A latched job has failed, with no result.
@@ -144,7 +150,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
 				if ctx.Err() != nil {
 					reason, canceler := cancellationOf(ctx)
-					return ScriptResult{ID: id, Failed: true, Result: killedError("", reason, canceler)}, nil
+					return ScriptResult{ID: id, Failed: true, Canceled: true, Result: killedError("", reason, canceler)}, nil
 				}
 				e.registerHit(env, id, nil)
 				return ScriptResult{ID: id, Result: c.value()}, nil
@@ -165,12 +171,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+err.Error())}, nil
 	}
-	timeout, instanceWide := e.cap, true
-	if s.Metadata != nil && s.Metadata.Timeout != nil {
-		if d := time.Duration(*s.Metadata.Timeout) * time.Second; d < e.cap {
-			timeout, instanceWide = d, false
-		}
-	}
+	timeout, atMax := e.jobTimeout(scriptTimeout(s))
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	t := time.AfterFunc(timeout, func() { cancel(CancelTimeout) })
@@ -190,10 +191,10 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
-		return ScriptResult{ID: id, Failed: true, Result: TimeoutError(boundary, "", timeout, instanceWide)}, nil
+		return ScriptResult{ID: id, Failed: true, Canceled: boundary != BoundaryNative, Result: TimeoutError(boundary, "", timeout, atMax)}, nil
 	case err != nil && ctx.Err() != nil:
 		reason, canceler := cancellationOf(ctx)
-		return ScriptResult{ID: id, Failed: true, Result: killedError("", reason, canceler)}, nil
+		return ScriptResult{ID: id, Failed: true, Canceled: true, Result: killedError("", reason, canceler)}, nil
 	case err != nil:
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", err.Error())}, nil
 	}

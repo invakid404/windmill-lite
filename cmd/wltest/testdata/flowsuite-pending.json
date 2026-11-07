@@ -1,93 +1,12 @@
 {
   "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
   "flow_suite": {
-    "conformance/flows/control-flow/cf-27-flow-timeouts/subflow": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 enforces a subflow step's timeout as the subflow's wall-clock limit (1.861.0), which windmill-lite does not"
-    },
-    "conformance/flows/control-flow/cf-27/a": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/control-flow/cf-27/b": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/control-flow/cf-27/fx24_d": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 does not collapse a loop body whose step has its own timeout (1.852.0), where windmill-lite collapses it under the loop's timeout"
-    },
-    "conformance/flows/control-flow/waits/body_timeout_js": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/control-flow/waits/body_timeout_negative_later": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/control-flow/waits/body_timeout_negative_pickup": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/control-flow/waits/loop_timeout_negative_later": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/control-flow/waits/loop_timeout_negative_root": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-15/root_pickup": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-24/js_timeout": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/execution/fx-24/negative_later": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-24/negative_root": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-24/negative_static": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-24/process_timeout": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/execution/fx-24/zero": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-25/retried": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/execution/fx-25/tolerated": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
-    "conformance/flows/languages/bun-results/timeout": {
-      "milestone": "W6b",
-      "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
-    },
     "conformance/flows/languages/wr-43-stack/stack_nativets": {
       "milestone": "W6g",
       "reason": "on CE 1.862.0 the first frame's line of a nativets error is mapped through the transpiler's source map before Windmill reads the stack's source line (WR-43), which windmill-lite's native boundary does not give yet"
     }
   },
-  "step_suite": {
-    "conformance/steps/bun/wr-44.yaml/wr-44-bun-timeout-text": {
-      "milestone": "W6b",
-      "reason": "CE 1.862.0's timeout text names the phase and the limit hit (1.825.0), where windmill-lite still gives v1.767.0's text"
-    }
-  },
+  "step_suite": {},
   "oracle": {
     "conformance/flows/je/providers/je38-ab": {
       "milestone": "W5h",
