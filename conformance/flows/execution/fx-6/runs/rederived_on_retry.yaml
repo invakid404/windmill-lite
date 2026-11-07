@@ -11,13 +11,13 @@ expect:
   status: success
   result: {}
   steps:
-    "m:a": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/rederived_on_retry}}}
     "m:b/r:0":
       status: failure
-      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-      result: {error: {message: b always throws, name: Error, stack: "<stack>", step_id: b}}
+      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/rederived_on_retry}}}
+      result: {error: {message: b always throws, name: Error, stack: "<stack>", step_id: b, job_id: "<job:m:b/r:0>", flow_path: f/wl_fx6/rederived_on_retry}}
     "m:b":
       status: success
       skipped: true
-      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/rederived_on_retry}}}
       result: {}

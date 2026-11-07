@@ -13,7 +13,7 @@ expect:
     "m:l/i:0/m:x":
       status: failure
       args: {v: 1}
-      result: {error: {message: one, name: Error, stack: "<stack>", step_id: x}}
+      result: {error: {message: one, name: Error, stack: "<stack>", step_id: x, job_id: "<job:m:l/i:0/m:x>", flow_path: f/wl_fx34/loop/loop-0}}
     "m:l/i:0/s:failure": {status: success, args: {}, result: F}
     "m:l/i:1/m:x": {status: success, args: {v: 2}, result: 2}
     "m:l/i:1/s:failure": {status: not_run}

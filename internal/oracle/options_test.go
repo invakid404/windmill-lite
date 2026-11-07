@@ -85,7 +85,7 @@ expect:
 	if got := ok.Observation.Response; got == nil || *got != (conformance.Response{Status: 200, ContentType: "application/json", Body: `"hi:6"`}) {
 		t.Errorf("wait_ok response %+v", got)
 	}
-	want := `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b"}}`
+	want := `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b","job_id":"<job:m:b>","flow_path":"f/wl_smoke/two_step"}}`
 	if got := fail.Observation.Response; got == nil || got.Status != 422 || got.Body != want {
 		t.Errorf("wait_fail response %+v, want 422 with %s", got, want)
 	}

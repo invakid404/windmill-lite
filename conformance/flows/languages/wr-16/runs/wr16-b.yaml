@@ -4,6 +4,6 @@ spec: [WR-16/b]
 target: f/wl_wr16/wr16_b
 expect:
   status: failure
-  result: {"error": {"name": "TypeError", "stack": "<stack>", "message": "chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)", "step_id": "s"}}
+  result: {"error": {"name": "TypeError", "stack": "<stack>", "message": "chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)", "step_id": "s", job_id: "<job:m:s>", flow_path: f/wl_wr16/wr16_b}}
   steps:
-    "m:s": {"status": "failure", "args": {}, "result": {"error": {"name": "TypeError", "stack": "<stack>", "message": "chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)", "step_id": "s"}}}
+    "m:s": {"status": "failure", "args": {}, "result": {"error": {"name": "TypeError", "stack": "<stack>", "message": "chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)", "step_id": "s", job_id: "<job:m:s>", flow_path: f/wl_wr16/wr16_b}}}

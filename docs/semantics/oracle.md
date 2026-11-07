@@ -1004,7 +1004,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-12"></a>
 ### OR-12 · Failure capture: the stored error envelope
 
-**Scope:** core · **Confidence:** high (source and oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (source and oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except the Bun error's step context keys (re-checked at v1.862.0)
 
 - **Rule:**
   - **Windmill:**
@@ -1017,13 +1017,15 @@ validation. Open questions are `Q-OR-n`.
       root `success:false`, `result:{"saw":"boom","handled":true}`; the handler
       job's kind is `preview`, its args are `{"error": <the failed step's error object>}`,
       and its status has `parent_module:"a"`;
-    - **Bun errors:** the error object carries `name`, `message` and `stack`;
-      all other own property names (non-enumerable included) go under `extra`;
-      `step_id` is added when present. The root result equals the failing
-      step's result. Observed plain `Error`:
+    - **Bun errors:** the error object carries `name`, `message` and `stack`,
+      all other own property names (non-enumerable included) go under
+      `extra`, and the step context keys `step_id`, `job_id` and `flow_path`
+      are added when set ([FX-12](execution.md#fx-12)). The root result equals the failing
+      step's result. Observed plain `Error` (v1.767.0, before `job_id` and
+      `flow_path`):
       `{"error":{"name":"Error","message":"too big: 120","stack":"Error: too big: 120\n    at main (/tmp/windmill/cache/bun/<64-hex>:5:16)\n    at run (/tmp/windmill/<worker>/<job>/wrapper.mjs:30:21)\n    at /tmp/windmill/<worker>/<job>/wrapper.mjs:42:11\n    at asyncModuleEvaluation (native:2)","step_id":"b"}}`.
-      Observed subclass with an own property:
-      `{"error":{"name":"MyErr","message":"boom","stack":"…","extra":{"code":42},"step_id":"a"}}`;
+      Observed subclass with an own property, on CE v1.862.0 and normalised:
+      `{"error":{"name":"MyErr","extra":{"code":42},"stack":"<stack>","job_id":"<job:m:a>","message":"boom","step_id":"a","flow_path":"f/wl_probe/fail_mid"}}`;
     - **non-script errors:** a missing `$var:` reference gives an
       `ExecutionErr` with `step_id` (exact message in
       [conformance](conformance.md#or-12)); the storage failure of a NUL result
@@ -1037,7 +1039,9 @@ validation. Open questions are `Q-OR-n`.
   (handler result stored on a failed root);
   `backend/windmill-worker/src/bun_executor.rs:1950-1967` (Bun error object;
   an earlier pointer to `:1886-1900` is a different wrapper and is withdrawn);
-  observed on the v1.767.0 CE oracle.
+  observed on the v1.767.0 CE oracle. The step context keys:
+  `backend/windmill-worker/src/bun_executor.rs:2922-2949` @ v1.862.0, and
+  [FX-12](execution.md#fx-12)'s pointers.
 - **Conformance:** [OR-12/a, OR-12/b, OR-12/c, OR-12/d](conformance.md#or-12)
 - **Note:** the full Bun error contract and the flow-level wrapping belong to
   [languages.md](languages.md) and [execution.md](execution.md).
@@ -1046,6 +1050,13 @@ validation. Open questions are `Q-OR-n`.
   (`conformance/flows/oracle/probes`, `conformance/flows/oracle/seeded`,
   oracle run 40794872025), the handler job of kind `preview` with
   `parent_module: "a"` included. No rule changed.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0):** Bun errors carry
+  `job_id` and `flow_path` after `step_id` since 1.847.0. On CE v1.862.0 the
+  smoke `fail` run and the probes `fail_mid`, `fail_handler` and `retry`
+  recorded them (oracle run 42299510925), the handler's `error` input
+  included; the missing variable's `ExecutionErr` has neither (run `removed`
+  of `oracle/seeded`, recorded by oracle run 42243035193). The rest of the
+  finding is verified at v1.767.0 only.
 
 <a id="or-13"></a>
 ### OR-13 · The oracle stores JSON as Postgres `jsonb`, and that is observable

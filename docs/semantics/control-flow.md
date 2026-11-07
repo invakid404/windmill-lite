@@ -378,7 +378,7 @@ defined in the [index](README.md#legend).
 <a id="cf-6"></a>
 ### CF-6 · Absent container fields: defaults depend on the stored state
 
-**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; points 5 and 6 oracle-observed; the un-normalized behaviour traced in source, not run) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; points 5 and 6 oracle-observed; the un-normalized behaviour traced in source, not run) · **Status:** confirmed · verified at v1.767.0 only, except a branch's materialized `skip_failure` (re-checked at v1.862.0)
 
 - **Rule:**
   1. **Runtime fallback.** At run time `skip_failures` (forloop, whileloop)
@@ -394,7 +394,8 @@ defined in the [index](README.md#legend).
      - `forloopflow`: `skip_failures: true`, `parallel: false`;
      - `whileloopflow`: `skip_failures: false`;
      - `branchall`: `parallel: true`;
-     - each branch: `skip_failure: true`, `parallel: true`, `expr: ""`.
+     - each branch: `skip_failure: false`, `parallel: true`, `expr: ""`.
+       Before 1.852.0 the job wrote `skip_failure: true`.
 
      The same job builds the lite version ([CF-V4](#cf-v4)).
   3. **When normalization does not happen.** The stored JSON stays as pushed
@@ -403,9 +404,10 @@ defined in the [index](README.md#legend).
      meanwhile (the update is skipped for the obsolete version). A run
      started before the job finishes uses the un-normalized version: the
      lite lookup falls back to the full version.
-  4. **Consequence.** An absent `forloopflow.skip_failures` or branch
-     `skip_failure` behaves as **false** before successful normalization, or
-     when it never happens, and as **true** after it.
+  4. **Consequence.** An absent `forloopflow.skip_failures` behaves as
+     **false** before successful normalization, or when it never happens,
+     and as **true** after it. An absent branch `skip_failure` behaves as
+     **false** either way, since normalization writes `false`.
   5. **CLI pull.** The workspace export behind `wmill sync pull` writes the
      latest version's stored value, stripping only top-level metadata keys.
      The CLI turns it into `flow.yaml`, extracting only inline script
@@ -451,6 +453,11 @@ defined in the [index](README.md#legend).
   set, a raw flow-dependencies payload);
   `backend/windmill-worker/src/worker_lockfiles.rs:662-669`, `:843-848`
   (the typed value returned).
+- **Evidence at v1.862.0:** `backend/windmill-types/src/flows.rs:922-937`
+  (the typed branch's `skip_failure` defaults to false, so the
+  re-serialization writes `false`) and `:679-687` (the run-time read, an
+  optional value whose absence counts as false). Release note v1.852.0:
+  "keep retry and branch settings intact when a flow is reserialized".
 - **Conformance:** [CF-6/a, CF-6/b, CF-6/c](conformance.md#cf-6)
 - **Design note (not Windmill behaviour):** treat "absent" as a compatibility
   input and record which state a fixture represents. The proposed default for
@@ -470,6 +477,13 @@ defined in the [index](README.md#legend).
   `skip_failures: true` and `parallel: false` in the pulled `flow.yaml`,
   while a non-container module keeps an unknown field as submitted
   ([SY-6](openflow.md#sy-6)). The rule is unchanged.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the branch default
+  re-verified at v1.862.0):** point 2 said the dependency job writes a
+  branch's absent `skip_failure` as `true`. On CE v1.862.0 it writes
+  `false`, and `generate-metadata` does too: the deployment evidence of
+  [CF-15/a](conformance.md#cf-15) records both (oracle run 42299510925).
+  Points 2 and 4 now say so. The loop defaults and the rest of the finding
+  are verified at v1.767.0 only.
 
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion

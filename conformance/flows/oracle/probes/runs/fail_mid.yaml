@@ -4,7 +4,7 @@ spec: [OR-12/c]
 target: f/wl_probe/fail_mid
 expect:
   status: failure
-  result: {error: {name: MyErr, message: boom, stack: "<stack>", extra: {code: 42}, step_id: a}}
+  result: {error: {name: MyErr, message: boom, stack: "<stack>", extra: {code: 42}, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_probe/fail_mid}}
   steps:
-    "m:a": {status: failure, args: {}, result: {error: {name: MyErr, message: boom, stack: "<stack>", extra: {code: 42}, step_id: a}}}
+    "m:a": {status: failure, args: {}, result: {error: {name: MyErr, message: boom, stack: "<stack>", extra: {code: 42}, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_probe/fail_mid}}}
     "m:b": {status: not_run, ran: false}

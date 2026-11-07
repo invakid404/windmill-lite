@@ -1,0 +1,257 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "order": "o-9",
+      "confirmed": true
+    },
+    "steps": {
+      "m:confirm": {
+        "status": "success",
+        "args": {
+          "hold": {
+            "held": 2,
+            "order": "o-9"
+          },
+          "order": "o-9"
+        },
+        "result": {
+          "order": "o-9",
+          "confirmed": true
+        }
+      },
+      "m:reserve": {
+        "status": "success",
+        "args": {
+          "order": "o-9"
+        },
+        "result": {
+          "held": 2,
+          "order": "o-9"
+        }
+      },
+      "m:reserve/m:check": {
+        "status": "success",
+        "args": {
+          "held": 2,
+          "order": "o-9"
+        },
+        "result": {
+          "held": 2,
+          "order": "o-9"
+        }
+      },
+      "m:reserve/m:hold": {
+        "status": "success",
+        "args": {
+          "order": "o-9"
+        },
+        "result": 2
+      },
+      "m:reserve/r:0": {
+        "status": "failure",
+        "args": {
+          "order": "o-9"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:reserve/r:0/m:check>",
+            "message": "stock moved",
+            "step_id": "check",
+            "flow_path": "f/wl_stub_sr/reserve"
+          }
+        }
+      },
+      "m:reserve/r:0/m:check": {
+        "status": "failure",
+        "args": {
+          "held": 2,
+          "order": "o-9"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:reserve/r:0/m:check>",
+            "message": "stock moved",
+            "step_id": "check",
+            "flow_path": "f/wl_stub_sr/reserve"
+          }
+        }
+      },
+      "m:reserve/r:0/m:hold": {
+        "status": "success",
+        "args": {
+          "order": "o-9"
+        },
+        "result": 2
+      }
+    },
+    "effects": [
+      {
+        "site": "m:reserve/m:hold",
+        "attempt": 0,
+        "step": "hold",
+        "job": "<job:m:reserve/r:0/m:hold>",
+        "flow": "<job:m:reserve/r:0>",
+        "root_flow": "<job:m:reserve/r:0>",
+        "root": "<job:>",
+        "args": [
+          "o-9"
+        ]
+      },
+      {
+        "site": "m:reserve/m:check",
+        "attempt": 0,
+        "step": "check",
+        "job": "<job:m:reserve/r:0/m:check>",
+        "flow": "<job:m:reserve/r:0>",
+        "root_flow": "<job:m:reserve/r:0>",
+        "root": "<job:>",
+        "args": [
+          "o-9",
+          2
+        ]
+      },
+      {
+        "site": "m:reserve/m:hold",
+        "attempt": 1,
+        "step": "hold",
+        "job": "<job:m:reserve/m:hold>",
+        "flow": "<job:m:reserve>",
+        "root_flow": "<job:m:reserve>",
+        "root": "<job:>",
+        "args": [
+          "o-9"
+        ]
+      },
+      {
+        "site": "m:reserve/m:check",
+        "attempt": 1,
+        "step": "check",
+        "job": "<job:m:reserve/m:check>",
+        "flow": "<job:m:reserve>",
+        "root_flow": "<job:m:reserve>",
+        "root": "<job:>",
+        "args": [
+          "o-9",
+          2
+        ]
+      },
+      {
+        "site": "m:confirm",
+        "attempt": 0,
+        "step": "confirm",
+        "job": "<job:m:confirm>",
+        "flow": "<job:>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "o-9",
+          {
+            "held": 2,
+            "order": "o-9"
+          }
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106214647-3678528a0b25",
+      "revision": "3678528a0b25e00b4e168aa14a2fd6911028619e",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42299510925"
+    },
+    "recorded_at": "2026-11-06T22:12:09Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:42993"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 609,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T22:12:08.619314Z",
+          "started_at": "2026-11-06T22:12:08.664172Z",
+          "completed_at": "2026-11-06T22:12:09.092674Z",
+          "duration_ms": 429
+        },
+        "m:confirm": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:12:09.002957Z",
+          "started_at": "2026-11-06T22:12:09.047088Z",
+          "completed_at": "2026-11-06T22:12:09.089122Z",
+          "duration_ms": 38
+        },
+        "m:reserve": {
+          "kind": "flow",
+          "created_at": "2026-11-06T22:12:08.836836Z",
+          "started_at": "2026-11-06T22:12:08.885263Z",
+          "completed_at": "2026-11-06T22:12:08.998486Z",
+          "duration_ms": 113
+        },
+        "m:reserve/m:check": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:12:08.922274Z",
+          "started_at": "2026-11-06T22:12:08.971075Z",
+          "completed_at": "2026-11-06T22:12:08.995534Z",
+          "duration_ms": 20
+        },
+        "m:reserve/m:hold": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:12:08.890563Z",
+          "started_at": "2026-11-06T22:12:08.894188Z",
+          "completed_at": "2026-11-06T22:12:08.917900Z",
+          "duration_ms": 20
+        },
+        "m:reserve/r:0": {
+          "kind": "flow",
+          "created_at": "2026-11-06T22:12:08.668513Z",
+          "started_at": "2026-11-06T22:12:08.673318Z",
+          "completed_at": "2026-11-06T22:12:08.830640Z",
+          "duration_ms": 157
+        },
+        "m:reserve/r:0/m:check": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:12:08.728678Z",
+          "started_at": "2026-11-06T22:12:08.777842Z",
+          "completed_at": "2026-11-06T22:12:08.826898Z",
+          "duration_ms": 49
+        },
+        "m:reserve/r:0/m:hold": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:12:08.678492Z",
+          "started_at": "2026-11-06T22:12:08.681558Z",
+          "completed_at": "2026-11-06T22:12:08.723324Z",
+          "duration_ms": 38
+        }
+      }
+    }
+  }
+}
