@@ -122,6 +122,10 @@ func TestDispatchRemovesNUL(t *testing.T) {
 		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1}`, `{"k":1}`},
 		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "k": 2}`, `{"k":2}`},
 		{platform.DispatchScript, "f/t/echo", `{"k": 2, "k\u0000": 1}`, `{"k":2}`},
+		// A name given twice keeps its last value, however it is spelled.
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "k\u0000": 2}`, `{"k":2}`},
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "\u006b\u0000": 2}`, `{"k":2}`},
+		{platform.DispatchFlow, "f/t/main", `{"s\u0000": "a", "s\u0000": "b"}`, `{"s":"b"}`},
 	} {
 		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: c.kind, Target: c.target, Args: []byte(c.args)})
 		if err != nil {
@@ -130,6 +134,29 @@ func TestDispatchRemovesNUL(t *testing.T) {
 		if r := waitResult(t, d, id); !r.Success || string(r.Result) != c.result {
 			t.Errorf("%s %s: %+v %s; want %s", c.target, c.args, r, r.Result, c.result)
 		}
+	}
+	// Removing a NUL repairs nothing else: a request that is not one JSON
+	// object is refused with a NUL as without one, and starts no job; so
+	// is a run's or a script run's input.
+	n := len(s.invs)
+	for _, args := range []string{`{"s":"x"}!`, `{"s":"x\u0000y"}!`, `{"s":"x"} {}`, `{"s":"x\u0000y"} {}`} {
+		for _, kind := range []platform.DispatchKind{platform.DispatchFlow, platform.DispatchScript} {
+			target := map[platform.DispatchKind]string{platform.DispatchFlow: "f/t/main", platform.DispatchScript: "f/t/echo"}[kind]
+			id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: kind, Target: target, Args: []byte(args)})
+			var pe *platform.Error
+			if id != "" || !errors.As(err, &pe) || pe.HTTPStatus() != 400 {
+				t.Errorf("%s %s: id %q, error %v; want a 400 and no job", kind, args, id, err)
+			}
+		}
+		if _, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(args))}); err == nil {
+			t.Errorf("Run %s: no error", args)
+		}
+		if _, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/echo", Args: jsonval.FromProducer([]byte(args))}); err == nil {
+			t.Errorf("RunScript %s: no error", args)
+		}
+	}
+	if len(s.invs) != n {
+		t.Fatalf("a refused request ran %v", s.calls()[n:])
 	}
 }
 

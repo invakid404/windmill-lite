@@ -519,10 +519,13 @@ latched or halted run has no result.
 - Each argument, its key and its value, becomes its stored text (step 3
   of the ADR's pipeline), in the shuffled order, the last of two keys that
   store alike winning, as in jsonb. The push first removes every NUL
-  escape from the keys and values, of two names it makes equal keeping
-  the one that held no NUL, else the smallest original name
+  escape from the keys and values: a name given twice keeps its last
+  value, and of two distinct names the removal makes equal it keeps the
+  one that held no NUL, else the smallest original name
   ([FX-48](../../docs/semantics/execution.md#fx-48) cases 2 and 3,
-  `argsWithoutNUL`); a key or a value jsonb still refuses fails the push
+  `argsWithoutNUL`). Text that is not exactly one object only loses its
+  NULs, so a malformed request stays refused; a key or a value jsonb
+  still refuses fails the push
   ([FX-51](../../docs/semantics/execution.md#fx-51)). The stored arguments
   are the recorded ones (O2); the resolved ones (O3) are the script's,
   which the job's pickup resolves (below), and are the recorded ones for an
@@ -1293,7 +1296,10 @@ an engine with none keeps one of its own, per process, D4)
   result; a canceled script root's hit is killed, as its job would be.
 - **A store** follows a job that succeeded: a leaf's result, until now
   plus the TTL on the run's clock (H10). An intercepted (H1) outcome is
-  never stored.
+  never stored. Every entry is a stored result, without the NUL escapes a
+  flow's result can still carry in memory from its last module
+  ([FX-48](../../docs/semantics/execution.md#fx-48)), so a hit answers
+  the stored text.
 - **A flow job's store** follows the store table of
   [FX-40](../../docs/semantics/execution.md#fx-40). The flow job stores
   its final result when its completion counts as a success before the

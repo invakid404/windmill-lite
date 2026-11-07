@@ -72,6 +72,14 @@ func TestArgsWithoutNUL(t *testing.T) {
 		{`{"k\u0000":1,"\u0000k":2}`, `{"k":2}`},
 		{`{"a":"\\u0000"}`, `{"a":"\\u0000"}`},
 		{`{"a":1,"a":2}`, `{"a":2}`},
+		// A name given more than once keeps its last value, whatever its
+		// spelling, before the rule for distinct names applies.
+		{`{"k\u0000":1,"k\u0000":2}`, `{"k":2}`},
+		{`{"k\u0000":1,"\u006b\u0000":2}`, `{"k":2}`},
+		{`{"\u0000k":1,"k\u0000":2,"\u0000k":3}`, `{"k":3}`},
+		{`{"k\u0000":1,"\u0000k":2,"k\u0000":3}`, `{"k":2}`},
+		{`{"k":1,"k\u0000":2,"k":3}`, `{"k":3}`},
+		{`{"k\u0000":1,"k":2,"k\u0000":3}`, `{"k":2}`},
 	} {
 		got, err := storeMembers(jsonval.FromProducer([]byte(c.args)))
 		if err != nil || string(got.Producer()) != c.stored {
@@ -82,9 +90,17 @@ func TestArgsWithoutNUL(t *testing.T) {
 			t.Errorf("argsWithoutNUL(%s) stores %s, %v; want %s", c.args, stored, err, c.stored)
 		}
 	}
-	// Arguments with no NUL are returned as they are.
-	v := jsonval.FromProducer([]byte(`{"b":1,"a":2}`))
-	if got := argsWithoutNUL(v); string(got.Producer()) != `{"b":1,"a":2}` {
-		t.Errorf("argsWithoutNUL changed %s to %s", v, got)
+	// Arguments with no NUL are returned as they are; text that is not
+	// exactly one object loses its NULs and nothing else, so what checks
+	// its syntax later sees the same text as without them.
+	for _, c := range []struct{ args, want string }{
+		{`{"b":1,"a":2}`, `{"b":1,"a":2}`},
+		{`{"k":"x\u0000y"}!`, `{"k":"xy"}!`},
+		{`{"k":"x\u0000y"} {}`, `{"k":"xy"} {}`},
+		{`["\u0000"]`, `[""]`},
+	} {
+		if got := argsWithoutNUL(jsonval.FromProducer([]byte(c.args))); string(got.Producer()) != c.want {
+			t.Errorf("argsWithoutNUL(%s) = %s, want %s", c.args, got, c.want)
+		}
 	}
 }

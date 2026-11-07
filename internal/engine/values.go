@@ -121,17 +121,24 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 
 // argsWithoutNUL is a job's arguments as the push normalises them before
 // it stores them (FX-48 cases 2 and 3, OR-27): every NUL escape is removed
-// from each top-level name and value, at any depth, and of names the
-// removal makes equal one keeps its value, the name that held no NUL, else
-// the smallest original name; of equal names that held none, the last, as
-// a decoded map keeps it. Arguments with no NUL escape are returned as
-// they are, and text that is not one JSON object with its NULs removed.
+// from each top-level name and value, at any depth. A name given more than
+// once keeps its last value, as a decoded map keeps it, whatever its
+// spelling; of distinct names the removal makes equal, one keeps its
+// value: the name that held no NUL, else the smallest original name.
+// Arguments with no NUL escape are returned as they are. Text that is not
+// exactly one JSON object has its NULs removed in place and nothing else
+// changed, so whatever checks its syntax after the push refuses it as it
+// would without them.
 func argsWithoutNUL(args jsonval.Value) jsonval.Value {
 	if !args.HasNUL() {
 		return args
 	}
-	ms, ok := members(args.Producer())
-	if !ok {
+	text := args.Producer()
+	var ms []rawMember
+	rest, ok := jsonval.Members(text, func(key string, ks, ke, vs, ve int) {
+		ms = append(ms, rawMember{key: key, rawKey: text[ks:ke:ke], value: text[vs:ve:ve]})
+	})
+	if !ok || rest != jsonval.RestNone {
 		return args.WithoutNUL()
 	}
 	var out []rawMember
@@ -146,7 +153,7 @@ func argsWithoutNUL(args jsonval.Value) jsonval.Value {
 			continue
 		}
 		had, has := strings.Contains(names[j], "\x00"), strings.Contains(m.key, "\x00")
-		if !has || (had && m.key < names[j]) {
+		if m.key == names[j] || !has || (had && m.key < names[j]) {
 			out[j], names[j] = s, m.key
 		}
 	}

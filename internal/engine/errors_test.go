@@ -565,6 +565,36 @@ func TestEngineStorageRemovesNUL(t *testing.T) {
 	sameJSON(t, "a's arguments", step(t, tr, "a").RecordedArgs, `{"x":"","y":"ab"}`)
 }
 
+// FX-40, FX-48: a flow whose result holds a NUL escape, carried in memory
+// from its last module, stores its result in the cache without it, as a
+// stored result, so the next call of the flow, as a run and as a subflow,
+// is a cache hit that runs nothing and answers the stored result.
+func TestEngineFlowCacheStoresWithoutNUL(t *testing.T) {
+	s := &nulResults{}
+	e := mustOpen(t, map[string]string{
+		"f/t/main":  withTTL(flowOf(mod("a", "obj", "", "")), 60),
+		"f/t/child": withTTL(flowOf(mod("a", "obj", "", "")), 60),
+		"f/t/outer": flowOf(subflowOf("s1", "f/t/child", "", ""), subflowOf("s2", "f/t/child", "", "")),
+	}, s)
+	first := runIt(t, e, `{}`, nil)
+	wantStatus(t, first, conformance.RunSuccess, `"xy"`)
+	second := runIt(t, e, `{}`, nil)
+	wantStatus(t, second, conformance.RunSuccess, `"xy"`)
+	if first.Cached || !second.Cached || len(s.invs) != 1 {
+		t.Fatalf("cached %v then %v, %d invocations; want a hit on the second run and one invocation", first.Cached, second.Cached, len(s.invs))
+	}
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/outer", Args: jsonval.FromProducer([]byte(`{}`))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, tr, conformance.RunSuccess, `"xy"`)
+	s1, s2 := at(t, tr, "m:s1"), at(t, tr, "m:s2")
+	if s1.Cached || !s2.Cached || len(s.invs) != 2 {
+		t.Fatalf("s1 cached %v, s2 cached %v, %d invocations; want s2 a hit", s1.Cached, s2.Cached, len(s.invs))
+	}
+	sameJSON(t, "s2's result", s2.Result, `"xy"`)
+}
+
 // FX-51, OR-27: a result jsonb still refuses, an unpaired surrogate escape,
 // fails its job at the completion insert with InternalErr and no step_id,
 // an ordinary failure that the failure module handles; arguments it
