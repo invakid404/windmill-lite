@@ -137,7 +137,10 @@ func bodyOf(m *ir.Module) loopBody {
 // error in its generic form, the array check's, the ai one's, or the
 // database's (pushError) when jsonb refuses the array (a NUL, FX-48; an
 // unpaired surrogate or a number beyond numeric's range, FX-51), which
-// fails the write before any iteration starts.
+// fails the write before any iteration starts. The array is stored in the
+// flow's status, not as a result or a job's arguments, the two writes from
+// which FX-48 says Windmill removes a NUL, so a NUL still fails it (whether
+// that write removes it too is a question for the reference).
 func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) ([][]byte, string, error) {
 	it := m.ForLoop.Iterator
 	var text []byte
@@ -511,7 +514,6 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		started[k] = true
 		nStarted++
 		running++
-		r.released(children[k])
 		go func() {
 			ends[k] = r.runList(ctx, children[k])
 			regs[k]()
@@ -947,6 +949,8 @@ func array(entries []jsonval.Value, strict bool) (jsonval.Value, error) {
 		}
 		text := []byte("null")
 		if !e.IsZero() {
+			// A child's stored result has lost its NUL escapes (FX-48).
+			e = e.WithoutNUL()
 			text = e.Producer()
 			if s, err := e.Stored(); err == nil {
 				text = s

@@ -93,7 +93,7 @@ func TestDispatcherRunsRoots(t *testing.T) {
 		}
 	}
 	var pe *platform.Error
-	for _, args := range []string{`[]`, `"x"`, `{"a":"\u0000"}`} {
+	for _, args := range []string{`[]`, `"x"`, `{"a":"\ud800"}`} {
 		if _, err := dispatch(platform.DispatchScript, "f/t/echo", args); !errors.As(err, &pe) || pe.HTTPStatus() != 400 {
 			t.Errorf("arguments %s: %v", args, err)
 		}
@@ -103,14 +103,44 @@ func TestDispatcherRunsRoots(t *testing.T) {
 	}
 }
 
+// FX-48/d: a run request whose arguments hold a NUL escape, in a value or
+// in a key, is accepted, as Windmill's run API accepts it since 1.826.0:
+// the push removes the NUL, so the run starts with, and stores, the
+// arguments without it.
+func TestDispatchRemovesNUL(t *testing.T) {
+	s := &scripts{}
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("s", js("flow_input.s")), ""))}, s, testServices(t))
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	for _, c := range []struct {
+		kind         platform.DispatchKind
+		target, args string
+		result       string
+	}{
+		{platform.DispatchFlow, "f/t/main", `{"s": "x\u0000y"}`, `{"s":"xy"}`},
+		{platform.DispatchScript, "f/t/echo", `{"s": "x\u0000y"}`, `{"s":"xy"}`},
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1}`, `{"k":1}`},
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "k": 2}`, `{"k":2}`},
+		{platform.DispatchScript, "f/t/echo", `{"k": 2, "k\u0000": 1}`, `{"k":2}`},
+	} {
+		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: c.kind, Target: c.target, Args: []byte(c.args)})
+		if err != nil {
+			t.Fatalf("%s %s: %v", c.target, c.args, err)
+		}
+		if r := waitResult(t, d, id); !r.Success || string(r.Result) != c.result {
+			t.Errorf("%s %s: %+v %s; want %s", c.target, c.args, r, r.Result, c.result)
+		}
+	}
+}
+
 // FX-48/d, FX-51/d, FX-51/e: a run request whose arguments jsonb refuses
 // is refused with no job, as Windmill's run API answers it, with HTTP 400
-// and a plain-text body: the database error, SqlErr, for a NUL in a value
-// or a key, a number beyond numeric's range and an unpaired surrogate in a
-// value; and, for an unpaired surrogate in a top-level key, which the API
-// decodes first, Bad request: invalid json with the JSON library's message
-// and position, which internal/platform's reader of that library's rules
-// gives too.
+// and a plain-text body: the database error, SqlErr, for a number beyond
+// numeric's range and an unpaired surrogate in a value; and, for an
+// unpaired surrogate in a top-level key, which the API decodes first, Bad
+// request: invalid json with the JSON library's message and position,
+// which internal/platform's reader of that library's rules gives too. A
+// NUL refuses nothing (TestDispatchRemovesNUL).
 func TestDispatchRefusesUnstorableArguments(t *testing.T) {
 	s := &scripts{}
 	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("s", js("flow_input.s")), ""))}, s, testServices(t))
@@ -120,8 +150,6 @@ func TestDispatchRefusesUnstorableArguments(t *testing.T) {
 		args, body string
 		key        bool
 	}{
-		{`{"s": "x\u0000y"}`, "SqlErr: error returned from database: unsupported Unicode escape sequence", false},
-		{`{"k\u0000": 1}`, "SqlErr: error returned from database: unsupported Unicode escape sequence", false},
 		{`{"x": 1e131072}`, "SqlErr: error returned from database: value overflows numeric format", false},
 		{`{"k": "\ud83d"}`, "SqlErr: error returned from database: invalid input syntax for type json", false},
 		{`{"k\ud83d": 1}`, "Bad request: invalid json: unexpected end of hex escape at line 1 column 10", true},

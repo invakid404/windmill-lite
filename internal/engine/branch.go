@@ -124,7 +124,7 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	// route 3).
 	r.recordJob(fr, i, e.result)
 	o.rec.Ran = true
-	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result, e.origin, e.nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result.WithoutNUL(), e.origin, e.nested
 	o = carryOn(o, e)
 	o.rec.Status, o.rec.Module = conformance.StepSuccess, conformance.ModuleSuccess
 	switch o.end = branchOneEnd(e); o.end {
@@ -358,7 +358,6 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 	} else {
 		for k, c := range children {
 			started++
-			r.released(c)
 			go func() {
 				ends[k] = r.runList(ctx, c)
 				done <- k

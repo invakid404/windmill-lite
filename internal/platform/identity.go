@@ -125,11 +125,14 @@ type Identity struct {
 // WM_STATE_PATH; the host gives WM_EMAIL, WM_USERNAME, WM_PERMISSIONED_AS
 // and WM_WORKER_GROUP. Of the others, a job windmill-lite runs has a
 // scheduled time (WM_SCHEDULED_FOR, whole seconds, UTC) and an object path
-// (ObjectPath); WM_SCHEDULE_PATH, WM_END_USER_EMAIL and WM_TESTED_RUNNABLE
-// are empty, since no schedule, app or CI test starts one, and so is
-// WM_RUNNABLE_ID, since windmill-lite keeps no script hashes, as for a
-// flow step Windmill did not reduce (WA-V10). BASE_URL belongs to the
-// process, not the invocation (ADR 0004).
+// (ObjectPath). WM_ROOT_WORKSPACE is the workspace, since windmill-lite has
+// no forks, and WM_END_USER_EMAIL the run's user's address, WM_EMAIL, as
+// for a run its user started through the run API, whose steps and the
+// jobs they dispatch inherit it (WA-4). WM_SCHEDULE_PATH and
+// WM_TESTED_RUNNABLE are empty, since no schedule or CI test starts a job,
+// and so is WM_RUNNABLE_ID, since windmill-lite keeps no script hashes, as
+// for a flow step Windmill did not reduce (WA-V10). BASE_URL belongs to
+// the process, not the invocation (ADR 0004).
 func (id Identity) Env(h Host) map[string]string {
 	h = h.withDefaults()
 	start := id.Start
@@ -138,6 +141,7 @@ func (id Identity) Env(h Host) map[string]string {
 	}
 	return map[string]string{
 		"WM_WORKSPACE":        h.Workspace,
+		"WM_ROOT_WORKSPACE":   h.Workspace,
 		"WM_TOKEN":            id.Token,
 		"WM_EMAIL":            h.Email,
 		"WM_USERNAME":         h.Username,
@@ -156,7 +160,7 @@ func (id Identity) Env(h Host) map[string]string {
 		"WM_OBJECT_PATH":      ObjectPath(id.FlowPath, id.StepID, id.JobPath, start, id.JobID),
 		"WM_WORKER_GROUP":     h.WorkerGroup,
 		"WM_RUNNABLE_ID":      "",
-		"WM_END_USER_EMAIL":   "",
+		"WM_END_USER_EMAIL":   h.Email,
 		"WM_TESTED_RUNNABLE":  "",
 	}
 }

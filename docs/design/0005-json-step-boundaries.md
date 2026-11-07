@@ -17,7 +17,8 @@ In Windmill a value changes form as it moves:
 - that **producer text** is kept in memory as `previous_result` and as
   `stop_after_if`'s `result`, and is also **stored** in PostgreSQL `jsonb`,
   which orders keys (shorter first, then bytewise), keeps the last duplicate,
-  rewrites exponent numbers and rejects `\u0000`
+  rewrites exponent numbers and rejects `\u0000`, which Windmill removes
+  from a result and from a job's arguments before it stores them
   ([FX-42](../semantics/execution.md#fx-42), [FX-48](../semantics/execution.md#fx-48));
 - the read **route** decides which form a consumer sees
   ([FX-10](../semantics/execution.md#fx-10), [JE-44](../semantics/expressions.md#je-44),
@@ -372,8 +373,10 @@ The engine's value type (`jsonval`) holds:
 - the **producer text**, byte for byte as the harness or QuickJS-ng wrote it;
 - the **stored text**, the jsonb-canonical form, computed lazily the first
   time a storage route reads the value;
-- a NUL flag, computed eagerly, because every result is stored in Windmill
-  and a NUL fails the step there ([OR-27](../semantics/oracle.md#or-27)).
+- a NUL flag, computed eagerly, because every result is stored in Windmill,
+  which removes a NUL from the stored copy, and only from it
+  ([OR-27](../semantics/oracle.md#or-27); until Windmill 1.768.0 a NUL
+  failed the step).
 
 Which form each consumer gets:
 
@@ -404,15 +407,15 @@ the precision of numbers that are not 64-bit integers.
    output ([JE-15](../semantics/expressions.md#je-15)).
 2. The engine assembles the argument object with its top-level keys in an
    order shuffled by the run's seed ([0001](0001-equivalence-contract.md) §2).
-3. **Storage boundary:** each argument becomes its stored text. A NUL here
-   is a push failure, which is a chaining error routed as
-   [FX-15](../semantics/execution.md#fx-15) says
-   ([FX-48](../semantics/execution.md#fx-48) case 2): a module failure named
-   `Anyhow` at root pickup, a failed child at child pickup, or `InternalError`
-   at a later transition. That routing is source-derived at medium
-   confidence; the exact message text
-   is open ([Q-FX-8](../semantics/execution.md#q-fx-8)) and is pinned by a
-   recording.
+3. **Storage boundary:** each argument becomes its stored text, every NUL
+   escape removed first ([FX-48](../semantics/execution.md#fx-48) case 2,
+   since Windmill 1.826.0). A text jsonb still refuses (an unpaired
+   surrogate, a number beyond `numeric`'s range) is a push failure, which is
+   a chaining error routed as [FX-15](../semantics/execution.md#fx-15) says
+   ([FX-51](../semantics/execution.md#fx-51) case 2): a module failure
+   named `Anyhow` at root pickup, a failed child at child pickup, or
+   `InternalError` at a later transition, with the texts a recording pins
+   ([FX-50/a](../semantics/conformance.md#fx-50)).
 4. **Resolution:** only arguments whose stored text contains `$var:`,
    `$jsonvar:`, `$res:` or `$encrypted:` are walked, with the depth and
    array rules of [WA-12](../semantics/client-api.md#wa-12) and
@@ -561,6 +564,19 @@ local one above.
   number outside `numeric`'s range. The reference covers only NUL, so
   whether Windmill fails a step on them as it does on NUL is request 4 of the
   [README](README.md); until then the eager flag covers NUL alone.
+- The retarget to Windmill 1.862.0 changed the NUL. Windmill removes every
+  NUL escape before it stores a result (1.768.0) or a job's arguments
+  (1.826.0), so a NUL fails nothing there
+  ([FX-48](../semantics/execution.md#fx-48),
+  [OR-27](../semantics/oracle.md#or-27)). The canonicaliser still rejects
+  it, as `jsonb` input does; the engine removes it from the stored copy
+  first (`jsonval.WithoutNUL`), at those two boundaries only, and the
+  producer text keeps it, so a memory route still reads it (FX-48/e). A
+  for loop's iterator array, which Windmill stores in the flow's status,
+  neither a result nor arguments, still fails on a NUL: whether that write
+  removes it too is a question for the reference. An unpaired surrogate and
+  an out-of-range number fail as before
+  ([FX-51](../semantics/execution.md#fx-51)).
 - Milestone B2a found that the spaces of jsonb's text output can show.
   The [JE-9](../semantics/expressions.md#je-9) shortcut answers the
   database's text unparsed, and the `timeout` site's parse error quotes it:

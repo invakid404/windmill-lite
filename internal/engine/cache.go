@@ -239,8 +239,9 @@ func (e *Engine) cacheGet(ctx context.Context, key string, now time.Time) (cache
 
 // cachePut stores v, of origin and nested, under key until now, rounded
 // down to the second, plus ttl, as Windmill writes an entry's expiry in
-// whole Unix seconds ([FX-40]). A value jsonb refuses is never stored,
-// since no job completes with it ([FX-48]).
+// whole Unix seconds ([FX-40]). v is the job's stored result, which has
+// lost its NUL escapes ([FX-48]); a value jsonb refuses is never stored,
+// since no job completes with it.
 //
 // [FX-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-48
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40

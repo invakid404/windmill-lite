@@ -9,6 +9,8 @@ expect:
   status: success
   result: {len: 2, code: 121}
   steps:
-    "m:a": {status: success, result: "xy"}
+    # The value a carries on in memory, which only windmill-lite's
+    # observation holds, is the producer's text with its NUL.
+    "m:a": {status: success, result: "xy", carried: "x\u0000y"}
     "m:b": {status: success, args: {len: 3, code: 0, p: "xy"}, result: {len: 3, code: 0, p: "xy"}}
     "m:c": {status: success, args: {len: 2, code: 121}, result: {len: 2, code: 121}}

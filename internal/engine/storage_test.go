@@ -21,11 +21,12 @@ func TestStoreMembersHeld(t *testing.T) {
 		{`{"p":{"a":1}}`, []string{`{"a": 1}`}},
 		// Fewer held values than members, and a duplicate key.
 		{`{"a":1,"a":{"x":2},"b":3}`, []string{"1"}},
-		// A key jsonb refuses still fails the push.
+		// A NUL is removed from a key and from a value alike (FX-48).
 		{`{"\u0000":1}`, []string{"1"}},
-		// A value jsonb refuses fails it with the same text.
 		{`{"a":"\u0000"}`, []string{`"\u0000"`}},
+		// A value jsonb refuses fails the push with the same text.
 		{`{"a":1e999999999999}`, []string{`1e999999999999`}},
+		{`{"a":"\ud800"}`, []string{`"\ud800"`}},
 	} {
 		var held []jsonval.Value
 		for _, h := range c.held {
@@ -53,5 +54,37 @@ func TestStoreMembersHeld(t *testing.T) {
 	got, err = storeMembers(jsonval.FromProducer([]byte(`{"p":{"a":1}}`)), marked)
 	if err != nil || string(got.Producer()) != `{"p":{"a":1}}` {
 		t.Fatalf("a held value with other bytes was taken: %s, %v", got.Producer(), err)
+	}
+}
+
+// FX-48 cases 2 and 3: the push removes every NUL escape from a job's
+// arguments, names and values at any depth, and of names the removal makes
+// equal keeps the value of the name that held no NUL, else of the smallest
+// original name; equal names that held none keep the last, as jsonb does.
+func TestArgsWithoutNUL(t *testing.T) {
+	for _, c := range []struct{ args, stored string }{
+		{`{"s":"x\u0000y"}`, `{"s":"xy"}`},
+		{`{"k\u0000":1}`, `{"k":1}`},
+		{`{"a":{"b\u0000":["\u0000c"]}}`, `{"a":{"b":["c"]}}`},
+		{`{"k\u0000":1,"k":2}`, `{"k":2}`},
+		{`{"k":1,"k\u0000":2}`, `{"k":1}`},
+		{`{"\u0000k":1,"k\u0000":2}`, `{"k":1}`},
+		{`{"k\u0000":1,"\u0000k":2}`, `{"k":2}`},
+		{`{"a":"\\u0000"}`, `{"a":"\\u0000"}`},
+		{`{"a":1,"a":2}`, `{"a":2}`},
+	} {
+		got, err := storeMembers(jsonval.FromProducer([]byte(c.args)))
+		if err != nil || string(got.Producer()) != c.stored {
+			t.Errorf("storeMembers(%s) = %s, %v; want %s", c.args, got.Producer(), err, c.stored)
+		}
+		stored, err := argsWithoutNUL(jsonval.FromProducer([]byte(c.args))).Stored()
+		if err != nil || string(stored) != c.stored {
+			t.Errorf("argsWithoutNUL(%s) stores %s, %v; want %s", c.args, stored, err, c.stored)
+		}
+	}
+	// Arguments with no NUL are returned as they are.
+	v := jsonval.FromProducer([]byte(`{"b":1,"a":2}`))
+	if got := argsWithoutNUL(v); string(got.Producer()) != `{"b":1,"a":2}` {
+		t.Errorf("argsWithoutNUL changed %s to %s", v, got)
 	}
 }

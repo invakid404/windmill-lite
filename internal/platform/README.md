@@ -53,9 +53,11 @@ step case ([cmd/wltest](../../cmd/wltest/README.md)).
 | `WM_STATE_PATH` | `StatePath`, below |
 | `WM_TOKEN` | a fresh `NewToken()`: `wl_` and 128 random bits in hex |
 | `WM_WORKSPACE`, `WM_USERNAME`, `WM_EMAIL`, `WM_PERMISSIONED_AS`, `WM_BASE_URL`, `WM_WORKER_GROUP` | the `Host` configuration |
+| `WM_ROOT_WORKSPACE` | the workspace, `WM_WORKSPACE`: windmill-lite has no forks |
+| `WM_END_USER_EMAIL` | the run's user's address, `WM_EMAIL`, as for a run its user started through the run API |
 | `WM_SCHEDULED_FOR` | the job's `Start`, which is its scheduled time, as RFC 3339 in whole seconds, UTC |
 | `WM_OBJECT_PATH` | `ObjectPath`, below |
-| `WM_SCHEDULE_PATH`, `WM_END_USER_EMAIL`, `WM_TESTED_RUNNABLE`, `WM_RUNNABLE_ID` | `""` |
+| `WM_SCHEDULE_PATH`, `WM_TESTED_RUNNABLE`, `WM_RUNNABLE_ID` | `""` |
 
 A step directly in a flow has the run as its parent, its innermost scope
 and its effective root; the containers of milestones N3a to N3c give their
@@ -63,9 +65,13 @@ bodies other scopes. Every variable of WA-4's table is set, the `later`
 ones too (milestone FU7), as OR-29's environment probe records them on the
 oracle: a job's `Start` is when the engine launches it, after any sleep or
 retry delay, which is its scheduled time, since windmill-lite schedules
-every job to start at once; no schedule, app or CI test starts a job, so
-`WM_SCHEDULE_PATH`, `WM_END_USER_EMAIL` and `WM_TESTED_RUNNABLE` are empty;
-and windmill-lite keeps no script hashes, so `WM_RUNNABLE_ID` is empty, as
+every job to start at once; a run is started by its user, whose address
+is its end user's, `WM_END_USER_EMAIL`, inherited by every step and every
+job a step dispatches
+([WA-4](../../docs/semantics/client-api.md#wa-4)), and its workspace is its
+root workspace, `WM_ROOT_WORKSPACE`; no schedule or CI test starts a job,
+so `WM_SCHEDULE_PATH` and `WM_TESTED_RUNNABLE` are empty; and
+windmill-lite keeps no script hashes, so `WM_RUNNABLE_ID` is empty, as
 for a flow step Windmill did not reduce
 ([WA-V10](../../docs/semantics/client-api.md#wa-v10)). `BASE_URL` is the
 process's, not the invocation's: the harness sets it at spawn
@@ -169,8 +175,26 @@ starts.
   ciphertext ([JE-43](../../docs/semantics/expressions.md#je-43)):
   `LocalSecrets` reveals a secret held as plaintext (a folder pulled with
   `plainSecrets`, or a secret a host passed in) and fails ciphertext and
-  `$encrypted:` with `ErrSecretUnavailable`, which a read reports as the
-  500 `Internal: secret_unavailable: …`.
+  `$encrypted:` with `ErrSecretUnavailable`. With no workspace key, such a
+  value is one windmill-lite cannot decrypt, so the services answer it as
+  Windmill answers every value it cannot decrypt, with one text whatever
+  the cause ([WA-11](../../docs/semantics/client-api.md#wa-11),
+  [JE-42](../../docs/semantics/expressions.md#je-42)): a read fails with
+  the 500 `Internal: Error decrypting variable <p>: Internal: Could not
+  decrypt value. The value may have been encrypted with a different key.`,
+  which a step's `$var:` quotes as its not-found cause, and an
+  `$encrypted:` argument with `Internal: Could not decrypt value. …`,
+  without Windmill's locations (D14). A host secret service's own error is
+  its own. Decrypted text that is not JSON fails with `Internal: Failed to
+  decrypt '$encrypted:' value: <message>`, in the JSON library's words.
+- **`CUSTOM_INSTANCE_DB/`.** An interpolated read whose own path starts
+  with `CUSTOM_INSTANCE_DB/` answers 401 `Not authorized:
+  CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`
+  before anything else ([WA-12](../../docs/semantics/client-api.md#wa-12)):
+  Windmill refuses that path to a caller with a job's token, and every
+  caller windmill-lite serves is a job, on the route, through
+  `resource()` and through a step's `$res:` argument. The raw read and a
+  nested `$res:` look the path up as any other.
 - **The host secret layer.** After interpolation, each resource value
   (nested ones included) and each secret's plaintext passes through
   `Resolvers`, in order, which may replace markers of the host's own. A

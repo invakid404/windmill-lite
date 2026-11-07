@@ -119,14 +119,49 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 	return writeMembers(ms)
 }
 
+// argsWithoutNUL is a job's arguments as the push normalises them before
+// it stores them (FX-48 cases 2 and 3, OR-27): every NUL escape is removed
+// from each top-level name and value, at any depth, and of names the
+// removal makes equal one keeps its value, the name that held no NUL, else
+// the smallest original name; of equal names that held none, the last, as
+// a decoded map keeps it. Arguments with no NUL escape are returned as
+// they are, and text that is not one JSON object with its NULs removed.
+func argsWithoutNUL(args jsonval.Value) jsonval.Value {
+	if !args.HasNUL() {
+		return args
+	}
+	ms, ok := members(args.Producer())
+	if !ok {
+		return args.WithoutNUL()
+	}
+	var out []rawMember
+	var names []string // the original name of each member of out
+	at := map[string]int{}
+	for _, m := range ms {
+		s := rawMember{key: strings.ReplaceAll(m.key, "\x00", ""), rawKey: jsonval.StripNUL(m.rawKey), value: jsonval.StripNUL(m.value)}
+		j, dup := at[s.key]
+		if !dup {
+			at[s.key] = len(out)
+			out, names = append(out, s), append(names, m.key)
+			continue
+		}
+		had, has := strings.Contains(names[j], "\x00"), strings.Contains(m.key, "\x00")
+		if !has || (had && m.key < names[j]) {
+			out[j], names[j] = s, m.key
+		}
+	}
+	return jsonval.FromProducer(writeMembers(out))
+}
+
 // storeMembers is the storage boundary of a job's arguments (ADR 0005
 // step 3): each top-level argument, its key and its value, becomes its
 // stored text, in the order they come; of two keys that store alike, the
-// last one's value is kept, as jsonb keeps it. A key or value that jsonb
-// refuses (a NUL escape, FX-48; an unpaired surrogate escape or a number
-// beyond numeric's range, FX-51), or arguments whose text is not JSON (a
-// replaced JSON.stringify, JE-15), fail the push of the job, whose error
-// is the push's database error (pushError, FX-48 case 2, FX-50).
+// last one's value is kept, as jsonb keeps it. The push removes every NUL
+// escape first (argsWithoutNUL, FX-48 case 2). A key or value that jsonb
+// still refuses (an unpaired surrogate escape or a number beyond numeric's
+// range, FX-51), or arguments whose text is not JSON (a replaced
+// JSON.stringify, JE-15), fail the push of the job, whose error is the
+// push's database error (pushError, FX-50).
 //
 // held are the values the arguments were written from, in their order,
 // when the caller has them (argsOf): a member whose text is exactly held
@@ -134,7 +169,11 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 // value's stored text, which a forwarded result already has (its step
 // stored it), instead of canonicalising the same bytes again. The stored
 // text depends on the bytes alone, so the outcome is the same either way.
+// Arguments that held a NUL are written anew, and held is not used.
 func storeMembers(args jsonval.Value, held ...jsonval.Value) (jsonval.Value, error) {
+	if args.HasNUL() {
+		args, held = argsWithoutNUL(args), nil
+	}
 	ms, ok := members(args.Producer())
 	if !ok {
 		return jsonval.Value{}, errors.New(sqlErr + "error returned from database: invalid input syntax for type json")

@@ -530,8 +530,10 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// (JE-44): flow_input and the first step's previous_result are a
 	// compact object the worker writes from the stored arguments, its
 	// top-level keys in an unspecified order (FX-42 item 1, ADR 0005) and
-	// each member in jsonb's printed form (JE-44's table of texts).
-	stored, err := req.Args.Stored()
+	// each member in jsonb's printed form (JE-44's table of texts). The push
+	// removes every NUL escape first, so the run starts with the arguments
+	// without them (FX-48 case 3).
+	stored, err := argsWithoutNUL(req.Args).Stored()
 	if err != nil {
 		return nil, fmt.Errorf("engine: the arguments cannot be stored: %w", err)
 	}
