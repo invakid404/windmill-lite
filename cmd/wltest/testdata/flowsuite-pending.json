@@ -270,12 +270,7 @@
       "reason": "the recorded bun field is the oracle image's Bun 1.3.10 and the engine now runs the pinned Bun 1.4.3, a difference the env probe cannot carry until it is a named deviation"
     }
   },
-  "step_suite": {
-    "conformance/steps/bun/d11.yaml/d11-refused-codes": {
-      "milestone": "W4d",
-      "reason": "Bun 1.4.3 words the RangeError for an out-of-range exit code differently (&& and digit separators); the code is still refused"
-    }
-  },
+  "step_suite": {},
   "oracle": {
     "conformance/exprs/je-2.yaml/je-2-a": {
       "milestone": "W5d",
