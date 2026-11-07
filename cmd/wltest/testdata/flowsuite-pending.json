@@ -253,6 +253,10 @@
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
     },
+    "conformance/flows/execution/fx-52-flow-timeout/sleep": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38); the flow timeout's own part of the run (FX-52/c) passes"
+    },
     "conformance/flows/execution/fx-7/result_unbound": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"

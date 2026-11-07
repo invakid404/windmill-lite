@@ -90,6 +90,12 @@ func TestFlowTimeout(t *testing.T) {
 		{"recovering failure module", map[string]string{"f/t/main": withValue(flowOf(mod("a", "zero", "", "")), `"timeout":1,"failure_module":`+mod("failure", "value", inputs("v", static(`{"recover":true}`)), ""))}, func(t *testing.T, tr *Trace) {
 			wantStatus(t, tr, conformance.RunCanceled, timedOutValue)
 		}},
+		// A step waiting on the sleep before it fails at its pickup, with
+		// the canceled value, without running.
+		{"sleeping", map[string]string{"f/t/main": withValue(flowOf(mod("a", "value", inputs("v", static("1")), `"sleep":`+static("6")), mod("b", "value", inputs("v", static("2")), "")), `"timeout":1`)}, func(t *testing.T, tr *Trace) {
+			wantStatus(t, tr, conformance.RunCanceled, timedOutValue)
+			sameJSON(t, "b's result", step(t, tr, "b").Result, timedOutValue)
+		}},
 		{"zero", map[string]string{"f/t/main": withValue(flowOf(mod("a", "value", inputs("v", static("1")), "")), `"timeout":0`)}, func(t *testing.T, tr *Trace) {
 			wantStatus(t, tr, conformance.RunSuccess, `1`)
 		}},

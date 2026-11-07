@@ -436,6 +436,7 @@
     "conformance/flows/execution/fx-52-flow-timeout/failure_module": "W6b",
     "conformance/flows/execution/fx-52-flow-timeout/negative": "W6b",
     "conformance/flows/execution/fx-52-flow-timeout/root": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/sleep": "W6b",
     "conformance/flows/execution/fx-52-flow-timeout/subflow_failure_module": "W6b",
     "conformance/flows/execution/fx-52-flow-timeout/subflow_override": "W6b",
     "conformance/flows/execution/fx-52-flow-timeout/subflow_own": "W6b",
