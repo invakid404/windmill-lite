@@ -4501,11 +4501,11 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **JE-12/f** · oracle-observed · later · a computed read of a step that a static read named gives the kept value
   - **Given:** `a` returns `{"v":3}`, then `m`, which is the previous step; `x = const k = "a"; return [results.a.v, results[k].v]` (statement mode)
   - **Expect:** `[3,3]`: `results.a` names `a`, so it is prefetched, and `results[k]` resolves to `a` and reads the kept value synchronously, not a Promise.
-  - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12-f`, oracle run ORACLE_RUN_FIX1 (v1.862.0).
+  - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12-f`, oracle run 42318824333 (v1.862.0).
 - **JE-12/g** · oracle-observed · later · a computed read of a step that nothing named gives a Promise
   - **Given:** as JE-12/f, with `x = const k = "a"; return results[k].v`
   - **Expect:** `null`: no read names `a`, so `results[k]` resolves it at the read and gives a Promise, whose `v` is `undefined`.
-  - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12-g`, oracle run ORACLE_RUN_FIX1 (v1.862.0).
+  - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12-g`, oracle run 42318824333 (v1.862.0).
 
 <a id="je-13"></a>
 ### JE-13 · Expression mode or statement mode

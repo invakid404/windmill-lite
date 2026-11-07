@@ -24,7 +24,7 @@ value:
         input_transforms:
           x:
             type: javascript
-            expr: 'const k = "a"; return results[k].v'
+            expr: const k = "a"; return results[k].v
         path: f/wl_je_shortcuts/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
