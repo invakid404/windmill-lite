@@ -11,15 +11,15 @@ replay:
     - {error: {message: "inventory down"}}
 expect:
   status: failure
-  result: [{item: apple, held: 1}, {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}]
+  result: [{item: apple, held: 1}, {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:1/m:call>", flow_path: f/wl_stub/retry_loop/loop-1}}]
   steps:
     "m:loop":
       status: failure
-      result: [{item: apple, held: 1}, {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}]
+      result: [{item: apple, held: 1}, {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:1/m:call>", flow_path: f/wl_stub/retry_loop/loop-1}}]
     "m:loop/i:0/m:call": {status: success, args: {item: apple}, result: {item: apple, held: 1}}
-    "m:loop/i:1/m:call/r:0": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}}
-    "m:loop/i:1/m:call/r:1": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}}
-    "m:loop/i:1/m:call": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}}
+    "m:loop/i:1/m:call/r:0": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:1/m:call/r:0>", flow_path: f/wl_stub/retry_loop/loop-1}}}
+    "m:loop/i:1/m:call/r:1": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:1/m:call/r:1>", flow_path: f/wl_stub/retry_loop/loop-1}}}
+    "m:loop/i:1/m:call": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call, job_id: "<job:m:loop/i:1/m:call>", flow_path: f/wl_stub/retry_loop/loop-1}}}
   effects:
     - site: "m:loop/i:0/m:call"
       attempt: 0

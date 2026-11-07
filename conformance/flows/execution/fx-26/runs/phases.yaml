@@ -4,13 +4,13 @@ spec: [FX-26/a, FX-27]
 target: f/wl_fx26/phases
 expect:
   status: failure
-  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
+  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx26/phases}}
   steps:
-    "m:a/r:0": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a/r:1": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a/r:2": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a/r:3": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-    "m:a": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:0": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:0>", flow_path: f/wl_fx26/phases}}}
+    "m:a/r:1": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:1>", flow_path: f/wl_fx26/phases}}}
+    "m:a/r:2": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:2>", flow_path: f/wl_fx26/phases}}}
+    "m:a/r:3": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:3>", flow_path: f/wl_fx26/phases}}}
+    "m:a": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx26/phases}}}
 delays:
   - {from: "m:a/r:0", to: "m:a/r:1", at_least_ms: 1000}
   - {from: "m:a/r:1", to: "m:a/r:2", at_least_ms: 1000}

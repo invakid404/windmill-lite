@@ -16,10 +16,10 @@ expect:
   status: success
   result: {order: o-4, ready: true}
   steps:
-    "m:prepare/r:0": {status: failure, args: {order: o-4}, result: {error: {name: Error, message: "not ready", stack: "<stack>", step_id: tail}}}
+    "m:prepare/r:0": {status: failure, args: {order: o-4}, result: {error: {name: Error, message: "not ready", stack: "<stack>", step_id: tail, job_id: "<job:m:prepare/r:0/m:tail>", flow_path: f/wl_stub_sr/prepare}}}
     "m:prepare/r:0/m:prep": {status: success, args: {order: o-4}, result: {skip: true}}
     "m:prepare/r:0/m:x": {status: success, skipped: true, args: {previous_result: {skip: true}}, result: {skip: true}}
-    "m:prepare/r:0/m:tail": {status: failure, args: {order: o-4}, result: {error: {name: Error, message: "not ready", stack: "<stack>", step_id: tail}}}
+    "m:prepare/r:0/m:tail": {status: failure, args: {order: o-4}, result: {error: {name: Error, message: "not ready", stack: "<stack>", step_id: tail, job_id: "<job:m:prepare/r:0/m:tail>", flow_path: f/wl_stub_sr/prepare}}}
     "m:prepare": {status: success, args: {order: o-4}, result: {order: o-4, ready: true}}
     "m:prepare/m:prep": {status: success, args: {order: o-4}, result: {skip: false}}
     "m:prepare/m:x": {status: success, args: {order: o-4}, result: {extra: done}}

@@ -6,10 +6,10 @@ spec: [FX-6/b]
 target: f/wl_fx6/after_tolerated
 expect:
   status: success
-  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
+  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/after_tolerated}}
   steps:
-    "m:a": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/after_tolerated}}}
     "m:b":
       status: success
-      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
-      result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
+      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/after_tolerated}}}
+      result: {error: {message: e, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx6/after_tolerated}}

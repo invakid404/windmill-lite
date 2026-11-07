@@ -6,9 +6,9 @@ expect:
   status: failure
   result: {saw: boom, handled: true}
   steps:
-    "m:a": {status: failure, args: {}, result: {error: {name: Error, message: boom, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {}, result: {error: {name: Error, message: boom, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_probe/fail_handler}}}
     "m:b": {status: not_run, ran: false}
     "s:failure":
       status: success
-      args: {error: {name: Error, message: boom, stack: "<stack>", step_id: a}}
+      args: {error: {name: Error, message: boom, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_probe/fail_handler}}
       result: {saw: boom, handled: true}

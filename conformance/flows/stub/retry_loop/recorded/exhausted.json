@@ -1,0 +1,239 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": [
+      {
+        "held": 1,
+        "item": "apple"
+      },
+      {
+        "error": {
+          "name": "Error",
+          "stack": "<stack>",
+          "job_id": "<job:m:loop/i:1/m:call>",
+          "message": "inventory down",
+          "step_id": "call",
+          "flow_path": "f/wl_stub/retry_loop/loop-1"
+        }
+      }
+    ],
+    "steps": {
+      "m:loop": {
+        "status": "failure",
+        "result": [
+          {
+            "held": 1,
+            "item": "apple"
+          },
+          {
+            "error": {
+              "name": "Error",
+              "stack": "<stack>",
+              "job_id": "<job:m:loop/i:1/m:call>",
+              "message": "inventory down",
+              "step_id": "call",
+              "flow_path": "f/wl_stub/retry_loop/loop-1"
+            }
+          }
+        ]
+      },
+      "m:loop/i:0/m:call": {
+        "status": "success",
+        "args": {
+          "item": "apple"
+        },
+        "result": {
+          "held": 1,
+          "item": "apple"
+        }
+      },
+      "m:loop/i:1/m:call": {
+        "status": "failure",
+        "args": {
+          "item": "pear"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:loop/i:1/m:call>",
+            "message": "inventory down",
+            "step_id": "call",
+            "flow_path": "f/wl_stub/retry_loop/loop-1"
+          }
+        }
+      },
+      "m:loop/i:1/m:call/r:0": {
+        "status": "failure",
+        "args": {
+          "item": "pear"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:loop/i:1/m:call/r:0>",
+            "message": "inventory down",
+            "step_id": "call",
+            "flow_path": "f/wl_stub/retry_loop/loop-1"
+          }
+        }
+      },
+      "m:loop/i:1/m:call/r:1": {
+        "status": "failure",
+        "args": {
+          "item": "pear"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:loop/i:1/m:call/r:1>",
+            "message": "inventory down",
+            "step_id": "call",
+            "flow_path": "f/wl_stub/retry_loop/loop-1"
+          }
+        }
+      }
+    },
+    "effects": [
+      {
+        "site": "m:loop/i:0/m:call",
+        "attempt": 0,
+        "step": "call",
+        "job": "<job:m:loop/i:0/m:call>",
+        "flow": "<job:m:loop/i:0>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "apple"
+        ]
+      },
+      {
+        "site": "m:loop/i:1/m:call",
+        "attempt": 0,
+        "step": "call",
+        "job": "<job:m:loop/i:1/m:call/r:0>",
+        "flow": "<job:m:loop/i:1>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "pear"
+        ]
+      },
+      {
+        "site": "m:loop/i:1/m:call",
+        "attempt": 1,
+        "step": "call",
+        "job": "<job:m:loop/i:1/m:call/r:1>",
+        "flow": "<job:m:loop/i:1>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "pear"
+        ]
+      },
+      {
+        "site": "m:loop/i:1/m:call",
+        "attempt": 2,
+        "step": "call",
+        "job": "<job:m:loop/i:1/m:call>",
+        "flow": "<job:m:loop/i:1>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "pear"
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261106214647-3678528a0b25",
+      "revision": "3678528a0b25e00b4e168aa14a2fd6911028619e",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42299510925"
+    },
+    "recorded_at": "2026-11-06T22:11:57Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:42993"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 410,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-06T22:11:57.213864Z",
+          "started_at": "2026-11-06T22:11:57.231852Z",
+          "completed_at": "2026-11-06T22:11:57.527522Z",
+          "duration_ms": 296
+        },
+        "m:loop/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T22:11:57.233121Z",
+          "started_at": "2026-11-06T22:11:57.237649Z",
+          "completed_at": "2026-11-06T22:11:57.285077Z",
+          "duration_ms": 47
+        },
+        "m:loop/i:0/m:call": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:11:57.241538Z",
+          "started_at": "2026-11-06T22:11:57.244189Z",
+          "completed_at": "2026-11-06T22:11:57.280913Z",
+          "duration_ms": 33
+        },
+        "m:loop/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-11-06T22:11:57.288952Z",
+          "started_at": "2026-11-06T22:11:57.335242Z",
+          "completed_at": "2026-11-06T22:11:57.523444Z",
+          "duration_ms": 188
+        },
+        "m:loop/i:1/m:call": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:11:57.445327Z",
+          "started_at": "2026-11-06T22:11:57.494305Z",
+          "completed_at": "2026-11-06T22:11:57.518232Z",
+          "duration_ms": 24
+        },
+        "m:loop/i:1/m:call/r:0": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:11:57.339619Z",
+          "started_at": "2026-11-06T22:11:57.341879Z",
+          "completed_at": "2026-11-06T22:11:57.363631Z",
+          "duration_ms": 22
+        },
+        "m:loop/i:1/m:call/r:1": {
+          "kind": "flowscript",
+          "created_at": "2026-11-06T22:11:57.369598Z",
+          "started_at": "2026-11-06T22:11:57.415480Z",
+          "completed_at": "2026-11-06T22:11:57.440266Z",
+          "duration_ms": 25
+        }
+      }
+    }
+  }
+}

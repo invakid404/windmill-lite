@@ -8,9 +8,9 @@ expect:
     "m:a":
       status: failure
       args: {}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx31/untolerated}}
     "m:b": {status: not_run}
     "s:failure":
       status: success
-      args: {e: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      args: {e: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx31/untolerated}}
       result: {seen: x}
