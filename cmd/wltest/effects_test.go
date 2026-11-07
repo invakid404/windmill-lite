@@ -142,7 +142,7 @@ func TestStubModeAndEffects(t *testing.T) {
 		"windmill/f/t/loop.flow/call.ts": "export async function main(x: string) { return 'original ' + x; }\n",
 		"runs/a_holds.yaml": "target: f/t/loop\nargs: {xs: [p]}\nreplay:\n  \"m:loop/i:0/m:call\": [{error: {message: busy}}, {result: P}]\n" +
 			"expect:\n  status: success\n  result: [P]\n  steps:\n    \"m:loop\": {status: success, result: [P]}\n" +
-			"    \"m:loop/i:0/m:call/r:0\": {status: failure, args: {x: p}, result: {error: {name: Error, message: busy, stack: \"<stack>\", step_id: call}}}\n" +
+			"    \"m:loop/i:0/m:call/r:0\": {status: failure, args: {x: p}, result: {error: {name: Error, message: busy, stack: \"<stack>\", step_id: call, job_id: \"<job:m:loop/i:0/m:call/r:0>\", flow_path: f/t/loop/loop-0}}}\n" +
 			"    \"m:loop/i:0/m:call\": {status: success, args: {x: p}, result: P}\n" +
 			"  effects:\n    - " + call + `, attempt: 0, job: "<job:m:loop/i:0/m:call/r:0>"}` + "\n    - " + call + `, attempt: 1, job: "<job:m:loop/i:0/m:call>"}` + "\n",
 		"runs/b_miss.yaml": "target: f/t/loop\nargs: {xs: [p]}\nreplay:\n  \"m:loop/i:0/m:call\": {error: {message: busy}}\nexpect: {status: failure}\n",
@@ -164,7 +164,7 @@ func TestStubModeAndEffects(t *testing.T) {
 		// The second call is the module's last attempt, attempt 1.
 		"runs/c_wrong_effect.yaml": "target: f/t/loop\nargs: {xs: [p]}\nreplay:\n  \"m:loop/i:0/m:call\": [{error: {message: busy}}, {result: P}]\n" +
 			"expect:\n  status: success\n  result: [P]\n  steps:\n    \"m:loop\": {status: success, result: [P]}\n" +
-			"    \"m:loop/i:0/m:call/r:0\": {status: failure, args: {x: p}, result: {error: {name: Error, message: busy, stack: \"<stack>\", step_id: call}}}\n" +
+			"    \"m:loop/i:0/m:call/r:0\": {status: failure, args: {x: p}, result: {error: {name: Error, message: busy, stack: \"<stack>\", step_id: call, job_id: \"<job:m:loop/i:0/m:call/r:0>\", flow_path: f/t/loop/loop-0}}}\n" +
 			"    \"m:loop/i:0/m:call\": {status: success, args: {x: p}, result: P}\n" +
 			"  effects:\n    - " + call + `, attempt: 0, job: "<job:m:loop/i:0/m:call/r:0>"}` + "\n    - " + call + `, attempt: 0, job: "<job:m:loop/i:0/m:call>"}` + "\n",
 	})

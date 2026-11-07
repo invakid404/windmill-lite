@@ -145,9 +145,25 @@
       "milestone": "W6e",
       "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
     },
+    "conformance/flows/control-flow/cf-v1/a": {
+      "milestone": "W5d",
+      "reason": "the expect predates CE 1.862.0's step context keys, job_id and flow_path on the loop body's step error (FX-12), which windmill-lite now gives; W5D re-expects the run"
+    },
+    "conformance/flows/control-flow/cf-v1/c-seq": {
+      "milestone": "W5d",
+      "reason": "the expect predates CE 1.862.0's step context keys, job_id and flow_path on the branch body's step error (FX-12), which windmill-lite now gives; W5D re-expects the run"
+    },
     "conformance/flows/control-flow/subflow-retry/pre_run": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/execution/fx-28/throw_no_handler": {
+      "milestone": "W5f",
+      "reason": "the expect predates CE 1.862.0's step context keys, job_id and flow_path on the failed step's error (FX-12), which windmill-lite now gives; W5F re-expects the run"
+    },
+    "conformance/flows/execution/fx-33/parent_view": {
+      "milestone": "W5d",
+      "reason": "the expect predates CE 1.862.0's step context keys, job_id and flow_path on the subflow's step error (FX-12), which windmill-lite now gives; W5D re-expects the run"
     },
     "conformance/flows/je/branches/je27-b-branchall": {
       "milestone": "W6f",

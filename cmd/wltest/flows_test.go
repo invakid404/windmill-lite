@@ -444,9 +444,9 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"runs/e_unsupported.yaml":            "target: f/t/later\nexpect: {status: success, result: 1}\n",
 		"runs/g_same_job_path.yaml":          "target: f/t/same\nexpect:\n  status: success\n  result: [2, f/t/same/a]\n  steps:\n    \"m:a\": {status: success, args: {}, result: [1, f/t/same/a]}\n    \"m:b\": {status: success, args: {}, result: [2, f/t/same/a]}\n",
 		"runs/h_build_problem.yaml":          "target: f/t/broken\nexpect: {status: success, result: 1}\n",
-		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}}\n    \"m:b\": {status: not_run}\n",
+		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a, job_id: \"<job:m:a>\", flow_path: f/t/two}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a, job_id: \"<job:m:a>\", flow_path: f/t/two}}}\n    \"m:b\": {status: not_run}\n",
 		// The recording says b ran; the engine's run stops at a.
-		"recorded/c_wrong_recording.json": `{"observation":{"status":"failure","result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}},"steps":{"m:a":{"status":"failure","args":{},"result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}}},"m:b":{"status":"success","args":{},"result":2}}},"provenance":{}}`,
+		"recorded/c_wrong_recording.json": `{"observation":{"status":"failure","result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a","job_id":"<job:m:a>","flow_path":"f/t/two"}},"steps":{"m:a":{"status":"failure","args":{},"result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a","job_id":"<job:m:a>","flow_path":"f/t/two"}}},"m:b":{"status":"success","args":{},"result":2}}},"provenance":{}}`,
 	})
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), filepath.Dir(dir)}, &stdout, &stderr)
