@@ -451,8 +451,8 @@ func TestEngineSleep(t *testing.T) {
 }
 
 // FX-23, FX-38: a cancellation cuts a pending sleep short; the queued job
-// fails without running, with the Canceled error, a failed and not a
-// canceled job (as recorded), and the run ends canceled.
+// completes without running, with the Canceled error, stored canceled (as
+// CE 1.862.0 records it), and the run ends canceled.
 func TestEngineSleepCanceled(t *testing.T) {
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", `"sleep":`+static("30")), mod("b", "value", inputs("v", static("2")), ""))}, &scripts{})
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -468,7 +468,7 @@ func TestEngineSleepCanceled(t *testing.T) {
 	const canceled = `{"error":{"message":"Job canceled: r by u","name":"Canceled","reason":"r","canceler":"u"}}`
 	wantStatus(t, tr, conformance.RunCanceled, canceled)
 	b := step(t, tr, "b")
-	if b.Status != conformance.StepFailure || !b.Ran || b.Module != conformance.ModuleFailure {
+	if b.Status != conformance.StepCanceled || !b.Ran || b.Module != conformance.ModuleFailure {
 		t.Fatalf("b %+v", b)
 	}
 	sameJSON(t, "b's result", b.Result, canceled)
@@ -573,23 +573,41 @@ func TestEngineTimeoutValues(t *testing.T) {
 // JE-2: the time a transition spends evaluating counts against the
 // transition timeout, past which the run is canceled by "monitor", as
 // Windmill's monitor of flows that hang between steps cancels them. A job
-// starts a new transition; a negative timeout disables the monitor.
+// starts a new transition; a negative timeout disables the monitor. The
+// monitor cancels only a flow that has started or runs on the same worker:
+// a flow whose first module has not started, a child flow's included, is
+// put back in the queue, which does not stop its transition, so the run
+// goes on.
 func TestEngineTransitionMonitor(t *testing.T) {
 	// Each busy evaluation takes 400 ms against a budget of 600 ms: one
 	// fits a transition with room to spare under load, two do not.
 	const busy = "(() => { const t = Date.now(); while (Date.now() - t < 400) {} return 1 })()"
+	sameWorker := func(f string) string { return strings.TrimSuffix(f, "}") + `,"same_worker":true}` }
+	first := mod("a", "value", inputs("v", static("1")), "")
 	for _, c := range []struct {
-		name, flow string
-		limit      time.Duration
-		status     conformance.RunStatus
+		name, flow, child string
+		limit             time.Duration
+		status            conformance.RunStatus
+		// hung is the module whose start the monitor cut short, and root
+		// says that its flow is the root's.
+		hung string
+		root bool
 	}{
-		{"a runaway transform", flowOf(mod("a", "value", inputs("v", js("(() => { while (true) {} })()")), "")), 600 * time.Millisecond, conformance.RunCanceled},
-		{"one transition at a time", flowOf(mod("a", "value", inputs("v", js(busy)), ""), mod("b", "value", inputs("v", js(busy)), "")), 600 * time.Millisecond, conformance.RunSuccess},
-		{"two evaluations in one transition", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunCanceled},
-		{"disabled", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), -1, conformance.RunSuccess},
+		{"a runaway transform", flowOf(first, mod("b", "value", inputs("v", js("(() => { while (true) {} })()")), "")), "", 600 * time.Millisecond, conformance.RunCanceled, "m:b", true},
+		{"one transition at a time", flowOf(first, mod("b", "value", inputs("v", js(busy)), ""), mod("c", "value", inputs("v", js(busy)), "")), "", 600 * time.Millisecond, conformance.RunSuccess, "", false},
+		{"two evaluations in one transition", flowOf(first, mod("b", "value", inputs("v", js(busy), "w", js(busy)), "")), "", 600 * time.Millisecond, conformance.RunCanceled, "m:b", true},
+		{"disabled", flowOf(first, mod("b", "value", inputs("v", js(busy), "w", js(busy)), "")), "", -1, conformance.RunSuccess, "", false},
+		{"before the flow starts", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), "", 600 * time.Millisecond, conformance.RunSuccess, "", false},
+		{"same_worker before the flow starts", sameWorker(flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), ""))), "", 600 * time.Millisecond, conformance.RunCanceled, "m:a", true},
+		{"before a subflow starts", flowOf(first, subflowOf("s", "f/t/child", "", "")), flowOf(mod("c", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunSuccess, "", false},
+		{"after a subflow starts", flowOf(first, subflowOf("s", "f/t/child", "", "")), flowOf(first, mod("c", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunCanceled, "m:s/m:c", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &scripts{})
+			flows := map[string]string{"f/t/main": c.flow}
+			if c.child != "" {
+				flows["f/t/child"] = c.child
+			}
+			e := mustOpen(t, flows, &scripts{})
 			e.transition = max(c.limit, 0)
 			start := time.Now()
 			tr := runReq(t, e, RunRequest{})
@@ -606,11 +624,15 @@ func TestEngineTransitionMonitor(t *testing.T) {
 			if err := json.Unmarshal(tr.Result.Producer(), &res); err != nil {
 				t.Fatal(err)
 			}
-			if res.Error.Name != "Canceled" || res.Error.Canceler != "monitor" || !strings.HasPrefix(res.Error.Reason, "Flow "+tr.RunID+" was cancelled because it was hanging in between 2 steps. Last ping: ") {
+			flow := "Flow "
+			if c.root {
+				flow += tr.RunID + " "
+			}
+			if res.Error.Name != "Canceled" || res.Error.Canceler != "monitor" || !strings.HasPrefix(res.Error.Reason, flow) || !strings.Contains(res.Error.Reason, " was cancelled because it was hanging in between 2 steps. Last ping: ") {
 				t.Fatalf("result %s", tr.Result)
 			}
-			if a := step(t, tr, "a"); a.Status != conformance.StepNotRun {
-				t.Fatalf("a %+v", a)
+			if h := at(t, tr, c.hung); h.Status != conformance.StepNotRun {
+				t.Fatalf("%s %+v", c.hung, h)
 			}
 		})
 	}

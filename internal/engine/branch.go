@@ -107,10 +107,13 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	if ended(e.status) {
 		st := r.endedStatus(ctx, e.status)
 		if st == conformance.RunCanceled {
-			// A canceled branch's flow fails with the Canceled error, which
-			// fails the module (CF-28).
+			// A canceled branch's flow ends with the Canceled error, which
+			// fails the module (CF-28). The module's job is the branch's
+			// flow job, stored canceled whether it was running or still
+			// queued behind the sleep before the module (CF-28 point 2,
+			// FX-38).
 			v := canceledError(cancellationOf(ctx))
-			o.rec.Ran, o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultOrigin = true, conformance.StepFailure, conformance.ModuleFailure, v, OriginEngine
+			o.rec.Ran, o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultOrigin = true, conformance.StepCanceled, conformance.ModuleFailure, v, OriginEngine
 			o.end = endInterrupted
 			return o
 		}
@@ -135,10 +138,12 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 		// failure module fails it with that module's result, its job
 		// successful when it recovered (CF-16, CF-V1, FX-33); a failure
 		// such a module handled stays handled through the forwarded stop
-		// that a clean stop of a failed container in it raised. The
+		// that a clean stop of a failed container in it raised, and a
+		// recovered failure keeps its mark as a failure (FX-33). The
 		// completion that carries a forwarded stop switches the module's
 		// continue_on_error off.
 		o.rec.Module, o.handled = conformance.ModuleFailure, e.handled
+		o.recovered = o.end == endFailed && e.recovered
 		o.forwarded = o.end == endErrorStop
 		if e.status == conformance.RunFailure {
 			o.rec.Status = conformance.StepFailure
@@ -198,7 +203,7 @@ func (r *run) branchAll(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	bs := fr.modules[i].BranchAll.Branches
 	var it iterations
-	failed, handled := false, false
+	failed, handled, recovered := false, false, false
 	// A chaining error before a branch after the first aborts the flow
 	// with the previous branch's result as its last carried value, as a
 	// sequential loop's does (outcome.last, CF-23 route 3).
@@ -262,13 +267,14 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 			return o
 		}
 		// A branch that ran its copy of the failure module failed, even when
-		// it recovered (CF-16, CF-V1).
+		// it recovered (CF-16, CF-V1), and its failure keeps the mark of
+		// the recovery (FX-33).
 		if (e.status == conformance.RunFailure || e.handled) && !br.SkipFailure {
-			failed, handled = true, e.handled
+			failed, handled, recovered = true, e.handled, e.recovered
 			break
 		}
 	}
-	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), handled)
+	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), handled, recovered)
 }
 
 // sequentialBranchEnd is how a sequential branchall ends when a stop ended

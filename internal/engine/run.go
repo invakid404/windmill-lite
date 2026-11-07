@@ -333,6 +333,11 @@ type outcome struct {
 	// under a clean stop that keeps it (endFailedStop), or as the error
 	// stop a branch's flow forwards for it.
 	handled bool
+	// recovered: the module, a sequential container or a flow step, failed
+	// (endFailed) because the child flow it stopped at reported a failure
+	// marked as recovered (flowEnd.recovered), which the module's flow
+	// keeps when that failure ends it (FX-33, CF-V1).
+	recovered bool
 	// aborted: a chaining error at a later transition ended the module
 	// (endChained, CF-23 route 3), so the flow aborts with its last
 	// carried value in hand (flowEnd.delivered). last is that value when
@@ -601,7 +606,17 @@ type flowEnd struct {
 	// (CF-12 item 3, CF-16, CF-V1). Its containers' flows do not run their
 	// failure modules again for it; a subflow step resets that (CF-17).
 	handled bool
-	nested  []string
+	// recovered: the failure the flow reports to what contains it is marked
+	// as recovered ([FX-33]): its failure module recovered, or it failed
+	// with a module that a recovered failure failed (outcome.recovered) and
+	// nothing handled that failure. A sequential container or a flow step
+	// that the failure fails keeps the mark; a parallel one, an error stop
+	// and a new failure drop it. A root flow that ends failed with the mark
+	// is stored success, with the same result (run.run).
+	//
+	// [FX-33]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-33
+	recovered bool
+	nested    []string
 	// chain is set when a collapsed iteration's push failed (outcome.chain).
 	chain string
 	// args are a collapsed iteration's body job's stored arguments, the
@@ -642,7 +657,12 @@ func (e flowEnd) carried() carry {
 	return carry{e.result, e.origin, e.nested}
 }
 
-// run runs the flow and records its outcome.
+// run runs the flow and records its outcome. A root flow that a recovered
+// failure ends, which no step of it retried, tolerated or handled, is
+// stored success with the result it would have failed with ([FX-33],
+// flowEnd.recovered).
+//
+// [FX-33]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-33
 func (r *run) run(ctx context.Context) {
 	e := r.runList(ctx, r.root)
 	if e.timedOut {
@@ -659,6 +679,9 @@ func (r *run) run(ctx context.Context) {
 		r.mu.Lock()
 		r.trace.Cached = true
 		r.mu.Unlock()
+	}
+	if e.status == conformance.RunFailure && e.recovered {
+		e.status = conformance.RunSuccess
 	}
 	r.end(e.status, e.result, e.origin, e.nested)
 }
@@ -937,6 +960,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
 			errorStop: stop && d.status == conformance.RunFailure,
 			handled:   o.handled && d.status == conformance.RunFailure,
+			recovered: o.recovered && o.end == endFailed && d.status == conformance.RunFailure,
 			stores:    d.status == conformance.RunSuccess || d.status == conformance.RunSkipped}
 		if o.end == endChained && o.aborted {
 			end.delivered = &in
@@ -997,13 +1021,14 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 // failure runs fr's failure module (FX-31) with the failing value as its
 // previous_result (FX-32), and ends the flow with its result (FX-33): the
 // flow succeeds only when the failure module's job succeeded and its result
-// recovers; otherwise it fails with that result, or with the failure
-// module's own failure value. The failure module has no stop and ignores
-// its own continue_on_error (FX-19, FX-30), and a chaining error while it
-// starts is a later transition's (FX-15 context 1), which delivers the
-// failing value to the flow's parent (CF-23 route 3). Its own retry
-// applies to its failures (FX-32), and starting it resets the retry
-// counter when it has one (FX-27).
+// recovers, and then reports its failure to what contains it marked as
+// recovered (flowEnd.recovered); otherwise it fails with that result, or
+// with the failure module's own failure value. The failure module has no
+// stop and ignores its own continue_on_error (FX-19, FX-30), and a
+// chaining error while it starts is a later transition's (FX-15 context
+// 1), which delivers the failing value to the flow's parent (CF-23 route
+// 3). Its own retry applies to its failures (FX-32), and starting it
+// resets the retry counter when it has one (FX-27).
 func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID string, continues bool) flowEnd {
 	i := len(fr.modules)
 	m := fr.failure
@@ -1057,7 +1082,7 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, stores: true}
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, recovered: true, stores: true}
 	case o.end == endSucceeded:
 		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, stores: true}
 	case o.end == endChained && o.aborted:
@@ -1405,6 +1430,10 @@ func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value
 	r.mu.Unlock()
 	start := r.clock.Now()
 	o := r.module(ctx, fr, i, prev, prevID, idx, b)
+	// Whatever the attempt did, its module no longer waits, so its flow
+	// has started (frame.begun): a chaining error at the root's pickup
+	// fails the module with no job, which pings nothing.
+	fr.owner().begun = true
 	r.noInvocationJob(fr, i, idx, &o)
 	if o.rec.Job != "" && o.rec.Cached && fr.moduleAt(i).Kind != ir.KindSubflow {
 		// A leaf the result cache answered (FX-40), whose job no
@@ -1645,8 +1674,9 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// Start step 10: the job is pushed, scheduled for when a sleep or a
 	// retry delay ends; it waits for that time on the run's clock (FX-23,
 	// FX-26). A cancellation makes the queued job due at once, and it
-	// fails without running with the Canceled error, a failure and not a
-	// canceled job (FX-38, recorded by fx-23/canceled_sleep).
+	// completes without running with the Canceled error, stored canceled,
+	// since its completion keeps the cancel flag the cascade set on it
+	// (FX-38, recorded by fx-23/canceled_sleep and fx-38-pickup).
 	var pushed *frame // a flow step's child flow, pushed for later
 	if !due.IsZero() {
 		// Every job is pushed with its id, which the flow's status names
@@ -1684,20 +1714,21 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			v := canceledError(reason, canceler)
 			o.rec.Ran, o.rec.Start = true, r.clock.Now()
 			if m.Kind == ir.KindSubflow {
-				// A flow step's job is its subflow's flow job, which fails
-				// at pickup before any of its modules starts, while its own
-				// status still lists them all as waiting, so the run shows
-				// them as never started ([FX-38]).
+				// A flow step's job is its subflow's flow job, which ends
+				// canceled at pickup before any of its modules starts, while
+				// its own status still lists them all as waiting, so the run
+				// shows them as never started ([FX-38]).
 				//
 				// [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
 				c := pushed
 				if c == nil {
 					c = r.unlaunchedSubflow(fr, i, stored)
 				}
-				r.childEnded(c, flowEnd{status: conformance.RunFailure, result: v})
+				r.childEnded(c, flowEnd{status: conformance.RunCanceled, result: v})
 				o.rec.Job = c.id
 			}
-			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginEngine
+			// The caller's module records Failure, naming that job.
+			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepCanceled, conformance.ModuleFailure, v, v, OriginEngine
 			o.end, o.carried, o.origin = endInterrupted, v, OriginEngine
 			r.recordJob(fr, i, v)
 			return o
@@ -1999,11 +2030,11 @@ func (r *run) ended(fr *frame, o *outcome) {
 // ping refreshes the ping of fr's flow, a collapsed iteration's its
 // loop's: one of its jobs, or one of its child flows, has completed, which
 // ends the transition the monitor measures and starts the next (JE-2: a
-// flow job's ping is refreshed when a child completes). Only the goroutine
-// that runs the flow calls it.
+// flow job's ping is refreshed when a child completes), and the flow has
+// started (frame.begun). Only the goroutine that runs the flow calls it.
 func (r *run) ping(fr *frame) {
 	own := fr.owner()
-	own.spent, own.pinged = 0, r.clock.Now()
+	own.spent, own.pinged, own.begun = 0, r.clock.Now(), true
 }
 
 // passDirect reports whether module m of fr receives its flow's input as
@@ -2292,11 +2323,17 @@ func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Sc
 // waits, which Windmill does not have or runs as scheduled jobs; and the
 // budget is wall time, where its timer runs, whatever the run's clock (a
 // recording clock shared by several runs moves on with their waits).
+//
+// The monitor cancels only a flow that has started (frame.begun) or that
+// runs on the same worker. It puts any other flow back in the queue
+// instead, which does not stop the evaluation, so a transition that hangs
+// before the flow's first module starts runs on until the evaluation ends,
+// with JE-2's timeout error at the latest.
 func (r *run) evaluate(ctx context.Context, fr *frame, x *expr.Expr, site conformance.SitePath, s *expr.Scope) (jsonval.Value, error) {
 	own := fr.owner()
 	start, wall := r.clock.Now(), time.Now()
 	var monitor *time.Timer
-	if limit := r.e.transition; limit > 0 {
+	if limit := r.e.transition; limit > 0 && (own.begun || own.def.SameWorker) {
 		hung := &Cancellation{Canceler: "monitor", Reason: fmt.Sprintf("Flow %s was cancelled because it was hanging in between 2 steps. Last ping: %s", own.id, rfc3339(own.pinged))}
 		monitor = time.AfterFunc(max(limit-own.spent, 0), func() { r.cancel(hung) })
 	}

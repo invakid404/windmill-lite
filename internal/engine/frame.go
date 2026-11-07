@@ -106,14 +106,17 @@ type frame struct {
 	// per module, that its last status is Success, which a retry's
 	// restored previous_result depends on (FX-6, JE-36). spent is what the
 	// flow's current transition, since its last job ended (pinged), has
-	// spent evaluating expressions, against JE-2's monitor. The goroutine
-	// that runs the frame owns them all; a collapsed iteration's monitor
-	// state is its loop's flow's (owner).
+	// spent evaluating expressions, against JE-2's monitor, and begun says
+	// that the flow has started: its first module no longer waits, since
+	// one of its attempts, jobs or child flows has completed. The
+	// goroutine that runs the frame owns them all; a collapsed iteration's
+	// monitor state is its loop's flow's (owner).
 	failCount uint32
 	failed    []conformance.SitePath
 	succeeded []bool
 	spent     time.Duration
 	pinged    time.Time
+	begun     bool
 	// env is flow_env as the flow's current transition resolved it, and
 	// envCached the last resolution that succeeded, which the predicates
 	// after a child completes read (JE-38); zero before the frame's first
