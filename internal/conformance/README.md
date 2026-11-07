@@ -403,7 +403,9 @@ module `a`'s job id written `ID`:
 
 `testdata/text/cases.json` holds the encodings and the pairs that must stay
 distinct; `FuzzTextRoundTrip`, `FuzzTextInjective` and `FuzzParseText` back
-them.
+them, with an unwalked job's id among their inputs.
+`TestTextUnwalkedPlaceholder` holds the unwalked placeholder's encodings,
+and `TestParseTextRejects` its malformed numbers.
 
 ## The normaliser
 

@@ -158,7 +158,7 @@ adds shared code to `warm` (deviation D18 of
 [0001](0001-equivalence-contract.md)), which milestone F8b implements.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
-Windmill `v1.767.0`, the Go package layout and the implementation
+Windmill `v1.862.0`, the Go package layout and the implementation
 milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
 
