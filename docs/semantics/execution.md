@@ -3801,7 +3801,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-48"></a>
 ### FX-48 · NUL characters at storage boundaries
 
-**Scope:** core · **Confidence:** high (oracle-observed at v1.862.0: case 1 for a Bun result, case 2 at root pickup and at a later transition, case 3's answer and stored arguments); high (source-traced: which escapes are removed, an error result, equal keys) · **Status:** confirmed; drafted (which escapes are removed, an error result, equal keys)
+**Scope:** core · **Confidence:** high (oracle-observed at v1.862.0: case 1 for a Bun result and the in-memory text the next step reads, case 2 at root pickup and at a later transition, case 3's answer and stored arguments); high (source-traced: which escapes are removed, an error result, equal keys) · **Status:** confirmed; drafted (which escapes are removed, an error result, equal keys)
 
 - **Rule:** jsonb rejects the escaped NUL character `\u0000` in strings and
   keys. Since Windmill 1.768.0 (results) and 1.826.0 (job arguments),
@@ -3812,10 +3812,21 @@ run of batch E3f in the [design README](../design/README.md).
   and values at any depth):
   1. **In a step's result** (success value or error object): the result is
      stored without the NUL when the job completes, and the job keeps its
-     outcome. Later steps (`results.<id>`, `previous_result`), the job API
-     and the flow's own result read the stored value. Two keys of one
-     object that the removal makes equal are both written, and `jsonb`
-     keeps the one written last.
+     outcome. Two keys of one object that the removal makes equal are both
+     written, and `jsonb` keeps the one written last.
+     - **Only the stored copy changes.** The removal works on a separate
+       text made for the insert. The flow goes on with the producer's text
+       in memory ([FX-42](#fx-42) rule 3), so the next module's
+       `previous_result`, a `results.<prev>` read from memory (routes 1
+       and 3 of [FX-10](#fx-10)) and `stop_after_if`'s `result` still hold
+       the NUL. A transform there sees `"x\u0000y"` as three characters.
+     - **Readers of storage see it removed:** route-2 paths and other
+       steps' ids, loop and branchall aggregates, a re-derived
+       `previous_result`, the job API, and the flow's own result, which is
+       stored the same way when the flow completes.
+     - A NUL that a transform passes on into an argument is removed when
+       that job is pushed (case 2); a value derived from the in-memory text,
+       such as its length, keeps what it computed.
   2. **In args generated during a start phase** (for example a transform
      returning `String.fromCharCode(0)`): the child job is pushed with the
      NUL removed from its arguments, and the step runs with them: a
@@ -3845,10 +3856,17 @@ run of batch E3f in the [design README](../design/README.md).
     ([FX-51](#fx-51)).
 - **Evidence:** at v1.862.0:
   - Case 1: `backend/windmill-queue/src/jobs.rs:1614-1621 @ v1.862.0`
-    (the result text stripped before the completion insert), `:1358-1390`
-    (an error result goes through the same insert);
+    (a stripped copy of the result text made for the completion insert),
+    `:1358-1390` (an error result goes through the same insert);
     `backend/windmill-common/src/utils.rs:1641-1700 @ v1.862.0` (the
-    removal).
+    removal). The in-memory path: `backend/windmill-worker/src/result_processor.rs:1843-1856`,
+    `:1901-1909 @ v1.862.0` (the completion gets the result by reference,
+    then the flow's update gets the original);
+    `backend/windmill-worker/src/worker_flow.rs:1405-1415`, `:3865-3885`
+    `@ v1.862.0` (the step's result carried on, storage read only when it
+    is absent), `:3066-3075`, `:4517-4523` (handed to the transforms as
+    `previous_result`); `backend/windmill-worker/src/js_eval.rs:54-71
+    @ v1.862.0` (an exact `results.<prev>` returns it).
   - Cases 2 and 3: `backend/windmill-queue/src/jobs.rs:6450-6487 @ v1.862.0`
     (the names and values normalised before the push looks at them),
     `:7896-7907` (the serialised arguments stripped before the job row's
@@ -3864,7 +3882,7 @@ run of batch E3f in the [design README](../design/README.md).
     `backend/windmill-common/src/error.rs:51-52`, `:152-156`, `:250-281`.
   - Release notes 1.768.0 and 1.826.0; PostgreSQL:
     https://www.postgresql.org/docs/current/datatype-json.html
-- **Conformance:** [FX-48/a–FX-48/d](conformance.md#fx-48)
+- **Conformance:** [FX-48/a–FX-48/e](conformance.md#fx-48)
 - **Note:** the other text jsonb input rejects, an unpaired surrogate escape
   or a number outside `numeric`'s range, is not removed and still fails
   at the boundary; see [FX-51](#fx-51). Case 1 is recorded for a top-level
@@ -3911,6 +3929,17 @@ run of batch E3f in the [design README](../design/README.md).
 
   The v1.767.0 outcomes are kept as history. Which escapes are removed,
   an error result and equal keys are source-traced (drafted).
+
+- **Revision 2026-11-07 (retarget to v1.862.0, validation round 1):** case
+  1 said that later steps read the stored value. Only readers of storage
+  do: the completion strips a copy made for the insert, and the flow
+  carries the producer's text on in memory ([FX-42](#fx-42) rule 3), so
+  the next module's transforms still see the NUL. Case 1 now says which
+  readers see which text, and new case [FX-48/e](conformance.md#fx-48)
+  tells them apart: after `"x\u0000y"`, the next step's
+  `previous_result.length` is 3 while a later step's `results.a.length`,
+  read from storage, is 2 (fixture `execution/fx-48-jsonb`, run
+  `nul_memory`, oracle run ORACLE_RUN_W5E_R1).
 
 <a id="fx-50"></a>
 ### FX-50 · How error messages gain an `Error: ` prefix and location suffixes

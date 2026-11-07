@@ -1,0 +1,14 @@
+# FX-48/e: a returns "x\u0000y". Its stored result loses the NUL, but b's
+# transforms read a's in-memory text, so previous_result is three
+# characters with a NUL at index 1, while the string b passes on is
+# stripped when b's job is pushed; c reads a from storage (another step's
+# id), two characters. Predicted from the source (CE 1.862.0).
+spec: [FX-48/e]
+target: f/wl_fx51/nul_memory
+expect:
+  status: success
+  result: {len: 2, code: 121}
+  steps:
+    "m:a": {status: success, result: "xy"}
+    "m:b": {status: success, args: {len: 3, code: 0, p: "xy"}, result: {len: 3, code: 0, p: "xy"}}
+    "m:c": {status: success, args: {len: 2, code: 121}, result: {len: 2, code: 121}}

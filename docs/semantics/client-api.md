@@ -288,7 +288,7 @@ interface); `WA-Vn` findings were added during validation.
   | Name | Value |
   |---|---|
   | `WM_WORKSPACE` | workspace id |
-  | `WM_ROOT_WORKSPACE` | new at v1.862.0: the nearest workspace at or above the job's that is an environment of its own (a root, "prod", or a dev workspace). That is `WM_WORKSPACE` unless the workspace is a fork, or when the chain cannot be resolved |
+  | `WM_ROOT_WORKSPACE` | new at v1.862.0: the nearest workspace at or above the job's that is an environment of its own (a root, "prod", or a dev workspace), so `WM_WORKSPACE` unless the workspace is a fork. A lookup that finds no such workspace gives `WM_WORKSPACE`. A lookup that fails gives the root last resolved for the workspace, even from an expired cache entry, and `WM_WORKSPACE` only when there is none (source-traced; the oracle's workspaces are not forks) |
   | `WM_TOKEN` | per-job ephemeral bearer token with the run's permissions |
   | `WM_EMAIL` | `permissioned_as_email` |
   | `WM_USERNAME` | `created_by` |
@@ -352,10 +352,11 @@ interface); `WA-Vn` findings were added during validation.
   URL), `:829` (the 401); `backend/windmill-api/src/lib.rs:547-549`,
   `:595`, `:716-717` (the authenticated group and its layers), `:827-830`
   (the unauthenticated job routes outside it). At v1.862.0:
-  `backend/windmill-common/src/variables.rs:793`, `:822-829 @ v1.862.0`
+  `backend/windmill-common/src/variables.rs:794`, `:824-831 @ v1.862.0`
   (`WM_ROOT_WORKSPACE`), `:948-953` (`WM_END_USER_EMAIL`);
   `backend/windmill-common/src/workspaces.rs:3124-3175 @ v1.862.0` (the
-  root workspace); `backend/windmill-api-jobs/src/execution.rs:248-266
+  root workspace; a cached answer at `:3137-3143`, the fallbacks at
+  `:3159-3172`); `backend/windmill-api-jobs/src/execution.rs:248-266
   @ v1.862.0` (a run route's end user: none for a trigger, the calling
   job's for a job token, else the caller's address), `:1069`;
   `backend/windmill-api/src/apps.rs:5177-5178 @ v1.862.0` (an app run);

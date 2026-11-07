@@ -53,14 +53,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 19 | 0 | 0 |
-| [Flow execution](#execution) | 166 | 111 | 54 | 1 | 0 | 152 | 0 | 1 |
+| [Flow execution](#execution) | 167 | 112 | 54 | 1 | 0 | 153 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 195 | 130 | 63 | 0 | 2 | 181 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
 | [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1058 | 733 | 308 | 8 | 9 | 671 | 0 | 7 |
+| **Total** | 1059 | 734 | 308 | 8 | 9 | 672 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -2602,8 +2602,10 @@ contested and now carry their own provenance.
 - **FX-48/a** · oracle-observed · A NUL in a result is removed when the
   result is stored.
   - **Given:** `[a: bun: return "x\u0000y"]`.
-  - **Expect:** `{success: true, result: "xy"}`; a later step reading
-    `results.a` or `previous_result` gets `"xy"`.
+  - **Expect:** `{success: true, result: "xy"}`: `a`'s stored result, which
+    the job API and every reader of storage get. The next step's
+    transforms read the in-memory text, which still holds the NUL
+    ([FX-48/e](#fx-48)).
   - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected,
     after the insert retries (up to 10 × 3 s), `{success: false, result:
     {"error": {"name": "InternalErr", "message": <starts "Internal: Could
@@ -2648,6 +2650,20 @@ contested and now carry their own provenance.
     and no job, as CE v1.767.0 did. Windmill 1.826.0 removes the NUL from
     a job's arguments before the job row is stored.
   - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: both requests answered 400, `text/plain`, body `SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5`, and the number of flow jobs at the path did not change. Re-recorded on CE v1.862.0, oracle run 42327335039, as expected; the fixture masks the two job ids.
+- **FX-48/e** · oracle-observed · The next step's transforms see the NUL
+  in memory, storage readers see it removed.
+  - **Given:** `[a: bun: return "x\u0000y", b: bun(len, code, p), c:
+    bun(len, code)]` with `b`'s `len = "previous_result.length"`,
+    `code = "previous_result.charCodeAt(1)"` and `p = "previous_result"`,
+    and `c`'s `len = "results.a.length"` and
+    `code = "results.a.charCodeAt(1)"`; each step returns its arguments.
+  - **Expect:** `a` succeeds with the stored result `"xy"`. `b`'s
+    transforms read `a`'s in-memory text ([FX-42](execution.md#fx-42) rule
+    3): `b` receives `{"len": 3, "code": 0, "p": "xy"}`, the passed-on
+    string stripped when `b`'s job is pushed. `c` reads `a` from storage
+    (route 3 of [FX-10](execution.md#fx-10), another step's id) and
+    receives `{"len": 2, "code": 121}`, which is the flow's result.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_memory`, oracle run ORACLE_RUN_W5E_R1, as expected.
 
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries
@@ -8820,9 +8836,11 @@ schema:
 - **OR-27/a** · oracle-observed · A top-level string with U+0000.
   - **Given:** probe `nul`: `a` returns `"x\u0000y"`, then
     `b(p→previous_result, r→results.a)`.
-  - **Expect:** `a`, `b` and the root have `status: success`; `a`'s result
-    is `"xy"`, and `b` receives and returns `{"p":"xy","r":"xy"}`, the
-    root's result.
+  - **Expect:** `a`, `b` and the root have `status: success`; `a`'s stored
+    result is `"xy"`, and `b` receives and returns `{"p":"xy","r":"xy"}`,
+    the root's result. `b`'s transforms read `a`'s in-memory text with the
+    NUL; the arguments they give are stored without it when `b`'s job is
+    pushed ([FX-48/e](#fx-48)).
   - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
     `a` and the root to fail with
     `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence<loc>"}}`
@@ -8834,8 +8852,9 @@ schema:
     arg `"x\u0000"`, and a Python step returning the same (`"x\x00y"`), each
     followed by `b(p→previous_result, r→results.a)`.
   - **Expect:** the key and the nested value lose the NUL as OR-27/a's
-    string does: `a` succeeds with `{"k":1}` and `{"a":["x"]}`, and `b`
-    receives and returns it under both names. The Python step succeeds
+    string does: `a` succeeds with the stored `{"k":1}` and `{"a":["x"]}`,
+    and `b` receives and returns the same under both names, its arguments
+    stripped when its job is pushed. The Python step succeeds
     with `"x null y"`, and `b` receives and returns
     `{"p":"x null y","r":"x null y"}` ([WR-34](languages.md#wr-34)). The
     flow argument is accepted and stored without the NUL, so the run

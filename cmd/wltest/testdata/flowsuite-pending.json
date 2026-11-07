@@ -816,6 +816,10 @@
       "milestone": "W5d",
       "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
     },
+    "conformance/flows/execution/fx-48-jsonb/nul_memory": {
+      "milestone": "W5e",
+      "reason": "a new run of FX-48/e, recorded by this milestone's oracle run"
+    },
     "conformance/flows/execution/fx-49/throws": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"

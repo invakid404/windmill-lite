@@ -1924,17 +1924,22 @@ validation. Open questions are `Q-OR-n`.
     JSON text and every NUL escape `\u0000` is removed from that text
     before it is written to the `jsonb` result column, which refuses the
     escape. The job keeps its outcome: a Bun step returning `"x\u0000y"`
-    succeeds with `"xy"`, and every later reader (the next step's
-    `previous_result` and `results.a`, the job API, the flow's own result)
-    sees `"xy"`.
+    succeeds, and its stored result, which the job API and every reader of
+    storage see, is `"xy"`. Only the stored copy changes: the flow carries
+    the producer's text on in memory ([FX-42](execution.md#fx-42) rule 3),
+    so the next module's input transforms still see the NUL
+    ([FX-48](execution.md#fx-48) case 1, [FX-48/e](conformance.md#fx-48)),
+    and what they pass on is stripped again when that job is pushed.
     - It applies to a string value and to an object key, at the top level
       or nested, and to a success value and an error object alike: a
       failed job's error goes through the same completion insert.
     - Recorded at CE v1.862.0: `"x\u0000y"` is stored as `"xy"`,
       `{"k\u0000":1}` as `{"k":1}` and `{"a":["x\u0000"]}` as
       `{"a":["x"]}`; the step and the root are `success`, and a second step
-      `b(p→previous_result, r→results.a)` receives and returns the stored
-      value under both names.
+      `b(p→previous_result, r→results.a)` receives and returns the value
+      without the NUL under both names. Its transforms read the in-memory
+      text, so the NUL is gone because `b`'s arguments were stripped when
+      its job was pushed.
     - Only a real NUL escape is removed. In JSON text a backslash appears
       only inside a string, and a run of backslashes before `u0000` is a
       NUL escape when the run is odd: the last backslash escapes the `u`.
@@ -1994,8 +1999,9 @@ validation. Open questions are `Q-OR-n`.
     value without the NUL, as Windmill does, where it used to have to fail
     the step.
 - **Evidence:** observed `nul`, `nul_key`, `nul_nested` and `nul_python` at
-  v1.862.0; `backend/windmill-queue/src/jobs.rs:1614-1621 @ v1.862.0` (the
-  result text stripped before the completion insert), `:1047-1051` (every
+  v1.862.0; `backend/windmill-queue/src/jobs.rs:1614-1621 @ v1.862.0` (a
+  stripped copy of the result text made for the completion insert; the
+  in-memory path is in [FX-48](execution.md#fx-48)), `:1047-1051` (every
   completion binds the stripped text), `:1358-1390` (a job's error is
   completed through the same insert); `backend/windmill-common/src/utils.rs:1641-1700
   @ v1.862.0` (the removal: an odd backslash run before `u0000` is
@@ -2042,6 +2048,13 @@ validation. Open questions are `Q-OR-n`.
   removed, equal keys, an error result and a Python result that skips its
   post-processing are source-traced (drafted). The throttle is unchanged
   and no longer follows a NUL.
+
+- **Revision 2026-11-07 (retarget to v1.862.0, validation round 1):** the
+  rule said every later reader sees the value without the NUL. Readers of
+  storage do; the next module's transforms read the producer's text in
+  memory and still see it, which [FX-48/e](conformance.md#fx-48) records.
+  The recorded `b` of the three Bun runs receives `"xy"` because its own
+  arguments are stripped when its job is pushed.
 
 <a id="or-28"></a>
 ### OR-28 · Job kinds the walker meets
@@ -2163,7 +2176,7 @@ validation. Open questions are `Q-OR-n`.
     variables must not depend on it.
 - **Evidence:** observed `env` probe; `backend/windmill-common/src/variables.rs:381-417`
   (distinct job ids, at v1.767.0). At v1.862.0:
-  `backend/windmill-common/src/variables.rs:793`, `:822-829 @ v1.862.0`
+  `backend/windmill-common/src/variables.rs:794`, `:824-831 @ v1.862.0`
   (`WM_ROOT_WORKSPACE`), `:948-953` (`WM_END_USER_EMAIL`, empty when the
   job has no end user); `backend/windmill-common/src/workspaces.rs:3124-3175
   @ v1.862.0` (the root workspace: the workspace itself unless it is a
