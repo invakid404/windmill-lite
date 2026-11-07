@@ -207,7 +207,7 @@
       "case": "WR-50/b",
       "run": "conformance/flows/languages/codebase-cases/node_version",
       "pointer": "/result",
-      "prefix": "v20."
+      "prefix": "v24."
     }
   ]
 }

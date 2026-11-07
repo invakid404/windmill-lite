@@ -1,7 +1,7 @@
 # The facade's error answers and the variable and resource routes, each
 # status, content type and body, from one Bun step that calls the API with
 # its own token: WA-19/b and /c, WA-V2/c, WA-14/d, WA-11/e, WA-11/c (the
-# first candidate ciphertext whose read fails with the padding cause),
+# first candidate ciphertext whose read fails),
 # WA-11/d, WA-12/g (job ids in bodies written <random>, <completed> and
 # <self>) and WA-12/h's superadmin half (the connection fields masked by the
 # step).
@@ -64,7 +64,7 @@ expect:
       read:
         status: 500
         type: text/plain
-        body: "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:265:45 @resolver.rs:262:17"
+        body: "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:519:9 @resolver.rs:311:17"
     wa11d:
       - status: 400
         type: text/plain
@@ -75,7 +75,7 @@ expect:
       - {status: 201}
       - status: 500
         type: text/plain
-        body: "Internal: Error decrypting variable f/wl_fa/p: Internal: Invalid byte 36, offset 0. @variables.rs:269:14 @resolver.rs:262:17"
+        body: "Internal: Error decrypting variable f/wl_fa/p: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:519:9 @resolver.rs:311:17"
     wa12g:
       plain:
         - {status: 200, body: "{\"a\":1}"}
