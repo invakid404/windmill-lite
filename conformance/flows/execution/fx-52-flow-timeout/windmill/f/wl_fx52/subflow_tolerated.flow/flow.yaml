@@ -1,0 +1,17 @@
+summary: "FX-52 a timed-out subflow is a tolerable step failure"
+value:
+  modules:
+    - id: c
+      value: {type: flow, path: f/wl_fx52/slow1, input_transforms: {}}
+      continue_on_error: true
+    - id: d
+      value:
+        type: rawscript
+        content: "!inline id.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: previous_result}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

@@ -1,7 +1,7 @@
-# FX-24 path 4: a flow's own timeout (its metadata, OF-16) is stored on
-# the flow job but nothing enforces it, since flow jobs bypass every
-# executor timer: the 3 s step outlives the flow's 1 s and the flow
-# succeeds.
+# FX-24 path 4, OF-16: a flow's metadata timeout (beside value) is stored
+# with the flow but reaches no run, so nothing enforces it: the 3 s step
+# outlives the flow's 1 s and the flow succeeds. (The enforced limit is
+# value.timeout, FX-52.)
 spec: [FX-24, OF-16]
 target: f/wl_fx24/flow_timeout
 expect:

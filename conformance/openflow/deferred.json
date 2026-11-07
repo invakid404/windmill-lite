@@ -17,6 +17,7 @@
     {"spec": "OF-15/e", "reason": "a failed first lock keeps the raw value; windmill-lite never runs Windmill's dependency job", "expected_in": "not applicable"},
     {"spec": "OF-16/c", "reason": "later: the same_worker child-count rule is run-time behaviour", "expected_in": "a later engine milestone; none in docs/design/0012 yet"},
     {"spec": "OF-16/d", "reason": "later: the same_worker child-count rule is run-time behaviour", "expected_in": "a later engine milestone; none in docs/design/0012 yet"},
+    {"spec": "OF-16/e", "reason": "out: concurrency settings are a queue control windmill-lite does not implement, and CE ignores the limit (EE); the case is the deployed value's normalisation, recorded by conformance/flows/execution/fx-52-flow-timeout, run concurrency", "expected_in": "not applicable"},
     {"spec": "OF-17/a", "reason": "the reference's revision of 2026-10-29 settled Q-OF-11 from the source: the status list depends on the form enqueue builds it from (OF-V5); the virtual step is added at normalisation. Oracle-observed since the revision SC5: batch E3f recorded both lists (conformance/flows/execution/fx-18-rest, run fx4_ids, oracle run 41000318656; conformance/flows/openflow/flow-script-off, run enqueue, oracle run 40994947681)", "expected_in": "conformance/ir (A5)"},
     {"spec": "OF-18/a", "reason": "run-time: the flow schema fills no defaults", "expected_in": "N1a"},
     {"spec": "OF-18/b", "reason": "run-time control for OF-18/a", "expected_in": "N1a"},

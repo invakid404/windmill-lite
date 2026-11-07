@@ -1,0 +1,10 @@
+# FX-52/f: a step timeout of 0 is unset, so the subflow keeps its own
+# timeout of 1 s and ends as in subflow_own.
+spec: [FX-52/f]
+target: f/wl_fx52/subflow_step_zero
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "flow terminated due to timeout: the flow exceeded its 1s timeout"}}
+  steps:
+    "m:c": {status: canceled, args: {}, result: {error: {name: Canceled, message: "Job canceled: the flow exceeded its 1s timeout by timeout", reason: "the flow exceeded its 1s timeout", canceler: timeout}}}
+    "m:c/m:x": {status: canceled, args: {ms: 6000}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to cancelled by timeout (reason: the flow exceeded its 1s timeout)", step_id: x}}}

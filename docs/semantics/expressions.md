@@ -858,21 +858,22 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-29"></a>
 ### JE-29 · `timeout`
 
-**Scope:** core · **Confidence:** high (oracle-observed; error routing: medium) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (oracle-observed; error routing: medium) · **Status:** confirmed · verified at v1.767.0 only, except a value of 0 or less (re-checked at v1.862.0)
 
 - **Rule:**
   - The value must deserialise as a **32-bit signed integer** number of seconds.
   - **Error messages:**
     - a static value that fails: `Error parsing static value as i32: <serde error>`;
     - a JavaScript result that fails: `Error parsing result as i32: <serde error>. Value was: <json>`, where `<json>` is the evaluator's output text as it is, not re-serialised: a [JE-8](#je-8) shortcut quotes `previous_result`'s text as [JE-44](#je-44)'s table gives it (after an ordinary step the producer's text, `Value was: {"b":1,"a":2}`; right after a loop a compact array in `jsonb` key order, `Value was: [{"a":2,"b":1}]`), a [JE-7](#je-7) shortcut a stored flow input member's spaced `jsonb` text (`Value was: {"a": 2, "b": 1}`), a [JE-9](#je-9) lookup the stored `jsonb` text with its spacing and key order (`Value was: {"a": 2, "b": 1}`), and JavaScript its `JSON.stringify` text (`Value was: 1.5`) (oracle-observed);
-    - a negative value: `Timeout value cannot be negative`;
+    - a value of 0 or less is not an error: it supplies no custom timeout, so the effective timeout is chosen as if the module had none ([FX-24](execution.md#fx-24), 1.768.0); the field's presence still prevents a loop body from collapsing ([FX-46](execution.md#fx-46)). At v1.767.0 a negative value failed with `Timeout value cannot be negative`;
     - an evaluation error: ``Error during evaluation of expression `<expr>`:\n<evaluator error>``.
   - **Scope:** per [JE-22](#je-22), including `results`.
   - **When evaluated:** at push time, after the transforms. Failures are flow-chaining failures, routed per [JE-35](#je-35): after a completed step the flow fails with `InternalError` and the message as above, without prefix or location suffix; at the first module, at the root flow's first pickup, it fails as `Anyhow` with the message `Error: ` plus the message as above plus one location suffix (oracle-observed).
-- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:4379-4399`, `:2659-2708`. Recorded: run `je29-a` of `conformance/flows/je/waits`, runs `je8-order-timeout` and `je8-order-timeout-db` of `conformance/flows/je/shortcuts` (oracle run 40687124625); runs `fi_first`, `fi_later` and `loop_prev` of `conformance/flows/je/shortcut-texts` (oracle run 40794872025).
+- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:4379-4399`, `:2659-2708`; a value of 0 or less: `backend/windmill-worker/src/worker_flow.rs:5030-5049 @ v1.862.0`, `:6736-6746 @ v1.862.0`. Recorded: run `je29-a` of `conformance/flows/je/waits`, runs `je8-order-timeout` and `je8-order-timeout-db` of `conformance/flows/je/shortcuts` (oracle run 40687124625); runs `fi_first`, `fi_later` and `loop_prev` of `conformance/flows/je/shortcut-texts` (oracle run 40794872025).
 - **Conformance:** [JE-29/a](conformance.md#je-29)
 - **Revision 2026-10-28 (oracle, batch E3a):** added that the `Value was:` part quotes the evaluator's text unchanged, which batch E3a recorded through both lookup routes, and the recorded chaining envelope. The rule is unchanged.
 - **Revision 2026-10-29 (oracle, batch E3e):** batch E3e quoted three more texts through this site, a stored flow input member through [JE-7](#je-7) and the aggregate right after a loop through [JE-8](#je-8) ([JE-44/d](conformance.md#je-44), [JE-44/e](conformance.md#je-44)), and recorded the first-pickup envelope (`Anyhow`, `Error: …` with one location suffix). Added them; the rule is unchanged.
+- **Revision 2026-11-07 (retarget to v1.862.0, a value of 0 or less re-checked):** a `timeout` of 0 or less is no longer refused but unset (1.768.0); the parse errors and their routing are unchanged. Re-recorded on CE v1.862.0: the negative and zero timeouts of `conformance/flows/execution/fx-24` complete ([FX-24](execution.md#fx-24)), and a JavaScript `timeout` giving the string `"5"` at the root's first pickup fails as `Anyhow` with `Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"` and one location suffix (`conformance/flows/execution/fx-15` run `root_pickup_i32`, [FX-15/b](conformance.md#fx-15)). The rest of the finding is verified at v1.767.0 only.
 
 <a id="je-30"></a>
 ### JE-30 · The `forloopflow` iterator
