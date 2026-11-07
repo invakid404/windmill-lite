@@ -7,7 +7,7 @@ expect:
   status: failure
   result: parent-handled
   steps:
-    "m:c": {status: failure, args: {}, result: {error: {name: Anyhow, message: "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"}}}
+    "m:c": {status: failure, args: {}, result: {error: {name: Anyhow, message: "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:5065:13"}}}
     "m:c/m:l": {status: not_run, ran: false}
     "m:c/s:failure": {status: not_run, ran: false}
     "s:failure": {status: success, args: {}, result: parent-handled}
