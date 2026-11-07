@@ -178,19 +178,22 @@ func TestUnwalkedJobIDsAcrossRepeats(t *testing.T) {
 				t.Errorf("the second execution differs from the first: %s", diff)
 			}
 			for _, v := range []json.RawMessage{obs[0].Result, obs[0].Steps[d].Result} {
+				// Each preview's result array starts with its failed step's
+				// error; the rest are other values.
 				var got map[string]struct {
-					Result []struct {
-						Error struct {
-							JobID string `json:"job_id"`
-						} `json:"error"`
-					} `json:"result"`
+					Result []json.RawMessage `json:"result"`
 				}
 				if err := json.Unmarshal(v, &got); err != nil {
 					t.Fatal(err)
 				}
 				for i, k := range []string{"ba", "par", "seq"} {
-					if r := got[k].Result; len(r) == 0 || r[0].Error.JobID != fmt.Sprintf("<job:?%d>", i+1) {
-						t.Errorf("%s's failed step: %+v, want the job id <job:?%d>", k, r, i+1)
+					var failed struct {
+						Error struct {
+							JobID string `json:"job_id"`
+						} `json:"error"`
+					}
+					if r := got[k].Result; len(r) == 0 || json.Unmarshal(r[0], &failed) != nil || failed.Error.JobID != fmt.Sprintf("<job:?%d>", i+1) {
+						t.Errorf("%s's failed step: %s, want the job id <job:?%d>", k, v, i+1)
 					}
 				}
 			}
