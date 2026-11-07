@@ -1,0 +1,8 @@
+# FX-52/d: a flow timeout of 0 is unset, so the 2 s step completes.
+spec: [FX-52/d]
+target: f/wl_fx52/zero
+expect:
+  status: success
+  result: 2000
+  steps:
+    "m:a": {status: success, args: {ms: 2000}, result: 2000}

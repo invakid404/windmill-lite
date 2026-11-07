@@ -1,0 +1,11 @@
+# OF-16/e: a concurrent_limit of 0, on the flow and on its step, is unset,
+# with its time window; the flow runs as if neither were written. (CE
+# ignores concurrency limits, an EE feature; the deployed value is in the
+# recording's deployment evidence.)
+spec: [OF-16/e]
+target: f/wl_fx52/concurrency
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {}, result: 1}

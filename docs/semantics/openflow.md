@@ -799,7 +799,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-16"></a>
 ### OF-16 · Flow-level fields (`FlowValue`) and flow metadata
 
-**Scope:** core (modules, failure_module, preprocessor_module, skip_expr, flow_env, flow-level timeout); later (early_return response, same_worker rejection, caching); out (queue and placement controls) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (modules, failure_module, preprocessor_module, skip_expr, flow_env, flow-level timeout); later (early_return response, same_worker rejection, caching); out (queue and placement controls) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only, except the flow-level `timeout` and a `concurrent_limit` of 0 or less (re-checked at v1.862.0)
 
 - **Rule:**
   - **`FlowValue` fields:** `modules` (required), `failure_module`,
@@ -812,9 +812,21 @@ the effective decoder decides acceptance (OF-1).
     (string), `cache_ttl` (u32), `cache_ignore_s3_path`, `early_return`
     (string), `priority` (i16), `chat_input_enabled`, `flow_env` (map of name
     to raw JSON; `$var:`/`$res:` references allowed), `delete_after_use`
-    (dropped, [OF-12](#of-12)), `delete_after_secs`. The schema types
+    (dropped, [OF-12](#of-12)), `delete_after_secs`, `timeout` (i32; added in
+    1.861.0, see below). The schema types
     `concurrent_limit` and `concurrency_time_window_s` as `number`; the decoder
     requires integers.
+  - **`timeout`** (at v1.862.0) is the flow run's wall-clock limit in whole
+    seconds, which the server enforces by canceling the run
+    ([FX-52](execution.md#fx-52)). The API stores it as written, a negative
+    value included; a value of 0 or less is unset when a run is pushed.
+  - **A `concurrent_limit` of 0 or less is unset** (at v1.862.0, 1.768.0):
+    wherever the concurrency settings are decoded, at the flow level and
+    on a `rawscript` or `flowscript` module, such a limit becomes absent
+    and takes `concurrency_time_window_s` with it. So the flow value stored
+    after the dependency job holds neither field. At v1.767.0 a stored `0`
+    was a limit of zero slots. CE ignores concurrency limits anyway
+    (`EE`).
   - **`failure_module` and `preprocessor_module`** are ordinary modules. The
     schema's "must have id `failure`/`preprocessor`" and "only
     script/rawscript" are **not enforced**. With no failure module, the status
@@ -834,13 +846,17 @@ the effective decoder decides acceptance (OF-1).
     `same_worker` placement is otherwise out; this rejection is later.
   - **Execution-relevant `value` fields:** `modules`, `failure_module`,
     `preprocessor_module`, `skip_expr`, `flow_env`, `early_return` (response
-    only), `cache_ttl`/`cache_ignore_s3_path` (caching) and `same_worker`.
+    only), `cache_ttl`/`cache_ignore_s3_path` (caching), `same_worker` and,
+    at v1.862.0, `timeout`.
   - **Queue and placement controls (out):** `concurrent_limit`,
     `concurrency_key`, `concurrency_time_window_s`, debouncing, `priority`,
     `preserve_step_tags`, `chat_input_enabled`, `delete_after_secs`.
   - **Flow metadata outside `value`** (also in `flow.yaml`): `summary`,
     `description`, `schema`, and:
-    - execution input: `timeout` (i32, whole-flow seconds);
+    - `timeout` (i32, whole-flow seconds): stored with the flow (a value of
+      0 or less unset at creation) and returned by the API, but at v1.862.0
+      it reaches no run, so nothing enforces it; the enforced limit is
+      `value.timeout` above;
     - placement or permission (out or later): `tag`, `dedicated_worker`,
       `on_behalf_of_email`, `visible_to_runner_only`, `ws_error_handler_muted`
       (EE);
@@ -854,9 +870,21 @@ the effective decoder decides acceptance (OF-1).
   `backend/windmill-api-jobs/src/execution.rs:290-335`;
   `backend/windmill-api/openapi.yaml:29542-29625` (`FlowMetadata`,
   `OpenFlowWPath`); `openflow.openapi.yaml:23-127, 110-112`.
-- **Conformance:** [OF-16/a–d](conformance.md#of-16); `early_return` cases are
-  under [OF-V3](conformance.md#of-v3).
+- **Evidence at v1.862.0** (the flow-level `timeout` and the concurrency
+  rule): `backend/windmill-types/src/flows.rs:304-347` (`timeout` in
+  `FlowValue`), `:131-140`, `:180-190` (the metadata `timeout` in `NewFlow` and `EditFlow`);
+  `backend/windmill-types/src/runnable_settings.rs:105-162` (a limit of 0 or
+  less unset with its window, on every decode), `:164-206` (the same for a
+  module's settings); `backend/windmill-api-flows/src/flows.rs:673-677`
+  (the metadata `timeout` normalised at creation);
+  `backend/windmill-queue/src/jobs.rs:7361-7362`, `:7988-7991` (the run's
+  limit from `value.timeout`), `:5042-5054` (CE ignores the limits);
+  `openflow.openapi.yaml` `FlowValue.timeout`.
+- **Conformance:** [OF-16/a–e](conformance.md#of-16); `early_return` cases are
+  under [OF-V3](conformance.md#of-v3); the flow-level `timeout`'s runs are
+  [FX-52](conformance.md#fx-52)'s.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** the `same_worker` pair is recorded ([OF-16/c, OF-16/d](conformance.md#of-16); fixture `conformance/flows/openflow/of-deployed`, runs `same_one` and `same_two`, oracle run 41000318656): one child succeeds with `[5]`; two children fail the root flow at pickup with name `Anyhow` and `Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:3822:13`, the form [CF-7](control-flow.md#cf-7) gives for a loop at step 0. The `early_return` fixture is recorded under [OF-V3](#of-v3).
+- **Revision 2026-11-07 (retarget to v1.862.0, the flow-level `timeout` and `concurrent_limit` re-checked):** `FlowValue` gained `timeout`, the flow run's enforced wall-clock limit (1.861.0, [FX-52](execution.md#fx-52)); the metadata `timeout` beside `value` is stored but reaches no run (recorded on CE v1.862.0: `conformance/flows/execution/fx-24` run `flow_timeout` completes its 3 s step under a metadata `timeout: 1`). A `concurrent_limit` of 0 or less is unset with its time window (1.768.0): recorded as [OF-16/e](conformance.md#of-16), whose deployed value, read back after the dependency job, holds neither field at the flow level or on the step. The rest of the finding is verified at v1.767.0 only.
 
 <a id="of-17"></a>
 ### OF-17 · Virtual trailing identity for a final sleep or suspend
