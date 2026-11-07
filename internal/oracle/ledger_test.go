@@ -152,9 +152,6 @@ func TestPendingVerdictOnSessions(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if strings.HasPrefix(tc.name, "a recording that") {
-				t.Skip("retarget-pending: W6a the fake oracle answers the smoke fixture's fail run without CE 1.862.0's job_id and flow_path, which its expect now holds")
-			}
 			rig := newRig(t)
 			s := rig.session(20 * GiB)
 			s.Check, s.RepoRoot = true, filepath.Dir(rig.fixture)

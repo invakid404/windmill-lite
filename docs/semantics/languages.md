@@ -1299,6 +1299,7 @@ This area covers how one script step runs: from the args map the worker hands it
     - **Environment:** includes `BASE_INTERNAL_URL` and `DENO_AUTH_TOKENS`.
 - **Evidence:** `backend/windmill-worker/src/deno_executor.rs:91`, `:261-381` (wrapper; error object at `:370-378`), `:307-353` (spread), `:446-511` (command), `:563-604` (import map); `backend/windmill-worker/loader.bun.js:109-110`; `backend/windmill-worker/src/bun_executor.rs:409-423`, `:836-845`; `backend/windmill-api-scripts/src/scripts.rs:2651-2674`, `:2857-2865`, `:2922-2926` (all @ v1.767.0).
 - **Conformance:** [WR-33/a](conformance.md#wr-33); see also [WR-V9/a](conformance.md#wr-v9).
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the error keys re-verified at v1.862.0):** the error object now carries `job_id` and `flow_path` after `step_id`, each when its variable is set ([FX-12](execution.md#fx-12); `backend/windmill-worker/src/deno_executor.rs:430-445` @ v1.862.0). The rest of the finding is verified at v1.767.0 only.
 
 <a id="wr-34"></a>
 ### WR-34 · Python
@@ -1343,6 +1344,7 @@ This area covers how one script step runs: from the args map the worker hands it
   - **Environment:** includes `BASE_INTERNAL_URL`.
 - **Evidence:** `backend/windmill-worker/src/python_executor.rs:660-688` (module path), `:820-837`, `:937-1002` (wrapper; the transforms come before the handler at `:940-966`), `:966-990` (call, stream, write), `:974-983`, `:1211-1228`, `:1640-1807` (spread and hydration; `:1789-1807`), `:1662-1664`, `:1710-1816`, `:1883`, `:2198-2207`, `:2416` (deps), `:3288-3313` (`res_to_json`); `backend/windmill-worker/loader.py:24-91`; `backend/parsers/windmill-parser-py/src/lib.rs:297`, `:581-623` (all @ v1.767.0).
 - **Conformance:** [WR-34/a–d](conformance.md#wr-34)
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the error keys re-verified at v1.862.0):** the error object now carries `job_id` and `flow_path` after `extra` and `step_id`, each when its variable is set ([FX-12](execution.md#fx-12); `backend/windmill-worker/src/python_executor.rs:995-1013`, `:1071-1089` @ v1.862.0). The rest of the finding is verified at v1.767.0 only.
 
 <a id="wr-35"></a>
 ### WR-35 · Go and Bash

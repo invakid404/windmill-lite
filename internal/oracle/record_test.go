@@ -544,7 +544,7 @@ func (o *fakeOracle) start(r *http.Request) string {
 	}
 	bType := "Success"
 	if !success {
-		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b"}}`, n, n, b)
+		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b","job_id":%q,"flow_path":"f/wl_smoke/two_step"}}`, n, n, b, b)
 		bType = "Failure"
 	}
 	fs := fmt.Sprintf(`{"step":2,"modules":[{"type":"Success","id":"a","job":%q},{"type":%q,"id":"b","job":%q}],"failure_module":{"type":"WaitingForPriorSteps","id":"failure"}}`, a, bType, b)
@@ -636,7 +636,6 @@ func outcomes(rep *Report) map[string]RunReport {
 // provenance are unchanged (OR-V5/a), a changed observation fails the check
 // with a JSON-pointer difference, and a run's expect is enforced.
 func TestSessionRecordsTheSmokeFixture(t *testing.T) {
-	t.Skip("retarget-pending: W6a the fake oracle answers the smoke fixture's fail run without CE 1.862.0's job_id and flow_path, which its expect now holds")
 	rig := newRig(t)
 	ctx := context.Background()
 
@@ -674,7 +673,7 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 	// and fail (OR-11/a, OR-12/a) was compared during the session.
 	b := rec["fail"].Observation.Steps[conformance.SitePath{}.Child(conformance.Module("b"))]
 	var compact bytes.Buffer
-	if err := json.Compact(&compact, b.Result); err != nil || compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"\u003cstack\u003e","step_id":"b"}}` && compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b"}}` {
+	if err := json.Compact(&compact, b.Result); err != nil || compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"\u003cstack\u003e","step_id":"b","job_id":"\u003cjob:m:b\u003e","flow_path":"f/wl_smoke/two_step"}}` && compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b","job_id":"<job:m:b>","flow_path":"f/wl_smoke/two_step"}}` {
 		t.Fatalf("fail run step b: %s", b.Result)
 	}
 	// Effects are grouped by the outer run and normalised (OR-16, OR-V6).
@@ -748,7 +747,6 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 // none is left.
 func TestSessionDeletesEachWorkspace(t *testing.T) {
 	// spec: OR-6/a
-	t.Skip("retarget-pending: W6a the fake oracle answers the smoke fixture's fail run without CE 1.862.0's job_id and flow_path, which its expect now holds")
 	rig := newRig(t)
 	var fixtures []*conformance.Fixture
 	for i := 0; i < 3; i++ {
@@ -1039,7 +1037,6 @@ func TestSessionCancelsATimedOutRun(t *testing.T) {
 // TestSessionOutDirStaysInside: --out never places a recording outside its
 // directory, which would overwrite a fixture's own recording.
 func TestSessionOutDirStaysInside(t *testing.T) {
-	t.Skip("retarget-pending: W6a the fake oracle answers the smoke fixture's fail run without CE 1.862.0's job_id and flow_path, which its expect now holds")
 	rig := newRig(t)
 	s := rig.session(20 * GiB)
 	s.Check, s.OutDir, s.RepoRoot = true, t.TempDir(), t.TempDir()
@@ -1062,7 +1059,6 @@ func TestSessionOutDirStaysInside(t *testing.T) {
 // second session confirms unchanged (OR-15, OR-V5/a).
 func TestSessionWritesMismatchedObservations(t *testing.T) {
 	// spec: OR-V5/a
-	t.Skip("retarget-pending: W6a the fake oracle answers the smoke fixture's fail run without CE 1.862.0's job_id and flow_path, which its expect now holds")
 	rig := newRig(t)
 	ctx := context.Background()
 	rig.oracle.tag = "ho"
@@ -1237,7 +1233,6 @@ func TestSessionMismatchDirRefusals(t *testing.T) {
 // anything runs, whatever its observation says.
 func TestSessionRefusesARecordingOfAnotherOracle(t *testing.T) {
 	// spec: OR-V5/b
-	t.Skip("retarget-pending: W6a the fake oracle answers the smoke fixture's fail run without CE 1.862.0's job_id and flow_path, which its expect now holds")
 	rig := newRig(t)
 	ctx := context.Background()
 	if _, err := rig.session(20*GiB).Run(ctx, []*conformance.Fixture{rig.load(t)}); err != nil {

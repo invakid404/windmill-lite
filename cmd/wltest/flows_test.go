@@ -221,10 +221,12 @@ func retargetLedger(t *testing.T) *conformance.Ledger {
 // conformance/flows/execution/fx-40, pass on windmill-lite in fresh and in
 // warm mode, since the result cache lives in the engine, not in a harness
 // process (FX-40, D4). Every run of the fixture runs and passes in both.
+// On the retarget branch, the ledger's flow_suite entries apply as in
+// TestFlowSuite (judgeSuite).
 func TestCacheFixturesFreshAndWarm(t *testing.T) {
-	t.Skip("retarget-pending: W6a run b's expect holds CE 1.862.0's job_id and flow_path in its step error, which windmill-lite's engine does not give yet")
 	bun := bunOrSkip(t)
 	root := repo(t)
+	pending := retargetLedger(t).FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -239,13 +241,27 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 				if fr.err != nil {
 					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
 				}
+				rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
+				if err != nil {
+					t.Fatal(err)
+				}
 				for _, r := range fr.runs {
 					n++
+					var what string
 					switch {
 					case r.unsupported != "":
-						t.Errorf("run %s is unsupported: %s", r.run, r.unsupported)
+						what = "is unsupported: " + r.unsupported
 					case len(r.problems) > 0:
-						t.Errorf("run %s failed:\n  %s\nharness diagnostics:\n%s", r.run, strings.Join(r.problems, "\n  "), r.diag)
+						what = "failed:\n  " + strings.Join(r.problems, "\n  ") + "\nharness diagnostics:\n" + r.diag
+					}
+					e, listed := pending[filepath.ToSlash(rel)+"/"+r.run]
+					switch judgeSuite(what != "", e, listed, mode) {
+					case verdictFail:
+						t.Errorf("run %s %s", r.run, what)
+					case verdictPending:
+						t.Logf("run %s, pending in the retarget ledger (%s), %s", r.run, e.Marker(), what)
+					case verdictStale:
+						t.Errorf("run %s passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", r.run, mode, conformance.LedgerPath, e.Marker())
 					}
 				}
 			}
