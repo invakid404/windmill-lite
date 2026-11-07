@@ -1,9 +1,11 @@
 # WR-43: the native error shapes. An exception that reaches the end of the
-# run is exactly {message, stack, name}, with no step_id and no extra: an
-# Error's name and message decoded together, its stack after the source
-# line its first frame points at; three nulls for any other value. Anything
-# that fails before the module runs is the worker's `execution error:`, as
-# is an entrypoint whose promise is pending with nothing left to settle it.
+# run is {message, stack, name} and then the step context keys of FX-12
+# (step_id, job_id, flow_path), with no extra: an Error's name and message
+# decoded together, its stack after the source line its first frame points
+# at; three nulls for any other value. Anything that fails before the
+# module runs is the worker's `execution error:`, with step_id alone, as is
+# an entrypoint whose promise is pending with nothing left to settle it.
+# The runner writes the step's own job id as "<job:m:a>".
 # "Both kinds" cases run once as nativets and once as a bun script whose
 # first line is //native.
 finding: WR-43
@@ -18,7 +20,7 @@ cases:
       export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/a
     variant: bunnative
     provenance: oracle-observed
@@ -28,7 +30,7 @@ cases:
       export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/b
     variant: nativets
     provenance: oracle-observed
@@ -42,11 +44,11 @@ cases:
       }
     runs:
       - args: '{"v":"s"}'
-        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"v":"o"}'
-        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"v":"n"}'
-        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/b
     variant: bunnative
     provenance: oracle-observed
@@ -60,11 +62,11 @@ cases:
       }
     runs:
       - args: '{"v":"s"}'
-        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"v":"o"}'
-        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"v":"n"}'
-        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/c
     variant: nativets
     provenance: oracle-observed
@@ -109,7 +111,7 @@ cases:
       export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/d
     variant: bunnative
     provenance: oracle-observed
@@ -119,7 +121,7 @@ cases:
       export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/e
     variant: nativets
     provenance: oracle-observed
@@ -226,12 +228,16 @@ cases:
         claims:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: SyntaxError}
-          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/job_id, equals: "<job:m:a>"}
+          - {at: /result/error/flow_path, equals: f/wl_step/flow}
       - args: '{"api":"digest"}'
         claims:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: NotSupportedError}
-          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/job_id, equals: "<job:m:a>"}
+          - {at: /result/error/flow_path, equals: f/wl_step/flow}
   - spec: WR-43
     variant: web-api-rejection-bunnative
     provenance: source-derived
@@ -270,7 +276,7 @@ cases:
       }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: web-api-continuation-bunnative
     provenance: source-derived
@@ -284,7 +290,7 @@ cases:
       }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: stream-iteration-nativets
     provenance: source-derived
@@ -310,7 +316,7 @@ cases:
       - args: '{"how":"read"}'
         expect: {status: success, result: ab}
       - args: '{"how":"detached"}'
-        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"caught"}'
         expect: {status: success, result: success}
   - spec: WR-43
@@ -335,7 +341,7 @@ cases:
       - args: '{"how":"read"}'
         expect: {status: success, result: ab}
       - args: '{"how":"detached"}'
-        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"caught"}'
         expect: {status: success, result: success}
   - spec: WR-43
@@ -368,15 +374,15 @@ cases:
       }
     runs:
       - args: '{"how":"values"}'
-        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"entries"}'
-        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"forEach"}'
-        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"structuredClone"}'
-        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"message"}'
-        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: web-api-channels-bunnative
     provenance: source-derived
@@ -403,15 +409,15 @@ cases:
       }
     runs:
       - args: '{"how":"values"}'
-        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"entries"}'
-        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"forEach"}'
-        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"structuredClone"}'
-        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"how":"message"}'
-        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: web-api-rejection-handled
     provenance: source-derived
@@ -439,7 +445,7 @@ cases:
       }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: tick, stack: "<stack>", name: RangeError}}}
+        expect: {status: failure, result: {error: {message: tick, stack: "<stack>", name: RangeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: microtask-throw
     provenance: source-derived
@@ -453,7 +459,7 @@ cases:
       }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: micro, stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: micro, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/f
     provenance: oracle-observed
     title: a syntax error fails at the transpile step, before anything loads
@@ -476,7 +482,7 @@ cases:
       export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/g
     variant: bunnative
     provenance: oracle-observed
@@ -486,7 +492,7 @@ cases:
       export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/h
     variant: nativets
     provenance: oracle-observed
@@ -496,7 +502,7 @@ cases:
       export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/h
     variant: bunnative
     provenance: oracle-observed
@@ -506,7 +512,7 @@ cases:
       export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: null-and-string-objects
     provenance: source-derived
@@ -521,11 +527,11 @@ cases:
       }
     runs:
       - args: '{"v":"null"}'
-        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: null}}}
+        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: null, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"v":"string-object"}'
-        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: S}}}
+        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: S, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"v":"subclass"}'
-        expect: {status: failure, result: {error: {message: "", stack: "<stack>", name: Error}}}
+        expect: {status: failure, result: {error: {message: "", stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43
     variant: web-api-error
     provenance: source-derived
@@ -538,7 +544,9 @@ cases:
         claims:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: TypeError}
-          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/job_id, equals: "<job:m:a>"}
+          - {at: /result/error/flow_path, equals: f/wl_step/flow}
   - spec: WR-43/i
     variant: nativets
     provenance: oracle-observed
@@ -552,7 +560,7 @@ cases:
       export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: m, stack: null, name: Error}}}
+        expect: {status: failure, result: {error: {message: m, stack: null, name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-43/i
     variant: bunnative
     provenance: oracle-observed
@@ -562,4 +570,19 @@ cases:
       export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: m, stack: null, name: Error}}}
+        expect: {status: failure, result: {error: {message: m, stack: null, name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
+  - spec: WR-43
+    variant: context-keys-from-the-job
+    provenance: policy
+    title: the step context keys are the job's, whatever the script wrote to its process.env
+    note: >-
+      WR-43 and FX-12: the worker adds the keys to the error value after
+      the run, from the job's environment; the native process.env is only a
+      copy the preamble declares (WR-45). That a write to it changes nothing
+      is this harness's reading of that rule.
+    language: nativets
+    script: |
+      export function main() { process.env.WM_FLOW_STEP_ID = "renamed"; process.env.WM_JOB_ID = "own"; process.env.WM_FLOW_PATH = ""; throw new Error("boom"); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: Error, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}

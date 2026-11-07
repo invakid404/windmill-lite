@@ -49,10 +49,6 @@
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
     },
-    "conformance/flows/client-api/dispatch/identity": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/client-api/job-reads-parallel/held": {
       "milestone": "W6e",
       "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
@@ -75,11 +71,11 @@
     },
     "conformance/flows/client-api/job-reads-parallel/waits": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads-parallel/waits2": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads-parallel/waits3": {
       "milestone": "W6e",
@@ -103,11 +99,11 @@
     },
     "conformance/flows/client-api/job-reads/fail": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/handled": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/incollapsed": {
       "milestone": "W6e",
@@ -123,7 +119,7 @@
     },
     "conformance/flows/client-api/job-reads/loopretry": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/ok": {
       "milestone": "W6e",
@@ -135,7 +131,7 @@
     },
     "conformance/flows/client-api/job-reads/retried": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/shapes": {
       "milestone": "W6e",
@@ -147,7 +143,7 @@
     },
     "conformance/flows/client-api/job-reads/subretry": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the error keys of W6a"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/walk": {
       "milestone": "W6e",
@@ -156,26 +152,6 @@
     "conformance/flows/control-flow/cf-13/b": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/control-flow/cf-15/a": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-15/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-15/c": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-16/a": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-16/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
     "conformance/flows/control-flow/cf-21-throwing/timeout_and_parallelism": {
       "milestone": "W6f",
@@ -201,137 +177,17 @@
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
-    "conformance/flows/control-flow/cf-22/collapsed_input": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-22/exhausted": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-22/iter_parent": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-22/prev_fallback": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-4/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-5/a": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-5/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-6/a": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-7/a": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-7/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/control-flow/cf-v1/a": {
       "milestone": "W6c",
-      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1); the step errors also carry W6a's job_id and flow_path keys"
-    },
-    "conformance/flows/control-flow/cf-v1/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/cf-v1/c-par": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1)"
     },
     "conformance/flows/control-flow/cf-v1/c-seq": {
       "milestone": "W6c",
-      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1); the step errors also carry W6a's job_id and flow_path keys"
-    },
-    "conformance/flows/control-flow/cf-v4/a": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/branchone_retry": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/delay": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/exhausted": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/exhausted_continue": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/exhausted_failure": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/loop_par": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/loop_seq": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/nested": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/once": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1)"
     },
     "conformance/flows/control-flow/subflow-retry/pre_run": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/control-flow/subflow-retry/while_retry": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/waits/body_retry_exhausted": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/waits/body_retry_par": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/waits/body_retry_seq": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/control-flow/waits/branch_retry": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-12/error_extra": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-12/handled": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-12/object_throw": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
     "conformance/flows/execution/fx-14/bad_transform": {
       "milestone": "W6f",
@@ -353,10 +209,6 @@
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
-    "conformance/flows/execution/fx-17/skip_on_retry": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/execution/fx-21/throwing_stop": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
@@ -364,10 +216,6 @@
     "conformance/flows/execution/fx-21/throwing_stop_handler": {
       "milestone": "W6f",
       "reason": "the expect's carried error holds CE 1.862.0's QuickJS frames and columns (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-23/after_tolerated": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
     "conformance/flows/execution/fx-23/canceled_sleep": {
       "milestone": "W6c",
@@ -377,101 +225,13 @@
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
-    "conformance/flows/execution/fx-26/multiplier": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-26/phases": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-27/reuses_args": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-28/false_prevents": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-28/throw_handler": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/execution/fx-28/throw_no_handler": {
       "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet; the step error's job_id and flow_path are W6a's"
-    },
-    "conformance/flows/execution/fx-29/carries_over": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-29/reset_by_success": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-30/tolerated_last": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-30/tolerated_middle": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-31/untolerated": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-32/handler_retry": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-32/sees": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/array_empty": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/array_false": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/array_null": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/array_true": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/array_two": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/object_string": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-33/object_true": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
     "conformance/flows/execution/fx-33/parent_view": {
       "milestone": "W6c",
-      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1); the step errors also carry W6a's job_id and flow_path keys"
-    },
-    "conformance/flows/execution/fx-34/loop": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-34/step_id": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-36/failed_branchall": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1)"
     },
     "conformance/flows/execution/fx-38-pickup/bun": {
       "milestone": "W6c",
@@ -485,10 +245,6 @@
       "milestone": "W6c",
       "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
     },
-    "conformance/flows/execution/fx-40/b": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/execution/fx-48-jsonb/nul_later": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
@@ -496,14 +252,6 @@
     "conformance/flows/execution/fx-48-jsonb/nul_root": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
-    },
-    "conformance/flows/execution/fx-6/after_tolerated": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/execution/fx-6/rederived_on_retry": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
     "conformance/flows/execution/fx-7/result_unbound": {
       "milestone": "W6f",
@@ -520,10 +268,6 @@
     "conformance/flows/je/branches/je31-a": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/errors/je17-a": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
     "conformance/flows/je/errors/je26-b": {
       "milestone": "W6f",
@@ -573,14 +317,6 @@
       "milestone": "W6f",
       "reason": "CE 1.862.0 prefetches a static results read instead of rewriting it into an await (JE-12), which windmill-lite's evaluator does not do yet"
     },
-    "conformance/flows/je/waits/je-v2-a": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/je/waits/je-v2-b": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/je/waits/je-v2-c": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
@@ -593,129 +329,9 @@
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
     },
-    "conformance/flows/je/waits/je32-a": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/je/waits/je32-b": {
-      "milestone": "W6a",
-      "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/languages/bun-results/thrown_string": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/languages/native-codebase/cjs_native": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/native/throws_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/native/throws_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-40/wr40_f_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-40/wr40_hglobal_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-42/wr42_c_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-42/wr42_c_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
     "conformance/flows/languages/wr-43-stack/stack_nativets": {
       "milestone": "W6g",
       "reason": "on CE 1.862.0 the first frame's line of a nativets error is mapped through the transpiler's source map before Windmill reads the stack's source line (WR-43), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_a_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_a_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_b_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_b_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_bnull_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_bnull_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_bobject_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_bobject_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_c_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_c_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_d_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_d_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_g_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_g_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_h_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_h_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_i_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-43/wr43_i_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-44/wr44_b_bunnative": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/languages/wr-44/wr44_b_nativets": {
-      "milestone": "W6a",
-      "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
     },
     "conformance/flows/openflow/of-deployed/f7_ba": {
       "milestone": "W6d",
@@ -737,45 +353,9 @@
       "milestone": "W6e",
       "reason": "CE 1.862.0 sets WM_ROOT_WORKSPACE (1.793.0) and gives WM_END_USER_EMAIL the address of the user who started the run (1.829.0), which windmill-lite's engine does not yet"
     },
-    "conformance/flows/oracle/probes/fail_handler": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/oracle/probes/fail_mid": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
     "conformance/flows/oracle/probes/loop_seq_multi_bare": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/oracle/probes/retry": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/oracle/smoke/fail": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/stub/codebase/ok": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/stub/retry_loop/exhausted": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/stub/retry_loop/ok": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/stub/subflow_retry/ok": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
-    },
-    "conformance/flows/stub/subflow_retry/skipped": {
-      "milestone": "W6a",
-      "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     }
   },
   "step_suite": {},

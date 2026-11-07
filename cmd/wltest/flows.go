@@ -60,6 +60,12 @@ type flowChecker struct {
 	// afterRuns, when set, is called in host mode once a fixture's runs
 	// have ended, before its host's teardown (tests: hostmode_test.go).
 	afterRuns func(*hostRuntime)
+	// runWaitOutcome runs a run-and-wait run (submit: run_wait_result) as
+	// an ordinary submission and checks it without its response, which is
+	// the HTTP adapter's (milestone F7b): the flow's status, result and
+	// steps, which the response carries, are the engine's
+	// (TestRunWaitOutcomes).
+	runWaitOutcome bool
 }
 
 // quickJSOnlyAll sets every flowChecker's quickJSOnly (testmode_test.go).
@@ -249,7 +255,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			switch {
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
-			case r.RunsAndWaits():
+			case r.RunsAndWaits() && !fc.runWaitOutcome:
 				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
@@ -257,6 +263,8 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 				res.unsupported = t.unsupported
 			case t.problem != "":
 				res.problems = []string{t.problem}
+			case r.RunsAndWaits():
+				live = append(live, withoutResponse(r))
 			default:
 				live = append(live, r)
 			}
@@ -794,6 +802,23 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	}
 	problems = append(problems, compareRun(f, r, got, generated)...)
 	return append(problems, checkDelays(tr, r.Delays)...)
+}
+
+// withoutResponse is r with the response left out of its expect and of its
+// recording, for a run-and-wait run checked by its outcome alone
+// (flowChecker.runWaitOutcome).
+func withoutResponse(r conformance.Run) conformance.Run {
+	if r.Expect != nil {
+		e := *r.Expect
+		e.Response = nil
+		r.Expect = &e
+	}
+	if r.Recorded != nil {
+		rec := *r.Recorded
+		rec.Observation.Response = nil
+		r.Recorded = &rec
+	}
+	return r
 }
 
 // counterDir is where fixtures keep the files that count a step's attempts
