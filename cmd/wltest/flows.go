@@ -82,9 +82,9 @@ type runResult struct {
 }
 
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
-// fails. The slowest runs wait for real: a transition the monitor of
-// flows that hang between steps cancels at 60 s (JE-2/a), and retry delays
-// that add up to 26 s (FX-26/a). Tests replace it.
+// fails. The slowest runs wait for real: an expression at a flow's first
+// module whose three attempts time out, about 70 s (JE-2/a), and retry
+// delays that add up to 26 s (FX-26/a). Tests replace it.
 var flowRunTimeout = 150 * time.Second
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
