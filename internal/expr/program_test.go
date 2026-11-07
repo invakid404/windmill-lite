@@ -153,14 +153,30 @@ func TestReplacedSerialisation(t *testing.T) {
 		`(JSON.stringify = () => "\ud800", 1)`:                                       "null",
 		// A string is kept unchecked, JSON or not; the site that reads it
 		// reports what it cannot use.
-		`(JSON.stringify = () => "not json", 1)`:                        "not json",
-		`JSON.stringify = () => '1, "x": 2'; return 0`:                  `1, "x": 2`,
-		`Promise.prototype.then = function () { return "{" }; return 1`: "{",
-		`JSON.stringify = () => '"\\u0000"'; return 1`:                  `"\u0000"`,
+		`(JSON.stringify = () => "not json", 1)`:       "not json",
+		`JSON.stringify = () => '1, "x": 2'; return 0`: `1, "x": 2`,
+		`JSON.stringify = () => '"\\u0000"'; return 1`: `"\u0000"`,
 		// Any other value, a thenable's included, reads as null.
 		`(JSON.stringify = () => ({then: (f) => f(new String("7"))}), 1)`: "null",
 		`(JSON.stringify = () => undefined, 1)`:                           "null",
 	})
+}
+
+// TestReplacedThenOnEngine follows JE-13 and JE-2: the program calls the
+// serialisation's then before the expression's function runs, and adopts
+// the function's promise through Promise.prototype.then as it is then. An
+// expression that replaces then with one that never calls back so leaves
+// the evaluation unsettled, which ends in the attempt limit's timeout.
+func TestReplacedThenOnEngine(t *testing.T) {
+	l := DefaultLimits()
+	l.Attempt = 100 * time.Millisecond
+	p := NewPipeline(realEngine(t, l, 1))
+	setRetry(p, 1, 0)
+	text := `Promise.prototype.then = function () { return "{" }; return 1`
+	_, err := evalOn(t, p, SiteInputTransform, text, nil)
+	if want := "The expression evaluation `" + text + "` took too long to execute (>100ms)"; err == nil || err.Error() != want || !errors.Is(err, ErrAttemptTimeout) {
+		t.Fatalf("Eval: %v, want %q", err, want)
+	}
 }
 
 // countingEngine counts evaluations.

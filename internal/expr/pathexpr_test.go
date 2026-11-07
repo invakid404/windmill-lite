@@ -93,7 +93,7 @@ func TestKeptReads(t *testing.T) {
 		`results.r === results['r'] && results["r"] === results?.r`:   "true",
 		"(results.r.id = 1, results.r.id)":                            "1",
 		"[results.r, results.r].length":                               "2",
-		"Object.keys(results.r).concat(results.r.a)":                  `["0","id","subject","text","n","a","__proto__",1,{"b":2}]`,
+		"Object.keys(results.r).concat(results.r.a)":                  `["0","a","n","id","text","subject","__proto__",1,{"b":2}]`, // the lookup answers jsonb's key order
 		"results.p === previous_result && results.p === results['p']": "true",
 		"(results.p.id = 1, previous_result.id)":                      "1",
 		"true ? 1 : results.f":                                        "1",

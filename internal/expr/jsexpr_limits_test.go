@@ -161,17 +161,17 @@ func (slowLookup) Stored(context.Context, string) (jsonval.Value, bool) {
 	return jsonval.Value{}, false
 }
 
-// TestJSExprKeepsTheAttemptLimit: two lookups of
-// 35 ms each under a 50 ms attempt limit time the evaluation out, with
-// jsExpr on or off; and under a limit below jsMinAttempt jsExpr declines
-// everything.
+// TestJSExprKeepsTheAttemptLimit: two lookups of 60 ms each, which the
+// prefetch makes at once (JE-12), under a 50 ms attempt limit time the
+// evaluation out, with jsExpr on or off; and under a limit below
+// jsMinAttempt jsExpr declines everything.
 func TestJSExprKeepsTheAttemptLimit(t *testing.T) {
 	l := DefaultLimits()
 	l.Attempt = 50 * time.Millisecond
 	p := NewPipeline(realEngine(t, l, 1))
 	setRetry(p, 1, 0)
 	e := Compile(SiteInputTransform, "results.a + results.b")
-	s := &Scope{PreviousID: "other", Results: slowLookup{35 * time.Millisecond}}
+	s := &Scope{PreviousID: "other", Results: slowLookup{60 * time.Millisecond}}
 	for _, on := range []bool{true, false} {
 		p.paths = on
 		_, err := p.Eval(context.Background(), e, s)

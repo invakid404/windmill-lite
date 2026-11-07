@@ -273,6 +273,10 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/execution/fx-28/throw_no_handler": {
+      "milestone": "W6a",
+      "reason": "the expect's step error object carries CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
     "conformance/flows/execution/fx-29/carries_over": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
