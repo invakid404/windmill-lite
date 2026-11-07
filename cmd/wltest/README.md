@@ -643,8 +643,12 @@ of Windmill 1.862.0's image).
   in its native mode), FU5 the `oracle/nul` runs that
   N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
-  made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
-  inside a branchone (CF-23/d to f). A required run stays required. The test runs every
+  made checkable, FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
+  inside a branchone (CF-23/d to f), and the retarget to Windmill 1.862.0
+  `je/je-20-providers`' decryption runs `j1` to `j3` and
+  `execution/fx-48-jsonb`'s `nul_memory`, once windmill-lite gave CE's
+  decryption text and removed a NUL at storage. A required run stays
+  required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

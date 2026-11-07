@@ -461,6 +461,34 @@ func collapses(forLoop, parallel bool, body []openflow.Module, sc scope) bool {
 		(b.Mock == nil || !b.Mock.Enabled)
 }
 
+// StoredNode reports whether a deploy stores body, a container's module
+// list, as a node of the flow's lite form (CF-8, CF-V4): every body but an
+// empty one and the simple body of collapses, exactly one script or
+// rawscript step with none of the envelope fields that keep a loop from
+// collapsing, in a flow with no failure module (hasFailure). Windmill runs
+// a body stored as a node as a FlowNode child flow and an inline one as a
+// FlowPreview child flow, whose job records differ (WA-19). A provided site
+// keeps its original kind, as in collapses. The preprocessor module's
+// bodies, which a deploy keeps inline, are not judged here.
+func StoredNode(body []*Module, hasFailure bool) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if hasFailure || len(body) != 1 {
+		return true
+	}
+	b := body[0]
+	kind := b.Kind
+	if b.Provided != nil {
+		kind = b.Provided.Target.Kind
+	}
+	if kind != KindScript && kind != KindRawScript {
+		return true
+	}
+	return b.Sleep != nil || b.CacheTTL != nil || b.Retry != nil || b.StopAfterIf != nil ||
+		b.StopAfterAllItersIf != nil || b.SkipIf != nil || (b.Mock != nil && b.Mock.Enabled)
+}
+
 // compileExpr is the compiled expression at a site: the expression
 // pipeline's textual stages (trimming, shortcuts, the helper rewrite, the
 // steps to prefetch, mode, bound names and the engine source, JE-5 to

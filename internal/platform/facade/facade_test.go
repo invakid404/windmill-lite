@@ -334,6 +334,35 @@ func TestUnsupportedRoutes(t *testing.T) {
 	}
 }
 
+// JE-19, OR-21: the CE image answers every request to restart a flow, the
+// enterprise route POST /w/{ws}/jobs/restart/f/{id}, with HTTP 400 and its
+// text, whatever the id and the body (client-api/driven run restart, which
+// the flow suite does not require, since its driver starts a flow it then
+// restarts); the answer is the route's, not an unsupported call.
+func TestRestartIsEnterpriseOnly(t *testing.T) {
+	f := newFacade(t, Config{})
+	s := f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
+	o := f.WarmOrigin()
+	const want = "Bad request: Restarting a flow is a feature only available in enterprise version"
+	for _, c := range []struct{ id, body string }{
+		{uid("a-run"), `{"step_id": "b"}`},
+		{uid("unknown"), `{}`},
+		{"not-a-uuid", ``},
+	} {
+		rep := intercept(f, "inv-a", "POST", o+"/api/w/ws/jobs/restart/f/"+c.id, map[string]string{"content-type": "application/json"}, []byte(c.body))
+		if rep.Status != 400 || string(rep.Body) != want || rep.Headers["content-type"] != "text/plain" {
+			t.Errorf("restart %s %s: %d %q %v", c.id, c.body, rep.Status, rep.Body, rep.Headers)
+		}
+	}
+	if u := s.Unsupported(context.Background()); len(u) != 0 {
+		t.Errorf("unsupported %q", u)
+	}
+	// Another workspace's route refuses the caller's token first (WA-4).
+	if rep := intercept(f, "inv-a", "POST", o+"/api/w/other/jobs/restart/f/"+uid("a-run"), nil, nil); rep.Status != 401 {
+		t.Errorf("another workspace: %d %q", rep.Status, rep.Body)
+	}
+}
+
 // fakeExec answers each invocation with a fixed outcome after running do,
 // which stands for the step's platform calls, and settles it.
 type fakeExec struct {

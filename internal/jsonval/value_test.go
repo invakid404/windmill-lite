@@ -63,6 +63,58 @@ func TestHasNUL(t *testing.T) {
 	}
 }
 
+func TestWithoutNUL(t *testing.T) {
+	// spec: OR-27, FX-48 — Windmill removes every real NUL escape, in keys
+	// and values at any depth, before it stores a result or a job's
+	// arguments; an escaped backslash followed by u0000 is kept, and of two
+	// keys made equal jsonb keeps the one written last.
+	tests := []struct {
+		text, stripped, stored string
+	}{
+		{`"x\u0000y"`, `"xy"`, `"xy"`},
+		{`{"k\u0000":1}`, `{"k":1}`, `{"k":1}`},
+		{`{"a":["x\u0000"]}`, `{"a":["x"]}`, `{"a":["x"]}`},
+		{`"\u0000\u0000"`, `""`, `""`},
+		{`"\u00000"`, `"0"`, `"0"`},
+		{`"\\u0000"`, `"\\u0000"`, `"\\u0000"`},
+		{`"\\\u0000"`, `"\\"`, `"\\"`},
+		{`"\\\\u0000"`, `"\\\\u0000"`, `"\\\\u0000"`},
+		{`"\"\u0000\""`, `"\"\""`, `"\"\""`},
+		{`{"k\u0000":1,"k":2}`, `{"k":1,"k":2}`, `{"k":2}`},
+		{`{"k":1,"k\u0000":2}`, `{"k":1,"k":2}`, `{"k":2}`},
+		{`{"a":1}`, `{"a":1}`, `{"a":1}`},
+	}
+	for _, tt := range tests {
+		v := FromProducer([]byte(tt.text))
+		w := v.WithoutNUL()
+		if got := string(w.Producer()); got != tt.stripped {
+			t.Errorf("WithoutNUL(%s) = %s, want %s", tt.text, got, tt.stripped)
+		}
+		if string(v.Producer()) != tt.text {
+			t.Errorf("WithoutNUL changed the producer text of %s", tt.text)
+		}
+		if w.HasNUL() {
+			t.Errorf("WithoutNUL(%s) still holds a NUL", tt.text)
+		}
+		got, err := w.Stored()
+		if err != nil || string(got) != tt.stored {
+			t.Errorf("WithoutNUL(%s).Stored() = %s, %v; want %s", tt.text, got, err, tt.stored)
+		}
+	}
+	// A value with no NUL is returned as it is, and so is the zero Value.
+	v := FromProducer([]byte(`{"a":"\\u0000"}`))
+	if w := v.WithoutNUL(); w.r != v.r {
+		t.Error("WithoutNUL copied a value that holds no NUL")
+	}
+	if !(Value{}).WithoutNUL().IsZero() {
+		t.Error("WithoutNUL of the zero Value is not zero")
+	}
+	// An unpaired surrogate is not removed: jsonb still rejects it (FX-51).
+	if _, err := FromProducer([]byte(`["\u0000","\ud800"]`)).WithoutNUL().Stored(); !errors.Is(err, ErrUnpairedSurrogate) {
+		t.Errorf("Stored() = %v, want ErrUnpairedSurrogate", err)
+	}
+}
+
 func TestStored(t *testing.T) {
 	if _, err := FromProducer([]byte(`{"a":"\u0000"}`)).Stored(); !errors.Is(err, ErrNUL) {
 		t.Errorf("Stored() of a NUL value = %v, want ErrNUL", err)

@@ -109,6 +109,14 @@ record. The reads answer:
   reproduce, such as a canceled job's.
 - **An id that is not a UUID:** the web framework's `400`.
 
+**Restarting a flow** (`restartFlowAtStep`, `POST
+/w/{ws}/jobs/restart/f/{id}`;
+[JE-19](../../../docs/semantics/expressions.md#je-19),
+[OR-21](../../../docs/semantics/oracle.md#or-21)) is an enterprise
+feature (`EE`): every request answers as the CE image answers it, `400`
+`text/plain` `Bad request: Restarting a flow is a feature only available
+in enterprise version`, whatever its id and body, and nothing restarts.
+
 **The resource and variable reads** answer from `Config.Platform`
 ([internal/platform](../README.md#services)), nil meaning none, so every
 read is a not-found; for an invocation whose run chose its own providers
@@ -121,10 +129,10 @@ that the other routes answer from. They keep the three resource-read contracts o
 
 | Operation | Route | Answer |
 |---|---|---|
-| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)), with `$WM_*` strings literal unless `job_id` is given; `allow_cache` is ignored; [A read's `job_id`](#a-reads-job_id) |
+| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)), with `$WM_*` strings literal unless `job_id` is given; `allow_cache` is ignored; [A read's `job_id`](#a-reads-job_id); a path under `CUSTOM_INSTANCE_DB/` answers `401` before anything else, since the caller holds a job's token (WA-12/h) |
 | `getResourceValue` | `GET /w/{ws}/resources/get_value/{path}` | the stored value, nothing resolved (contract (a)) |
 | `existsResource`, `existsVariable` | `GET /w/{ws}/resources/exists/{path}`, `…/variables/exists/{path}` | `true` or `false` |
-| `getVariableValue` | `GET /w/{ws}/variables/get_value/{path}` | the value as a JSON string, a secret's plaintext through `Secrets` and the value resolvers ([WA-11](../../../docs/semantics/client-api.md#wa-11)) |
+| `getVariableValue` | `GET /w/{ws}/variables/get_value/{path}` | the value as a JSON string, a secret's plaintext through `Secrets` and the value resolvers ([WA-11](../../../docs/semantics/client-api.md#wa-11)); a secret held as ciphertext that no host secret service supplies answers `500` with CE's one decryption text (WA-11/c) |
 
 <a id="a-reads-job_id"></a>
 **A read's `job_id`** (WA-12/g) is checked before the read: a value that
