@@ -6,7 +6,7 @@ spec: [FX-21/a, FX-V2]
 target: f/wl_fx21/throwing_stop
 expect:
   status: failure
-  result: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
+  result: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n @worker_flow.rs:2666:11"}
   steps:
     "m:a":
       status: success
@@ -18,7 +18,7 @@ expect:
       # no carried value, so the recording cannot show it. windmill-lite
       # writes no location: ADR 0011's rule strips the <loc> of FX-21/a's
       # template where windmill-lite generated the value.
-      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
+      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n @worker_flow.rs:2666:11"}
     "m:b": {status: not_run}
 note: >-
   Corrected after recording. The prediction guessed the string as 'Error:

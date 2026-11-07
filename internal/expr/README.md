@@ -634,8 +634,9 @@ failing.
   ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)). A case
   whose run has no recording yet is still held to its expectation, and an
   error it gives skips with the entry's marker. The cases in
-  `enginePending`, whose error text the evaluator does not give as CE
-  1.862.0 records it, still run. A failure skips with the case's marker,
+  `enginePending`, whose error text as CE 1.862.0 records it, or whose
+  outcome as the reference now gives it, the evaluator does not give yet,
+  still run. A failure skips with the case's marker,
   and a pass fails the test.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
   runs with `WL_EXPR_BUDGET=gate` (asserts the bounds, on the benchmark

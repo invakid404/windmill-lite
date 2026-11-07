@@ -7,9 +7,9 @@ spec: [FX-14/a]
 target: f/wl_fx14/bad_transform
 expect:
   status: failure
-  result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
+  result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:74)\n"}}
   steps:
     "m:a":
       status: failure
       args: {}
-      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:74)\n"}}

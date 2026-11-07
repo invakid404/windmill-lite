@@ -1,0 +1,24 @@
+# JE-12/g: JE-12/f without the static read. Nothing names a, so results[k]
+# resolves a at the read and gives a Promise, whose v is undefined: b gets
+# null.
+spec: [JE-12/g]
+target: f/wl_je_shortcuts/je12_g
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: null
+unit:
+  - spec: JE-12/g
+    site: m:b
+    input: x
+    expr: "const k = \"a\"; return results[k].v"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "{\"v\": 3}"
+    expect:
+      text: "null"

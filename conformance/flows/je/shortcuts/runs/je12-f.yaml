@@ -1,0 +1,24 @@
+# JE-12/f: a computed read gives the kept value of a step that a static
+# read in the same text prefetched. results.a names a, so results[k] with
+# k = "a" reads a's value synchronously, not a Promise: b gets [3, 3].
+spec: [JE-12/f]
+target: f/wl_je_shortcuts/je12_f
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: [3, 3]
+unit:
+  - spec: JE-12/f
+    site: m:b
+    input: x
+    expr: "const k = \"a\"; return [results.a.v, results[k].v]"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "{\"v\": 3}"
+    expect:
+      text: "[3,3]"

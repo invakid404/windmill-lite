@@ -1,0 +1,21 @@
+# WR-28/e on CE v1.862.0: the deploy fails at lock time. The loader
+# rewrites only whole quoted specifiers, so a static ./helper no longer
+# rewrites the dynamic ../wl_wr28c/./helper that holds it as a substring;
+# that specifier stays extensionless, the dependency job's scan reads it as
+# an npm package named "..", and bun install refuses it. A script that
+# cannot be deployed would fail a fixture's whole deployment, so a Bun step
+# drives the case through the oracle's API with its own token: it creates
+# a helper, the WR-28/e script and, as a control, WR-28/c's script with the
+# identical dynamic literal, and returns what each one's dependency job
+# and deployment status say. The step waits for those jobs, so the fixture
+# needs two workers (OR-5/b). The run compares as a subset.
+#
+# Synthetic, written for this repository from
+# docs/semantics/conformance.md#wr-28. Deployed with oracle.deploy api.
+id: languages/wr-28-lock
+spec: [WR-28/e]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2, deploy: api}
+compare: {mode: subset}
