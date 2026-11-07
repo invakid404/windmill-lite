@@ -54,8 +54,8 @@ import (
 //   - a failed site whose job ran is a runtime error for stack masking
 //     (OR-V3 clause a), as a failed leaf that executed a script is;
 //   - a superseded record or child flow, which Windmill's job tree no
-//     longer reaches (a container's failed attempt, a loop skipped
-//     mid-loop, a collapsed job never pushed; milestone NI), is left out.
+//     longer reaches (a container's failed attempt, a collapsed job never
+//     pushed; milestone NI), is left out.
 //
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's

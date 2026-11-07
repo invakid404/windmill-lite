@@ -321,7 +321,7 @@ func (fc *flowCompiler) module(m *openflow.Module, seg conformance.Segment, sc s
 		for i, br := range v.Branches {
 			if br.SkipFailure == nil && fc.opts.Strict {
 				fc.fail(&Error{Kind: ErrAbsentSkipFlag, Flow: sc.flow, Step: m.ID, Selector: -1,
-					Msg: fmt.Sprintf("strict: branch %d's skip_failure is absent (the deployed default is true)", i)})
+					Msg: fmt.Sprintf("strict: branch %d's skip_failure is absent (the deployed default is false)", i)})
 			}
 			bs := body
 			bs.site = site.Child(conformance.Branch(i))

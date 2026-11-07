@@ -82,11 +82,12 @@ func TestContainerSleepBefore(t *testing.T) {
 
 // JE-38, CF-21: each child a sequential container pushes after the previous
 // one completed is pushed by a transition of the container's flow, which
-// resolves flow_env again, so its skip_if and its timeout see what the
-// previous child changed, for collapsed jobs and child flows alike, and
-// for a sequential branchall's timeout.
+// resolves flow_env again, so its timeout sees what the previous child
+// changed, for collapsed jobs and child flows alike, and for a sequential
+// branchall. (Its skip_if is evaluated once, at its entry:
+// TestLoopSkipIfOnce.)
 func TestContainerEnvPerTransition(t *testing.T) {
-	for _, mode := range []string{"skip collapsed", "skip flow", "timeout collapsed", "timeout flow", "timeout branchall"} {
+	for _, mode := range []string{"timeout collapsed", "timeout flow", "timeout branchall"} {
 		t.Run(mode, func(t *testing.T) {
 			store := platform.NewStore()
 			store.SetVariable("u/t/flag", platform.Variable{Value: "0"})
@@ -101,21 +102,14 @@ func TestContainerEnvPerTransition(t *testing.T) {
 			if strings.HasSuffix(mode, "flow") {
 				body = append(body, mod("c", "value", inputs("v", js("results.b")), ""))
 			}
-			envelope := `"skip_if":` + exprOf("flow_env.flag === '1'")
-			if strings.HasPrefix(mode, "timeout") {
-				envelope = `"timeout":` + js("flow_env.flag === '1' ? -1 : 10")
-			}
+			envelope := `"timeout":` + js("flow_env.flag === '1' ? -1 : 10")
 			container := loopOf("l", body, `"iterator":{"type":"static","value":[1,2,3]},"skip_failures":false`, envelope)
 			if mode == "timeout branchall" {
 				container = branchAllOf("l", []string{branch(skipFailure(false), value("b", "1", "")), branch(skipFailure(false), value("c", "2", ""))}, false, envelope)
 			}
 			e := openWithPlatform(t, map[string]string{"f/t/main": `{"modules":[` + container + `],"flow_env":{"flag":"$var:u/t/flag"}}`}, exec, &platform.Services{Variables: store, Resources: store})
 			tr := runReq(t, e, RunRequest{})
-			if strings.HasPrefix(mode, "timeout") {
-				wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`)
-			} else if l := record(t, tr, site("l")); !l.Skipped {
-				t.Fatalf("l %+v", l)
-			}
+			wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`)
 			if n := len(s.calls()); n != len(body) {
 				t.Fatalf("calls %v", s.calls())
 			}
@@ -220,23 +214,33 @@ func TestContainerRetry(t *testing.T) {
 	wantCalls(t, s, "m:l/i:0/m:b", "m:l/i:0/m:b")
 }
 
-// CF-21, Q-CF-6: a sequential loop's skip_if is evaluated again before
-// every iteration after the first, with the flow's last result as
-// previous_result: when it holds, the loop ends as a skipped identity job
-// of that result, its array lost. A parallel loop evaluates it once.
-func TestLoopSkipIfMidLoop(t *testing.T) {
+// CF-21, Q-CF-6: a loop's skip_if is evaluated once, when the module is
+// entered, with the preceding step's result as previous_result: an
+// iteration's result that would make it hold never skips the loop
+// part-way, so every iteration runs and the loop returns its whole array,
+// sequential (collapsed or not), while or parallel. When it holds at the
+// entry, the loop is a skipped identity job of that result and runs no
+// iteration; a retry that re-enters the loop evaluates it again (FX-17).
+func TestLoopSkipIfOnce(t *testing.T) {
 	one := []string{mod("b", "value", inputs("v", js("flow_input.iter.value")), "")}
 	two := append(slices.Clone(one), mod("c", "value", inputs("v", js("results.b")), ""))
-	skip := `"skip_if":` + exprOf("previous_result == 2")
+	seq, par := `"iterator":{"type":"static","value":[1,2,3]},"skip_failures":false`, `"iterator":{"type":"static","value":[1,2,3]},"parallel":true,"skip_failures":false`
+	while := func(skip string) string {
+		return whileOf("l", []string{mod("b", "value", inputs("v", js("flow_input.iter.index + 1")), "")}, false, skip+","+breakAt("result >= 5"))
+	}
 	for _, c := range []struct {
 		name, loop string
 		calls      int
 		result     string
 	}{
-		{"collapsed", loopOf("l", one, `"iterator":{"type":"static","value":[1,2,3]},"skip_failures":false`, skip), 2, "2"},
-		{"child flows", loopOf("l", two, `"iterator":{"type":"static","value":[1,2,3]},"skip_failures":false`, skip), 4, "2"},
-		{"while loop", whileOf("l", []string{mod("b", "value", inputs("v", js("flow_input.iter.index + 1")), "")}, false, skip+","+breakAt("result >= 5")), 2, "2"},
-		{"parallel", loopOf("l", one, `"iterator":{"type":"static","value":[1,2,3]},"parallel":true,"skip_failures":false`, `"skip_if":`+exprOf("previous_result != 0")), 3, "[1,2,3]"},
+		// previous_result == 2 would hold after the second iteration.
+		{"collapsed", loopOf("l", one, seq, `"skip_if":`+exprOf("previous_result == 2")), 3, "[1,2,3]"},
+		{"child flows", loopOf("l", two, seq, `"skip_if":`+exprOf("previous_result == 2")), 6, "[1,2,3]"},
+		{"while loop", while(`"skip_if":` + exprOf("previous_result == 2")), 5, "[1,2,3,4,5]"},
+		{"parallel", loopOf("l", one, par, `"skip_if":`+exprOf("previous_result != 0")), 3, "[1,2,3]"},
+		// A predicate that would throw on an iteration's result is not
+		// evaluated again either.
+		{"no throw after the entry", loopOf("l", one, seq, `"skip_if":`+exprOf("previous_result === 0 ? false : null.x")), 3, "[1,2,3]"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := &scripts{}
@@ -246,23 +250,50 @@ func TestLoopSkipIfMidLoop(t *testing.T) {
 			if got := len(s.calls()) - 1; got != c.calls {
 				t.Fatalf("calls %v", s.calls())
 			}
-			l := record(t, tr, site("l"))
-			if c.name != "parallel" {
-				if !l.Skipped || l.Status != conformance.StepSuccess {
-					t.Fatalf("l %+v", l)
-				}
-				sameJSON(t, "l's arguments", l.RecordedArgs, `{"previous_result":2}`)
+			if l := record(t, tr, site("l")); l.Skipped || l.Status != conformance.StepSuccess {
+				t.Fatalf("l %+v", l)
 			}
 		})
 	}
 
-	// A throw before a later iteration is a chaining error of a later
-	// transition.
-	e := mustOpen(t, map[string]string{"f/t/main": flowOf(value("a", `{"x":{"y":false}}`, ""), loopOf("l", one, `"iterator":{"type":"static","value":[1,2]},"skip_failures":false`, `"skip_if":`+exprOf("previous_result.x.y")))}, &scripts{})
+	// Held at the entry: a skipped identity job of the preceding result,
+	// for a sequential and a while loop alike, with no iteration.
+	for _, c := range []struct{ name, loop string }{
+		{"entry", loopOf("l", one, seq, `"skip_if":`+exprOf("previous_result == 0"))},
+		{"while entry", while(`"skip_if":` + exprOf("previous_result == 0"))},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("0")), ""), c.loop)}, s)
+			tr := runReq(t, e, RunRequest{})
+			wantStatus(t, tr, conformance.RunSuccess, "0")
+			wantCalls(t, s, "m:a")
+			l := record(t, tr, site("l"))
+			if !l.Skipped || l.Status != conformance.StepSuccess {
+				t.Fatalf("l %+v", l)
+			}
+			sameJSON(t, "l's arguments", l.RecordedArgs, `{"previous_result":0}`)
+		})
+	}
+
+	// A retry re-enters the loop, which evaluates its skip_if again: the
+	// failed iteration set the variable flow_env reads, so the retry is a
+	// skipped identity job of the preceding result, and the body runs once.
+	store := platform.NewStore()
+	store.SetVariable("u/t/flag", platform.Variable{Value: "0"})
+	s := &scripts{}
+	exec := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		out, err := s.Execute(ctx, inv)
+		store.SetVariable("u/t/flag", platform.Variable{Value: "1"})
+		return out, err
+	})
+	loop := loopOf("l", []string{mod("b", "fail", "", "")}, `"iterator":{"type":"static","value":[1]},"skip_failures":false`, `"skip_if":`+exprOf("flow_env.flag === '1'")+`,`+retryOnce)
+	e := openWithPlatform(t, map[string]string{"f/t/main": `{"modules":[` + loop + `],"flow_env":{"flag":"$var:u/t/flag"}}`}, exec, &platform.Services{Variables: store, Resources: store})
 	tr := runReq(t, e, RunRequest{})
-	wantStatus(t, tr, conformance.RunFailure, "")
-	if errorName(tr.Result) != "InternalError" {
-		t.Fatalf("result %s", tr.Result)
+	wantStatus(t, tr, conformance.RunSuccess, "")
+	wantCalls(t, s, "m:l/i:0/m:b")
+	if l := record(t, tr, site("l")); !l.Skipped || len(l.FailedRetries) != 1 {
+		t.Fatalf("l %+v", l)
 	}
 }
 

@@ -153,18 +153,6 @@
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
-    "conformance/flows/control-flow/cf-21/skip_mid": {
-      "milestone": "W6d",
-      "reason": "CE 1.862.0 evaluates a loop's skip_if once, at its entry, so every iteration runs, where windmill-lite evaluates it again before each iteration (CF-21)"
-    },
-    "conformance/flows/control-flow/cf-21/skip_mid_flows": {
-      "milestone": "W6d",
-      "reason": "CE 1.862.0 evaluates a loop's skip_if once, at its entry, so every iteration runs, where windmill-lite evaluates it again before each iteration (CF-21)"
-    },
-    "conformance/flows/control-flow/cf-21/skip_mid_while": {
-      "milestone": "W6d",
-      "reason": "CE 1.862.0 evaluates a loop's skip_if once, at its entry, so every iteration runs, where windmill-lite evaluates it again before each iteration (CF-21)"
-    },
     "conformance/flows/control-flow/cf-21/timeout_scope_collapsed": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
@@ -372,10 +360,6 @@
     "conformance/flows/languages/wr-43-stack/stack_nativets": {
       "milestone": "W6g",
       "reason": "on CE 1.862.0 the first frame's line of a nativets error is mapped through the transpiler's source map before Windmill reads the stack's source line (WR-43), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/openflow/of-deployed/f7_ba": {
-      "milestone": "W6d",
-      "reason": "CE 1.862.0 deploys an absent branchall branch skip_failure as false, where windmill-lite applies v1.767.0's deployed default true (OF-7, CF-6)"
     },
     "conformance/flows/oracle/nul/nul": {
       "milestone": "W6e",

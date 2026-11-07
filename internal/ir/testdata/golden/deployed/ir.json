@@ -433,7 +433,7 @@
             "branches": [
               {
                 "modules": [],
-                "skip_failure": true
+                "skip_failure": false
               },
               {
                 "modules": [
