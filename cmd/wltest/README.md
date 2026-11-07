@@ -726,11 +726,12 @@ of Windmill 1.862.0's image).
   `warm`.
 - `TestRunWaitOutcomes` checks the flow outcomes of two run-and-wait runs
   of `execution/fx-36-http`, which the flow suite leaves unsupported:
-  `extra` ([FX-12](../../docs/semantics/execution.md#fx-12)/a) and
-  `failed` (FX-36/b). Each is submitted as an ordinary run and must match
-  its `expect` without the `response`, which needs windmill-lite's HTTP
-  adapter, in `fresh` and in `warm`: the stored error with its step
-  context keys. The fixture's other runs are only logged.
+  `extra`, an error with an own property, and `failed`, a plain error.
+  Each is submitted as an ordinary run and must match its `expect`
+  without the `response`, which needs windmill-lite's HTTP adapter, in
+  `fresh` and in `warm`: the stored error with its step context keys
+  ([FX-12](../../docs/semantics/execution.md#fx-12)). The fixture's other
+  runs are only logged.
 - `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a
