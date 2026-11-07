@@ -624,9 +624,9 @@ failing.
   deviation and say what windmill-lite gives: the transcendental `Math`
   cases of JE-1 (review item cl R3-2), each value the oracle's or one unit
   in the last place from it, every difference logged (D16; ADR 0001 gives
-  what each C library measured), and JE-48/a (D17). JE-2/a is not run: the oracle
-  canceled its run before the evaluator's text surfaced; `TestJE2OnEngine`
-  runs the same expression with a short limit. Nor is JE-11/e's unit case
+  what each C library measured), and JE-48/a (D17). JE-2/a is not run: its
+  three attempts take about 70 s; `TestJE2OnEngine` runs the same
+  expression with a short limit. Nor is JE-11/e's unit case
   (batch E3f): the panic report names a task number that differs between
   runs, so its recording masks the message; pipeline case JE-11/e holds the
   evaluator's text.

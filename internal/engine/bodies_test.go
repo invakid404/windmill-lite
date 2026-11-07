@@ -55,28 +55,30 @@ func TestFailureModuleInLoopBodies(t *testing.T) {
 // as failed for a sequential loop, a sequential branchall and a branchone,
 // and as succeeded for a parallel loop and a parallel branchall, which
 // judge its status. Either way the flow's own failure module does not run
-// again for it (CF-16 item 4, CF-V1/a).
+// again for it (CF-16 item 4, CF-V1/a). The sequential container's failure
+// is marked as recovered, so the root flow that it ends succeeds with the
+// container's result (CF-V1/a, CF-V1/c at v1.862.0).
 func TestFailureModuleRecoveryInContainers(t *testing.T) {
 	recover := handler("value", inputs("v", static(`{"recover":true}`)), "")
 	fail := mod("x", "fail", "", "")
 	for _, c := range []struct {
 		name, flow string
-		status     conformance.RunStatus
 		result     string
 	}{
-		{"sequential loop", withFailure(recover, loopOf("l", []string{fail}, `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, "")), conformance.RunFailure, `[{"recover":true}]`},
-		{"parallel loop", withFailure(recover, loopOf("l", []string{fail}, `"iterator":{"type":"static","value":[1,2]},"parallel":true,"skip_failures":false`, "")), conformance.RunSuccess, `[{"recover":true},{"recover":true}]`},
-		{"sequential branchall", withFailure(recover, branchAllOf("l", []string{branch(skipFailure(false), fail), branch(skipFailure(false), mod("y", "fail", "", ""))}, false, "")), conformance.RunFailure, `[{"recover":true}]`},
-		{"parallel branchall", withFailure(recover, branchAllOf("l", []string{branch(skipFailure(false), fail), branch(skipFailure(false), mod("y", "fail", "", ""))}, true, "")), conformance.RunSuccess, `[{"recover":true},{"recover":true}]`},
-		{"branchone", withFailure(recover, branchOneOf("l", nil, []string{fail}, "")), conformance.RunFailure, `{"recover":true}`},
+		{"sequential loop", withFailure(recover, loopOf("l", []string{fail}, `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, "")), `[{"recover":true}]`},
+		{"parallel loop", withFailure(recover, loopOf("l", []string{fail}, `"iterator":{"type":"static","value":[1,2]},"parallel":true,"skip_failures":false`, "")), `[{"recover":true},{"recover":true}]`},
+		{"sequential branchall", withFailure(recover, branchAllOf("l", []string{branch(skipFailure(false), fail), branch(skipFailure(false), mod("y", "fail", "", ""))}, false, "")), `[{"recover":true}]`},
+		{"parallel branchall", withFailure(recover, branchAllOf("l", []string{branch(skipFailure(false), fail), branch(skipFailure(false), mod("y", "fail", "", ""))}, true, "")), `[{"recover":true},{"recover":true}]`},
+		{"branchone", withFailure(recover, branchOneOf("l", nil, []string{fail}, "")), `{"recover":true}`},
+		{"while loop", withFailure(recover, whileOf("l", []string{fail}, false, "")), `[{"recover":true}]`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &loopSteps{})
 			tr := runIt(t, e, `{}`, nil)
-			wantStatus(t, tr, c.status, c.result)
+			wantStatus(t, tr, conformance.RunSuccess, c.result)
 			l := at(t, tr, "m:l")
-			// A sequential container fails the flow with its result; a
-			// parallel one succeeds.
+			// A sequential container fails with its result, and the root
+			// flow it ends succeeds; a parallel one succeeds.
 			parallel := strings.HasPrefix(c.name, "parallel")
 			if parallel != (l.Module == conformance.ModuleSuccess) {
 				t.Fatalf("the container %+v", l)
@@ -89,6 +91,44 @@ func TestFailureModuleRecoveryInContainers(t *testing.T) {
 	tr := runIt(t, e, `{}`, nil)
 	if l := at(t, tr, "m:l"); l.Status != conformance.StepSuccess || l.Module != conformance.ModuleFailure {
 		t.Fatalf("the branchone %+v", l)
+	}
+}
+
+// FX-33, CF-V1, CF-16 item 5: the recovered mark of a failure. A subflow
+// by path whose failure module recovered fails its step with the mark, and
+// a flow that the step's failure ends passes it on: an iteration's flow,
+// which has no failure module of its own, fails, and the sequential loop
+// it fails keeps the mark, so the root flow succeeds with the loop's
+// array. A parallel loop judges its iterations by their status and drops
+// the mark, and so does a stop of the failed sequential loop, clean or an
+// error, so the root flow fails.
+func TestRecoveredFailureMark(t *testing.T) {
+	child := withFailure(handler("value", inputs("v", static(`{"recover":true}`)), ""), mod("a", "fail", "", ""))
+	body := []string{subflowOf("t", "f/t/child", "", "")}
+	const seq, par = `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"iterator":{"type":"static","value":[1,2]},"parallel":true,"skip_failures":false`
+	for _, c := range []struct {
+		name, main string
+		status     conformance.RunStatus
+		result     string
+	}{
+		{"sequential loop", flowOf(loopOf("l", body, seq, "")), conformance.RunSuccess, `[{"recover":true}]`},
+		{"parallel loop", flowOf(loopOf("l", body, par, "")), conformance.RunFailure, `[{"recover":true},{"recover":true}]`},
+		{"clean stop", flowOf(loopOf("l", body, seq, `"stop_after_all_iters_if":{"expr":"true","skip_if_stopped":false}`)), conformance.RunFailure, `[{"recover":true}]`},
+		{"error stop", flowOf(loopOf("l", body, seq, `"stop_after_all_iters_if":{"expr":"null.x","skip_if_stopped":false}`)), conformance.RunFailure, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := mustOpen(t, map[string]string{"f/t/child": child, "f/t/main": c.main}, &loopSteps{})
+			tr := runIt(t, e, `{}`, nil)
+			wantStatus(t, tr, c.status, c.result)
+			// The subflow job recovered, so it is a successful job, whose
+			// step failed.
+			if s := at(t, tr, "m:l/i:0/m:t"); s.Status != conformance.StepSuccess || s.Module != conformance.ModuleFailure {
+				t.Fatalf("the flow step %+v", s)
+			}
+			if l := at(t, tr, "m:l"); l.Status != conformance.StepFailure || l.Module != conformance.ModuleFailure {
+				t.Fatalf("the loop %+v", l)
+			}
+		})
 	}
 }
 

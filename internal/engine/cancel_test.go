@@ -11,10 +11,11 @@ import (
 )
 
 // [FX-38]/b, [CF-28] rule 2: a flow step whose job waits on the previous
-// step's sleep when the run is canceled fails at pickup with the Canceled
-// value, a failure and not a canceled job. Its job is the subflow's flow
-// job, which starts none of the subflow's modules, and the trace lists the
-// subflow with its modules and its failure module, none of which ran.
+// step's sleep when the run is canceled completes at pickup with the
+// Canceled value, stored canceled, and its module records Failure. Its job
+// is the subflow's flow job, which ends canceled and starts none of the
+// subflow's modules, and the trace lists the subflow with its modules and
+// its failure module, none of which ran.
 //
 // [FX-38]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-38
 // [CF-28]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-28
@@ -37,7 +38,7 @@ func TestSubflowCanceledWhileWaiting(t *testing.T) {
 	const canceled = `{"error":{"message":"Job canceled: r by u","name":"Canceled","reason":"r","canceler":"u"}}`
 	wantStatus(t, tr, conformance.RunCanceled, canceled)
 	b := step(t, tr, "b")
-	if b.Status != conformance.StepFailure || !b.Ran || b.Module != conformance.ModuleFailure || b.Job == "" {
+	if b.Status != conformance.StepCanceled || !b.Ran || b.Module != conformance.ModuleFailure || b.Job == "" {
 		t.Fatalf("b %+v", b)
 	}
 	sameJSON(t, "b's result", b.Result, canceled)
