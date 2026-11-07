@@ -292,8 +292,14 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	if result.IsZero() {
 		result = jsonval.FromProducer([]byte("null"))
 	}
+	stored := value(result, true)
+	// Unwalked job ids are numbered over the whole observation before any
+	// value is normalised, as the oracle's are (OR-14 item 1).
+	if err := n.NumberUnwalked(conformance.Observation{Result: stored, Steps: steps, Effects: effects}); err != nil {
+		return o, nil, err
+	}
 	var err error
-	if o.Result, err = n.Value(value(result, true)); err != nil {
+	if o.Result, err = n.Value(stored); err != nil {
 		return o, nil, err
 	}
 	o.Steps = make(map[conformance.SitePath]conformance.StepObservation, len(steps))

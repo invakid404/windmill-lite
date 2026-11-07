@@ -58,9 +58,11 @@ The `oracle` package implements the reference's design as written:
    collapse rules never relied on.
 5. **Normalise** ([OR-14](../semantics/oracle.md#or-14),
    [OR-V3](../semantics/oracle.md#or-v3), [OR-V5](../semantics/oracle.md#or-v5)):
-   only walked job ids replaced; stacks masked only with runtime-error
-   provenance; the NUL `InternalErr` location masked and nothing broader;
-   provenance kept apart from the compared observation. These rules govern
+   walked job ids replaced, and an unwalked job's id where an error object
+   names it as `job_id`, as `<job:?N>`. Stacks masked only with
+   runtime-error provenance; the completion failure's `InternalErr`
+   location masked and nothing broader; provenance kept apart from the
+   compared observation. These rules govern
    oracle-to-oracle comparisons unchanged. Comparing windmill-lite with the
    oracle adds one narrow rule for Rust location suffixes on generated
    messages only (§Location suffixes below,
@@ -129,6 +131,9 @@ in a marker, even is literal. So a user `<job:m:a>` becomes `<<job:m:a>`, a
 user `<` before module `a`'s job id becomes `<<<job:m:a>`, and the two no
 longer collide. Decoding is a left inverse of encoding, which makes a
 normalised string injective in the raw text and the walked ids.
+
+An unwalked job's placeholder, `<job:?N>`, shares the `job:` head, so the
+same escape covers user text that spells it.
 
 **Container sites (chosen by E2).** A module is a site `m:<id>` whatever
 its type. A loop or `branchall` module's record holds its status and, as
@@ -387,6 +392,13 @@ their root jobs were not in flight together.
 - Milestone E2 chose that escape and the container sites above. It also
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.
+- The retarget to CE v1.862.0 met job ids the walk cannot map. Since
+  Windmill 1.847.0 an error object names its job as `job_id`, and a step
+  that returns the errors of a flow it ran through the API names jobs the
+  walk never reaches. Such an id is numbered in the order the
+  observation's sorted members first give it, and written `<job:?N>`
+  wherever it occurs ([OR-14](../semantics/oracle.md#or-14) item 1). Each
+  side numbers its own observation before it normalises any value.
 - Recording batch E3a lifted expression cases as this record says: one
   generated fixture per expression file, whose tree (one flow per case,
   each a single step that runs a sink script returning `null`, so the

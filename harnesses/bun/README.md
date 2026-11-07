@@ -92,6 +92,11 @@ cannot corrupt the protocol.
   ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
   `__filename` and `import.meta`, and the relative paths its own `require`
   resolves at run time, are the working directory's (`moduleFile`).
+- **A `WebSocket`'s listeners** run outside that context on Bun 1.4.3,
+  which Bun 1.4.4 fixes. In a warm or host-mode process, a step's
+  `WebSocket` listener therefore reads the process environment and has its
+  facade requests refused, as code outside every invocation does
+  (deviation [D23](../../docs/design/0001-equivalence-contract.md#5-named-deviations)).
 - **Metadata.** The runtime keeps only the metadata fields it reads
   (`runtimeMeta`: `bundler`, `format`, `boundary`, `native`, `signatures`,
   `shared`), so a process does not hold every script's metafile.

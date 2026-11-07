@@ -499,6 +499,12 @@ a few at a time (`flows.go`):
    (`removeCounters`, milestone FU8): on Windmill they stay in the worker's
    `/tmp`, but a windmill-lite run would leave them in the host's.
 
+**Unwalked job ids.** A job id that no record names but an error object
+gives as its `job_id`, such as a job of a flow a step ran through the
+facade, becomes `<job:?N>`. The observation numbers such ids before any
+value is normalised, as the oracle's side does
+([OR-14](../../docs/semantics/oracle.md#or-14) item 1).
+
 **Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
 `oracle: {effects: true}` or `stub: true` gets an effect server of its
 own: the oracle's effect sink (`oracle.Sink`,
@@ -718,6 +724,9 @@ of Windmill 1.862.0's image).
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
   the copy of a body module's carried-over attempt inside that subtree.
+- `TestObserveTraceUnwalkedJobs` needs no Bun either. A job that an error
+  object names and no record does reads `<job:?N>`, numbered in sorted
+  member order, while the step's own job keeps its site's placeholder.
 - `TestSubflowRetryFixturesFreshAndWarm` is milestone N5's gate. Every
   run of `control-flow/subflow-retry` (a retry on a flow step, and on a
   while loop and a branchone) matches its recording in `fresh` and in
