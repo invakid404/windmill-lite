@@ -475,38 +475,53 @@ func TestEngineSleepCanceled(t *testing.T) {
 	sameJSON(t, "b's arguments", b.RecordedArgs, `{"v":2}`)
 }
 
+// timeoutNotI32 is the chaining error of a timeout that evaluates to the
+// string "5", which is not an i32 (JE-29; FX-15/b's trigger at v1.862.0).
+const timeoutNotI32 = `Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"`
+
+// internalError is a chaining error's failure of the flow at a later
+// transition, an InternalError with msg (FX-15 context 1).
+func internalError(msg string) string {
+	b, _ := json.Marshal(map[string]map[string]string{"error": {"message": msg, "name": "InternalError"}})
+	return string(b)
+}
+
+// anyhowError is a chaining error's failure at the root's first pickup,
+// an Anyhow with msg (FX-15 context 2).
+func anyhowError(msg string) string {
+	b, _ := json.Marshal(map[string]map[string]string{"error": {"message": "Error: " + msg, "name": "Anyhow"}})
+	return string(b)
+}
+
 // FX-24, JE-29, FX-15: every module evaluates its own timeout when its job
 // is pushed, identity jobs and skipped modules included; a javascript one
 // sees results, and its value must be an i32. A failure is a chaining
 // error: an Anyhow failure of the module at the root's first pickup, which
 // a retry re-evaluates at a later transition, and otherwise the flow's
-// InternalError. A step's leaf job is timed with the evaluated value.
+// InternalError. A value of 0 or less is unset (1.768.0). A step's leaf job
+// is timed with the evaluated value.
 func TestEngineTimeoutValues(t *testing.T) {
 	timeout := func(t string) string { return `"timeout":` + t }
-	internal := func(msg string) string {
-		b, _ := json.Marshal(map[string]map[string]string{"error": {"message": msg, "name": "InternalError"}})
-		return string(b)
-	}
+	internal := internalError
+	str := js(`"5"`)
 	for _, c := range []struct {
 		name, flow, result string
 		calls              []string
 	}{
 		{"a float", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(js("1.5")))),
 			internal("Error parsing result as i32: invalid type: floating point `1.5`, expected i32 at line 1 column 3. Value was: 1.5"), []string{"m:x"}},
-		{"negative static", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(static("-1")))),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
-		{"an identity job's", flowOf(mod("x", "value", "", ""), `{"id":"a","value":{"type":"identity"},`+timeout(js("-1"))+`}`),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
-		{"a skipped module's", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(static("-1"))+`,"skip_if":{"expr":"true"}`)),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
-		{"after a failed transform", flowOf(mod("x", "value", "", ""), mod("a", "value", inputs("v", js("null.x")), timeout(static("-1")))),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
+		{"an identity job's", flowOf(mod("x", "value", "", ""), `{"id":"a","value":{"type":"identity"},`+timeout(str)+`}`),
+			internal(timeoutNotI32), []string{"m:x"}},
+		{"a skipped module's", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(str)+`,"skip_if":{"expr":"true"}`)),
+			internal(timeoutNotI32), []string{"m:x"}},
+		{"after a failed transform", flowOf(mod("x", "value", "", ""), mod("a", "value", inputs("v", js("null.x")), timeout(str))),
+			internal(timeoutNotI32), []string{"m:x"}},
 		{"a failed evaluation", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(js("nope")))),
 			"", []string{"m:x"}},
-		{"at the root", flowOf(mod("a", "value", "", timeout(js("-1")))),
-			`{"error":{"message":"Error: Timeout value cannot be negative","name":"Anyhow"}}`, nil},
-		{"retried from the root", flowOf(mod("a", "value", "", timeout(js("-1"))+","+retryOnce)),
-			internal("Timeout value cannot be negative"), nil},
+		{"at the root", flowOf(mod("a", "value", "", timeout(str))),
+			anyhowError(timeoutNotI32), nil},
+		{"retried from the root", flowOf(mod("a", "value", "", timeout(str)+","+retryOnce)),
+			internal(timeoutNotI32), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := &scripts{}
@@ -522,16 +537,37 @@ func TestEngineTimeoutValues(t *testing.T) {
 	}
 	// The retried root failure: the first attempt failed with no job, and
 	// the retry, a later transition, fails the flow at once.
-	tr = runReq(t, mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", timeout(js("-1"))+","+retryOnce))}, &scripts{}), RunRequest{})
+	tr = runReq(t, mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", timeout(str)+","+retryOnce))}, &scripts{}), RunRequest{})
 	if r0 := record(t, tr, attemptSite("a", 0)); r0.Ran || r0.Status != conformance.StepFailure {
 		t.Fatalf("the failed pickup %+v", r0)
 	}
+	// A value of 0 or less, static or evaluated, at the root or later, on
+	// a step or an identity job, is no error: the module runs as if it
+	// had no timeout.
+	for name, flow := range map[string]string{
+		"static zero":        flowOf(mod("a", "value", "", timeout(static("0")))),
+		"static negative":    flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(static("-1")))),
+		"evaluated zero":     flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(js("0")))),
+		"evaluated negative": flowOf(mod("a", "value", "", timeout(js("-2147483648")))),
+		"identity negative":  flowOf(mod("x", "value", "", ""), `{"id":"a","value":{"type":"identity"},`+timeout(js("-1"))+`}`),
+	} {
+		s := &scripts{}
+		tr := runReq(t, mustOpen(t, map[string]string{"f/t/main": flow}, s), RunRequest{})
+		if tr.Status != conformance.RunSuccess || step(t, tr, "a").Status != conformance.StepSuccess {
+			t.Errorf("%s: status %s, result %s", name, tr.Status, tr.Result)
+		}
+	}
 
 	// The evaluated timeout times the leaf: results.a, read from the
-	// intercepted a, is 0, which leaves b no time (job-specific).
+	// intercepted a, is 1, below the instance maximum, so b's custom
+	// timeout ends it after 1 s; its job is canceled, and the step fails.
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", ""), mod("b", "value", "", timeout(js("results.a"))))}, waits{})
-	tr = runReq(t, e, RunRequest{Hooks: StaticIntercepts{Results: map[string]jsonval.Value{"a": jsonval.FromProducer([]byte("0"))}}})
-	wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"b"}}`)
+	e.cap = time.Hour
+	tr = runReq(t, e, RunRequest{Hooks: StaticIntercepts{Results: map[string]jsonval.Value{"a": jsonval.FromProducer([]byte("1"))}}})
+	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step\",\"name\":\"ExecutionErr\",\"step_id\":\"b\"}}")
+	if b := step(t, tr, "b"); b.Status != conformance.StepCanceled || b.Module != conformance.ModuleFailure {
+		t.Fatalf("b %+v", b)
+	}
 }
 
 // JE-2: the time a transition spends evaluating counts against the

@@ -78,20 +78,15 @@ func seconds(n uint64) time.Duration {
 // as Windmill's worker deserialises it into a 32-bit signed integer of
 // seconds (JE-29). A value that does not deserialise fails with "Error
 // parsing result as i32: <serde_json's error>. Value was: <the text as it
-// is>"; a negative one with "Timeout value cannot be negative".
+// is>". A value of 0 or less deserialises: the caller treats it as unset
+// (FX-24, 1.768.0).
 func timeoutResult(text []byte) (int32, error) {
 	n, err := parseI32(text)
 	if err != nil {
 		return 0, fmt.Errorf("Error parsing result as i32: %s. Value was: %s", err, text)
 	}
-	if n < 0 {
-		return 0, errNegativeTimeout
-	}
 	return n, nil
 }
-
-// errNegativeTimeout is the chaining error of a negative timeout (FX-24).
-var errNegativeTimeout = errors.New("Timeout value cannot be negative")
 
 // retryDelay is FX-26's schedule for a module that has failed n times in
 // the current retry sequence (the flow-wide counter of FX-29): the delay

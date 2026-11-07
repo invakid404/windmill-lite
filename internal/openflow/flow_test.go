@@ -115,6 +115,12 @@ func TestDecodeFlow(t *testing.T) {
 	if reencoded, _ := again.MarshalJSON(); !bytes.Equal(reencoded, encoded) {
 		t.Errorf("round trip changed %s to %s", encoded, reencoded)
 	}
+	// The encoder writes the identity fields, on_behalf_of (added at
+	// v1.862.0) and on_behalf_of_email, which the second decode then holds
+	// as the first did.
+	if again.OnBehalfOf == nil || *again.OnBehalfOf != "u/someone" || again.OnBehalfOfEmail == nil || *again.OnBehalfOfEmail != "someone@example.invalid" {
+		t.Errorf("the second decode = %+v", again)
+	}
 
 	for _, c := range []struct {
 		in, want string

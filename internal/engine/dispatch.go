@@ -163,12 +163,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+err.Error())}, nil
 	}
-	timeout, instanceWide := e.cap, true
-	if s.Metadata != nil && s.Metadata.Timeout != nil {
-		if d := time.Duration(*s.Metadata.Timeout) * time.Second; d < e.cap {
-			timeout, instanceWide = d, false
-		}
-	}
+	timeout, atMax := e.jobTimeout(scriptTimeout(s))
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	t := time.AfterFunc(timeout, func() { cancel(CancelTimeout) })
@@ -188,7 +183,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
-		return ScriptResult{ID: id, Failed: true, Result: TimeoutError(boundary, "", timeout, instanceWide)}, nil
+		return ScriptResult{ID: id, Failed: true, Result: TimeoutError(boundary, "", timeout, atMax)}, nil
 	case err != nil && ctx.Err() != nil:
 		reason, canceler := cancellationOf(ctx)
 		return ScriptResult{ID: id, Failed: true, Result: killedError("", reason, canceler)}, nil

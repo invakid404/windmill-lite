@@ -191,6 +191,9 @@ Each is the smallest reading consistent with the reference.
   storage with another, with a later decode or with the input.
   `FuzzDecodeFlowValue` checks that decoding never panics and that the
   decoded form of accepted input is stable.
+- `TestFieldsAddedAtV1862` and `TestDecodeFlow` check the fields the
+  `v1.862.0` schema adds once decoded, and again after an encode and a
+  second decode, so an encoder that dropped one of them would fail.
 
 ```sh
 go test -race ./internal/openflow
@@ -217,5 +220,5 @@ says. At run time they follow
 - the identity and the job token scopes are decoded and ignored (§3);
 - the AI-agent fields and `suspend.skin` belong to features the compiler
   refuses, `aiagent` modules and `suspend`;
-- the compiler refuses a flow that sets `value.timeout` until the engine
-  enforces it (§5a).
+- `value.timeout` is the flow's wall-clock limit, which the engine
+  enforces ([FX-52](../../docs/semantics/execution.md#fx-52)).

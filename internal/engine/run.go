@@ -111,7 +111,7 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	now := clock.Now()
 	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, platform: e.platform, wake: make(chan struct{}), clock: clock, jitter: jitter, cancel: cancel}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
-	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
+	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL, r.root.limit = f.FailureModule, f, now, flowTTL(f), flowLimit(nil, f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState, SharedCode: e.sharedCode}
 	r.jobs, r.iterLen, r.sched = map[string]*jobRef{}, map[conformance.SitePath]int{}, map[int]schedJob{}
@@ -625,6 +625,11 @@ type flowEnd struct {
 	// read of its collapsed loop's iterations, or a flow that waited
 	// because a module of its own stayed in progress (outcome.unreported).
 	unreported bool
+	// timedOut: the flow job's own wall-clock limit canceled it (FX-52,
+	// timedOut): its status is canceled and its result the canceled
+	// value, with no host verdict, and it delivers the timeout error, or
+	// its failure module's result, to its caller's flow step, which fails.
+	timedOut bool
 }
 
 // carried is the value a parent that takes the value delivered with the
@@ -640,6 +645,12 @@ func (e flowEnd) carried() carry {
 // run runs the flow and records its outcome.
 func (r *run) run(ctx context.Context) {
 	e := r.runList(ctx, r.root)
+	if e.timedOut {
+		// The flow's own timeout ended it canceled, with the canceled
+		// value, while the host's context still runs (FX-52).
+		r.end(e.status, e.result, e.origin, nil)
+		return
+	}
 	if ended(e.status) {
 		r.endBy(ctx, e.status)
 		return
@@ -660,7 +671,16 @@ func (r *run) run(ctx context.Context) {
 // its key computed again at the completion, since an S3 object its input
 // names may have new content by then ([FX-40]).
 //
+// A flow job with a wall-clock limit of its own (frame.limit) runs under
+// it: once the limit has passed, the flow and every job below it are
+// canceled as a cancellation of the run would cancel them, with canceler
+// timeout and reason "the flow exceeded its <n>s timeout", and the flow
+// then ends as timedOut says ([FX-52]). Windmill's server cancels such a
+// flow on the first pass of its monitor after the limit; windmill-lite
+// cancels it at the limit.
+//
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
+// [FX-52]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-52
 func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 	if fr != r.root && fr.collapsed == nil {
 		// A child flow (a loop iteration, a branch, a subflow) is a flow
@@ -670,6 +690,22 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 		// steps has registered yet. Its record shows its end (WA-19).
 		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path, Run: r.id, View: runView{r}})()
 		defer func() { r.childEnded(fr, e) }()
+	}
+	if fr.limit > 0 {
+		outer, timeout := ctx, flowTimeout(fr.limit)
+		var cancel context.CancelCauseFunc
+		ctx, cancel = context.WithCancelCause(ctx)
+		t := time.AfterFunc(time.Duration(fr.limit)*time.Second, func() { cancel(timeout) })
+		defer func() {
+			t.Stop()
+			// Its own timeout, and not its caller's cancellation (a host's,
+			// or an ancestor's timeout, FX-52 rule 7), ended the flow.
+			own := e.status == conformance.RunCanceled && context.Cause(ctx) == error(timeout) && outer.Err() == nil
+			cancel(nil)
+			if own {
+				e = r.timedOut(outer, fr, timeout)
+			}
+		}()
 	}
 	if !fr.cacheTTL.set {
 		return r.runModules(ctx, fr)
@@ -706,6 +742,67 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 		}
 	}
 	return e
+}
+
+// flowTimeout is the cancellation of a flow job that outlived its own
+// wall-clock limit of secs seconds (FX-52 rule 3).
+func flowTimeout(secs int64) *Cancellation {
+	return &Cancellation{Canceler: "timeout", Reason: fmt.Sprintf("the flow exceeded its %ds timeout", secs)}
+}
+
+// flowLimit is the wall-clock limit in seconds that a flow job of f
+// carries (FX-52 rule 2): its calling flow step's positive timeout, step,
+// when there is one, else f's own positive value.timeout, else 0 for none.
+func flowLimit(step *int64, f *ir.Flow) int64 {
+	if step != nil {
+		return *step
+	}
+	if f.ValueTimeout != nil && *f.ValueTimeout > 0 {
+		return int64(*f.ValueTimeout)
+	}
+	return 0
+}
+
+// timedOut ends fr's flow job, which its own wall-clock limit canceled
+// with c, ctx being its caller's context, which the limit did not cancel
+// (FX-52 rules 5 and 6). Its failure module, if any, runs once, with the
+// timeout error as its previous_result, `{"error": {"name":
+// "ExecutionErr", "message": "flow terminated due to timeout: <reason>"}}`,
+// from the module the flow was at, whatever its loops' stops say; no other
+// module starts. The flow job then completes canceled, its result the
+// canceled value, whatever the failure module returned, and it delivers
+// the timeout error, or the failure module's result, to its caller's flow
+// step, which fails with it. A cancellation of the caller while the
+// failure module runs ends the flow as that cancellation does. A failure
+// module that the limit cut short, the flow having failed before it, does
+// not run again (the reference does not say; once is what it says).
+func (r *run) timedOut(ctx context.Context, fr *frame, c *Cancellation) flowEnd {
+	failing := carry{value: workerError("", "flow terminated due to timeout: "+c.Reason), origin: OriginEngine}
+	if at, inFailure := r.reached(fr); fr.failure != nil && !inFailure {
+		f := r.failure(ctx, fr, failing, at, false)
+		if ended(f.status) {
+			return f
+		}
+		failing = carry{f.result, f.origin, f.nested}
+	}
+	return flowEnd{status: conformance.RunCanceled, result: canceledError(c.Reason, c.Canceler), origin: OriginEngine, delivered: &failing, timedOut: true}
+}
+
+// reached is the id of the module fr's flow was at, the last of its
+// modules that started ("" when none did), and whether its failure module
+// had started.
+func (r *run) reached(fr *frame) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if fr.recs[len(fr.modules)] >= 0 {
+		return "", true
+	}
+	for i := len(fr.modules) - 1; i >= 0; i-- {
+		if fr.recs[i] >= 0 {
+			return fr.modules[i].ID, false
+		}
+	}
+	return "", false
 }
 
 // hostEnd applies the host's checks around a flow job's cache I/O, with
@@ -1675,7 +1772,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		if !r.firstWrite(ctx, site) {
 			return notLaunched()
 		}
-		return r.subflow(ctx, fr, i, site.Path, o, stored, pushed)
+		return r.subflow(ctx, fr, i, site.Path, o, stored, pushed, secs)
 	default:
 		// FX-40: once the job is picked up, before it runs, the result
 		// cache may answer it.
@@ -1697,7 +1794,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		if !r.firstWrite(ctx, site) {
 			return notLaunched()
 		}
-		timeout, instanceWide := r.leafTimeout(fr, m, secs)
+		timeout, atMax := r.leafTimeout(fr, m, secs)
 		o.rec.Ran = true
 		var resolved jsonval.Value
 		out, job, resolved, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
@@ -1721,9 +1818,15 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			return res
 		case errors.Is(err, CancelTimeout):
 			o.rec.Abandoned = true
-			// The worker's text for a step that ran out of time: WR-37's
-			// for Bun, WR-44's for native.
-			res := fail(TimeoutError(Boundary(m.Leaf.Boundary), fr.stepID(i), timeout, instanceWide), OriginEngine)
+			// The worker's text for a step that ran out of time: FX-25's
+			// for Bun, WR-44's for native. A Bun step's process timer marks
+			// its job canceled, while the step fails as any failure does,
+			// for its retry, continue_on_error and the failure module; the
+			// native path's timer does not (FX-24, FX-25).
+			res := fail(TimeoutError(Boundary(m.Leaf.Boundary), fr.stepID(i), timeout, atMax), OriginEngine)
+			if Boundary(m.Leaf.Boundary) != BoundaryNative {
+				res.rec.Status = conformance.StepCanceled
+			}
 			r.recordJob(fr, i, res.rec.Result)
 			r.ended(fr, &res)
 			return res
@@ -2258,12 +2361,12 @@ func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site c
 
 // moduleTimeout evaluates the module's own timeout, start step 9 (FX-24,
 // JE-29), its loop's in a collapsed iteration (CF-8, CF-27): its seconds,
-// or nil when it has none or a static null. A static one is an i32
-// (OF-V2); a javascript one sees P as result and previous_result, results
-// with JE-9 and the preceding id (JE-22), and its value must deserialise
-// as an i32. A negative timeout, a value that does not deserialise and a
-// failed evaluation are chaining errors, whose texts the error carries
-// (FX-15).
+// or nil when it has none, a static null or a value of 0 or less, which is
+// unset (1.768.0). A static one is an i32 (OF-V2); a javascript one sees P
+// as result and previous_result, results with JE-9 and the preceding id
+// (JE-22), and its value must deserialise as an i32. A value that does not
+// deserialise and a failed evaluation are chaining errors, whose texts the
+// error carries (FX-15).
 func (r *run) moduleTimeout(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) (*int64, error) {
 	t := m.Timeout
 	if fr.collapsed != nil {
@@ -2294,8 +2397,7 @@ func (r *run) moduleTimeout(ctx context.Context, fr *frame, m *ir.Module, site c
 	if err != nil {
 		return nil, err
 	}
-	secs := int64(n)
-	return &secs, nil
+	return positive(int64(n)), nil
 }
 
 // evaluationFailure is the text Windmill's worker gives a failed
@@ -2314,29 +2416,19 @@ type evalFailure struct {
 func (e *evalFailure) Error() string { return e.text }
 func (e *evalFailure) Unwrap() error { return e.err }
 
-// leafTimeout returns a leaf's timeout and whether it counts as
-// instance-wide (FX-24, WR-37), given the module's own timeout in seconds
-// (its loop's in a collapsed iteration), secs, or nil. The request is that
-// timeout, else a path script's own timeout metadata; one strictly below
-// the instance maximum is used as it is, and counts as job-specific, zero
-// included, which leaves the step no time at all. With no request, or one
-// at or above the maximum, the maximum applies (windmill-lite has no
-// instance default job timeout below it).
+// leafTimeout returns a leaf's timeout and whether it is the instance
+// maximum (FX-24, FX-25, WR-37), given the module's own positive timeout in
+// seconds (its loop's in a collapsed iteration), secs, or nil. The custom
+// timeout is that timeout, else a path script's own positive timeout
+// metadata (one of 0 or less counts as none); one strictly below the
+// instance maximum is used as it is. With no custom timeout, or one at or
+// above the maximum, the maximum applies (windmill-lite has no instance
+// default job timeout below it).
 func (r *run) leafTimeout(fr *frame, m *ir.Module, secs *int64) (time.Duration, bool) {
 	if secs == nil && m.Kind == ir.KindScript {
-		if s := r.e.prog.Scripts[m.Leaf.Script]; s != nil && s.Metadata != nil && s.Metadata.Timeout != nil {
-			v := int64(*s.Metadata.Timeout)
-			secs = &v
-		}
+		secs = scriptTimeout(r.e.prog.Scripts[m.Leaf.Script])
 	}
-	if secs == nil {
-		return r.e.cap, true
-	}
-	d := time.Duration(*secs) * time.Second
-	if d >= r.e.cap {
-		return r.e.cap, true
-	}
-	return d, false
+	return r.e.jobTimeout(secs)
 }
 
 // sleep reads the previous module's sleep at a module's first start,

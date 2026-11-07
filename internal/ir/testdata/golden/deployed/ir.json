@@ -229,6 +229,10 @@
           "id": "each",
           "kind": "forloopflow",
           "summary": "collapses (one simple rawscript body, sequential, no failure module)",
+          "timeout": {
+            "type": "static",
+            "value": 5
+          },
           "forloop": {
             "iterator": {
               "type": "static",
@@ -242,10 +246,6 @@
               {
                 "id": "inc",
                 "kind": "rawscript",
-                "timeout": {
-                  "type": "static",
-                  "value": 5
-                },
                 "leaf": {
                   "script": "inline-344fadc3068781bf",
                   "harness": "bun",

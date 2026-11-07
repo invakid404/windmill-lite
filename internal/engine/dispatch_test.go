@@ -201,16 +201,18 @@ func TestDispatcherDetachedAndClose(t *testing.T) {
 	}
 }
 
-// A script job's own timeout fails it with the worker's text, without a
-// step id (WR-37); f/t/zero's metadata asks for 0 s.
+// A script job's timeout fails it with the worker's text, without a step
+// id (WR-37, FX-25); f/t/zero's metadata asks for 0 s, which is unset
+// (FX-24), so the instance maximum applies.
 func TestRunScriptTimeout(t *testing.T) {
 	g := &gate{release: make(chan struct{}), started: make(chan Invocation, 1)}
 	e := openWithPlatform(t, map[string]string{}, g, &platform.Services{})
+	e.cap = 20 * time.Millisecond
 	r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/zero", Args: jsonval.FromProducer([]byte(`{}`))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr"}}`
+	want := "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 0s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed\",\"name\":\"ExecutionErr\"}}"
 	if !r.Failed || string(r.Result.Producer()) != want {
 		t.Errorf("%+v %s", r, r.Result.Producer())
 	}

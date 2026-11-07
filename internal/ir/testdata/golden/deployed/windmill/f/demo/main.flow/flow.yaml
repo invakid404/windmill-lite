@@ -42,12 +42,12 @@ value:
           unused: {type: ai}
     - id: each
       summary: collapses (one simple rawscript body, sequential, no failure module)
+      timeout: 5
       value:
         type: forloopflow
         iterator: {type: static, value: [1, 2, 3]}
         modules:
           - id: inc
-            timeout: 5
             value:
               type: rawscript
               language: bun

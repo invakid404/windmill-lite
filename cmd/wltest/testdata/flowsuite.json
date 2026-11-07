@@ -1,5 +1,5 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3, NI, E4b, F1, F2a and N5 of ADR 0012, the follow-up milestones FU7, E4c, the latter E4b's, FU8 and FU9B, the job reads of J1, and recording batch E3f, whose runs that windmill-lite already matches it requires): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm and in fresh mode, through wl (F1), which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3, NI, E4b, F1, F2a and N5 of ADR 0012, the follow-up milestones FU7, E4c, the latter E4b's, FU8 and FU9B, the job reads of J1, the timeouts of the retarget to Windmill 1.862.0 (W6b), and recording batch E3f, whose runs that windmill-lite already matches it requires): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm and in fresh mode, through wl (F1), which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
     "N1a",
@@ -23,7 +23,8 @@
     "FU8",
     "E3f",
     "FU9B",
-    "J1"
+    "J1",
+    "W6b"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -315,6 +316,7 @@
     "conformance/flows/execution/fx-15/child_pickup": "N3c",
     "conformance/flows/execution/fx-15/later_transition": "N1b",
     "conformance/flows/execution/fx-15/root_pickup": "N3c",
+    "conformance/flows/execution/fx-15/root_pickup_i32": "W6b",
     "conformance/flows/execution/fx-17/skip_on_retry": "F1",
     "conformance/flows/execution/fx-18-rest/fx11a": "E3f",
     "conformance/flows/execution/fx-18-rest/fx11b": "E3f",
@@ -430,6 +432,16 @@
     "conformance/flows/execution/fx-48-jsonb/result_low": "E3f",
     "conformance/flows/execution/fx-48-jsonb/surrogate_later": "E3f",
     "conformance/flows/execution/fx-48-jsonb/surrogate_root": "E3f",
+    "conformance/flows/execution/fx-52-flow-timeout/concurrency": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/failure_module": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/negative": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/root": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_failure_module": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_override": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_own": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_step_zero": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/subflow_tolerated": "W6b",
+    "conformance/flows/execution/fx-52-flow-timeout/zero": "W6b",
     "conformance/flows/execution/fx-6/first_step": "E1",
     "conformance/flows/execution/fx-6/rederived_on_retry": "N2",
     "conformance/flows/execution/fx-7/js_and_static": "E1",
