@@ -1123,7 +1123,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-13"></a>
 ### FX-13 · A successful result with `wm_failure` is turned into a failure
 
-**Scope:** later · **Confidence:** high (insertion read; oracle-observed for a step at the end of a flow); medium (downstream path); high (identity jobs, oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** later · **Confidence:** high (insertion read; oracle-observed for a step at the end of a flow); medium (downstream path); high (identity jobs, oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except that only an object carries the marker (re-checked at v1.862.0)
 
 - **Rule:** A step that returns successfully is treated as **failed** if its
   result is an object with a string field `wm_failure`. The result is kept
@@ -1184,6 +1184,16 @@ run of batch E3f in the [design README](../design/README.md).
   `conformance/flows/execution/fx-13-identity`, runs `mock_marker`,
   `tolerated_identity` and `tolerated_skipped`, oracle run 40990751153).
   The identity-job part is no longer drafted.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check):** at
+  v1.767.0 the marker record was read with a derived decoder, which also
+  takes an array by position (`wm_labels`, then `wm_failure`), so a
+  successful `[[], "boom"]` was a manual failure too, against the rule's
+  "a value that is not an object passes through". At v1.862.0 the record
+  is read only from an object (1.813.0, "stop reading an array job result
+  as wm_failure or http response";
+  `backend/windmill-queue/src/jobs.rs:1062-1072 @ v1.862.0`,
+  `:1139-1141 @ v1.862.0`), so the rule holds as written. No fixture
+  records an array; the rest of the finding is verified at v1.767.0 only.
 
 <a id="fx-14"></a>
 ### FX-14 · An input-transform error fails that step; a retry runs with empty args
@@ -2386,7 +2396,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-33"></a>
 ### FX-33 · `failure_module`: the flow's final result and `recover`
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except a recovered failure that ends a root flow (re-checked at v1.862.0)
 
 - **Rule:** After the failure module ran, the flow completes with
   the **failure module's result as its result**, stored as-is with no
@@ -2409,6 +2419,28 @@ run of batch E3f in the [design README](../design/README.md).
   parent receives the failure module's result as the module result. The
   child's own job is still marked successful when it recovered.
 
+  **A root flow that the recovered failure ends succeeds.** The failure
+  reaches the parent marked as recovered, and the parent handles it as it
+  handles any failure: its `retry` and `continue_on_error` apply, a
+  sequential container still counts the child as failed and stops
+  ([CF-V1](control-flow.md#cf-v1)), and the parent's own failure module
+  runs only where it would anyway, across a by-path subflow boundary
+  ([CF-17](control-flow.md#cf-17)); it then decides the outcome as above.
+  When nothing handles it and the failure ends the flow:
+  - a flow that is a step of another flow (a loop iteration, a branch, a
+    by-path subflow) is stored failed, and passes the failure on to its
+    own parent with the mark;
+  - a root flow (a flow job that is not a step of another flow) is stored
+    `success`, with the result it would have failed with. Later modules do
+    not run. Its log says `Flow job completed with success: the step that
+    failed had its error recovered by the error handler (recover: true)`.
+
+  The mark is dropped where a new failure replaces the recovered one: an
+  error stop of the flow's own `stop_after_if`, an error while the flow
+  pushes its next step, and a failed parallel loop or parallel `branchall`,
+  whose recovered children count as succeeded, so that its failure comes
+  from a child that did not recover.
+
   The flow log says `Flow job completed with error, and error handler was
   triggered. It completed with <success|error>, and with recover: <bool>`.
 - **Decoder detail:** the record decoder is serde's derived struct decoding
@@ -2429,8 +2461,16 @@ run of batch E3f in the [design README](../design/README.md).
   The oracle gave exactly these outcomes.
 - **Evidence:** `backend/windmill-worker/src/worker_flow.rs:298-301`,
   `:409-412`, `:1809-1810`, `:2006-2059`, `:2140-2153`;
-  `backend/Cargo.lock:11067`, `:11151`.
-- **Conformance:** [FX-33/a–g](conformance.md#fx-33)
+  `backend/Cargo.lock:11067`, `:11151`. The recovered failure at v1.862.0:
+  `backend/windmill-worker/src/worker_flow.rs:296-303 @ v1.862.0` (the
+  mark), `:436-439 @ v1.862.0` (the recovery record), `:528-530 @ v1.862.0`
+  (a `flow` step lets the caller's handler run), `:1113-1116 @ v1.862.0`
+  (a parallel container drops the mark), `:1883-1888 @ v1.862.0` (a
+  failure step that recovers; an error stop drops the mark),
+  `:1913-1932 @ v1.862.0` (a root flow, and its log), `:2122-2127 @ v1.862.0`
+  (the stored status), `:2226-2229 @ v1.862.0` (a push error drops the
+  mark), `:2246-2268 @ v1.862.0` (a child reports failure, with the mark).
+- **Conformance:** [FX-33/a–h](conformance.md#fx-33)
 - **Revision 2026-10-28 (oracle, batch E3c):** the finding was `DISPUTED`
   ([Q-FX-19](#q-fx-19)). As drafted, only an object with a boolean
   `recover: true` recovered and any non-object failed; the correction (from
@@ -2441,6 +2481,20 @@ run of batch E3f in the [design README](../design/README.md).
   `conformance/flows/execution/fx-33`, oracle run 40685766017, which also
   recorded the parent view: a recovered child reports failure to its
   parent). The object-only reading is superseded.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  the parent view changed for a root flow. At v1.767.0 a root flow without
+  a failure module of its own failed with the recovered child's result; at
+  v1.862.0 the failure carries a recovered mark, and a root flow that it
+  ends is stored `success` with the same result (1.827.0, "let recover:
+  true from the error handler turn nested failures green", narrowed by
+  1.855.0, "report a failed flow unless its failure module succeeded";
+  the split between the two releases is inferred). Re-recorded on CE
+  v1.862.0 (fixture `conformance/flows/execution/fx-33`, run
+  `parent_view`, oracle run 42299716256): the parent succeeded with
+  `{"recover": true, "v": 1}`, its step `s` succeeded as a job while its
+  module entry is `Failure`; new case [FX-33/h](conformance.md#fx-33). The
+  recovery record decoder, the table above and the child's own status are
+  unchanged at v1.862.0.
 
 <a id="fx-34"></a>
 ### FX-34 · `failure_module` inside inline bodies runs at the innermost level
@@ -2589,7 +2643,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-36"></a>
 ### FX-36 · The flow's final result and the HTTP response
 
-**Scope:** core (executor result selection; HTTP for oracle interpretation); later (HTTP adapter) · **Confidence:** high (oracle-observed: executor result selection, the run-and-wait response and the positional array decoding); high (source-traced: the error responses, an array of another length, an alias given twice) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (executor result selection; HTTP for oracle interpretation); later (HTTP adapter) · **Confidence:** high (oracle-observed: executor result selection, the run-and-wait response and an array that is not decoded, at v1.862.0); high (source-traced: the error responses, an array of another length, an alias given twice) · **Status:** confirmed · verified at v1.767.0 only, except that only an object is read as response metadata, and FX-36/b's body keys (re-checked at v1.862.0)
 
 - **Rule:**
   - **Executor result.** When the flow stops ([FX-2](#fx-2)) its result is:
@@ -2626,13 +2680,13 @@ run of batch E3f in the [design README](../design/README.md).
        `wm_content_transfer_encoding`): a string;
     5. `result`: any JSON value.
 
-    The decoder takes either an object, whose unknown keys are ignored, or
-    an **array of exactly five elements read by position** in the order
-    above, each `null` or of its field's type: `[201, null, null, null, 7]`
-    decodes as status code 201 with `result` 7. An array of any other
-    length, an element of the wrong type, a scalar, `null`, or an object
-    that gives a field and its alias both (a duplicate field) fails to
-    decode. Then:
+    The decoder takes **only an object**, whose unknown keys are ignored.
+    A stored result whose text does not start with `{` (after any leading
+    whitespace) is never decoded: an array, whatever its length and
+    elements, a scalar and `null` are no metadata, so
+    `[201, null, null, null, 7]` is answered as an ordinary result. An
+    object with a field of the wrong type, or one that gives a field and
+    its alias both (a duplicate field), fails to decode. Then:
     - **Decoding fails** (for example a string status code or a non-string
       header value): the ordinary response, **200** if the flow succeeded,
       else **422**, with the **whole** stored result as a JSON body
@@ -2674,7 +2728,16 @@ run of batch E3f in the [design README](../design/README.md).
     element is an invalid length), and `serde_json` `1.0.151` hands an array
     to it and refuses leftover elements (`src/de.rs:1820-1846`,
     `:1072-1086`). The same mechanism lets a one-element array recover a
-    flow ([FX-33](#fx-33)).
+    flow ([FX-33](#fx-33)). This held at v1.767.0 only.
+  - Only an object, at v1.862.0:
+    `backend/windmill-api-jobs/src/execution.rs:618-641 @ v1.862.0` (the
+    record read through the object-only parse; no metadata gives the
+    ordinary response), `backend/windmill-queue/src/jobs.rs:1062-1072 @ v1.862.0`
+    (the parse refuses any text that does not start with `{`, because a
+    derived decoder would read an array by position). The recovery record
+    of [FX-33](#fx-33) does not go through it
+    (`backend/windmill-worker/src/worker_flow.rs:436-439 @ v1.862.0`), so
+    `[true]` still recovers.
 - **Conformance:** [FX-36/a–FX-36/m](conformance.md#fx-36); also
   [FX-V3/a](conformance.md#fx-v3), [FX-12/a](conformance.md#fx-12) and
   [FX-37/a](conformance.md#fx-37) over HTTP.
@@ -2705,6 +2768,17 @@ run of batch E3f in the [design README](../design/README.md).
   order, so FX-36/b's body reads `name`, `stack`, `message`, `step_id`; the
   rule now says why. The status is `confirmed`; the exact array length and
   the alias clash are from the source and the decoder ([FX-36/i](conformance.md#fx-36)).
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  an array result is no longer read as response metadata (1.813.0, "stop
+  reading an array job result as wm_failure or http response"). The
+  record is now decoded only from an object, so the positional reading of
+  Q-FX-12 holds at v1.767.0 only. Re-recorded on CE v1.862.0 (fixture
+  `conformance/flows/execution/fx-36-http`, run `array`, oracle run
+  42299716256): `[201, null, null, null, 7]` is answered HTTP 200 with
+  the whole array as the body, `[201, null, null, null, 7]`, as
+  [FX-36/h](conformance.md#fx-36) now says. Only the decoder's input was
+  re-verified at v1.862.0; the rest of the response rules are verified at
+  v1.767.0 only.
 - **Revision 2026-11-06 (retarget to Windmill 1.862.0):** a failed step's
   error now carries the step context keys of [FX-12](#fx-12), and the body
   sends them in `jsonb` order too. On CE v1.862.0, FX-36/b's body reads
@@ -2716,7 +2790,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-37"></a>
 ### FX-37 · `early_return`
 
-**Scope:** later · **Confidence:** high (oracle-observed: poll loop); medium (lookup details) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** later · **Confidence:** high (oracle-observed: poll loop; a step inside a branch, at v1.862.0); medium (lookup details) · **Status:** confirmed · verified at v1.767.0 only, except a step inside a branch (re-checked at v1.862.0)
 
 - **Rule:** `early_return` is a **step id**, not an expression, and it only
   affects the synchronous run-and-wait API. As soon as that step has a
@@ -2726,11 +2800,36 @@ run of batch E3f in the [design README](../design/README.md).
   the flow has a failure module, the early value is discarded and the API
   waits for the final flow result. No expression is evaluated, nothing extra
   is stored, and the flow's own final result is unaffected.
+
+  **A step inside a branch.** The step is looked up
+  by its id among the jobs the flow records as its modules complete. A step
+  nested in a `branchone` or `branchall` branch, or in a sequential loop's
+  body, is recorded on the root flow's job like a top-level one; the
+  children of a `flow` step and of a parallel loop are scopes of their own.
+  So a script step inside a branch answers early as a top-level step does.
+  A loop or `branchall` step answers with its array once it completes, and
+  its success is read from its module entry in the flow job that ran it:
+  for one nested in a branch, the branch's own flow job, found as the
+  parent of the container's first child job, from that job's completed or
+  running row. A nested container with no child job (an empty loop) has no
+  such job; its success is then looked for in the root's entries, the
+  lookup fails, and the API waits for the flow's final result. So does a
+  step in a branch that never runs, which never gets a result.
 - **Evidence:** `backend/windmill-types/src/flows.rs:296-297`;
   `backend/windmill-api-jobs/src/execution.rs:186-208`, `:290-322`,
   `:350-368`; `backend/windmill-queue/src/jobs.rs:4463-4540`; Docs:
-  https://www.windmill.dev/docs/flows/early_return
-- **Conformance:** [FX-37/a](conformance.md#fx-37)
+  https://www.windmill.dev/docs/flows/early_return. A step inside a
+  branch, at v1.862.0: `backend/windmill-api-jobs/src/execution.rs:532-592 @ v1.862.0`
+  (the poll; a failed lookup is passed over and the poll goes on to the
+  flow's own result), `backend/windmill-queue/src/jobs.rs:5732-5815 @ v1.862.0`
+  (the lookup and the success of a single job or of a container's
+  module entry, read from the flow job that holds it), `:5830-5878 @ v1.862.0`
+  (the recorded jobs, read on the innermost root),
+  `backend/windmill-worker/src/worker_flow.rs:1500-1544 @ v1.862.0` (a
+  completed module is recorded on the innermost root), `:4911-4921 @ v1.862.0`
+  (the children of a `flow` step and of a parallel loop start a scope of
+  their own).
+- **Conformance:** [FX-37/a to FX-37/e](conformance.md#fx-37)
 - **Revision 2026-10-28 (oracle, batch E3c):** the executor part was recorded
   as stated: with `early_return` the flow still completes with its last
   module's result (fixture `conformance/flows/execution/fx-37`, run `early`,
@@ -2744,11 +2843,20 @@ run of batch E3f in the [design README](../design/README.md).
   [`execution/fx-36-http`](../../conformance/flows/execution/fx-36-http), run
   `early`, oracle run 40794872025). The confidence of the poll loop is now
   oracle-observed.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  added a step inside a branch (1.835.0, "allow early return on steps
+  inside branches"). At v1.767.0 a container's success was looked for only
+  in the root's module entries, so a loop or `branchall` nested in a
+  branch never answered early and the API answered with the flow's final
+  result; a script step inside a branch already answered early. New cases
+  FX-37/b to FX-37/e, recorded on CE v1.862.0 (fixture
+  `conformance/flows/execution/fx-37-branches`, oracle run
+  42299716256).
 
 <a id="fx-38"></a>
 ### FX-38 · Cancellation
 
-**Scope:** core (host-initiated cancel with the same result shape) · **Confidence:** high (oracle-observed: the steady state and a step waiting to start); low (race) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (host-initiated cancel with the same result shape) · **Confidence:** high (oracle-observed: the steady state and a step waiting to start); low (race) · **Status:** confirmed · verified at v1.767.0 only, except the stored status of a step canceled while it waits to start (re-checked at v1.862.0)
 
 - **Rule:** Canceling a flow sets its cancel flag and the flag of every
   queued descendant job, up to depth 500. Queued children are made due
@@ -2783,9 +2891,11 @@ run of batch E3f in the [design README](../design/README.md).
   `scheduled_for` ([FX-23](#fx-23), [FX-26](#fx-26)), and a `parallelism`
   hold queues held iterations ([CF-7](control-flow.md#cf-7)). So when the
   flow is canceled during the wait, the cascade finds that job, flags it and
-  makes it due at once. At pickup it completes without running: its stored
-  status is `failure` (not `canceled`: that path records no canceler) and
-  its result is the `Canceled` value of the cascade's reason and canceler.
+  makes it due at once. At pickup it completes without running, and its
+  result is the `Canceled` value of the cascade's reason and canceler. Its
+  stored status is `canceled`, with that canceler and reason: the pickup
+  path passes no canceler of its own, but the completion keeps the cancel
+  flag that the cascade set on the job's queue row.
   For a `flow` step the subflow's `Flow` job therefore exists and ends that
   way with its own flow status still at step 0: none of its modules starts
   and it creates no job. That status, written when the job was pushed,
@@ -2816,6 +2926,16 @@ run of batch E3f in the [design README](../design/README.md).
     (the job's completion and the caller's update);
     `backend/windmill-queue/src/jobs.rs:1094-1122` (the stored status is
     `canceled` only with a canceler), `:6896-6903` (the value)
+  - the stored status of a step canceled while it waits, at v1.862.0:
+    `backend/windmill-worker/src/worker.rs:4886-4888 @ v1.862.0` (completed
+    at pickup), `:2475-2505 @ v1.862.0` (no canceler passed);
+    `backend/windmill-worker/src/result_processor.rs:2079-2165 @ v1.862.0`
+    (the job's completion and the caller's update);
+    `backend/windmill-queue/src/jobs.rs:1994-2056 @ v1.862.0` and
+    `:2063-2128 @ v1.862.0` (the completion deletes the queue row and
+    stores `canceled`, with the row's canceler and reason, when it is
+    passed a canceler or the row carries one), `:8432-8434 @ v1.862.0`
+    (the value)
 - **Conformance:** [FX-38/a, FX-38/b](conformance.md#fx-38); the race has no fixture.
 - **Revision 2026-10-28 (oracle, batch E3c):** the steady state was recorded
   as stated: a flow canceled while its step slept ended `canceled` with the
@@ -2837,6 +2957,19 @@ run of batch E3f in the [design README](../design/README.md).
   subflow's own status still lists its step with no job, so a reader of
   the run sees that step as never started; the rule now says so. The part
   is no longer drafted.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  a step canceled while it waits to start is now stored `canceled`, not
+  `failure`; its result, the `Canceled` value, is unchanged. At v1.767.0
+  the completion stored `canceled` only when it was passed a canceler,
+  which the pickup path never passes; at v1.862.0 it also keeps the cancel
+  flag the cascade set on the queue row (probably 1.817.0, "keep a cancel
+  that lands after a worker last read its queue row"; the release is
+  inferred). Re-recorded on CE v1.862.0: `b`'s job in
+  `conformance/flows/execution/fx-38-pickup` runs `subflow`, `bun` and
+  `retried`, and in `conformance/flows/execution/fx-23` run
+  `canceled_sleep`, ends `canceled` (oracle run 42299716256). Only this
+  path was re-verified at v1.862.0; the rest of the finding is verified at
+  v1.767.0 only.
 
 <a id="fx-39"></a>
 ### FX-39 · `suspend` / approval: behaviour when a flow meets it
@@ -2875,7 +3008,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-40"></a>
 ### FX-40 · `cache_ttl` (step and flow)
 
-**Scope:** later (the entry store and its permissions: out) · **Confidence:** high (oracle-observed: hits, failed-flow caching, the TTL matrix's loop rows, sharing between collapsed iterations, the store conditions, argument equality and raw-submission bodies, a hit that resolves no `$var:`, `stop_after_if` on a hit, a zero TTL, S3-aware hashing without workspace storage); high (source-traced: where the lookup sits, the rest of what a hit skips); medium (S3-aware hashing with workspace storage, whose storage client is closed source on CE; who can read an entry) · **Status:** confirmed; drafted (where the lookup sits, what a hit skips and what still applies beyond FX-40/j and FX-40/l, S3-aware hashing with workspace storage, where entries live) · verified at v1.767.0 only
+**Scope:** later (the entry store and its permissions: out) · **Confidence:** high (oracle-observed: hits, failed-flow caching, the TTL matrix's loop rows, sharing between collapsed iterations, the store conditions, argument equality and raw-submission bodies, a hit that resolves no `$var:`, `stop_after_if` on a hit, a zero TTL, S3-aware hashing without workspace storage); high (source-traced: where the lookup sits, the rest of what a hit skips); medium (S3-aware hashing with workspace storage, whose storage client is closed source on CE; who can read an entry) · **Status:** confirmed; drafted (where the lookup sits, what a hit skips and what still applies beyond FX-40/j and FX-40/l, S3-aware hashing with workspace storage, where entries live) · verified at v1.767.0 only, except the stored status of a job canceled at pickup (re-checked at v1.862.0)
 
 - **Rule:**
   - **Lookup.** Before any job with a `cache_ttl` (seconds) runs, including
@@ -2901,8 +3034,9 @@ run of batch E3f in the [design README](../design/README.md).
     never the value it names.
   - **Where the lookup sits.** At pickup, after the cancellation check (a
     job whose cancel flag is set when it is picked up fails at once with
-    the `Canceled` value, stored as `failure`, never from the cache;
-    [FX-38](#fx-38)) and after a pre-run error (a step whose input
+    the `Canceled` value, stored as `canceled` at v1.862.0 (as `failure`
+    at v1.767.0), never from the cache; [FX-38](#fx-38)) and after a
+    pre-run error (a step whose input
     transforms threw fails as [FX-14](#fx-14) says, never from the cache),
     and before anything else: before argument resolution, and for a flow
     before any step is evaluated. Jobs without `cache_ttl` skip it.
@@ -4586,7 +4720,11 @@ against Windmill CE `v1.767.0`.
   response-metadata decoder accept a JSON array positionally (for example
   `[201, null, null, null, 7]`)? *Settled by:* checking the decoder's
   behaviour for arrays, or an oracle run-and-wait with such a result. Later
-  scope. Status: closed.
+  scope. Status: closed. **Re-answered 2026-11-06 (retarget to v1.862.0):**
+  no. At v1.862.0 the record is decoded only from an object (1.813.0), so
+  the same run answers HTTP 200 with the whole array as the body (oracle
+  run 42299716256; [FX-36/h](conformance.md#fx-36)). The positional
+  answer above holds at v1.767.0 only. Status: closed.
 
 <a id="q-fx-13"></a>
 - **Q-FX-13** · affects [FX-15](#fx-15), [FX-21](#fx-21), [FX-28](#fx-28),

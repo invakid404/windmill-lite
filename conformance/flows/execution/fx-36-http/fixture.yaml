@@ -2,7 +2,8 @@
 # response that the oracle harness observes only for runs submitted with
 # submit: run_wait_result (OR-10). Each run is also polled to completion
 # and walked, so the flow's own outcome is in the observation beside the
-# response. The cases are FX-36/a to FX-36/g, the array result of Q-FX-12,
+# response. The cases are FX-36/a to FX-36/g, the array result of Q-FX-12
+# (no metadata on CE v1.862.0),
 # FX-12/a over HTTP, FX-37/a's early response, FX-V3/a's skipped flow, and
 # more of FX-36's rules: a content type unquotes the string result and is
 # sent as given, a charset parameter included; base64 transfer encoding

@@ -708,7 +708,7 @@
           {
             "expr": "",
             "modules": [],
-            "skip_failure": true,
+            "skip_failure": false,
             "parallel": true
           }
         ],
@@ -731,7 +731,7 @@
       "case": "OF-7/c",
       "run": "conformance/flows/openflow/of-deployed/f7_ba",
       "pointer": "/materialized/modules/0/value/branches/0/skip_failure",
-      "value": true
+      "value": false
     },
     {
       "case": "OF-8/a",

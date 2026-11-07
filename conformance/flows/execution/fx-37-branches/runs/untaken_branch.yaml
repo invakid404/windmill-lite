@@ -1,0 +1,14 @@
+# FX-37/d: early_return names a, a step in the branch that does not run:
+# a never gets a result, so run-and-wait answers with the flow's final
+# result, b's 2, once the run completes.
+spec: [FX-37/d]
+target: f/wl_fx37b/untaken_branch
+submit: run_wait_result
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:bo": {status: success, result: 3}
+    "m:bo/b:default/m:d": {status: success, result: 3}
+    "m:b": {status: success, result: 2}
+  response: {status: 200, content_type: application/json, body: '2'}
