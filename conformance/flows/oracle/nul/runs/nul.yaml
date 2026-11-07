@@ -1,10 +1,11 @@
-# probe nul (OR-27/a): a and the root fail with the InternalErr of the
-# database's refusal, whose location is masked; b does not run.
+# probe nul (OR-27/a, FX-48/a): CE 1.862.0 removes the NUL when a's result
+# is stored, so a and the root succeed with "xy" and b receives and
+# returns it.
 spec: [OR-27/a, FX-48/a]
 target: f/wl_probe/nul
 expect:
-  status: failure
-  result: {error: {name: InternalErr, message: "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+  status: success
+  result: {"p": "xy", "r": "xy"}
   steps:
-    "m:a": {status: failure, args: {}, result: {error: {name: InternalErr, message: "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}}
-    "m:b": {status: not_run, ran: false}
+    "m:a": {"status": "success", "args": {}, "result": "xy"}
+    "m:b": {"status": "success", "args": {"p": "xy", "r": "xy"}, "result": {"p": "xy", "r": "xy"}}

@@ -1,20 +1,21 @@
 # Recording batch E3f (ADR 0012): push failures and the jsonb boundary
 # (FX-48/b, FX-48/c, FX-50/a, FX-51/a to FX-51/c; Q-FX-8, Q-FX-20): a NUL
-# and
-# an unpaired surrogate generated in args at the root's pickup and at a
-# later
-# transition, a result whose unpaired surrogate the completion insert
-# refuses after its retries (about 30 s each), and $jsonvar: texts serde
-# refuses. Expected texts end in the location suffixes the catalogue writes
-# <loc>, as oracle run 40990751153 recorded them. The runs compare as a
-# subset.
+# and an unpaired surrogate generated in args at the root's pickup and at
+# a later transition, a result whose unpaired surrogate the completion
+# insert refuses after its retries (about 30 s each), and $jsonvar: texts
+# serde refuses. Expected texts end in the location suffixes the catalogue
+# writes <loc>, as oracle run 40990751153 recorded them. Since CE 1.862.0
+# the NUL is removed when the job is pushed, so the NUL runs succeed and
+# the surrogate runs hold FX-50/a's push failure; nul_memory shows the
+# NUL a result keeps in memory, for the next step's transforms, while its
+# stored copy loses it. The runs compare as a subset.
 #
-# Each run's expect is the reference's source-derived prediction, written
-# before the oracle ran it. Synthetic, written for this repository from
+# Each run's expect was the reference's source-derived prediction, written
+# before the oracle ran it; the NUL runs' expects are CE 1.862.0's. Synthetic, written for this repository from
 # docs/semantics/conformance.md#fx-48 to #fx-51. Deployed with oracle.deploy
 # api.
 id: execution/fx-48-jsonb
-spec: [FX-48/b, FX-48/c, FX-50/a, FX-51/a, FX-51/b, FX-51/c]
+spec: [FX-48/b, FX-48/c, FX-48/e, FX-50/a, FX-51/a, FX-51/b, FX-51/c]
 scope: core
 provenance: oracle-observed
 languages: [bun]
