@@ -112,7 +112,7 @@ views, and so changes what `invoke` does:
   connected host, that output reaches the process's streams.
 
 Call `install()` in the test runner's setup file, before a test imports
-the host's code. On Bun 1.3.10 the first named import of `node:timers`
+the host's code. On Bun 1.4.3 the first named import of `node:timers`
 fixes its named bindings for every later importer
 ([the timer fence](bun/README.md#the-per-invocation-context)).
 

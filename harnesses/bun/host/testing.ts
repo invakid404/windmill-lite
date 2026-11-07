@@ -83,7 +83,7 @@ export type Settlement<T> = {
  * no child-process wrappers, and no process-level error handlers.
  *
  * Call it in the test's setup, before the test imports a module that
- * imports `node:timers` by name: on Bun 1.3.10 the first named import of a
+ * imports `node:timers` by name: on Bun 1.4.3 the first named import of a
  * builtin fixes its named bindings for every later importer.
  */
 export function install(): void {
