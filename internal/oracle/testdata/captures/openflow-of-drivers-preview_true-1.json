@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/openflow/of-drivers",
+  "run": "preview_true",
+  "repeat": 1,
+  "workspace": "wl-854bb5-8",
+  "root": "cacabb47-85e7-40f5-b7f2-7c44ec5115ca",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/get/cacabb47-85e7-40f5-b7f2-7c44ec5115ca?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-854bb5-8\",\"id\":\"cacabb47-85e7-40f5-b7f2-7c44ec5115ca\",\"created_by\":\"admin\",\"created_at\":\"2026-11-07T05:33:09.361216Z\",\"started_at\":\"2026-11-07T05:33:09.372054Z\",\"completed_at\":\"2026-11-07T05:33:10.157520Z\",\"duration_ms\":785,\"success\":true,\"script_hash\":\"0000000000000023\",\"script_path\":\"f/wl_ofd/preview_true\",\"args\":{},\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-15ab-8ef5-6efd-7ebf8aad6d53\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}, 2], \"success\": true}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-14c3-f212-8e50-71c3acb9f07b\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": true}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-13a5-3cb6-2714-30b116bbd756\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}, 2], \"success\": true}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"d\", \"job\": \"01a1b47f-137d-5381-9d26-3c436a67f3d9\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"resolved\":false,\"raw_flow\":{\"modules\":[{\"id\":\"d\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-4c13996a7dac-lUlQ3\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/completed/get_result_maybe/cacabb47-85e7-40f5-b7f2-7c44ec5115ca?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-15ab-8ef5-6efd-7ebf8aad6d53\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}, 2], \"success\": true}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-14c3-f212-8e50-71c3acb9f07b\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": true}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-13a5-3cb6-2714-30b116bbd756\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}, 2], \"success\": true}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/get/01a1b47f-137d-5381-9d26-3c436a67f3d9?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-854bb5-8\",\"id\":\"01a1b47f-137d-5381-9d26-3c436a67f3d9\",\"parent_job\":\"cacabb47-85e7-40f5-b7f2-7c44ec5115ca\",\"created_by\":\"admin\",\"created_at\":\"2026-11-07T05:33:09.373304Z\",\"started_at\":\"2026-11-07T05:33:09.375210Z\",\"completed_at\":\"2026-11-07T05:33:10.154596Z\",\"duration_ms\":777,\"success\":true,\"script_hash\":\"0000000000000038\",\"script_path\":\"f/wl_ofd/preview_true/d\",\"args\":{},\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-15ab-8ef5-6efd-7ebf8aad6d53\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}, 2], \"success\": true}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-14c3-f212-8e50-71c3acb9f07b\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": true}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-13a5-3cb6-2714-30b116bbd756\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}, 2], \"success\": true}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":22388,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"resolved\":false,\"worker\":\"wk-default-4c13996a7dac-lUlQ3\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/get_args/01a1b47f-137d-5381-9d26-3c436a67f3d9",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/completed/get_result_maybe/01a1b47f-137d-5381-9d26-3c436a67f3d9?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-15ab-8ef5-6efd-7ebf8aad6d53\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}, 2], \"success\": true}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-14c3-f212-8e50-71c3acb9f07b\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": true}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-13a5-3cb6-2714-30b116bbd756\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}, 2], \"success\": true}}}"
+    }
+  ]
+}
