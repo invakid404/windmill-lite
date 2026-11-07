@@ -49,7 +49,7 @@
       "catalogue": "the pre-run error carries an engine ReferenceError; the oracle renders the exception with the name Error: QuickJS evaluation error: Error: result is not defined",
       "run": "conformance/flows/execution/fx-7/result_unbound",
       "pointer": "/result/error/message",
-      "observed": "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"
+      "observed": "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:64)\n"
     },
     {
       "case": "FX-42/h",

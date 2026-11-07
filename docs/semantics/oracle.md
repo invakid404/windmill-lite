@@ -2631,7 +2631,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v9"></a>
 ### OR-V9 · A probe recipe must specify the actual transform scope
 
-**Scope:** core (reliable conformance evidence) · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (reliable conformance evidence) · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except the recorded message's frames (re-checked at v1.862.0)
 
 - **Rule:** a probe recipe used as conformance input specifies every
   transform and its actual binding.
@@ -2640,7 +2640,7 @@ validation. Open questions are `Q-OR-n`.
     iteration transforms read `flow_input.iter.index` and
     `flow_input.iter.value`. The literal `iter.value` fails at the
     iteration's first step with
-    ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:39)\n"}}``
+    ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:68)\n"}}``
     and no `step_id`: that step has empty args, the iteration's later steps
     do not run, and the loop and the flow fail with the iteration results,
     `[{"error": …}]`.
@@ -2669,6 +2669,7 @@ validation. Open questions are `Q-OR-n`.
   with the error above (runs `loop_seq_multi`, `loop_seq_multi_bare`,
   `loop_par`, `branchone_5`, `branchone_50`, `branchone_m1`).
   [Q-OR-16](#q-or-16) is answered.
+- **Revision 2026-11-06 (v1.862.0):** the recorded message's second frame follows the v1.862.0 expression wrapper ([JE-21](expressions.md#je-21)): `at <anonymous> (eval_script:1:68)`, where v1.767.0 recorded `at <eval> (eval_script:1:39)` (oracle run 42243035193). The rest of the finding is verified at v1.767.0 only.
 
 <a id="probe-catalogue"></a>
 ## Probe catalogue

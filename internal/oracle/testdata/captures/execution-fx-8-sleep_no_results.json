@@ -2,41 +2,41 @@
   "fixture": "conformance/flows/execution/fx-8",
   "run": "sleep_no_results",
   "repeat": 0,
-  "workspace": "wl-243a87-11",
-  "root": "1d6ee8e1-6614-4b1a-9885-25b3159de1c4",
+  "workspace": "wl-5313db-114",
+  "root": "10b63a5f-4b11-460d-a2bd-efe9c9862b22",
   "effects": [],
   "exchanges": [
     {
       "method": "GET",
-      "url": "/api/w/wl-243a87-11/jobs_u/get/1d6ee8e1-6614-4b1a-9885-25b3159de1c4?no_code=true\u0026no_logs=true",
+      "url": "/api/w/wl-5313db-114/jobs_u/get/10b63a5f-4b11-460d-a2bd-efe9c9862b22?no_code=true\u0026no_logs=true",
       "status": 200,
       "content_type": "application/json",
-      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-11\",\"id\":\"1d6ee8e1-6614-4b1a-9885-25b3159de1c4\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:41.705542Z\",\"started_at\":\"2026-10-28T12:15:41.721823Z\",\"completed_at\":\"2026-10-28T12:15:41.752742Z\",\"duration_ms\":31,\"success\":false,\"script_hash\":\"0000000000000023\",\"script_path\":\"f/wl_fx8/sleep_no_results\",\"args\":{},\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Expected a number value, had error instead: ExecutionErr(\\\"Error during evaluation of expression `results.a`:\\\\nQuickJS evaluation error: Error: results is not defined\\\\n    at \u003canonymous\u003e (eval_script:1:1)\\\\n    at \u003ceval\u003e (eval_script:1:46)\\\\n\\\")\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a18270-049c-897d-0bda-d418a58dc1f9\", \"type\": \"Success\", \"skipped\": false}, {\"id\": \"b\", \"type\": \"WaitingForPriorSteps\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"sleep\":{\"type\":\"javascript\",\"expr\":\"results.a\"}},{\"id\":\"b\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-5313db-114\",\"id\":\"10b63a5f-4b11-460d-a2bd-efe9c9862b22\",\"created_by\":\"admin\",\"created_at\":\"2026-11-06T22:13:32.448419Z\",\"started_at\":\"2026-11-06T22:13:32.450008Z\",\"completed_at\":\"2026-11-06T22:13:32.481098Z\",\"duration_ms\":31,\"success\":false,\"script_hash\":\"00000000000001a7\",\"script_path\":\"f/wl_fx8/sleep_no_results\",\"args\":{},\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Expected a number value, had error instead: ExecutionErr(\\\"Error during evaluation of expression `results.a`:\\\\nQuickJS evaluation error: Error: results is not defined\\\\n    at \u003canonymous\u003e (eval_script:1:1)\\\\n    at \u003canonymous\u003e (eval_script:1:67)\\\\n\\\")\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a1b2ec-98a6-dcd5-da2a-815df511952e\", \"type\": \"Success\", \"skipped\": false}, {\"id\": \"b\", \"type\": \"WaitingForPriorSteps\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"resolved\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"sleep\":{\"type\":\"javascript\",\"expr\":\"results.a\"}},{\"id\":\"b\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-e9fc020160f6-ZqzQA\"}"
     },
     {
       "method": "GET",
-      "url": "/api/w/wl-243a87-11/jobs_u/completed/get_result_maybe/1d6ee8e1-6614-4b1a-9885-25b3159de1c4?get_started=true",
+      "url": "/api/w/wl-5313db-114/jobs_u/completed/get_result_maybe/10b63a5f-4b11-460d-a2bd-efe9c9862b22?get_started=true",
       "status": 200,
       "content_type": "application/json",
-      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Expected a number value, had error instead: ExecutionErr(\\\"Error during evaluation of expression `results.a`:\\\\nQuickJS evaluation error: Error: results is not defined\\\\n    at \u003canonymous\u003e (eval_script:1:1)\\\\n    at \u003ceval\u003e (eval_script:1:46)\\\\n\\\")\"}}}"
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Expected a number value, had error instead: ExecutionErr(\\\"Error during evaluation of expression `results.a`:\\\\nQuickJS evaluation error: Error: results is not defined\\\\n    at \u003canonymous\u003e (eval_script:1:1)\\\\n    at \u003canonymous\u003e (eval_script:1:67)\\\\n\\\")\"}}}"
     },
     {
       "method": "GET",
-      "url": "/api/w/wl-243a87-11/jobs_u/get/01a18270-049c-897d-0bda-d418a58dc1f9?no_code=true\u0026no_logs=true",
+      "url": "/api/w/wl-5313db-114/jobs_u/get/01a1b2ec-98a6-dcd5-da2a-815df511952e?no_code=true\u0026no_logs=true",
       "status": 200,
       "content_type": "application/json",
-      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-11\",\"id\":\"01a18270-049c-897d-0bda-d418a58dc1f9\",\"parent_job\":\"1d6ee8e1-6614-4b1a-9885-25b3159de1c4\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:41.724003Z\",\"started_at\":\"2026-10-28T12:15:41.726298Z\",\"completed_at\":\"2026-10-28T12:15:41.746548Z\",\"duration_ms\":17,\"success\":true,\"script_hash\":\"0000000000000028\",\"script_path\":\"f/wl_fx8/sleep_no_results/a\",\"args\":{},\"result\":1,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":10832,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-5313db-114\",\"id\":\"01a1b2ec-98a6-dcd5-da2a-815df511952e\",\"parent_job\":\"10b63a5f-4b11-460d-a2bd-efe9c9862b22\",\"created_by\":\"admin\",\"created_at\":\"2026-11-06T22:13:32.453625Z\",\"started_at\":\"2026-11-06T22:13:32.456555Z\",\"completed_at\":\"2026-11-06T22:13:32.475637Z\",\"duration_ms\":15,\"success\":true,\"script_hash\":\"0000000000000224\",\"script_path\":\"f/wl_fx8/sleep_no_results/a\",\"args\":{},\"result\":1,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":372,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"resolved\":false,\"worker\":\"wk-default-e9fc020160f6-ZqzQA\"}"
     },
     {
       "method": "GET",
-      "url": "/api/w/wl-243a87-11/jobs_u/get_args/01a18270-049c-897d-0bda-d418a58dc1f9",
+      "url": "/api/w/wl-5313db-114/jobs_u/get_args/01a1b2ec-98a6-dcd5-da2a-815df511952e",
       "status": 200,
       "content_type": "application/json",
       "body": "{}"
     },
     {
       "method": "GET",
-      "url": "/api/w/wl-243a87-11/jobs_u/completed/get_result_maybe/01a18270-049c-897d-0bda-d418a58dc1f9?get_started=true",
+      "url": "/api/w/wl-5313db-114/jobs_u/completed/get_result_maybe/01a1b2ec-98a6-dcd5-da2a-815df511952e?get_started=true",
       "status": 200,
       "content_type": "application/json",
       "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":1}"
