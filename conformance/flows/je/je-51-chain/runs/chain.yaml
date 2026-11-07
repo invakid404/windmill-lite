@@ -1,7 +1,18 @@
 # Q-JE-12: a module-0 transform whose job chain never ends never finishes
-# evaluating (JE-51), and the flow ends canceled by the zombie-flow monitor
-# after about 60 s, as JE-2/a recorded for a CPU loop at the same site, not
-# with JE-2's timeout text.
+# evaluating (JE-51). At about 60 s the zombie-flow monitor puts the flow,
+# whose first module has not started, back in the queue (JE-2/b), which
+# does not stop the evaluation; after the third attempt, about 70 s in, a
+# fails with JE-2's timeout text, without running, and the flow fails with
+# that error. On CE v1.767.0 the monitor canceled the flow instead.
 spec: [JE-51, JE-2/b]
 target: f/wl_je51/chain
-expect: {status: canceled, result: {error: {name: Canceled}}}
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr}}
+  steps:
+    "m:a":
+      status: failure
+      result:
+        error:
+          name: ExecutionErr
+          message: "Error during isolated evaluation of expression `(queueMicrotask(function f() { queueMicrotask(f) }), 1)`:\nThe expression evaluation `(queueMicrotask(function f() { queueMicrotask(f) }), 1)` took too long to execute (>20000ms)"

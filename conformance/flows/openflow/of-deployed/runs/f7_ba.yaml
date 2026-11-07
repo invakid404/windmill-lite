@@ -1,5 +1,7 @@
-# OF-7/c: F7-ba deployed: the flag is absent, and deployment materialises it
-# as true (OF-3/a), so the failure is kept as a value.
+# OF-7/c: F7-ba deployed: the flag is absent, and on CE v1.862.0 deployment
+# materialises it as false (OF-6), so the first failure stops the
+# container, as with the flag false and in the preview. On CE v1.767.0 it
+# was materialised as true and the failure was kept as a value.
 spec: [OF-7/c]
 target: f/wl_of/f7_ba
-expect: {status: success, result: [{error: {message: b, name: Error}}, 2]}
+expect: {status: failure, result: [{error: {message: b, name: Error}}]}

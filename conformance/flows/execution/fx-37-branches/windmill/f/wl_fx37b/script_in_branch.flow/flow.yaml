@@ -1,0 +1,27 @@
+summary: "FX-37/b: early return from a script step inside a branch"
+value:
+  modules:
+    - id: bo
+      value:
+        type: branchone
+        branches:
+          - expr: "true"
+            modules:
+              - id: a
+                value:
+                  type: rawscript
+                  content: "!inline a.ts"
+                  language: bun
+                  input_transforms: {}
+        default: []
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+  early_return: a
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

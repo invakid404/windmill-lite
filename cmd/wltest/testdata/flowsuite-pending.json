@@ -9,6 +9,10 @@
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
     },
+    "conformance/exprs/je-2.yaml/je-2-a": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0's zombie-flow monitor puts a flow hanging in its first transition back in the queue, so the run ends with the expression timeout error, where windmill-lite cancels it at 60 s (JE-2)"
+    },
     "conformance/exprs/je-21.yaml/je-21-a": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
@@ -177,6 +181,18 @@
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
+    "conformance/flows/control-flow/cf-21/skip_mid": {
+      "milestone": "W6d",
+      "reason": "CE 1.862.0 evaluates a loop's skip_if once, at its entry, so every iteration runs, where windmill-lite evaluates it again before each iteration (CF-21)"
+    },
+    "conformance/flows/control-flow/cf-21/skip_mid_flows": {
+      "milestone": "W6d",
+      "reason": "CE 1.862.0 evaluates a loop's skip_if once, at its entry, so every iteration runs, where windmill-lite evaluates it again before each iteration (CF-21)"
+    },
+    "conformance/flows/control-flow/cf-21/skip_mid_while": {
+      "milestone": "W6d",
+      "reason": "CE 1.862.0 evaluates a loop's skip_if once, at its entry, so every iteration runs, where windmill-lite evaluates it again before each iteration (CF-21)"
+    },
     "conformance/flows/control-flow/cf-21/timeout_scope_collapsed": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
@@ -241,6 +257,10 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/control-flow/cf-v1/a": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1); the step errors also carry W6a's job_id and flow_path keys"
+    },
     "conformance/flows/control-flow/cf-v1/b": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
@@ -248,6 +268,10 @@
     "conformance/flows/control-flow/cf-v1/c-par": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/control-flow/cf-v1/c-seq": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1); the step errors also carry W6a's job_id and flow_path keys"
     },
     "conformance/flows/control-flow/cf-v4/a": {
       "milestone": "W6a",
@@ -385,6 +409,10 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/execution/fx-23/canceled_sleep": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
+    },
     "conformance/flows/execution/fx-24/js_error": {
       "milestone": "W6f",
       "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
@@ -501,6 +529,10 @@
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/execution/fx-33/parent_view": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1); the step errors also carry W6a's job_id and flow_path keys"
+    },
     "conformance/flows/execution/fx-34/loop": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
@@ -512,6 +544,18 @@
     "conformance/flows/execution/fx-36/failed_branchall": {
       "milestone": "W6a",
       "reason": "the expect's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
+    },
+    "conformance/flows/execution/fx-38-pickup/bun": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
+    },
+    "conformance/flows/execution/fx-38-pickup/retried": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
+    },
+    "conformance/flows/execution/fx-38-pickup/subflow": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
     },
     "conformance/flows/execution/fx-40/b": {
       "milestone": "W6a",
@@ -560,6 +604,10 @@
     "conformance/flows/je/errors/je35-d": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
+    },
+    "conformance/flows/je/je-51-chain/chain": {
+      "milestone": "W6c",
+      "reason": "CE 1.862.0's zombie-flow monitor puts a flow hanging in its first transition back in the queue, so the run ends with the expression timeout error, where windmill-lite cancels it at 60 s (JE-2)"
     },
     "conformance/flows/je/loops/je-v1-e": {
       "milestone": "W6f",
@@ -737,6 +785,10 @@
       "milestone": "W6a",
       "reason": "the expect's native step error objects carry CE 1.862.0's step_id, job_id and flow_path (1.850.0), which windmill-lite's native boundary does not give yet"
     },
+    "conformance/flows/openflow/of-deployed/f7_ba": {
+      "milestone": "W6d",
+      "reason": "CE 1.862.0 deploys an absent branchall branch skip_failure as false, where windmill-lite applies v1.767.0's deployed default true (OF-7, CF-6)"
+    },
     "conformance/flows/oracle/probes/env": {
       "milestone": "W8c",
       "reason": "the recorded bun field is the oracle image's Bun 1.3.10 and the engine now runs the pinned Bun 1.4.3, a difference the env probe cannot carry until it is a named deviation"
@@ -789,10 +841,6 @@
     }
   },
   "oracle": {
-    "conformance/exprs/je-2.yaml/je-2-a": {
-      "milestone": "W5d",
-      "reason": "CE 1.862.0 ends the run as failure (ExecutionErr) where the case expects canceled, as for the expression chain of je-51-chain"
-    },
     "conformance/flows/client-api/facade-answers/answers": {
       "milestone": "W5e",
       "reason": "a job token can no longer resolve CUSTOM_INSTANCE_DB at CE 1.862.0 (401), and the decrypt text and location suffixes changed"
@@ -800,50 +848,6 @@
     "conformance/flows/client-api/raw-requests/requests": {
       "milestone": "W5e",
       "reason": "CE 1.862.0 accepts the two NUL requests and strips the NUL (1.826.0), so their bodies are job ids that differ per repeat"
-    },
-    "conformance/flows/control-flow/cf-21/skip_mid": {
-      "milestone": "W5d",
-      "reason": "CE 1.862.0 stops re-evaluating skip_if once a loop runs (1.812.0), so the loop returns every iteration"
-    },
-    "conformance/flows/control-flow/cf-21/skip_mid_flows": {
-      "milestone": "W5d",
-      "reason": "CE 1.862.0 stops re-evaluating skip_if once a loop runs (1.812.0), so the loop returns every iteration"
-    },
-    "conformance/flows/control-flow/cf-21/skip_mid_while": {
-      "milestone": "W5d",
-      "reason": "CE 1.862.0 stops re-evaluating skip_if once a loop runs (1.812.0), so the loop returns every iteration"
-    },
-    "conformance/flows/control-flow/cf-v1/a": {
-      "milestone": "W5d",
-      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
-    },
-    "conformance/flows/control-flow/cf-v1/c-seq": {
-      "milestone": "W5d",
-      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
-    },
-    "conformance/flows/execution/fx-23/canceled_sleep": {
-      "milestone": "W5d",
-      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
-    },
-    "conformance/flows/execution/fx-33/parent_view": {
-      "milestone": "W5d",
-      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
-    },
-    "conformance/flows/execution/fx-36-http/array": {
-      "milestone": "W5d",
-      "reason": "CE 1.862.0 no longer reads an array result as an HTTP response (1.813.0)"
-    },
-    "conformance/flows/execution/fx-38-pickup/bun": {
-      "milestone": "W5d",
-      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
-    },
-    "conformance/flows/execution/fx-38-pickup/retried": {
-      "milestone": "W5d",
-      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
-    },
-    "conformance/flows/execution/fx-38-pickup/subflow": {
-      "milestone": "W5d",
-      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
     },
     "conformance/flows/execution/fx-48-jsonb/nul_later": {
       "milestone": "W5e",
@@ -853,21 +857,9 @@
       "milestone": "W5e",
       "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
     },
-    "conformance/flows/je/je-51-chain/chain": {
-      "milestone": "W5d",
-      "reason": "the canceled and failure statuses of a canceled step or expression chain differ at CE 1.862.0 from the expect"
-    },
     "conformance/flows/je/providers/je38-ab": {
       "milestone": "W5h",
       "reason": "CE 1.862.0 keeps step b's argument as the $var: reference where the run's claims have the resolved value"
-    },
-    "conformance/flows/openflow/of-deployed/ba_shape": {
-      "milestone": "W5h",
-      "reason": "CE 1.862.0 materialises the branchall branch with skip_failure false, where batch E3f's deployment check of OF-6/a has true"
-    },
-    "conformance/flows/openflow/of-deployed/f7_ba": {
-      "milestone": "W5d",
-      "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
     },
     "conformance/flows/openflow/of-drivers/preview_absent": {
       "milestone": "W5e",

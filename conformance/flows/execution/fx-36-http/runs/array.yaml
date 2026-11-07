@@ -1,7 +1,8 @@
-# FX-36/h (Q-FX-12, answered): an array of five is read by position as
-# the response metadata's fields, in order: the status code 201, then
-# null content type, headers and transfer encoding, then the result 7,
-# written as the JSON body.
+# FX-36/h (Q-FX-12): on CE v1.862.0 only an object is read as response
+# metadata, so an array of five is the ordinary response: HTTP 200 with the
+# whole array, in its jsonb text, as the JSON body. On CE v1.767.0 it was
+# read by position (the status code 201, then null content type, headers
+# and transfer encoding, then the result 7 as the body).
 spec: [FX-36, FX-36/h]
 target: f/wl_fx36h/array
 submit: run_wait_result
@@ -10,4 +11,4 @@ expect:
   result: [201, null, null, null, 7]
   steps:
     "m:a": {status: success, args: {}, result: [201, null, null, null, 7]}
-  response: {status: 201, content_type: application/json, body: '7'}
+  response: {status: 200, content_type: application/json, body: '[201, null, null, null, 7]'}
