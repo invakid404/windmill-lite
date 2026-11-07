@@ -1,8 +1,8 @@
 # The oracle: differential testing against a real Windmill
 
 This area specifies the oracle harness: how windmill-lite runs synthetic
-fixtures on an unmodified Windmill Community Edition (CE) v1.767.0, captures
-each run's result, error, per-step results and timings over the API,
+fixtures on an unmodified Windmill Community Edition (CE) v1.862.0 (v1.767.0
+until 2026-11-06), captures each run's result, error, per-step results and timings over the API,
 normalises them, and compares them with windmill-lite's own observations. It
 also records the Windmill behaviours that were observed on that oracle. The
 semantics behind those behaviours belong to [openflow.md](openflow.md) (flow
@@ -13,13 +13,13 @@ model and deployment), [execution.md](execution.md) (flow execution),
 [client-api.md](client-api.md) (the client surface); the licence position is in
 [licensing.md](licensing.md#oracle-image). Oracle findings use the `OR-` prefix.
 
-**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`).
-A finding re-verified at that version says so in a revision line, and its
-new pointers are `path:line @ v1.862.0`. Every other finding is **verified
-at v1.767.0 only** (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`): its
-pointers, with or without a version, are `@ v1.767.0`, and all pointers are
-relative to the Windmill repository root. Status, scope and confidence tags
-are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`),
+re-pinned from `v1.767.0` on 2026-11-06 ([index](README.md#pinned-version)).
+Source pointers are `path:line` relative to the Windmill repository root,
+at `v1.862.0`. A finding whose tag line ends `verified at v1.767.0 only`
+has not been re-checked at `v1.862.0` yet: its pointers are at `v1.767.0`
+unless they say `@ v1.862.0`. Status, scope and confidence tags are
+defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `OR-` oracle findings (they use `OR-` because
 [openflow.md](openflow.md) keeps `OF-`); `OR-Vn` findings were added during
@@ -170,7 +170,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-1"></a>
 ### OR-1 · Pin the oracle image by full version and digest
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** the CE oracle image is `ghcr.io/windmill-labs/windmill:1.767.0`.
@@ -209,7 +209,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-2"></a>
 ### OR-2 · Image variants: Bun is 1.3.10, slim is amd64-only, the in-image CLI is unpinned
 
-**Scope:** core (Bun); later (other languages) · **Confidence:** high (source and oracle-observed) · **Status:** confirmed
+**Scope:** core (Bun); later (other languages) · **Confidence:** high (source and oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -256,7 +256,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-3"></a>
 ### OR-3 · Licence of the CE image, and its use as a public CI oracle
 
-**Scope:** core (policy) · **Confidence:** high (facts) · **Status:** confirmed
+**Scope:** core (policy) · **Confidence:** high (facts) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** the published Community Edition image is **not** pure AGPL.
@@ -298,7 +298,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-4"></a>
 ### OR-4 · Minimal topology: Postgres plus one `windmill` container in standalone mode
 
-**Scope:** core · **Confidence:** high (source; oracle-observed on arm64 and amd64) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source; oracle-observed on arm64 and amd64) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -368,7 +368,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-5"></a>
 ### OR-5 · Consequences of a single worker
 
-**Scope:** core (harness rule); later (multi-worker profile) · **Confidence:** high (source-traced; two-worker case oracle-observed) · **Status:** confirmed
+**Scope:** core (harness rule); later (multi-worker profile) · **Confidence:** high (source-traced; two-worker case oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -424,7 +424,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-6"></a>
 ### OR-6 · Bootstrap: identity, token, workspace
 
-**Scope:** core · **Confidence:** high (oracle-observed); medium for `NO_AUTH` effects on jobs · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed); medium for `NO_AUTH` effects on jobs · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Boot order (harness):**
@@ -512,7 +512,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-7"></a>
 ### OR-7 · Environment knobs (env only, image unmodified)
 
-**Scope:** later · **Confidence:** high (names and defaults, source-traced; the listen interval's lack of effect oracle-observed; the refused result's error, oracle-observed) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (names and defaults, source-traced; the listen interval's lack of effect oracle-observed; the refused result's error, oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill: scheduling and debug knobs, no intended semantic effect:**
@@ -606,7 +606,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-8"></a>
 ### OR-8 · Pushing a synthetic folder: the pinned CLI is the reference loader
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Harness push path:** `windmill-cli@1.767.0` from npm (package
@@ -712,7 +712,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-9"></a>
 ### OR-9 · Wait for deployment before running
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -754,7 +754,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-10"></a>
 ### OR-10 · Running a flow: asynchronous submit plus poll, never `run_wait_result`
 
-**Scope:** core (harness); later (HTTP composite semantics for an HTTP host adapter) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (harness); later (HTTP composite semantics for an HTTP host adapter) · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill (submit):** `POST /api/w/{ws}/jobs/run/f/{path}` with
@@ -827,7 +827,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-11"></a>
 ### OR-11 · Capturing per-step results: walk `flow_status`
 
-**Scope:** core · **Confidence:** high (shapes, source and oracle; the identity encoding keeps the colliding pairs apart: oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (shapes, source and oracle; the identity encoding keeps the colliding pairs apart: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill (shapes):**
@@ -1004,7 +1004,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-12"></a>
 ### OR-12 · Failure capture: the stored error envelope
 
-**Scope:** core · **Confidence:** high (source and oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source and oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except the Bun error's step context keys (re-checked at v1.862.0)
 
 - **Rule:**
   - **Windmill:**
@@ -1061,7 +1061,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-13"></a>
 ### OR-13 · The oracle stores JSON as Postgres `jsonb`, and that is observable
 
-**Scope:** core · **Confidence:** high (storage facts) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (storage facts) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** job `args` and `result` are `JSONB` columns, so every stored
@@ -1099,7 +1099,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-14"></a>
 ### OR-14 · Normalisation rules
 
-**Scope:** core · **Confidence:** high (volatile fields; the placeholders over the typed paths: oracle-observed); medium (completeness) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (volatile fields; the placeholders over the typed paths: oracle-observed); medium (completeness) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** the harness turns raw oracle and windmill-lite
   captures into normalised observations before comparing them:
@@ -1153,10 +1153,12 @@ validation. Open questions are `Q-OR-n`.
     in two (` @worker_flow.rs:2451:11 @worker.rs:3822:13` on an expression
     error at a child flow's pickup). A separate form sits inside the text:
     a not-found lookup reads `Not found: <kind> not found at name <name> (<file>.rs:<line>)`,
-    line only, in parentheses. Suffixes recorded so far:
+    line only, in parentheses. Suffixes recorded on CE v1.767.0:
     ` @worker_flow.rs:2451:11`, ` @worker.rs:3822:13`, ` @common.rs:278:20`,
     ` @jobs.rs:1133:22` ([OR-27](#or-27)) and `(jobs.rs:9074)` (inside
-    [CF-19/c](conformance.md#cf-19)'s message).
+    [CF-19/c](conformance.md#cf-19)'s message). They move with the source:
+    on CE v1.862.0 the pickup conversion reads ` @worker.rs:5065:13` and the
+    completed-job lookup `(jobs.rs:12065)` ([FX-50](execution.md#fx-50)).
   - **Harness, recordings:** location suffixes stay verbatim in recordings;
     only the NUL `InternalErr`'s is masked (item 5). The comparison of
     windmill-lite with the oracle strips a suffix only where the
@@ -1204,7 +1206,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-15"></a>
 ### OR-15 · Fixture format (language-neutral, shared by oracle record and windmill-lite replay)
 
-**Scope:** core · **Confidence:** high (implemented by the harness; the probe catalogue recorded through it, oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (implemented by the harness; the probe catalogue recorded through it, oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Harness:** every conformance fixture is a directory
@@ -1259,7 +1261,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-16"></a>
 ### OR-16 · Observing side effects
 
-**Scope:** core (sink); later (state and variable snapshots) · **Confidence:** high (whitelist and CE cleanup observation; nested grouping oracle-observed) · **Status:** confirmed
+**Scope:** core (sink); later (state and variable snapshots) · **Confidence:** high (whitelist and CE cleanup observation; nested grouping oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -1340,7 +1342,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-17"></a>
 ### OR-17 · Timing capture (sanity only; the oracle is not the latency baseline)
 
-**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -1384,7 +1386,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-18"></a>
 ### OR-18 · Instance lifecycle and hygiene
 
-**Scope:** core · **Confidence:** high (operational design; teardown oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (operational design; teardown oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule (harness):**
   - **One oracle per test session:** `docker compose -p wl-oracle up -d`, then
@@ -1415,7 +1417,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-19"></a>
 ### OR-19 · CI shape
 
-**Scope:** core · **Confidence:** high (design; the oracle workflow has run since E2) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (design; the oracle workflow has run since E2) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule (harness):**
   - **Pull-request CI (no Docker):** `check` windmill-lite against the committed
@@ -1454,7 +1456,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-20"></a>
 ### OR-20 · Smoke fixture: a two-step Bun flow with one input transform
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Harness:** the minimal end-to-end proof of the harness, a synthetic
@@ -1489,7 +1491,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-21"></a>
 ### OR-21 · Edition differences that matter to a CE oracle
 
-**Scope:** EE · **Confidence:** medium (narrowed claim source-traced and CE-observed); high (the deployed value drops `delete_after_use`, source-traced; the routes that still carry the option: oracle-observed) · **Status:** confirmed; drafted (the deployed value drops `delete_after_use`)
+**Scope:** EE · **Confidence:** medium (narrowed claim source-traced and CE-observed); high (the deployed value drops `delete_after_use`, source-traced; the routes that still carry the option: oracle-observed) · **Status:** confirmed; drafted (the deployed value drops `delete_after_use`) · verified at v1.767.0 only, except the restart answer (re-checked at v1.862.0)
 
 - **Rule:**
   - **Windmill:**
@@ -1541,6 +1543,13 @@ validation. Open questions are `Q-OR-n`.
       deletion is only written to the deletion schedule: the monitor task
       that carries it out is `enterprise`-gated, so on CE such a job is never
       blanked. No flow route calls the helper;
+    - **restarting a flow is enterprise-only.** CE's handler for
+      `POST /api/w/{w}/jobs/restart/f/{job_id}` answers every request with
+      HTTP 400 and
+      `Bad request: Restarting a flow is a feature only available in enterprise version`
+      (recorded on CE v1.862.0; on CE v1.767.0 the route answered 500 before
+      it reached the handler). No restarted run exists on a CE oracle, so
+      [JE-19](expressions.md#je-19)'s restart fallback cannot be recorded;
     - flow-node debouncing is gated by the `private` feature, which the CE
       image contains;
     - some run endpoints (for example `run_wait_result_flow_by_version*`) call a
@@ -1621,11 +1630,18 @@ validation. Open questions are `Q-OR-n`.
   OR-21/c now names its setup (no `delete_after_secs`); new source-derived
   case OR-21/d covers the positive delay.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** [OR-21/b–d](conformance.md#or-21) are recorded as predicted, through a driver step on two workers that created the scripts through the scripts API (fixture `conformance/flows/client-api/driven`, run `or21`, oracle run 41000318656): a flow step whose script carries the flag kept its args and result; the run-and-wait script route blanked the job (result `{}`, args `{}`, logs `##DELETED##`); a positive `delete_after_secs` blanked nothing; `0` blanked at once. One text detail differed: the route's response body is the stored result's `jsonb` text, `{"secret": 7}` with a space, as for [OF-V3](openflow.md#of-v3); OR-21/c and OR-21/d are corrected. The routes part leaves the drafted list.
+- **Revision 2026-11-06 (retarget to v1.862.0):** added the restart
+  answer, observed by the driver of `conformance/flows/client-api/driven`
+  (run `restart`) on CE v1.862.0. The CE handler is compiled without
+  `enterprise` and answers before doing anything
+  (`backend/windmill-api/src/jobs.rs:7331-7342 @ v1.862.0`, route `:196-197`;
+  [JE-19](expressions.md#je-19) has the details). The rest of the finding
+  is not re-checked.
 
 <a id="or-22"></a>
 ### OR-22 · Arguments as stored versus as received
 
-**Scope:** core · **Confidence:** high (source-traced and oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced and oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -1661,7 +1677,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-23"></a>
 ### OR-23 · Top-level `flow_input` key order inside transforms is random per run
 
-**Scope:** core · **Confidence:** high (source and oracle) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source and oracle) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -1703,7 +1719,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-24"></a>
 ### OR-24 · Key order at step boundaries: a provenance model
 
-**Scope:** core · **Confidence:** high (ordinary, integer-key, retry, aggregate and flow-preprocessor paths oracle-observed; a script's own preprocessor oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (ordinary, integer-key, retry, aggregate and flow-preprocessor paths oracle-observed; a script's own preprocessor oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -1804,7 +1820,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-25"></a>
 ### OR-25 · An empty chosen `branchone` branch yields the JSON string `"{}"`
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** when the chosen `branchone` branch has no modules, the module
@@ -1825,7 +1841,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-26"></a>
 ### OR-26 · Empty bodies in `branchall` and `forloopflow`
 
-**Scope:** core · **Confidence:** high (oracle-observed and source) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed and source) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -1854,7 +1870,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-27"></a>
 ### OR-27 · A NUL character in a Bun result fails the step at storage time
 
-**Scope:** core (the failure); later (Python); out (the delay) · **Confidence:** high (error shape and positions, oracle-observed); medium (a flow argument, source-read); medium (the delay of the next job: source-traced, and the recorded timings agree) · **Status:** confirmed; drafted (a flow argument, added 2026-10-29; the delay of the next job, added 2026-10-29 by SC4)
+**Scope:** core (the failure); later (Python); out (the delay) · **Confidence:** high (error shape and positions, oracle-observed); medium (a flow argument, source-read); medium (the delay of the next job: source-traced, and the recorded timings agree) · **Status:** confirmed; drafted (a flow argument, added 2026-10-29; the delay of the next job, added 2026-10-29 by SC4) · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** a Bun step whose result contains U+0000 anywhere, in a
@@ -1942,7 +1958,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-28"></a>
 ### OR-28 · Job kinds the walker meets
 
-**Scope:** core (harness) · **Confidence:** high (source-traced and oracle-observed for deployed flows); medium (shapes not yet recorded) · **Status:** confirmed
+**Scope:** core (harness) · **Confidence:** high (source-traced and oracle-observed for deployed flows); medium (shapes not yet recorded) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill (deployed flows run by path):** a job's kind follows from the
@@ -2013,7 +2029,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-29"></a>
 ### OR-29 · Environment seen by a Bun step in a flow (CE, standalone)
 
-**Scope:** core (hand-off to languages and client API) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (hand-off to languages and client API) · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill (observed, top-level flow `f/wl_probe/env`, step `a`):**
@@ -2059,7 +2075,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-30"></a>
 ### OR-30 · Disk and pull behaviour of the oracle image (harness preflight)
 
-**Scope:** core (harness) · **Confidence:** high (policy); medium (pull measurements beyond the measured host) · **Status:** confirmed
+**Scope:** core (harness) · **Confidence:** high (policy); medium (pull measurements beyond the measured host) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill image facts:** the arm64 image uses 3.94 GB on disk (3,820 MiB
@@ -2107,7 +2123,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-31"></a>
 ### OR-31 · `wmill sync push` is destructive: seed after pushing, only into harness-owned workspaces
 
-**Scope:** core (harness) · **Confidence:** high (oracle-observed and source) · **Status:** confirmed
+**Scope:** core (harness) · **Confidence:** high (oracle-observed and source) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill CLI:**
@@ -2146,7 +2162,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v1"></a>
 ### OR-V1 · Full argument and result capture needs dedicated endpoints
 
-**Scope:** core · **Confidence:** high (source-traced and oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced and oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** the generic `GET /api/w/{ws}/jobs_u/get/{id}` substitutes
@@ -2189,7 +2205,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v2"></a>
 ### OR-V2 · Distinguish skipped, failed, canceled and never run
 
-**Scope:** core · **Confidence:** high (source and oracle) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source and oracle) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:**
@@ -2240,7 +2256,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v3"></a>
 ### OR-V3 · Normalisation must preserve negative comparisons
 
-**Scope:** core · **Confidence:** high (counterexamples; the placeholders keep the colliding pairs apart: oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (counterexamples; the placeholders keep the colliding pairs apart: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Harness:** replace automatically only established runtime identities
@@ -2283,7 +2299,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v4"></a>
 ### OR-V4 · Observe key order before the next job's argument boundary
 
-**Scope:** core · **Confidence:** high (method; ordinary-path results oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (method; ordinary-path results oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Harness (probe method):** to test the key order a transform sees, compute
@@ -2309,7 +2325,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v5"></a>
 ### OR-V5 · Stable CI observations and volatile provenance are separate
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Harness:** compare only the declared normalised observation fields. Keep
@@ -2330,7 +2346,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v6"></a>
 ### OR-V6 · Use the outer run identity for effects
 
-**Scope:** core (effect capture) · **Confidence:** high (source; nested equality oracle-observed) · **Status:** confirmed
+**Scope:** core (effect capture) · **Confidence:** high (source; nested equality oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** `WM_ROOT_FLOW_JOB_ID` is the "Job id of the innermost root
@@ -2363,7 +2379,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v7"></a>
 ### OR-V7 · Generated virtual steps require an explicit capture policy
 
-**Scope:** core (trailing sleep capture); out (durable suspend) · **Confidence:** high (source-traced; the live shape, where the generated module shows: oracle-observed) · **Status:** confirmed
+**Scope:** core (trailing sleep capture); out (durable suspend) · **Confidence:** high (source-traced; the live shape, where the generated module shows: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Windmill:** if the **last** module of a module list has `sleep` or
@@ -2425,7 +2441,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v8"></a>
 ### OR-V8 · Semantic identities must distinguish special slots and literal module ids
 
-**Scope:** core · **Confidence:** high (specification collision; the typed encoding keeps the pairs apart, and the flows API admits the ids: oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (specification collision; the typed encoding keeps the pairs apart, and the flows API admits the ids: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** the walker, the `<job:PATH>` placeholders and any table keyed by
   site share one injective encoding, the typed site paths (design record 0011): `m:<id>` for a module, with `~<k>` when an id repeats in one list; `i:<n>` for an iteration; `b:<n>` or `b:default` for a branch; `s:failure` and `s:preprocessor` for the special slots; `r:<k>` for the k-th failed attempt; segments joined by `/`; `%`, `/`, `:` and `~` in a value percent-escaped as `%25`, `%2F`, `%3A`, `%7E`. The kind separates
@@ -2480,7 +2496,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v9"></a>
 ### OR-V9 · A probe recipe must specify the actual transform scope
 
-**Scope:** core (reliable conformance evidence) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (reliable conformance evidence) · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** a probe recipe used as conformance input specifies every
   transform and its actual binding.

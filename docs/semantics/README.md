@@ -30,18 +30,39 @@ question. Disputed findings are shown with both claims and are not settled.
 windmill-lite's code and tests cite these findings; this reference describes
 Windmill only.
 
+The reference is moving from Windmill `v1.767.0` to `v1.862.0`, the
+release windmill-lite now follows, one area file at a time.
+[Pinned version](#pinned-version) says how to read a file during the move.
+
 ## Pinned version
 
 | | |
 |---|---|
-| Windmill release | `v1.862.0` for the findings re-verified against it, `v1.767.0` for the rest |
-| Commit | `120415af151593716d39140c8a7d7f3bbe9d99cf` (`v1.862.0`), `6de4ec0f665ad856002495c4d86269105ec28ad7` (`v1.767.0`) |
+| Windmill release | `v1.862.0` |
+| Commit | `120415af151593716d39140c8a7d7f3bbe9d99cf` |
+| Previous pin | `v1.767.0`, commit `6de4ec0f665ad856002495c4d86269105ec28ad7` |
 | Source pointers | `path:line @ <release>`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.862.0) |
 
-The reference is moving from `v1.767.0` to `v1.862.0`. An area file whose
-header pins `v1.862.0` marks each finding with no `v1.862.0` revision line as
-verified at v1.767.0 only, and that finding's pointers stay `@ v1.767.0`. An
-area file whose header still pins `v1.767.0` is wholly at that release.
+Each area file's header names the release it is pinned at:
+
+- **A file still at `v1.767.0`** has not moved yet. All of it, its bare
+  source pointers included, is at `v1.767.0`.
+- **In a file at `v1.862.0`,** a finding whose tag line ends
+  `verified at v1.767.0 only` has not been re-checked against `v1.862.0`
+  yet. Its rule and cases were checked at `v1.767.0`, its status refers to
+  that check, and its bare pointers are lines of `v1.767.0`. Build on it
+  as stated until a revision re-checks it.
+- **`verified at v1.767.0 only, except …`** names the part a revision
+  re-checked at `v1.862.0`. A dated revision note in the finding says what
+  changed, and the pointers of that part say `@ v1.862.0`.
+- **A finding without the marker** was re-checked at `v1.862.0` as a whole,
+  and its pointers are lines of `v1.862.0`.
+
+The oracle records CE `v1.862.0` since 2026-11-06, and each committed
+recording names its release in its provenance. A case whose run has such a
+recording holds at `v1.862.0` for what the run's `expect` asserts, whether
+or not its finding carries the marker. Recordings and oracle runs that
+revisions name before that date are of CE `v1.767.0`.
 
 The reference claims nothing about other Windmill versions. Where the source
 and the [public documentation](https://www.windmill.dev/docs) disagree, the
@@ -72,7 +93,7 @@ and [licensing.md](licensing.md) maps which parts do.
 | [expressions.md](expressions.md) | The JavaScript expression evaluator: engine and limits, fast paths, every expression site and its scope, static values and `$var:`/`$res:` references. | `JE-` |
 | [languages.md](languages.md) | How a script runs, by language: Bun in depth (arguments, results, errors, environment, bundling and imports), codebase bundles, the native runtime of `nativets` and `bunnative` steps, and Deno, Python, Go and Bash in summary. | `WR-` |
 | [client-api.md](client-api.md) | The `wmill` client surface a script can call, the endpoint behind each call, and the platform services windmill-lite must provide. | `WA-` |
-| [oracle.md](oracle.md) | Differential testing against a real Windmill CE, the release the oracle pins: topology, bootstrap, running flows, capturing per-step results, normalisation, fixture format, and observations recorded so far. | `OR-` |
+| [oracle.md](oracle.md) | Differential testing against a real Windmill CE `v1.862.0`: topology, bootstrap, running flows, capturing per-step results, normalisation, fixture format, and observations recorded so far. | `OR-` |
 | [licensing.md](licensing.md) | The licence map of Windmill's repository, what windmill-lite may read, depend on or copy, and the decision on using the CE image as a test oracle. | `LIC-` |
 | [conformance.md](conformance.md) | The catalogue of conformance cases drawn from every finding, grouped by area and tagged by scope: the seed of the shared Go and harness conformance suite. | case IDs |
 
@@ -169,7 +190,9 @@ behaviour ([conformance.md](conformance.md#summary)).
 ## Legend
 
 Every finding opens with one tag line:
-`**Scope:** … · **Confidence:** … · **Status:** …`.
+`**Scope:** … · **Confidence:** … · **Status:** …`. In a file pinned at
+`v1.862.0` it may end with a re-check marker
+([Pinned version](#pinned-version)).
 
 ### Scope
 
@@ -195,8 +218,8 @@ before `out`).
 
 A qualifier in parentheses gives the provenance: `source-traced` (no oracle
 recording yet), `oracle pending` (an open question asks for a recording), or
-`oracle-observed` (recorded on a running Windmill CE, whose release the
-recording's provenance names; see [oracle.md](oracle.md)).
+`oracle-observed` (recorded on a running Windmill CE: `v1.767.0`, or
+`v1.862.0` for recordings made since 2026-11-06; see [oracle.md](oracle.md)).
 
 ### Status
 

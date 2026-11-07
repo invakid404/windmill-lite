@@ -6,4 +6,4 @@ expect:
   status: success
   result:
     - 404
-    - "Not found: Completed Job not found at name <id> (jobs.rs:9074)"
+    - "Not found: Completed Job not found at name <id> (jobs.rs:12065)"
