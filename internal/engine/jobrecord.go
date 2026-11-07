@@ -760,17 +760,19 @@ func (o *object) close() []byte {
 
 // scriptView renders the record of a script run (Engine.RunScript): a job
 // a step dispatched. It holds the run's job variables, its script and its
-// stored arguments, and its outcome once it has completed.
+// stored arguments, and its outcome once it has completed: canceled when
+// the job is stored canceled (ScriptResult.Canceled).
 type scriptView struct {
 	id     string
 	env    map[string]string
 	script *ir.Script
 	args   jsonval.Value
 
-	mu      sync.Mutex
-	done    bool
-	success bool
-	result  jsonval.Value
+	mu       sync.Mutex
+	done     bool
+	success  bool
+	canceled bool
+	result   jsonval.Value
 }
 
 // complete records the run's outcome: res, unless err or a latch ended it
@@ -779,6 +781,7 @@ func (v *scriptView) complete(res ScriptResult, err error, latched bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.done, v.success, v.result = true, err == nil && !latched && !res.Failed, res.Result
+	v.canceled = err == nil && !latched && res.Canceled
 }
 
 // JobArgs renders the script run's stored arguments (platform.JobView).
@@ -804,13 +807,18 @@ func (v *scriptView) check(id string) error {
 	return nil
 }
 
-// JobRecord renders the script run's record (platform.JobView).
+// JobRecord renders the script run's record (platform.JobView). A job
+// stored canceled is not served: the oracle recorded no canceled job's
+// record, so it is refused as a canceled step's is (leafRecord).
 func (v *scriptView) JobRecord(id string) ([]byte, error) {
 	if err := v.check(id); err != nil {
 		return nil, err
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.canceled {
+		return nil, &platform.NotServed{Reason: "the job was canceled"}
+	}
 	result, args := tooBig(v.done, recordText(v.result), recordText(v.args))
 	var o object
 	o.field("type", jsonText(recordType(v.done)))

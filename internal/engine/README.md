@@ -1221,6 +1221,12 @@ through the job registry.
   (`scriptView`), which renders it running, then completed while its root
   lives: a dispatch that tracked it in its parent keeps it in another
   run's tree.
+- **A canceled script job.** A Bun job that its process timeout killed,
+  or one its run's cancellation killed, is stored canceled
+  (`ScriptResult.Canceled`, FX-25, FX-38). Its record is then not
+  rendered, as a canceled step's is not, while its result is still a
+  failure and its arguments are read. A native job's timeout leaves an
+  ordinary failed job.
 
 **The result cache (N4, `cache.go`).** Before a job with a `cache_ttl`
 runs, the engine looks it up in the result cache of its platform
