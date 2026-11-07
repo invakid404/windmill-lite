@@ -1561,9 +1561,10 @@ none, and the metadata `timeout` beside `value` enforces nothing.
 Once the limit has passed, `runList` cancels the flow's context with
 canceler `timeout` and reason `the flow exceeded its <n>s timeout`. Its
 jobs end as a cancellation ends them: a running step is killed, a queued
-one fails at its pickup. Windmill's server cancels on its monitor's first
-pass after the limit, every 10 s by default; windmill-lite cancels at the
-limit, which the reference leaves unbounded.
+one is canceled at its pickup. Windmill's server cancels on its
+monitor's first pass after the limit, every 10 s by default;
+windmill-lite cancels at the limit, which the reference leaves
+unbounded.
 
 The flow then ends as `timedOut` says. Its failure module runs once, with
 `{"error": {"name": "ExecutionErr", "message": "flow terminated due to
