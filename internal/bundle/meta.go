@@ -141,6 +141,11 @@ type NativeMeta struct {
 	// that does not transpile: such a step fails when it runs, before
 	// anything loads (WR-43), and has no module.
 	TranspileError string `json:"transpile_error,omitempty"`
+	// LineMap is a nativets script's transpile's line map: triples of a
+	// line and a column of its JavaScript and the source line there, in
+	// which the harness reads the source line of an error's stack as the
+	// native runtime does (WR-43).
+	LineMap []int `json:"line_map,omitempty"`
 }
 
 // NativeLink is one named import or re-export: the name must be an export

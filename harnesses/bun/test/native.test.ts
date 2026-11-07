@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
-import { nativeHeader, nativeModule, transpile } from "../build/native.ts";
+import { buildNativeClient, lineMap, nativeHeader, nativeModule, transpile } from "../build/native.ts";
 import { type InvocationContext, InvocationResources, invocations } from "../runtime/context.ts";
 import { DEFAULT_USER_AGENT, Native, type NativeForm, NativeJob, STALLED, WEB_GLOBALS } from "../runtime/native.ts";
 
@@ -811,16 +811,14 @@ describe("the preamble and the module's compiled variants", () => {
     expect(await run("escaped", meta, { WA: "a", WB: "b" })).toEqual({ ok: JSON.stringify(["a", "b"]) });
   });
 
-  test("a name whose declaration fails, or that the module declares, fails the load whether it is spelled or not", async () => {
+  test("a name whose const fails, or that the module declares, fails the load whether it is spelled or not", async () => {
+    // eval and arguments are not reserved words, so they get a const, which
+    // strict code refuses (WR-45).
     const plain = write("plain", "export function main() { return 1; }\n");
-    for (const [name, message] of [
-      ["while", "Cannot use the keyword 'while' as a lexical variable name."],
-      ["arguments", "Cannot declare a variable named arguments in strict mode."],
-      ["await", "Cannot use 'await' as a lexical variable name in an async function."],
-    ]) {
+    for (const name of ["eval", "arguments"]) {
       const r = await run("plain", plain, { [name]: "x" });
       expect(r.generated).toBe(true);
-      expect(JSON.parse(r.error!).message).toBe(`execution error:\nError: failed to load module: SyntaxError: ${message}`);
+      expect(JSON.parse(r.error!).message).toBe(`execution error:\nError: failed to load module: SyntaxError: Cannot declare a variable named ${name} in strict mode.`);
     }
     const declares = write("declares", "const MINE = 2;\nexport function main() { return MINE; }\n");
     const r = await run("declares", declares, { MINE: "1" });
@@ -828,20 +826,30 @@ describe("the preamble and the module's compiled variants", () => {
     expect(await run("declares", declares, { OTHER: "1" })).toEqual({ ok: "2" });
   });
 
-  test("a variable named process fails the load though the module never spells it, compiled or past the bound", async () => {
-    // The preamble declares process itself, so a variable of that name
-    // collides with it. A name that is not plain ASCII is always declared,
-    // so each invocation here has a preamble of its own: the first 16
+  test("a name that cannot be a binding gets no const and is a process.env entry alone, so the module loads (WR-45, v1.862.0)", async () => {
+    // A reserved word of strict mode, a name that is not an ASCII
+    // identifier, and the preamble's own process: each was a failed load
+    // up to v1.767.0.
+    const env = { while: "w", await: "a", "WL-DASHED": "d", "\u00c4": "u", process: "p" };
+    const reads = write("reads", 'export function main() { return [process.env["while"], process.env["await"], process.env["WL-DASHED"], process.env["\\u00c4"], process.env.process, typeof process]; }\n');
+    expect(await run("reads", reads, env)).toEqual({ ok: JSON.stringify(["w", "a", "d", "u", "p", "object"]) });
+    const bare = write("bare", "export function main() { try { return \u00c4; } catch (e) { return e.name; } }\n");
+    expect(await run("bare", bare, env)).toEqual({ ok: JSON.stringify("ReferenceError") });
+  });
+
+  test("a variable named arguments fails the load though the module never spells it, compiled or past the bound", async () => {
+    // A text that spells eval declares every variable, so each invocation
+    // here, with a name of its own, has a preamble of its own: the first 16
     // compile, and the rest go through the realm's eval.
-    const meta = write("noprocess", "export function main() { return 1; }\n");
-    const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'process'.";
+    const meta = write("noarguments", 'export function main() { return eval("1"); }\n');
+    const failed = "execution error:\nError: failed to load module: SyntaxError: Cannot declare a variable named arguments in strict mode.";
     const before = scripts();
     for (let i = 0; i < 24; i++) {
-      const r = await run("noprocess", meta, { process: "x", [`\u00c4${i}`]: "y" });
+      const r = await run("noarguments", meta, { arguments: "x", [`N${i}`]: "y" });
       expect(r.generated).toBe(true);
       expect(JSON.parse(r.error!).message).toBe(failed);
     }
-    expect(await run("noprocess", meta, { "\u00c40": "y" })).toEqual({ ok: "1" });
+    expect(await run("noarguments", meta, { N0: "y" })).toEqual({ ok: "1" });
     expect(scripts() - before).toBeLessThanOrEqual(16);
   });
 
@@ -874,4 +882,184 @@ describe("the preamble and the module's compiled variants", () => {
     // the one they had.
     expect(scripts() - before).toBeLessThanOrEqual(30);
   });
+});
+
+describe("the transpile's line map (WR-43)", () => {
+  const triples = (source: string) => {
+    const t = transpile(source);
+    if (!("js" in t)) throw new Error(t.error);
+    const m = lineMap(source, t.js);
+    const out: number[][] = [];
+    for (let i = 0; i < m.length; i += 3) out.push(m.slice(i, i + 3));
+    return out;
+  };
+
+  test("WR-43/c's script keeps its lines, and its last mapping is on line 3", () => {
+    expect(triples('export function main() {\n  throw new Error("x");\n}\n')).toEqual([
+      [1, 0, 1],
+      [2, 2, 2],
+      [3, 0, 3],
+    ]);
+  });
+
+  test("lines the transpile drops (a comment, a type, a blank line) and a call it joins onto one line map to the source's lines", () => {
+    // The JavaScript: export function main(a) { / const v = f(a, a); /
+    // return v; / } / function f(x, y) { / return x; / }.
+    const source = "// a comment\ntype T = number;\n\nexport function main(a: T) {\n  const v = f(\n    a,\n    a as number,\n  );\n  return v!;\n}\nfunction f(x: any, y: any) { return x; }\n";
+    expect(triples(source)).toEqual([
+      [1, 0, 4],
+      [2, 2, 5],
+      [2, 14, 6],
+      [2, 17, 7],
+      [2, 18, 8],
+      [3, 2, 9],
+      [4, 0, 10],
+      [5, 0, 11],
+    ]);
+  });
+
+  test("text that does not parse has no map", () => {
+    expect(lineMap("export function (", "")).toEqual([]);
+  });
+});
+
+// The 22 reserved variables of a flow step (WR-22), each with a value of
+// its own; on the oracle a flow step has 23 variables (WR-45).
+function reservedVariables(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of [
+    "WM_WORKSPACE", "WM_ROOT_WORKSPACE", "WM_EMAIL", "WM_USERNAME", "WM_PERMISSIONED_AS", "WM_TOKEN", "WM_BASE_URL",
+    "WM_JOB_ID", "WM_JOB_PATH", "WM_FLOW_JOB_ID", "WM_ROOT_FLOW_JOB_ID", "WM_ROOT_JOB_ID", "WM_FLOW_PATH",
+    "WM_FLOW_STEP_ID", "WM_SCHEDULE_PATH", "WM_SCHEDULED_FOR", "WM_STATE_PATH", "WM_OBJECT_PATH", "WM_END_USER_EMAIL",
+    "WM_WORKER_GROUP", "WM_RUNNABLE_ID", "WM_TESTED_RUNNABLE",
+  ]) {
+    env[name] = name.toLowerCase();
+  }
+  return env;
+}
+
+describe("a stack's source line (WR-43)", () => {
+  // Scripts built as the build helper builds them: a nativets script is
+  // transpiled and keeps its transpile's line map; a //native one is the
+  // bundle's text, which has none. The facade's origin is both base URLs.
+  const dir = mkdtempSync(join(tmpdir(), "wl-native-stack-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const native = new Native({ bundleDir: dir, baseURL: () => "http://127.0.0.1:9", onError: () => {}, onUntracked: () => {} });
+  native.capture();
+  const write = (script: string, source: string, kind = "nativets") => {
+    let js = source;
+    let map: number[] | undefined;
+    if (kind === "nativets") {
+      const t = transpile(source);
+      if (!("js" in t)) throw new Error(t.error);
+      js = t.js;
+      map = lineMap(source, js);
+    }
+    const m = nativeModule(js, kind);
+    mkdirSync(join(dir, "scripts", "bun"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "bun", `${script}.native.js`), m.text);
+    return { native: { ...m.form, line_map: map }, signatures: { main: { params: [] } } };
+  };
+  // The first two lines of the stack of the error main throws.
+  const firstLines = async (script: string, meta: unknown, env: Record<string, string>) => {
+    const resources = new InvocationResources();
+    const ctx: InvocationContext = { id: "i", run: "r", env, signal: new AbortController().signal, resources };
+    const inv = { id: "i", script, entry: "main", args: {}, env, resources };
+    const r = (await invocations.run(ctx, () => native.run(inv, meta, ctx, "a"))) as { error?: string };
+    return (JSON.parse(r.error!).stack as string).split("\n").slice(0, 2);
+  };
+  // A script of n lines: main, which throws on its second line, then a
+  // const on each further line.
+  const throwing = (n: number) =>
+    ["export function main() {", '  throw new Error("x");', "}", ...Array.from({ length: n - 3 }, (_, i) => `const v${i + 4} = ${i + 4};`)].join("\n") + "\n";
+  const reserved = reservedVariables();
+
+  test("as nativets, a frame past the code's last mapping reads the line numbered as the code's last mapped line, in the preamble: WR-43/c's script reads BASE_INTERNAL_URL's", async () => {
+    const meta = write("c", 'export function main() {\n  throw new Error("x");\n}\n');
+    for (const env of [{}, reserved]) {
+      expect(await firstLines("c", meta, env)).toEqual(["const BASE_INTERNAL_URL = 'http://127.0.0.1:9';", "Error: x"]);
+    }
+  });
+
+  test("as bunnative, whose bundle has no source map, the frame keeps its own line", async () => {
+    const meta = write("cb", 'export function main() {\n  throw new Error("x");\n}\n', "bunnative");
+    expect(await firstLines("cb", meta, reserved)).toEqual(['  throw new Error("x");', "Error: x"]);
+  });
+
+  test("the code follows 3n + 4 preamble lines: with an oracle flow step's 23 variables it starts on line 74, the line of WR-45/c's frame", async () => {
+    // A script of 73 lines that throws on its second. With 23 variables
+    // the frame, at 73 + 2, is past the code's last mapping, on its line
+    // 73, so the line read is the preamble's 73rd, the empty line before
+    // the code. With 22, at 70 + 2, it is in the code: the line read is
+    // the code's 72 - 70 = 2.
+    const meta = write("n73", throwing(73));
+    expect(await firstLines("n73", meta, { ...reserved, CUSTOM: "c" })).toEqual(["", "Error: x"]);
+    expect(await firstLines("n73", meta, reserved)).toEqual(['  throw new Error("x");', "Error: x"]);
+  });
+
+  test("past the fourth, a preamble line holds a variable, its const then its process.env entry, quoted with backslash, quote, LF and CR escaped; a name with no const has its entry alone", async () => {
+    // V's lines are 5 and 6, then an empty line, while's entry on line 8,
+    // and the empty line before the code on line 9.
+    const env = { V: "a'b\\c\nd\re", while: "w" };
+    const line = async (n: number) => (await firstLines(`l${n}`, write(`l${n}`, throwing(n)), env))[0];
+    expect(await line(5)).toBe("const V = 'a\\'b\\\\c\\nd\\re';");
+    expect(await line(6)).toBe("process.env['V'] = 'a\\'b\\\\c\\nd\\re';");
+    expect(await line(7)).toBe("");
+    expect(await line(8)).toBe("process.env['while'] = 'w';");
+  });
+
+  test("a frame in the code is looked up in the line map: the lines the transpile drops move the line read", async () => {
+    // The JavaScript drops the two type lines, so its line g holds the
+    // source's g + 2, and main throws on its line 2. With one variable the
+    // preamble has 7 lines: the frame, at 7 + 2, maps to the source's line
+    // 11, and the line read is the code's 11 - 7 = 4, not its line 2.
+    const meta = write("types", "type A = number;\ntype B = string;\n" + throwing(20));
+    expect(await firstLines("types", meta, { V: "v" })).toEqual(["const v4 = 4;", "Error: x"]);
+  });
+});
+
+describe("WR-45/c's redeclaration (languages/wr-45/wr45_c_nativets)", () => {
+  // WR-45/c's script, built as the build helper builds it, with a flow
+  // step's 23 variables as on the oracle. Windmill 1.862.0 answers with
+  // V8's text, its frame line file:///eval.ts:74:7 and the location
+  // @lib.rs:964:22; D5 keeps JavaScriptCore's redeclaration text, which
+  // names no frame, and windmill-lite's own messages carry no location
+  // (D14). The rest of the answer is Windmill's: the worker's execution
+  // error, with step_id alone, which the harness marks generated.
+  const dir = mkdtempSync(join(tmpdir(), "wl-native-wr45c-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("the load fails with the worker's execution error and JavaScriptCore's redeclaration text, nothing else", async () => {
+    const native = new Native({ bundleDir: dir, baseURL: () => "http://127.0.0.1:9", onError: () => {}, onUntracked: () => {} });
+    native.capture();
+    const source = 'const BASE_URL = "x"; export function main() { return BASE_URL; }\n';
+    const t = transpile(source);
+    if (!("js" in t)) throw new Error(t.error);
+    const m = nativeModule(t.js, "nativets");
+    mkdirSync(join(dir, "scripts", "bun"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "bun", "wr45c.native.js"), m.text);
+    const meta = { native: { ...m.form, line_map: lineMap(source, t.js) }, signatures: { main: { params: [] } } };
+    const env = { ...reservedVariables(), WM_FLOW_STEP_ID: "a", CUSTOM: "c" };
+    expect(Object.keys(env)).toHaveLength(23);
+    const resources = new InvocationResources();
+    const ctx: InvocationContext = { id: "i", run: "r", env, signal: new AbortController().signal, resources };
+    const inv = { id: "i", script: "wr45c", entry: "main", args: {}, env, resources };
+    expect(await invocations.run(ctx, () => native.run(inv, meta, ctx, "a"))).toEqual({
+      error: JSON.stringify({
+        message: "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'BASE_URL'.",
+        name: "ExecutionErr",
+        step_id: "a",
+      }),
+      generated: true,
+    });
+  });
+});
+
+test("the embedded client is windmill-client 1.326.0 without WorkspaceService.editDeployTo, the one method Windmill 1.862.0's bundle has fewer (WR-40)", async () => {
+  const c = await buildNativeClient();
+  const text = `${c.text.slice(0, c.form.preamble_at)}const process = { env: {} };${c.text.slice(c.form.preamble_at)}`;
+  const ns = await new vm.Script(text).runInContext(vm.createContext())({ commonjs: (e: unknown) => e });
+  expect(ns.OpenAPI.VERSION).toBe("1.326.0");
+  expect(typeof ns.WorkspaceService.editDeployTo).toBe("undefined");
+  expect(typeof ns.WorkspaceService.editAutoInvite).toBe("function");
 });

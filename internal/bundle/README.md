@@ -628,6 +628,10 @@ offset, the static imports and the links they need, the `//useragent` and
 fail the build). A nativets script imports nothing at build time, so it is
 never `missing_lock`.
 
+A nativets script's `native` record also holds its transpile's line map
+(`line_map`), in which the harness reads the source line in front of an
+error's stack ([WR-43](../../docs/semantics/languages.md#wr-43)).
+
 A script's lock is in the format of
 [WR-25](../../docs/semantics/languages.md#wr-25); scripts with one lock
 share one dependency set, keyed by its digest. The build runs on

@@ -95,6 +95,24 @@ cases:
           - {at: /result/error/name, equals: ExecutionErr}
           - {at: /result/error/step_id, equals: a}
   - spec: WR-45
+    variant: redeclare-text
+    provenance: policy
+    title: WR-45/c's redeclaration fails the load with JavaScriptCore's text, as the worker's execution error with step_id alone
+    note: >-
+      WR-45/c's script, as its run languages/wr-45/wr45_c_nativets has it.
+      Windmill 1.862.0 answers with V8's text, Uncaught SyntaxError:
+      Identifier 'BASE_URL' has already been declared, then the frame line
+      at file:///eval.ts:74:7 and the location @lib.rs:964:22. Deviation D5
+      keeps JavaScriptCore's redeclaration text, which names no frame, and
+      windmill-lite's own messages carry no location (D14); the rest of the
+      answer is Windmill's.
+    language: nativets
+    script: |
+      const BASE_URL = "x"; export function main() { return BASE_URL; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'BASE_URL'.", name: ExecutionErr, step_id: a}}}
+  - spec: WR-45
     variant: redeclare-bunnative
     provenance: source-derived
     title: both kinds declare process and BASE_URL, so a //native script that declares one fails its load too
@@ -122,15 +140,18 @@ cases:
     variant: invalid-variable-name
     provenance: source-derived
     scope: later
-    title: a variable whose name is not an identifier fails every nativets load
+    title: a variable whose name cannot be a binding gets no const, so a nativets module loads and finds it in process.env alone (v1.862.0)
+    note: >-
+      Up to v1.767.0 such a name failed every nativets load. At v1.862.0
+      only an ASCII identifier that is neither a reserved word of strict
+      mode nor process, BASE_URL or BASE_INTERNAL_URL gets a const.
     language: nativets
-    env: {WL-DASHED: "1"}
+    env: {WL-DASHED: "1", while: "2", process: "3"}
     script: |
-      export function main() { return 1; }
+      export function main() { return [process.env["WL-DASHED"], process.env["while"], process.env.process, typeof process]; }
     runs:
       - args: '{}'
-        claims:
-          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+        expect: {status: success, result: ["1", "2", "3", object]}
   - spec: WR-45/d
     variant: nativets
     provenance: oracle-observed

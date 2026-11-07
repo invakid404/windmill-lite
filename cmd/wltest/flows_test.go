@@ -1247,6 +1247,54 @@ func TestCompactJSON(t *testing.T) {
 // assets of every script that built, so an unrelated flow whose codebase
 // script reads its asset still runs and passes. A script whose asset
 // collides with one an earlier script took fails its own flow.
+// TestAsOracleBase: the runtime's platform origin in an observation reads
+// as the oracle's base URL in every value, the stack line of WR-43/c's
+// nativets run included, and nowhere a further digit of a port follows it.
+func TestAsOracleBase(t *testing.T) {
+	const origin = "http://127.0.0.1:4000"
+	site, err := conformance.ParseSitePath("m:a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `["const BASE_INTERNAL_URL = 'http://127.0.0.1:4000';","Error: x"]`
+	o := conformance.Observation{
+		Status: conformance.RunSuccess,
+		Result: json.RawMessage(line),
+		Steps: map[conformance.SitePath]conformance.StepObservation{site: {
+			Status:       conformance.StepSuccess,
+			Args:         json.RawMessage(`{"u":"http://127.0.0.1:4000/api","v":"http://127.0.0.1:40001"}`),
+			ResolvedArgs: json.RawMessage(`{"u":"http://127.0.0.1:4000"}`),
+			Result:       json.RawMessage(line),
+		}},
+		Effects:  []json.RawMessage{json.RawMessage(`{"base":"http://127.0.0.1:4000"}`)},
+		Response: &conformance.Response{Status: 200, Body: "at http://127.0.0.1:4000."},
+	}
+	got := asOracleBase(o, origin)
+	want := `["const BASE_INTERNAL_URL = 'http://localhost:8000';","Error: x"]`
+	if string(got.Result) != want || string(got.Steps[site].Result) != want {
+		t.Errorf("result %s, step result %s, want %s", got.Result, got.Steps[site].Result, want)
+	}
+	if a := string(got.Steps[site].Args); a != `{"u":"http://localhost:8000/api","v":"http://127.0.0.1:40001"}` {
+		t.Errorf("args %s", a)
+	}
+	if a := string(got.Steps[site].ResolvedArgs); a != `{"u":"http://localhost:8000"}` {
+		t.Errorf("resolved args %s", a)
+	}
+	if e := string(got.Effects[0]); e != `{"base":"http://localhost:8000"}` {
+		t.Errorf("effect %s", e)
+	}
+	if b := got.Response.Body; b != "at http://localhost:8000." {
+		t.Errorf("response body %q", b)
+	}
+	if got.Steps[site].Carried != nil {
+		t.Errorf("carried %s, want absent as before", got.Steps[site].Carried)
+	}
+	// The observation it was given is unchanged.
+	if string(o.Result) != line || string(o.Effects[0]) != `{"base":"http://127.0.0.1:4000"}` || o.Response.Body != "at http://127.0.0.1:4000." {
+		t.Errorf("the given observation changed: %s, %s, %q", o.Result, o.Effects[0], o.Response.Body)
+	}
+}
+
 func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "flows", "c2b", "isolation")

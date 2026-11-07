@@ -318,6 +318,19 @@ The realm cannot keep:
 - JavaScriptCore's texts where they differ from V8's: a redeclared name, a
   cyclic result, a missing export, the cause of a load failure, the text
   and frames of a stack. The BigInt and stack-overflow messages are V8's;
+- the source line in front of a nativets stack, where the transpilers lay
+  out code differently. The harness reads it as Windmill 1.862.0 does
+  ([WR-43](../semantics/languages.md#wr-43)), but:
+  - the map that the frame's line is looked up in is of its own
+    transpile, Bun's, which the build derives, not of deno_ast's, and the
+    code lines it reads are Bun's;
+  - of the preamble's lines only the third's text is recorded, so the
+    others are windmill-lite's spelling of the shapes WR-45 gives, with
+    the variables sorted where Windmill's order changes between jobs.
+
+  A script shorter than the preamble reads the line numbered as its last
+  mapped line, the same line as on Windmill when both transpiles map their
+  last token to the same source line;
 - the stack limit, which is JavaScriptCore's;
 - the 128 MiB heap cap per isolate (WR-44/c): the realms share the
   harness's heap;
@@ -343,7 +356,8 @@ The realm cannot keep:
 - imports of files of the host: windmill-lite reads none, so only the
   embedded client resolves ([WR-40](../semantics/languages.md#wr-40)); the
   client is `windmill-client@1.326.0`, the version Windmill embeds, built
-  from npm into the bundle;
+  from npm into the bundle. As in Windmill 1.862.0's bundle, it has no
+  `WorkspaceService.editDeployTo`;
 - the drop of the isolate when an outcome is fixed early: the call goes on
   until it settles (D2, D9);
 - result streaming ([WR-46](../semantics/languages.md#wr-46), `later`),

@@ -70,7 +70,15 @@ cases:
   - spec: WR-43/c
     variant: nativets
     provenance: oracle-observed
-    title: the stack starts with the failing source line, as loaded (nativets)
+    title: "the stack starts with the preamble's third line, BASE_INTERNAL_URL's, then Error: x (nativets, v1.862.0)"
+    note: >-
+      The frame's line, which counts the preamble's lines, is mapped through
+      the transpile's source map as a position in the code alone: past the
+      code's last mapping it gives the script's last line, 3, and the line
+      read at that number in the preamble and the code together is the
+      preamble's third. Its value is the base internal URL, the loopback
+      facade origin wltest check gives the harness, whose port the facade
+      picks (milestone PF1).
     language: nativets
     compare: {keep_stack: true}
     script: |
@@ -81,7 +89,7 @@ cases:
       - args: '{}'
         claims:
           - {at: /result/error/message, equals: x}
-          - {at: /result/error/stack, contains: ["throw new Error(\"x\");\nError: x\n"]}
+          - {at: /result/error/stack, prefix: "const BASE_INTERNAL_URL = 'http://127.0.0.1:", contains: ["';\nError: x\n"], not_contains: ["throw new Error"]}
   - spec: WR-43/c
     variant: bunnative
     provenance: oracle-observed

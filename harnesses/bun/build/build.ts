@@ -20,7 +20,7 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
-import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
+import { buildNativeClient, lineMap, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
 import {
   builtinModule,
   CJS_SPECIFIER,
@@ -623,9 +623,11 @@ export class Builder {
   }
 
   // A nativets script (WR-40): its TypeScript transpiled, not bundled, in
-  // its native form. Its imports are resolved when it runs, so it inlines
-  // nothing and installs nothing. Text the transpiler rejects is not a
-  // build problem: the step fails when it runs, as on Windmill (WR-43).
+  // its native form, with its transpile's line map, in which the harness
+  // reads a stack's source line (WR-43). Its imports are resolved when it
+  // runs, so it inlines nothing and installs nothing. Text the transpiler
+  // rejects is not a build problem: the step fails when it runs, as on
+  // Windmill (WR-43).
   private async buildNativeTS(e: EntryRequest, source: string, meta: Record<string, unknown>): Promise<EntryResult> {
     const annotations = parseAnnotations(source);
     Object.assign(meta, {
@@ -656,7 +658,7 @@ export class Builder {
       const nm = this.native(t.js, "nativets");
       await this.nativeClient();
       this.writeOut(join("scripts", "bun", e.id + ".native.js"), nm.text);
-      Object.assign(meta, { exports: nm.exports, signatures: signatures(parsed, nm.exports), native: { ...nm.form, ...header } });
+      Object.assign(meta, { exports: nm.exports, signatures: signatures(parsed, nm.exports), native: { ...nm.form, ...header, line_map: lineMap(source, t.js) } });
       return { meta };
     } catch (err) {
       if (err instanceof BuildProblem) return { meta, error: err.problem() };

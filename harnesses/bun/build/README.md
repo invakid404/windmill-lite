@@ -30,7 +30,7 @@ The helper has two dependencies, pinned with their own in `bun.lock`:
 `@babel/parser` (MIT), which parses TypeScript for the signature parse and
 JavaScript for the native form, and `windmill-client@1.326.0` (Apache-2.0),
 the package the native runtime's embedded client is built from. Its
-version is the one Windmill embeds
+version is the one Windmill embeds, at v1.862.0 as at v1.767.0
 ([WR-40](../../../docs/semantics/languages.md#wr-40)); Renovate holds it
 there.
 `node_modules/` is not committed.
@@ -76,7 +76,7 @@ Shared code adds two more requests, `kept` and `namespaces` (below,
 | `signature.ts` | The AST parse: signatures, `Date` marking, import specifiers, live bindings |
 | `annotations.ts` | Leading-comment annotations and the bundler target they select |
 | `wac.ts` | Workflow-as-code detection |
-| `native.ts` | The native form of a module, the nativets transpile, the `//useragent` and `//proxy` header, the embedded client |
+| `native.ts` | The native form of a module, the nativets transpile and its line map, the `//useragent` and `//proxy` header, the embedded client |
 | `text.ts` | Rust's line and whitespace rules, for the textual scans |
 | `shared.ts` | Shared code: the support module, dependency references and closure entry, the closure id, the runtime's built-in modules, the parse for kept `import()` |
 | `loadorder.ts` | What orders host-provided modules: the parse of where each `import()` sits (`lazyImports`), and the import graph of a bundle (`bundleImports`) |
@@ -313,6 +313,25 @@ with the native boundary (deviation D5;
   run of `//` lines, which a blank line ends
   ([WR-45](../../../docs/semantics/languages.md#wr-45)). The signatures
   come from the source, as for any script.
+- **The line map** of a nativets script (`line_map` in its `native`
+  part) is what a source map of its transpile would give a line. The
+  harness reads the source line in front of an error's stack in it, as the
+  native runtime does through its transpiler's map
+  ([WR-43](../../../docs/semantics/languages.md#wr-43)).
+  - *How.* `Bun.Transpiler` writes no map, so `lineMap` derives one. The
+    source's nodes, less what the transpile leaves out, are aligned with
+    the JavaScript's by Myers' difference algorithm. Each node the two
+    share maps where it starts and at its last character to the source's
+    line there.
+  - *Left out* are types, declarations of types alone, ambient and
+    abstract members, type-only imports and exports, enums and namespaces
+    (which the transpile rewrites), and the wrappers of an expression.
+  - *Its form.* Triples (line, column, source line) in the JavaScript's
+    order, the first of each run with one source line: a lookup gives the
+    source line of the last mapping at or before a position, which that
+    keeps. It is empty when either text does not parse, or when they
+    differ in more than 1024 places, since the alignment's memory grows
+    with their square.
 - **A `//native` codebase script** (WR-50) is bundled by esbuild in Go; the
   `native` op takes that bundle (a file under the work directory) and
   writes its native form, with the source's header annotations. The native
@@ -324,6 +343,10 @@ with the native boundary (deviation D5;
   1.326.0) for the browser target as CommonJS, and writes it in its native
   form to `scripts/native/windmill.js`, with `windmill.meta.json`; its
   namespace is its exports object's own names.
+  - *One method fewer.* Windmill 1.862.0's bundle of that version lacks
+    `WorkspaceService.editDeployTo`, so the build takes that method, with
+    its comment, out of the package's generated services module. It fails
+    unless it finds the method exactly once.
 
 ### The parse
 
