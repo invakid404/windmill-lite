@@ -19,13 +19,10 @@ import (
 // Every member path reads the same root: one context value, or one step's
 // result read as results.<id>. Nothing else runs in such an expression:
 // no call, no assignment, no comparison of two values that could be
-// objects, so it cannot tell whether two reads of the root gave one value
-// or two equal ones, nor replace JSON.parse before a read.
+// objects.
 type pathExpr struct {
 	// root and step are the paths' common root, as memberPath has them.
 	root, step string
-	// reads is the number of results reads the text makes (JE-12).
-	reads int
 
 	kind  pathExprKind
 	path  *memberPath // pathSingle, and the tested path of a test
@@ -55,8 +52,8 @@ type pathTerm struct {
 
 // parsePathExpr returns e as a pathExpr, or nil for anything else. Like
 // parseMemberPath, it leaves to the engine a text that JE-11 rewrites, one
-// that binds error, and one whose results reads JE-12 would rewrite other
-// than as the roots it reads.
+// that binds error, and one with a static results read (JE-12) other than
+// the roots it reads.
 func parsePathExpr(e *Expr) *pathExpr {
 	if e.Mode != ModeExpression || e.RewritePanic != 0 || slices.Contains(e.Binds, "error") {
 		return nil
@@ -65,12 +62,11 @@ func parsePathExpr(e *Expr) *pathExpr {
 	if code, _ := rewriteCalls(t); code != t {
 		return nil
 	}
-	ps := &pathParser{t: t, matches: resultsRead.FindAllStringIndex(t, -1)}
+	ps := &pathParser{t: t, matches: staticReads(t)}
 	x := ps.expr()
 	if x == nil || ps.i != len(t) || ps.used != len(ps.matches) {
 		return nil
 	}
-	x.reads = ps.used
 	return x
 }
 
@@ -78,8 +74,8 @@ func parsePathExpr(e *Expr) *pathExpr {
 type pathParser struct {
 	t       string
 	i       int
-	matches [][]int
-	// used counts the results reads consumed as roots, in order.
+	matches []staticRead
+	// used counts the static reads consumed as roots, in order.
 	used int
 	// root and step are the first path's root; every later path must
 	// share it.
@@ -256,11 +252,11 @@ func (ps *pathParser) path() *memberPath {
 	mp := &memberPath{}
 	rest := ps.t[ps.i:]
 	if strings.HasPrefix(rest, "results") {
-		// The root must be the next of JE-12's rewrites, exactly.
-		if ps.used >= len(ps.matches) || ps.matches[ps.used][0] != ps.i {
+		// The root must be the next of JE-12's static reads, exactly.
+		if ps.used >= len(ps.matches) || ps.matches[ps.used].start != ps.i {
 			return nil
 		}
-		root := ps.t[ps.i:ps.matches[ps.used][1]]
+		root := ps.t[ps.i:ps.matches[ps.used].end]
 		switch {
 		case strings.HasPrefix(root, "results.") || strings.HasPrefix(root, "results?."):
 			id := root[strings.IndexByte(root, '.')+1:]
@@ -299,19 +295,6 @@ func (ps *pathParser) path() *memberPath {
 	mp.steps = steps
 	ps.i += n
 	return mp
-}
-
-// sharedRead returns the step id whose results reads one evaluation of x
-// may share: x's root, when it is a step's result read through the
-// results lookup more than once. Each read through the lookup fetches the
-// result and parses it again (JE-18 rule 2, JE-16), so two reads give two
-// equal values; x cannot tell them from one, so they may be one, fetched
-// and parsed once.
-func (x *pathExpr) sharedRead() string {
-	if x == nil || x.root != "" || x.reads < 2 {
-		return ""
-	}
-	return x.step
 }
 
 // eval answers x from the values the evaluation binds, as the engine

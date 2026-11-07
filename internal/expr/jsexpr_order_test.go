@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -64,10 +65,13 @@ func (memoryLog) MemoryLookup() {}
 // on the real engine, as a step's inputs are, with jsExpr on and with it
 // off, over a lookup that reads memory (which jsExpr reads through, and the
 // engine calls inline, on its own thread) and over one that does not (which
-// the engine calls on a goroutine): in all four, the reads of results, the
-// helper calls and the outcomes are the same and come in the same order, a
-// read jsExpr made before it declined is not made again by the engine, and
-// nothing after a failing expression runs.
+// the engine calls on goroutines): in all four, each expression reads the
+// same results, the steps its text names (JE-12), and the helper calls and
+// the outcomes are the same and come in the same order; a read jsExpr made
+// before it declined is not made again by the engine, and nothing after a
+// failing expression runs. The prefetch resolves an expression's steps at
+// once, so their reads are compared as a set: on goroutines they finish in
+// any order.
 func TestJSExprKeepsReadOrder(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -79,6 +83,7 @@ func TestJSExprKeepsReadOrder(t *testing.T) {
 		{"a failure before a lookup", []string{`variable("u/missing")`, "results.a + 1", `variable("u/b")`}},
 		{"a failing lookup after a good one", []string{"results.a.n + results.gone.n", `variable("u/b")`}},
 		{"short-circuited reads", []string{"results.a.n > 0 ? results.b[0] : results.gone.n", "results.a.n < 0 && results.gone.n", "results.a.n || results.gone.n"}},
+		{"a failed read not reached", []string{"true ? results.a.n : results.gone.n", `variable("u/b")`}},
 		{"a decline after a read", []string{"results.a.n + results.b", "results.a.n + flow_input.x.y"}},
 		{"a pure failure after helpers", []string{`variable("u/a")`, "flow_input.x.y.z", `variable("u/c")`}},
 	}
@@ -97,13 +102,14 @@ func TestJSExprKeepsReadOrder(t *testing.T) {
 						s.Results = memoryLog{l}
 					}
 					v, err := p.Eval(context.Background(), Compile(SiteInputTransform, text), s)
+					l.add("--")
 					if err != nil {
 						outs = append(outs, "error: "+err.Error())
 						break
 					}
 					outs = append(outs, string(v.Producer()))
 				}
-				return l.entries, outs
+				return prefetchSets(l.entries), outs
 			}
 			offLog, offOuts := run(false, false)
 			for _, v := range [][2]bool{{false, true}, {true, false}, {true, true}} {
@@ -117,6 +123,27 @@ func TestJSExprKeepsReadOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// prefetchSets sorts the leading lookups of each expression's entries,
+// which "--" ends: the reads of the steps its text names, which the
+// program's prefetch resolves at once, before any helper call.
+func prefetchSets(entries []string) []string {
+	out := slices.Clone(entries)
+	leading, start := true, 0
+	for i := 0; i <= len(out); i++ {
+		if i < len(out) && leading && strings.HasPrefix(out[i], "lookup:") {
+			continue
+		}
+		if leading {
+			slices.Sort(out[start:i])
+			leading = false
+		}
+		if i < len(out) && out[i] == "--" {
+			leading, start = true, i+1
+		}
+	}
+	return out
 }
 
 // TestBindInlinesMemoryLookups: the engine may answer the results lookup on

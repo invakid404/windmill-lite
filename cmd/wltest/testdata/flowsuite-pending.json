@@ -1,50 +1,6 @@
 {
   "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
   "flow_suite": {
-    "conformance/exprs/je-14.yaml/je-14-a": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-15.yaml/je-15-h": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-21.yaml/je-21-a": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-22.yaml/je-22-d": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-23.yaml/je-23-d": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-24.yaml/je-24-d": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-48.yaml/je-48-b": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-48.yaml/je-48-d": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-5.yaml/je-5-b": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/exprs/je-7.yaml/je-7-g": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/cf/cf-19/cf19-b": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
     "conformance/flows/client-api/job-reads-parallel/held": {
       "milestone": "W6e",
       "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
@@ -75,7 +31,7 @@
     },
     "conformance/flows/client-api/job-reads-parallel/waits3": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the QuickJS frames of W6f"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/answers": {
       "milestone": "W6e",
@@ -123,7 +79,7 @@
     },
     "conformance/flows/client-api/job-reads/prerun": {
       "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet; also the QuickJS frames of W6f"
+      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
     },
     "conformance/flows/client-api/job-reads/retried": {
       "milestone": "W6e",
@@ -145,22 +101,6 @@
       "milestone": "W6e",
       "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
     },
-    "conformance/flows/control-flow/cf-13/b": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/control-flow/cf-21-throwing/timeout_and_parallelism": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/control-flow/cf-21/timeout_scope_collapsed": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/control-flow/cf-21/timeout_scope_flows": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
     "conformance/flows/control-flow/cf-27-flow-timeouts/subflow": {
       "milestone": "W6b",
       "reason": "CE 1.862.0 enforces a subflow step's timeout as the subflow's wall-clock limit (1.861.0), which windmill-lite does not"
@@ -176,10 +116,6 @@
     "conformance/flows/control-flow/cf-27/fx24_d": {
       "milestone": "W6b",
       "reason": "CE 1.862.0 does not collapse a loop body whose step has its own timeout (1.852.0), where windmill-lite collapses it under the loop's timeout"
-    },
-    "conformance/flows/control-flow/subflow-retry/pre_run": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
     },
     "conformance/flows/control-flow/waits/body_timeout_js": {
       "milestone": "W6b",
@@ -201,41 +137,9 @@
       "milestone": "W6b",
       "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
     },
-    "conformance/flows/execution/fx-14/bad_transform": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-14/bad_transform_handled": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-14/retry_empty": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-15/child_pickup": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-15/later_transition": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
     "conformance/flows/execution/fx-15/root_pickup": {
       "milestone": "W6b",
       "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-21/throwing_stop": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-21/throwing_stop_handler": {
-      "milestone": "W6f",
-      "reason": "the expect's carried error holds CE 1.862.0's QuickJS frames and columns (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-24/js_error": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     },
     "conformance/flows/execution/fx-24/js_timeout": {
       "milestone": "W6b",
@@ -269,10 +173,6 @@
       "milestone": "W6b",
       "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
     },
-    "conformance/flows/execution/fx-28/throw_no_handler": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
     "conformance/flows/execution/fx-48-jsonb/nul_later": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
@@ -280,78 +180,6 @@
     "conformance/flows/execution/fx-48-jsonb/nul_root": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
-    },
-    "conformance/flows/execution/fx-7/result_unbound": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/execution/fx-8/sleep_no_results": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/branches/je27-b-branchall": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/branches/je31-a": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/errors/je26-b": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/errors/je35-a": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/errors/je35-b": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/errors/je35-d": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/loops/je-v1-e": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/loops/je27-b-loop": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/loops/je39-a": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/shortcuts/je12": {
-      "milestone": "W6f",
-      "reason": "CE 1.862.0 prefetches a static results read instead of rewriting it into an await (JE-12), which windmill-lite's evaluator does not do yet"
-    },
-    "conformance/flows/je/shortcuts/je12-d": {
-      "milestone": "W6f",
-      "reason": "CE 1.862.0 prefetches a static results read instead of rewriting it into an await (JE-12), which windmill-lite's evaluator does not do yet"
-    },
-    "conformance/flows/je/shortcuts/je9-b": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/shortcuts/je9-l": {
-      "milestone": "W6f",
-      "reason": "CE 1.862.0 prefetches a static results read instead of rewriting it into an await (JE-12), which windmill-lite's evaluator does not do yet"
-    },
-    "conformance/flows/je/waits/je-v2-c": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/waits/je22-a": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
-    },
-    "conformance/flows/je/waits/je28-c": {
-      "milestone": "W6f",
-      "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
     },
     "conformance/flows/languages/bun-results/timeout": {
       "milestone": "W6b",
@@ -376,10 +204,6 @@
     "conformance/flows/oracle/probes/env": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 sets WM_ROOT_WORKSPACE (1.793.0) and gives WM_END_USER_EMAIL the address of the user who started the run (1.829.0), which windmill-lite's engine does not yet"
-    },
-    "conformance/flows/oracle/probes/loop_seq_multi_bare": {
-      "milestone": "W6f",
-      "reason": "the expect holds CE 1.862.0's QuickJS frames and columns for an expression error (JE-13, JE-21), which windmill-lite's evaluator does not give yet"
     }
   },
   "step_suite": {

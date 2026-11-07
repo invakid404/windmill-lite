@@ -70,10 +70,10 @@
       "spec": "JE-11",
       "variant": "before-results",
       "provenance": "source-derived",
-      "title": "JE-12 rewrites the result of JE-11",
+      "title": "a results read inside a helper call is left as written, and the scan of the text before the rewrite names its step (JE-12)",
       "site": "input_transform",
       "text": "variable(results.a)",
-      "expect": {"binds": ["result", "results"], "code": "(await variable((await results.a)))"}
+      "expect": {"binds": ["result", "results"], "code": "(await variable(results.a))", "prefetch": ["\"a\""]}
     },
     {
       "spec": "JE-11",

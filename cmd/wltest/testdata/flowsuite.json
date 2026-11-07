@@ -1,5 +1,5 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3, NI, E4b, F1, F2a and N5 of ADR 0012, the follow-up milestones FU7, E4c, the latter E4b's, FU8 and FU9B, the job reads of J1, and recording batch E3f, whose runs that windmill-lite already matches it requires): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm and in fresh mode, through wl (F1), which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3, NI, E4b, F1, F2a and N5 of ADR 0012, the follow-up milestones FU7, E4c, the latter E4b's, FU8 and FU9B, the job reads of J1, the expression wrapper of the retarget to Windmill 1.862.0 (W6f), and recording batch E3f, whose runs that windmill-lite already matches it requires): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm and in fresh mode, through wl (F1), which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
     "N1a",
@@ -23,7 +23,8 @@
     "FU8",
     "E3f",
     "FU9B",
-    "J1"
+    "J1",
+    "W6f"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -526,6 +527,8 @@
     "conformance/flows/je/scopes/je38-d": "N3c",
     "conformance/flows/je/shortcuts/je12": "N1a",
     "conformance/flows/je/shortcuts/je12-d": "N1a",
+    "conformance/flows/je/shortcuts/je12-f": "W6f",
+    "conformance/flows/je/shortcuts/je12-g": "W6f",
     "conformance/flows/je/shortcuts/je17-b": "N1a",
     "conformance/flows/je/shortcuts/je18-d": "N1a",
     "conformance/flows/je/shortcuts/je44-a": "N1a",

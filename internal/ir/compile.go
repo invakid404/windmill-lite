@@ -462,11 +462,11 @@ func collapses(forLoop, parallel bool, body []openflow.Module, sc scope) bool {
 }
 
 // compileExpr is the compiled expression at a site: the expression
-// pipeline's textual stages (trimming, shortcuts, rewrites, mode, bound
-// names and the engine source, JE-5 to JE-15), which depend on the site and
-// the text alone, so the program carries them and nothing recomputes them
-// per run (ADR 0003). The engine compiles each Source to bytecode when it
-// opens the program.
+// pipeline's textual stages (trimming, shortcuts, the helper rewrite, the
+// steps to prefetch, mode, bound names and the engine source, JE-5 to
+// JE-15), which depend on the site and the text alone, so the program
+// carries them and nothing recomputes them per run (ADR 0003). The engine
+// compiles each Source to bytecode when it opens the program.
 func compileExpr(site expr.SiteKind, text string) *expr.Expr {
 	return expr.Compile(site, text)
 }

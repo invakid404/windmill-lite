@@ -21,7 +21,7 @@
       "recorded": {"fixture": "je/shortcuts", "run": "je9-b", "at": "m:b", "input": "x"},
       "site": "input_transform",
       "text": "(results.a.b.c)",
-      "expect": {"shortcut": {}, "code": "((await results.a).b.c)", "route": "engine", "bound": {}, "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "(results.a.b.c)", "route": "engine", "bound": {}, "results_lookup": true}
     },
     {
       "spec": "JE-9/c",
@@ -32,7 +32,7 @@
       "text": "results.a.length",
       "expect": {
         "shortcut": {"previous_id": "a.length", "results_path": {"step": "a", "segments": ["length"], "declines": true}},
-        "code": "(await results.a).length",
+        "code": "results.a.length",
         "route": "engine",
         "results_lookup": true
       }
@@ -59,7 +59,7 @@
       "text": "results.l[1]",
       "expect": {
         "shortcut": {"previous_id": "l[1]", "results_path": {"step": "l", "index": "1"}},
-        "code": "(await results.l)[1]",
+        "code": "results.l[1]",
         "route": "results_path",
         "text": "20"
       }
@@ -82,7 +82,7 @@
       "text": "results.a\n+ 100",
       "expect": {
         "shortcut": {"previous_id": "a\n+ 100", "results_path": {"step": "a"}},
-        "code": "(await results.a)\n+ 100",
+        "code": "results.a\n+ 100",
         "route": "results_path",
         "text": "7"
       }
@@ -103,7 +103,7 @@
       "recorded": {"fixture": "je/shortcuts", "run": "je9-i", "at": "m:b", "input": "x"},
       "site": "input_transform",
       "text": "100 +\n  results.a",
-      "expect": {"shortcut": {}, "code": "100 +\n  (await results.a)", "route": "engine", "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "100 +\n  results.a", "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-9/j",
@@ -138,7 +138,7 @@
       "text": "results.a.length\nresults.a",
       "expect": {
         "shortcut": {"previous_id": "a.length\nresults.a", "results_path": {"step": "a", "segments": ["length"], "declines": true}},
-        "code": "(await results.a).length\n(await results.a)",
+        "code": "results.a.length\nresults.a",
         "route": "engine"
       }
     },

@@ -29,7 +29,7 @@
       "site": "input_transform",
       "text": "010",
       "context": {"previous_id": ""},
-      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: Octal literals are not allowed in strict mode\n    at eval_script:1:7\n"}}
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: Octal literals are not allowed in strict mode\n    at eval_script:1:36\n"}}
     }
   ]
 }

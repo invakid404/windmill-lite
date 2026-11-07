@@ -4,140 +4,223 @@
     {
       "spec": "JE-12/a",
       "provenance": "oracle-observed",
-      "title": "a single-quoted key is not rewritten",
+      "title": "a single-quoted key is a static read",
       "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_a", "input": "x"},
       "site": "input_transform",
       "text": "results['a'].v",
-      "expect": {"shortcut": {}, "code": "results['a'].v", "route": "engine", "bound": {}, "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "results['a'].v", "prefetch": ["'a'"], "route": "engine", "bound": {}, "results_lookup": true}
     },
     {
       "spec": "JE-12/b",
       "provenance": "oracle-observed",
-      "title": "a lone single-quoted read is not rewritten either",
+      "title": "a lone single-quoted read is a static read too",
       "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_b", "input": "x"},
       "site": "input_transform",
       "text": "results['a']",
-      "expect": {"shortcut": {}, "code": "results['a']", "route": "engine", "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "results['a']", "prefetch": ["'a'"], "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-12/c",
       "provenance": "oracle-observed",
-      "title": "string literals are rewritten",
-      "note": "the recorded value is the rewritten literal",
+      "title": "string literals are left as written, and still name their steps",
+      "note": "the text names a, which the program fetches and never reads",
       "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_c", "input": "x"},
       "site": "input_transform",
       "text": "\"see results.a\"",
-      "expect": {"shortcut": {}, "code": "\"see (await results.a)\"", "route": "engine", "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "\"see results.a\"", "prefetch": ["\"a\""], "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-12/d",
       "provenance": "oracle-observed",
-      "title": "a read inside a callback gets an await there",
-      "note": "an await in a non-async arrow does not compile on the engine (B2b)",
+      "title": "a read inside a callback reads the prefetched value",
       "recorded": {"fixture": "je/shortcuts", "run": "je12-d", "at": "m:b", "input": "x"},
       "site": "input_transform",
       "text": "[1].map(i => results.a.v)",
-      "expect": {"shortcut": {}, "code": "[1].map(i => (await results.a).v)", "route": "engine", "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "[1].map(i => results.a.v)", "prefetch": ["\"a\""], "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-12/e",
       "provenance": "oracle-observed",
-      "title": "bare results is not rewritten",
+      "title": "bare results names no step",
       "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_e", "input": "x"},
       "site": "input_transform",
       "text": "results",
-      "expect": {"shortcut": {}, "binds": ["result", "results"], "code": "results", "route": "engine", "bound": {}, "results_lookup": true}
+      "expect": {"shortcut": {}, "binds": ["result", "results"], "code": "results", "prefetch": [], "route": "engine", "bound": {}, "results_lookup": true}
     },
     {
       "spec": "JE-12/f",
       "provenance": "oracle-observed",
-      "title": "a computed key is not rewritten; only the static read of the same step is awaited",
-      "note": "CE 1.862.0 prefetches a and gives the computed read its value, [3,3]; this pipeline gives it a Promise, so the unit case is held by an enginePending marker",
+      "title": "a computed key names no step, but reads the kept value of a step a static read names",
       "recorded": {"fixture": "je/shortcuts", "run": "je12-f", "at": "m:b", "input": "x"},
       "site": "input_transform",
       "text": "const k = \"a\"; return [results.a.v, results[k].v]",
-      "expect": {"shortcut": {}, "mode": "statement", "code": "const k = \"a\"; return [(await results.a).v, results[k].v]", "route": "engine", "results_lookup": true}
+      "expect": {"shortcut": {}, "mode": "statement", "code": "const k = \"a\"; return [results.a.v, results[k].v]", "prefetch": ["\"a\""], "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-12/g",
       "provenance": "oracle-observed",
-      "title": "a computed key alone is not rewritten",
+      "title": "a computed key alone names no step",
       "recorded": {"fixture": "je/shortcuts", "run": "je12-g", "at": "m:b", "input": "x"},
       "site": "input_transform",
       "text": "const k = \"a\"; return results[k].v",
-      "expect": {"shortcut": {}, "mode": "statement", "code": "const k = \"a\"; return results[k].v", "route": "engine", "results_lookup": true}
+      "expect": {"shortcut": {}, "mode": "statement", "code": "const k = \"a\"; return results[k].v", "prefetch": [], "route": "engine", "results_lookup": true}
     },
     {
       "spec": "JE-12",
       "variant": "segment",
       "provenance": "source-derived",
-      "title": "only the step id is awaited; later segments read the awaited value",
+      "title": "only the step id names a step; later segments read its value",
       "site": "input_transform",
       "text": "results.a.b",
-      "expect": {"code": "(await results.a).b"}
+      "expect": {"code": "results.a.b", "prefetch": ["\"a\""]}
     },
     {
       "spec": "JE-12",
-      "variant": "no-word-boundary",
+      "variant": "word-boundary",
       "provenance": "source-derived",
-      "title": "a name ending in results is split",
+      "title": "a name ending in results names no step",
       "site": "input_transform",
-      "text": "my_results.x",
-      "expect": {"code": "my_(await results.x)"}
+      "text": "[my_results.x, $results.y, results2.z]",
+      "expect": {"code": "[my_results.x, $results.y, results2.z]", "prefetch": []}
     },
     {
       "spec": "JE-12",
       "variant": "property-named-results",
       "provenance": "source-derived",
-      "title": "a property named results is rewritten",
+      "title": "a property named results names a step",
       "site": "input_transform",
       "text": "flow_input.results.x",
-      "expect": {"shortcut": {"flow_key": {"env": false, "key": "results.x"}}, "code": "flow_input.(await results.x)"}
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "results.x"}}, "code": "flow_input.results.x", "prefetch": ["\"x\""]}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "property-named-results-engine",
+      "provenance": "source-derived",
+      "title": "flow_input.results.x reads flow_input's member, its spurious prefetch aside",
+      "note": "consequence 5; a predicate's text starts with Boolean(, so JE-7 does not fire and the engine runs",
+      "site": "skip_if",
+      "text": "flow_input.results.x === 2",
+      "context": {"previous_id": "a", "previous_result": "1", "flow_input": "{\"results\": {\"x\": 2}}", "results": {"x": "{\"v\": 9}"}},
+      "expect": {"code": "Boolean(flow_input.results.x === 2)", "prefetch": ["\"x\""], "route": "engine", "engine": {"text": "true"}}
     },
     {
       "spec": "JE-12",
       "variant": "optional-dot",
       "provenance": "source-derived",
-      "title": "results?.<id> is rewritten",
+      "title": "results?.<id> is a static read",
       "site": "input_transform",
       "text": "results?.a",
-      "expect": {"code": "(await results?.a)"}
+      "expect": {"code": "results?.a", "prefetch": ["\"a\""]}
     },
     {
       "spec": "JE-12",
       "variant": "optional-bracket",
       "provenance": "source-derived",
-      "title": "results?.[\"<id>\"] is not: ? is followed by neither a dot and a name nor [\"",
+      "title": "results?.[\"<id>\"] is a static read",
       "site": "input_transform",
       "text": "results?.[\"a\"].v",
-      "expect": {"code": "results?.[\"a\"].v"}
+      "expect": {"code": "results?.[\"a\"].v", "prefetch": ["\"a\""]}
     },
     {
       "spec": "JE-12",
-      "variant": "lazy-brackets",
+      "variant": "each-bracket",
       "provenance": "source-derived",
-      "title": "each bracket read ends at its own \"]",
+      "title": "each bracket read ends at its own literal's ]",
       "site": "input_transform",
       "text": "results[\"a\"] + results[\"b\"]",
-      "expect": {"code": "(await results[\"a\"]) + (await results[\"b\"])"}
+      "expect": {"code": "results[\"a\"] + results[\"b\"]", "prefetch": ["\"a\"", "\"b\""]}
     },
     {
       "spec": "JE-12",
       "variant": "bracket-one-line",
       "provenance": "source-derived",
-      "title": "a bracket read does not span lines",
+      "title": "a literal with a raw line feed is no static read",
       "site": "input_transform",
       "text": "results[\"a\nb\"]",
-      "expect": {"code": "results[\"a\nb\"]"}
+      "expect": {"code": "results[\"a\nb\"]", "prefetch": []}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "bracket-spaces",
+      "provenance": "source-derived",
+      "title": "anything but one literal between [ and ] is a computed key, which gives a Promise",
+      "note": "consequence 4: no read names a, so results[ \"a\" ] resolves it at the read, and .v of the Promise is undefined",
+      "site": "input_transform",
+      "text": "results[ \"a\" ].v",
+      "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"v\": 3}"}},
+      "expect": {"prefetch": [], "route": "engine", "engine": {"text": "null"}}
     },
     {
       "spec": "JE-12",
       "variant": "template",
       "provenance": "source-derived",
-      "title": "a template literal is rewritten inside ${} (JE-40)",
+      "title": "a static read inside ${} is prefetched (JE-40)",
       "site": "input_transform",
       "text": "`id ${results.a.id}`",
-      "expect": {"code": "`id ${(await results.a).id}`"}
+      "expect": {"code": "`id ${results.a.id}`", "prefetch": ["\"a\""]}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "sorted-deduplicated",
+      "provenance": "source-derived",
+      "title": "the literals are sorted by their bytes, and a repeated literal is dropped",
+      "note": "a dot read's identifier is written in double quotes, so results.c and results[\"c\"] are one literal; the single-quoted 'c' is another, which the program decodes to the same step",
+      "site": "input_transform",
+      "text": "results['b'] + results.c + results[\"c\"] + results['c']",
+      "expect": {"prefetch": ["\"c\"", "'b'", "'c'"]}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "escaped-literal",
+      "provenance": "source-derived",
+      "title": "a bracket read's literal is kept as written, and the engine decodes it to name the step",
+      "site": "input_transform",
+      "text": "results[\"\\x61\"].v",
+      "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"v\": 3}"}},
+      "expect": {"prefetch": ["\"\\x61\""], "route": "engine", "engine": {"text": "3"}}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "undecodable-literal",
+      "provenance": "source-derived",
+      "title": "a literal that does not decode is dropped from the prefetch",
+      "note": "the comment's literal is no valid string, so the prefetch drops it and the expression runs",
+      "site": "input_transform",
+      "text": "1 /* results[\"\\xZZ\"] */",
+      "context": {"previous_id": "m", "previous_result": "2"},
+      "expect": {"prefetch": ["\"\\xZZ\""], "route": "engine", "engine": {"text": "1"}}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "kept-value",
+      "provenance": "source-derived",
+      "title": "every read of a prefetched step gives its one kept value",
+      "note": "a reading where the reference is silent: the prefetch keeps each step's value, so two reads give the same object and a write through one shows through the other",
+      "site": "input_transform",
+      "text": "[results.a === results['a'], (results.a.v = 4, results.a.v)]",
+      "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"v\": 3}"}},
+      "expect": {"prefetch": ["\"a\"", "'a'"], "route": "engine", "engine": {"text": "[true,4]"}}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "no-results-context",
+      "provenance": "source-derived",
+      "title": "at a site without a results context nothing is fetched, and results is not defined",
+      "note": "the sleep site has no results (JE-22, JE-28); the program starts with Promise.resolve(), so the frames' columns are those of a text that names no step",
+      "site": "sleep",
+      "text": "results.a",
+      "context": {"previous_id": "", "previous_result": "1"},
+      "expect": {"prefetch": ["\"a\""], "route": "engine", "results_lookup": false, "engine": {"error": "QuickJS evaluation error: Error: results is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:67)\n"}}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "adjacent-reads",
+      "provenance": "source-derived",
+      "title": "a read right after a bracket read's ] is found too",
+      "note": "a reading where the reference is silent: the ] before the second results is a character outside [A-Za-z0-9_$]",
+      "site": "input_transform",
+      "text": "1 /* results[\"a\"]results.b */",
+      "expect": {"prefetch": ["\"a\"", "\"b\""]}
     }
   ]
 }

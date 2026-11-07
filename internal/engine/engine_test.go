@@ -403,7 +403,7 @@ func TestEngineStopAfterIf(t *testing.T) {
 		{"error", `{"expr":"result > 2","skip_if_stopped":false,"error_message":"too big"}`, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"too big"}}`, conformance.ModuleFailure, false},
 		{"empty message", `{"expr":" result > 2 ","skip_if_stopped":false,"error_message":"","error_include_result":true}`, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"stop after if:  result > 2 ","result":3}}`, conformance.ModuleFailure, false},
 		{"throws", `{"expr":"null.x","skip_if_stopped":false}`, conformance.RunFailure,
-			`{"error":"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n"}`, conformance.ModuleFailure, false},
+			`{"error":"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n"}`, conformance.ModuleFailure, false},
 		{"not a boolean", `{"expr":"false ||\nresults.b\n","skip_if_stopped":false}`, conformance.RunFailure, `{"error":"Expected a boolean value, found: \"3\""}`, conformance.ModuleFailure, false},
 		// results is bound only when the text holds results., results[ or
 		// results?.; flow_env only when it holds flow_env.
@@ -437,7 +437,7 @@ func TestEngineStopAfterIf(t *testing.T) {
 // InternalError and the module never starts. windmill-lite writes no Rust
 // location (D14).
 func TestEngineSkipIfChainingErrors(t *testing.T) {
-	const thrown = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n`
+	const thrown = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n`
 	for _, c := range []struct {
 		name, flow, result string
 		at                 string
@@ -475,7 +475,7 @@ func TestEngineArgumentFailures(t *testing.T) {
 		"f/t/nul2":  flowOf(mod("a", "echo", "", ""), mod("b", "echo", inputs("x", js(`"a\u0000b"`)), "")),
 	}, s)
 	tr := runIt(t, e, `{}`, nil)
-	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"Error during isolated evaluation of expression ` null.x `:\\nQuickJS evaluation error: Error: cannot read property 'x' of null\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:35)\\n\"}}")
+	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"Error during isolated evaluation of expression ` null.x `:\\nQuickJS evaluation error: Error: cannot read property 'x' of null\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:64)\\n\"}}")
 	if a := step(t, tr, "a"); !a.Ran || string(a.RecordedArgs.Producer()) != "{}" || a.ResultOrigin != OriginEngine || len(s.calls()) != 0 {
 		t.Fatalf("a %+v, calls %v", a, s.calls())
 	}

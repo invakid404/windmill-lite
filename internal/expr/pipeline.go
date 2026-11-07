@@ -34,11 +34,6 @@ const (
 	// the evaluation binds previous_result: the previous id, whose read the
 	// results prelude answers from memory (JE-18 rule 1).
 	hostPreviousID = "__wl_previous_id"
-	// hostSharedRead is a host string, bound with the results lookup only
-	// for a text whose reads of one step's result can be one read
-	// (pathExpr.sharedRead): that step's id, which the results prelude then
-	// reads once.
-	hostSharedRead = "__wl_shared_read"
 )
 
 var jsonNull = []byte("null")
@@ -102,18 +97,21 @@ func NewPipeline(engine Engine) *Pipeline {
 }
 
 // Prepare compiles the programs of exprs on the engine, and the preludes,
-// as a bundle opens (ADR 0003). A program that does not compile is
-// recorded, and Eval raises its error each time the expression reaches the
-// engine, as Windmill reports it; Prepare itself never fails. Programs are
-// kept by source text for the Pipeline's life, so a Pipeline serves one
-// bundle's expressions.
+// as a bundle opens (ADR 0003). An expression's program is compiled as a
+// site with a results context runs it, with the prefetch of the steps its
+// text names; the program without the prefetch, which an evaluation that
+// binds no results lookup runs, is compiled on first use. A program that
+// does not compile is recorded, and Eval raises its error each time the
+// expression reaches the engine, as Windmill reports it; Prepare itself
+// never fails. Programs are kept by source text for the Pipeline's life,
+// so a Pipeline serves one bundle's expressions.
 func (p *Pipeline) Prepare(exprs ...*Expr) {
 	for _, src := range []string{preludeContext, preludeResults, preludeError} {
 		p.program(src)
 	}
 	for _, e := range exprs {
 		if e != nil && e.Mode != 0 && e.RewritePanic == 0 {
-			p.program(programSource(e))
+			p.program(programSource(e, true))
 		}
 	}
 }
@@ -231,9 +229,6 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 			}
 		}
 	}
-	if id := p.pathExpr(e).sharedRead(); id != "" && slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
-		in.Strings = append(in.Strings, HostString{hostSharedRead, []byte(id)})
-	}
 	out, err := p.evaluate(ctx, e, in)
 	if err != nil {
 		return jsonval.Value{}, err
@@ -276,8 +271,10 @@ func (p *Pipeline) pathExpr(e *Expr) *pathExpr {
 // once Eval has checked them for depth (JE-49):
 //
 //   - the preludes run first: the context values' conversion and the
-//     helpers, then the results proxy when the lookup is bound, then error
-//     when the text mentions it (program.go);
+//     helpers, then the results proxy and the prefetch when the lookup is
+//     bound, then error when the text mentions it (program.go);
+//   - the program prefetches the steps the text names when the lookup is
+//     bound, which it is only at a site with a results context (JE-12);
 //   - a program that did not compile raises its SyntaxError (ADR 0003);
 //   - an error whose text contains "took too long" is tried again after a
 //     pause, up to three attempts in all (JE-2);
@@ -289,7 +286,8 @@ func (p *Pipeline) pathExpr(e *Expr) *pathExpr {
 //     reads as null.
 func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, error) {
 	srcs := []string{preludeContext}
-	if slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
+	lookup := slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults })
+	if lookup {
 		srcs = append(srcs, preludeResults)
 	}
 	if slices.Contains(e.Binds, "error") {
@@ -302,7 +300,7 @@ func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, err
 		}
 		in.Preludes = append(in.Preludes, prelude)
 	}
-	prog, err := p.program(programSource(e))
+	prog, err := p.program(programSource(e, lookup))
 	if err != nil {
 		return nil, windmillError(e, p.limits, err)
 	}
