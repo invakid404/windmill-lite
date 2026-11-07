@@ -5,8 +5,8 @@ spec: [OR-V9/b]
 target: f/wl_probe/loop_seq_multi_bare
 expect:
   status: failure
-  result: [{"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:39)\n"}}]
+  result: [{"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:68)\n"}}]
   steps:
-    "m:l": {"status": "failure", "result": [{"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:39)\n"}}]}
-    "m:l/i:0/m:x1": {"status": "failure", "args": {}, "result": {"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:39)\n"}}}
+    "m:l": {"status": "failure", "result": [{"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:68)\n"}}]}
+    "m:l/i:0/m:x1": {"status": "failure", "args": {}, "result": {"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:68)\n"}}}
     "m:l/i:0/m:x2": {"status": "not_run", "ran": false}

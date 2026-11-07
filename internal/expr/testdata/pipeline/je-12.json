@@ -49,6 +49,25 @@
       "expect": {"shortcut": {}, "binds": ["result", "results"], "code": "results", "route": "engine", "bound": {}, "results_lookup": true}
     },
     {
+      "spec": "JE-12/f",
+      "provenance": "oracle-observed",
+      "title": "a computed key is not rewritten; only the static read of the same step is awaited",
+      "note": "CE 1.862.0 prefetches a and gives the computed read its value, [3,3]; this pipeline gives it a Promise, so the unit case is held by an enginePending marker",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12-f", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "const k = \"a\"; return [results.a.v, results[k].v]",
+      "expect": {"shortcut": {}, "mode": "statement", "code": "const k = \"a\"; return [(await results.a).v, results[k].v]", "route": "engine", "results_lookup": true}
+    },
+    {
+      "spec": "JE-12/g",
+      "provenance": "oracle-observed",
+      "title": "a computed key alone is not rewritten",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12-g", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "const k = \"a\"; return results[k].v",
+      "expect": {"shortcut": {}, "mode": "statement", "code": "const k = \"a\"; return results[k].v", "route": "engine", "results_lookup": true}
+    },
+    {
       "spec": "JE-12",
       "variant": "segment",
       "provenance": "source-derived",

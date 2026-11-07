@@ -1027,7 +1027,7 @@ defined in the [index](README.md#legend).
 <a id="cf-13"></a>
 ### CF-13 · `stop_after_all_iters_if` (loops and branchall)
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except the recorded syntax error's column (re-checked at v1.862.0)
 
 - **Rule:** Evaluated **once**, after an **active** `forloopflow`,
   `whileloopflow` or `branchall` has finished all its children, sequential or
@@ -1053,7 +1053,8 @@ defined in the [index](README.md#legend).
     `Error: QuickJS evaluation error: Error: <engine message>`, a newline,
     the engine frame lines, then ` @<file>.rs:<line>:<col>`. Recorded:
     ``Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'`` followed by
-    `\n    at eval_script:1:7\n @worker_flow.rs:2451:11`.
+    `\n    at eval_script:1:36\n @worker_flow.rs:2666:11` on CE v1.862.0
+    (`\n    at eval_script:1:7\n @worker_flow.rs:2451:11` on v1.767.0).
   - **Not evaluated** for empty containers (empty iterator, empty loop body,
     zero-branch branchall; [CF-V2](#cf-v2)) or for `branchone`.
 - **Evidence:** `worker_flow.rs:342-407`
@@ -1072,6 +1073,7 @@ defined in the [index](README.md#legend).
   says where that object sits (carried by the failed step, the flow's
   result) and gives the recorded `<cause>` form (fixture
   `conformance/flows/control-flow/cf-13`, run `b`).
+- **Revision 2026-11-06 (v1.862.0):** the recorded syntax error's column follows the v1.862.0 expression wrapper ([JE-21](expressions.md#je-21)), and its location suffix moved (oracle run 42243035193); the rest of the finding is verified at v1.767.0 only.
 
 <a id="cf-14"></a>
 ### CF-14 · `branchone`

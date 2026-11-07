@@ -8,7 +8,7 @@ spec: [FX-8/b, FX-15]
 target: f/wl_fx8/sleep_no_results
 expect:
   status: failure
-  result: {error: {name: InternalError, message: "Expected a number value, had error instead: ExecutionErr(\"Error during evaluation of expression `results.a`:\\nQuickJS evaluation error: Error: results is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:46)\\n\")"}}
+  result: {error: {name: InternalError, message: "Expected a number value, had error instead: ExecutionErr(\"Error during evaluation of expression `results.a`:\\nQuickJS evaluation error: Error: results is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:67)\\n\")"}}
   steps:
     "m:a": {status: success, args: {}, result: 1}
     "m:b": {status: not_run}

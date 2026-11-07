@@ -1,0 +1,22 @@
+# WR-28/e: the script with a static ./helper and a dynamic
+# ../wl_wr28c/./helper fails its dependency job and has no lock, while the
+# control with the identical dynamic literal locks.
+spec: [WR-28/e]
+target: f/wl_wr28l/wr28_e
+expect:
+  status: success
+  result:
+    sub:
+      dependency_success: false
+      locked: false
+      lock_error_logs: true
+      lines:
+        - "execution error:"
+        - "Error locking file: Non-zero exit status for bun install: 1"
+        - "error: invalid dependency name \"..\""
+        - "error: ..@latest failed to resolve"
+    same:
+      dependency_success: true
+      locked: true
+      lock_error_logs: false
+      lines: []

@@ -71,6 +71,7 @@
     "conformance/flows/languages/codebase-cases",
     "conformance/flows/languages/wr-16",
     "conformance/flows/languages/wr-28",
+    "conformance/flows/languages/wr-28-lock",
     "conformance/flows/oracle/big-payload",
     "conformance/flows/oracle/key-order",
     "conformance/flows/oracle/nul",

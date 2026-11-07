@@ -5,12 +5,12 @@ spec: [FX-7/d, FX-14]
 target: f/wl_fx7/result_unbound
 expect:
   status: failure
-  result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"}}
+  result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:64)\n"}}
   steps:
     "m:a":
       status: failure
       args: {}
-      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"}}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:64)\n"}}
 note: >-
   Corrected after recording. The reference asserts the prefix and an engine
   ReferenceError, and the prediction guessed the engine text as
