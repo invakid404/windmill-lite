@@ -16,9 +16,9 @@ expect:
   status: success
   result: {order: o-9, confirmed: true}
   steps:
-    "m:reserve/r:0": {status: failure, args: {order: o-9}, result: {error: {name: Error, message: "stock moved", stack: "<stack>", step_id: check}}}
+    "m:reserve/r:0": {status: failure, args: {order: o-9}, result: {error: {name: Error, message: "stock moved", stack: "<stack>", step_id: check, job_id: "<job:m:reserve/r:0/m:check>", flow_path: f/wl_stub_sr/reserve}}}
     "m:reserve/r:0/m:hold": {status: success, args: {order: o-9}, result: 2}
-    "m:reserve/r:0/m:check": {status: failure, args: {order: o-9, held: 2}, result: {error: {name: Error, message: "stock moved", stack: "<stack>", step_id: check}}}
+    "m:reserve/r:0/m:check": {status: failure, args: {order: o-9, held: 2}, result: {error: {name: Error, message: "stock moved", stack: "<stack>", step_id: check, job_id: "<job:m:reserve/r:0/m:check>", flow_path: f/wl_stub_sr/reserve}}}
     "m:reserve": {status: success, args: {order: o-9}, result: {order: o-9, held: 2}}
     "m:reserve/m:hold": {status: success, args: {order: o-9}, result: 2}
     "m:reserve/m:check": {status: success, args: {order: o-9, held: 2}, result: {order: o-9, held: 2}}

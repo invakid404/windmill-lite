@@ -13,9 +13,9 @@ expect:
     "m:a":
       status: failure
       args: {}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx32/handler_retry}}
     "s:failure/r:0":
       status: failure
       args: {n: 1}
-      result: {error: {message: h1, name: Error, stack: "<stack>", step_id: failure}}
+      result: {error: {message: h1, name: Error, stack: "<stack>", step_id: failure, job_id: "<job:s:failure/r:0>", flow_path: f/wl_fx32/handler_retry}}
     "s:failure": {status: success, args: {n: 1}, result: {}}

@@ -10,8 +10,8 @@ expect:
   status: success
   result: [{index: 0, value: 1}]
   steps:
-    "m:l/r:0": {status: failure, args: {iter: {index: 0, value: 1}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b}}}
-    "m:l/r:0/m:b": {status: failure, args: {tag: b, v: null}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b}}}
+    "m:l/r:0": {status: failure, args: {iter: {index: 0, value: 1}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b, job_id: "<job:m:l/r:0/m:b>", flow_path: f/cf22/iter_parent/loop-0}}}
+    "m:l/r:0/m:b": {status: failure, args: {tag: b, v: null}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b, job_id: "<job:m:l/r:0/m:b>", flow_path: f/cf22/iter_parent/loop-0}}}
     "m:l/r:0/m:c": {status: not_run, ran: false}
     "m:l": {status: success, result: [{index: 0, value: 1}]}
     "m:l/i:0/m:b": {status: success, args: {tag: b, v: {index: 0, value: 1}}, result: {index: 0, value: 1}}

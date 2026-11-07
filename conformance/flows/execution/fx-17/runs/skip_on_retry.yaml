@@ -9,5 +9,5 @@ expect:
   result: {}
   steps:
     "m:reset": {status: success, args: {}, result: reset}
-    "m:a/r:0": {status: failure, args: {x: 1}, result: {error: {message: "attempt with x=1", name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:0": {status: failure, args: {x: 1}, result: {error: {message: "attempt with x=1", name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a/r:0>", flow_path: f/wl_fx17/skip_on_retry}}}
     "m:a": {status: success, skipped: true, args: {x: 1}, result: {}}

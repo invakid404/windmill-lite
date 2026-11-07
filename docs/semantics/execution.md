@@ -956,7 +956,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-12"></a>
 ### FX-12 · Failure values of script and worker jobs
 
-**Scope:** core (Bun, flow-level); later (Deno, Python) · **Confidence:** high (oracle-observed for the Bun and Deno wrappers and the unwrapped flow result; source-traced for the rest) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (Bun, native, flow-level); later (Deno, Python) · **Confidence:** high (oracle-observed for the Bun and Deno wrappers, the native runtime, the step context keys in every kind of body, and the unwrapped flow result; source-traced for the rest) · **Status:** confirmed · verified at v1.767.0 only, except the wrapper, native and worker-built error objects and their step context keys (re-checked at v1.862.0)
 
 - **Rule:** This rule covers **script jobs and pre-run failures** only. A
   failed **flow** job (root, inline child or subflow) stores its final value
@@ -967,18 +967,20 @@ run of batch E3f in the [design README](../design/README.md).
   `E` is:
   - **Bun wrapper (thrown value `e`).** `E` starts with the keys `message`,
     `name` and `stack` taken from `e`; a key whose value is `undefined` is
-    **omitted**. Then `step_id` is added when `WM_FLOW_STEP_ID` is set, and
-    `extra` collects every own property name of `e` except `line`, `name`,
-    `stack`, `column`, `message`, `sourceURL`, `originalLine` and
-    `originalColumn`, when there are any. Non-Error thrown values:
-    [FX-47](#fx-47).
-  - **Deno wrapper:** `message`, `name`, `stack` and optional `step_id`;
+    **omitted**. Then the **step context keys** below are added, in the
+    order `step_id`, `job_id`, `flow_path`, and `extra` collects every own
+    property name of `e` except `line`, `name`, `stack`, `column`,
+    `message`, `sourceURL`, `originalLine` and `originalColumn`, when there
+    are any. Non-Error thrown values: [FX-47](#fx-47).
+  - **Native runtime** (`nativets` and `bunnative` steps): the three fields
+    of [WR-43](languages.md#wr-43), then the step context keys.
+  - **Deno wrapper:** `message`, `name`, `stack`, then the step context keys;
     **no `extra`**.
   - **Python wrapper:** `message` = `str(e)`; `name` = the exception class
     name; `stack` = the formatted traceback without its first frame, joined
     with newlines; `extra` = the exception's attribute dict when non-empty;
-    optional `step_id`. Values that cannot be serialised are converted to
-    strings.
+    then the step context keys. Values that cannot be serialised are
+    converted to strings.
   - **Non-zero exit without an error file:** `{"message": "exit code for
     \"<program>\": <code>, last log lines:\n<logs>", "name": "ExecutionErr",
     "step_id"?, "exit_code": <code>}`.
@@ -991,6 +993,62 @@ run of batch E3f in the [design README](../design/README.md).
     [FX-38](#fx-38)).
   - **An error file that is not valid JSON:** `{"message": "Non serializable
     error: <raw>"}`.
+
+  **The step context keys** (Bun since 1.847.0, Deno and Python by
+  v1.862.0, native since 1.850.0). Each is added only when the variable it
+  reads is non-empty in the job's environment:
+  - `step_id` = `WM_FLOW_STEP_ID`, the module id the job runs for
+    ([FX-45](#fx-45)). A step of a collapsed loop has the loop's id
+    ([FX-46](#fx-46)).
+  - `job_id` = `WM_JOB_ID`, the id of the job that threw. Every retry
+    attempt is a job of its own, so each attempt's error names its own job;
+    so does each iteration of a collapsed loop. The oracle maps it to that
+    job's site placeholder, such as `<job:m:l/r:0/m:b>`
+    ([OR-14](oracle.md#or-14) rule 1).
+  - `flow_path` = `WM_FLOW_PATH`, the runnable path of the job's **parent
+    job**, whatever its kind ([WA-6](client-api.md#wa-6),
+    [WA-V1](client-api.md#wa-v1)).
+
+  **What `flow_path` holds for a flow's steps:**
+
+  | The step runs in | `flow_path` |
+  |---|---|
+  | the flow itself (a top-level step) | the flow's path, `f/x` |
+  | an iteration of a sequential `forloopflow` or a `whileloopflow` whose body is not collapsed | `<parent>/loop-<i>` |
+  | an iteration of a parallel `forloopflow` | `<parent>/forloop-<i>` |
+  | branch `i` of a `branchall` | `<parent>/branchall-<i>` |
+  | the default branch of a `branchone` | `<parent>/branchone-0` |
+  | branch `branches[i]` of a `branchone` | `<parent>/branchone-<i+1>` |
+  | a collapsed loop ([FX-46](#fx-46)) | `<parent>` itself, with no suffix |
+  | a subflow (a `flow` module) | the subflow's own path, `f/sub` |
+
+  `<parent>` is the path of the flow job that runs the container, so nested
+  bodies compose: a sequential loop in branch 4 of a `branchall` of `f/x`
+  gives `f/x/branchall-4/loop-0`. A subflow starts again from its own path.
+
+  A job that a step dispatches through the API has that step's job as
+  parent, so its `flow_path` is the step's job path, `f/x/a`, and it has no
+  `step_id` ([WA-V1](client-api.md#wa-v1)). A job with no parent, or whose
+  parent has no path, gets no `flow_path` unless it was started with a
+  `_FLOW_PATH` argument, as a script preview from the flow editor is. So a
+  script run on its own carries `job_id` alone.
+
+  **Which errors carry them.** Only the values a language wrapper or the
+  native runtime builds from a thrown value. The errors the worker builds
+  itself keep the optional `step_id` and nothing more: the non-zero exit,
+  the worker-side failure ([WR-43](languages.md#wr-43) form 2 included) and
+  the empty result ([WR-V2](languages.md#wr-v2)). Pre-run and pickup
+  failures and the errors the flow engine makes (an expression error, the
+  `EarlyStopError`, `Canceled`, the chaining `InternalError`) carry none of
+  the three.
+
+  **Where they show.** The keys are part of the stored value, so they
+  travel with it: into a failed flow's result, a loop's or `branchall`'s
+  array entry, and a failure module's `error` and `previous_result`
+  ([FX-32](#fx-32)). They also reach the next step's `previous_result` after
+  a tolerated failure ([FX-6](#fx-6)) and the run-and-wait body
+  ([FX-36](#fx-36)), whose `jsonb` key order places them as `name`,
+  `stack`, `job_id`, `message`, `step_id`, `flow_path`.
 - **Evidence:**
   - `backend/windmill-worker/src/bun_executor.rs:1948-1970`
   - `backend/windmill-worker/src/deno_executor.rs:370-377`
@@ -1000,8 +1058,35 @@ run of batch E3f in the [design README](../design/README.md).
   - `backend/windmill-queue/src/jobs.rs:626-629`, `:883-918`
   - `backend/windmill-worker/src/worker_flow.rs:2040-2049`
   - `backend/windmill-common/src/error.rs:23-151`
+  - The step context keys, all @ v1.862.0:
+    - the two Bun wrappers:
+      `backend/windmill-worker/src/bun_executor.rs:2848-2875`, `:2922-2949`,
+      with the keys at `:2851-2862` and `:2925-2936`;
+    - Deno: `backend/windmill-worker/src/deno_executor.rs:430-445`; Python:
+      `backend/windmill-worker/src/python_executor.rs:1003-1010`,
+      `:1079-1086`;
+    - the native runtime: `backend/windmill-worker/src/js_eval.rs:110-133`,
+      applied at `backend/windmill-worker/src/bun_executor.rs:3174`,
+      `:3207`, `:3236` and `backend/windmill-worker/src/worker.rs:6704`;
+    - the worker-built errors, which keep `step_id` alone:
+      `backend/windmill-worker/src/result_processor.rs:638-677`,
+      `:2203-2229`;
+    - the variables: `backend/windmill-common/src/variables.rs:860-865`,
+      `:896-901`, `:924-929`;
+    - the parent's runnable path, or the job's `_FLOW_PATH` argument when
+      there is none: `backend/windmill-worker/src/common.rs:530-550`,
+      `backend/windmill-common/src/worker.rs:825`,
+      `backend/windmill-queue/src/jobs.rs:9031`;
+    - the body paths: `backend/windmill-worker/src/worker_flow.rs:5695-5730`,
+      `:6034`, `:6171`, `:6213`, `:6286`, `:6330`; a collapsed body's job
+      pushed straight under the flow: `:6331-6358`, `:6389-6406`.
+  - Release notes: v1.847.0 "add job_id and flow_path to flow step error
+    objects"; v1.850.0 "add job_id, step_id and flow_path to native ts step
+    errors".
   - Docs: https://www.windmill.dev/docs/flows/error_handling
-- **Conformance:** [FX-12/a–FX-12/d](conformance.md#fx-12)
+- **Conformance:** [FX-12/a–FX-12/d](conformance.md#fx-12); the step context
+  keys in bodies, and the errors without them:
+  [FX-45/b–FX-45/f](conformance.md#fx-45)
 - **Note:** language detail is in [languages.md](languages.md).
 - **Revision 2026-10-28 (oracle, batch E3c):** the Bun shapes (an Error with
   an own property; a thrown plain object without `name` and `stack`), the
@@ -1017,8 +1102,8 @@ run of batch E3f in the [design README](../design/README.md).
   [FX-36](#fx-36); fixture
   [`execution/fx-36-http`](../../conformance/flows/execution/fx-36-http), run
   `extra`, oracle run 40794872025).
-- **Revision 2026-11-06 (retarget to v1.862.0):** not re-checked at
-  v1.862.0. Its Deno case can no longer be recorded: the standard CE image
+- **Revision 2026-11-06 (retarget to v1.862.0):** its Deno case can no
+  longer be recorded: the standard CE image
   ships no Deno since 1.830.0 (`Dockerfile @ v1.862.0` installs none;
   `docker/DockerfileFull:4-5 @ v1.862.0`, the full image the oracle does not
   run, does), and a Deno step's lock job fails with the worker's
@@ -1027,6 +1112,13 @@ run of batch E3f in the [design README](../design/README.md).
   fixture `fx-12-deno` was removed; [FX-12/c](conformance.md#fx-12) stays as
   recorded on CE v1.767.0 (oracle run 40685766017). windmill-lite has no
   Deno.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0):** 1.847.0 added
+  `job_id` and `flow_path` to a wrapper's error object, and 1.850.0 added
+  all three keys to the native runtime's. Re-verified at v1.862.0: the
+  wrappers, the native error, the worker-built errors and the variables;
+  the pre-run, pickup and non-JSON shapes are verified at v1.767.0 only.
+  FX-12/a, FX-12/b and FX-12/d were re-recorded on CE v1.862.0 (oracle run
+  42299510925); new cases FX-45/b to FX-45/f cite committed recordings.
 
 <a id="fx-13"></a>
 ### FX-13 · A successful result with `wm_failure` is turned into a failure
@@ -2613,6 +2705,13 @@ run of batch E3f in the [design README](../design/README.md).
   order, so FX-36/b's body reads `name`, `stack`, `message`, `step_id`; the
   rule now says why. The status is `confirmed`; the exact array length and
   the alias clash are from the source and the decoder ([FX-36/i](conformance.md#fx-36)).
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0):** a failed step's
+  error now carries the step context keys of [FX-12](#fx-12), and the body
+  sends them in `jsonb` order too. On CE v1.862.0, FX-36/b's body reads
+  `name`, `stack`, `job_id`, `message`, `step_id`, `flow_path` (fixture
+  [`execution/fx-36-http`](../../conformance/flows/execution/fx-36-http), runs
+  `failed` and `extra`, oracle run 42299510925). The rest of the finding is
+  verified at v1.767.0 only.
 
 <a id="fx-37"></a>
 ### FX-37 · `early_return`
@@ -3619,11 +3718,14 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
 
-**Scope:** core · **Confidence:** high (oracle-observed: `WM_FLOW_STEP_ID`) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (oracle-observed: `WM_FLOW_STEP_ID`) · **Status:** confirmed · verified at v1.767.0 only, except the step context keys in error objects (re-checked at v1.862.0)
 
 - **Rule:** Each step's job carries the module id as its flow step id.
   Wrappers expose it as `WM_FLOW_STEP_ID`, and it ends up in error objects as
-  `step_id` ([FX-12](#fx-12)).
+  `step_id` ([FX-12](#fx-12)). Since 1.847.0 the job's own id (`WM_JOB_ID`)
+  and its parent job's runnable path (`WM_FLOW_PATH`,
+  [WA-6](client-api.md#wa-6)) end up there too, as `job_id` and `flow_path`;
+  [FX-12](#fx-12) gives the paths per kind of body.
   - For a failure module it is that module's id, also for the copy inside an
     inline body of a deployed flow; only a body built from raw modules
     suffixes it ([FX-34](#fx-34); corrected 2026-10-28 from the oracle
@@ -3641,16 +3743,25 @@ run of batch E3f in the [design README](../design/README.md).
 - **Evidence:** `backend/windmill-worker/src/worker_flow.rs:4429`,
   `:5076-5086`, `:5199`, `:5657-5697`, `:5670`;
   `backend/windmill-worker/src/bun_executor.rs:1887-1890`, `:1952-1955`
-- **Conformance:** [FX-45/a](conformance.md#fx-45)
+- **Conformance:** [FX-45/a](conformance.md#fx-45); the step context keys
+  in bodies, and the errors without them:
+  [FX-45/b–FX-45/f](conformance.md#fx-45)
 - **Revision 2026-10-29 (SC4, recordings of milestone E1):** FX-45/a was
   recorded as stated: two steps read their own module ids from
   `WM_FLOW_STEP_ID` (`conformance/flows/client-api/job-env`, run `envs`,
   oracle run 40771900586).
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0):** the step
+  identity now reaches error objects as `job_id` and `flow_path` besides
+  `step_id` (1.847.0; re-verified at v1.862.0 with [FX-12](#fx-12)'s
+  pointers). New cases FX-45/b to FX-45/f show the keys' values in loop,
+  branch and subflow bodies, for retry attempts, and the worker-built errors
+  that carry none, from recordings on CE v1.862.0. The rest of the finding
+  is verified at v1.767.0 only.
 
 <a id="fx-47"></a>
 ### FX-47 · Thrown non-Error values in Bun
 
-**Scope:** core (strings and objects); later (`null`/`undefined`) · **Confidence:** high (string, oracle-observed); medium (plain object); high (`null`, oracle-observed: the exit-code shape); medium (`undefined`, the same property access) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (strings and objects); later (`null`/`undefined`) · **Confidence:** high (string, oracle-observed); medium (plain object); high (`null`, oracle-observed: the exit-code shape); medium (`undefined`, the same property access) · **Status:** confirmed · verified at v1.767.0 only, except the step context keys (re-checked at v1.862.0)
 
 - **Rule:** The Bun wrapper builds the error from whatever was thrown
   ([FX-12](#fx-12)).
@@ -3658,8 +3769,9 @@ run of batch E3f in the [design README](../design/README.md).
     has them; its other own properties go to `extra`.
   - **A thrown string** has no `message`, `name` or `stack`. Its own
     property names are its character indices and `length`, so they land in
-    `extra`: `throw "ab"` at step `a` gives `{"error": {"step_id": "a",
-    "extra": {"0": "a", "1": "b", "length": 2}}}`.
+    `extra`: `throw "ab"` at step `a` of flow `f/x` gives `{"error":
+    {"step_id": "a", "job_id": <a's job>, "flow_path": "f/x", "extra":
+    {"0": "a", "1": "b", "length": 2}}}`.
   - **`throw null` or `throw undefined`** makes the wrapper's own property
     access fail before it writes the error file. The process exits without
     an error file, so the non-zero-exit shape applies (`ExecutionErr`, with
@@ -3678,6 +3790,12 @@ run of batch E3f in the [design README](../design/README.md).
   `conformance/flows/execution/fx-47-null`, run `fx47b`, oracle run
   41003988171; the fixture masks the rest of the message, which quotes a
   path under the worker's directory). `throw undefined` is not recorded.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0):** a thrown value now
+  gets the step context keys of [FX-12](#fx-12) as well: on CE v1.862.0,
+  FX-47/a's string gave `step_id`, `job_id` and `flow_path` before `extra`
+  (run `thrown_string`, oracle run 42299510925). FX-47/b's non-zero exit
+  keeps `step_id` and `exit_code` alone, as the worker builds that error (run
+  `fx47b`, oracle run 42243035193). Verified at v1.767.0 only for the rest.
 
 <a id="fx-48"></a>
 ### FX-48 · NUL characters at storage boundaries

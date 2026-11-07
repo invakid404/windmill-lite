@@ -8,6 +8,9 @@ expect:
       message: "Do not know how to serialize a BigInt"
       stack: "<stack>"
       name: TypeError
+      step_id: a
+      job_id: "<job:m:a>"
+      flow_path: f/wl_n42/wr42_c_bunnative
   steps:
     "m:a":
       status: failure
@@ -17,3 +20,6 @@ expect:
           message: "Do not know how to serialize a BigInt"
           stack: "<stack>"
           name: TypeError
+          step_id: a
+          job_id: "<job:m:a>"
+          flow_path: f/wl_n42/wr42_c_bunnative

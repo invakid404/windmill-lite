@@ -7,6 +7,6 @@ expect:
   result: [0, 1]
   steps:
     "m:ba": {status: success, result: [0, 1]}
-    "m:ba/b:0/m:b0/r:0": {status: failure, args: {tag: b0, v: 0}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b0", step_id: b0}}}
+    "m:ba/b:0/m:b0/r:0": {status: failure, args: {tag: b0, v: 0}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b0", step_id: b0, job_id: "<job:m:ba/b:0/m:b0/r:0>", flow_path: f/cfwaits/branch_retry/branchall-0}}}
     "m:ba/b:0/m:b0": {status: success, args: {tag: b0, v: 0}, result: 0}
     "m:ba/b:1/m:b1": {status: success, args: {x: 1}, result: 1}

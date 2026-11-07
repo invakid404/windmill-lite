@@ -9,6 +9,6 @@ expect:
   result: [{handled: 1}]
   steps:
     "m:l": {status: failure, result: [{handled: 1}]}
-    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x, job_id: "<job:m:l/i:0/m:x>", flow_path: f/wl_cf16/stop/loop-0}}}
     "m:l/i:0/s:failure": {status: success, args: {x: 1}, result: {handled: 1}}
     "s:failure": {status: not_run}
