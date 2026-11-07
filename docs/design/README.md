@@ -158,7 +158,7 @@ adds shared code to `warm` (deviation D18 of
 [0001](0001-equivalence-contract.md)), which milestone F8b implements.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
-Windmill `v1.767.0`, the Go package layout and the implementation
+Windmill `v1.862.0`, the Go package layout and the implementation
 milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
 
@@ -203,7 +203,7 @@ flowchart LR
 
 | Record | Decision |
 |---|---|
-| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE, and reject out-of-scope features at load. Twenty-two named deviations (D1–D22), six of which `fresh` mode removes, and eleven restrictions. Contested findings are recorded on the oracle early, with a stated default until then and no permanent switches. Rust location suffixes are stripped only from generated messages. |
+| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE, and reject out-of-scope features at load. Twenty-three named deviations (D1–D23), six of which `fresh` mode removes, and eleven restrictions. Contested findings are recorded on the oracle early, with a stated default until then and no permanent switches. Rust location suffixes are stripped only from generated messages. |
 | [0002 IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; a sync-folder loader that reads each item on demand; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
 | [0003 Where semantics live](0003-semantics-placement.md) | One flow interpreter and one expression pipeline, in Go; harnesses are step runners, with no segments. Expressions run on QuickJS-ng `be664ca1`, embedded natively and built static: a fresh runtime per evaluation from a bounded pool, its heap on mimalloc and destroyed whole. Member paths, templates, arithmetic, comparisons and predicates over JSON values are answered in Go with the program's exact answer. One conformance suite of flow, step, expression and format cases runs in every mode. |
 | [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and base64 part streams for large messages. A shared-process failure model attributes errors through each invocation's async context, intercepts `process.exit`, and fences an invocation when it settles. `fetch` is the only platform transport in warm processes. Host mode is never tainted: the host drains it, its working directory is checked (on tmpfs, as recommended on Linux), and a watchdog kills a host that stops answering. |

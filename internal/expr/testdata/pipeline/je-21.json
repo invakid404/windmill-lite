@@ -62,7 +62,7 @@
       "site": "input_transform",
       "text": "(() => { const e = new Error(\"m\"); e.message = null; throw e })()",
       "context": {"previous_id": ""},
-      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error:\n    at <anonymous> (eval_script:1:43)\n    at <anonymous> (eval_script:1:81)\n    at <eval> (eval_script:1:86)\n"}}
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error:\n    at <anonymous> (eval_script:1:72)\n    at <anonymous> (eval_script:1:110)\n    at <anonymous> (eval_script:1:115)\n"}}
     },
     {
       "spec": "JE-21",

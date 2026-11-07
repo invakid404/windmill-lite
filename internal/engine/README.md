@@ -705,11 +705,11 @@ its branch's result with its origin and pointers.
   behave alike; a stop that a branch propagates is not followed by the
   `branchone`'s own `stop_after_if`; a child flow that aborts on a
   chaining error raised before a sequential container's child after the
-  first (its timeout, the push, a loop's mid-loop `skip_if`) delivers as
-  its last carried value the flow's last result that a mid-loop `skip_if`
-  sees (CF-21: the previous child's result, or the flow's input for a
-  loop at its flow's first module), a sequential `branchall` the previous
-  branch's result (pinned by `TestBranchOneAbortedMidLoop`), and one
+  first (its timeout or the push) delivers as its last carried value the
+  flow's last result (a loop the previous child's result, or the flow's
+  input for a loop at its flow's first module, pinned by
+  `TestBranchOneAbortedMidLoop`; a sequential `branchall` the previous
+  branch's result), and one
   whose failure module's start fails delivers the failing value (CF-23
   route 3 names a module's start only); an error
   stop a `branchone` or a sequential `branchall` propagates is an error
@@ -1778,19 +1778,19 @@ the reference left to them.
   - A parallel container's record never lists the flow's failed attempts.
 - **`flow_env`** is resolved again (JE-38) at each transition of a
   sequential container's flow that pushes its next child, after the
-  previous one completed, so the next push's `skip_if`, timeout and a
-  collapsed body job's arguments see what the previous child changed. A
+  previous one completed, so the next push's timeout and a collapsed body
+  job's arguments see what the previous child changed. A
   collapsed iteration's job belongs to its loop's flow, whose resolution
   it uses (`frame.owner`); the predicates evaluated after a child
   completes keep reading the flow's cached map.
-- **A sequential loop's `skip_if`** (for or while) is evaluated again
-  before every iteration after the first, with the flow's last result as
-  `previous_result` (the previous iteration's, or the flow's input for a
-  loop at its first module) and the loop's preceding id. When it holds the
-  loop ends as a skipped identity job of that result, and its iterations
-  so far are superseded (recorded by `cf-21/skip_mid`, `skip_mid_flows`
-  and `skip_mid_while`); a throw is a chaining error of a later
-  transition. A parallel loop evaluates it once (`cf-21/skip_parallel`).
+- **A loop's `skip_if`** is evaluated once, when the module is entered
+  while it still waits to start, as any module's is
+  ([FX-17](../../docs/semantics/execution.md#fx-17)). An iteration's
+  result never skips a sequential, collapsed or while loop part-way: every
+  iteration runs and the loop returns its whole array (recorded by
+  `cf-21/skip_mid`, `skip_mid_flows` and `skip_mid_while`; a parallel loop
+  by `cf-21/skip_parallel`). A retry that re-enters the loop evaluates it
+  again.
 - **Cancellation** (CF-28) reaches every child: a canceled container
   completes as a failure whose array holds, for each child the
   cancellation reached, held ones included, the `Canceled` error (a
@@ -1825,9 +1825,9 @@ the reference left to them.
 - A container's timeout is evaluated for each child before its
   `parallelism`, in the order the reference lists them (pinned by
   `TestContainerTimeoutPerChild`).
-- The flow's last result that a mid-loop `skip_if` sees for a loop of
-  child flows is the previous child flow's result, as for a collapsed
-  loop (recorded by `cf-21/skip_mid_flows`).
+- The flow's last result that an abort before a later iteration of a loop
+  of child flows carries is the previous child flow's result, as for a
+  collapsed loop (CF-23 route 3; pinned by `TestBranchOneAbortedMidLoop`).
 
 **Tests.**
 
@@ -1839,9 +1839,10 @@ the reference left to them.
   - a container's timeout per child and its routes;
   - a container's retry: the re-run, the attempt record, `iter_parent`, a
     `branchall`, spent attempts;
-  - the mid-loop `skip_if` (collapsed, child flows, while, parallel, a
-    throw), `squash`, and the waits and retries in a parallel loop's child
-    flows with the virtual identity.
+  - a loop's `skip_if` evaluated once (collapsed, child flows, while,
+    parallel, a predicate that would throw later, a skip at the entry, a
+    retry's re-entry), `squash`, and the waits and retries in a parallel
+    loop's child flows with the virtual identity.
 - `while_test.go` and `branch_test.go` cover a canceled container's
   failure.
 - `container_outcomes_test.go` covers a retried parallel loop's base and

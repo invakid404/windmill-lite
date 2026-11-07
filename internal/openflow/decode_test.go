@@ -425,7 +425,7 @@ func TestKinds(t *testing.T) {
 	if b := v.Modules[6].Value.(*BranchAll); b.Parallel || b.Branches[0].EffectiveSkipFailure() || b.Branches[0].Parallel {
 		t.Errorf("branchall = %+v", b)
 	}
-	if o := v.Modules[5].Value.(*BranchOne); o.Branches[0].SkipFailure != nil || !o.Branches[0].EffectiveSkipFailure() || !o.Branches[0].Parallel {
+	if o := v.Modules[5].Value.(*BranchOne); o.Branches[0].SkipFailure != nil || o.Branches[0].EffectiveSkipFailure() || !o.Branches[0].Parallel {
 		t.Errorf("branchone = %+v", o)
 	}
 	g := v.Modules[8].Value.(*AIAgent)

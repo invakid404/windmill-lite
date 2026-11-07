@@ -212,7 +212,10 @@
                       "result",
                       "results"
                     ],
-                    "source": "(async function() { return (await results.twice); })()"
+                    "prefetch": [
+                      "\"twice\""
+                    ],
+                    "source": "(async function() { return results.twice; })()"
                   }
                 }
               },
@@ -390,7 +393,10 @@
                     "result",
                     "results"
                   ],
-                  "source": "(async function() { return Boolean((await results.twice) > 10); })()"
+                  "prefetch": [
+                    "\"twice\""
+                  ],
+                  "source": "(async function() { return Boolean(results.twice > 10); })()"
                 },
                 "modules": [
                   {
@@ -433,7 +439,7 @@
             "branches": [
               {
                 "modules": [],
-                "skip_failure": true
+                "skip_failure": false
               },
               {
                 "modules": [

@@ -461,11 +461,19 @@ attempt, step id, job ids (as placeholders) and arguments.
 `Observe` normalises with `conformance.Normaliser` and the fixture's
 `stack` and `mask` paths: walked job ids become `<job:PATH>` placeholders;
 a stack becomes `<stack>` only on a failed script leaf's stored error and on
-values deep-equal to it or to its inner error ([OR-V3](../../docs/semantics/oracle.md#or-v3));
-only the NUL `InternalErr` loses its location to `<loc>`
-([OR-27](../../docs/semantics/oracle.md#or-27)); user text that looks like
-a placeholder or marker is escaped. The comparator, the escape and the
+values deep-equal to it or its inner error ([OR-V3](../../docs/semantics/oracle.md#or-v3)).
+Only the completion failure's `InternalErr` loses its location to `<loc>`
+([OR-27](../../docs/semantics/oracle.md#or-27)), and user text that looks
+like a placeholder or marker is escaped. The comparator, the escape and the
 fixture format are in [internal/conformance](../conformance/README.md).
+
+A job the walk never reaches can still appear: an error object names its
+job as `job_id`, and a step that runs a flow through the API can return
+that flow's errors (the previews of `conformance/flows/openflow/of-drivers`).
+Before any value is normalised, `Observe` has the normaliser number such
+ids over the whole observation, and each becomes `<job:?N>` wherever it
+occurs ([OR-14](../../docs/semantics/oracle.md#or-14) item 1), so the two
+executions of a run agree.
 
 A recording is `{"observation": …, "provenance": …}`. Provenance holds the
 oracle version, image and Postgres image references and ids, the CLI and its
@@ -646,6 +654,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestRedactingWriter`, `TestClientHidesItsToken`, `TestCLIOutputHidesTheToken`, `TestSessionNeverWritesTheToken` | where the session token is replaced: in output split across writes; in the client's bodies, `Content-Type` headers, errors, run-and-wait responses and captures, with the login not captured; and in the CLI's output and error. A whole session whose run hands the token back in a trigger event's headers, a result, an effect and the run-and-wait response's body and `Content-Type`, with a CLI that prints it, writes no recording, raw capture, report or log that holds it | the smoke fixture |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording, of a flow run or of an expression case, names the pinned oracle, image and CLI; the previous pin's identity is refused | `conformance/flows`, `conformance/exprs` |
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
+| `TestUnwalkedJobIDsAcrossRepeats` | the two executions of each `of-drivers` preview, captured on CE v1.862.0, give one observation (OR-14/c). The jobs their error objects name, which the walk never reaches, read `<job:?1>` to `<job:?3>` in sorted member order. `TestReplayRecordedCaptures` also replays both executions against the recording | `testdata/captures/` |
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language, as the sync folder reads it) | `conformance/flows` |
 | `TestTreeScriptsAreSources` | only a script's source file makes a script there: a flow directory, a resource, a variable or a script's metadata of the same name does not (E3a review R1-2) | a synthetic tree |
 | `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |

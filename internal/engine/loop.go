@@ -233,9 +233,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	// A collapsed iteration's previous_result is the step before the loop's
 	// result, then the previous iteration's; a loop at the first module of
 	// its flow gives every iteration the flow's input (JE-36 rules 1 and 5).
-	// The flow's last result, which the loop's skip_if sees before each
-	// iteration after the first, follows the same rule, a child flow's
-	// result standing for a collapsed job's (CF-21).
+	// The flow's last result, which an abort before a later iteration
+	// carries, follows the same rule, a child flow's result standing for a
+	// collapsed job's.
 	iterPrev := prev
 	if i == 0 {
 		iterPrev = fr.input
@@ -263,24 +263,13 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		if k > 0 {
 			// The previous child's completion starts a transition of the
 			// loop's flow, which pushes the next child: flow_env is resolved
-			// again (JE-38) for what it evaluates, the loop's skip_if and
-			// timeout and a collapsed body job's arguments.
+			// again (JE-38) for what it evaluates, the loop's timeout and a
+			// collapsed body job's arguments. The loop's skip_if is not
+			// among them: only a module still waiting to start evaluates
+			// it, so it gated the loop once, at its entry, and an
+			// iteration's result never skips the loop part-way (CF-21,
+			// Q-CF-6).
 			r.resolveEnv(ctx, fr)
-		}
-		if k > 0 && m.SkipIf != nil {
-			// A sequential loop's skip_if is evaluated again before every
-			// iteration after the first (CF-21, Q-CF-6); a throw is a chaining
-			// error of a later transition (FX-15).
-			skip, err := r.predicate(ctx, fr, m.SkipIf, fr.sites[i], r.startScope(fr, iterPrev, prevID))
-			switch {
-			case err != nil && ctx.Err() != nil:
-				return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
-			case err != nil:
-				return chaining(k, false, predicateText(err))
-			case skip:
-				o.last = &carry{iterPrev, iterOrigin, iterNested}
-				return r.loopSkipped(ctx, fr, i, o, iterPrev)
-			}
 		}
 		ran = true
 		var e flowEnd
@@ -403,22 +392,6 @@ func handledBy(o outcome, handled, recovered bool) outcome {
 	o.handled = handled && (o.end == endFailed || o.end == endFailedStop)
 	o.recovered = recovered && o.end == endFailed
 	return o
-}
-
-// loopSkipped ends module i of fr, a sequential loop whose skip_if held
-// before an iteration after the first, as a skipped identity job of p, the
-// flow's last result (CF-21, Q-CF-6): the identity job replaces the loop's
-// state, so its iterations so far are lost (recorded by cf-21/skip_mid),
-// and the flow goes on with p. o.last is p with its provenance, which a
-// failed push of the identity job delivers.
-func (r *run) loopSkipped(ctx context.Context, fr *frame, i int, o outcome, p jsonval.Value) outcome {
-	r.supersede(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
-	stored, err := storeMembers(objectOf(member{"previous_result", p.Producer()}), p)
-	if err != nil {
-		return r.chainingAt(fr, false, o, err.Error())
-	}
-	o.rec.RecordedArgs, o.rec.ResolvedArgs, o.rec.Start = stored, stored, r.clock.Now()
-	return r.identityJob(ctx, fr, i, fr.sites[i], o, stored, true)
 }
 
 // childTimeout evaluates the timeout of module i of fr, a container, for a

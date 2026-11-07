@@ -197,9 +197,10 @@ func manifestDeviations(prog []string, mode engine.ModuleState, shared bool) []s
 	// Every bundle: windmill-lite job ids (D3), the interrupted expression
 	// attempt (D8), no Rust location suffix in generated messages (D14), the
 	// expression engine's build: Math's digits from its libm (D16) and the
-	// recursion depth its frames fit (D17), and the job reads: a job of a
-	// run that has ended is not read (D22).
-	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17", "D22"), mode, shared)
+	// recursion depth its frames fit (D17), the job reads: a job of a run
+	// that has ended is not read (D22), and the pinned Bun, which is not the
+	// reference image's (D23).
+	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17", "D22", "D23"), mode, shared)
 }
 
 // SharedCodeDeviation is the deviation of shared code (ADR 0013), which a

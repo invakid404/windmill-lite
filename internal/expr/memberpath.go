@@ -30,8 +30,8 @@ const (
 
 // memberPath is an expression that only reads a member path of a JSON
 // value: a bound context value (flow_input, previous_result, ...) or the
-// previous step's result read as results.<id> (which JE-12 rewrites into an
-// awaited read, and the results prelude answers from memory), then members
+// previous step's result read as results.<id> (which the program prefetches
+// and the results prelude answers from memory, JE-12, JE-18), then members
 // and indexes, optionally chained. The engine would parse the
 // value's text, read the members as JavaScript does and serialise what it
 // finds (JE-15); the pipeline does the same without the engine, and
@@ -65,15 +65,15 @@ func parseMemberPath(e *Expr) *memberPath {
 	if code, _ := rewriteCalls(t); code != t {
 		return nil
 	}
-	matches := resultsRead.FindAllStringIndex(t, -1)
+	matches := staticReads(t)
 	mp := &memberPath{}
 	var rest string
 	if strings.HasPrefix(t, "results") {
-		// The one rewrite (JE-12) must be the root read: (await results.x).
-		if len(matches) != 1 || matches[0][0] != 0 {
+		// The one static read (JE-12) must be the root read.
+		if len(matches) != 1 || matches[0].start != 0 {
 			return nil
 		}
-		root := t[:matches[0][1]]
+		root := t[:matches[0].end]
 		switch {
 		case strings.HasPrefix(root, "results.") || strings.HasPrefix(root, "results?."):
 			id := root[strings.IndexByte(root, '.')+1:]

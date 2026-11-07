@@ -932,12 +932,13 @@ func TestBranchOneAbortedRetryIf(t *testing.T) {
 }
 
 // CF-23 route 3, a reading: a chaining error raised before a sequential
-// loop's iteration after the first, here its skip_if throwing, aborts the
-// flow with the flow's last result, the previous child's (CF-21), so the
-// branchone carries the loop's first iteration's 1, not r's 5.
+// loop's iteration after the first, here its timeout throwing for the
+// second child (CF-21), aborts the flow with the flow's last result, the
+// previous child's, so the branchone carries the loop's first iteration's
+// 1, not r's 5.
 func TestBranchOneAbortedMidLoop(t *testing.T) {
-	loop := loopOf("l", []string{mod("x", "value", inputs("v", js("flow_input.iter.value")), "")},
-		`"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"skip_if":`+`{"expr":"previous_result === 5 ? false : null.x"}`)
+	body := []string{mod("x", "value", inputs("v", js("flow_input.iter.value")), ""), mod("y", "value", inputs("v", js("results.x")), "")}
+	loop := loopOf("l", body, `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"timeout":`+js("results.l.length > 0 ? null.x : 10"))
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(branchOneOf("b", nil, []string{value("r", "5", ""), loop}, ""))}, &scripts{})
 	tr := runIt(t, e, `{}`, nil)
 	wantStatus(t, tr, conformance.RunFailure, `1`)

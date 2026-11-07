@@ -257,7 +257,7 @@ func decodeValue(d *decoder, n *node) (Value, error) {
 }
 
 // Branches are typed structs with plain defaults: `expr` "", `skip_failure`
-// true and `parallel` true. Null is rejected for all three (OF-6, OF-V1).
+// false and `parallel` true. Null is rejected for all three (OF-6, OF-V1).
 
 var branchFields = []field[Branch]{
 	optStringField("summary", func(b *Branch) **string { return &b.Summary }),

@@ -18,11 +18,11 @@ decided program, and it validates what the contract's roots reach.
 What it does not do, and which milestone does:
 
 - **Expressions' bytecode:** the compiler runs every expression's textual
-  stages with [`expr.Compile`](../expr/README.md) (trimming, shortcuts,
-  rewrites, mode, bound names, the engine source; JE-5 to JE-15), which
-  depend on the site and the text alone, so `ir.json` carries them. The
-  engine compiles each source to bytecode when it opens the program
-  (ADR 0003).
+  stages with [`expr.Compile`](../expr/README.md): trimming, shortcuts,
+  the helper rewrite, the steps to prefetch, mode, bound names and the
+  engine source (JE-5 to JE-15). They depend on the site and the text
+  alone, so `ir.json` carries them. The engine compiles each source to
+  bytecode when it opens the program (ADR 0003).
 - **The build:** signatures, the relative-import closure, workflow-as-code
   detection and the refusal of a bundled script that imports a bare
   package with no lock need the Bun helper's scans (C2a), and bundling is
@@ -53,9 +53,10 @@ applies, once:
 - **container defaults** ([OF-6](../../docs/semantics/openflow.md#of-6),
   [OF-7](../../docs/semantics/openflow.md#of-7),
   [CF-6](../../docs/semantics/control-flow.md#cf-6)): an absent for-loop
-  `skip_failures` and branchall branch `skip_failure` are `true`, a
-  while-loop's `skip_failures` is `false`, branchall `parallel` is `true`;
-  under `Strict` the first two are refused instead (`absent_skip_flag`);
+  `skip_failures` is `true`, a branchall branch's `skip_failure` and a
+  while-loop's `skip_failures` are `false`, branchall `parallel` is
+  `true`; under `Strict` an absent for-loop or branch flag is refused
+  instead (`absent_skip_flag`);
 - **the language a deploy records** for a Bun-family rawscript: `bunnative`
   when its header carries the `native` annotation, `bun` otherwise, in
   either direction ([SY-V3](../../docs/semantics/openflow.md#sy-v3),

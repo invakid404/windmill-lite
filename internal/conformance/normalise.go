@@ -12,15 +12,18 @@ import (
 )
 
 // Normaliser turns the raw JSON values of one run into normalised values
-// (OR-14). It replaces only walked job ids, masks a stack only with
-// runtime-error provenance (OR-V3), masks only the location of the one
-// recognised internal error (OR-27), and escapes user text so that the
-// result stays injective (EncodeText). Everything else is kept: unknown
-// UUIDs, user strings, member order, number text and duplicate array
-// elements.
+// (OR-14). It replaces walked job ids and the unwalked job ids that
+// NumberUnwalked numbered, masks a stack only with runtime-error
+// provenance (OR-V3), masks only the location of the one recognised
+// internal error (OR-27), and escapes user text so that the result stays
+// injective (EncodeText). Everything else is kept: other UUIDs, user
+// strings, member order, number text and duplicate array elements.
 type Normaliser struct {
 	// IDs maps every walked job id of the run to its site (OR-11).
 	IDs map[string]SitePath
+	// Unwalked maps each unwalked job id of the run to its number, from 1
+	// (OR-14 item 1); NumberUnwalked fills it. Its ids are not in IDs.
+	Unwalked map[string]int
 	// RuntimeErrors holds clause (a) of OR-V3: the stored result of each
 	// failed leaf job that executed a script, of the shape {"error":{…}}.
 	RuntimeErrors []json.RawMessage
@@ -29,8 +32,10 @@ type Normaliser struct {
 	inner   []any // their "error" members
 }
 
-// internalErrPrefix is the message prefix of the storage failure of a NUL
-// result, the one internal error whose location is masked (OR-27).
+// internalErrPrefix is the message prefix of the completion failure, a
+// result the job table refuses to store, the one internal error whose
+// location is masked (OR-27). At v1.862.0 an unpaired surrogate escape
+// takes that route, and a NUL no longer does (FX-51).
 const internalErrPrefix = "Internal: Could not add completed job "
 
 // locSuffix is a trailing Rust source location, " @<file>:<line>:<col>".
@@ -70,8 +75,8 @@ func (n *Normaliser) Value(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 // Text normalises a text kept as written rather than as a JSON value, such
-// as an HTTP response body (Response). Walked job ids become placeholders
-// anywhere in it. When the text is a JSON value, a stack is masked exactly
+// as an HTTP response body (Response). Walked and numbered unwalked job ids
+// become placeholders anywhere in it. When the text is a JSON value, a stack is masked exactly
 // where Value would mask it (OR-V3 clauses a and b): in an object deep-equal
 // to a runtime error, its error member's stack; in an object deep-equal to
 // such an error's inner object, its own stack. Only that string's span
@@ -91,12 +96,96 @@ func (n *Normaliser) Text(raw string) (string, error) {
 	var parts []TextPart
 	pos := 0
 	for _, sp := range spans {
-		parts = append(parts, SplitJobIDs(raw[pos:sp[0]], n.IDs)...)
+		parts = append(parts, n.split(raw[pos:sp[0]])...)
 		parts = append(parts, Literal(`"`), MarkerPart(MarkerStack), Literal(`"`))
 		pos = sp[1]
 	}
-	parts = append(parts, SplitJobIDs(raw[pos:], n.IDs)...)
+	parts = append(parts, n.split(raw[pos:])...)
 	return EncodeText(parts), nil
+}
+
+// split splits raw text at the run's walked and numbered unwalked job ids.
+func (n *Normaliser) split(raw string) []TextPart {
+	return splitJobIDs(raw, n.IDs, n.Unwalked)
+}
+
+// unwalkedJobID is the form of an unwalked job id: a UUID in lowercase hex,
+// 8-4-4-4-12 (OR-14 item 1).
+var unwalkedJobID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// NumberUnwalked numbers the unwalked job ids of a run (OR-14 item 1),
+// which Value and Text then replace anywhere, as they replace walked ids.
+// raw is the run's observation before normalisation: its values are the
+// raw JSON the normaliser is about to be given. Call it once, before any
+// of them is normalised; it replaces what Unwalked held.
+//
+// An unwalked job id is a string that is the whole value of a member
+// job_id, in an object that is itself the value of a member error, and
+// that is a UUID (unwalkedJobID) that IDs does not hold: since Windmill
+// 1.847.0 a step's error object names the failed job (FX-12), which can be
+// a job the walk never reaches, such as one of a flow the step ran through
+// the API. The distinct ids are numbered from 1 in the order of their
+// first such occurrence, reading the observation with every object's
+// members in sorted order (OR-14 item 9): the effects, then the result,
+// then the steps by site path, each step's args, carried, resolved_args
+// and result. A response body is text, which holds no member; its ids are
+// replaced all the same. Members sort by their names as normalised with
+// the walked ids, so the order does not depend on a walked id's value.
+func (n *Normaliser) NumberUnwalked(raw Observation) error {
+	n.Unwalked = map[string]int{}
+	values := slices.Clone(raw.Effects)
+	values = append(values, raw.Result)
+	sites := make([]SitePath, 0, len(raw.Steps))
+	for p := range raw.Steps {
+		sites = append(sites, p)
+	}
+	slices.SortFunc(sites, func(a, b SitePath) int { return strings.Compare(a.String(), b.String()) })
+	for _, p := range sites {
+		st := raw.Steps[p]
+		values = append(values, st.Args, st.Carried, st.ResolvedArgs, st.Result)
+	}
+	for _, v := range values {
+		if v == nil {
+			continue
+		}
+		tree, err := parseJSON(v)
+		if err != nil {
+			return err
+		}
+		n.findUnwalked(tree, false)
+	}
+	return nil
+}
+
+// findUnwalked numbers the unwalked job ids below t, in sorted member
+// order; inError says that t is the value of a member error.
+func (n *Normaliser) findUnwalked(t *jnode, inError bool) {
+	switch t.kind {
+	case kindArray:
+		for _, e := range t.elems {
+			n.findUnwalked(e, false)
+		}
+	case kindObject:
+		type named struct {
+			name string // the member's name, its walked ids replaced
+			jmember
+		}
+		members := make([]named, len(t.members))
+		for i, m := range t.members {
+			members[i] = named{EncodeText(SplitJobIDs(m.key, n.IDs)), m}
+		}
+		slices.SortFunc(members, func(x, y named) int { return strings.Compare(x.name, y.name) })
+		for _, m := range members {
+			if inError && m.key == "job_id" && m.value.kind == kindString {
+				id := m.value.str()
+				_, walked := n.IDs[id]
+				if _, seen := n.Unwalked[id]; !walked && !seen && unwalkedJobID.MatchString(id) {
+					n.Unwalked[id] = len(n.Unwalked) + 1
+				}
+			}
+			n.findUnwalked(m.value, m.key == "error")
+		}
+	}
 }
 
 // stackSpans collects, below t, the spans of the stack strings that
@@ -291,16 +380,16 @@ func maskString(t *jnode, k string) {
 	}
 }
 
-// rewrite replaces walked job ids in every string and member name, escapes
-// marker-like user text, and masks the location of the recognised internal
-// error.
+// rewrite replaces walked and numbered unwalked job ids in every string and
+// member name, escapes marker-like user text, and masks the location of the
+// recognised internal error.
 func (n *Normaliser) rewrite(t *jnode) {
 	switch t.kind {
 	case kindString:
 		if t.marker {
 			return
 		}
-		t.text = quote(EncodeText(SplitJobIDs(t.str(), n.IDs)))
+		t.text = quote(EncodeText(n.split(t.str())))
 	case kindArray:
 		for _, e := range t.elems {
 			n.rewrite(e)
@@ -310,13 +399,13 @@ func (n *Normaliser) rewrite(t *jnode) {
 			if name := t.member("name"); name != nil && name.kind == kindString && name.str() == "InternalErr" {
 				s := msg.str()
 				if loc := locSuffix.FindStringIndex(s); strings.HasPrefix(s, internalErrPrefix) && loc != nil {
-					parts := append(SplitJobIDs(s[:loc[0]], n.IDs), Literal(" "), MarkerPart(MarkerLoc))
+					parts := append(n.split(s[:loc[0]]), Literal(" "), MarkerPart(MarkerLoc))
 					*msg = jnode{kind: kindString, text: quote(EncodeText(parts)), marker: true}
 				}
 			}
 		}
 		for i := range t.members {
-			t.members[i].key = EncodeText(SplitJobIDs(t.members[i].key, n.IDs))
+			t.members[i].key = EncodeText(n.split(t.members[i].key))
 			n.rewrite(t.members[i].value)
 		}
 	}

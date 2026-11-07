@@ -161,17 +161,68 @@ func (slowLookup) Stored(context.Context, string) (jsonval.Value, bool) {
 	return jsonval.Value{}, false
 }
 
-// TestJSExprKeepsTheAttemptLimit: two lookups of
-// 35 ms each under a 50 ms attempt limit time the evaluation out, with
-// jsExpr on or off; and under a limit below jsMinAttempt jsExpr declines
-// everything.
+// TestJSExprDeclinesAFailedPrefetch: the program's prefetch keeps a failed
+// read's message and Error on the heap before the expression runs, even
+// for a step that no evaluated read reaches (JE-12, JE-3), so jsExpr
+// declines when a prefetched lookup fails or answers a value with no
+// stored form. The engine then gives what it gives with jsExpr off, under
+// the same cap and from the same single lookup: the value for a small
+// failure, the memory limit's error for a failure whose text is past it.
+func TestJSExprDeclinesAFailedPrefetch(t *testing.T) {
+	ctx := context.Background()
+	l := DefaultLimits()
+	l.MemoryMB = 2
+	p := NewPipeline(realLeakyEngine(t, l, 1))
+	setRetry(p, 1, 0)
+	e := Compile(SiteInputTransform, "true ? 1 : results.broken")
+	for _, tc := range []struct {
+		name string
+		r    func() *fakeResults
+		want string
+	}{
+		{"a small failure", func() *fakeResults {
+			return &fakeResults{fail: map[string]string{"broken": "Failed to fetch result for step 'broken': gone"}}
+		}, "1"},
+		{"no stored form", func() *fakeResults { return &fakeResults{stored: map[string]string{"broken": "not json"}} }, "1"},
+		{"a failure past the cap", func() *fakeResults {
+			return &fakeResults{fail: map[string]string{"broken": strings.Repeat("x", 4<<20)}}
+		}, "error: " + memoryMessage(l)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := parseJSExpr(e).eval(ctx, &Scope{Results: memoryResults{tc.r()}}, jsLimits{limits: l, memoryReads: true}); ok {
+				t.Error("jsExpr answered over a failed prefetch")
+			}
+			for _, on := range []bool{true, false} {
+				r := tc.r()
+				p.paths = on
+				v, err := p.Eval(ctx, e, &Scope{Results: memoryResults{r}})
+				got := string(v.Producer())
+				if err != nil {
+					got = "error: " + err.Error()
+				}
+				if got != tc.want {
+					t.Errorf("fast paths %t: %.200s, want %.200s", on, got, tc.want)
+				}
+				if n := strings.Count(strings.Join(r.asked, " "), "lookup:broken"); n != 1 {
+					t.Errorf("fast paths %t: %d lookups of broken, want 1", on, n)
+				}
+			}
+		})
+	}
+	p.paths = true
+}
+
+// TestJSExprKeepsTheAttemptLimit: two lookups of 60 ms each, which the
+// prefetch makes at once (JE-12), under a 50 ms attempt limit time the
+// evaluation out, with jsExpr on or off; and under a limit below
+// jsMinAttempt jsExpr declines everything.
 func TestJSExprKeepsTheAttemptLimit(t *testing.T) {
 	l := DefaultLimits()
 	l.Attempt = 50 * time.Millisecond
 	p := NewPipeline(realEngine(t, l, 1))
 	setRetry(p, 1, 0)
 	e := Compile(SiteInputTransform, "results.a + results.b")
-	s := &Scope{PreviousID: "other", Results: slowLookup{35 * time.Millisecond}}
+	s := &Scope{PreviousID: "other", Results: slowLookup{60 * time.Millisecond}}
 	for _, on := range []bool{true, false} {
 		p.paths = on
 		_, err := p.Eval(context.Background(), e, s)

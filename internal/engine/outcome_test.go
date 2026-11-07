@@ -71,6 +71,11 @@ func TestManualFailure(t *testing.T) {
 		`{"x":1}`:                                   "",
 		`["wm_failure"]`:                            "",
 		`"wm_failure"`:                              "",
+		// Only an object carries the markers: an array that would fill
+		// the record by position (wm_labels, then wm_failure) marks
+		// nothing (FX-13 at 1.862.0).
+		`[[], "boom"]`:   "",
+		`[null, "boom"]`: "",
 		// Keys spelled with escapes are the same keys.
 		`{"\u0077m_failure":"esc"}`:                      `{"\u0077m_failure":"esc","error":{"name":"ManualFailure","message":"esc"}}`,
 		`{"wm\u005ffailure":"esc","wm_labels":[1]}`:      "",

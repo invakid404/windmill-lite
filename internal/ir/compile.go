@@ -321,7 +321,7 @@ func (fc *flowCompiler) module(m *openflow.Module, seg conformance.Segment, sc s
 		for i, br := range v.Branches {
 			if br.SkipFailure == nil && fc.opts.Strict {
 				fc.fail(&Error{Kind: ErrAbsentSkipFlag, Flow: sc.flow, Step: m.ID, Selector: -1,
-					Msg: fmt.Sprintf("strict: branch %d's skip_failure is absent (the deployed default is true)", i)})
+					Msg: fmt.Sprintf("strict: branch %d's skip_failure is absent (the deployed default is false)", i)})
 			}
 			bs := body
 			bs.site = site.Child(conformance.Branch(i))
@@ -490,11 +490,11 @@ func StoredNode(body []*Module, hasFailure bool) bool {
 }
 
 // compileExpr is the compiled expression at a site: the expression
-// pipeline's textual stages (trimming, shortcuts, rewrites, mode, bound
-// names and the engine source, JE-5 to JE-15), which depend on the site and
-// the text alone, so the program carries them and nothing recomputes them
-// per run (ADR 0003). The engine compiles each Source to bytecode when it
-// opens the program.
+// pipeline's textual stages (trimming, shortcuts, the helper rewrite, the
+// steps to prefetch, mode, bound names and the engine source, JE-5 to
+// JE-15), which depend on the site and the text alone, so the program
+// carries them and nothing recomputes them per run (ADR 0003). The engine
+// compiles each Source to bytecode when it opens the program.
 func compileExpr(site expr.SiteKind, text string) *expr.Expr {
 	return expr.Compile(site, text)
 }

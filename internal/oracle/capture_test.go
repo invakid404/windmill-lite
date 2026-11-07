@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -59,24 +60,7 @@ func TestReplayRecordedCaptures(t *testing.T) {
 			if run == nil || run.Recorded == nil {
 				t.Fatalf("fixture %s has no recorded run %s", rc.Fixture, rc.Run)
 			}
-			tree, err := LoadSyncTree(f.SyncTree())
-			if err != nil {
-				t.Fatal(err)
-			}
-			srv := httptest.NewServer((&Capture{Exchanges: rc.Exchanges}).Handler())
-			defer srv.Close()
-			w, err := (&Walker{Client: &Client{BaseURL: srv.URL}, Workspace: rc.Workspace, Tree: tree}).Walk(context.Background(), rc.Root, run.Target, run.IsScript())
-			if err != nil {
-				t.Fatal(err)
-			}
-			resp, err := rc.HTTP()
-			if err != nil {
-				t.Fatal(err)
-			}
-			obs, err := Observe(w, rc.Effects, resp, f.Compare)
-			if err != nil {
-				t.Fatal(err)
-			}
+			obs := observeCapture(t, rc, f, run)
 			diffs, err := conformance.Compare(obs, run.Recorded.Observation, conformance.CompareOptions{StrictKeyOrder: true})
 			if err != nil {
 				t.Fatal(err)
@@ -114,6 +98,104 @@ func TestReplayRecordedCaptures(t *testing.T) {
 			}
 			if kinds == 0 {
 				t.Fatal("the capture holds no job")
+			}
+		})
+	}
+}
+
+// observeCapture replays rc, a raw capture of a run of fixture f, through
+// the walker and the normaliser, offline.
+func observeCapture(t *testing.T, rc RawCapture, f *conformance.Fixture, run *conformance.Run) conformance.Observation {
+	t.Helper()
+	tree, err := LoadSyncTree(f.SyncTree())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer((&Capture{Exchanges: rc.Exchanges}).Handler())
+	defer srv.Close()
+	w, err := (&Walker{Client: &Client{BaseURL: srv.URL}, Workspace: rc.Workspace, Tree: tree}).Walk(context.Background(), rc.Root, run.Target, run.IsScript())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rc.HTTP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs, err := Observe(w, rc.Effects, resp, f.Compare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return obs
+}
+
+// TestUnwalkedJobIDsAcrossRepeats replays both executions of each preview
+// run of conformance/flows/openflow/of-drivers, as CI captured them on CE
+// v1.862.0 (testdata/captures), through the walker and the normaliser. A
+// preview's failed step names its job in its error object (FX-12), a job
+// of a flow that step d ran through the API and the walk never reaches, so
+// the two executions differed in those ids until OR-14 numbered them. Both
+// must now give one observation, the ids written <job:?1>, <job:?2> and
+// <job:?3> in the sorted order of their members (ba, par, seq), in the
+// root's result and in step d's.
+func TestUnwalkedJobIDsAcrossRepeats(t *testing.T) {
+	// spec: OR-14/c
+	f, err := conformance.LoadFixture("../../conformance/flows/openflow/of-drivers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := conformance.SitePath{}.Child(conformance.Module("d"))
+	for _, name := range []string{"preview_absent", "preview_false", "preview_true"} {
+		t.Run(name, func(t *testing.T) {
+			var run *conformance.Run
+			for i := range f.Runs {
+				if f.Runs[i].Name == name {
+					run = &f.Runs[i]
+				}
+			}
+			if run == nil {
+				t.Fatalf("of-drivers has no run %s", name)
+			}
+			var obs [2]conformance.Observation
+			for rep := range obs {
+				data, err := os.ReadFile(fmt.Sprintf("testdata/captures/openflow-of-drivers-%s-%d.json", name, rep))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var rc RawCapture
+				if err := json.Unmarshal(data, &rc); err != nil {
+					t.Fatal(err)
+				}
+				if rc.Run != name || rc.Repeat != rep {
+					t.Fatalf("capture of run %s, repeat %d", rc.Run, rc.Repeat)
+				}
+				obs[rep] = observeCapture(t, rc, f, run)
+			}
+			diffs, err := conformance.Compare(obs[1], obs[0], conformance.CompareOptions{StrictKeyOrder: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, diff := range diffs {
+				t.Errorf("the second execution differs from the first: %s", diff)
+			}
+			for _, v := range []json.RawMessage{obs[0].Result, obs[0].Steps[d].Result} {
+				// Each preview's result array starts with its failed step's
+				// error; the rest are other values.
+				var got map[string]struct {
+					Result []json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(v, &got); err != nil {
+					t.Fatal(err)
+				}
+				for i, k := range []string{"ba", "par", "seq"} {
+					var failed struct {
+						Error struct {
+							JobID string `json:"job_id"`
+						} `json:"error"`
+					}
+					if r := got[k].Result; len(r) == 0 || json.Unmarshal(r[0], &failed) != nil || failed.Error.JobID != fmt.Sprintf("<job:?%d>", i+1) {
+						t.Errorf("%s's failed step: %s, want the job id <job:?%d>", k, v, i+1)
+					}
+				}
 			}
 		})
 	}

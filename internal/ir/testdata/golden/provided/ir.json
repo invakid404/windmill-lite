@@ -136,7 +136,10 @@
                       "result",
                       "results"
                     ],
-                    "source": "(async function() { return (await results.prepare).user; })()"
+                    "prefetch": [
+                      "\"prepare\""
+                    ],
+                    "source": "(async function() { return results.prepare.user; })()"
                   }
                 }
               }

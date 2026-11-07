@@ -46,7 +46,7 @@ copies verbatim JSON as written. Conformance expectations address it with
 JSON Pointers.
 
 Writing defaults out loses whether a field was written. An absent
-`skip_failures` or branch `skip_failure` is rendered `true`, and a derived id
+`skip_failures` or branch `skip_failure` is written out, and a derived id
 as an ordinary id. Decoding the decoded form therefore gives the same
 decoded form, but not an equal model: `ForLoop.SkipFailures` and
 `Branch.SkipFailure` are set where the original had them unset, and

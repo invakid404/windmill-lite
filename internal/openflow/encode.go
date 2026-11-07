@@ -14,8 +14,9 @@ import (
 // with JSON Pointers. It is not Windmill's stored full form.
 //
 // It is a projection, not a lossless encoding of the model. Writing defaults
-// out loses whether a field was written: an absent `skip_failures` or branch
-// `skip_failure` is rendered `true`, and a derived id as an ordinary id. So
+// out loses whether a field was written: an absent `skip_failures` is
+// rendered `true`, an absent branch `skip_failure` `false`, and a derived id
+// as an ordinary id. So
 // decoding the decoded form gives the same decoded form, but not an equal
 // model: ForLoop.SkipFailures and Branch.SkipFailure are set where the
 // original had them unset, and Module.IDDerived is cleared where the

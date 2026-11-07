@@ -1,5 +1,5 @@
 {
-  "about": "The normaliser (OR-14, OR-V3, OR-27). Each case gives raw JSON from a run, the run's runtime errors (OR-V3 clause a: stored results of failed leaf jobs that executed a script) and the normalised JSON. In strings, ${name} stands for the id of the walked job named in ids. Masking is narrow: only walked ids are replaced, a stack is masked only with runtime-error provenance, and only the NUL InternalErr loses its location.",
+  "about": "The normaliser (OR-14, OR-V3, OR-27). Each case gives raw JSON from a run, the run's runtime errors (OR-V3 clause a: stored results of failed leaf jobs that executed a script) and the normalised JSON. In strings, ${name} stands for the id of the walked job named in ids. Masking is narrow: only walked ids are replaced (unwalked.json covers the unwalked ids a whole observation numbers), a stack is masked only with runtime-error provenance, and only the completion failure's InternalErr loses its location.",
   "ids": {
     "a": {"id": "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "path": "m:a"},
     "b": {"id": "55555555-eeee-4eee-8eee-eeeeeeeeeeee", "path": "m:b"},
@@ -86,10 +86,10 @@
       "want": [{"name": "Error", "message": "boom", "stack": "<stack>"}, "not an object"]
     },
     {
-      "name": "OR-27/a: the NUL InternalErr loses its job id and its location",
-      "spec": ["OR-27/a"], "provenance": "oracle-observed",
-      "raw": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job ${a}: error returned from database: unsupported Unicode escape sequence @jobs.rs:1133:22"}},
-      "want": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+      "name": "FX-51/a: the completion failure's InternalErr loses its job id and its location",
+      "spec": ["FX-51/a", "OR-27"], "provenance": "oracle-observed",
+      "raw": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job ${a}: error returned from database: invalid input syntax for type json @jobs.rs:1133:22"}},
+      "want": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: invalid input syntax for type json <loc>"}}
     },
     {
       "name": "OR-27: another InternalErr keeps its location",

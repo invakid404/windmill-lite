@@ -22,23 +22,39 @@ import (
 //     flow_user_state over the host functions, which it removes from
 //     globalThis (JE-20).
 //  2. preludeResults, when the evaluation binds the results lookup: the
-//     lexical results proxy of JE-12 and JE-18, a constant.
+//     lexical results proxy of JE-12 and JE-18, a constant, and
+//     __loadResults, the prefetch of the steps the text names.
 //  3. preludeError, when the text mentions error: the lexical error of
 //     JE-17, a let binding (JE-10).
-//  4. The program: Source, then the serialisation of JE-15 on its last
-//     line.
+//  4. The program (programSource): the prefetch, then Source inside
+//     .then(() => …), then the serialisation of JE-15, all on Source's
+//     first and last lines (JE-13).
 //
 // The scripts' text is observable, because a stack frame in an error
 // message gives a position in it (JE-21). The layout reproduces the frames
-// recording batch E3a recorded: the user's code at line 1 after the
-// wrapper's opening (Source), JSON.stringify called from line 1, column 64
-// for a three-character expression, the helper variable throwing from
-// line 7, column 50, and a failed results read throwing from
-// __throwOrParse at line 5, column 54, called from __getResult at line 11,
-// column 59. A change to these texts must keep those positions; the tests
-// compare E3a's recorded messages byte for byte.
+// that CE 1.862.0 records: the user's code at line 1, column 57 in
+// expression mode with no step to prefetch (n + 40 after a prefetch of
+// length n), JSON.stringify called from line 1, column 94 for a
+// three-character expression, the helper variable throwing from line 7,
+// column 50, and a failed results read throwing from __throwOrParse at
+// line 5, column 54, called from __getResult at line 11, column 59. A
+// change to these texts must keep those positions; the tests compare the
+// recorded messages byte for byte.
 
-// serialise follows Source on its last line: the value becomes
+// The program around Source (JE-12, JE-13): the prefetch, then .then(() =>
+// and Source, then ), so that the expression's function runs once every
+// step the text names has been fetched. The prefetch is
+// __loadResults(<list>), where the list is a JSON array of Expr.Prefetch's
+// literals, at a site with a results context when the text names a step,
+// and Promise.resolve() anywhere else.
+const (
+	noPrefetch   = "Promise.resolve()"
+	prefetchCall = "__loadResults("
+	thenOpen     = ".then(() => "
+	thenClose    = ")"
+)
+
+// serialise follows the program's last part: the value becomes
 // JSON.stringify(value ?? null), and a value that JSON.stringify gives no
 // text for (a function, a symbol) becomes null (JE-15). A rejection passes
 // through to the evaluation unchanged. JSON.stringify is looked up when the
@@ -46,8 +62,29 @@ import (
 // the reaction fulfils with as Windmill reads it back (Pipeline.evaluate).
 const serialise = `.then((v) => JSON.stringify(v ?? null) ?? "null")`
 
-// programSource is the program the engine compiles for e.
-func programSource(e *Expr) string { return e.Source + serialise }
+// programSource is the program the engine compiles for e: with the
+// prefetch of e's steps when results says the evaluation binds the results
+// lookup, which only a site with a results context does.
+func programSource(e *Expr, results bool) string {
+	return prefetch(e, results) + thenOpen + e.Source + thenClose + serialise
+}
+
+// prefetch is the program's first part: __loadResults with the JSON array
+// of e's literals, each written as serde_json writes a string, when results
+// is set and the text names a step, or Promise.resolve().
+func prefetch(e *Expr, results bool) string {
+	if !results || len(e.Prefetch) == 0 {
+		return noPrefetch
+	}
+	b := append([]byte(prefetchCall), '[')
+	for i, lit := range e.Prefetch {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = appendSerdeString(b, lit)
+	}
+	return string(append(b, "])"...))
+}
 
 // preludeContext converts the bound context values and defines the
 // helpers.
@@ -99,27 +136,33 @@ var preludeContext = `{
 }
 `
 
-// preludeResults declares results: a proxy whose string keys resolve to a
-// step's result, and whose symbol keys give undefined (JE-18). Its target
-// is an empty object, so that JSON.stringify(results) gives {} (JE-12).
+// preludeResults declares results, a proxy whose string keys resolve to a
+// step's result and whose symbol keys give undefined (JE-18), and
+// __loadResults, the prefetch of JE-12. The proxy's target is an empty
+// object, so that JSON.stringify(results) gives {} (JE-12).
 //
-//   - The previous id, when the evaluation binds previous_result (the host
-//     string hostPreviousID names it), resolves to the previous_result
-//     global itself, read when the read runs: the value the context
-//     prelude rebuilt (JE-18 rule 1, JE-16).
-//   - Any other key is read through the host lookup, which answers the
-//     stored result as JSON text, and the text becomes a value through
-//     JSON.parse as it is when the read runs, so a replacement the user's
-//     code made gives the read its return value, and a __proto__ key is an
-//     own property (JE-16). A failed read rejects with the read's text as
-//     an Error thrown from __throwOrParse.
-//   - The id the host string hostSharedRead names, bound only for a text
-//     that cannot tell one read from two (pathExpr.sharedRead), is read
-//     through the lookup once: every read of it in the evaluation awaits
-//     the first read's promise.
-const preludeResults = `const results = (() => {
-  const apply = Reflect.apply, then = Promise.prototype.then, lookupResult = globalThis.` + hostResults + `, previousId = globalThis.` + hostPreviousID + `; const shared = globalThis.` + hostSharedRead + ` ?? null, reads = { __proto__: null };
-  delete globalThis.` + hostResults + `; delete globalThis.` + hostPreviousID + `; delete globalThis.` + hostSharedRead + `;
+//   - __loadResults takes the literals that name the text's steps
+//     (Expr.Prefetch). It decodes each with an indirect eval, as the
+//     engine reads a string literal, drops one that does not decode, and
+//     resolves every step at once; each outcome, the value or the error, is
+//     kept for its step, and its promise fulfils once all have settled.
+//   - A read of a kept step gives its value, or throws its error, at once.
+//   - A read of any other key resolves the step then and gives a Promise.
+//   - Resolving the previous id, when the evaluation binds previous_result
+//     (the host string hostPreviousID names it), gives the previous_result
+//     global itself, read when it resolves: the value the context prelude
+//     rebuilt (JE-18 rule 1, JE-16).
+//   - Resolving any other key reads it through the host lookup, which
+//     answers the stored result as JSON text, and the text becomes a value
+//     through JSON.parse as it is when the lookup answers, so a __proto__
+//     key is an own property (JE-16). A failed read rejects with the read's
+//     text as an Error thrown from __throwOrParse.
+//
+// The kept outcomes are null-prototype records and arrays read by index, so
+// that nothing the user's code replaces reaches a read.
+const preludeResults = `const [results, __loadResults] = (() => {
+  const apply = Reflect.apply, then = Promise.prototype.then, all = Promise.all.bind(Promise), lookupResult = globalThis.` + hostResults + `, previousId = globalThis.` + hostPreviousID + `, decode = globalThis.eval, kept = { __proto__: null };
+  delete globalThis.` + hostResults + `; delete globalThis.` + hostPreviousID + `;
   function __throwOrParse(readOutcome) {
     if (typeof readOutcome !== "string") { throw new Error(readOutcome[0]); }
     return JSON.parse(readOutcome);
@@ -130,7 +173,19 @@ const preludeResults = `const results = (() => {
     return __throwOrParse(await settleLookup(lookupResult(key)));
   }
   const fromMemory = async () => globalThis.previous_result;
-  return new Proxy({}, { get: (_, key) => (typeof key === "symbol" ? undefined : key === previousId ? fromMemory() : key === shared ? (reads[key] ??= __getResult(key)) : __getResult(key)) });
+  const resolve = (key) => (key === previousId ? fromMemory() : __getResult(key));
+  const keep = (key) => apply(then, resolve(key), [(value) => { kept[key] = [false, value]; }, (error) => { kept[key] = [true, error]; }]);
+  function load(literals) {
+    const keys = { __proto__: null }, pending = [];
+    for (const literal of literals) {
+      let key;
+      try { key = decode(literal); } catch { continue; }
+      if (!(key in keys)) { keys[key] = true; pending.push(keep(key)); }
+    }
+    return all(pending);
+  }
+  const read = (key) => { const outcome = kept[key]; if (outcome[0]) { throw outcome[1]; } return outcome[1]; };
+  return [new Proxy({}, { get: (_, key) => (typeof key === "symbol" ? undefined : key in kept ? read(key) : resolve(key)) }), load];
 })();
 `
 
