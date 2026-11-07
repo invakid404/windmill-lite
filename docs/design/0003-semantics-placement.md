@@ -168,8 +168,8 @@ harness, which is (a) with its duplication.
      - the prefetch of the static results reads
        ([JE-12](../semantics/expressions.md#je-12)): every static read
        must be one of `jsExpr`'s roots. It reads every step they name
-       before it evaluates, as the prefetch does, and declines a read of a
-       step whose lookup failed, where the program throws;
+       before it evaluates, as the prefetch does, and declines when a
+       lookup fails;
      - the evaluator's `async function`, called inside the prefetch's
        `.then` ([JE-13](../semantics/expressions.md#je-13)): only a
        statement, `await`, `this` or `arguments` could observe it, and
@@ -181,7 +181,8 @@ harness, which is (a) with its duplication.
      - an object compared or returned, or converted to a primitive when
        it has a `toString` or `valueOf` key;
      - a string or an object converted to a number, and a lone surrogate;
-     - a read of a step whose lookup failed;
+     - a lookup that fails, even of a step the expression would not
+       read, since the program keeps the failure on its heap;
      - a comment, a line break, a text that is not UTF-8, and any text it
        does not parse whole.
    - It keeps the evaluation's limits by answering only where the engine

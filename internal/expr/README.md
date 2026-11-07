@@ -197,8 +197,7 @@ runs as it would. It takes:
 - member paths of the bound roots, and of `results.<id>` read through a
   `MemoryResults` lookup (the engine's frame results). It reads every
   step its roots name before it evaluates, in the order of the program's
-  prefetch, and a read that failed declines only where the expression
-  reads that step, as the program throws it only there;
+  prefetch;
 - template literals, string, number, boolean and null literals,
   `.length`, `!` and unary `-`;
 - the arithmetic and relational operators, `===`, `!==`, `&&`, `||` and
@@ -214,7 +213,10 @@ It declines:
 - an object compared or returned, and one with a `toString` or `valueOf`
   key converted to a primitive;
 - a string or object converted to a number, and a lone surrogate;
-- a read of a step whose lookup failed, and a root that is not bound;
+- a lookup that fails, even of a step the expression would not read:
+  the program keeps the failure's text on its heap, which `jsExpr` does
+  not bound (JE-3);
+- a root that is not bound;
 - a static results read that is not one of its roots (in a string, say);
 - a text that is not UTF-8 or that holds a comment or a line break;
 - any evaluation that might meet a limit. It declines when an upper bound

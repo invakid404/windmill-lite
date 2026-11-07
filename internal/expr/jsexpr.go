@@ -712,8 +712,7 @@ type jsEval struct {
 	// memory, when previousBound: the evaluation binds hostPreviousID.
 	previousID    string
 	previousBound bool
-	// prefetched holds what the prefetch read of each step: its stored
-	// text, or nil where the read failed.
+	// prefetched holds the stored text the prefetch read of each step.
 	prefetched map[string][]byte
 	budget     jsBudget
 	work       int64
@@ -782,9 +781,11 @@ func fromValue(v *jsValue) jsVal {
 // expression runs, in its order (JE-12): each through the lookup but the
 // previous step, which the results prelude answers from memory, and none
 // at a site without a results context, where the program fetches nothing.
-// A read that fails is kept, and declines only where the expression reads
-// its step, as the program throws the kept error only there. The results
-// prelude parses every text it reads, so each counts against the heap.
+// The results prelude parses every text it reads, so each counts against
+// the heap. A read that fails declines, even of a step the expression would
+// not read: the program keeps the failure's message and its Error on the
+// heap before the expression runs, and nothing here bounds their size
+// (JE-3). The read memo keeps the failure for the engine.
 func (ev *jsEval) prefetch(steps []string) {
 	s := ev.s
 	if s.Results == nil {
@@ -804,13 +805,15 @@ func (ev *jsEval) prefetch(steps []string) {
 			ev.prefetched = map[string][]byte{}
 		}
 		v, err := s.Results.Lookup(ev.ctx, step)
-		var text []byte
-		switch {
-		case err != nil:
-		case v.IsZero():
-			text = jsonNullText
-		default:
-			text, _ = v.Stored()
+		if err != nil {
+			decline()
+		}
+		text := jsonNullText
+		if !v.IsZero() {
+			// A value with no stored form fails the host lookup too.
+			if text, err = v.Stored(); err != nil {
+				decline()
+			}
 		}
 		ev.prefetched[step] = text
 		ev.budget.text(len(text))
@@ -850,8 +853,7 @@ func (ev *jsEval) root(p *jsPath) []byte {
 			text = prev.Producer()
 			break
 		}
-		// The prefetch read every step a root names; a read that failed
-		// throws here on the engine.
+		// The prefetch read every step a root names.
 		if text = ev.prefetched[p.step]; text == nil {
 			decline()
 		}
