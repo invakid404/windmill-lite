@@ -32,7 +32,7 @@ fixtures on windmill-lite.
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
-| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
+| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14), and `NumberUnwalked`, the numbering of unwalked job ids over an observation; `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
 | `plugins.go` | `PluginFile`, `PluginCase`, `PluginSpec`, `PluginFailure`, `PluginRun`, `PluginThen`, `PluginExpect`, `PluginOutcome`, `LoadPluginFile`, `ReadSettlement` (the case plugin's report of settled runs): the host-plugin cases of `conformance/plugins` and a case's later runs, their folder and host contract, and the check of each run's outcome |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`, `CheckReplay`: stub mode's replay table, the run-scoped service that answers stubs, and the check of a run's calls after it (see [Stub mode](#stub-mode)) |
@@ -384,6 +384,10 @@ milestone E2, which chose this one:
   twice as long;
 - every other `<` is written once, so text without such a run is unchanged.
 
+The placeholder of an unwalked job, `<job:?N>` (below), shares the
+`job:` head, so the same escape covers it: a user `<job:?1>` reads
+`<<job:?1>`.
+
 A reader counts the run of `<` before such a head: an odd count ends in a
 placeholder or marker, an even count is literal. `ParseText` is that reader;
 `EncodeText(ParseText(s)) == s` for every text it accepts. Examples, with
@@ -412,18 +416,49 @@ number text and duplicate elements:
    and a value deep-equal to one's inner error has its `stack` masked.
    Nothing else is: a handler's own `{"error":{"stack":…}}` keeps its data.
 2. **Job ids**, in every string and member name, become placeholders, and
-   user text is escaped as above. Unknown UUIDs stay.
-3. **The NUL `InternalErr`** ([OR-27](../../docs/semantics/oracle.md#or-27)):
-   for `name: "InternalErr"` with a message that starts
+   user text is escaped as above. Unknown UUIDs stay, except the unwalked
+   job ids below.
+3. **The completion failure's `InternalErr`**
+   ([OR-27](../../docs/semantics/oracle.md#or-27),
+   [FX-51](../../docs/semantics/execution.md#fx-51)): for
+   `name: "InternalErr"` with a message that starts
    `Internal: Could not add completed job ` and ends in
    ` @<file>:<line>:<col>`, the suffix becomes ` <loc>`. No other message
-   loses its suffix.
+   loses its suffix. Windmill fails a completion this way when the job
+   table refuses the result, which on CE v1.862.0 an unpaired surrogate
+   escape does.
 
 `MaskPaths` then applies a fixture's `stack` and `mask` pointers.
 `testdata/normalise/cases.json` holds the cases.
 
+**Unwalked job ids** ([OR-14](../../docs/semantics/oracle.md#or-14) item
+1). A step's error object names its job as `job_id`, and a step can return
+the error of a job the walk never reaches, such as one of a flow it ran
+through the API. Such an id differs on every execution, so it gets a
+placeholder of its own, `<job:?N>`:
+
+- **Which ids.** A string that is the whole value of a member `job_id`, in
+  an object that is the value of a member `error`, that is a UUID in
+  lowercase hex (`8-4-4-4-12`) and is no walked job's id.
+- **Numbering.** `NumberUnwalked` reads the raw observation before any
+  value is normalised: the effects, the result, then each step by site
+  path, its `args`, `carried`, `resolved_args` and `result`, every object's
+  members sorted by name. Names sort with walked ids replaced, so a walked
+  id's value cannot change the order. The distinct ids are numbered from 1
+  as they first occur there.
+- **Replacement.** `Value` and `Text` then replace each numbered id
+  anywhere, in strings and member names, as they replace walked ids. A
+  response body is text and holds no member, so it numbers nothing, but
+  its ids are replaced.
+
+The numbers follow where the ids stand, so two executions of a run agree.
+Both sides call `NumberUnwalked` with their own observation.
+`testdata/normalise/unwalked.json` holds the cases, which
+`TestNormaliseUnwalkedJobIDs` runs twice each, with the ids drawn in the
+opposite order of value the second time.
+
 `Normaliser.Text` normalises a text kept as written, a run-and-wait body:
-walked job ids become placeholders, and, when the text is a JSON value, a
+job ids become placeholders, and, when the text is a JSON value, a
 stack is masked exactly where `Value` would mask it: in an object deep-equal
 to a runtime error, or to its inner error, only that `stack` string's span
 becomes `"<stack>"`. The same string anywhere else, a handler's own data

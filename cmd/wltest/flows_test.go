@@ -571,6 +571,40 @@ func TestObserveTrace(t *testing.T) {
 	}
 }
 
+// A job that an error object names and no record does, such as one of a
+// flow a step ran through the facade, gets an unwalked job's placeholder,
+// numbered in sorted member order and replaced wherever its id occurs,
+// while the step's own job keeps its site's (OR-14 item 1).
+func TestObserveTraceUnwalkedJobs(t *testing.T) {
+	// spec: OR-14/c
+	const (
+		runID = "11111111-1111-4111-8111-111111111111"
+		jobA  = "22222222-2222-4222-8222-222222222222"
+		first = "99999999-9999-4999-8999-999999999999"
+		later = "88888888-8888-4888-8888-888888888888"
+	)
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	a := conformance.SitePath{}.Child(conformance.Module("a"))
+	errorOf := func(job string) string { return `{"error":{"name":"Error","job_id":"` + job + `"}}` }
+	result := v(`{"z":` + errorOf(later) + `,"m":` + errorOf(first) + `,"own":` + errorOf(jobA) + `,"note":"` + later + `"}`)
+	tr := &engine.Trace{RunID: runID, Status: conformance.RunSuccess, Result: result, ResultOrigin: engine.OriginUser, Steps: []engine.StepRecord{
+		{Site: a, Status: conformance.StepSuccess, Module: conformance.ModuleSuccess, Ran: true, Job: jobA,
+			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: result, Carried: result, ResultOrigin: engine.OriginUser},
+	}}
+	got, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"z":` + errorOf("<job:?2>") + `,"m":` + errorOf("<job:?1>") + `,"own":` + errorOf("<job:m:a>") + `,"note":"<job:?2>"}`
+	var expect conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"success","result":`+want+`,"steps":{"m:a":{"status":"success","args":{},"result":`+want+`}}}`), &expect); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := conformance.Compare(got, expect, conformance.CompareOptions{}); err != nil || len(d) != 0 {
+		t.Fatalf("differences %v %v", d, err)
+	}
+}
+
 // The walker's sites of retries (FX-27, FX-29, OR-11): a failed attempt
 // at <module>/r:<k>, met again at <module>/r:<k> of every module whose
 // status lists it, with the placeholder of its own site; the virtual

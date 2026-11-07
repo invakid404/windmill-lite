@@ -1220,11 +1220,20 @@ func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, w
 // then applies the fixture's stack and mask paths. The response keeps its
 // status, its Content-Type header as sent, parameters included, and its
 // body: as normalised text when it is UTF-8 (conformance.Normaliser.Text),
-// else losslessly as base64.
+// else losslessly as base64. The job ids it replaces are the walk's and
+// the unwalked ones its error objects name, which it numbers over the
+// whole observation first (conformance.Normaliser.NumberUnwalked).
 func Observe(w *Walk, effects []json.RawMessage, resp *HTTPResponse, spec conformance.CompareSpec) (conformance.Observation, error) {
 	n := &conformance.Normaliser{IDs: w.IDs, RuntimeErrors: w.RuntimeErrors}
-	var err error
 	o := conformance.Observation{Status: w.Status}
+	raw := conformance.Observation{Result: w.Result, Effects: effects, Steps: make(map[conformance.SitePath]conformance.StepObservation, len(w.Sites))}
+	for _, site := range w.Sites {
+		raw.Steps[site.Path] = site.Step
+	}
+	if err := n.NumberUnwalked(raw); err != nil {
+		return o, err
+	}
+	var err error
 	if o.Result, err = n.Value(w.Result); err != nil {
 		return o, err
 	}
