@@ -7,5 +7,5 @@ expect:
   result:
     error:
       name: Anyhow
-      message: "Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:3822:13"
+      message: "Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:5065:13"
   steps: {"m:l": {status: failure, ran: false}}
