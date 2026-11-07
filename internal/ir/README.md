@@ -53,9 +53,10 @@ applies, once:
 - **container defaults** ([OF-6](../../docs/semantics/openflow.md#of-6),
   [OF-7](../../docs/semantics/openflow.md#of-7),
   [CF-6](../../docs/semantics/control-flow.md#cf-6)): an absent for-loop
-  `skip_failures` and branchall branch `skip_failure` are `true`, a
-  while-loop's `skip_failures` is `false`, branchall `parallel` is `true`;
-  under `Strict` the first two are refused instead (`absent_skip_flag`);
+  `skip_failures` is `true`, a branchall branch's `skip_failure` and a
+  while-loop's `skip_failures` are `false`, branchall `parallel` is
+  `true`; under `Strict` an absent for-loop or branch flag is refused
+  instead (`absent_skip_flag`);
 - **the language a deploy records** for a Bun-family rawscript: `bunnative`
   when its header carries the `native` annotation, `bun` otherwise, in
   either direction ([SY-V3](../../docs/semantics/openflow.md#sy-v3),

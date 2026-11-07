@@ -249,7 +249,7 @@ func TestDecodedFormIsAProjection(t *testing.T) {
 	assertRoundTrip(t, encoded)
 	again := decodeOK(t, string(encoded))
 	loop, branch = again.Modules[0].Value.(*ForLoop), again.Modules[1].Value.(*BranchAll).Branches[0]
-	if loop.SkipFailures == nil || !*loop.SkipFailures || branch.SkipFailure == nil || !*branch.SkipFailure || again.Modules[0].IDDerived {
+	if loop.SkipFailures == nil || !*loop.SkipFailures || branch.SkipFailure == nil || *branch.SkipFailure || again.Modules[0].IDDerived {
 		t.Fatal("the decoded form writes defaults and ids out; re-decoding sees them as written")
 	}
 }

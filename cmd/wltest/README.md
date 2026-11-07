@@ -453,9 +453,7 @@ a few at a time (`flows.go`):
    ([CF-22](../../docs/semantics/control-flow.md#cf-22)), which a later
    module that lists the attempt (FX-29) shows again below its own
    `r:<k>`, with everything below it, its modules' own attempts
-   included, as the walker walks the attempt's flow there; what a loop ran
-   before its `skip_if` held mid-loop
-   ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
+   included, as the walker walks the attempt's flow there; and a collapsed
    iteration's job that was never pushed.
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
@@ -500,6 +498,12 @@ a few at a time (`flows.go`):
    `wl-<fixture>-<job id>-<tag>` after a job of the run, are removed
    (`removeCounters`, milestone FU8): on Windmill they stay in the worker's
    `/tmp`, but a windmill-lite run would leave them in the host's.
+
+**Unwalked job ids.** A job id that no record names but an error object
+gives as its `job_id`, such as a job of a flow a step ran through the
+facade, becomes `<job:?N>`. The observation numbers such ids before any
+value is normalised, as the oracle's side does
+([OR-14](../../docs/semantics/oracle.md#or-14) item 1).
 
 **Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
 `oracle: {effects: true}` or `stub: true` gets an effect server of its
@@ -720,18 +724,20 @@ of Windmill 1.862.0's image).
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
   the copy of a body module's carried-over attempt inside that subtree.
+- `TestObserveTraceUnwalkedJobs` needs no Bun either. A job that an error
+  object names and no record does reads `<job:?N>`, numbered in sorted
+  member order, while the step's own job keeps its site's placeholder.
 - `TestSubflowRetryFixturesFreshAndWarm` is milestone N5's gate. Every
   run of `control-flow/subflow-retry` (a retry on a flow step, and on a
   while loop and a branchone) matches its recording in `fresh` and in
   `warm`.
-- `TestRunWaitOutcomes` checks the flow outcomes of two run-and-wait runs
-  of `execution/fx-36-http`, which the flow suite leaves unsupported:
-  `extra`, an error with an own property, and `failed`, a plain error.
-  Each is submitted as an ordinary run and must match its `expect`
-  without the `response`, which needs windmill-lite's HTTP adapter, in
-  `fresh` and in `warm`: the stored error with its step context keys
-  ([FX-12](../../docs/semantics/execution.md#fx-12)). The fixture's other
-  runs are only logged.
+- `TestRunWaitOutcomes` checks the flow outcomes of run-and-wait runs,
+  which the flow suite leaves unsupported. Each is submitted as an
+  ordinary run and must match its `expect` without the `response`, which
+  needs windmill-lite's HTTP adapter, in `fresh` and in `warm`. The runs
+  are `execution/fx-36-http`'s `extra`, `failed` and `array`, and every
+  run of `execution/fx-37-branches`, an `early_return` step inside a
+  branch. Other runs are only logged.
 - `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a

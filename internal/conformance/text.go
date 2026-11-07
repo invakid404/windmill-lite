@@ -3,6 +3,7 @@ package conformance
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -24,12 +25,16 @@ var markerHeads = [...]string{"job:", "stack>", "loc>", "masked>"}
 var ErrInvalidText = errors.New("invalid normalised text")
 
 // TextPart is one part of a normalised string: literal text, the
-// placeholder of a walked job, or a marker. Exactly one field is set.
+// placeholder of a walked job or of an unwalked one, or a marker. Exactly
+// one field is set.
 type TextPart struct {
 	// Literal is user text, kept as it was.
 	Literal string
 	// Job is the site of a walked job whose id stood here (ADR 0011).
 	Job *SitePath
+	// Unwalked is the number, from 1, of an unwalked job whose id stood
+	// here (OR-14 item 1), written <job:?N>.
+	Unwalked int
 	// Marker is MarkerStack, MarkerLoc or MarkerMasked.
 	Marker string
 }
@@ -39,6 +44,21 @@ func Literal(s string) TextPart { return TextPart{Literal: s} }
 
 // JobPart returns the part of a walked job at site p.
 func JobPart(p SitePath) TextPart { return TextPart{Job: &p} }
+
+// UnwalkedPart returns the part of the unwalked job numbered n. It panics
+// if n is not positive.
+func UnwalkedPart(n int) TextPart {
+	if n < 1 {
+		panic("conformance: unwalked job number below 1")
+	}
+	return TextPart{Unwalked: n}
+}
+
+// UnwalkedPlaceholder is the placeholder of the unwalked job numbered n,
+// "<job:?N>". No site path starts with "?", so it names no site.
+func UnwalkedPlaceholder(n int) string { return "<job:?" + strconv.Itoa(n) + ">" }
+
+func (p TextPart) isLiteral() bool { return p.Job == nil && p.Unwalked == 0 && p.Marker == "" }
 
 // MarkerPart returns a marker part. It panics on anything but the three
 // markers.
@@ -58,7 +78,14 @@ func isMarker(m string) bool {
 // for each id. Ids are matched exactly, so other UUIDs stay literal (OR-14
 // item 1, OR-V3/a). At each position the longest matching id wins.
 func SplitJobIDs(raw string, ids map[string]SitePath) []TextPart {
-	if len(ids) == 0 || raw == "" {
+	return splitJobIDs(raw, ids, nil)
+}
+
+// splitJobIDs is SplitJobIDs that also splits at the unwalked job ids of
+// unwalked, numbered as it gives them (Normaliser.NumberUnwalked). An id
+// is in at most one of the two maps.
+func splitJobIDs(raw string, ids map[string]SitePath, unwalked map[string]int) []TextPart {
+	if (len(ids) == 0 && len(unwalked) == 0) || raw == "" {
 		return []TextPart{Literal(raw)}
 	}
 	lengths := make(map[int]bool)
@@ -67,14 +94,19 @@ func SplitJobIDs(raw string, ids map[string]SitePath) []TextPart {
 			lengths[len(id)] = true
 		}
 	}
+	for id := range unwalked {
+		lengths[len(id)] = true
+	}
 	var parts []TextPart
 	start := 0
 	for i := 0; i < len(raw); {
-		best := 0
+		best, part := 0, TextPart{}
 		for n := range lengths {
 			if n > best && i+n <= len(raw) {
-				if _, ok := ids[raw[i:i+n]]; ok {
-					best = n
+				if p, ok := ids[raw[i:i+n]]; ok {
+					best, part = n, JobPart(p)
+				} else if k, ok := unwalked[raw[i:i+n]]; ok {
+					best, part = n, UnwalkedPart(k)
 				}
 			}
 		}
@@ -85,7 +117,7 @@ func SplitJobIDs(raw string, ids map[string]SitePath) []TextPart {
 		if start < i {
 			parts = append(parts, Literal(raw[start:i]))
 		}
-		parts = append(parts, JobPart(ids[raw[i:i+best]]))
+		parts = append(parts, part)
 		i += best
 		start = i
 	}
@@ -115,6 +147,8 @@ func EncodeText(parts []TextPart) string {
 		switch {
 		case p.Job != nil:
 			b.WriteString(p.Job.Placeholder())
+		case p.Unwalked != 0:
+			b.WriteString(UnwalkedPlaceholder(p.Unwalked))
 		case p.Marker != "":
 			if !isMarker(p.Marker) {
 				panic("conformance: unknown marker " + p.Marker)
@@ -133,11 +167,11 @@ func EncodeText(parts []TextPart) string {
 func mergeLiterals(parts []TextPart) []TextPart {
 	out := make([]TextPart, 0, len(parts))
 	for _, p := range parts {
-		if p.Job == nil && p.Marker == "" {
+		if p.isLiteral() {
 			if p.Literal == "" {
 				continue
 			}
-			if n := len(out); n > 0 && out[n-1].Job == nil && out[n-1].Marker == "" {
+			if n := len(out); n > 0 && out[n-1].isLiteral() {
 				out[n-1].Literal += p.Literal
 				continue
 			}
@@ -183,8 +217,9 @@ func hasHead(s string) bool {
 // ParseText reads a normalised string back into parts. It is the inverse
 // of EncodeText: EncodeText(ParseText(s)) == s for every s it accepts, and
 // ParseText(EncodeText(parts)) gives parts back with adjacent literals
-// merged. It fails on a placeholder whose path is not a canonical site path
-// or that has no closing ">".
+// merged. It fails on a placeholder that has no closing ">", or whose path
+// is neither a canonical site path nor "?" and a number from 1 written
+// without sign or leading zero.
 func ParseText(s string) ([]TextPart, error) {
 	var parts []TextPart
 	var lit strings.Builder
@@ -222,7 +257,17 @@ func ParseText(s string) ([]TextPart, error) {
 			if end < 0 {
 				return nil, fmt.Errorf("%w: placeholder at byte %d has no closing \">\"", ErrInvalidText, j-1)
 			}
-			p, err := ParseSitePath(strings.ReplaceAll(rest[len("job:"):end], "%3E", ">"))
+			path := rest[len("job:"):end]
+			if num, ok := strings.CutPrefix(path, "?"); ok {
+				n, ok := parseIndex(num)
+				if !ok || n < 1 {
+					return nil, fmt.Errorf("%w: placeholder at byte %d: unwalked job number %q", ErrInvalidText, j-1, num)
+				}
+				parts = append(parts, UnwalkedPart(n))
+				i = j + end + 1
+				continue
+			}
+			p, err := ParseSitePath(strings.ReplaceAll(path, "%3E", ">"))
 			if err != nil {
 				return nil, fmt.Errorf("%w: placeholder at byte %d: %v", ErrInvalidText, j-1, err)
 			}

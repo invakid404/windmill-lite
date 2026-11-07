@@ -54,8 +54,8 @@ import (
 //   - a failed site whose job ran is a runtime error for stack masking
 //     (OR-V3 clause a), as a failed leaf that executed a script is;
 //   - a superseded record or child flow, which Windmill's job tree no
-//     longer reaches (a container's failed attempt, a loop skipped
-//     mid-loop, a collapsed job never pushed; milestone NI), is left out.
+//     longer reaches (a container's failed attempt, a collapsed job never
+//     pushed; milestone NI), is left out.
 //
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's
@@ -292,8 +292,14 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	if result.IsZero() {
 		result = jsonval.FromProducer([]byte("null"))
 	}
+	stored := value(result, true)
+	// Unwalked job ids are numbered over the whole observation before any
+	// value is normalised, as the oracle's are (OR-14 item 1).
+	if err := n.NumberUnwalked(conformance.Observation{Result: stored, Steps: steps, Effects: effects}); err != nil {
+		return o, nil, err
+	}
 	var err error
-	if o.Result, err = n.Value(value(result, true)); err != nil {
+	if o.Result, err = n.Value(stored); err != nil {
 		return o, nil, err
 	}
 	o.Steps = make(map[conformance.SitePath]conformance.StepObservation, len(steps))

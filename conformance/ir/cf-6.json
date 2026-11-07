@@ -44,7 +44,7 @@
           "f/x/main m:z": {
             "at": {
               "/branchall/parallel": true,
-              "/branchall/branches/0/skip_failure": true
+              "/branchall/branches/0/skip_failure": false
             }
           },
           "f/x/main m:o": {
@@ -140,7 +140,7 @@
       "variant": "strict-explicit",
       "provenance": "policy",
       "policy": "Q-CF-13 strict",
-      "note": "Only the for-loop and branchall flags default differently before and after a deploy (OF-7); the while-loop default is the same everywhere.",
+      "note": "The for-loop flag defaults differently before and after a deploy (OF-7), and a branchall branch's deployed default was true before Windmill 1.852.0 (OF-6); the while-loop default is the same everywhere.",
       "title": "strict: explicit flags, while loops and branchone compile",
       "given": {
         "files": {
@@ -167,5 +167,5 @@
       }
     }
   ],
-  "note": "Absent container fields take their deployed defaults (0001 §1, §7); with the strict option, the two whose default differs before a deploy are refused instead (Q-CF-13). CF-6/b and CF-6/c are in deferred.json."
+  "note": "Absent container fields take their deployed defaults (0001 §1, §7); with the strict option, the for-loop flag, whose default differs before a deploy, and a branch's, whose deployed default changed in Windmill 1.852.0, are refused instead (Q-CF-13). CF-6/b and CF-6/c are in deferred.json."
 }

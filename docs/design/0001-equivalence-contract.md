@@ -33,7 +33,7 @@ differently as a preview, during the deploy race or after a failed lock
 
 ### 1. The reference configuration
 
-windmill-lite matches Windmill CE `v1.767.0` running a flow that was
+windmill-lite matches Windmill CE `v1.862.0` running a flow that was
 **deployed successfully** (the lite form, with materialised defaults and
 virtual steps), started **by path as a root job**, and observed through the
 API and through platform effects. For sequential work the reference is one
@@ -58,8 +58,12 @@ needs (`oracle: {workers: n}`). Concretely:
   mode and does not emulate the full-form selection that
   `DISABLE_FLOW_SCRIPT` can force, so neither half of the
   [CF-8](../semantics/control-flow.md#cf-8) dispute reaches it;
-- the reference Bun is the one in the image, `1.3.10`
-  ([WR-3](../semantics/languages.md#wr-3)).
+- the reference Bun is `1.4.3`, the one windmill-lite pins for its builds,
+  harnesses and hosts ([0010](0010-packaging.md)). The CE `v1.862.0` image
+  runs Bun `1.4.4` ([WR-3](../semantics/languages.md#wr-3)), and the oracle
+  records that image unmodified
+  ([0011](0011-differential-testing.md)); deviation D23 names the
+  difference.
 
 ### 2. What is matched exactly
 
@@ -178,6 +182,65 @@ watchdog), or on what a run meets (D20), is recorded in each run's trace.
 | D20 | A flow left waiting for a transition that never comes, after a container's children's results cannot be read back ([FX-42](../semantics/execution.md#fx-42) rule 9), is canceled by the monitor at once. Windmill's zombie-flow monitor cancels it once its last progress is older than `FLOW_ZOMBIE_TRANSITION_TIMEOUT`, 60 s by default. So steps of the run that are still in flight, such as a parallel sibling, are canceled with it, where Windmill can let them finish. The run's trace lists D20 when this happens | the waiting flow makes no progress in the meantime. Waiting would only delay the same cancel by 60 s in every run that meets it, the conformance runs included. With the monitor disabled (`TransitionTimeout` negative), the flow waits until the host cancels the run | §7, the JE-2 row (the monitor's cancel) |
 | D21 | Opt-in: with the host's read cache, a flow run reads each resource and variable from its providers once, and answers its later reads of it from that read. Windmill reads them for each job and each call, so a value that changes during a run reaches its later steps there, and here only the next run (**D21, the read cache**, below) | a host whose resources come from an API pays a round trip per read, about 1.5 ms when the API is 1 ms away | [0007](0007-platform-interface.md) |
 | D22 | A job read of a job of a run that has ended (`GET /w/{ws}/jobs_u/get/{id}`, `jobs_u/get_args/{id}`) answers 501, `Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}: the job's run has ended, and windmill-lite keeps no record of the jobs of a run that has ended`, which the 501 policy turns into the step's `UnsupportedPlatformCall`. Windmill answers it from the job's row as a completed job until its job retention removes the row, 30 days by default ([WA-19](../semantics/client-api.md#wa-19)/i). The root lookup still answers for the latest 4096 ended jobs (D3). Case: `conformance/flows/client-api/job-reads-ended`, run `ended`, which `TestEndedRunJobRead` (cmd/wltest) checks | the engine releases a run when it ends, so that a long-lived runtime holds only its live runs. Keeping finished runs' records would be retention that no step of a live run needs: a step reads the jobs of its own run, which lives while it runs | [0007](0007-platform-interface.md) |
+| D23 | Bun scripts run on Bun `1.4.3`, the version windmill-lite pins, where Windmill CE `v1.862.0`'s image runs `1.4.4` ([WR-3](../semantics/languages.md#wr-3)). A script sees it wherever Bun names its version (`Bun.version`, `process.versions.bun`): run `bun_version` of `conformance/flows/oracle/probes` records `"1.4.4"` on the oracle and is not required by the flow suite, while the step case WR-3/a (`conformance/steps/bun/wr-3.yaml`) holds windmill-lite to `"1.4.3"`. Bun 1.4.4's other changes that a script can observe differ as well (**D23, Bun 1.4.3 against 1.4.4**, below); no recorded case meets them | one Bun for every build, harness and host keeps a bundle's build and its run on the same runtime ([0010](0010-packaging.md)); the image's Bun moves with each Windmill release, and the pin moves only on purpose | [0010](0010-packaging.md) |
+
+**D23, Bun 1.4.3 against 1.4.4.** Bun's v1.4.4 release notes list these
+changes that a script run by `bun run` can observe, each a difference
+between windmill-lite and the oracle's image. None reaches a recorded
+case: no recording keeps a raw Bun stack position, since the normaliser
+masks Bun stacks ([OR-14](../semantics/oracle.md#or-14)), and no fixture
+uses the APIs below. Re-check the list when a fixture starts to use one of
+them, and when the pin moves.
+
+- **The version**, `Bun.version` and `process.versions.bun`: the case
+  above.
+- **Stack and call-site text:** `CallSite#getColumnNumber()` counts from 0
+  on 1.4.4; `error.stack` keeps the column of a frame at column 1; and some
+  frames' lines, a source preview and a caret moved. A step that returns
+  such text would differ.
+- **A wrong sort on 1.4.3:** a JIT-compiled `.sort()` of 16 integers or
+  fewer, with a comparator such as `(a+0.5)-(b+0.5)`, can return a wrong
+  order, a regression of 1.4.0 that 1.4.4 fixes.
+- **JavaScriptCore fixes:** `+1n * 2n` throws a `TypeError`, `+a * b()`
+  calls `a.valueOf()` first, `for…in` over a function visits its indexed
+  properties, `new Uint8Array(-1)` throws even when unused, and a few
+  parser and decorator rules changed. Expressions run on QuickJS-ng, not
+  on these.
+- **`process.on()`** given one function twice adds it twice on 1.4.4.
+- **`AsyncLocalStorage` and `WebSocket`:** on 1.4.3 a `WebSocket`'s event
+  listeners do not run in the async context of the `new WebSocket()` call.
+  In `warm` mode the harness attributes a step's work through that context
+  (D9; [0004](0004-harness-protocol.md)), so such a listener's environment
+  view and platform calls can lack their invocation.
+- **The `ws` module and the `WebSocket` client:** 1.4.4 rewrites `ws` as a
+  port of `ws` 8.22.0, with a new closing handshake, close codes 1005 and
+  1006, `error` before `close` on a failure, and a `maxPayload` of 100 MiB
+  by default.
+- **HTTP and `Blob`:** a `node:http` server's numeric-string status,
+  `fetch` with `keepalive: false`, and the type of a `Blob` that a
+  `Response` copies or a body slices.
+- **TLS:** client certificates, sent only with `requestCert`, Ed25519
+  servers, self-signed certificates in `NODE_EXTRA_CA_CERTS`,
+  `tls.DEFAULT_CIPHERS` in `fetch`, and NSS roots 3.131.1.
+- **Container limits:** 1.4.4 also honours cgroup v2 limits on a host with
+  a cgroup v1 hierarchy, for `navigator.hardwareConcurrency`,
+  `os.availableParallelism()`, `process.constrainedMemory()`, thread pools
+  and the garbage collector's heap size. On such a host 1.4.3 sizes them
+  from the whole machine.
+- **The compile cache:** with `NODE_COMPILE_CACHE` or
+  `module.enableCompileCache()`, 1.4.3 takes about twice as long to exit.
+  The harness enables neither.
+- **`node:vm`** contexts made with `DONT_CONTEXTIFY`, which the harness
+  does not use.
+- **`bun install`:** peer resolution, deprecated versions, libc filtering
+  and lockfile output. Only Windmill's lock jobs run it; windmill-lite
+  builds from committed lockfiles.
+- **Other APIs:** `Bun.semver`, `Bun.Glob`, `Bun.JSONL`, `Bun.hash`,
+  `Bun.YAML` and `Bun.TOML` on S3 files, `Bun.JSON5`, `Bun.$.escape`,
+  `Bun.SQL` (which no longer reads the `PASSWORD` variable on 1.4.4),
+  `bun:sqlite`, `node:sqlite`, `fs.realpath`, `os.userInfo`,
+  `os.setPriority`, `zlib.crc32` and the order of `diagnostics_channel`
+  events.
 
 **D21, the read cache.** A host turns it on with `wl.Options.ReadCache`,
 the host SDK's `readCache` or `windmill-lite host -read-cache`; it is off
@@ -347,7 +410,7 @@ switch through a change to this record, naming the reason.
 | [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | **recorded: (b)**, the default. A sequential loop at module 0 whose first iteration flips the expression to true stops after that iteration, and the flow completes normally with `[1]`, with a collapsed and with a two-step body; an expression that throws at the second start phase fails the flow with a chaining `InternalError`, the loop left canceled with its module in progress (fixture `conformance/flows/execution/fx-49`, oracle run 40794872025) | Q-FX-11, case FX-49/a | E3e (recorded), gating the `later` milestone (L1) that implements `skip_expr` |
 | [FX-40](../semantics/execution.md#fx-40) | collapsed iterations (a) never, or (b) can share cache entries | **recorded: (b).** Two collapsed iterations with identical arguments share an entry for an inline rawscript body (with or without an explicit `path`) under the loop's `cache_ttl`, and for an unhashed by-path script with its own `cache_ttl`. The inline body runs as `flowscript` jobs whose paths end in `/loop-<index>` but which carry one script hash, so the key does not follow the path; the correction expected a rawscript without a path not to share. A body pinned by hash shares under the loop's `cache_ttl`, and a pinned script's own `cache_ttl` is dropped | Q-FX-17, case FX-40/d | E3d (`conformance/flows/execution/fx-40`, runs `d-raw`, `d-raw-path` and `d-script`; `conformance/flows/execution/fx-40-hash`, runs `d-hash` and `d-hash-script-ttl`), gating N4 |
 | [JE-11](../semantics/expressions.md#je-11) (`later`), text that is not ASCII | the call rewrite counts its parenthesis's position in characters and applies it as a byte offset; where that offset falls inside a character Windmill's evaluator panics, and the job then (a) fails with some error, or (b) is lost or retried with the worker | **settled from the source (a), 2026-10-29:** the count starts at the call, and the runtime catches the panic, so the evaluation fails at once with the runtime's report, `task <n> panicked with message "assertion failed: self.is_char_boundary(idx)"`, routed like any evaluation error of its site. windmill-lite reproduces the early parenthesis and that text, its own task number in place of `<n>` (`expr.ErrRewritePanic`, milestone FU6; FU3 had failed it with its own text and counted from the start of the text) | Q-JE-13 (the source answers it; JE-11/b–e await a recording) | E3e did not record it, gating no milestone |
-| [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | **recorded: positionally.** Run-and-wait answers `[201, null, null, null, 7]` with HTTP 201 and the body `7`: the array's elements fill the metadata's fields in order. FX-36/a–g hold as written, the bodies in jsonb's text output, so FX-36/b's members come in jsonb order (fixture `conformance/flows/execution/fx-36-http`, oracle runs 40794872025 and 40798097155) | Q-FX-12 | E3e (recorded), gating F7b |
+| [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | **recorded: not decoded.** On CE v1.862.0 run-and-wait answers `[201, null, null, null, 7]` with HTTP 200 and the whole array as the JSON body: only an object is read as metadata (run `array`, oracle run 42299716256). CE v1.767.0 decoded it positionally, HTTP 201 with the body `7` (oracle run 40798097155). FX-36/a–g hold as written, the bodies in jsonb's text output, so FX-36/b's members come in jsonb order (fixture `conformance/flows/execution/fx-36-http`, oracle runs 40794872025 and 40798097155) | Q-FX-12 | E3e (recorded), gating F7b |
 | [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28) (`later` parts) | stream classification; dynamic-import rewrite reach | **recorded: the corrected readings.** A custom `replace` value goes through string `+` (WR-16/f gives `"7"`) and every printed line is classified on its own (WR-16/g gives `"ab"`); a static import's rewrite also rewrites a different dynamic specifier that contains it, which is then fetched from the workspace (WR-28/e). A script whose only import of a relative path is dynamic cannot be deployed: the dependency job takes the specifier for an npm package (WR-28/d, deferred). Fixtures `conformance/flows/languages/wr-16`, `wr-28` | Q-WR-15, Q-WR-16 | E3e (recorded), gating the `later` milestones (L1) for them |
 | [OR-11](../semantics/oracle.md#or-11), [OR-14](../semantics/oracle.md#or-14), [OR-V3](../semantics/oracle.md#or-v3), [OR-V8](../semantics/oracle.md#or-v8) | identity encoding for compared steps | **recorded: the typed site paths** of [0011](0011-differential-testing.md): `m:<id>` for a module, with `~<k>` when an id repeats in one list, `s:failure` and `s:preprocessor` for the special slots, and `%`, `/`, `:` and `~` in a value percent-escaped. On the oracle (`oracle/colliding-ids`, runs 41000318656 and 41007241030), each colliding pair stayed two records and two placeholders: a step `failure` beside a failure module (`m:failure`, `s:failure`), a step `preprocessor` beside a preprocessor, and the ids `a/b` and `a%2Fb` (`m:a%2Fb`, `m:a%252Fb`) | Q-OR-17 | recorded; the site-path tests of `internal/conformance` (`sitepath_test.go`) |
 | [OR-15](../semantics/oracle.md#or-15), [OR-V9](../semantics/oracle.md#or-v9) | whether the probe catalogue fills the fixture format | **recorded:** the catalogue is rebuilt as executable fixtures (`conformance/flows/oracle/`) and reproduces the recorded results with its bindings written out: `loop_seq_multi` gives `["a12","b12"]` with `flow_input.iter.value`, and its literal bare `iter.value` fails with `iter is not defined` (OR-V9/a, OR-V9/b); `branchone` and `loop_par` reproduce theirs with `flow_input.n` and `flow_input.iter.value` (OR-V9/c, OR-V9/d). Its recordings and raw captures retain the tree and the observations | Q-OR-16 | E3e (recorded) |
@@ -503,6 +566,12 @@ switch through a change to this record, naming the reason.
   case that D5 lists, an invocation that holds work whose end the harness
   cannot see, runs until its timeout.
 
+- The retarget to Windmill CE v1.862.0 and Bun 1.4.3 added D23 to §5. The
+  image runs Bun 1.4.4, and the oracle records the image unmodified, so
+  the version a step reports differs. The environment probe's Bun version
+  became a run of its own, `bun_version`, which the flow suite does not
+  require, as it does not require D16's and D17's cases; the probe's `WM_`
+  variables stay required. Every bundle lists D23.
 - Milestone N2 settled §7's JE-2 row: windmill-lite reproduces the
   zombie-flow monitor's cancel, which recording batch E3a found ends a
   runaway expression's flow at 60 s, before the third attempt's timeout
