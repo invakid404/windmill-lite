@@ -4,9 +4,9 @@ spec: [FX-26, CF-5]
 target: f/cfwaits/body_retry_exhausted
 expect:
   status: failure
-  result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b}}]
+  result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b, job_id: "<job:m:l/i:0/m:b>", flow_path: f/cfwaits/body_retry_exhausted/loop-0}}]
   steps:
-    "m:l": {status: failure, result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b}}]}
-    "m:l/i:0/m:b/r:0": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
-    "m:l/i:0/m:b": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
+    "m:l": {status: failure, result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b, job_id: "<job:m:l/i:0/m:b>", flow_path: f/cfwaits/body_retry_exhausted/loop-0}}]}
+    "m:l/i:0/m:b/r:0": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b, job_id: "<job:m:l/i:0/m:b/r:0>", flow_path: f/cfwaits/body_retry_exhausted/loop-0}}}
+    "m:l/i:0/m:b": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b, job_id: "<job:m:l/i:0/m:b>", flow_path: f/cfwaits/body_retry_exhausted/loop-0}}}
     "m:l/i:0/m:c": {status: not_run}

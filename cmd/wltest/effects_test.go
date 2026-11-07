@@ -33,10 +33,13 @@ const stubDir = "../../conformance/flows/stub"
 // harness process per invocation as on Windmill, and in warm mode.
 // TestFlowSuite requires the same runs against their expects, in warm. On
 // the retarget branch, a fixture with a run whose recording the ledger
-// lists as pending is checked against its expects only.
+// lists as pending is checked against its expects only, and a run that
+// the ledger's flow_suite lists is judged by its entry, against its expect
+// and its recording alike, as in TestFlowSuite (judgeSuite).
 func TestStubCasesMatchTheOracle(t *testing.T) {
 	bun := bunOrSkip(t)
-	pending := retargetLedger(t).Oracle
+	ledger := retargetLedger(t)
+	pending, suite := ledger.Oracle, ledger.FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -87,14 +90,25 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 					continue
 				}
 				for _, res := range fc.runFixture(context.Background(), f) {
+					var what string
 					switch {
 					case res.unsupported != "":
-						t.Errorf("%s/%s against its %s, %s: unsupported: %s", dir, res.run, against, mode, res.unsupported)
+						what = "unsupported: " + res.unsupported
 					case len(res.problems) > 0:
-						t.Errorf("%s/%s against its %s, %s:\n  %s\n%s", dir, res.run, against, mode, strings.Join(res.problems, "\n  "), res.diag)
+						what = "\n  " + strings.Join(res.problems, "\n  ") + "\n" + res.diag
 					}
-					if against == "expect" && mode == conformance.ModeWarm {
-						runs++
+					e, listed := suite[filepath.ToSlash(rel)+"/"+res.run]
+					switch judgeSuite(what != "", e, listed, mode) {
+					case verdictFail:
+						t.Errorf("%s/%s against its %s, %s: %s", dir, res.run, against, mode, what)
+					case verdictPending:
+						t.Logf("%s/%s against its %s, %s, pending in the retarget ledger (%s): %s", dir, res.run, against, mode, e.Marker(), what)
+					case verdictStale:
+						t.Errorf("%s/%s against its %s passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", dir, res.run, against, mode, conformance.LedgerPath, e.Marker())
+					default:
+						if against == "expect" && mode == conformance.ModeWarm {
+							runs++
+						}
 					}
 				}
 			}

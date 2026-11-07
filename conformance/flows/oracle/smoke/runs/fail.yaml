@@ -6,10 +6,10 @@ target: f/wl_smoke/two_step
 args: {x: 60}
 expect:
   status: failure
-  result: {error: {name: Error, message: "too big: 120", stack: "<stack>", step_id: b}}
+  result: {error: {name: Error, message: "too big: 120", stack: "<stack>", step_id: b, job_id: "<job:m:b>", flow_path: f/wl_smoke/two_step}}
   steps:
     "m:a": {status: success, args: {x: 60}, result: {doubled: 120, seen: 60}}
     "m:b":
       status: failure
       args: {n: 120, tag: hi}
-      result: {error: {name: Error, message: "too big: 120", stack: "<stack>", step_id: b}}
+      result: {error: {name: Error, message: "too big: 120", stack: "<stack>", step_id: b, job_id: "<job:m:b>", flow_path: f/wl_smoke/two_step}}

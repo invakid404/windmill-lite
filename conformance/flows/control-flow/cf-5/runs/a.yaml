@@ -12,6 +12,8 @@ expect:
         stack: "<stack>"
         message: two
         step_id: l
+        job_id: "<job:m:l/i:2/m:b>"
+        flow_path: f/cf5/stop_at_failure
   steps:
     "m:l":
       status: failure
@@ -23,6 +25,8 @@ expect:
             stack: "<stack>"
             message: two
             step_id: l
+            job_id: "<job:m:l/i:2/m:b>"
+            flow_path: f/cf5/stop_at_failure
     "m:l/i:0/m:b": {status: success, args: {x: 0}, result: 0}
     "m:l/i:1/m:b": {status: success, args: {x: 1}, result: 1}
     "m:l/i:2/m:b":
@@ -34,3 +38,5 @@ expect:
           stack: "<stack>"
           message: two
           step_id: l
+          job_id: "<job:m:l/i:2/m:b>"
+          flow_path: f/cf5/stop_at_failure

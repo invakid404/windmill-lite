@@ -16,7 +16,7 @@ expect:
   steps:
     "m:each": {status: success, result: [2, 1]}
     "m:each/i:0/m:reserve": {status: success, args: {item: bolt, qty: 2}, result: 2}
-    "m:each/i:1/m:reserve/r:0": {status: failure, args: {item: nut, qty: 2}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: reserve}}}
+    "m:each/i:1/m:reserve/r:0": {status: failure, args: {item: nut, qty: 2}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: reserve, job_id: "<job:m:each/i:1/m:reserve/r:0>", flow_path: f/wl_stub_cb/order/loop-1}}}
     "m:each/i:1/m:reserve": {status: success, args: {item: nut, qty: 2}, result: 1}
     "m:confirm": {status: success, args: {order: o-7, held: [2, 1]}, result: {order: o-7, held: 3}}
   effects:

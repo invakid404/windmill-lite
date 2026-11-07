@@ -395,9 +395,8 @@ defined in the [index](README.md#legend).
      - `forloopflow`: `skip_failures: true`, `parallel: false`;
      - `whileloopflow`: `skip_failures: false`;
      - `branchall`: `parallel: true`;
-     - each branch: `skip_failure: false`, `parallel: true`, `expr: ""`
-       (`skip_failure` was `true` at v1.767.0; see the revision of
-       2026-11-06).
+     - each branch: `skip_failure: false`, `parallel: true`, `expr: ""`.
+       Before 1.852.0 the job wrote `skip_failure: true`.
 
      The same job builds the lite version ([CF-V4](#cf-v4)).
   3. **When normalization does not happen.** The stored JSON stays as pushed
@@ -409,7 +408,7 @@ defined in the [index](README.md#legend).
   4. **Consequence.** An absent `forloopflow.skip_failures` behaves as
      **false** before successful normalization, or when it never happens,
      and as **true** after it. An absent branch `skip_failure` behaves as
-     **false** either way.
+     **false** either way, since normalization writes `false`.
   5. **CLI pull.** The workspace export behind `wmill sync pull` writes the
      latest version's stored value, stripping only top-level metadata keys.
      The CLI turns it into `flow.yaml`, extracting only inline script
@@ -460,6 +459,11 @@ defined in the [index](README.md#legend).
   defaults, unchanged); the runtime reads with a `false` fallback,
   `backend/windmill-worker/src/worker_flow.rs:608-622 @ v1.862.0`,
   `:970-976 @ v1.862.0`, `:2550-2556 @ v1.862.0`.
+- **Evidence at v1.862.0:** `backend/windmill-types/src/flows.rs:922-937`
+  (the typed branch's `skip_failure` defaults to false, so the
+  re-serialization writes `false`) and `:679-687` (the run-time read, an
+  optional value whose absence counts as false). Release note v1.852.0:
+  "keep retry and branch settings intact when a flow is reserialized".
 - **Conformance:** [CF-6/a, CF-6/b, CF-6/c](conformance.md#cf-6)
 - **Design note (not Windmill behaviour):** treat "absent" as a compatibility
   input and record which state a fixture represents. The proposed default for
@@ -492,6 +496,13 @@ defined in the [index](README.md#legend).
   fails with `[ERR("b")]` ([OF-7/c](conformance.md#of-7)). Points 1, 2 and 4
   were re-verified at v1.862.0 for the four defaults; the rest is verified
   at v1.767.0 only.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the branch default
+  re-verified at v1.862.0):** point 2 said the dependency job writes a
+  branch's absent `skip_failure` as `true`. On CE v1.862.0 it writes
+  `false`, and `generate-metadata` does too: the deployment evidence of
+  [CF-15/a](conformance.md#cf-15) records both (oracle run 42299510925).
+  Points 2 and 4 now say so. The loop defaults and the rest of the finding
+  are verified at v1.767.0 only.
 
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion
