@@ -83,8 +83,15 @@ type ValueResolver interface {
 
 // ErrSecretUnavailable is the failure of a secret that no host resolver
 // supplies: ciphertext under the workspace key, or an $encrypted: value
-// (ADR 0007, secret_unavailable).
+// (ADR 0007, secret_unavailable). The services answer it as Windmill
+// answers a value it cannot decrypt (couldNotDecrypt).
 var ErrSecretUnavailable = errors.New("secret_unavailable")
+
+// couldNotDecrypt is the one cause Windmill gives every decryption failure
+// since 1.829.0, whatever went wrong (JE-42, WA-11). windmill-lite holds no
+// workspace key, so it gives it for every secret held as ciphertext and
+// every $encrypted: value that no host secret service supplies.
+const couldNotDecrypt = "Could not decrypt value. The value may have been encrypted with a different key."
 
 // LocalSecrets is the default secret service: a secret held as plaintext
 // (a sync folder pulled with plainSecrets, or one a host passed in) is

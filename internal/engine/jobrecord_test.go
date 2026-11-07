@@ -81,7 +81,7 @@ func TestJobRecordsDuringARun(t *testing.T) {
 		"root": `{"type":"QueuedJob","id":"` + root + `","running":true,"canceled":false,"args":{"n":{"k": [1, 2.50]},"in":1},"script_path":"f/t/main","is_flow_step":false,` + host +
 			`,"flow_status":{"step":1,"modules":[{"id":"a","type":"Success","job":"` + aJob + `","skipped":false},{"id":"b","type":"InProgress","job":"` + bJob + `"}],` +
 			`"failure_module":{"id":"failure","type":"WaitingForPriorSteps"},"preprocessor_module":null,"cleanup_module":{}}}`,
-		"a": `{"type":"CompletedJob","id":"` + aJob + `","parent_job":"` + root + `","canceled":false,"success":true,"result":"a","args":{},"script_path":"f/t/echo","language":"bun","is_flow_step":true,` + host + `}`,
+		"a": `{"type":"CompletedJob","id":"` + aJob + `","parent_job":"` + root + `","canceled":false,"success":true,"result":"a","resolved":false,"args":{},"script_path":"f/t/echo","language":"bun","is_flow_step":true,` + host + `}`,
 	}
 	for name, w := range want {
 		if got := x.reads[name]; got != w {
@@ -433,6 +433,110 @@ func TestJobRecordWhileAModuleWaitsForItsRetry(t *testing.T) {
 	}
 	if after.Type != "CompletedJob" || after.Success == nil || !*after.Success {
 		t.Errorf("the retry's job once it ran: %+v", after)
+	}
+}
+
+// CE 1.862.0's job reads, as the job-reads fixtures record them: a
+// completed job's record holds resolved, false; the status of a child flow
+// whose body the deploy stored as a node, one that is not CF-8's simple
+// body, holds no_inherited_flow_env, true, while an inline body's does
+// not; and a running parallel container names the flow job it runs in as
+// its job, where its children are its flow_jobs.
+func TestJobRecordsOfNodesAndParallelContainers(t *testing.T) {
+	services := &platform.Services{}
+	var mu sync.Mutex
+	raw := map[string][]byte{}
+	read := func(name, id string) []byte {
+		body, err := services.GetJob(id)
+		if err != nil {
+			t.Errorf("%s (%s): %v", name, id, err)
+		}
+		mu.Lock()
+		raw[name] = body
+		mu.Unlock()
+		return body
+	}
+	parentOf := func(body []byte) string {
+		var v struct {
+			ParentJob string `json:"parent_job"`
+		}
+		_ = json.Unmarshal(body, &v)
+		return v.ParentJob
+	}
+	exec := &stepFunc{f: func(inv Invocation) (StepOutcome, error) {
+		switch step := inv.Env["WM_FLOW_STEP_ID"]; step {
+		case "r", "q":
+			read(step+" parent", inv.Env["WM_FLOW_JOB_ID"])
+		case "p":
+			parent := read("p parent", inv.Env["WM_FLOW_JOB_ID"])
+			root := read("p root", parentOf(parent))
+			var v struct {
+				FlowStatus struct {
+					Modules []struct{ Job string } `json:"modules"`
+				} `json:"flow_status"`
+			}
+			if err := json.Unmarshal(root, &v); err == nil && len(v.FlowStatus.Modules) > 0 {
+				read("s child", v.FlowStatus.Modules[0].Job)
+			}
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`"x"`))}, nil
+	}}
+	iter := `"iterator":{"type":"static","value":[1]},"skip_failures":false`
+	flows := map[string]string{"f/t/main": flowOf(
+		loopOf("s", []string{mod("a", "echo", "", ""), mod("r", "echo", "", "")}, iter+`,"parallel":false`, ""),
+		loopOf("l", []string{mod("p", "echo", "", "")}, iter+`,"parallel":true`, ""),
+		`{"id":"b","value":{"type":"branchone","branches":[{"expr":"true","modules":[`+mod("q", "echo", "", "")+`]}],"default":[]}}`,
+	)}
+	e, err := New(Config{Program: compileFlows(t, flows), Bundle: "sha256:test", Exec: registering{services, exec}, JS: jsEng, Platform: services})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Hooks: NoHooks{}, Seed: 1})
+	if err != nil || tr.Status != "success" {
+		t.Fatalf("the run: %v %+v", err, tr)
+	}
+	type record struct {
+		ID         string                     `json:"id"`
+		Type       string                     `json:"type"`
+		Resolved   *bool                      `json:"resolved"`
+		FlowStatus map[string]json.RawMessage `json:"flow_status"`
+	}
+	rec := func(name string) record {
+		var r record
+		if err := json.Unmarshal(raw[name], &r); err != nil {
+			t.Fatalf("%s: %s %v", name, raw[name], err)
+		}
+		return r
+	}
+	for name, node := range map[string]bool{"r parent": true, "s child": true, "p parent": false, "q parent": false, "p root": false} {
+		r := rec(name)
+		if got, ok := r.FlowStatus["no_inherited_flow_env"]; ok != node || ok && string(got) != "true" {
+			t.Errorf("%s: no_inherited_flow_env %s (present %v), want present %v", name, got, ok, node)
+		}
+		if done := r.Type == "CompletedJob"; done != (r.Resolved != nil) || done && *r.Resolved {
+			t.Errorf("%s: %s with resolved %v", name, r.Type, r.Resolved)
+		}
+	}
+	if r := rec("s child"); r.Type != "CompletedJob" || r.Resolved == nil {
+		t.Errorf("the loop's completed child: %+v", r)
+	}
+	var root struct {
+		ID         string `json:"id"`
+		FlowStatus struct {
+			Modules []struct {
+				ID       string   `json:"id"`
+				Type     string   `json:"type"`
+				Job      string   `json:"job"`
+				Parallel bool     `json:"parallel"`
+				FlowJobs []string `json:"flow_jobs"`
+			} `json:"modules"`
+		} `json:"flow_status"`
+	}
+	if err := json.Unmarshal(raw["p root"], &root); err != nil {
+		t.Fatal(err)
+	}
+	if m := root.FlowStatus.Modules[1]; m.ID != "l" || m.Type != "InProgress" || !m.Parallel || m.Job != root.ID || len(m.FlowJobs) != 1 || m.FlowJobs[0] == root.ID {
+		t.Errorf("the running parallel loop's entry: %+v, its flow job %s", m, root.ID)
 	}
 }
 

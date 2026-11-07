@@ -35,8 +35,7 @@ const MODULE_LEFT_OUT = new Set(["flow_jobs_duration", "count", "progress", "app
 const ENV: Record<string, string> = {
   workspace_id: "WM_WORKSPACE", created_by: "WM_USERNAME", email: "WM_EMAIL", permissioned_as: "WM_PERMISSIONED_AS",
 };
-const extra = new Set<string>();
-function keep(v: any, served: Set<string>, left: Set<string>, where: string, each: (k: string, x: any) => any): any {
+function keep(extra: Set<string>, v: any, served: Set<string>, left: Set<string>, where: string, each: (k: string, x: any) => any): any {
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
     if (served.has(k)) out[k] = each(k, x);
@@ -44,15 +43,15 @@ function keep(v: any, served: Set<string>, left: Set<string>, where: string, eac
   }
   return out;
 }
-function entry(m: any): any {
-  return m === null || typeof m !== "object" ? m : keep(m, MODULE_SERVED, MODULE_LEFT_OUT, "module", (_, x) => x);
+function entry(extra: Set<string>, m: any): any {
+  return m === null || typeof m !== "object" ? m : keep(extra, m, MODULE_SERVED, MODULE_LEFT_OUT, "module", (_, x) => x);
 }
-function pick(job: any): any {
-  return keep(job, SERVED, LEFT_OUT, "job", (k, x) => {
+function pick(extra: Set<string>, job: any): any {
+  return keep(extra, job, SERVED, LEFT_OUT, "job", (k, x) => {
     if (ENV[k]) return x === e[ENV[k]] ? `<env:${ENV[k]}>` : x;
     if (k !== "flow_status" || x === null) return x;
-    return keep(x, STATUS_SERVED, STATUS_LEFT_OUT, "flow_status", (s, y) =>
-      s === "modules" ? y.map(entry) : s === "failure_module" || s === "preprocessor_module" ? entry(y) : y);
+    return keep(extra, x, STATUS_SERVED, STATUS_LEFT_OUT, "flow_status", (s, y) =>
+      s === "modules" ? y.map((m: any) => entry(extra, m)) : s === "failure_module" || s === "preprocessor_module" ? entry(extra, y) : y);
   });
 }
 async function get(id: string, q = "?no_logs=true") {
@@ -65,17 +64,20 @@ async function get(id: string, q = "?no_logs=true") {
   return { status: res.status, type: res.headers.get("content-type"), text, json };
 }
 export async function main(prev: number) {
+  // extra is this call's own: a process that runs several jobs, as
+  // windmill-lite's warm mode does, must not share it between them.
+  const extra = new Set<string>();
   const levels: unknown[] = [];
   const names: unknown[] = [];
   let id: string | undefined = e.WM_JOB_ID;
   for (let n = 0; id && n < 30; n++) {
     const a = await get(id, "");
-    levels.push(a.status === 200 ? pick(a.json) : { status: a.status, type: a.type, text: a.text });
+    levels.push(a.status === 200 ? pick(extra, a.json) : { status: a.status, type: a.type, text: a.text });
     names.push(a.json?.args?.cfg?.name ?? null);
     id = a.json?.parent_job;
   }
   const flow = await get(e.WM_FLOW_JOB_ID!);
   const s0 = flow.json.flow_status.modules[0].job;
   const done = await get(s0, "");
-  return { levels, names, s0: pick(done.json), extra: [...extra].sort() };
+  return { levels, names, s0: pick(extra, done.json), extra: [...extra].sort() };
 }

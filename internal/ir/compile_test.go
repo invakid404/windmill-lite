@@ -334,3 +334,43 @@ func TestTruthy(t *testing.T) {
 		}
 	}
 }
+
+// StoredNode is CF-8's body test, as a deploy applies it to choose the
+// bodies it stores as nodes (CF-V4): an empty body and a simple one stay
+// inline; a body of two modules, of another kind, with an envelope field
+// that keeps a loop from collapsing, or in a flow with a failure module is
+// a node. A provided site is judged by its original kind.
+func TestStoredNode(t *testing.T) {
+	script := func(m Module) *Module { m.Kind = KindScript; return &m }
+	ttl := uint32(0)
+	for _, c := range []struct {
+		name       string
+		body       []*Module
+		hasFailure bool
+		node       bool
+	}{
+		{"empty", nil, true, false},
+		{"one script", []*Module{script(Module{})}, false, false},
+		{"one rawscript", []*Module{{Kind: KindRawScript}}, false, false},
+		{"timeout and continue_on_error", []*Module{script(Module{Timeout: &Transform{Type: Static}, ContinueOnError: true})}, false, false},
+		{"a disabled mock", []*Module{script(Module{Mock: &Mock{}})}, false, false},
+		{"in a flow with a failure module", []*Module{script(Module{})}, true, true},
+		{"two modules", []*Module{script(Module{}), script(Module{})}, false, true},
+		{"a subflow", []*Module{{Kind: KindSubflow}}, false, true},
+		{"an identity", []*Module{{Kind: KindIdentity}}, false, true},
+		{"a loop", []*Module{{Kind: KindForLoop}}, false, true},
+		{"sleep", []*Module{script(Module{Sleep: &Transform{Type: Static}})}, false, true},
+		{"cache_ttl 0", []*Module{script(Module{CacheTTL: &ttl})}, false, true},
+		{"retry {}", []*Module{script(Module{Retry: &Retry{}})}, false, true},
+		{"stop_after_if", []*Module{script(Module{StopAfterIf: &Stop{}})}, false, true},
+		{"stop_after_all_iters_if", []*Module{script(Module{StopAfterAllItersIf: &Stop{}})}, false, true},
+		{"skip_if", []*Module{script(Module{SkipIf: &expr.Expr{}})}, false, true},
+		{"an enabled mock", []*Module{script(Module{Mock: &Mock{Enabled: true}})}, false, true},
+		{"a provided script", []*Module{{Kind: KindProvided, Provided: &Provided{Target: Target{Kind: KindScript}}}}, false, false},
+		{"a provided flow", []*Module{{Kind: KindProvided, Provided: &Provided{Target: Target{Kind: KindSubflow}}}}, false, true},
+	} {
+		if got := StoredNode(c.body, c.hasFailure); got != c.node {
+			t.Errorf("%s: StoredNode = %v, want %v", c.name, got, c.node)
+		}
+	}
+}

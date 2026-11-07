@@ -27,6 +27,19 @@ func (f *Facade) serveJobs() {
 	f.Handle("setFlowUserState", f.setFlowUserState)
 	f.Handle("getCompletedJobResultMaybe", f.resultMaybe)
 	f.Handle("getCompletedJobResult", f.result)
+	f.Handle("restartFlowAtStep", restartFlow)
+}
+
+// restartFlow answers restartFlowAtStep, POST
+// /w/{ws}/jobs/restart/f/{id} ([JE-19], [OR-21]), as the CE image answers
+// it: restarting a flow is an enterprise feature (EE), so every request,
+// whatever its id and body, answers 400 `Bad request: Restarting a flow is
+// a feature only available in enterprise version`, and nothing restarts.
+//
+// [JE-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-19
+// [OR-21]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/oracle.md#or-21
+func restartFlow(context.Context, *Call) Reply {
+	return Error{Variant: "BadRequest", Message: "Restarting a flow is a feature only available in enterprise version"}.Reply()
 }
 
 // noRows is the database's text for a lookup that expected a row and

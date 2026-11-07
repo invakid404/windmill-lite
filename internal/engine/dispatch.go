@@ -88,7 +88,9 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	if args := bytes.TrimSpace(req.Args.Producer()); len(args) == 0 || args[0] != '{' {
 		return ScriptResult{}, errors.New("engine: the arguments of a script run are a JSON object")
 	}
-	stored, err := req.Args.Stored()
+	// The push removes every NUL escape before it stores the arguments
+	// (FX-48 case 3).
+	stored, err := argsWithoutNUL(req.Args).Stored()
 	if err != nil {
 		return ScriptResult{}, fmt.Errorf("engine: the arguments cannot be stored: %w", err)
 	}
@@ -196,8 +198,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", err.Error())}, nil
 	}
 	st := StoreOutcome(out, "")
+	// FX-48 case 1, OR-27: the completion stores the result without its NUL
+	// escapes, and every reader of the job's result reads it so.
+	st.Value = st.Value.WithoutNUL()
 	if _, err := st.Value.Stored(); err != nil {
-		// FX-48 case 1: the completion insert refuses a value jsonb
+		// FX-51 case 1: the completion insert refuses a value jsonb still
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
 	}
@@ -256,10 +261,11 @@ func NewDispatcher(e *Engine, exec StepExecutor) *Dispatcher {
 // request's arguments are refused as Windmill's run API refuses them,
 // with no job created, which the API answers with HTTP 400 and the
 // error's display as plain text: a top-level key that does not decode
-// (requestKeysError), then a text jsonb refuses when the job is stored, a
-// NUL escape, an unpaired surrogate escape or a number beyond numeric's
-// range, anywhere else (FX-48 and FX-51 cases 3 and 4), with the database
-// error, SqlErr (FX-50; Windmill's location suffix is not written, D14).
+// (requestKeysError), then a text jsonb refuses when the job is stored, an
+// unpaired surrogate escape or a number beyond numeric's range, anywhere
+// else (FX-51 cases 3 and 4), with the database error, SqlErr (FX-50;
+// Windmill's location suffix is not written, D14). A NUL escape is removed
+// before the job is stored, and refuses nothing (FX-48 case 3).
 func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, error) {
 	var roots []string
 	switch d.Kind {
@@ -281,6 +287,10 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	if err := requestKeysError(args.Producer()); err != nil {
 		return "", err
 	}
+	// The push removes every NUL escape before it stores the job, so a
+	// request that holds one is accepted and the run starts with the
+	// arguments without them (FX-48 case 3, FX-48/d).
+	args = argsWithoutNUL(args)
 	if _, err := args.Stored(); errors.Is(err, jsonval.ErrSyntax) {
 		return "", &platform.Error{Variant: "BadRequest", Message: "windmill-lite: the arguments of a dispatched run are not JSON: " + err.Error()}
 	} else if err != nil {

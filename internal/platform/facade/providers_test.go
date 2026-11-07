@@ -27,6 +27,7 @@ func TestProviderRoutes(t *testing.T) {
 	store := platform.NewStore()
 	store.SetVariable("u/x/pw", platform.Variable{Value: "s3cret"})
 	store.SetVariable("u/x/q", platform.Variable{Value: "a\"b\n"})
+	store.SetVariable("u/x/cipher", platform.Variable{Value: "AAAA", IsSecret: true, Encrypted: true})
 	for path, v := range map[string]string{
 		"u/x/db":         `{"password":"$var:u/x/pw","tok":"$WM_TOKEN"}`,
 		"u/t/outer":      `{"x":"$res:u/t/missing"}`,
@@ -66,6 +67,15 @@ func TestProviderRoutes(t *testing.T) {
 		{"WA-12/g", "resources/get_value_interpolated/u/test/context?job_id=00000000-0000-4000-8000-0000000000ff", 404, "text/plain", "Not found: Job not found at name 00000000-0000-4000-8000-0000000000ff"},
 		// A job_id that is not a UUID is refused before the read.
 		{"WA-12/g", "resources/get_value_interpolated/u/test/context?job_id=nope", 400, "text/plain; charset=utf-8", "windmill-lite: the query parameter job_id, \"nope\", is not a UUID: invalid character: found `n` at 1"},
+		// A secret held as ciphertext, which no host secret service
+		// supplies, fails as one CE cannot decrypt (client-api/facade-answers,
+		// run answers, parts wa11c and wa11d).
+		{"WA-11/c", "variables/get_value/u/x/cipher", 500, "text/plain", "Internal: Error decrypting variable u/x/cipher: Internal: Could not decrypt value. The value may have been encrypted with a different key."},
+		// A job's token is refused on CUSTOM_INSTANCE_DB/ (part wa12h),
+		// which the raw read looks up as any other path.
+		{"WA-12/h", "resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo", 401, "text/plain", "Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)"},
+		{"WA-12/h", "resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo?job_id=" + step, 401, "text/plain", "Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)"},
+		{"WA-12/h", "resources/get_value/CUSTOM_INSTANCE_DB/demo", 404, "text/plain", "Not found: Resource CUSTOM_INSTANCE_DB/demo not found"},
 	} {
 		t.Run(c.spec+" "+c.path, func(t *testing.T) {
 			rep := intercept(f, "inv-a", "GET", "http://x"+base+c.path, nil, nil)

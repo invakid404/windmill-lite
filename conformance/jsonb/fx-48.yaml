@@ -1,8 +1,9 @@
 finding: FX-48
 note: >-
   FX-48 says jsonb rejects the escaped NUL character, and what Windmill does
-  when a value it stores holds one. Each catalogue entry checks the rejection;
-  rest_in names where the outcome is checked. FX-48/c has the text of
+  when a value it stores holds one: since 1.768.0 and 1.826.0 it removes the
+  NUL first. Each catalogue entry checks jsonb's own rejection, which
+  PostgreSQL keeps; rest_in names where the outcome is checked. FX-48/c has the text of
   FX-48/b and is in deferred.yaml. The variants with provenance policy cover
   the other escape jsonb input rejects, a surrogate without its pair, which
   the reference does not state (request 4 in docs/design/README.md).
@@ -15,7 +16,7 @@ cases:
       reject:
         kind: nul
         database: unsupported Unicode escape sequence
-    rest_in: N1b, which fails the step with InternalErr after the insert retries
+    rest_in: the engine, which removes the NUL before it stores the result, so the step succeeds (conformance/flows/oracle/nul and execution/fx-48-jsonb, run nul_memory)
   - spec: FX-48/b
     provenance: oracle-observed
     title: a NUL generated in args at root pickup
@@ -24,7 +25,7 @@ cases:
     expect:
       reject:
         kind: nul
-    rest_in: N1b, which routes the push failure as an Anyhow failure of a (FX-15)
+    rest_in: the engine, which removes the NUL before it pushes the job, so a runs with "" (conformance/flows/execution/fx-48-jsonb, run nul_root)
 
   - spec: FX-48
     variant: nul-in-key

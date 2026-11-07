@@ -7,5 +7,8 @@ expect:
   status: success
   result: {"p": "xy", "r": "xy"}
   steps:
-    "m:a": {"status": "success", "args": {}, "result": "xy"}
+    # windmill-lite's observation also holds the value a carries on in
+    # memory, the producer's text with its NUL (FX-48 case 1), which the
+    # oracle does not expose.
+    "m:a": {"status": "success", "args": {}, "result": "xy", "carried": "x\u0000y"}
     "m:b": {"status": "success", "args": {"p": "xy", "r": "xy"}, "result": {"p": "xy", "r": "xy"}}

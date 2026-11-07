@@ -1,106 +1,6 @@
 {
   "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
   "flow_suite": {
-    "conformance/flows/client-api/job-reads-parallel/held": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/held1": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/held2": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/par": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/partial": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/waits": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/waits2": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads-parallel/waits3": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/answers": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/cached": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/deep": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/edges": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/fail": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/handled": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/incollapsed": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/inloop": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/inpar": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/loopretry": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/ok": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/prerun": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/retried": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/shapes": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/skipsub": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/subretry": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env, which windmill-lite's facade does not give yet"
-    },
-    "conformance/flows/client-api/job-reads/walk": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
-    },
     "conformance/flows/control-flow/cf-27-flow-timeouts/subflow": {
       "milestone": "W6b",
       "reason": "CE 1.862.0 enforces a subflow step's timeout as the subflow's wall-clock limit (1.861.0), which windmill-lite does not"
@@ -173,14 +73,6 @@
       "milestone": "W6b",
       "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
     },
-    "conformance/flows/execution/fx-48-jsonb/nul_later": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
-    },
-    "conformance/flows/execution/fx-48-jsonb/nul_root": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
-    },
     "conformance/flows/languages/bun-results/timeout": {
       "milestone": "W6b",
       "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
@@ -188,22 +80,6 @@
     "conformance/flows/languages/wr-43-stack/stack_nativets": {
       "milestone": "W6g",
       "reason": "on CE 1.862.0 the first frame's line of a nativets error is mapped through the transpiler's source map before Windmill reads the stack's source line (WR-43), which windmill-lite's native boundary does not give yet"
-    },
-    "conformance/flows/oracle/nul/nul": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"
-    },
-    "conformance/flows/oracle/nul/nul_key": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"
-    },
-    "conformance/flows/oracle/nul/nul_nested": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"
-    },
-    "conformance/flows/oracle/probes/env": {
-      "milestone": "W6e",
-      "reason": "CE 1.862.0 sets WM_ROOT_WORKSPACE (1.793.0) and gives WM_END_USER_EMAIL the address of the user who started the run (1.829.0), which windmill-lite's engine does not yet"
     }
   },
   "step_suite": {
