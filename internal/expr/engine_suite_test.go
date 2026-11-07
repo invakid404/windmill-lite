@@ -68,6 +68,7 @@ var enginePending = map[string]string{
 	"flows je/shortcuts je12 m:b_a x": "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
 	"flows je/shortcuts je12 m:b_c x": "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
 	"flows je/shortcuts je12-d m:b x": "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
+	"flows je/shortcuts je12-f m:b x": "retarget-pending: W6f the evaluator gives a computed results read a Promise, where CE 1.862.0 gives the value a static read prefetched",
 	"flows je/shortcuts je9-l m:b x":  "retarget-pending: W6f the evaluator rewrites a static results read into an await, where CE 1.862.0 prefetches it",
 }
 

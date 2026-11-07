@@ -806,6 +806,14 @@
       "milestone": "W5a",
       "reason": "the location suffixes of Windmill's messages (@file.rs:line:col) moved at CE 1.862.0, and the expect names v1.767.0's"
     },
+    "conformance/flows/je/shortcuts/je12-f": {
+      "milestone": "W5f",
+      "reason": "a new run of the validation round, recorded by this pull request's next oracle run"
+    },
+    "conformance/flows/je/shortcuts/je12-g": {
+      "milestone": "W5f",
+      "reason": "a new run of the validation round, recorded by this pull request's next oracle run"
+    },
     "conformance/flows/languages/bun-results/thrown_string": {
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"

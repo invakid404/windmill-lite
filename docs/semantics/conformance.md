@@ -58,12 +58,12 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 19 | 0 | 0 |
 | [Flow execution](#execution) | 161 | 106 | 54 | 1 | 0 | 147 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
-| [Expressions](#expressions) | 195 | 130 | 63 | 0 | 2 | 181 | 0 | 0 |
+| [Expressions](#expressions) | 197 | 130 | 65 | 0 | 2 | 183 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1052 | 727 | 308 | 8 | 9 | 666 | 0 | 7 |
+| **Total** | 1054 | 727 | 310 | 8 | 9 | 668 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -4216,7 +4216,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **Rust location suffix:** strip ` @<file>.rs:<line>:<col>` before comparing. `<loc>` in an expected message stands for one such suffix **including its leading space** (or the parenthesised not-found form ` (<file>.rs:<line>)`), with nothing else between it and the text before it; a message that ends in `<loc><loc>` carries two ([FX-50](execution.md#fx-50)).
 - **`…`** in an expected message marks elided text: a stack, a location suffix, or the rest of a library message.
 
-**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); batch E3e deferred it, since a restart is outside windmill-lite's equivalence contract) and JE-V5/a (which transform fails first is not fixed and may change from one pass to the next, as JE-23/e records, so counting the reads is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)). On 2026-10-29, batch E3e recorded three new cases, JE-23/e, JE-44/d and JE-44/e, and the source re-check added seven `source-derived` ones: JE-11/b–e and JE-16/h (design request 10; [Q-JE-13](expressions.md#q-je-13)), JE-18/e (a repeated module id) and JE-44/f (an identity job's text). On 2026-10-30 (SC5) the cases batch E3f recorded were folded in: JE-11/c, JE-11/e, JE-15/j, JE-15/k, JE-20/c, JE-20/d, JE-21/b, JE-42/i, JE-42/j, JE-49/d, JE-50/a, JE-51/a and JE-52/a, and JE-36/d's preview half; two cases were added, JE-2/b (recorded: a root flow hanging in its first transition is canceled, not restarted) and JE-42/k (`source-derived`: serde's text for an object cut short after a comma). Still not recorded: JE-49/e (deploying it crashed the CE server; requested again), and JE-19/e and JE-19/f, re-scoped to `EE`, since the CE image has no restart.
+**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. JE-12/f and JE-12/g, added on 2026-11-07, were recorded on the v1.862.0 oracle. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); batch E3e deferred it, since a restart is outside windmill-lite's equivalence contract) and JE-V5/a (which transform fails first is not fixed and may change from one pass to the next, as JE-23/e records, so counting the reads is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)). On 2026-10-29, batch E3e recorded three new cases, JE-23/e, JE-44/d and JE-44/e, and the source re-check added seven `source-derived` ones: JE-11/b–e and JE-16/h (design request 10; [Q-JE-13](expressions.md#q-je-13)), JE-18/e (a repeated module id) and JE-44/f (an identity job's text). On 2026-10-30 (SC5) the cases batch E3f recorded were folded in: JE-11/c, JE-11/e, JE-15/j, JE-15/k, JE-20/c, JE-20/d, JE-21/b, JE-42/i, JE-42/j, JE-49/d, JE-50/a, JE-51/a and JE-52/a, and JE-36/d's preview half; two cases were added, JE-2/b (recorded: a root flow hanging in its first transition is canceled, not restarted) and JE-42/k (`source-derived`: serde's text for an object cut short after a comma). Still not recorded: JE-49/e (deploying it crashed the CE server; requested again), and JE-19/e and JE-19/f, re-scoped to `EE`, since the CE image has no restart.
 
 <a id="je-1"></a>
 ### JE-1 · QuickJS-ng evaluates every expression that reaches the engine
@@ -4483,7 +4483,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `a` returns `{"v":3}`; `x = results['a']`
   - **Expect:** `{"v":3}`
   - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12`, oracle run 40687124625 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Revision 2026-11-06 (v1.862.0):** the value is unchanged; at v1.767.0 it came from the wrapper adopting a Promise, at v1.862.0 from the prefetch ([JE-12](expressions.md#je-12)). A computed key (`results[k]`) still gives a Promise that the wrapper adopts.
+  - **Revision 2026-11-06 (v1.862.0):** the value is unchanged; at v1.767.0 it came from the wrapper adopting a Promise, at v1.862.0 from the prefetch ([JE-12](expressions.md#je-12)). A computed key (`results[k]`) of a step that no read in the text names still gives a Promise that the wrapper adopts (JE-12/g); of a named step it gives the kept value (JE-12/f).
 - **JE-12/c** · oracle-observed · later · string literals are left as written
   - **Given:** `x = "see results.a"`
   - **Expect:** `"see results.a"` (the text names `a`, which is fetched and never read)
@@ -4498,6 +4498,14 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `x = results`
   - **Expect:** `{}`
   - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12`, oracle run 40687124625 (v1.767.0) and oracle run 42300319428 (v1.862.0).
+- **JE-12/f** · oracle-observed · later · a computed read of a step that a static read named gives the kept value
+  - **Given:** `a` returns `{"v":3}`, then `m`, which is the previous step; `x = const k = "a"; return [results.a.v, results[k].v]` (statement mode)
+  - **Expect:** `[3,3]`: `results.a` names `a`, so it is prefetched, and `results[k]` resolves to `a` and reads the kept value synchronously, not a Promise.
+  - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12-f`, oracle run ORACLE_RUN_FIX1 (v1.862.0).
+- **JE-12/g** · oracle-observed · later · a computed read of a step that nothing named gives a Promise
+  - **Given:** as JE-12/f, with `x = const k = "a"; return results[k].v`
+  - **Expect:** `null`: no read names `a`, so `results[k]` resolves it at the read and gives a Promise, whose `v` is `undefined`.
+  - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je12-g`, oracle run ORACLE_RUN_FIX1 (v1.862.0).
 
 <a id="je-13"></a>
 ### JE-13 · Expression mode or statement mode
