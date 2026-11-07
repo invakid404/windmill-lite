@@ -55,7 +55,7 @@ cannot corrupt the protocol.
 |---|---|
 | `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, loads the host plugin `--plugin` names, connects to fd 3, starts the runtime |
 | `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
-| `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
+| `runtime/runtime.ts` | The handshake, the step runner and how it loads a step module, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
 | `runtime/context.ts` | The per-invocation context: the environment view, the fetch view, the timer fence, the log view, child-process wrapping, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
@@ -420,12 +420,37 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `D9/module-evaluation`). Once the loading invocation has settled, what
   that work writes goes to the process's streams, and its platform calls
   are refused, as from a process scope.
-- **Module evaluation on Bun 1.4.3.** Bun 1.4.3 evaluates a module that
-  `import()` loads outside every async context, so the rule above does not
-  hold there yet: a step module's top-level code reads the process's
-  environment, and a top-level `process.exit` ends a warm process. The
-  [retarget ledger](../../cmd/wltest/README.md#the-retarget-ledger) lists
-  the tests that wait for the fix.
+- **Errors of a module's work.** An error from work a module started while
+  it evaluated is still the loading invocation's. It fails that invocation
+  while it runs, and is `late` once it has settled, even while another
+  invocation runs (cases `D9/module-evaluation-error` and
+  `D9/module-evaluation-late-error`). Cases `WR-2/top-level-*`,
+  `D9/module-evaluation-context` and `D11/top-level*` check the rest of the
+  rule above.
+- **How a module loads.** Bun 1.4.3 evaluates a module that `import()`
+  loads outside every async context (1.3.10 kept the caller's), and one
+  that `require()` loads inside the caller's. So `loadModule`
+  (`runtime/runtime.ts`) evaluates a step module with `require()`, then
+  takes its namespace from `import()` of the same file. That `import()`
+  does not evaluate it again, and gives the namespace it always gave.
+- **A top-level `await`** still pending makes `require()` throw a
+  `TypeError` once the evaluation has started, in the loading context;
+  `import()` then waits for that evaluation. An ES module's failure stays
+  with the module, so `import()` rejects with the same error. A CommonJS
+  module's is thrown as it is: `import()` would evaluate it again.
+- **What that changes** against `import()` alone is stack text only. An
+  error the module throws as it evaluates has Bun's own `at unknown` frame
+  and `loadModule`'s below the module's frames, and a link error (an import
+  that the module it names does not export) gets a stack. What `require()`
+  returns is dropped, so an exported `then`, or a CommonJS module's
+  thenable exports, is resolved by `import()` alone, as before.
+- **A module that step code imports at run time.** On Bun 1.4.3 a module
+  that step code loads with `import()` while it runs, from a file the
+  bundle does not contain (a codebase asset), evaluates outside every
+  invocation, since the harness does not load it. Its top-level code reads
+  the process's environment, writes to the process's streams, and a
+  `process.exit` there is the real one. A lazy `import()` of bundled code
+  is inlined by the build and keeps the context.
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client
@@ -735,8 +760,8 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    read is `escaped`.
 2. **The module** loads; a failure to load or evaluate it is `escaped`
    ([WR-19](../../docs/semantics/languages.md#wr-19)), on every invocation
-   of the script, and an intercepted `process.exit` during its evaluation
-   ends every invocation of it as that exit did.
+   of the script, and an intercepted `process.exit` whose sentinel escapes
+   its evaluation ends every invocation of it as that exit did.
 3. **The export** must be a function, or the step fails with `<entry>
    function is missing` in the wrapper-catch shape
    ([WR-7](../../docs/semantics/languages.md#wr-7),
@@ -1076,6 +1101,13 @@ runs host mode end to end in a host compiled with `bun build --compile`.
 
 `test/host.test.ts` also checks that a run frame carries the run's
 write-capable selectors and halts as the host gave them.
+
+`test/load.test.ts` checks [how a module loads](#the-per-invocation-context):
+the caller's context at the top level of an ES module, its static imports
+and a CommonJS module, after a top-level `await`, and in the work it
+starts. It checks `import()`'s namespace, one evaluation, and a failure's
+own error. A differential check against `import()` alone covers an exported `then`,
+a CommonJS module's thenable exports and a pending promise as its exports.
 
 `test/testing.test.ts` checks the [test entry](#the-test-entry) against
 the runtime:
