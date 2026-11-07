@@ -10,7 +10,7 @@ cases:
       export function main() { throw new TypeError("bad"); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: bad, name: TypeError, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: bad, name: TypeError, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-21
     variant: manual-failure-thrown
     provenance: source-derived
@@ -20,4 +20,4 @@ cases:
       export function main() { throw { error: { name: "ManualFailure" }, k: 1 }; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {step_id: a, extra: {error: {name: ManualFailure}, k: 1}}}}
+        expect: {status: failure, result: {error: {step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {error: {name: ManualFailure}, k: 1}}}}

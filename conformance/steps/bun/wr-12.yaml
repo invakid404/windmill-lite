@@ -65,9 +65,9 @@ cases:
       export const alternate = 1;
     runs:
       - args: '{"_ENTRYPOINT_OVERRIDE":"alternate"}'
-        expect: {status: failure, result: {error: {message: alternate function is missing, name: Error, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: alternate function is missing, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
       - args: '{"_ENTRYPOINT_OVERRIDE":"other"}'
-        expect: {status: failure, result: {error: {message: other function is missing, name: Error, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: other function is missing, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-12
     variant: missing-preprocessor
     provenance: source-derived
@@ -77,4 +77,4 @@ cases:
       export function main() { return 1; }
     runs:
       - args: '{"a":1,"_ENTRYPOINT_OVERRIDE":"preprocessor"}'
-        expect: {status: failure, result: {error: {message: preprocessor function is missing, name: Error, stack: "<stack>", step_id: preprocessor}}}
+        expect: {status: failure, result: {error: {message: preprocessor function is missing, name: Error, stack: "<stack>", step_id: preprocessor, job_id: "<job:m:preprocessor>", flow_path: f/wl_step/flow}}}

@@ -124,7 +124,9 @@ cases:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: TypeError}
           - {at: /result/error/message, contains: [alternate]}
-          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/job_id, equals: "<job:m:a>"}
+          - {at: /result/error/flow_path, equals: f/wl_step/flow}
   - spec: WR-41
     variant: json-values
     provenance: source-derived

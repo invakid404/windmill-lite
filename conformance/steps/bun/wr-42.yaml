@@ -70,7 +70,7 @@ cases:
       export function main() { return { n: 10n }; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError}}}
+        expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-42/c
     variant: bunnative
     provenance: oracle-observed
@@ -80,7 +80,7 @@ cases:
       export function main() { return { n: 10n }; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError}}}
+        expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-42/d
     variant: nativets
     provenance: oracle-observed
@@ -114,4 +114,6 @@ cases:
         claims:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: TypeError}
-          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/job_id, equals: "<job:m:a>"}
+          - {at: /result/error/flow_path, equals: f/wl_step/flow}

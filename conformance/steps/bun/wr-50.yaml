@@ -89,4 +89,6 @@ cases:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: ReferenceError}
           - {at: /result/error/message, contains: [module]}
-          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/job_id, equals: "<job:m:a>"}
+          - {at: /result/error/flow_path, equals: f/wl_step/flow}
