@@ -46,15 +46,19 @@ export async function main() {
   // Flow jobs at the path, counted before and after each request (the
   // deployment's own jobs have other kinds).
   const flowJobs = async () => (await json("GET", "/jobs/list?script_path_exact=f/wl_raw/target&job_kinds=flow&per_page=100")).length;
-  const refused: Answer[] = [];
+  const answers: Answer[] = [];
   const before = await flowJobs();
   const created: number[] = [];
   for (const b of bodies) {
-    refused.push(await call("POST", "/jobs/run/f/f/wl_raw/target", b));
+    answers.push(await call("POST", "/jobs/run/f/f/wl_raw/target", b));
     created.push((await flowJobs()) - before);
   }
+  // An accepted request answers its job's id: the arguments that job
+  // stored, read back.
+  const accepted: string[] = [];
+  for (const a of answers) if (a.status < 300) accepted.push((await call("GET", `/jobs_u/get_args/${a.body}`)).body);
   // Q-FX-7: a stored 1.50e3 and its siblings, read back as the job's args.
   const id = await start("/jobs/run/f/f/wl_raw/number", '{"n": 1.50e3, "m": 1.50, "k": 1.50e1}');
   const args = await call("GET", `/jobs_u/get_args/${id}`);
-  return { refused, created, stored_args: args.body };
+  return { answers, created, accepted, stored_args: args.body };
 }

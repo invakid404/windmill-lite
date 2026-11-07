@@ -1,11 +1,14 @@
-# Recording batch E3f (ADR 0012): incoming input refused at storage
-# (FX-48/d, FX-51/d, FX-51/e) and the stored 1.50e3 of Q-FX-7, from run
-# requests a Bun step sends with its own token, with bodies the harness's
-# JSON arguments cannot carry, and the job list and stored arguments read
-# back. The run compares as a subset.
+# Recording batch E3f (ADR 0012): incoming input at storage (FX-48/d,
+# FX-51/d, FX-51/e) and the stored 1.50e3 of Q-FX-7, from run requests a
+# Bun step sends with its own token, with bodies the harness's JSON
+# arguments cannot carry, and the job list and stored arguments read back.
+# Since CE 1.862.0 the requests holding a NUL are accepted and answer their
+# job's id, which changes on every run and is masked. The run compares as a
+# subset.
 #
-# Each run's expect is the reference's source-derived prediction, written
-# before the oracle ran it. Synthetic, written for this repository from
+# Each run's expect was the reference's source-derived prediction, written
+# before the oracle ran it; the NUL requests' answers are CE 1.862.0's.
+# Synthetic, written for this repository from
 # docs/semantics/conformance.md#fx-48 and #fx-51,
 # docs/semantics/execution.md#q-fx-7. Deployed with oracle.deploy api.
 id: client-api/raw-requests
@@ -14,4 +17,14 @@ scope: later
 provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, deploy: api}
-compare: {mode: subset}
+compare:
+  mode: subset
+  # The job ids the two accepted requests answer (FX-48/d), and the value
+  # a step carries on, which only an expect holds.
+  mask:
+    - /result/answers/0/body
+    - /result/answers/1/body
+    - /steps/m:a/result/answers/0/body
+    - /steps/m:a/result/answers/1/body
+    - /steps/m:a/carried/answers/0/body
+    - /steps/m:a/carried/answers/1/body

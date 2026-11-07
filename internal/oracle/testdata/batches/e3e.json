@@ -202,7 +202,7 @@
       "case": "OR-27/b",
       "part": "a flow argument holding a NUL",
       "milestone": "none",
-      "reason": "the job API refuses such arguments before a job exists, which is a refused submission, not a run the harness can record"
+      "reason": "no run of this batch submits one: on CE v1.767.0 the job API refused such an argument before a job existed; since CE 1.862.0 it is accepted and stored without the NUL, which batch E3f's conformance/flows/client-api/raw-requests records through the run API (FX-48/d)"
     },
     {
       "case": "OR-16/b",

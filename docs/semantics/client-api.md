@@ -279,7 +279,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-4"></a>
 ### WA-4 · Reserved ("contextual") variables injected into every job
 
-**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); oracle-observed (WA-4/a); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check) · verified at v1.767.0 only
+**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); oracle-observed (WA-4/a); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check) · verified at v1.767.0 only, except `WM_ROOT_WORKSPACE` and `WM_END_USER_EMAIL` (re-checked at v1.862.0)
 
 - **Rule:** every job's process env contains the variables below. "Parent" is
   the job's `parent_job`: the enclosing flow, or a loop-iteration or branch
@@ -288,6 +288,7 @@ interface); `WA-Vn` findings were added during validation.
   | Name | Value |
   |---|---|
   | `WM_WORKSPACE` | workspace id |
+  | `WM_ROOT_WORKSPACE` | new at v1.862.0: the nearest workspace at or above the job's that is an environment of its own (a root, "prod", or a dev workspace), so `WM_WORKSPACE` unless the workspace is a fork. A lookup that finds no such workspace gives `WM_WORKSPACE`. A lookup that fails gives the root last resolved for the workspace, even from an expired cache entry, and `WM_WORKSPACE` only when there is none (source-traced; the oracle's workspaces are not forks) |
   | `WM_TOKEN` | per-job ephemeral bearer token with the run's permissions |
   | `WM_EMAIL` | `permissioned_as_email` |
   | `WM_USERNAME` | `created_by` |
@@ -306,7 +307,7 @@ interface); `WA-Vn` findings were added during validation.
   | `WM_OBJECT_PATH` | in a flow: `<flow_path with / replaced by _>/<schedule_path with / replaced by _, or "manual">/<step_id>/<epoch_ms>_<job_id>`; otherwise `<script_path with / replaced by _>/<schedule-or-manual>/<epoch_ms>_<job_id>` |
   | `WM_WORKER_GROUP` | worker group name |
   | `WM_RUNNABLE_ID` | the job's runnable id (script hash), else `""`; depends on the flow-step representation ([WA-V10](#wa-v10)) |
-  | `WM_END_USER_EMAIL` | app end user's address, else `""` |
+  | `WM_END_USER_EMAIL` | the end user of the root run, inherited by every step and child job. A run started through a `/jobs/run…` route gets the caller's address, or a calling job's end user when the caller uses a job's token. An app run gets the viewer's address. A run a schedule or a trigger fired gets `""`. At v1.767.0 only an app run set it |
   | `WM_TESTED_RUNNABLE` | `{kind}/{path}` for CI-test-triggered jobs, else `""` |
 
   - These are followed by the workspace's **custom env vars** (cached for
@@ -350,7 +351,20 @@ interface); `WA-Vn` findings were added during validation.
   workspace is refused), `:672-690`, `:756-761` (the workspace read from the
   URL), `:829` (the 401); `backend/windmill-api/src/lib.rs:547-549`,
   `:595`, `:716-717` (the authenticated group and its layers), `:827-830`
-  (the unauthenticated job routes outside it).
+  (the unauthenticated job routes outside it). At v1.862.0:
+  `backend/windmill-common/src/variables.rs:794`, `:824-831 @ v1.862.0`
+  (`WM_ROOT_WORKSPACE`), `:948-953` (`WM_END_USER_EMAIL`);
+  `backend/windmill-common/src/workspaces.rs:3124-3175 @ v1.862.0` (the
+  root workspace; a cached answer at `:3137-3143`, the fallbacks at
+  `:3159-3172`); `backend/windmill-api-jobs/src/execution.rs:248-266
+  @ v1.862.0` (a run route's end user: none for a trigger, the calling
+  job's for a job token, else the caller's address), `:1069`;
+  `backend/windmill-api/src/apps.rs:5177-5178 @ v1.862.0` (an app run);
+  `backend/windmill-queue/src/jobs.rs:7956-7958 @ v1.862.0` (stored with
+  the job's permissions), `:9033` (read back when the job is pulled);
+  `backend/windmill-worker/src/worker_flow.rs:4925-4935 @ v1.862.0` (a
+  step takes the root's); `backend/windmill-worker/src/common.rs:559-577
+  @ v1.862.0` (passed into the environment).
 - **Conformance:** [WA-4/a, WA-4/b](conformance.md#wa-4)
 - **Note:** the core variables are `WM_WORKSPACE`, `WM_JOB_ID`,
   `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID`, `WM_FLOW_PATH`,
@@ -368,6 +382,17 @@ interface); `WA-Vn` findings were added during validation.
   probe `env` of `conformance/flows/oracle/probes` records the whole set a
   flow step sees, identity values masked ([OR-29](oracle.md#or-29)); jobs
   a step dispatches are in [WA-V1](#wa-v1).
+
+- **Revision 2026-11-07 (retarget to v1.862.0):** two variables were
+  re-checked. `WM_ROOT_WORKSPACE` is new (release note 1.793.0): the
+  workspace of the nearest standing environment, the job's own workspace
+  outside a fork. `WM_END_USER_EMAIL` is now set for a run started through
+  the run routes (1.829.0), not only for an app run: the caller's address,
+  or a calling job's end user, inherited by every step. CE v1.862.0
+  recorded both through the `env` probe ([OR-29](oracle.md#or-29), oracle
+  run 42327335039): the root workspace equal to the workspace, and the
+  end user `admin@windmill.dev`, equal to `WM_EMAIL` for a run the admin
+  started by path. The rest of the table is not re-checked.
 
 <a id="wa-5"></a>
 ### WA-5 · State path formula
@@ -843,7 +868,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-11"></a>
 ### WA-11 · Variables: `getVariable` / `setVariable`
 
-**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; oracle-observed (WA-11/a's two reads; a secret that cannot be decrypted, its padding outcome; the `already_encrypted` check; the answers to a write: WA-11/c to WA-11/e); high (the rarer decryption outcomes and the clients' write paths, source-traced) · **Status:** confirmed · verified at v1.767.0 only, except the secret that cannot be decrypted and the shape check (re-checked at v1.862.0)
+**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; oracle-observed (WA-11/a's two reads; a secret that cannot be decrypted, its padding outcome; the `already_encrypted` check; the answers to a write: WA-11/c to WA-11/e); high (the rarer decryption outcomes and the clients' write paths, source-traced) · **Status:** confirmed · verified at v1.767.0 only, except the secret that cannot be decrypted, the shape check and the update's not-found locations (re-checked at v1.862.0)
 
 - **Rule:**
   - **Reads.**
@@ -920,9 +945,9 @@ interface); `WA-Vn` findings were added during validation.
         an update of `u/x/v`'s value answers
         `variable u/x/v updated (npath: "u/x/v")`. A missing variable
         gives HTTP 404 `Not found: Variable not found at name <path> (variables.rs:<line>)`,
-        where `<line>` is the backend's source line (1275 at the pin when
-        the body sets a value, 1293 when it sets nothing the table holds,
-        such as `{}`). Changing `is_secret` without a new value gives HTTP
+        where `<line>` is the backend's source line (1487 at v1.862.0 when
+        the body sets a value, 1505 when it sets nothing the table holds,
+        such as `{}`; 1275 and 1293 at v1.767.0). Changing `is_secret` without a new value gives HTTP
         400 `Bad request: cannot change is_secret without updating value too`.
       - **What a script sees.** Neither client returns the text. TS
         `setVariable` first asks `GET /w/{ws}/variables/exists/{path}`
@@ -1016,11 +1041,19 @@ interface); `WA-Vn` findings were added during validation.
   which holds WA-11/c's read and WA-11/d, is re-recorded with the
   job-token change of [WA-12](#wa-12). The rest of the finding is not
   re-checked.
+- **Revision 2026-11-07 (retarget to v1.862.0):** the update's not-found
+  answers moved to `backend/windmill-store/src/variables.rs:1487` and
+  `:1505 @ v1.862.0` (in `update_variable`, `:1253`), so a missing
+  variable's text ends ` (variables.rs:1487)` when the body sets a value.
+  CE v1.862.0 recorded [WA-11/c](conformance.md#wa-11),
+  [WA-11/d](conformance.md#wa-11) and [WA-11/e](conformance.md#wa-11) in
+  run `answers` (oracle run 42327335039) as stated, with that
+  location. The `1505` case is not recorded.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
 
-**Scope:** core · **Confidence:** high (traced); oracle-observed (WA-12/c, WA-12/d, and WA-12/a but for its array depth; an unusable `job_id`, WA-12/g; `CUSTOM_INSTANCE_DB/` for a super admin, WA-12/h) · **Status:** confirmed; drafted (`CUSTOM_INSTANCE_DB/` for a caller who is not a super admin, the `$jsonvar:` body) · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (traced); oracle-observed (WA-12/c, WA-12/d, and WA-12/a but for its array depth; an unusable `job_id`, WA-12/g; `CUSTOM_INSTANCE_DB/` from a job token, WA-12/h) · **Status:** confirmed; drafted (`CUSTOM_INSTANCE_DB/` for a caller who is not a super admin, the `$jsonvar:` body) · verified at v1.767.0 only, except the job lookup's location and `CUSTOM_INSTANCE_DB/` (re-checked at v1.862.0)
 
 - **Rule:** `get_value_interpolated` loads the stored value (a NULL value gives
   JSON `null`) and transforms it recursively.
@@ -1053,7 +1086,8 @@ interface); `WA-Vn` findings were added during validation.
       queued or running**: the lookup joins the queue table, whose row is
       deleted when the job completes. An unknown id, a job of another
       workspace and a completed job all fail the whole read with HTTP 404
-      `Not found: Job not found at name <job_id> (resources.rs:899)`. A
+      `Not found: Job not found at name <job_id> (resources.rs:1088)`
+      (`(resources.rs:899)` at v1.767.0). A
       `job_id` that is not a UUID never reaches the handler: the web
       framework refuses the query string with HTTP 400 ([WA-42](#wa-42)).
       Windmill's own callers send only the running leaf job's id
@@ -1078,9 +1112,16 @@ interface); `WA-Vn` findings were added during validation.
   - **Error bodies.** Depth and invalid-path failures are HTTP 500 with body
     `Internal: <message> @<file>:<line>:<column>`; compare by prefix.
   - **`CUSTOM_INSTANCE_DB/<db>`** (drafted). A path of this route that
-    starts with `CUSTOM_INSTANCE_DB/` is not looked up as a resource. The
-    caller must be an instance super admin, else HTTP 401
-    `Not authorized: This endpoint requires the caller to be a super admin`.
+    starts with `CUSTOM_INSTANCE_DB/` is not looked up as a resource.
+    - **A job's token is refused** (v1.862.0; v1.767.0 had no such check).
+      When the caller authenticated with a job's own token (`WM_TOKEN`,
+      whose identity names its job), the route answers HTTP 401
+      `Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`
+      before anything else, even when the job runs as a super admin. The
+      check reads the token's identity; the `job_id` query parameter plays
+      no part.
+    - Any other caller must be an instance super admin, else HTTP 401
+      `Not authorized: This endpoint requires the caller to be a super admin`.
     A super admin gets the connection settings of Windmill's own database,
     parsed from its database URL, with `dbname` replaced by `<db>`: an
     object with the members `host`, `user`, `password`, `port`, `sslmode`,
@@ -1091,9 +1132,13 @@ interface); `WA-Vn` findings were added during validation.
     behaviour, with no feature gate. Only this route has the special case:
     the raw read (`get_value`) and a nested `$res:CUSTOM_INSTANCE_DB/<db>`
     inside a value look the path up as an ordinary resource and find none.
-    So it is reached by `getResource`, by the expression helper `resource()`
-    ([JE-20](expressions.md#je-20)) and by a leaf step's top-level `$res:`
-    argument ([JE-42](expressions.md#je-42)), each as the job's user.
+    `getResource`, the expression helper `resource()`
+    ([JE-20](expressions.md#je-20)) and a leaf step's top-level `$res:`
+    argument ([JE-42](expressions.md#je-42)) reach this route with a job's
+    token, so at v1.862.0 all three are refused by the first rule; at
+    v1.767.0 each read the settings as the job's user when that user was a
+    super admin. Only a caller holding a user's own or an API token
+    reaches them.
   - Because the TS and Python clients never pass `job_id`, **`getResource`
     returns `$WM_*` placeholders literally**. The worker's own argument
     resolution (static `$res:` transforms, [expressions.md](expressions.md))
@@ -1114,6 +1159,14 @@ interface); `WA-Vn` findings were added during validation.
   `$res:`); `backend/windmill-api-auth/src/lib.rs:196-206`;
   `backend/windmill-common/src/lib.rs:724-741`, `:1026-1068` (the members,
   all serialised). The `$jsonvar:` body: `backend/windmill-store/src/resources.rs:826-828`.
+  At v1.862.0: `backend/windmill-store/src/resources.rs:770-793 @ v1.862.0`
+  (the route), `:803-820` (`CUSTOM_INSTANCE_DB/`: the job token refused
+  at `:806-814`, then the super-admin check), `:1065-1088` (the job
+  lookup, still joined with the queue, and its not-found at `:1088`);
+  `backend/windmill-api-auth/src/lib.rs:277-284 @ v1.862.0` (the
+  super-admin text); `backend/windmill-worker/src/common.rs:322-338
+  @ v1.862.0` and `backend/windmill-worker/src/worker.rs:4167-4183`
+  (a step's `$res:` argument is read with the job's token).
 - **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h](conformance.md#wa-12)
 - **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
   answers 501 for a `job_id` naming an unknown job and reads
@@ -1144,6 +1197,19 @@ interface); `WA-Vn` findings were added during validation.
   resource. The 401 for a caller who is not a super admin is not recorded
   (the harness has one user), so it stays drafted; the SC5 request in the
   [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) asks for it.
+
+- **Revision 2026-11-07 (retarget to v1.862.0):** `CUSTOM_INSTANCE_DB/`
+  and the job lookup were re-checked. The route now refuses a caller who
+  authenticated with a job's token, before the super-admin check, with
+  HTTP 401 `Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`,
+  whatever identity the job runs as, so `getResource`, `resource()` and a
+  step's `$res:` argument no longer reach the database settings. CE
+  v1.862.0 recorded it ([WA-12/h](conformance.md#wa-12), run `answers`,
+  oracle run 42327335039): the oracle's admin, whose step's token had
+  read the settings at v1.767.0, got the 401, and the raw read still
+  answered 404. The job lookup of an unusable `job_id` is unchanged but for
+  its location, ` (resources.rs:1088)` ([WA-12/g](conformance.md#wa-12)).
+  The rest of the finding is not re-checked.
 
 <a id="wa-v3"></a>
 ### WA-V3 · Shared interpolation needs separate resource and argument contexts
@@ -1650,7 +1716,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-19"></a>
 ### WA-19 · Job introspection from scripts (`getJob`, `getJobArgs`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
-**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/p); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run) · verified at v1.767.0 only, except WA-19/d's text (re-checked at v1.862.0)
+**Scope:** core (`getRootJobId`; `getJob` and `getJobArgs` on the jobs of a live run); later (`getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); oracle-observed (WA-19/a; the root lookup's and `getResult`'s error answers, WA-19/b to WA-19/d; the job reads, WA-19/e to WA-19/p); high (the root lookup of a job of an ended run, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup of a job of an ended run) · verified at v1.767.0 only, except WA-19/b's and WA-19/d's texts (re-checked at v1.862.0)
 
 - **Rule:** scripts can read their own job tree, list queues and cancel
   jobs. `JobService.getJob({id})` returns a `Job` (`oneOf`
@@ -1945,6 +2011,11 @@ interface); `WA-Vn` findings were added during validation.
   re-recorded on CE v1.862.0: the same 404, with the completed-job lookup
   at `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0`, so the text ends
   ` (jobs.rs:12065)`. The rest of the finding is not re-checked.
+- **Revision 2026-11-07 (retarget to v1.862.0):** WA-19/b was re-recorded
+  on CE v1.862.0 (run `answers`, oracle run 42327335039): the same 400
+  `SqlErr` text, with the root lookup's query at
+  `backend/windmill-api/src/jobs.rs:676-687 @ v1.862.0`, so the body ends
+  ` @jobs.rs:677:20`.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour
