@@ -3939,7 +3939,7 @@ run of batch E3f in the [design README](../design/README.md).
   tells them apart: after `"x\u0000y"`, the next step's
   `previous_result.length` is 3 while a later step's `results.a.length`,
   read from storage, is 2 (fixture `execution/fx-48-jsonb`, run
-  `nul_memory`, oracle run ORACLE_RUN_W5E_R1).
+  `nul_memory`, oracle run 42333908953).
 
 <a id="fx-50"></a>
 ### FX-50 · How error messages gain an `Error: ` prefix and location suffixes

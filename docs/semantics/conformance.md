@@ -2663,7 +2663,7 @@ contested and now carry their own provenance.
     string stripped when `b`'s job is pushed. `c` reads `a` from storage
     (route 3 of [FX-10](execution.md#fx-10), another step's id) and
     receives `{"len": 2, "code": 121}`, which is the flow's result.
-  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_memory`, oracle run ORACLE_RUN_W5E_R1, as expected.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_memory`, oracle run 42333908953, as expected.
 
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries
