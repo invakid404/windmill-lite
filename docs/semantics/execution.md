@@ -110,9 +110,10 @@ run of batch E3f in the [design README](../design/README.md).
    keeps the variable's key order but not its spelling: numbers and strings
    are written out again (recorded, [Q-FX-16](#q-fx-16)). Which engine
    expressions read the preceding result from memory rather than storage is
-   [FX-V6](#fx-v6)'s rule ([Q-FX-15](#q-fx-15)). Besides NUL, unpaired
-   surrogate escapes and out-of-range numbers fail at the jsonb boundary
-   ([FX-51](#fx-51)).
+   [FX-V6](#fx-v6)'s rule ([Q-FX-15](#q-fx-15)). A NUL is removed before
+   anything is stored ([FX-48](#fx-48), since Windmill 1.768.0 and
+   1.826.0); unpaired surrogate escapes and out-of-range numbers fail at
+   the jsonb boundary ([FX-51](#fx-51)).
 6. **Timeouts by execution path ([FX-24](#fx-24), [FX-25](#fx-25)).** Process
    and in-process executors are timed, with different messages. Identity
    jobs and child flow jobs are untimed. In a collapsed loop the loop
@@ -1163,8 +1164,9 @@ run of batch E3f in the [design README](../design/README.md).
     `user_groups_required`, or a `retry_if` evaluated at re-entry;
   - a negative `timeout`;
   - a `sleep` value that is not a number;
-  - a failure to push the next job, for example args containing NUL
-    ([FX-48](#fx-48)).
+  - a failure to push the next job, for example args containing an
+    unpaired surrogate ([FX-51](#fx-51); a NUL until Windmill 1.826.0
+    removed it, [FX-48](#fx-48)).
 
   Input-transform errors ([FX-14](#fx-14)) and `branchone` predicate errors
   ([control-flow.md](control-flow.md)) are step failures instead. What
@@ -3196,9 +3198,10 @@ run of batch E3f in the [design README](../design/README.md).
   7. **The `flow_input` shortcut** treats the whole suffix as one key: with
      input `{"a.b": 7, "a": {"b": 9}}`, `flow_input.a.b` gives `7`, but
      `flow_input.a.b + 0` gives `9` ([expressions.md](expressions.md)).
-  8. **Strings containing NUL** cannot be stored ([FX-48](#fx-48)), nor can
-     unpaired surrogate escapes or numbers outside PostgreSQL `numeric`'s
-     range ([FX-51](#fx-51)).
+  8. **Strings containing NUL** lose it when they are stored
+     ([FX-48](#fx-48), since Windmill 1.768.0 and 1.826.0); unpaired
+     surrogate escapes and numbers outside PostgreSQL `numeric`'s range
+     cannot be stored ([FX-51](#fx-51)).
   9. **The backend's number notation.** Where the backend parses JSON into
      a value and writes it out again, numbers take this form. The sites are
      rule 2's resolved references, and the results of a loop's or
@@ -3680,55 +3683,74 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-48"></a>
 ### FX-48 · NUL characters at storage boundaries
 
-**Scope:** core · **Confidence:** high (oracle-observed: case 1 for a Bun result); high (oracle-observed: case 2 at root pickup and at a later transition; case 3's response) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (oracle-observed at v1.862.0: case 1 for a Bun result, case 2 at root pickup and at a later transition, case 3's answer and stored arguments); high (source-traced: which escapes are removed, an error result, equal keys) · **Status:** confirmed; drafted (which escapes are removed, an error result, equal keys)
 
-- **Rule:** jsonb rejects the escaped NUL character in strings and keys.
-  Windmill's behaviour depends on where the NUL appears:
-  1. **In a step's result** (success value or error object): the completion
-     insert fails and is retried up to **10 times at 3-second intervals**.
-     The job is then handled as failed with `{"error": {"message": "Internal:
-     Could not add completed job <job id>: <database error> @<location>",
-     "name": "InternalErr"}}`, with **no `step_id`** (assuming the
-     subsequent error-record insertion succeeds). The parent flow treats this
-     as an ordinary step failure: retry, tolerance and the failure module
-     apply. `InternalErr` here is a different literal from the chaining
-     `InternalError` of [FX-15](#fx-15).
+- **Rule:** jsonb rejects the escaped NUL character `\u0000` in strings and
+  keys. Since Windmill 1.768.0 (results) and 1.826.0 (job arguments),
+  Windmill removes every NUL escape from the JSON text it is about to
+  store, so a NUL never reaches the insert and fails nothing. The removal
+  is the same at every boundary ([OR-27](oracle.md#or-27) gives its exact
+  rule: only a real escape, whose backslash is not itself escaped, in keys
+  and values at any depth):
+  1. **In a step's result** (success value or error object): the result is
+     stored without the NUL when the job completes, and the job keeps its
+     outcome. Later steps (`results.<id>`, `previous_result`), the job API
+     and the flow's own result read the stored value. Two keys of one
+     object that the removal makes equal are both written, and `jsonb`
+     keeps the one written last.
   2. **In args generated during a start phase** (for example a transform
-     returning `String.fromCharCode(0)`): pushing the child job fails. That is
-     a chaining error routed by [FX-15](#fx-15): an `Anyhow` failure of the
-     module at root pickup; a failed child at child-flow pickup;
-     `InternalError` at a later transition. The run request itself was valid;
-     nothing is refused at submission.
-  3. **In the incoming flow input:** the request to start the run fails when
-     the flow job is stored, so there is no flow result and no job. The run
-     API keeps each argument's text raw and decodes only the keys, so a NUL
-     in a value or a key reaches the insert of the job row, whose `jsonb`
-     `args` PostgreSQL refuses. The database error is returned as is: HTTP
-     **400**, `Content-Type: text/plain`, body
-     `SqlErr: error returned from database: unsupported Unicode escape sequence<loc>`,
-     where `<loc>` is the one location suffix of the insert in `jobs.rs`
-     ([FX-50](#fx-50)). The same holds for the run-and-wait endpoints, which
-     store the job the same way.
-- **Evidence:**
-  - `backend/windmill-queue/src/jobs.rs:995-1017` (retry policy),
-    `:1094-1133` (explicit internal-error mapping at `:1127-1133`)
-  - Case 3: `backend/windmill-api/src/args.rs:683-690` (a JSON object body
-    is decoded into keys with raw values), `backend/windmill-api/src/jobs.rs:4818-4849`
-    and `backend/windmill-api-jobs/src/execution.rs:959-994` (the run
-    request pushes the job), `backend/windmill-queue/src/jobs.rs:6417-6521`
-    (the job row insert, `args` bound as `jsonb`; the first statement that
-    sends the args to the database), `backend/windmill-common/src/error.rs:51-52`,
-    `:152-156` (a database error keeps its kind and gains a location),
-    `:250-281` (that kind answers 400 with its display as plain text)
-  - `backend/windmill-common/src/error.rs:59-62`, `:105-110`, `:234-239`
-  - `backend/windmill-worker/src/result_processor.rs:700-740`, `:1910-1967`
-  - `backend/windmill-worker/src/worker_flow.rs:2085-2129`, `:4404-4438`
-  - PostgreSQL: https://www.postgresql.org/docs/current/datatype-json.html
+     returning `String.fromCharCode(0)`): the child job is pushed with the
+     NUL removed from its arguments, and the step runs with them: a
+     transform `String.fromCharCode(0)` gives the argument `""`. No
+     chaining error ([FX-15](#fx-15)) arises.
+  3. **In the incoming flow input:** the run request is accepted. The run
+     API keeps each argument's text raw and decodes only the keys, and the
+     push removes the NUL from both before it stores the job row, so the
+     request answers as any accepted run, HTTP **201**,
+     `Content-Type: text/plain; charset=utf-8`, with the new job's id as
+     the body, and the run starts with the stored arguments. Top-level
+     argument names that become equal keep one value: the name that held
+     no NUL wins, else the smallest original name. The run-and-wait
+     endpoints store the job the same way.
+  - **At v1.767.0** nothing was removed.
+    - Case 1's completion insert failed and was retried up to **10 times
+      at 3-second intervals**. Then the step failed with
+      `{"error": {"message": "Internal: Could not add completed job <job id>: <database error> @<location>", "name": "InternalErr"}}`
+      and no `step_id`.
+    - Case 2's push failed in the database: a chaining error routed by
+      [FX-15](#fx-15), `Anyhow` at root pickup and `InternalError` at a
+      later transition, with the texts of [FX-50/a](conformance.md#fx-50).
+    - Case 3's request answered HTTP 400, `text/plain`,
+      `SqlErr: error returned from database: unsupported Unicode escape sequence<loc>`,
+      with no job. An unpaired surrogate escape or a number outside
+    `numeric`'s range still takes those routes at v1.862.0
+    ([FX-51](#fx-51)).
+- **Evidence:** at v1.862.0:
+  - Case 1: `backend/windmill-queue/src/jobs.rs:1614-1621 @ v1.862.0`
+    (the result text stripped before the completion insert), `:1358-1390`
+    (an error result goes through the same insert);
+    `backend/windmill-common/src/utils.rs:1641-1700 @ v1.862.0` (the
+    removal).
+  - Cases 2 and 3: `backend/windmill-queue/src/jobs.rs:6450-6487 @ v1.862.0`
+    (the names and values normalised before the push looks at them),
+    `:7896-7907` (the serialised arguments stripped before the job row's
+    insert); `backend/windmill-common/src/jobs.rs:35-83 @ v1.862.0` (a
+    name loses its NULs; equal names keep the value of the name that held
+    none, else of the smallest original name).
+  - Case 3's answer: `backend/windmill-api/src/jobs.rs:7219-7260 @ v1.862.0`
+    (the run route answers 201 with the job id as text);
+    `backend/windmill-api/src/args.rs:683-690` (at v1.767.0: a JSON object
+    body is decoded into keys with raw values).
+  - At v1.767.0: `backend/windmill-queue/src/jobs.rs:995-1017` (retry
+    policy), `:1094-1133`, `:6417-6521` (the job row insert),
+    `backend/windmill-common/src/error.rs:51-52`, `:152-156`, `:250-281`.
+  - Release notes 1.768.0 and 1.826.0; PostgreSQL:
+    https://www.postgresql.org/docs/current/datatype-json.html
 - **Conformance:** [FX-48/a–FX-48/d](conformance.md#fx-48)
 - **Note:** the other text jsonb input rejects, an unpaired surrogate escape
-  or a number outside `numeric`'s range, takes the same routes; see
-  [FX-51](#fx-51). Case 1 is recorded for a top-level string by
-  [OR-27](oracle.md#or-27).
+  or a number outside `numeric`'s range, is not removed and still fails
+  at the boundary; see [FX-51](#fx-51). Case 1 is recorded for a top-level
+  string, a key and a nested value by [OR-27](oracle.md#or-27).
 - **Design note (not Windmill behaviour):** windmill-lite's equivalence
   contract must say whether it reproduces cases 1–3 or deviates; the
   Windmill behaviour above is the reference.
@@ -3756,10 +3778,26 @@ run of batch E3f in the [design README](../design/README.md).
   `conformance/flows/client-api/raw-requests` (oracle run 41003988171).
   Case 3 is no longer drafted.
 
+- **Revision 2026-11-07 (retarget to v1.862.0):** the finding is
+  re-checked as a whole and its three cases reversed. Windmill removes
+  every NUL escape before it stores a result (1.768.0) or a job's
+  arguments (1.826.0). CE v1.862.0 recorded it at each boundary (oracle
+  run ORACLE_RUN_W5E):
+  - the step returning `"x\u0000y"` succeeds with `"xy"`, as do the key
+    and nested variants ([OR-27](oracle.md#or-27); fixture `oracle/nul`);
+  - the transform `String.fromCharCode(0)` gives the argument `""` at root
+    pickup and at a later transition, and both flows succeed (fixture
+    `execution/fx-48-jsonb`, runs `nul_root` and `nul_later`);
+  - both run requests answer 201 with their job's id and store
+    `{"s": "xy"}` and `{"k": 1}` (fixture `client-api/raw-requests`).
+
+  The v1.767.0 outcomes are kept as history. Which escapes are removed,
+  an error result and equal keys are source-traced (drafted).
+
 <a id="fx-50"></a>
 ### FX-50 · How error messages gain an `Error: ` prefix and location suffixes
 
-**Scope:** core · **Confidence:** high (oracle-observed: the recorded shapes, FX-50/a's push failures included); high (source-traced: the layer list, the masking rule and derived values) · **Status:** confirmed; drafted (the layer list, the masking rule and derived values) · verified at v1.767.0 only, except the pickup and lookup locations (re-checked at v1.862.0)
+**Scope:** core · **Confidence:** high (oracle-observed: the recorded shapes, FX-50/a's push failures included); high (source-traced: the layer list, the masking rule and derived values) · **Status:** confirmed; drafted (the layer list, the masking rule and derived values) · verified at v1.767.0 only, except the pickup and lookup locations and the push failure (re-checked at v1.862.0)
 
 - **Rule:** Windmill's internal error kind `Anyhow` ([FX-12](#fx-12))
   displays as `Error: <inner text> @<location>`. `<inner text>` is the
@@ -3820,7 +3858,7 @@ run of batch E3f in the [design README](../design/README.md).
   follows the same rule.
 - **Masking the generated suffixes.** For a message that is such a display
   (the chaining errors of [FX-15](#fx-15), [FX-21](#fx-21)'s string, a
-  storage failure such as [FX-48](#fx-48)'s, and the text after an
+  storage failure such as [FX-51](#fx-51)'s, and the text after an
   `execution error:\n` lead-in):
   1. Count the layer prefixes at the very start of the message, one after
      another: `Error: `, `Internal: `, `SqlErr: `, `IoErr: `, `Utf8Err: `,
@@ -3856,8 +3894,9 @@ run of batch E3f in the [design README](../design/README.md).
 
   The recorded chaining errors have as many `Error: ` prefixes as suffixes,
   but that is not general. A start-phase error from another located kind
-  breaks it: a failure to push the next job ([FX-48](#fx-48) case 2) is a
-  database error, which reads `SqlErr: error returned from database: <detail><loc>`
+  breaks it: a failure to push the next job (an unpaired surrogate in its
+  arguments, [FX-51](#fx-51) case 2; a NUL until Windmill 1.826.0
+  removed it, [FX-48](#fx-48)) is a database error, which reads `SqlErr: error returned from database: <detail><loc>`
   at a later transition (no `Error: `, one suffix) and
   `Error: SqlErr: error returned from database: <detail><loc><loc>` at a
   pickup (one `Error: `, two suffixes). An internal error built without a
@@ -3961,18 +4000,34 @@ run of batch E3f in the [design README](../design/README.md).
   the other locations are not re-checked; the recordings of FX-50/a are
   pending a later revision.
 
+- **Revision 2026-11-07 (retarget to v1.862.0):** the push failure was
+  re-checked. A NUL no longer fails a push ([FX-48](#fx-48)), so
+  [FX-50/a](conformance.md#fx-50) now gives the same failure with an
+  unpaired surrogate, which the job row's insert still refuses
+  (`backend/windmill-queue/src/jobs.rs:7896-7915 @ v1.862.0`); its
+  location is ` @jobs.rs:7908:5`. CE v1.862.0 recorded both shapes
+  unchanged: `SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:7908:5`
+  (`InternalError`) at a later transition and
+  `Error: SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:7908:5 @worker.rs:5065:13`
+  (`Anyhow`) at the root's first pickup (fixture
+  `conformance/flows/execution/fx-48-jsonb`, runs `surrogate_later` and
+  `surrogate_root`, oracle run 42243035193). The layer list, the masking
+  rule and the other locations are not re-checked.
+
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries
 
-**Scope:** core (JavaScript results and transform args); later (`$jsonvar:`, raw input, other languages) · **Confidence:** high (oracle-observed: rules 1 to 5, FX-51/a–e, raw input included); medium (a number out of range in a deployed static value, source-traced) · **Status:** confirmed · verified at v1.767.0 only, except rule 5's location (re-checked at v1.862.0)
+**Scope:** core (JavaScript results and transform args); later (`$jsonvar:`, raw input, other languages) · **Confidence:** high (oracle-observed: rules 1 to 5, FX-51/a–e, raw input included); medium (a number out of range in a deployed static value, source-traced) · **Status:** confirmed · verified at v1.767.0 only, except rule 5's location and the job row insert's (re-checked at v1.862.0)
 
 - **Rule:** PostgreSQL `jsonb` input rejects two kinds of JSON text besides
   the NUL escape of [FX-48](#fx-48): a UTF-16 surrogate escape without its
   pair (`"\ud83d"`, `"\ude00"`), with the message
   `invalid input syntax for type json`; and a number outside `numeric`'s
   range (more than 131072 digits before the decimal point or more than 16383
-  after it), with `value overflows numeric format`. Windmill checks for
-  neither before storing, so they follow FX-48's routes:
+  after it), with `value overflows numeric format`. Windmill removes
+  neither before storing (it removes only the NUL, [FX-48](#fx-48)), so
+  each fails where its text is stored, on the routes a NUL took until
+  Windmill 1.768.0 and 1.826.0:
   1. **In a step's result.** A JavaScript string can hold an unpaired
      surrogate (for example `String.fromCharCode(0xd83d)`, or a `slice`
      through a pair). Bun's `JSON.stringify` writes it as a `\uXXXX` escape
@@ -3981,17 +4036,17 @@ run of batch E3f in the [design README](../design/README.md).
      That insert fails and is retried 10 times at 3-second intervals, and the
      job is then failed with
      `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job>: error returned from database: invalid input syntax for type json @<location>"}}`
-     and no `step_id`. This is FX-48 case 1 with PostgreSQL's message for
-     this input. A key, a nested value, or a thrown error's message or stack
+     and no `step_id`: the route of FX-48 case 1 at v1.767.0, with
+     PostgreSQL's message for this input. A key, a nested value, or a thrown error's message or stack
      holding the surrogate fail the same way.
   2. **In args generated during a start phase.** A JavaScript transform's
      value is also written by `JSON.stringify` (quickjs-ng escapes an
      unpaired surrogate as `\uXXXX`) and kept as raw text, so pushing the
-     child job fails: FX-48 case 2's chaining error, routed by
-     [FX-15](#fx-15).
+     child job fails: a chaining error routed by [FX-15](#fx-15), with
+     the texts of [FX-50/a](conformance.md#fx-50).
   3. **In the incoming flow input:** the run API keeps each argument's raw
-     text, so the request fails when the flow job is stored, as in FX-48
-     case 3: HTTP 400, `Content-Type: text/plain`, body
+     text, so the request fails when the flow job is stored, as a NUL did
+     at v1.767.0 (FX-48 case 3): HTTP 400, `Content-Type: text/plain`, body
      `SqlErr: error returned from database: invalid input syntax for type json<loc>`,
      and no job. Keys are different: the run API decodes them as strings,
      and that decode validates escapes, so an unpaired surrogate in a key
@@ -4073,8 +4128,9 @@ run of batch E3f in the [design README](../design/README.md).
 - **Conformance:** [FX-51/a–FX-51/e](conformance.md#fx-51)
 - **Open:** none; [Q-FX-20](#q-fx-20) is answered (2026-10-30).
 - **Note:** this answers semantics request 4 of the design. Every route is
-  FX-48's, which [OR-27](oracle.md#or-27) recorded for a NUL in a top-level
-  string; only the database message differs.
+  one a NUL took until Windmill removed it ([FX-48](#fx-48),
+  [OR-27](oracle.md#or-27), which recorded it for a NUL in a top-level
+  string at v1.767.0); only the database message differs.
 - **Revision 2026-10-28 (validation round 1):** rule 5 said the job fails
   with the resolver's `InternalErr` message and called the stored shape
   untraced. Traced now: the resolver error is converted into the
@@ -4115,6 +4171,16 @@ run of batch E3f in the [design README](../design/README.md).
   v1.862.0 recorded [FX-51/c](conformance.md#fx-51)'s two runs with that
   location and the envelope as stated. The rest of the finding is not
   re-checked.
+- **Revision 2026-11-07 (retarget to v1.862.0):** the routes no longer
+  match FX-48's present cases, since a NUL is now removed before storage,
+  so rules 1 to 3 name them as the routes a NUL took at v1.767.0. The job
+  row's insert, which refuses a surrogate in pushed arguments and in the
+  incoming input, is at `backend/windmill-queue/src/jobs.rs:7896-7915
+  @ v1.862.0`, after the NUL removal, so its location reads
+  ` @jobs.rs:7908:5` (` @jobs.rs:6417:5` at v1.767.0). CE v1.862.0
+  recorded [FX-51/b](conformance.md#fx-51) (oracle run 42243035193) and
+  [FX-51/d, FX-51/e](conformance.md#fx-51) (oracle run ORACLE_RUN_W5E)
+  with that location and otherwise as stated.
 
 <a id="fx-v1"></a>
 ### FX-V1 · A throwing `stop_after_all_iters_if` uses the EarlyStopError path

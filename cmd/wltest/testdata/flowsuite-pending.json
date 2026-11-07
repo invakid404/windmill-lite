@@ -193,6 +193,14 @@
       "milestone": "W6a",
       "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/execution/fx-48-jsonb/nul_later": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
+    },
+    "conformance/flows/execution/fx-48-jsonb/nul_root": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
+    },
     "conformance/flows/je/branches/je27-b-branchall": {
       "milestone": "W6f",
       "reason": "the recording holds CE 1.862.0's QuickJS frames and columns for an expression error, which windmill-lite's evaluator does not give yet"
@@ -265,9 +273,21 @@
       "milestone": "W6a",
       "reason": "the recording's step error objects carry CE 1.862.0's job_id and flow_path (1.847.0), which windmill-lite's engine does not give yet"
     },
+    "conformance/flows/oracle/nul/nul": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"
+    },
+    "conformance/flows/oracle/nul/nul_key": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"
+    },
+    "conformance/flows/oracle/nul/nul_nested": {
+      "milestone": "W6e",
+      "reason": "CE 1.862.0 removes a NUL from a result before storing it (1.768.0), so the step succeeds without it, where windmill-lite's engine still fails the step"
+    },
     "conformance/flows/oracle/probes/env": {
-      "milestone": "W8c",
-      "reason": "the recorded bun field is the oracle image's Bun 1.3.10 and the engine now runs the pinned Bun 1.4.3, a difference the env probe cannot carry until it is a named deviation"
+      "milestone": "W6e",
+      "reason": "CE 1.862.0 sets WM_ROOT_WORKSPACE (1.793.0) and gives WM_END_USER_EMAIL the address of the user who started the run (1.829.0), which windmill-lite's engine does not yet"
     }
   },
   "step_suite": {
@@ -867,16 +887,16 @@
       "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
     },
     "conformance/flows/openflow/of-drivers/preview_absent": {
-      "milestone": "W5e",
-      "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
+      "milestone": "W8c",
+      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
     },
     "conformance/flows/openflow/of-drivers/preview_false": {
-      "milestone": "W5e",
-      "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
+      "milestone": "W8c",
+      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
     },
     "conformance/flows/openflow/of-drivers/preview_true": {
-      "milestone": "W5e",
-      "reason": "the new job_id in nested preview results names a job outside the walk, which the normaliser leaves raw (OR-14), so the repeats differ"
+      "milestone": "W8c",
+      "reason": "each preview's failed step names its job_id, a job outside the walk, which OR-14 now writes <job:?N> and the normaliser leaves raw, so the repeats differ"
     },
     "conformance/flows/oracle/key-order/retry_keys": {
       "milestone": "W5f",
@@ -893,6 +913,10 @@
     "conformance/flows/oracle/nul/nul_nested": {
       "milestone": "W5e",
       "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
+    },
+    "conformance/flows/oracle/probes/bun_version": {
+      "milestone": "W5e",
+      "reason": "a new run of the env probe split: Bun's version, recorded by this milestone's oracle run"
     },
     "conformance/flows/oracle/probes/env": {
       "milestone": "W5e",

@@ -2,8 +2,10 @@
 # the other NUL positions of Q-OR-6 (OR-27/b): a NUL in an object key and
 # in a nested value of a Bun result, and in a Python result. The catalogue
 # sets no expectation for OR-27/b; those runs' expects are the recorded
-# observations. A flow argument holding a NUL is not run: the job API
-# refuses it before a job exists, which is not a run (deferred in
+# observations. Since CE 1.862.0 the NUL of a Bun result is removed before
+# the result is stored, so the Bun runs succeed. A flow argument holding a
+# NUL is not run here; client-api/raw-requests sends one through the run
+# API and reads back what the server stored (deferred in
 # batches/e3e.json). Synthetic, written for this repository from
 # docs/semantics/oracle.md#probe-catalogue.
 id: oracle/nul

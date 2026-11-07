@@ -1,0 +1,9 @@
+# probe env/bun_version (OR-2/a, WR-3/a): the version of the Bun that runs
+# a step, the image's Bun 1.4.4 on CE 1.862.0.
+spec: [OR-2/a, WR-3/a]
+target: f/wl_probe/bun_version
+expect:
+  status: success
+  result: "1.4.4"
+  steps:
+    "m:a": {"status": "success", "args": {}, "result": "1.4.4"}
