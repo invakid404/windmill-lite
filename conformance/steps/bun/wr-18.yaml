@@ -1,6 +1,9 @@
 # WR-18: the error object the wrapper writes for a caught throw: message,
-# name and stack from the thrown value, step_id from WM_FLOW_STEP_ID, and
-# extra with its other own properties. WR-21 wraps it as {"error": …}.
+# name and stack from the thrown value, the step context keys (step_id
+# from WM_FLOW_STEP_ID, job_id from WM_JOB_ID, flow_path from WM_FLOW_PATH,
+# FX-12), and extra with its other own properties. WR-21 wraps it as
+# {"error": …}. A case runs as step a of the flow f/wl_step/flow, and the
+# runner writes the step's own job id as "<job:m:a>".
 finding: WR-18
 scope: core
 cases:
@@ -11,7 +14,7 @@ cases:
       export function main() { throw new Error("boom"); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-18/b
     provenance: source-derived
     title: a subclass with a custom property keeps the name Error and puts the property in extra
@@ -20,7 +23,7 @@ cases:
       export function main() { throw new E(); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, extra: {code: 5}}}}
+        expect: {status: failure, result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {code: 5}}}}
   - spec: WR-18/c
     provenance: source-derived
     title: a nested Error with no enumerable own properties serialises as {}
@@ -28,7 +31,7 @@ cases:
       export function main() { throw new Error("outer", { cause: new Error("inner") }); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: outer, name: Error, stack: "<stack>", step_id: a, extra: {cause: {}}}}}
+        expect: {status: failure, result: {error: {message: outer, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {cause: {}}}}}
   - spec: WR-18/d
     provenance: source-derived
     title: a thrown string gives an extra of indexed characters and its length
@@ -36,7 +39,7 @@ cases:
       export function main() { throw "boom"; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {step_id: a, extra: {"0": b, "1": o, "2": o, "3": m, length: 4}}}}
+        expect: {status: failure, result: {error: {step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {"0": b, "1": o, "2": o, "3": m, length: 4}}}}
   - spec: WR-18/e
     provenance: source-derived
     title: a thrown plain object
@@ -44,25 +47,25 @@ cases:
       export function main() { throw { code: 42, message: "m" }; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: m, step_id: a, extra: {code: 42}}}}
+        expect: {status: failure, result: {error: {message: m, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {code: 42}}}}
   - spec: WR-18/f
     provenance: source-derived
-    title: a thrown number gives only step_id
+    title: a thrown number gives only the step context keys
     script: |
       export function main() { throw 7; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {step_id: a}}}
+        expect: {status: failure, result: {error: {step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-18/g
     variant: error
     provenance: source-derived
-    title: outside a flow, a plain Error has no step_id
+    title: outside a flow, a plain Error has no step_id and no flow_path, but job_id
     step_id: ""
     script: |
       export function main() { throw new Error("boom"); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>"}}}
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", job_id: "<job:m:a>"}}}
   - spec: WR-18/g
     variant: subclass
     provenance: source-derived
@@ -73,7 +76,7 @@ cases:
       export function main() { throw new E(); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: x, name: Error, stack: "<stack>", extra: {code: 5}}}}
+        expect: {status: failure, result: {error: {message: x, name: Error, stack: "<stack>", job_id: "<job:m:a>", extra: {code: 5}}}}
   - spec: WR-18/g
     variant: cause
     provenance: source-derived
@@ -83,7 +86,7 @@ cases:
       export function main() { throw new Error("outer", { cause: new Error("inner") }); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: outer, name: Error, stack: "<stack>", extra: {cause: {}}}}}
+        expect: {status: failure, result: {error: {message: outer, name: Error, stack: "<stack>", job_id: "<job:m:a>", extra: {cause: {}}}}}
   - spec: WR-18/g
     variant: string
     provenance: source-derived
@@ -93,7 +96,7 @@ cases:
       export function main() { throw "boom"; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {extra: {"0": b, "1": o, "2": o, "3": m, length: 4}}}}
+        expect: {status: failure, result: {error: {job_id: "<job:m:a>", extra: {"0": b, "1": o, "2": o, "3": m, length: 4}}}}
   - spec: WR-18/g
     variant: object
     provenance: source-derived
@@ -103,17 +106,17 @@ cases:
       export function main() { throw { code: 42, message: "m" }; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: m, extra: {code: 42}}}}
+        expect: {status: failure, result: {error: {message: m, job_id: "<job:m:a>", extra: {code: 42}}}}
   - spec: WR-18/g
     variant: number
     provenance: source-derived
-    title: outside a flow, a thrown number gives an empty error object
+    title: outside a flow, a thrown number gives job_id alone
     step_id: ""
     script: |
       export function main() { throw 7; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {}}}
+        expect: {status: failure, result: {error: {job_id: "<job:m:a>"}}}
   - spec: WR-18/h
     provenance: source-derived
     title: a nested Error's enumerable own properties survive
@@ -121,7 +124,7 @@ cases:
       export function main() { const c: any = new Error("in"); c.code = 1; throw new Error("out", { cause: c }); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: out, name: Error, stack: "<stack>", step_id: a, extra: {cause: {code: 1}}}}}
+        expect: {status: failure, result: {error: {message: out, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {cause: {code: 1}}}}}
   - spec: WR-18
     variant: undefined-fields
     provenance: source-derived
@@ -130,7 +133,7 @@ cases:
       export function main() { throw { message: undefined, name: "N", big: 2n, u: undefined }; }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {name: N, step_id: a, extra: {big: "2"}}}}
+        expect: {status: failure, result: {error: {name: N, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {big: "2"}}}}
   - spec: WR-18
     variant: step-id-written
     provenance: policy
@@ -143,4 +146,19 @@ cases:
       export function main() { process.env.WM_FLOW_STEP_ID = "renamed"; throw new Error("boom"); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: renamed}}}
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: renamed, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
+  - spec: WR-18
+    variant: context-keys-written
+    provenance: policy
+    title: job_id and flow_path are WM_JOB_ID and WM_FLOW_PATH as the step sees them when it throws, as step_id is
+    note: >-
+      The same reading as step-id-written, for the keys of 1.847.0 (FX-12):
+      the wrapper reads the variables when it builds the error. An empty
+      value drops its key.
+    script: |
+      export function main(path: string) { process.env.WM_JOB_ID = "own"; process.env.WM_FLOW_PATH = path; throw new Error("boom"); }
+    runs:
+      - args: '{"path":"f/other"}'
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a, job_id: own, flow_path: f/other}}}
+      - args: '{"path":""}'
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a, job_id: own}}}

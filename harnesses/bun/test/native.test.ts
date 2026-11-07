@@ -143,11 +143,11 @@ describe("a native realm", () => {
   const unowned: string[] = [];
   const onUntracked = (j: NativeJob | undefined, kind: string) => unowned.push(`${j === undefined ? "no job" : "settled"}: ${kind}`);
 
-  const job = (form: Partial<NativeForm> = {}) => {
+  const job = (form: Partial<NativeForm> = {}, env: Record<string, string> = {}) => {
     const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {}, onUntracked });
     native.capture();
     const resources = new InvocationResources();
-    const inv = { id: "i", script: "s", entry: "main", args: {}, env: {}, resources };
+    const inv = { id: "i", script: "s", entry: "main", args: {}, env, resources };
     const full: NativeForm = { kind: "nativets", param: "P", preamble_at: 0, imports: [], links: [], ...form };
     return { job: new NativeJob(native, inv, full), resources };
   };
@@ -702,6 +702,23 @@ describe("a native realm", () => {
     odd.message = 7;
     expect(shape(odd)).toMatchObject({ message: null, name: null });
   });
+
+  test("errors end with the job's step context keys, whatever was thrown (WR-43, FX-12)", () => {
+    const env = { WM_FLOW_STEP_ID: "a", WM_JOB_ID: "j", WM_FLOW_PATH: "f/x/branchall-0", WM_ROOT_JOB_ID: "r" };
+    const { job: j } = job({}, env);
+    const keys = ["message", "stack", "name", "step_id", "job_id", "flow_path"];
+    const context = { step_id: "a", job_id: "j", flow_path: "f/x/branchall-0" };
+    const e = new j.g.TypeError("boom");
+    e.code = 7;
+    expect(Object.keys(JSON.parse(j.errorText(e)))).toEqual(keys);
+    expect(JSON.parse(j.errorText(e))).toMatchObject({ message: "boom", name: "TypeError", ...context });
+    expect(JSON.parse(j.errorText("s"))).toEqual({ message: null, stack: null, name: null, ...context });
+    expect(Object.keys(JSON.parse(j.errorText("s")))).toEqual(keys);
+    // Each key only when its variable is not empty: a script run on its
+    // own carries job_id alone.
+    const { job: alone } = job({}, { WM_FLOW_STEP_ID: "", WM_JOB_ID: "j", WM_FLOW_PATH: "" });
+    expect(JSON.parse(alone.errorText("s"))).toEqual({ message: null, stack: null, name: null, job_id: "j" });
+  });
 });
 
 describe("the errors the harness generates", () => {
@@ -717,11 +734,14 @@ describe("the errors the harness generates", () => {
     const native = new Native({ bundleDir, baseURL: () => "http://127.0.0.1:9", onError: () => {}, onUntracked: () => {} });
     native.capture();
     const resources = new InvocationResources();
-    const ctx: InvocationContext = { id: "i", run: "r", env: {}, signal: new AbortController().signal, resources };
-    const inv = { id: "i", script: "s", entry: "main", args: {}, env: {}, resources };
+    const env = { WM_FLOW_STEP_ID: "a", WM_JOB_ID: "j", WM_FLOW_PATH: "f/x" };
+    const ctx: InvocationContext = { id: "i", run: "r", env, signal: new AbortController().signal, resources };
+    const inv = { id: "i", script: "s", entry: "main", args: {}, env, resources };
     return invocations.run(ctx, () => native.run(inv, meta, ctx, "a"));
   };
 
+  // The worker builds these itself, so they carry step_id alone, not
+  // job_id or flow_path (FX-12).
   test("the worker's errors before the module loads are generated", async () => {
     const generated = (message: string) => ({ error: JSON.stringify({ message: `execution error:\n${message}`, name: "ExecutionErr", step_id: "a" }), generated: true });
     expect(await run("/nonexistent", { native: { ...form, transpile_error: "Expected identifier" } })).toEqual(generated("Error: Expected identifier"));
@@ -739,7 +759,7 @@ describe("the errors the harness generates", () => {
       writeFileSync(join(dir, "scripts", "bun", "s.native.js"), m.text);
       const r = (await run(dir, { native: m.form, signatures: { main: { params: [] } } })) as { error: string; generated?: true };
       expect(r.generated).toBeUndefined();
-      expect(JSON.parse(r.error)).toMatchObject({ message: "mine", name: "Error" });
+      expect(JSON.parse(r.error)).toMatchObject({ message: "mine", name: "Error", step_id: "a", job_id: "j", flow_path: "f/x" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

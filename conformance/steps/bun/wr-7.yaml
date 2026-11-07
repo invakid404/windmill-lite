@@ -19,7 +19,7 @@ cases:
       export function notMain() {}
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-7/c
     provenance: source-derived
     title: a destructured parameter reads key anon1, so a missing anon1 fails the destructuring
@@ -65,7 +65,7 @@ cases:
       export default function main(a: number) { return a; }
     runs:
       - args: '{"a":1}'
-        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-7
     variant: renamed-export
     provenance: source-derived
@@ -147,4 +147,4 @@ cases:
       export function used() { return main(new Date(0)); }
     runs:
       - args: '{"a":"2024-01-02"}'
-        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a}}}
+        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
