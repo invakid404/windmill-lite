@@ -107,10 +107,13 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	if ended(e.status) {
 		st := r.endedStatus(ctx, e.status)
 		if st == conformance.RunCanceled {
-			// A canceled branch's flow fails with the Canceled error, which
-			// fails the module (CF-28).
+			// A canceled branch's flow ends with the Canceled error, which
+			// fails the module (CF-28). The module's job is the branch's
+			// flow job, stored canceled whether it was running or still
+			// queued behind the sleep before the module (CF-28 point 2,
+			// FX-38).
 			v := canceledError(cancellationOf(ctx))
-			o.rec.Ran, o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultOrigin = true, conformance.StepFailure, conformance.ModuleFailure, v, OriginEngine
+			o.rec.Ran, o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultOrigin = true, conformance.StepCanceled, conformance.ModuleFailure, v, OriginEngine
 			o.end = endInterrupted
 			return o
 		}

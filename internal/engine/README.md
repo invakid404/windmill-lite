@@ -1777,8 +1777,9 @@ the reference left to them.
   completes as a failure whose array holds, for each child the
   cancellation reached, held ones included, the `Canceled` error (a
   collapsed body job's own killed result), and the children that had
-  completed keep theirs (recorded by `cf-28/held`); a canceled
-  `branchone` fails with its branch's `Canceled` error. The run then ends
+  completed keep theirs (recorded by `cf-28/held`). A canceled
+  `branchone` fails with its branch's `Canceled` error, and its job, the
+  branch's flow job, is canceled, queued or running. The run then ends
   canceled.
 - **`squash`** ([CF-25](../../docs/semantics/control-flow.md#cf-25)) is
   accepted and ignored. windmill-lite runs a squashed loop unsquashed,
