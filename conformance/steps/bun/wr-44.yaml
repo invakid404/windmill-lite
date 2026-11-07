@@ -47,7 +47,7 @@ cases:
       export function main() { const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1); return f(1e6); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError}}}
+        expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-44/b
     variant: bunnative
     provenance: oracle-observed
@@ -58,7 +58,7 @@ cases:
       export function main() { const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1); return f(1e6); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError}}}
+        expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError, step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow}}}
   - spec: WR-44
     variant: overflow-caught
     provenance: source-derived

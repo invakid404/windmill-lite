@@ -1,0 +1,30 @@
+summary: "NUL in memory and in storage"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          len: {type: javascript, expr: "previous_result.length"}
+          code: {type: javascript, expr: "previous_result.charCodeAt(1)"}
+          p: {type: javascript, expr: "previous_result"}
+    - id: c
+      value:
+        type: rawscript
+        content: "!inline c.ts"
+        language: bun
+        input_transforms:
+          len: {type: javascript, expr: "results.a.length"}
+          code: {type: javascript, expr: "results.a.charCodeAt(1)"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

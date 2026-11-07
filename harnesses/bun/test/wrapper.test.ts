@@ -3,7 +3,7 @@
 // them through the real harness; these pin the rules in one process.
 
 import { expect, test } from "bun:test";
-import { bind, errorText, hydrate, patchBigInt, resultText, signatureErrorText, signatureOf } from "../runtime/wrapper.ts";
+import { bind, errorText, hydrate, patchBigInt, resultText, signatureErrorText, signatureOf, stepContext } from "../runtime/wrapper.ts";
 
 const p = (name: string, date = false) => ({ name, date });
 
@@ -31,22 +31,40 @@ test("the result keeps undefined fields as null and serialises a BigInt as its s
   expect(() => resultText(() => 1)).toThrow(TypeError);
 });
 
-test("the error object: message, name, stack, step_id, then extra (WR-18)", () => {
-  patchBigInt();
-  const e = Object.assign(new Error("x"), { code: 5, big: 2n });
-  const o = JSON.parse(errorText(e, "a"));
-  expect(Object.keys(o)).toEqual(["message", "name", "stack", "step_id", "extra"]);
-  expect([o.message, o.name, o.step_id, o.extra]).toEqual(["x", "Error", "a", { code: 5, big: "2" }]);
-  expect(errorText("ab", undefined)).toBe('{"extra":{"0":"a","1":"b","length":2}}');
-  expect(errorText(7, "a")).toBe('{"step_id":"a"}');
-  expect(errorText({ message: undefined, __proto__x: 1 }, "")).toBe('{"extra":{"__proto__x":1}}');
-  expect(() => errorText(null, "a")).toThrow(TypeError);
-  const cyclic: Record<string, unknown> = { message: "c" };
-  cyclic.self = cyclic;
-  expect(() => errorText(cyclic, "a")).toThrow(TypeError);
+test("the step context keys come from the job's environment, each only when it is not empty (FX-12)", () => {
+  const env = { WM_FLOW_PATH: "f/x/loop-1", WM_JOB_ID: "j", WM_FLOW_STEP_ID: "a", WM_ROOT_JOB_ID: "r" };
+  expect(Object.entries(stepContext(env))).toEqual([
+    ["step_id", "a"],
+    ["job_id", "j"],
+    ["flow_path", "f/x/loop-1"],
+  ]);
+  // A script run on its own has no step id and no parent path.
+  expect(stepContext({ WM_JOB_ID: "j", WM_FLOW_STEP_ID: "", WM_FLOW_PATH: "" })).toEqual({ job_id: "j" });
+  expect(stepContext({})).toEqual({});
 });
 
-test("a signature that did not parse is the worker's execution error (WR-7, WR-37)", () => {
+test("the error object: message, name, stack, step_id, job_id, flow_path, then extra (WR-18, FX-12)", () => {
+  patchBigInt();
+  const ctx = { step_id: "a", job_id: "j", flow_path: "f/x" };
+  const e = Object.assign(new Error("x"), { code: 5, big: 2n });
+  const o = JSON.parse(errorText(e, ctx));
+  expect(Object.keys(o)).toEqual(["message", "name", "stack", "step_id", "job_id", "flow_path", "extra"]);
+  expect([o.message, o.name, o.step_id, o.job_id, o.flow_path, o.extra]).toEqual(["x", "Error", "a", "j", "f/x", { code: 5, big: "2" }]);
+  expect(errorText("ab", {})).toBe('{"extra":{"0":"a","1":"b","length":2}}');
+  // FX-47/a: a thrown string gets the keys before its characters.
+  expect(errorText("ab", ctx)).toBe('{"step_id":"a","job_id":"j","flow_path":"f/x","extra":{"0":"a","1":"b","length":2}}');
+  expect(errorText(7, ctx)).toBe('{"step_id":"a","job_id":"j","flow_path":"f/x"}');
+  expect(errorText(7, { job_id: "j" })).toBe('{"job_id":"j"}');
+  expect(errorText({ message: undefined, __proto__x: 1 }, {})).toBe('{"extra":{"__proto__x":1}}');
+  // An own property of the same name is extra, not a context key.
+  expect(errorText({ message: "m", job_id: "mine" }, ctx)).toBe('{"message":"m","step_id":"a","job_id":"j","flow_path":"f/x","extra":{"job_id":"mine"}}');
+  expect(() => errorText(null, ctx)).toThrow(TypeError);
+  const cyclic: Record<string, unknown> = { message: "c" };
+  cyclic.self = cyclic;
+  expect(() => errorText(cyclic, ctx)).toThrow(TypeError);
+});
+
+test("a signature that did not parse is the worker's execution error, with step_id alone (WR-7, WR-37, FX-12)", () => {
   expect(signatureErrorText("parameter syntax unsupported: x", "a")).toBe('{"message":"execution error:\\nparameter syntax unsupported: x","name":"ExecutionErr","step_id":"a"}');
 });
 

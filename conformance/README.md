@@ -689,7 +689,7 @@ cases:
 | `script`, `path` | the script, and its Windmill path (default `f/wl_step/<name in snake case>`), which is its import base |
 | `language` | `bun` (the default), `bunnative` or `nativets`; a deploy relabels `bun` and `bunnative` from the script's `//native` header, and `bunnative` and `nativets` run with the native boundary ([WR-40](../docs/semantics/languages.md#wr-40)). The catalogue's "both kinds" are two cases: `language: nativets`, and a script whose first line is `//native` |
 | `timeout` | the step's static timeout in seconds: when it passes, the run is abandoned and its observation is the engine's timeout error for the step's boundary ([WR-37](../docs/semantics/languages.md#wr-37), [WR-44](../docs/semantics/languages.md#wr-44)) |
-| `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` |
+| `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` and no `flow_path`. A wrapper or native error's `job_id`, the run's own job, is written as its site's placeholder, `"<job:m:a>"` by default ([cmd/wltest](../cmd/wltest/README.md)) |
 | `env` | job variables that add to or replace those of the job identity ([internal/platform](../internal/platform/README.md)) |
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
 | `codebase` | makes the script a codebase script, bundled by esbuild (C2b): the settings of its `codebases` entry as `wmill.yaml` gives them (`format`, `define`, `inject`, `loader`, `banner`, `external`, `assets`) |

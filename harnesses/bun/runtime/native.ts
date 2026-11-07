@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { types } from "node:util";
 import vm from "node:vm";
 import { current, type InvocationResources, invocations, realTimers, type RequestOf } from "./context.ts";
-import { type Param, signatureErrorText, signatureOf } from "./wrapper.ts";
+import { type Param, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
 /** The URL a native step's module is loaded as, and the embedded client's,
  * against which import specifiers resolve (WR-40). */
@@ -1417,14 +1417,17 @@ export class NativeJob {
   }
 
   /** The error object of a JavaScript exception that reached the end of
-   * the run (WR-43): exactly message, stack and name. For an Error (of this
-   * realm, or of the harness's web APIs), name and message are decoded
-   * together, each a string or null, both null when either is anything
-   * else; stack is the error's stack, if a string, after the source line
-   * its first frame points at when that frame is in the script's module.
-   * Any other value gives three nulls. */
+   * the run (WR-43): message, stack and name, then the step context keys
+   * of the job's environment, which the worker adds after the run whatever
+   * was thrown (FX-12), and no extra. For an Error (of this realm, or of
+   * the harness's web APIs), name and message are decoded together, each
+   * a string or null, both null when either is anything else; stack is the
+   * error's stack, if a string, after the source line its first frame
+   * points at when that frame is in the script's module. Any other value
+   * gives three nulls. */
   errorText(e: unknown): string {
-    if (!this.isError(e)) return JSON.stringify({ message: null, stack: null, name: null });
+    const ctx = stepContext(this.inv.env);
+    if (!this.isError(e)) return JSON.stringify({ message: null, stack: null, name: null, ...ctx });
     const x = e as Record<string, unknown>;
     let name: string | null = null;
     let message: string | null = null;
@@ -1448,7 +1451,7 @@ export class NativeJob {
       stack = stack.replace(`RangeError: ${OVERFLOW}.`, `RangeError: ${OVERFLOW}`);
     }
     const s = this.sourceLine(stack) + stack;
-    return JSON.stringify({ message, stack: s === "" ? null : s, name });
+    return JSON.stringify({ message, stack: s === "" ? null : s, name, ...ctx });
   }
 
   private isError(e: unknown): boolean {

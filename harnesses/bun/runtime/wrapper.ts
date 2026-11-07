@@ -64,17 +64,32 @@ export function resultText(value: unknown): string {
   return text;
 }
 
+/** The step context keys of an error built from a thrown value (FX-12,
+ * WR-18, WR-43): step_id, job_id and flow_path, in that order, each only
+ * when it is set. */
+export type StepContext = { step_id?: string; job_id?: string; flow_path?: string };
+
+/** The step context keys a job's environment gives (FX-12): step_id from
+ * WM_FLOW_STEP_ID, job_id from WM_JOB_ID and flow_path from WM_FLOW_PATH,
+ * each only when the variable is not empty. */
+export function stepContext(env: Readonly<Record<string, string | undefined>>): StepContext {
+  const c: StepContext = {};
+  if (env.WM_FLOW_STEP_ID) c.step_id = env.WM_FLOW_STEP_ID;
+  if (env.WM_JOB_ID) c.job_id = env.WM_JOB_ID;
+  if (env.WM_FLOW_PATH) c.flow_path = env.WM_FLOW_PATH;
+  return c;
+}
+
 /** The error object of a caught throw (WR-18), as its JSON text: message,
- * name and stack read from the thrown value, then step_id when the
- * invocation's WM_FLOW_STEP_ID is not empty, then extra, every other own
- * property, when there is one. It is serialised without the undefined
- * replacer, so fields holding undefined are left out. Reading the fields
- * of null or undefined, a throwing getter, or an extra that cannot be
- * serialised throws: the failure then escapes the wrapper (WR-19). */
-export function errorText(e: unknown, stepId: string | undefined): string {
+ * name and stack read from the thrown value, then the step context keys,
+ * then extra, every other own property, when there is one. It is
+ * serialised without the undefined replacer, so fields holding undefined
+ * are left out. Reading the fields of null or undefined, a throwing
+ * getter, or an extra that cannot be serialised throws: the failure then
+ * escapes the wrapper (WR-19). */
+export function errorText(e: unknown, ctx: StepContext): string {
   const x = e as Record<string, unknown>;
-  const o: Record<string, unknown> = { message: x.message, name: x.name, stack: x.stack };
-  if (stepId) o.step_id = stepId;
+  const o: Record<string, unknown> = { message: x.message, name: x.name, stack: x.stack, ...ctx };
   // Own properties of the thrown value, a string's characters included; a
   // null prototype keeps a "__proto__" property a plain key.
   const extra: Record<string, unknown> = Object.create(null);
@@ -90,7 +105,8 @@ export function errorText(e: unknown, stepId: string | undefined): string {
 
 /** The error of a step whose entrypoint's signature did not parse (WR-7,
  * WR-37): Windmill's worker fails the job with it before the job's process
- * starts, so no top-level code runs. */
+ * starts, so no top-level code runs. The worker builds it, so it carries
+ * step_id alone, not job_id or flow_path (FX-12). */
 export function signatureErrorText(message: string, stepId: string | undefined): string {
   const o: Record<string, unknown> = { message: "execution error:\n" + message, name: "ExecutionErr" };
   if (stepId) o.step_id = stepId;

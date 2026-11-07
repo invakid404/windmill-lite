@@ -101,20 +101,21 @@ defined in the [index](README.md#legend).
 <a id="wr-3"></a>
 ### WR-3 · Runtime binary and version pin
 
-**Scope:** core · **Confidence:** high (image recipe; the running version oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (image recipe; the running version oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - At v1.767.0 the official images copy Bun **`1.3.10`** to `/usr/bin/bun`. The `BUN_PATH` env var overrides the path.
+  - At v1.862.0 the official images copy Bun **`1.4.4`** to `/usr/bin/bun` (`1.3.10` at v1.767.0). The `BUN_PATH` env var overrides the path.
   - Other runtimes in the same image:
-    - `//nodejs` scripts run on the image's distribution `nodejs` (`/usr/bin/node`, overridable with `NODE_BIN_PATH`);
-    - Deno is `2.2.1`;
-    - Go is `1.26.0`.
-  - The `windmill-client` package that matches this release is `1.767.0`.
+    - `//nodejs` scripts run on the image's distribution `nodejs`, pinned to `24.22.1` ([WR-50](#wr-50)) (`/usr/bin/node`, overridable with `NODE_BIN_PATH`);
+    - Deno `2.2.1` is only in the full image since Windmill 1.830.0 (the standard image had it at v1.767.0);
+    - Go is `1.27.3` (`1.26.0` at v1.767.0).
+  - The `windmill-client` package that matches this release is `1.862.0`.
   - These are facts about the image recipe. The version a running oracle actually reports has to be recorded separately: the oracle harness records `Bun.version` in its fixture metadata ([oracle](oracle.md)).
-- **Evidence:** `Dockerfile:285` (`oven/bun:1.3.10`), `Dockerfile:283` (`denoland/deno:2.2.1`), `Dockerfile:141` (`GO_VERSION=1.26.0`), `docker/DockerfileSlim:73`; `backend/windmill-worker/src/worker.rs:607-610`; `typescript-client/package.json:4` (all @ v1.767.0).
+- **Evidence:** `Dockerfile:338` (`oven/bun:1.4.4`), `docker/DockerfileSlim:85`, `Dockerfile:4` (`GO_VERSION=1.27.3`), `Dockerfile:157`, `:290-291` (Node `24.22.1`), `docker/DockerfileFull:5` (`denoland/deno:2.2.1`); `backend/windmill-worker/src/worker.rs:644`, `:646` (`BUN_PATH`, `NODE_BIN_PATH`); `typescript-client/package.json:4` (all @ v1.862.0).
 - **Conformance:** [WR-3/a](conformance.md#wr-3)
-- **Design note (not Windmill behaviour):** windmill-lite should pin the same Bun version and report it in its build info.
+- **Design note (not Windmill behaviour):** windmill-lite pins a Bun version and reports it in its build info. It pins `1.4.3`, not the image's `1.4.4`; [ADR 0001](../design/0001-equivalence-contract.md) is where the equivalence contract treats such a difference.
 - **Revision 2026-10-29 (oracle, batch E3e):** the oracle's environment probe returns `Bun.version` = `1.3.10` from a Bun step (fixture `conformance/flows/oracle/probes`, run `env`, oracle run 40798097155), so the running binary matches the image recipe. WR-3/a is `oracle-observed`.
+- **Revision 2026-11-07 (retarget to v1.862.0):** re-checked as a whole. The image copies Bun `1.4.4`, and a Bun step on CE v1.862.0 reports it (fixture `conformance/flows/oracle/probes`, run `bun_version`, the `env` probe's former `bun` field, oracle run 42327335039). Node is `24.22.1`, Deno has left the standard image, Go is `1.27.3`, and the matching `windmill-client` is `1.862.0`. The design note no longer asks for the image's Bun: windmill-lite pins `1.4.3`.
 
 <a id="wr-4"></a>
 ### WR-4 · Process exit status and how the job outcome is first decided
@@ -680,7 +681,7 @@ defined in the [index](README.md#legend).
 <a id="wr-22"></a>
 ### WR-22 · Environment variables a Bun job sees
 
-**Scope:** core (`WM_WORKSPACE`, `WM_TOKEN`, `WM_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`, `WM_FLOW_PATH`, `WM_JOB_PATH`, `BASE_URL`); later (the rest); out (`WM_WORKER_GROUP`) · **Confidence:** high (oracle-observed: the values of `BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, WR-22/b; the split of an `envs` entry and the failure of one without `=`, WR-22/c) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (`WM_WORKSPACE`, `WM_TOKEN`, `WM_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`, `WM_FLOW_PATH`, `WM_JOB_PATH`, `BASE_URL`); later (the rest); out (`WM_WORKER_GROUP`) · **Confidence:** high (oracle-observed: the values of `BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, WR-22/b; the split of an `envs` entry and the failure of one without `=`, WR-22/c) · **Status:** confirmed · verified at v1.767.0 only, except the `WM_ROOT_WORKSPACE` and `WM_END_USER_EMAIL` rows (re-checked at v1.862.0)
 
 - **Rule:**
   - **Assembly order:** the process environment is **cleared**, then filled in this order, later sources overriding earlier ones:
@@ -701,6 +702,7 @@ defined in the [index](README.md#legend).
     | Variable | Value |
     |---|---|
     | `WM_WORKSPACE` | the workspace id |
+    | `WM_ROOT_WORKSPACE` | the workspace id of the nearest standing environment: `WM_WORKSPACE` unless the workspace is a fork (new at v1.862.0, [WA-4](client-api.md#wa-4)) |
     | `WM_EMAIL`, `WM_USERNAME`, `WM_PERMISSIONED_AS` | as named |
     | `WM_TOKEN` | job-scoped bearer token |
     | `WM_BASE_URL` | the public URL |
@@ -715,7 +717,8 @@ defined in the [index](README.md#legend).
     | `WM_SCHEDULED_FOR` | RFC 3339 with seconds and `Z` |
     | `WM_STATE_PATH` | in a flow `<flow_path>/<step_id>_<trigger>`; for a plain script `<script_path>/<trigger>`. `<trigger>` is the username when scheduled and `user` otherwise. |
     | `WM_OBJECT_PATH` | contains a millisecond timestamp, so it is non-deterministic |
-    | `WM_WORKER_GROUP`, `WM_RUNNABLE_ID` (the script hash), `WM_END_USER_EMAIL`, `WM_TESTED_RUNNABLE` | as named |
+    | `WM_END_USER_EMAIL` | the address of the user who started the run, inherited by its steps; `""` for a run a schedule or trigger fired ([WA-4](client-api.md#wa-4)) |
+    | `WM_WORKER_GROUP`, `WM_RUNNABLE_ID` (the script hash), `WM_TESTED_RUNNABLE` | as named |
 
   - Custom workspace env vars whose names collide with the reserved `WM_*` pattern are dropped.
 - **Evidence:** `backend/windmill-worker/src/bun_executor.rs:2383-2402` (assembly order), `:3402-3445` (`get_common_bun_proc_envs`), `:2316-2333`, `:2343-2361`, `:2384-2402` (the same set for nsjail, Node and Bun runs); `backend/windmill-worker/src/worker.rs:244` (`BUN_CACHE_DIR`), `:628` (`NODE_PATH` read from the worker's environment), `:4149-4172` (`build_envs`: split at the first `=`, the `Bad request` refusal at `:4157-4162`, later entries overwrite), `:4868-5126` (the SQL, DuckDB, GraphQL and `nativets` branches, dispatched before it), `:5175` (the entries read before the language dispatch); `backend/windmill-worker/src/result_processor.rs:621-627` (the `execution error:` envelope); `backend/windmill-common/src/error.rs:55` (`Bad request: …`); `backend/windmill-api-scripts/src/scripts.rs:1174-1179` (deploy stores the entries unchecked); `:5176-5180` (`WM_PIPELINE`), `:1024-1048` (proxy envs); `backend/windmill-common/src/worker.rs:413` (`cache_nomount`), `:722-741` (`WINDMILL_DIR`, default `/tmp/windmill`); `Dockerfile` (no `NODE_PATH` or `WINDMILL_DIR` among its `ENV` lines); `backend/windmill-worker/src/common.rs:508-571` (`get_reserved_variables`, `build_envs_map`); `backend/windmill-common/src/variables.rs:281-529` (all @ v1.767.0). Docs: <https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables>.
@@ -724,6 +727,7 @@ defined in the [index](README.md#legend).
 - **Revision 2026-10-29 (SC3, source re-check, chain FU5):** milestone FU5 asked how an `envs` entry without `=` is read. Windmill does not ignore it: the job fails before it starts with `Bad request: Invalid env var: <entry>. Must be in the form of KEY=VALUE` inside the execution-handler envelope, except for `nativets` jobs and on the cloud. The rule now also says how an entry is split (at the first `=`, an empty name kept, the later duplicate winning). New case WR-22/c.
 - **Design note (not Windmill behaviour):** whatever `wmill` shim windmill-lite injects ([client API](client-api.md)) must read the same names: `BASE_URL`, `WM_TOKEN` and the `WM_*` variables.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-22/b and WR-22/c were recorded as written (fixtures `conformance/flows/languages/wr-22-envs`, oracle run 40994947681, and `conformance/flows/languages/import-base`, run `cb_env`, oracle run 41000318656): `["/tmp/windmill/cache_nomount/bun","unset"]` for a Bun script and a CJS codebase script on Node; `A=b=c` and `B=` give `["b=c",""]`; a script whose `envs` holds `NOEQ` deploys and its step fails before the script with `execution error:\nBad request: Invalid env var: NOEQ. Must be in the form of KEY=VALUE`. The drafted parts are recorded.
+- **Revision 2026-11-07 (retarget to v1.862.0):** the table gained `WM_ROOT_WORKSPACE`, new at v1.862.0, and states what `WM_END_USER_EMAIL` holds, which a run started through the run API sets since 1.829.0; [WA-4](client-api.md#wa-4) has the rules and their evidence. The rest of the finding is not re-checked.
 
 <a id="wr-23"></a>
 ### WR-23 · Filesystem view

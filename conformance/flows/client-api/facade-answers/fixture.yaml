@@ -6,7 +6,9 @@
 # token, as a black-box client of the API. Paths are under f/wl_fa/ in place
 # of the catalogue's u/x/. The step deletes what it creates first, so the
 # oracle's repeated runs compare. WA-12/h's non-admin half needs a second
-# user, which the harness has none of. The runs compare as a subset.
+# user, which the harness has none of; since CE 1.862.0 a job token is
+# refused on that path whoever the job runs as. The runs compare as a
+# subset.
 #
 # Each run's expect is the reference's source-derived prediction, written
 # before the oracle ran it. Synthetic, written for this repository from
