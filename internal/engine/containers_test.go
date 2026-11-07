@@ -60,9 +60,9 @@ func TestContainerSleepBefore(t *testing.T) {
 		waitsNear(t, clock, 3*time.Second)
 	}
 
-	// A cancellation while the child is still scheduled fails it without
-	// running its body (CF-28 rule 2): the loop fails with its Canceled
-	// error and the run ends canceled.
+	// A cancellation while the child is still scheduled ends it canceled
+	// without running its body (CF-28 rule 2): the loop fails with its
+	// Canceled error and the run ends canceled.
 	s := &scripts{}
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("0")), `"sleep":`+static("30")), loopOf("l", two, `"iterator":{"type":"static","value":[1]},"skip_failures":false`, ""))}, s)
 	ctx, cancel := context.WithCancelCause(context.Background())

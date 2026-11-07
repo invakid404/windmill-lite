@@ -1,10 +1,6 @@
 {
   "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
   "flow_suite": {
-    "conformance/exprs/je-2.yaml/je-2-a": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0's zombie-flow monitor puts a flow hanging in its first transition back in the queue, so the run ends with the expression timeout error, where windmill-lite cancels it at 60 s (JE-2)"
-    },
     "conformance/flows/client-api/job-reads-parallel/held": {
       "milestone": "W6e",
       "reason": "CE 1.862.0's job reads add job.resolved and flow_status.no_inherited_flow_env and name other module jobs, which windmill-lite's facade does not give yet"
@@ -133,14 +129,6 @@
       "milestone": "W6b",
       "reason": "CE 1.862.0 does not collapse a loop body whose step has its own timeout (1.852.0), where windmill-lite collapses it under the loop's timeout"
     },
-    "conformance/flows/control-flow/cf-v1/a": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1)"
-    },
-    "conformance/flows/control-flow/cf-v1/c-seq": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1)"
-    },
     "conformance/flows/control-flow/waits/body_timeout_js": {
       "milestone": "W6b",
       "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
@@ -164,10 +152,6 @@
     "conformance/flows/execution/fx-15/root_pickup": {
       "milestone": "W6b",
       "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), where windmill-lite still applies it or refuses it"
-    },
-    "conformance/flows/execution/fx-23/canceled_sleep": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
     },
     "conformance/flows/execution/fx-24/js_timeout": {
       "milestone": "W6b",
@@ -201,22 +185,6 @@
       "milestone": "W6b",
       "reason": "the recording holds CE 1.862.0's timeout text, which names the limit hit (1.825.0), and the timed-out job stored canceled, which windmill-lite does not give yet"
     },
-    "conformance/flows/execution/fx-33/parent_view": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 ends a root flow successfully when its failure comes from a child whose handler recovered (FX-33, CF-V1)"
-    },
-    "conformance/flows/execution/fx-38-pickup/bun": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
-    },
-    "conformance/flows/execution/fx-38-pickup/retried": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
-    },
-    "conformance/flows/execution/fx-38-pickup/subflow": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0 stores a step canceled while it waits to start as canceled, where windmill-lite records it as failure (FX-38)"
-    },
     "conformance/flows/execution/fx-48-jsonb/nul_later": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
@@ -224,10 +192,6 @@
     "conformance/flows/execution/fx-48-jsonb/nul_root": {
       "milestone": "W6e",
       "reason": "CE 1.862.0 removes a NUL from a job's arguments before storing them (1.826.0), so the step runs with the empty string, where windmill-lite's engine still fails the push"
-    },
-    "conformance/flows/je/je-51-chain/chain": {
-      "milestone": "W6c",
-      "reason": "CE 1.862.0's zombie-flow monitor puts a flow hanging in its first transition back in the queue, so the run ends with the expression timeout error, where windmill-lite cancels it at 60 s (JE-2)"
     },
     "conformance/flows/languages/bun-results/timeout": {
       "milestone": "W6b",
