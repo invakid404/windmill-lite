@@ -1,13 +1,16 @@
 # CF-V1/a, CF-16/c: the first iteration's copy recovers, but the
-# sequential loop counts the child as failed, stops and fails the flow
-# with its array; the flow's own handler does not run again.
+# sequential loop counts the child as failed and stops, failing with its
+# array; the flow's own handler does not run again. On CE v1.862.0 the
+# failure carries the child's recovery, so the root flow, which it ends,
+# succeeds with that array (FX-33); on CE v1.767.0 the flow failed. The
+# step error's job_id and flow_path are CE v1.862.0's error keys.
 spec: [CF-V1/a, CF-16/c]
 target: f/wl_cfv1/seq_loop
 expect:
-  status: failure
+  status: success
   result: [{recover: true}]
   steps:
     "m:l": {status: failure, result: [{recover: true}]}
-    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x, job_id: "<job:m:l/i:0/m:x>", flow_path: f/wl_cfv1/seq_loop/loop-0}}}
     "m:l/i:0/s:failure": {status: success, args: {}, result: {recover: true}}
     "s:failure": {status: not_run}

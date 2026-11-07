@@ -1,11 +1,17 @@
-# CF-21/b (Q-CF-6): a while loop is a sequential loop too: its skip_if before
-# iteration 2 sees 2 and ends it as a skipped identity (its stop_after_if,
-# a break at 5, never fires).
+# CF-21/b (Q-CF-6): a while loop evaluates its skip_if once too, at its
+# entry, so it is not skipped and runs until its stop_after_if breaks it
+# after the fifth iteration (on CE v1.767.0 the skip_if before iteration 2
+# saw 2 and ended it as a skipped identity).
 spec: [CF-21/b, Q-CF-6]
 target: f/cf21/skip_mid_while
 expect:
   status: success
-  result: 2
+  result: [1, 2, 3, 4, 5]
   steps:
     "m:a": {status: success, args: {x: 0}, result: 0}
-    "m:l": {status: success, args: {previous_result: 2}, result: 2, skipped: true}
+    "m:l": {status: success, result: [1, 2, 3, 4, 5]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:l/i:2/m:b": {status: success, args: {x: 3}, result: 3}
+    "m:l/i:3/m:b": {status: success, args: {x: 4}, result: 4}
+    "m:l/i:4/m:b": {status: success, args: {x: 5}, result: 5}

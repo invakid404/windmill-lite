@@ -92,9 +92,10 @@ defined in the [index](README.md#legend).
    failed flow's final result, is that array, not an `{"error": …}` object
    ([CF-4](#cf-4), [CF-5](#cf-5), [CF-15](#cf-15)).
 4. **Failure and recovery differ by mode.** Sequential containers stop at the
-   first non-skippable failure and count a handler-recovered child as failed.
-   Parallel containers run every child, then judge persisted child status, so
-   recovered children pass. `parallelism` releases eligibility to start in
+   first non-skippable failure and count a handler-recovered child as failed,
+   though a root flow that such a failure ends succeeds. Parallel containers
+   run every child, then judge persisted child status, so recovered children
+   pass. `parallelism` releases eligibility to start in
    index order ([CF-5](#cf-5), [CF-7](#cf-7), [CF-V1](#cf-v1)).
 5. **Stopping and failing are separate.** A loop module's `stop_after_if` is a
    break, except on an empty container, where it stops the flow. A clean body
@@ -378,7 +379,7 @@ defined in the [index](README.md#legend).
 <a id="cf-6"></a>
 ### CF-6 · Absent container fields: defaults depend on the stored state
 
-**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; points 5 and 6 oracle-observed; the un-normalized behaviour traced in source, not run) · **Status:** confirmed · verified at v1.767.0 only, except a branch's materialized `skip_failure` (re-checked at v1.862.0)
+**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; points 5 and 6 oracle-observed; the un-normalized behaviour traced in source, not run) · **Status:** confirmed · verified at v1.767.0 only, except the materialized defaults and their runtime fallback (re-checked at v1.862.0)
 
 - **Rule:**
   1. **Runtime fallback.** At run time `skip_failures` (forloop, whileloop)
@@ -452,7 +453,12 @@ defined in the [index](README.md#legend).
   `backend/windmill-api/src/jobs.rs:7151`, `:7163` (`skip_flow_update`
   set, a raw flow-dependencies payload);
   `backend/windmill-worker/src/worker_lockfiles.rs:662-669`, `:843-848`
-  (the typed value returned).
+  (the typed value returned). The branch default at v1.862.0:
+  `backend/windmill-types/src/flows.rs:923-937 @ v1.862.0` (`Branch`: an
+  absent `skip_failure` is `false`), `:1250-1269 @ v1.862.0` (the loops'
+  defaults, unchanged); the runtime reads with a `false` fallback,
+  `backend/windmill-worker/src/worker_flow.rs:608-622 @ v1.862.0`,
+  `:970-976 @ v1.862.0`, `:2550-2556 @ v1.862.0`.
 - **Evidence at v1.862.0:** `backend/windmill-types/src/flows.rs:922-937`
   (the typed branch's `skip_failure` defaults to false, so the
   re-serialization writes `false`) and `:679-687` (the run-time read, an
@@ -477,6 +483,19 @@ defined in the [index](README.md#legend).
   `skip_failures: true` and `parallel: false` in the pulled `flow.yaml`,
   while a non-container module keeps an unknown field as submitted
   ([SY-6](openflow.md#sy-6)). The rule is unchanged.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  the typed re-serialization now writes an absent branch `skip_failure` as
+  `false`, the value the worker reads for an absent flag, where v1.767.0
+  wrote `true` (1.852.0, "keep retry and branch settings intact when a
+  flow is reserialized"). An absent branch flag therefore fails the
+  `branchall` on its first failed branch in every state, while the
+  for-loop's `skip_failures` keeps its split (points 2 and 4). Re-recorded
+  on CE v1.862.0 (fixture `conformance/flows/openflow/of-deployed`, runs
+  `f7_ba` and `ba_shape`, oracle run 42299716256): `flows/get` after
+  the dependency job shows `skip_failure: false` on each branch, and `f7_ba`
+  fails with `[ERR("b")]` ([OF-7/c](conformance.md#of-7)). Points 1, 2 and 4
+  were re-verified at v1.862.0 for the four defaults; the rest is verified
+  at v1.767.0 only.
 - **Revision 2026-11-06 (retarget to Windmill 1.862.0; the branch default
   re-verified at v1.862.0):** point 2 said the dependency job writes a
   branch's absent `skip_failure` as `true`. On CE v1.862.0 it writes
@@ -1172,7 +1191,7 @@ defined in the [index](README.md#legend).
 <a id="cf-16"></a>
 ### CF-16 · `failure_module` inside containers
 
-**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id, points 1 and 4, the recovery split, point 8 for sequential and parallel loops); medium (the inline handler id; not recorded, outside the reference configuration); high (source-traced: point 8's `flow` step that clears the mark) · **Status:** confirmed; drafted (point 8: a `flow` step by path clears the mark) · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id, points 1 and 4, the recovery split, point 8 for sequential and parallel loops); medium (the inline handler id; not recorded, outside the reference configuration); high (source-traced: point 8's `flow` step that clears the mark) · **Status:** confirmed; drafted (point 8: a `flow` step by path clears the mark) · verified at v1.767.0 only, except the recovered mark of points 5 and 8 (re-checked at v1.862.0)
 
 - **Rule:**
   1. **Where the handler runs.** Each child flow carries a copy of the flow's
@@ -1199,6 +1218,10 @@ defined in the [index](README.md#legend).
        returned `{"recover": true}`;
      - parallel loops and parallel branchall: recovered children count as
        **succeeded**.
+
+     A sequential container's failure that comes from a recovered child
+     keeps a recovered mark: a root flow that it ends is stored `success`
+     ([FX-33](execution.md#fx-33), at v1.862.0).
   6. **Handler id.** An inline child's handler step id is suffixed
      (`<id>-<step>-<index>` for loops and branchall, `<id>-<step>` for
      branchone). A stored-node child, the normal deployed form, keeps `<id>`
@@ -1230,7 +1253,10 @@ defined in the [index](README.md#legend).
        ([CF-7/f](conformance.md#cf-7), its handler variant);
      - without either, the flow fails with the container's result, does not
        run its own handler again (point 4), and reports the failure as
-       handled to its own parent, so no outer level runs it either.
+       handled to its own parent, so no outer level runs it either. When
+       the child's handler returned `{"recover": true}` and the flow is a
+       root flow, it ends `success` instead, with the same result
+       ([FX-33](execution.md#fx-33), at v1.862.0).
 
      The mark covers only that completion: a later step of the same flow
      that fails runs the flow's handler normally. A parallel loop or
@@ -1302,6 +1328,17 @@ defined in the [index](README.md#legend).
   40994947681): the retry ran, then the flow failed with the loop's array
   and its own handler did not run. Only the `flow` step that clears the
   mark stays source-traced.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  points 5 and 8 gain the recovered mark of [FX-33](execution.md#fx-33): a
+  sequential container that fails on a child whose handler returned
+  `{"recover": true}` still stops and records `Failure`, but a root flow
+  that this failure ends is stored `success` with the container's result
+  (1.827.0 and 1.855.0). Re-recorded on CE v1.862.0 as
+  [CF-16/c](conformance.md#cf-16) (fixture
+  `conformance/flows/control-flow/cf-v1`, runs `a` and `c-seq`, oracle run
+  42299716256). A handler result without `recover: true` changes
+  nothing: CF-16/b still fails. The rest of the finding is verified at
+  v1.767.0 only.
 
 <a id="cf-17"></a>
 ### CF-17 · Subflows (`type: flow`, by path)
@@ -1643,7 +1680,7 @@ defined in the [index](README.md#legend).
 <a id="cf-21"></a>
 ### CF-21 · Evaluation timing of container-level fields
 
-**Scope:** later · **Confidence:** high (once/per-child split); high (oracle-observed: the preceding step's `sleep`, the `timeout`'s scope, mid-loop `skip_if` on collapsed, child-flow and while loops, a parallel loop's single `skip_if`); high (oracle-observed: the order of `timeout` and `parallelism`, and an `iter` the enclosing input has in the `timeout`); medium (a parallel `branchall`'s delayed children, source-traced) · **Status:** confirmed; drafted (that a parallel `branchall`'s children all take the preceding step's delay; added 2026-10-29 by SC4) · verified at v1.767.0 only
+**Scope:** later · **Confidence:** high (once/per-child split); high (oracle-observed: the preceding step's `sleep`, the `timeout`'s scope, a loop's single `skip_if` evaluation on collapsed, child-flow, while and parallel loops, at v1.862.0); high (oracle-observed: the order of `timeout` and `parallelism`, and an `iter` the enclosing input has in the `timeout`); medium (a parallel `branchall`'s delayed children, source-traced) · **Status:** confirmed; drafted (that a parallel `branchall`'s children all take the preceding step's delay; added 2026-10-29 by SC4) · verified at v1.767.0 only, except a loop's `skip_if`, evaluated once (re-checked at v1.862.0)
 
 - **Rule:**
   - **Once, at container start:** the `iterator`, the `branchone`
@@ -1673,19 +1710,24 @@ defined in the [index](README.md#legend).
     committed only after the last, so either expression throwing ends the
     start phase with no child queued, whichever child it threw for
     ([CF-23](#cf-23)).
-  - **`skip_if` on a sequential loop module is re-evaluated before every
-    iteration.** For iterations after the first, `previous_result` is the
-    prior iteration's result: for a body that runs as child flows, that
-    child flow's final result. If it turns truthy mid-loop, the
-    loop step ends as a skipped identity whose result is that
-    `previous_result`, and the partial array is lost ([Q-CF-6](#q-cf-6)).
+  - **`skip_if` on a loop module is evaluated once, when the module is
+    entered** while it is still waiting to start, with the preceding
+    step's result as `previous_result`, as for any module
+    ([FX-17](execution.md#fx-17)). It is not evaluated again between the
+    iterations of a sequential loop, collapsed or not, or of a while loop,
+    so a predicate that an iteration's result would make truthy never
+    skips the loop part-way: every iteration runs and the loop returns its
+    whole array ([Q-CF-6](#q-cf-6)). A retry that re-enters the module
+    evaluates it again ([FX-17](execution.md#fx-17)).
 - **Evidence:** `worker_flow.rs:3666-3715` (sleep only while the step waits
   to start), `:4114-4122`, `:4417` (every payload of one start phase is
   queued with that one delay), `:4379-4400` (timeout per pushed child,
   evaluated over the flow job's own arguments at `:4379-4389`), `:4484-4499`
-  (parallelism per child), `:3842-3866` (`skip_if` evaluated on every
-  entry, including continuing iterations), `:5136` (identity/next step
-  replaces the active loop state); the order: `:4120` (one transaction for
+  (parallelism per child), `:3842-3866` (at v1.767.0, `skip_if`
+  evaluated on every entry, including continuing iterations), `:5136`
+  (identity/next step replaces the active loop state);
+  `backend/windmill-worker/src/worker_flow.rs:4399-4440 @ v1.862.0` (only a
+  module still waiting to start evaluates `skip_if`); the order: `:4120` (one transaction for
   the children), `:4379-4400` before the push at `:4404-4429`, the
   parallelism after it at `:4481-4499`, `:4569`, `:4800` (the commit after
   the last child); the next `previous_result`: `:1134-1166` (a completed
@@ -1737,6 +1779,19 @@ defined in the [index](README.md#legend).
   throwing (run `parallelism_only`, oracle run 40990751153) it aborted with
   that expression's error. CF-21/f's runs `iter_input` and `nested`
   (oracle run 40990751153) succeeded with `[1]` and `[2]`.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  a loop's `skip_if` is no longer re-evaluated once the loop runs (1.812.0,
+  "stop re-evaluating skip_if once a loop is in progress"): the entry gate
+  now evaluates it only for a module still waiting to start, so the
+  mid-loop skip of [Q-CF-6](#q-cf-6) holds at v1.767.0 only. Re-recorded on
+  CE v1.862.0 (fixture `conformance/flows/control-flow/cf-21`, runs
+  `skip_mid`, `skip_mid_flows` and `skip_mid_while`, oracle run
+  42299716256): each loop ran every iteration and returned `[1, 2, 3]`
+  (the while loop `[1, 2, 3, 4, 5]`, stopped by its `stop_after_if`), and
+  no loop step was skipped ([CF-21/a, CF-21/b](conformance.md#cf-21)). The
+  parallel loop's single evaluation ([CF-21/c](conformance.md#cf-21)) is
+  unchanged. Only the `skip_if` bullet was re-verified at v1.862.0; the
+  rest of the finding is verified at v1.767.0 only.
 
 <a id="cf-22"></a>
 ### CF-22 · `retry` on a container module
@@ -2359,7 +2414,7 @@ defined in the [index](README.md#legend).
 <a id="cf-28"></a>
 ### CF-28 · Cancellation inside containers
 
-**Scope:** later · **Confidence:** high (marking, pickup and root result; oracle-observed: held iterations and the container's entry); low (timing, deliberately unspecified) · **Status:** confirmed; drafted (steps waiting to start, added 2026-10-29 by SC4) · verified at v1.767.0 only
+**Scope:** later · **Confidence:** high (marking, pickup and root result; oracle-observed: held iterations and the container's entry); low (timing, deliberately unspecified) · **Status:** confirmed; drafted (steps waiting to start, added 2026-10-29 by SC4) · verified at v1.767.0 only, except point 2's stored status (re-checked at v1.862.0)
 
 - **Rule:**
   1. **Normal cancel of a running flow.** The flow and every queued or
@@ -2367,7 +2422,8 @@ defined in the [index](README.md#legend).
      levels, get cancellation markers. Holds created by `parallelism` are
      cleared and those jobs are scheduled immediately.
   2. **Queued or held descendants.** When picked up, they complete at once
-     as failed with the cancellation error, **without running body code**.
+     with the cancellation error, **without running body code**, and are
+     stored `canceled` (at v1.767.0, `failure`; [FX-38](execution.md#fx-38)).
      Their parents then see failed children. This includes a step whose job
      waits on a `sleep`, a retry delay or a `parallelism` hold, and a
      subflow job that has not started: none of its modules runs
@@ -2419,6 +2475,11 @@ defined in the [index](README.md#legend).
   included, although its body job had ended with the killed process's
   `ExecutionErr`. Point 4 now states the container's entry, and CF-28/a's
   expectation names it.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check):** point 2's
+  jobs are stored `canceled` at v1.862.0, since the completion keeps the
+  cancel flag the cascade set on their queue rows ([FX-38](execution.md#fx-38)
+  has the pointers and the recordings). Only point 2 was re-verified at
+  v1.862.0; CF-28/a's recording at CE v1.862.0 holds unchanged.
 
 <a id="cf-29"></a>
 ### CF-29 · An empty container's own `stop_after_if` stops the flow
@@ -2761,7 +2822,7 @@ defined in the [index](README.md#legend).
 <a id="cf-v1"></a>
 ### CF-V1 · Recovery success differs between sequential propagation and parallel aggregation
 
-**Scope:** core · **Confidence:** high (both paths traced; oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (both paths traced; oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except the sequential and parallel counting and the recovered mark (re-checked at v1.862.0)
 
 - **Rule:** A successful failure handler returning `{"recover":true}` makes
   its own flow's persisted completion successful. The immediate notification
@@ -2773,10 +2834,23 @@ defined in the [index](README.md#legend).
   instead, so recovered children pass that check even when the relevant
   skip-failure setting is false. Its per-child success timeline can still
   record false.
+
+  **The propagated failure is marked as recovered** (at v1.862.0). The
+  sequential container or subflow step still fails and stops as above,
+  but when its failure ends a root flow, and nothing at the root retries,
+  tolerates or handles it, the root completes `success` with the failure's
+  result: a sequential container that fails on a recovered child leaves
+  the root flow green, while an inner flow that it ends stays failed
+  ([FX-33](execution.md#fx-33)). A failed parallel container drops the
+  mark, since its failure comes from a child that did not recover.
 - **Evidence:** `worker_flow.rs:2006-2047` (persisted completion),
   `:2135-2150`, `:2144` (parent notification), `:940-1035`, `:1018-1035`
   (parallel filtering and persisted-status query), `:1138-1192` (sequential
-  decision).
+  decision). The recovered mark at v1.862.0:
+  `backend/windmill-worker/src/worker_flow.rs:1113-1116 @ v1.862.0` (a
+  failed parallel container drops it), `:1913-1932 @ v1.862.0`,
+  `:2122-2127 @ v1.862.0` (a root flow is stored `success`),
+  `:2246-2268 @ v1.862.0` (the child's notification carries it).
 - **Conformance:** [CF-V1/a to CF-V1/c](conformance.md#cf-v1)
 - **Revision 2026-10-29 (SC4, recordings of milestone N3c):** recorded as
   stated, for loops and `branchall` (fixture
@@ -2784,6 +2858,17 @@ defined in the [index](README.md#legend).
   `c-par`, oracle run 40858228112): the sequential containers failed with
   `[{"recover":true}]` after their first child, the parallel ones succeeded
   with both children's `{"recover":true}`. [Q-CF-1](#q-cf-1) is answered.
+- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):**
+  the sequential half changed at the root (1.827.0, "let recover: true from
+  the error handler turn nested failures green", and 1.855.0, "report a
+  failed flow unless its failure module succeeded"; which release brought
+  which part is inferred). Re-recorded on CE v1.862.0 (fixture
+  `conformance/flows/control-flow/cf-v1`, oracle run 42299716256): in
+  runs `a` and `c-seq` the sequential container still records `Failure`
+  with `[{"recover":true}]` after its first child, and the root's own
+  handler does not run, but the root flow now ends `success` with that
+  array. Runs `b` and `c-par` are unchanged. The split between sequential
+  and parallel counting is re-verified at v1.862.0.
 
 <a id="cf-v2"></a>
 ### CF-V2 · Optimized empty containers bypass the all-iterations stop predicate
@@ -3069,7 +3154,10 @@ These are proposals made while studying the behaviour. They bind nothing.
   previous iteration's result, collapsed, as child flows and as a while
   loop, and ends as a skipped identity with that result; a parallel loop
   evaluates it once ([CF-21/a to CF-21/c](conformance.md#cf-21)). Status:
-  closed.
+  closed. **Re-answered 2026-11-06 (retarget to v1.862.0):** at v1.862.0 a
+  loop evaluates its `skip_if` once, when it is entered, sequential or
+  parallel; the same runs, re-recorded on CE v1.862.0 (oracle run
+  42299716256), ran every iteration ([CF-21](#cf-21)). Status: closed.
 <a id="q-cf-7"></a>
 - **Q-CF-7** · affects [CF-22](#cf-22) · **Answered 2026-10-29 (SC4).**
   The artefact is real: milestone NI's run `iter_parent` of fixture

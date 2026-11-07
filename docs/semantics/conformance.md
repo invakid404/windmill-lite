@@ -57,14 +57,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 19 | 0 | 0 |
-| [Flow execution](#execution) | 167 | 112 | 54 | 1 | 0 | 153 | 0 | 1 |
+| [Flow execution](#execution) | 172 | 113 | 58 | 1 | 0 | 158 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 197 | 130 | 65 | 0 | 2 | 183 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
 | [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1061 | 734 | 310 | 8 | 9 | 674 | 0 | 7 |
+| **Total** | 1066 | 735 | 314 | 8 | 9 | 679 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -220,9 +220,10 @@ Findings: [openflow.md](openflow.md).
   - **Given:** a module value `{type: branchall, branches: [{modules: []}]}`,
     deployed.
   - **Expect:** after deploy the value is
-    `{"type":"branchall","branches":[{"expr":"","modules":[],"skip_failure":true,"parallel":true}],"parallel":true}`
+    `{"type":"branchall","branches":[{"expr":"","modules":[],"skip_failure":false,"parallel":true}],"parallel":true}`
     (key order not significant). For-loop defaults: see OF-3/a.
-  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `ba_shape`, oracle run 41000318656: `flows/get` after the dependency job returned exactly the value above (deployment evidence, checked by the batch manifest), and the flow then returned `1`.
+  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `ba_shape`, oracle run 42299716256 (CE v1.862.0): `flows/get` after the dependency job returned exactly the value above (deployment evidence, checked by the batch manifest), and the flow then returned `1`.
+  - **Correction 2026-11-06 (CE v1.862.0):** the branch's `skip_failure` was `true` at v1.767.0 (oracle run 41000318656); since 1.852.0 an absent branch flag is stored `false` ([OF-6](openflow.md#of-6)).
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -255,9 +256,13 @@ preview for the raw case ([Q-OF-1](openflow.md#q-of-1)).
   - **Given:** module `ba` = `branchall`, `parallel: false`, branches
     `[[f], [r]]`, where `f` is a Bun rawscript that throws `new Error("b")` and
     `r` returns `2`; no `skip_failure` on either branch.
-  - **Expect:** deployed → success, `[ERR("b"), 2]`; preview → failure,
-    `[ERR("b")]` (branch 2 never runs).
-  - **Recorded:** deployed: [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `f7_ba`, oracle run 41000318656, with the stored flag `true` in `flows/get`; preview: [`flows/openflow/of-drivers`](../../conformance/flows/openflow/of-drivers) run `preview_absent` (its `ba` part, a driver step on two workers), oracle run 41003988171. The errors also carry `step_id`, which `ERR` does not compare.
+  - **Expect:** deployed → failure, `[ERR("b")]`; preview → failure,
+    `[ERR("b")]` (branch 2 never runs in either).
+  - **Correction 2026-11-06 (CE v1.862.0):** deployed, the case expected
+    success with `[ERR("b"), 2]`, which v1.767.0 gave (oracle run
+    41000318656, the stored flag `true`). Since 1.852.0 deployment stores
+    an absent branch flag as `false` ([OF-7](openflow.md#of-7)).
+  - **Recorded:** deployed: [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `f7_ba`, oracle run 42299716256 (CE v1.862.0), with the stored flag `false` in `flows/get`; preview: [`flows/openflow/of-drivers`](../../conformance/flows/openflow/of-drivers) run `preview_absent` (its `ba` part, a driver step on two workers), oracle run 41003988171. The errors also carry `step_id`, which `ERR` does not compare.
 - **OF-7/d** · oracle-observed · controls
   - **Given:** each of OF-7/a–c with the flag explicitly `false`, then
     explicitly `true`.
@@ -1963,6 +1968,20 @@ array recovers.
   - **Given:** as FX-33/c, but the failure module returns `[true,false]`.
   - **Expect:** `expect.success = false`, `expect.result = [true,false]`.
   - **Recorded:** run `array_two`.
+- **FX-33/h** · oracle-observed · A root flow that a recovered child's failure ends succeeds.
+  - **Given:** `f/demo/recover` = `[a: bun: throw new Error("x")]` with a
+    handler `bun(v): return v`, `v = "flow_input.ret"`; the root flow
+    `[s: flow f/demo/recover]` with `ret = "flow_input.ret"`, no handler of
+    its own, run with `{"ret": {"recover": true, "v": 1}}`.
+  - **Expect:** the child's handler recovers, so the child's job succeeds,
+    but `s`'s module entry is `Failure`; the root has nothing that handles
+    the failure, and the failure ends it, so the root completes
+    `{status: "success", result: {"v": 1, "recover": true}}`.
+  - **Recorded:** [`flows/execution/fx-33`](../../conformance/flows/execution/fx-33) run `parent_view`, oracle run 42299716256 (CE v1.862.0).
+  - **Correction 2026-11-06 (CE v1.862.0):** at v1.767.0 the root failed
+    with the same result (oracle run 40685766017, the finding's parent
+    view); since 1.827.0 the failure carries a recovered mark that turns a
+    root flow it ends green ([FX-33](execution.md#fx-33)).
 
 <a id="fx-34"></a>
 ### FX-34 · `failure_module` inside inline bodies runs at the innermost level
@@ -2053,23 +2072,25 @@ each `:` and `,`, keys shorter first, then by bytes.
   - **Given:** a successful result `{"windmill_headers": {}, "result": null}`.
   - **Expect:** HTTP 204 with an empty body and no content type.
   - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `headers_null`, oracle run 40794872025.
-- **FX-36/h** · oracle-observed · later · An array of five is read by
-  position.
+- **FX-36/h** · oracle-observed · later · An array of five is no metadata.
   - **Given:** `[a: bun: return [201, null, null, null, 7]]`.
   - **Expect:** the flow succeeds with that array as its result;
-    run-and-wait answers HTTP 201, content type `application/json`, body
-    `7`: the elements are the status code, the content type, the headers,
-    the transfer encoding and the result, in that order.
-  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `array`, oracle run 40798097155.
+    run-and-wait answers HTTP 200, content type `application/json`, with
+    the whole array as the body, `[201, null, null, null, 7]` (the stored
+    value's `jsonb` text): only an object is read as response metadata.
+  - **Correction 2026-11-06 (CE v1.862.0):** at v1.767.0 the array was read
+    by position, and run-and-wait answered HTTP 201 with the body `7`
+    (oracle run 40798097155). Since 1.813.0 an array is never decoded
+    ([FX-36](execution.md#fx-36)).
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `array`, oracle run 42299716256 (CE v1.862.0).
 - **FX-36/i** · source-derived · later · Any other array, or an alias given
   twice, is no metadata.
   - **Given:** successful results `[201, null, null, null]`,
     `[201, null, null, null, 7, 8]`, `["201", null, null, null, 7]` and
     `{"wm_status_code": 201, "windmill_status_code": 202}`.
-  - **Expect:** each fails to decode (a wrong length, leftover elements, a
-    string status code, a duplicate field), so each is answered HTTP 200
-    with the whole result as the body, for example
-    `[201, null, null, null]`.
+  - **Expect:** none is metadata (an array is never decoded; the object
+    gives a field twice), so each is answered HTTP 200 with the whole
+    result as the body, for example `[201, null, null, null]`.
 - **FX-36/j** · oracle-observed · later · A content type unquotes a string
   result.
   - **Given:** `[a: bun: return {windmill_content_type: "text/plain",
@@ -2120,6 +2141,34 @@ each `:` and `,`, keys shorter first, then by bytes.
     run `early`, oracle run 40794872025: run-and-wait answered HTTP 200 with
     the body `1` about 164 ms after the submission, and the flow completed
     with `2` after about 2.4 s.
+- **FX-37/b** · oracle-observed · A script step inside a branch answers early.
+  - **Given:** a deployed flow with `early_return: "a"` and `[bo:
+    branchone(branches: [{expr: "true", modules: [a: bun: return 1]}],
+    default: []), b: bun: await sleep(2000); return 2]`; run-and-wait.
+  - **Expect:** run-and-wait answers HTTP 200 with the body `1` while `b`
+    still sleeps; the flow completes with result `2`.
+  - **Recorded:** [`flows/execution/fx-37-branches`](../../conformance/flows/execution/fx-37-branches) run `script_in_branch`, oracle run 42299716256 (CE v1.862.0).
+- **FX-37/c** · oracle-observed · A loop inside a branch answers early (1.835.0).
+  - **Given:** as FX-37/b with the branch's module `l: forloopflow(iterator:
+    [1, 2], parallel: false, modules: [x: bun(v): return v])`, `v =
+    "flow_input.iter.value"`, and `early_return: "l"`.
+  - **Expect:** once `l` completes, run-and-wait answers HTTP 200 with
+    `l`'s array assembled from its children's results, the compact body
+    `[1,2]`, while `b` still sleeps; the flow completes with result `2`.
+    `l`'s success is read from its entry in the branch's flow job.
+  - **Recorded:** [`flows/execution/fx-37-branches`](../../conformance/flows/execution/fx-37-branches) run `loop_in_branch`, oracle run 42299716256 (CE v1.862.0).
+- **FX-37/d** · oracle-observed · A step in a branch that does not run gives the final result.
+  - **Given:** as FX-37/b with the branch's predicate `"false"`, `default:
+    [d: bun: return 3]` and `early_return: "a"`.
+  - **Expect:** `a` never runs, so run-and-wait answers after the run
+    completes, HTTP 200 with the flow's final result `2`.
+  - **Recorded:** [`flows/execution/fx-37-branches`](../../conformance/flows/execution/fx-37-branches) run `untaken_branch`, oracle run 42299716256 (CE v1.862.0).
+- **FX-37/e** · oracle-observed · An empty loop inside a branch gives the final result.
+  - **Given:** as FX-37/c with the iterator `[]`.
+  - **Expect:** `l` completes with no child job, so its success cannot be
+    read and run-and-wait answers after the run completes, HTTP 200 with
+    the flow's final result `2`.
+  - **Recorded:** [`flows/execution/fx-37-branches`](../../conformance/flows/execution/fx-37-branches) run `empty_loop`, oracle run 42299716256 (CE v1.862.0).
 
 <a id="fx-38"></a>
 ### FX-38 · Cancellation
@@ -2145,12 +2194,13 @@ each `:` and `,`, keys shorter first, then by bytes.
   - **Expect:** `{status: "canceled", success: false, result: {"error":
     {"message": "Job canceled: r by u", "name": "Canceled", "reason": "r",
     "canceler": "u"}}}` well before the 30 s; `a` succeeded. `b`'s job
-    exists (kind `flow`), completed with status `failure` and result
+    exists (kind `flow`), completed with status `canceled` and result
     `{"error": {"message": "Job canceled: r by u", "name": "Canceled",
     "reason": "r", "canceler": "u"}}`, and has no child job: `c` never runs.
     `b`'s module status is `Failure`. With `b` a Bun step: its `script` job
     ends the same way without running.
-  - **Recorded:** [`flows/execution/fx-38-pickup`](../../conformance/flows/execution/fx-38-pickup) runs `subflow`, `bun` and `retried`, oracle run 40994947681, each canceled 4.5 s after submission by the harness (canceler `admin`, its own reason): as expected in `subflow` and `bun`. `subflow`'s `b` job still holds its own flow status with `c` listed and no job, which a walker of the run reports as not run ([OR-11](oracle.md#or-11)). `retried`, a `flow` step `b` with a 30 s retry delay canceled while the delay runs, ends the same way: the second subflow job fails at pickup with the `Canceled` value and starts nothing, and the failed first attempt stays listed.
+  - **Recorded:** [`flows/execution/fx-38-pickup`](../../conformance/flows/execution/fx-38-pickup) runs `subflow`, `bun` and `retried`, oracle run 40994947681, each canceled 4.5 s after submission by the harness (canceler `admin`, its own reason): as expected in `subflow` and `bun`. `subflow`'s `b` job still holds its own flow status with `c` listed and no job, which a walker of the run reports as not run ([OR-11](oracle.md#or-11)). `retried`, a `flow` step `b` with a 30 s retry delay canceled while the delay runs, ends the same way: the second subflow job fails at pickup with the `Canceled` value and starts nothing, and the failed first attempt stays listed. Re-recorded on CE v1.862.0, oracle run 42299716256, with the same outcome except `b`'s job status.
+  - **Correction 2026-11-06 (CE v1.862.0):** `b`'s job was stored `failure` at v1.767.0 (oracle run 40994947681); at v1.862.0 the completion keeps the cascade's cancel flag, and the job is stored `canceled` ([FX-38](execution.md#fx-38)). The same holds for `b` in [`flows/execution/fx-23`](../../conformance/flows/execution/fx-23) run `canceled_sleep`, a Bun step waiting on a 60 s sleep.
 
 <a id="fx-39"></a>
 ### FX-39 · `suspend` / approval
@@ -3424,7 +3474,9 @@ Findings: [control-flow.md](control-flow.md).
     once.
   - **Recorded:** [`flows/control-flow/cf-16`](../../conformance/flows/control-flow/cf-16) run `b`, oracle run 40858228112: one handler job, in iteration 0's child flow; the loop failed with `[{"handled":1}]` and the flow's own handler did not run.
 - **CF-16/c** · oracle-observed · Recovery counting.
-  - **Given / Expect:** as [CF-V1/a to CF-V1/c](#cf-v1).
+  - **Given / Expect:** as [CF-V1/a to CF-V1/c](#cf-v1): a sequential
+    container counts a recovered child as failed, though a root flow that
+    its failure ends succeeds; a parallel one counts it as succeeded.
   - **Recorded:** as CF-V1/a to CF-V1/c (fixture [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1)).
 - **CF-16/d** · oracle-observed · Handler id per representation.
   - **Given / Expect:** as [CF-V4/a and CF-V4/b](#cf-v4).
@@ -3622,26 +3674,34 @@ results.a`, run with input `{"v": 7}`. "Lists" refers to a status entry's
 
 **Scope:** later · **Finding:** [CF-21](control-flow.md#cf-21)
 
-- **CF-21/a** · oracle-observed · A loop's `skip_if` is re-evaluated mid-loop ([Q-CF-6](control-flow.md#q-cf-6)).
+- **CF-21/a** · oracle-observed · A loop's `skip_if` is evaluated once, not mid-loop ([Q-CF-6](control-flow.md#q-cf-6)).
   - **Given:** by path, top level (root `flow`, so the loop collapses).
     `a: ret(0)`; forloop over `[1,2,3]` with
     `skip_if: {expr: "previous_result == 2"}` and body
     `[ret(x) x = flow_input.iter.value]`.
-  - **Expect:** iteration 0 runs (previous 0), iteration 1 runs
-    (previous 1), then the skip check sees previous 2 and skips: the loop
-    step's result is `2`.
-  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) run `skip_mid`, oracle run 40852609901: the loop step ended as an identity job with the argument `{"previous_result": 2}` and result `2`; the partial array is not kept.
-- **CF-21/b** · oracle-observed · Child-flow iterations and a while loop re-evaluate it too.
+  - **Expect:** the predicate is evaluated when the loop is entered, where
+    `previous_result` is `0`, and not again: every iteration runs, the loop
+    step is not skipped and its result is `[1, 2, 3]`, which is the flow's
+    result.
+  - **Correction 2026-11-06 (CE v1.862.0):** the case expected the
+    predicate to be evaluated again before each iteration, so that the loop
+    ended as a skipped identity with result `2`, as v1.767.0 did (oracle
+    run 40852609901). Since 1.812.0 it is evaluated once ([CF-21](control-flow.md#cf-21)).
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) run `skip_mid`, oracle run 42299716256 (CE v1.862.0).
+- **CF-21/b** · oracle-observed · Child-flow iterations and a while loop evaluate it once too.
   - **Given:** as CF-21/a with the two-step body `[b: ret(x) x =
     flow_input.iter.value, c: ret(x) x = results.b]` (each iteration a child
     flow); and `a: ret(0)` then `l: whileloopflow(modules: [b: ret(x) x =
     flow_input.iter.index + 1])` with the same `skip_if` and
     `stop_after_if: {expr: "result >= 5"}`.
-  - **Expect:** both give `2`: before iteration 2 the `skip_if` sees the
-    previous iteration's result (the child flow's final result, `2`; the
-    while loop's `2`), and the loop step ends as a skipped identity; the
-    while loop's `stop_after_if` never fires.
-  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `skip_mid_flows` and `skip_mid_while`, oracle run 40852609901.
+  - **Expect:** neither loop is skipped: the child-flow loop gives
+    `[1, 2, 3]` (each child flow's final result), and the while loop runs
+    until its `stop_after_if` breaks it after the fifth iteration and gives
+    `[1, 2, 3, 4, 5]`.
+  - **Correction 2026-11-06 (CE v1.862.0):** the case expected both to end
+    as a skipped identity with result `2`, as v1.767.0 did (oracle run
+    40852609901).
+  - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `skip_mid_flows` and `skip_mid_while`, oracle run 42299716256 (CE v1.862.0).
 - **CF-21/c** · oracle-observed · A parallel loop evaluates its `skip_if` once.
   - **Given:** `a: ret(0)`; a parallel forloop over `[1,2,3]` with
     `skip_if: {expr: "previous_result != 0"}` and body `[b: ret(x) x =
@@ -4201,8 +4261,15 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
   - **Given:** the flow handler returns exactly `{"recover":true}`; a
     sequential loop over `[1,2]` whose body always fails, explicit
     `skip_failures: false`.
-  - **Expect:** status failure, result `[{"recover":true}]`.
-  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) run `a`, oracle run 40858228112; the handler ran in the first iteration only, and the root's own handler did not run.
+  - **Expect:** the loop stops after its first child and records
+    `Failure` with `[{"recover":true}]`; the root's own handler does not
+    run; the root flow, which that failure ends, completes with status
+    success and result `[{"recover":true}]`.
+  - **Correction 2026-11-06 (CE v1.862.0):** the case expected the flow to
+    fail with that result, as v1.767.0 did (oracle run 40858228112); since
+    1.827.0 a root flow that a recovered failure ends succeeds
+    ([CF-V1](control-flow.md#cf-v1)).
+  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) run `a`, oracle run 42299716256 (CE v1.862.0); the handler ran in the first iteration only, and the root's own handler did not run.
 - **CF-V1/b** · oracle-observed · A parallel loop counts recovered children as succeeded.
   - **Given:** as CF-V1/a with `parallel: true`.
   - **Expect:** status success, result `[{"recover":true},{"recover":true}]`.
@@ -4211,8 +4278,10 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
   - **Given:** repeat CF-V1/a and CF-V1/b with a sequential and a parallel
     branchall whose branches always fail and explicitly set
     `skip_failure: false`.
-  - **Expect:** as CF-V1/a and CF-V1/b respectively.
-  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) runs `c-seq` and `c-par`, oracle run 40858228112.
+  - **Expect:** as CF-V1/a and CF-V1/b respectively: the sequential
+    `branchall` records `Failure` with `[{"recover":true}]` and the root
+    succeeds with it; the parallel one succeeds with both results.
+  - **Recorded:** [`flows/control-flow/cf-v1`](../../conformance/flows/control-flow/cf-v1) runs `c-seq` (oracle run 42299716256, CE v1.862.0, where the root now succeeds, as for CF-V1/a) and `c-par` (oracle run 40858228112).
 
 <a id="cf-v2"></a>
 ### CF-V2 · Optimized empty containers bypass the all-iterations stop predicate
@@ -4398,15 +4467,17 @@ O1 is not the only point where pre-database values matter: a step can compute so
 
 **Scope:** later · **Finding:** [JE-2](expressions.md#je-2)
 
-- **JE-2/a** · oracle-observed · a CPU-bound loop outlasts the zombie-flow monitor (slow)
-  - **Given:** `x = (() => { while (true) {} })()`; allow at least 75 s.
-  - **Expect:** on the oracle the flow is **canceled** after about 60 s, before `b` runs: status `canceled`, error `{"name":"Canceled","canceler":"monitor","reason":…,"message":…}`, whose reason and message (times, worker names) are not compared. The evaluator itself would report `took too long to execute (>20000ms)` after its third attempt, about 70 s in, but the zombie-flow monitor cancels the flow first ([JE-2](expressions.md#je-2)). The outcome depends on that timing.
+- **JE-2/a** · oracle-observed · a CPU-bound loop at the first module ends in the timeout error (slow)
+  - **Given:** `x = (() => { while (true) {} })()`, the transform of the lifted flow's only module `b`; allow at least 75 s.
+  - **Expect:** at about 60 s the zombie-flow monitor puts the flow back in the queue, which does not stop the evaluation; after the third attempt, about 70 s in, `b` fails with ``{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `(() => { while (true) {} })()`:\nThe expression evaluation `(() => { while (true) {} })()` took too long to execute (>20000ms)"}`` and the flow fails with that error ([JE-2](expressions.md#je-2)). The outcome depends on timing.
   - **Correction 2026-10-28:** the case expected `b` to fail with the timeout message; the monitor's 60 s threshold is shorter than the three attempts.
-  - **Recorded:** [`exprs/je-2.yaml`](../../conformance/exprs/je-2.yaml) case `JE-2/a`, oracle run 40688787344.
-- **JE-2/b** · oracle-observed · later · a root flow hanging in its first transition is canceled, not restarted (slow)
+  - **Correction 2026-11-06 (CE v1.862.0):** at v1.767.0 the monitor canceled the flow after about 60 s (status `canceled`, canceler `monitor`, oracle run 40688787344), because it could not parse the status; at v1.862.0 it parses it and puts a flow that has not started back in the queue, so the timeout message surfaces, as first expected.
+  - **Recorded:** [`exprs/je-2.yaml`](../../conformance/exprs/je-2.yaml) case `JE-2/a`, oracle run 42299716256 (CE v1.862.0).
+- **JE-2/b** · oracle-observed · later · a root flow hanging in its first transition is put back in the queue, not canceled (slow)
   - **Given:** `[a: bun(x): return x]` with `x = (queueMicrotask(function f() { queueMicrotask(f) }), 1)` on `a`, the first module (a job chain that never ends, [JE-51](expressions.md#je-51)); run by path; allow at least 75 s.
-  - **Expect:** status `canceled` after about 60 s, error `{"name":"Canceled","canceler":"monitor","reason":…,"message":…}` with a reason that begins `Flow <id> (<base url>/run/<id>?workspace=<w>) was cancelled because it was hanging in between 2 steps.`; `a` never runs. The monitor does not restart the flow, although its first module is still waiting ([JE-2](expressions.md#je-2)): the root job keeps its first start time.
-  - **Recorded:** [`flows/je/je-51-chain`](../../conformance/flows/je/je-51-chain) run `chain` (the long session), oracle run 41000318656: canceled by `monitor` 60.8 s after submission, `a` not run, the root's `started_at` unchanged; the reason and message are masked in the committed recording (times, worker details).
+  - **Expect:** at about 60 s the monitor puts the flow back in the queue (its first module is still waiting) and clears its start time; the evaluation goes on, and after the third attempt, about 70 s in, `a` fails with ``{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `(queueMicrotask(function f() { queueMicrotask(f) }), 1)`:\nThe expression evaluation `(queueMicrotask(function f() { queueMicrotask(f) }), 1)` took too long to execute (>20000ms)"}``, without running, and the flow fails with `ExecutionErr` ([JE-2](expressions.md#je-2)).
+  - **Correction 2026-11-06 (CE v1.862.0):** the case expected the flow to be canceled by `monitor` after about 60 s, keeping its first start time, as v1.767.0 did (oracle run 41000318656); at v1.862.0 the monitor parses the status and takes its requeue branch.
+  - **Recorded:** [`flows/je/je-51-chain`](../../conformance/flows/je/je-51-chain) run `chain` (the long session), oracle run 42299716256 (CE v1.862.0): the flow failed about 70.2 s after submission, `a`'s job was created and failed at the end, and the root's start time was cleared; the root's error message is masked in the committed recording, as it was for the monitor's text.
 
 <a id="je-3"></a>
 ### JE-3 · An evaluation is capped at 128 MiB of heap

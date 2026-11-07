@@ -1,12 +1,17 @@
-# CF-21/a (Q-CF-6): the collapsed top-level loop re-evaluates its skip_if
-# before every iteration, with the previous iteration's result as
-# previous_result; before iteration 2 it sees 2, and the loop step ends as a
-# skipped identity whose result is 2, the partial array lost.
+# CF-21/a (Q-CF-6): the collapsed top-level loop evaluates its skip_if once,
+# when it is entered, where previous_result is a's 0, so it is not skipped;
+# on CE v1.862.0 the predicate is not evaluated again between iterations,
+# so the 2 that iteration 1 returns never skips the loop, and every
+# iteration runs. On CE v1.767.0 it was re-evaluated before each iteration,
+# and the loop ended as a skipped identity with result 2.
 spec: [CF-21/a]
 target: f/cf21/skip_mid
 expect:
   status: success
-  result: 2
+  result: [1, 2, 3]
   steps:
     "m:a": {status: success, args: {x: 0}, result: 0}
-    "m:l": {status: success, args: {previous_result: 2}, result: 2, skipped: true}
+    "m:l": {status: success, result: [1, 2, 3]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:l/i:2/m:b": {status: success, args: {x: 3}, result: 3}

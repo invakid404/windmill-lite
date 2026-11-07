@@ -1,0 +1,33 @@
+summary: "FX-37/d: early return names a step in a branch that does not run"
+value:
+  modules:
+    - id: bo
+      value:
+        type: branchone
+        branches:
+          - expr: "false"
+            modules:
+              - id: a
+                value:
+                  type: rawscript
+                  content: "!inline a.ts"
+                  language: bun
+                  input_transforms: {}
+        default:
+          - id: d
+            value:
+              type: rawscript
+              content: "!inline d.ts"
+              language: bun
+              input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+  early_return: a
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

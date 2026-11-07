@@ -151,6 +151,26 @@
       "reason": "source-derived; no E3e run records it: the arrays of other lengths, the string status code and the alias given twice, which decode to no metadata, are FX-36's HTTP part, which F7b, the HTTP adapter, implements"
     },
     {
+      "case": "FX-37/b",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where a script step inside the chosen branch answers early; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run script_in_branch), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
+      "case": "FX-37/c",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where a loop inside the chosen branch answers early with its array; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run loop_in_branch), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
+      "case": "FX-37/d",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where a step in a branch that does not run gives the flow's final result; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run untaken_branch), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
+      "case": "FX-37/e",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where an empty loop inside a branch gives the flow's final result; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run empty_loop), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
       "case": "OR-24/e",
       "milestone": "none",
       "reason": "a script's own preprocessor (WR-11, later), which no run of this batch records; oracle/key-order run pre_keys records the flow-preprocessor variant instead. The reference's revision SC3 corrected the case: a plain run of the script through the run API requests the preprocessor too, not only a trigger, so the harness can record it, and docs/design/README.md requests the recording from batch E3f; no milestone of ADR 0012 implements script preprocessors. Recorded by batch E3f (conformance/flows/oracle/preprocessor, run script_keys; internal/oracle/testdata/batches/e3f.json)."

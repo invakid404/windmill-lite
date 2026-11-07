@@ -1,0 +1,14 @@
+# FX-37/b: early_return names a, a script step inside the chosen branch of
+# a branchone: run-and-wait answers a's 1 while b still sleeps; the flow
+# then completes with b's 2.
+spec: [FX-37/b]
+target: f/wl_fx37b/script_in_branch
+submit: run_wait_result
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:bo": {status: success, result: 1}
+    "m:bo/b:0/m:a": {status: success, result: 1}
+    "m:b": {status: success, result: 2}
+  response: {status: 200, content_type: application/json, body: '1'}
