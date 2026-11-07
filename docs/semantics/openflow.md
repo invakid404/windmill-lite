@@ -10,9 +10,13 @@ resolution to [expressions.md](expressions.md), language runtimes to
 oracle procedures to [oracle.md](oracle.md), and the licence map to
 [licensing.md](licensing.md).
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`),
+re-pinned from `v1.767.0` on 2026-11-06 ([index](README.md#pinned-version)).
+Source pointers are `path:line` relative to the Windmill repository root,
+at `v1.862.0`. A finding whose tag line ends `verified at v1.767.0 only`
+has not been re-checked at `v1.862.0` yet: its pointers are at `v1.767.0`
+unless they say `@ v1.862.0`. Status, scope and confidence tags are
+defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `OF-` OpenFlow model and validation; `SY-`
 sync-folder layout; `PA-` prior art (windmill-ts). `OF-Vn` and `SY-Vn` findings
@@ -115,7 +119,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-1"></a>
 ### OF-1 · Two layers: documented schema and effective decoder
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `openflow.openapi.yaml` is the **field inventory** and naming source. Its
@@ -142,7 +146,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-2"></a>
 ### OF-2 · Deploy-time validation: a typed decode plus two checks
 
-**Scope:** core · **Confidence:** high (validation); high (repeated ids in `results` reads, source-traced); medium (repeated ids in `early_return`) · **Status:** confirmed; drafted (repeated ids at run time)
+**Scope:** core · **Confidence:** high (validation); high (repeated ids in `results` reads, source-traced); medium (repeated ids in `early_return`) · **Status:** confirmed; drafted (repeated ids at run time) · verified at v1.767.0 only
 
 - **Rule:** When a flow is created or updated through the API, the server:
   1. decodes `value` with the effective decoder, in two stages (below);
@@ -252,7 +256,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-3"></a>
 ### OF-3 · Raw, full and lite forms of a flow value
 
-**Scope:** core · **Confidence:** high (the three forms; differences 1–3 and 5; which form a run reads: oracle-observed); medium (difference 4 on full-form runs) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the three forms; differences 1–3 and 5; which form a run reads: oracle-observed); medium (difference 4 on full-form runs) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   1. **Raw.** On create or update the submitted JSON is stored at once in both
@@ -378,7 +382,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-4"></a>
 ### OF-4 · Unknown fields are ignored; `notes` and `groups` are editor-only
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - No type rejects unknown fields. A name the shared value decoder does not
@@ -400,7 +404,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-5"></a>
 ### OF-5 · Module envelope (`FlowModule`) fields, types and defaults
 
-**Scope:** core (envelope parse; field semantics are in execution.md and control-flow.md) · **Confidence:** high (types); medium (run-time consequence of random ids) · **Status:** confirmed
+**Scope:** core (envelope parse; field semantics are in execution.md and control-flow.md) · **Confidence:** high (types); medium (run-time consequence of random ids) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A module is `{id, value, ...}` with these fields:
 
@@ -443,7 +447,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-6"></a>
 ### OF-6 · `forloopflow`, `whileloopflow`, `branchone`, `branchall` defaults
 
-**Scope:** core · **Confidence:** high (the deployed `branchall` shape: oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the deployed `branchall` shape: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
 
@@ -468,7 +472,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
 
-**Scope:** core · **Confidence:** high (the split and the exact result arrays, deployed and preview: oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the split and the exact result arrays, deployed and preview: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The split covers **`forloopflow.skip_failures`** and **`branchall` branch
@@ -514,7 +518,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-8"></a>
 ### OF-8 · `whileloopflow.parallel` is lost on deploy
 
-**Scope:** later · **Confidence:** high (oracle-observed, OF-8/a) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed, OF-8/a) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The schema documents `parallel` and `parallelism` on `whileloopflow`, and
@@ -538,7 +542,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-9"></a>
 ### OF-9 · Module value kinds (`value.type`)
 
-**Scope:** core (rawscript, script, flow, forloopflow, whileloopflow, branchone, branchall, identity); out (aiagent) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (rawscript, script, flow, forloopflow, whileloopflow, branchone, branchall, identity); out (aiagent) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Accepted `type` values are `rawscript`, `script`, `flow`,
   `forloopflow`, `whileloopflow`, `branchone`, `branchall`, `identity`,
@@ -577,7 +581,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-10"></a>
 ### OF-10 · InputTransform parsing: ordinary and restricted slots
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - An ordinary InputTransform (step inputs, `iterator`, `sleep`,
@@ -602,7 +606,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-11"></a>
 ### OF-11 · Retry fields and ranges
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `retry` is
@@ -626,7 +630,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-12"></a>
 ### OF-12 · `delete_after_use` is accepted but not persisted
 
-**Scope:** out · **Confidence:** high · **Status:** confirmed
+**Scope:** out · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `delete_after_use` (module and flow level) is decoded but never
   serialised, so it is lost on deploy ([OF-3](#of-3)). Its replacement is
@@ -643,7 +647,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-13"></a>
 ### OF-13 · Languages
 
-**Scope:** core (bun, bunnative, nativets); later (other languages) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (bun, bunnative, nativets); later (other languages) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `language` values (lower-case): `deno`, `bun`, `bunnative`, `nativets`,
@@ -667,7 +671,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-14"></a>
 ### OF-14 · Script hash format
 
-**Scope:** later · **Confidence:** high (format, deploy, the hash's inputs); medium (the run-time lookup and its message, read not traced) · **Status:** drafted
+**Scope:** later · **Confidence:** high (format, deploy, the hash's inputs); medium (the run-time lookup and its message, read not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - `script.hash` pins a specific deployed script version.
@@ -727,7 +731,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-15"></a>
 ### OF-15 · Inline-script locks on deploy
 
-**Scope:** core · **Confidence:** high (conditions and failure behaviour; header format per OF-V6) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (conditions and failure behaviour; header format per OF-V6) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** For each inline rawscript the dependency job reaches (main list,
   loop and branch bodies, `failure_module`, `preprocessor_module`, AI-agent
@@ -781,7 +785,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-16"></a>
 ### OF-16 · Flow-level fields (`FlowValue`) and flow metadata
 
-**Scope:** core (modules, failure_module, preprocessor_module, skip_expr, flow_env, flow-level timeout); later (early_return response, same_worker rejection, caching); out (queue and placement controls) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (modules, failure_module, preprocessor_module, skip_expr, flow_env, flow-level timeout); later (early_return response, same_worker rejection, caching); out (queue and placement controls) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only, except the flow-level `timeout` and a `concurrent_limit` of 0 or less (re-checked at v1.862.0)
 
 - **Rule:**
   - **`FlowValue` fields:** `modules` (required), `failure_module`,
@@ -794,9 +798,21 @@ the effective decoder decides acceptance (OF-1).
     (string), `cache_ttl` (u32), `cache_ignore_s3_path`, `early_return`
     (string), `priority` (i16), `chat_input_enabled`, `flow_env` (map of name
     to raw JSON; `$var:`/`$res:` references allowed), `delete_after_use`
-    (dropped, [OF-12](#of-12)), `delete_after_secs`. The schema types
+    (dropped, [OF-12](#of-12)), `delete_after_secs`, `timeout` (i32; added in
+    1.861.0, see below). The schema types
     `concurrent_limit` and `concurrency_time_window_s` as `number`; the decoder
     requires integers.
+  - **`timeout`** (at v1.862.0) is the flow run's wall-clock limit in whole
+    seconds, which the server enforces by canceling the run
+    ([FX-52](execution.md#fx-52)). The API stores it as written, a negative
+    value included; a value of 0 or less is unset when a run is pushed.
+  - **A `concurrent_limit` of 0 or less is unset** (at v1.862.0, 1.768.0):
+    wherever the concurrency settings are decoded, at the flow level and
+    on a `rawscript` or `flowscript` module, such a limit becomes absent
+    and takes `concurrency_time_window_s` with it. So the flow value stored
+    after the dependency job holds neither field. At v1.767.0 a stored `0`
+    was a limit of zero slots. CE ignores concurrency limits anyway
+    (`EE`).
   - **`failure_module` and `preprocessor_module`** are ordinary modules. The
     schema's "must have id `failure`/`preprocessor`" and "only
     script/rawscript" are **not enforced**. With no failure module, the status
@@ -816,13 +832,17 @@ the effective decoder decides acceptance (OF-1).
     `same_worker` placement is otherwise out; this rejection is later.
   - **Execution-relevant `value` fields:** `modules`, `failure_module`,
     `preprocessor_module`, `skip_expr`, `flow_env`, `early_return` (response
-    only), `cache_ttl`/`cache_ignore_s3_path` (caching) and `same_worker`.
+    only), `cache_ttl`/`cache_ignore_s3_path` (caching), `same_worker` and,
+    at v1.862.0, `timeout`.
   - **Queue and placement controls (out):** `concurrent_limit`,
     `concurrency_key`, `concurrency_time_window_s`, debouncing, `priority`,
     `preserve_step_tags`, `chat_input_enabled`, `delete_after_secs`.
   - **Flow metadata outside `value`** (also in `flow.yaml`): `summary`,
     `description`, `schema`, and:
-    - execution input: `timeout` (i32, whole-flow seconds);
+    - `timeout` (i32, whole-flow seconds): stored with the flow (a value of
+      0 or less unset at creation) and returned by the API, but at v1.862.0
+      it reaches no run, so nothing enforces it; the enforced limit is
+      `value.timeout` above;
     - placement or permission (out or later): `tag`, `dedicated_worker`,
       `on_behalf_of_email`, `visible_to_runner_only`, `ws_error_handler_muted`
       (EE);
@@ -836,14 +856,26 @@ the effective decoder decides acceptance (OF-1).
   `backend/windmill-api-jobs/src/execution.rs:290-335`;
   `backend/windmill-api/openapi.yaml:29542-29625` (`FlowMetadata`,
   `OpenFlowWPath`); `openflow.openapi.yaml:23-127, 110-112`.
-- **Conformance:** [OF-16/a–d](conformance.md#of-16); `early_return` cases are
-  under [OF-V3](conformance.md#of-v3).
+- **Evidence at v1.862.0** (the flow-level `timeout` and the concurrency
+  rule): `backend/windmill-types/src/flows.rs:304-347` (`timeout` in
+  `FlowValue`), `:131-140`, `:180-190` (the metadata `timeout` in `NewFlow` and `EditFlow`);
+  `backend/windmill-types/src/runnable_settings.rs:105-162` (a limit of 0 or
+  less unset with its window, on every decode), `:164-206` (the same for a
+  module's settings); `backend/windmill-api-flows/src/flows.rs:673-677`
+  (the metadata `timeout` normalised at creation);
+  `backend/windmill-queue/src/jobs.rs:7361-7362`, `:7988-7991` (the run's
+  limit from `value.timeout`), `:5042-5054` (CE ignores the limits);
+  `openflow.openapi.yaml` `FlowValue.timeout`.
+- **Conformance:** [OF-16/a–e](conformance.md#of-16); `early_return` cases are
+  under [OF-V3](conformance.md#of-v3); the flow-level `timeout`'s runs are
+  [FX-52](conformance.md#fx-52)'s.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** the `same_worker` pair is recorded ([OF-16/c, OF-16/d](conformance.md#of-16); fixture `conformance/flows/openflow/of-deployed`, runs `same_one` and `same_two`, oracle run 41000318656): one child succeeds with `[5]`; two children fail the root flow at pickup with name `Anyhow` and `Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:3822:13`, the form [CF-7](control-flow.md#cf-7) gives for a loop at step 0. The `early_return` fixture is recorded under [OF-V3](#of-v3).
+- **Revision 2026-11-07 (retarget to v1.862.0, the flow-level `timeout` and `concurrent_limit` re-checked):** `FlowValue` gained `timeout`, the flow run's enforced wall-clock limit (1.861.0, [FX-52](execution.md#fx-52)); the metadata `timeout` beside `value` is stored but reaches no run (recorded on CE v1.862.0: `conformance/flows/execution/fx-24` run `flow_timeout` completes its 3 s step under a metadata `timeout: 1`). A `concurrent_limit` of 0 or less is unset with its time window (1.768.0): recorded as [OF-16/e](conformance.md#of-16), whose deployed value, read back after the dependency job, holds neither field at the flow level or on the step. The rest of the finding is verified at v1.767.0 only.
 
 <a id="of-17"></a>
 ### OF-17 · Virtual trailing identity for a final sleep or suspend
 
-**Scope:** core · **Confidence:** high (construction, result preservation; which status list holds the slot: oracle-observed for a root list) · **Status:** confirmed; drafted (inline bodies get the step whichever form the root read, added 2026-10-29)
+**Scope:** core · **Confidence:** high (construction, result preservation; which status list holds the slot: oracle-observed for a root list) · **Status:** confirmed; drafted (inline bodies get the step whichever form the root read, added 2026-10-29) · verified at v1.767.0 only
 
 - **Rule:**
   - When a module list's last module has `sleep` or `suspend`, Windmill
@@ -904,7 +936,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-18"></a>
 ### OF-18 · The flow `schema` has no server-side execution semantics
 
-**Scope:** core · **Confidence:** medium (absence established by search and two traced paths, not every trigger entry point); the run by path: oracle-observed · **Status:** confirmed
+**Scope:** core · **Confidence:** medium (absence established by search and two traced paths, not every trigger entry point); the run by path: oracle-observed · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - On the examined run paths (run API, queue push, flow executor), nothing
@@ -929,7 +961,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-19"></a>
 ### OF-19 · Client-side validation is optional and schema-based
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `wmill lint` validates `flow.yaml`, `*.schedule.yaml` and
@@ -956,7 +988,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-v1"></a>
 ### OF-V1 · Decode rules include cross-kind checks, null distinctions and aliases
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - A value's recognised fields (`language`, `parallel`, `skip_failures`,
@@ -979,7 +1011,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-v2"></a>
 ### OF-V2 · `timeout` and `parallelism` restrict object payloads as well as bare numbers
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `timeout` accepts null or omission, an i32 integer, or a transform-shaped
@@ -997,7 +1029,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-v3"></a>
 ### OF-V3 · `early_return` selects an API response node
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - `FlowValue.early_return` is the string id of a flow node whose available
@@ -1029,7 +1061,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-v4"></a>
 ### OF-V4 · `pass_flow_input_directly` means different things by location
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The flow executor bypasses `input_transforms` when the enclosing
@@ -1051,7 +1083,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-v5"></a>
 ### OF-V5 · Enqueue status and worker data select flow forms separately
 
-**Scope:** core (distinguishing the deployed form; the loader's virtual-step rule); later (compatibility switches, deploy-race emulation) · **Confidence:** high (source-traced for the normal modern-worker path; the `DISABLE_FLOW_SCRIPT=true` enqueue: oracle-observed) · **Status:** confirmed
+**Scope:** core (distinguishing the deployed form; the loader's virtual-step rule); later (compatibility switches, deploy-race emulation) · **Confidence:** high (source-traced for the normal modern-worker path; the `DISABLE_FLOW_SCRIPT=true` enqueue: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Status note:** the final independent check recorded this finding as
   confirmed from source. It was also the competing claim in the
@@ -1110,7 +1142,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-v6"></a>
 ### OF-V6 · Workspace-dependency lock header and the PHP early return
 
-**Scope:** core (the loader preserves supplied lock text); later (generating workspace-dependency headers) · **Confidence:** high (source-traced; no resolver or oracle run) · **Status:** confirmed
+**Scope:** core (the loader preserves supplied lock text); later (generating workspace-dependency headers) · **Confidence:** high (source-traced; no resolver or oracle run) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** On paths that reach common lock assembly:
   - The header is absent if the workspace-dependency worker-version gate fails
@@ -1159,7 +1191,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-1"></a>
 ### SY-1 · Tree root, recognised paths and path mapping
 
-**Scope:** core (root discovery, path mapping); later (noCdToRoot) · **Confidence:** high (discovery, mapping, first-dot rule); medium (ignore list) · **Status:** confirmed
+**Scope:** core (root discovery, path mapping); later (noCdToRoot) · **Confidence:** high (discovery, mapping, first-dot rule); medium (ignore list) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Root.** The sync root is the directory holding `wmill.yaml`. The CLI
@@ -1214,7 +1246,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-2"></a>
 ### SY-2 · Script files
 
-**Scope:** core (flat layout); later (__mod layout) · **Confidence:** high (flat layout); medium (__mod layout, read only) · **Status:** confirmed
+**Scope:** core (flat layout); later (__mod layout) · **Confidence:** high (flat layout); medium (__mod layout, read only) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** A script at Windmill path `P` is up to three files:
   - `P.<ext>`, the source (extension per [SY-3](#sy-3));
@@ -1236,7 +1268,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-3"></a>
 ### SY-3 · Script language comes from the file extension
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `.script.yaml` has **no `language` field**. A path script's
   language is inferred from its source file name by **suffix tests in this
@@ -1279,7 +1311,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-4"></a>
 ### SY-4 · `.script.yaml` contents
 
-**Scope:** core (schema, lock, kind, has_preprocessor, timeout, envs); later (cache_ttl, restart_unless_cancelled); out (tag, dedicated_worker, priority, concurrency, debouncing, permissions) · **Confidence:** high (key list, the default file); medium (regeneration on push, read not traced) · **Status:** drafted
+**Scope:** core (schema, lock, kind, has_preprocessor, timeout, envs); later (cache_ttl, restart_unless_cancelled); out (tag, dedicated_worker, priority, concurrency, debouncing, permissions) · **Confidence:** high (key list, the default file); medium (regeneration on push, read not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - Keys the CLI writes on pull (an absent key means "not set"): `summary`,
@@ -1339,7 +1371,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-5"></a>
 ### SY-5 · Script locks
 
-**Scope:** core; later (JSON-mode metadata) · **Confidence:** high (YAML metadata); medium (JSON-mode metadata, read not traced) · **Status:** drafted
+**Scope:** core; later (JSON-mode metadata) · **Confidence:** high (YAML metadata); medium (JSON-mode metadata, read not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** In `.script.yaml`, `lock` is one of:
   - the string `!inline <p>.script.lock`, a path **relative to the sync root**
@@ -1404,7 +1436,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-6"></a>
 ### SY-6 · Flow folders and what a pulled `flow.yaml` contains
 
-**Scope:** core · **Confidence:** high (the pull round trip oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the pull round trip oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - A flow at path `P` is the folder `P.flow/` (default) or `P__flow/` (when
@@ -1447,7 +1479,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-7"></a>
 ### SY-7 · Inline scripts inside a flow folder
 
-**Scope:** core · **Confidence:** high · **Status:** drafted
+**Scope:** core · **Confidence:** high · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - **Reference form.** In `flow.yaml`, a rawscript's `content` is
@@ -1552,7 +1584,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-8"></a>
 ### SY-8 · Codebase scripts
 
-**Scope:** core (Bun) · **Confidence:** high (selection, CLI gate, upload); medium (bundling details, read not traced) · **Status:** drafted
+**Scope:** core (Bun) · **Confidence:** high (selection, CLI gate, upload); medium (bundling details, read not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - Codebase selection happens only for path scripts whose **inferred
@@ -1593,7 +1625,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-9"></a>
 ### SY-9 · YAML dialect
 
-**Scope:** core · **Confidence:** high (tags and library; scalar cases checked against the yaml 2.8.3 package, not end to end) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (tags and library; scalar cases checked against the yaml 2.8.3 package, not end to end) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** The CLI parses YAML with the npm `yaml` package v2 (`^2.7.0`) using
   its defaults (YAML 1.2, core schema) plus two custom scalar tags:
@@ -1629,7 +1661,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-10"></a>
 ### SY-10 · Resources and resource types
 
-**Scope:** core (value lookup); later (file and fileset resources) · **Confidence:** medium (read, not traced) · **Status:** drafted
+**Scope:** core (value lookup); later (file and fileset resources) · **Confidence:** medium (read, not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - A resource is `P.resource.yaml` with `value`, `description`,
@@ -1670,7 +1702,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-11"></a>
 ### SY-11 · Variables and secrets
 
-**Scope:** core · **Confidence:** high; medium (required fields, read not traced through the CLI's error) · **Status:** drafted
+**Scope:** core · **Confidence:** high; medium (required fields, read not traced through the CLI's error) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - A variable is `P.variable.yaml` with `value`, `is_secret`, `description`,
@@ -1713,7 +1745,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-12"></a>
 ### SY-12 · Other files a loader must recognise (and may ignore)
 
-**Scope:** later (dependencies/ and per-workspace overrides); out (the rest) · **Confidence:** medium · **Status:** confirmed
+**Scope:** later (dependencies/ and per-workspace overrides); out (the rest) · **Confidence:** medium · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Named so that a loader can classify and skip them without
   misreading them as scripts:
@@ -1749,7 +1781,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-13"></a>
 ### SY-13 · `wmill.yaml`
 
-**Scope:** core (defaultTs, nonDottedPaths, codebases, includes/excludes/extraIncludes, skip flags, no `wmill.yaml`); later (workspaces); out (the rest) · **Confidence:** high (keys, defaults, filters, no `wmill.yaml`); medium (override merging) · **Status:** drafted
+**Scope:** core (defaultTs, nonDottedPaths, codebases, includes/excludes/extraIncludes, skip flags, no `wmill.yaml`); later (workspaces); out (the rest) · **Confidence:** high (keys, defaults, filters, no `wmill.yaml`); medium (override merging) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** Keys, from the CLI's sync options and codebase types:
   - `defaultTs`: `bun` | `deno`; absent means `bun`, with a warning.
@@ -1817,7 +1849,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-14"></a>
 ### SY-14 · `wmill-lock.yaml` is a CLI cache, not part of the model
 
-**Scope:** later (optional staleness check); out (as data) · **Confidence:** medium (format read; hash inputs not traced byte for byte) · **Status:** confirmed
+**Scope:** later (optional staleness check); out (as data) · **Confidence:** medium (format read; hash inputs not traced byte for byte) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The file is `{version: v2, locks: {<key>: <sha256 hex>}}`. Keys are flat:
@@ -1842,7 +1874,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-15"></a>
 ### SY-15 · What a folder cannot supply
 
-**Scope:** core · **Confidence:** high · **Status:** drafted
+**Scope:** core · **Confidence:** high · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** These references cannot be resolved from the tree alone:
   - `script` or `flow` steps whose path is `hub/…` (an accepted `hub/` prefix,
@@ -1870,7 +1902,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-16"></a>
 ### SY-16 · Globs are minimatch 10 with default options, over the root-relative file path
 
-**Scope:** core · **Confidence:** high (options and subject, source-traced; oracle pending); medium (the bundled version: the published bundle was not inspected) · **Status:** drafted
+**Scope:** core · **Confidence:** high (options and subject, source-traced; oracle pending); medium (the bundled version: the published bundle was not inspected) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - **Library.** The CLI calls minimatch 10. Its manifest asks for
@@ -1906,7 +1938,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-17"></a>
 ### SY-17 · The filter decides file by file; a passing file pushes its whole item
 
-**Scope:** core; later (the `__mod` layout) · **Confidence:** high (source-traced; oracle pending) · **Status:** drafted
+**Scope:** core; later (the `__mod` layout) · **Confidence:** high (source-traced; oracle pending) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - The path filter of [SY-13](#sy-13) is applied to each file on its own,
@@ -1973,7 +2005,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
 
-**Scope:** core · **Confidence:** high (classification and extension list, source-traced); medium (the failing push of a `.js` file, read not traced) · **Status:** drafted
+**Scope:** core · **Confidence:** high (classification and extension list, source-traced); medium (the failing push of a `.js` file, read not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** A file under the recognised top-level directories of
   [SY-1](#sy-1) enters the push only when all of these hold:
@@ -2026,7 +2058,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-19"></a>
 ### SY-19 · Text files: a UTF-8 byte order mark is stripped, UTF-16 and UTF-32 are refused
 
-**Scope:** core · **Confidence:** high (decoder and the reference readers, source-traced; oracle pending); medium (the metadata-file outcome, read not traced) · **Status:** drafted
+**Scope:** core · **Confidence:** high (decoder and the reference readers, source-traced; oracle pending); medium (the metadata-file outcome, read not traced) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** The CLI reads every text file of the tree through one decoder:
   script sources, metadata, `flow.yaml`, inline script and lock files, lock
@@ -2097,7 +2129,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content
 
-**Scope:** core (the ordinary quoted or tagged directive path) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (the ordinary quoted or tagged directive path) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Flow push's rawscript replacement returns immediately unless `content`
@@ -2121,7 +2153,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-v2"></a>
 ### SY-V2 · Filters distinguish absent `includes` from empty `includes`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Path filtering activates when `includes` or `excludes` has entries.
@@ -2142,7 +2174,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-v3"></a>
 ### SY-V3 · Native annotation spelling and position decide the Bun runtime
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** `native` is a case-sensitive TypeScript header annotation.
   - Leading blank lines are skipped. The header region is the leading run of
@@ -2163,7 +2195,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-v4"></a>
 ### SY-V4 · Sync item paths stay relative to the working directory under `noCdToRoot`
 
-**Scope:** later · **Confidence:** high (source-traced; no sync command run) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (source-traced; no sync command run) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Configuration discovery can read a parent's `wmill.yaml` while
@@ -2193,7 +2225,7 @@ Windmill.
 <a id="pa-1"></a>
 ### PA-1 · What windmill-ts does, and where it diverges from the CLI
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - windmill-ts's local discovery:
@@ -2241,7 +2273,7 @@ Windmill.
 <a id="pa-2"></a>
 ### PA-2 · What windmill-ts does not do, and windmill-lite must
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - windmill-ts parses only each item's `schema`. It has no OpenFlow types,
@@ -2265,7 +2297,7 @@ Windmill.
 <a id="pa-3"></a>
 ### PA-3 · Schema clean-ups learned from prior art
 
-**Scope:** later · **Confidence:** medium · **Status:** confirmed
+**Scope:** later · **Confidence:** medium · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** Real Windmill schemas can contain `default: null`, enum defaults
   outside the enum, `enum: null`, empty object schemas, `format: dynselect-*`,

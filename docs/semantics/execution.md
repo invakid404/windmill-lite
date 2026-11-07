@@ -114,9 +114,12 @@ run of batch E3f in the [design README](../design/README.md).
    surrogate escapes and out-of-range numbers fail at the jsonb boundary
    ([FX-51](#fx-51)).
 6. **Timeouts by execution path ([FX-24](#fx-24), [FX-25](#fx-25)).** Process
-   and in-process executors are timed, with different messages. Identity
-   jobs and child flow jobs are untimed. In a collapsed loop the loop
-   module's timeout applies to each iteration.
+   and in-process executors are timed, with different messages; a timeout
+   of 0 or less is unset. Identity jobs and container bodies are untimed.
+   In a collapsed loop the loop module's timeout applies to each iteration.
+   A flow's own `value.timeout`, or a subflow step's `timeout`, is a
+   wall-clock limit on the flow run that the server enforces by canceling
+   the flow ([FX-52](#fx-52)).
 7. **Loop collapse changes semantics ([FX-46](#fx-46)).** It changes which
    `timeout`, `continue_on_error`, `step_id` and cache TTL apply, and previews
    never collapse for-loops. An explicit equivalence decision is needed.
@@ -136,7 +139,8 @@ run of batch E3f in the [design README](../design/README.md).
    `skip_expr` once would be a documented deviation, not Windmill behaviour.
 10. **Waits, cancellation and scope.** Sleeps, retry delays and timeouts are
     real, cancellable waits. Cancellation skips the failure module and ends
-    the flow as `Canceled` ([FX-38](#fx-38)). Suspend, priority, concurrency,
+    the flow as `Canceled` ([FX-38](#fx-38)); a flow canceled by its own
+    timeout runs its failure module first ([FX-52](#fx-52)). Suspend, priority, concurrency,
     tags, deletion and squash need no runtime support ([FX-39](#fx-39),
     [FX-41](#fx-41)). `mock`, `early_return`, the preprocessor (never run in
     subflows by path), `skip_expr`, `flow_env`, caching, the shared directory
@@ -447,7 +451,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-46"></a>
 ### FX-46 · Collapsed single-step loops change which settings apply
 
-**Scope:** core (later for cache) · **Confidence:** high (collapse conditions, settings source); medium (`continue_on_error` consequence) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (later for cache) · **Confidence:** high (collapse conditions, settings source); medium (`continue_on_error` consequence) · **Status:** confirmed · verified at v1.767.0 only, except the `timeout` condition (re-checked at v1.862.0)
 
 - **Rule:** A loop is **collapsed** when it is
   - a `forloopflow` with `parallel: false` in a **non-preview** flow, or
@@ -456,11 +460,12 @@ run of batch E3f in the [design README](../design/README.md).
   and all of the following hold:
   - the body is exactly one `script`, `rawscript` or `flowscript` module;
   - that module has none of `sleep`, `suspend`, `cache_ttl`, `retry`,
-    `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or an enabled
-    `mock`. Presence decides, not value: `retry: {}` or `cache_ttl: 0`
-    prevents collapsing, a field written as `null` counts as absent, and
-    `mock` counts only with `enabled: true`
-    ([CF-8](control-flow.md#cf-8));
+    `timeout`, `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or an
+    enabled `mock`. Presence decides, not value: `retry: {}`,
+    `cache_ttl: 0` or `timeout: 0` prevents collapsing, a field written as
+    `null` counts as absent, and `mock` counts only with `enabled: true`
+    ([CF-8](control-flow.md#cf-8)). `timeout` joined the list in 1.852.0;
+    at v1.767.0 a body with a `timeout` still collapsed;
   - the enclosing flow has no failure module.
 
   "Non-preview" refers to the job executing the loop: an inline container
@@ -474,8 +479,11 @@ run of batch E3f in the [design README](../design/README.md).
   enclosing flow, with no child flow. The body module's input transforms are
   evaluated with `iter` added ([control-flow.md](control-flow.md)).
   Consequences:
-  - **Timeout:** the loop module's `timeout` applies to each iteration; the
-    body module's `timeout` is ignored ([FX-24](#fx-24)).
+  - **Timeout:** the loop module's `timeout` applies to each iteration
+    ([FX-24](#fx-24) path 5). A body module with a `timeout` of its own is
+    not collapsed, so its iterations are child flows: the body's timeout
+    times its job, and the loop's times nothing (path 4). At v1.767.0 such
+    a body collapsed and its own `timeout` was ignored.
   - **`continue_on_error` on the body is ignored:** an iteration failure is a
     loop failure, handled by the loop's `skip_failures` and the loop module's
     `continue_on_error`.
@@ -489,7 +497,10 @@ run of batch E3f in the [design README](../design/README.md).
   flow can behave differently when previewed and when deployed.
 - **Evidence:** `backend/windmill-worker/src/worker_flow.rs:5247-5249`,
   `:5294-5300`, `:5657-5697`, `:5729-5745`, `:5908-5983`, `:4142-4148`,
-  `:4379-4401`, `:4429`; cache matrix as in [FX-40](#fx-40).
+  `:4379-4401`, `:4429`; cache matrix as in [FX-40](#fx-40); the `timeout`
+  condition: `backend/windmill-worker/src/worker_flow.rs:6389-6406 @ v1.862.0`
+  (the field's presence), `:5907-5909 @ v1.862.0` and `:5954-5960 @ v1.862.0`
+  (the while and for loops).
 - **Conformance:** [FX-46/a](conformance.md#fx-46); see also
   [FX-24/d](conformance.md#fx-24) and [FX-40/c](conformance.md#fx-40).
 - **Design note (not Windmill behaviour):** windmill-lite must pick one of
@@ -506,6 +517,14 @@ run of batch E3f in the [design README](../design/README.md).
   runs as a preview child; it now says so only of bodies that become child
   flows, and that a preprocessor which is itself an eligible loop can
   collapse ([CF-30](control-flow.md#cf-30)).
+- **Revision 2026-11-07 (retarget to v1.862.0, the `timeout` condition
+  re-checked):** a body module's `timeout` now prevents collapsing
+  (1.852.0), by presence like the other fields. Re-recorded on CE
+  v1.862.0: in `conformance/flows/control-flow/cf-27` run `fx24_d`, a
+  sequential loop with `timeout: 1` around a body step with `timeout: 10`
+  that sleeps 3 s runs its iteration as a `flownode` child flow and
+  completes with `[3000]` ([FX-24/d](conformance.md#fx-24)). The rest of
+  the finding is verified at v1.767.0 only.
 
 <a id="fx-49"></a>
 ### FX-49 · Cursor-0 checks run on every start phase at cursor 0
@@ -1246,14 +1265,16 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-15"></a>
 ### FX-15 · Chaining errors: three contexts
 
-**Scope:** core · **Confidence:** high (oracle-observed: the three contexts and their texts); medium (context 2 re-entry outcome) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (oracle-observed: the three contexts and their texts); medium (context 2 re-entry outcome) · **Status:** confirmed · verified at v1.767.0 only, except the `timeout` triggers (re-checked at v1.862.0)
 
 - **Rule:** These errors raised during the start phase ([FX-2](#fx-2), start
   steps 2–10) are chaining errors:
   - an expression that throws: `skip_if`, flow `skip_expr`, `sleep`,
     `timeout`, the loop `iterator` or `parallelism`, a suspend's
     `user_groups_required`, or a `retry_if` evaluated at re-entry;
-  - a negative `timeout`;
+  - a `timeout` value that does not deserialise as an i32
+    ([JE-29](expressions.md#je-29)). A negative `timeout` was a chaining
+    error at v1.767.0 only: v1.862.0 treats it as unset ([FX-24](#fx-24));
   - a `sleep` value that is not a number;
   - a failure to push the next job, for example args containing NUL
     ([FX-48](#fx-48)).
@@ -1275,9 +1296,9 @@ run of batch E3f in the [design README](../design/README.md).
      `<text>` is the error's display text ([FX-50](#fx-50)). For a boolean
      predicate that throws (`skip_if`, the flow `skip_expr`, a `retry_if` at
      re-entry) it is `Error: <evaluator text><loc>`, one location suffix.
-     For an error the start phase builds itself (a negative timeout, the
-     sleep messages below) it is the bare message, with no `Error: ` prefix
-     and no suffix.
+     For an error the start phase builds itself (a `timeout` that is not
+     an i32, the sleep messages below) it is the bare message, with no
+     `Error: ` prefix and no suffix.
   2. **Pickup of a root flow** (no parent): first start, re-queue after the
      preprocessor, or resume after a suspend.
      - The error is a **failure of the module at the cursor**, with value
@@ -1305,11 +1326,14 @@ run of batch E3f in the [design README](../design/README.md).
   `Anyhow` error kind, displayed as `Error: <inner><loc>` ([FX-50](#fx-50)).
   So at a pickup a throwing predicate reads
   `Error: Error: <evaluator text><loc><loc>` (two prefixes, two suffixes)
-  and a negative timeout reads `Error: Timeout value cannot be negative<loc>`
-  (one of each; `<loc>` includes its leading space).
+  and a `timeout` that is not an i32 reads `Error: Error parsing result as
+  i32: <text><loc>` (one of each; `<loc>` includes its leading space).
 
   Messages:
-  - `Timeout value cannot be negative`
+  - `Error parsing result as i32: <deserialiser text>. Value was: <value>`
+    (a `timeout` that is not an i32; the texts are
+    [JE-29](expressions.md#je-29)'s); at v1.767.0 also `Timeout value
+    cannot be negative`
   - `Expected an integer, found: <value>` (sleep given a negative integer,
     shown as the number, or a non-number, shown as a debug rendering such as
     `String("5")`)
@@ -1328,8 +1352,10 @@ run of batch E3f in the [design README](../design/README.md).
     name `InternalError`;
   - context 3: the same text with a second `Error: ` in front and a second
     `<loc>` at the end, name `Anyhow`;
-  - context 2, a timeout expression giving `-1`:
-    `Error: Timeout value cannot be negative<loc>`, name `Anyhow`;
+  - context 2, a timeout expression giving the string `"5"`:
+    `Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"<loc>`,
+    name `Anyhow` (at v1.767.0 the recorded example was a timeout of `-1`:
+    `Error: Timeout value cannot be negative<loc>`);
   - context 1, a `sleep` reading `results`: `Expected a number value, had
     error instead: ExecutionErr(…)`, name `InternalError`, no prefix and no
     suffix.
@@ -1344,7 +1370,11 @@ run of batch E3f in the [design README](../design/README.md).
   - `backend/windmill-common/src/error.rs:73-75`, `:109`, `:145-151`
   - conversions: `worker_flow.rs:2451` (predicates), `worker.rs:3822`
     (a picked-up flow job); built messages `worker_flow.rs:3694-3713`
-    (sleep), `:4392-4396` (timeout)
+    (sleep), `:4392-4396` (the negative timeout, v1.767.0 only)
+  - the `timeout` triggers at v1.862.0:
+    `backend/windmill-worker/src/worker_flow.rs:5030-5049 @ v1.862.0` (the
+    value parsed as an i32, the parse error returned; a value of 0 or less
+    falls back to the inherited timeout instead of failing)
 - **Conformance:** [FX-15/a–FX-15/c](conformance.md#fx-15); also
   [FX-8/b](conformance.md#fx-8) (the sleep message)
 - **Design note (not Windmill behaviour):** windmill-lite should match the
@@ -1357,6 +1387,15 @@ run of batch E3f in the [design README](../design/README.md).
   `conformance/flows/execution/fx-8`, run `sleep_no_results`, oracle run
   40686049913). Added the doubled prefix and suffix at a pickup and the
   recorded texts ([Q-FX-13](#q-fx-13)).
+- **Revision 2026-11-07 (retarget to v1.862.0, the `timeout` triggers
+  re-checked):** a negative `timeout` is no longer a chaining error:
+  v1.862.0 treats a timeout of 0 or less as unset (1.768.0,
+  [FX-24](#fx-24)). Run `root_pickup` of
+  `conformance/flows/execution/fx-15`, whose `timeout: -1` recorded
+  FX-15/b at v1.767.0, now completes on CE v1.862.0 and records FX-24/b.
+  FX-15/b's context 2 is now recorded with a `timeout` whose value is the
+  string `"5"` (run `root_pickup_i32` of the same fixture). The rest of the
+  finding is verified at v1.767.0 only.
 
 <a id="fx-16"></a>
 ### FX-16 · `identity` module
@@ -1702,73 +1741,106 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-24"></a>
 ### FX-24 · Per-step `timeout`: value, cap and enforcement by execution path
 
-**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; path 4 rests on an exhaustive search for readers; oracle-observed: FX-24/a, /c, /e, /f, /g, the deployed half of /d, and path 4 for loops, branches and subflow steps); medium (path 2) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; oracle-observed at v1.862.0: FX-24/a to FX-24/g, the deployed half of FX-24/d, and path 4 for loops, branches and subflow steps); medium (path 2's cap, read but not traced) · **Status:** confirmed
 
 - **Rule:**
   - **Value.** `timeout` on a module is an input transform (a bare number is
-    accepted as static), evaluated at push time (scope in [FX-8](#fx-8)) as a
-    whole number of **seconds**. A negative value is a chaining error
-    ([FX-15](#fx-15)): `InternalError` "Timeout value cannot be negative" at a
-    later transition, an `Anyhow` failure of the module at root pickup.
-  - **Precedence.** The effective timeout is the first that exists: the
-    module's `timeout`; for a `script` module by path or hash, the script's
-    own `timeout` metadata; the instance default job timeout; the instance
-    maximum. `rawscript` steps have no script-level timeout.
-  - **Cap.** A custom value strictly below the maximum is used as-is and
-    counts as "job-specific". A custom value **equal to or above** the
-    maximum is replaced by the maximum, with a logged warning, and counts as
-    instance-wide. With no custom value, the instance default applies if it
-    is strictly below the maximum, else the maximum; both count as
-    instance-wide. The maximum is the instance's `TIMEOUT` (default 7 days
-    self-hosted, 900 s on Windmill Cloud), ×6 for cloud premium workspaces.
+    accepted as static), evaluated when the module's job is pushed (scope in
+    [FX-8](#fx-8)) as a whole number of **seconds** that must deserialise as
+    an i32; one that does not is a chaining error ([FX-15](#fx-15), texts in
+    [JE-29](expressions.md#je-29)). **A value of 0 or less is unset:** the
+    module then behaves exactly as if it had no `timeout` (1.768.0). At
+    v1.767.0 a zero was used as it was, which left the job no time at all,
+    and a negative value was a chaining error ("Timeout value cannot be
+    negative").
+  - **Precedence.** The effective timeout is the first of these that is
+    set and positive: the module's `timeout`; for a `script` module by path
+    or hash, the script's own `timeout` metadata (a stored value of 0 or
+    less counts as none); the instance default job timeout; the instance
+    maximum. `rawscript` and `flowscript` steps have no script-level
+    timeout. On a `flow` step, the module's positive `timeout` is not a job
+    timer: it replaces the subflow's own wall-clock limit
+    ([FX-52](#fx-52)).
+  - **Cap and source.** A custom value strictly below the maximum is used
+    as it is; its source is the **custom** timeout. A custom value equal to
+    or above the maximum is replaced by the maximum, with a warning in the
+    job's log (`WARNING: Custom job timeout of <n> seconds was greater than
+    the instance maximum job duration of <max> seconds (TIMEOUT env variable
+    of the worker). It will be ignored and the max timeout will be used
+    instead`); its source is the **instance maximum**. With no custom value,
+    the instance default applies if it is strictly below the maximum
+    (source: the **instance default**), else the maximum (source: the
+    instance maximum, with the same kind of warning when a default was
+    set). The maximum is the instance's `TIMEOUT` (default 604 800 s, 7
+    days, self-hosted; 900 s on Windmill Cloud), ×6 for cloud premium
+    workspaces. The source decides how the timeout message names the limit
+    ([FX-25](#fx-25)).
+  - **Setup phases.** A phase the executor starts without the job's timeout
+    (a dependency install, a build) runs under the instance default; the
+    job's custom timeout can lengthen it, up to the maximum, but never
+    shorten it (1.825.0). An executor whose job runs several processes in
+    sequence spends one wall clock across them, and each later process gets
+    what is left of it (source: the **remaining budget**). Bun's run phase
+    gets the job's timeout itself.
   - **Enforcement depends on how the job executes:**
     1. **Process executors** (scripts run as a child process, such as Bun,
        Deno, Python, Go, Bash): a process timer kills the process, with the
-       [FX-25](#fx-25) error and its "job-specific"/"instance-wide" wording.
+       [FX-25](#fx-25) error, and the job is stored `canceled`.
     2. **In-process executors** (the native TypeScript runtime and the
        database, GraphQL, AI and similar executors; which language modes use
        them is decided in [languages.md](languages.md)): a timer around the
-       evaluation. Expiry gives `ExecutionErr` with the text `Query timeout
-       after (><whole seconds>s)`, where the seconds are the limit in
-       milliseconds divided by 1000, rounded down. The worker wraps it as
-       `{"message": "execution error:\nQuery timeout after (><n>s)", "name":
-       "ExecutionErr", "step_id"?}`. The same cap rule applies. Cancellation
-       on this path reads `Job cancelled by <user> (reason: <reason>)`
-       instead of the process-kill text.
+       evaluation, under the same limit and cap. Expiry gives `ExecutionErr`
+       with the text `Query timeout after (><whole seconds>s)`, where the
+       seconds are the limit in milliseconds divided by 1000, rounded down.
+       The worker wraps it as `{"message": "execution error:\nQuery timeout
+       after (><n>s)", "name": "ExecutionErr", "step_id"?}`. This path does
+       not mark the job canceled, so it is stored `failure`. Cancellation on
+       this path reads `Job cancelled by <user> (reason: <reason>)` instead
+       of the process-kill text.
     3. **Identity jobs** (identity modules and skipped or mocked modules) run
-       immediately in the worker **with no timer**. A stored timeout, even
-       `0`, has no effect; a negative value still fails at launch.
-    4. **Child flow jobs** (non-collapsed containers, subflows by path) have
-       **no wall-clock deadline**. The timeout is evaluated and stored on the
-       child flow job, but nothing consumes it: flow jobs bypass every
-       executor timer, and no other reader was found in the worker, monitor
-       or queue.
+       immediately in the worker **with no timer**, whatever their
+       `timeout`.
+    4. **Child flow jobs** have no job timer: flow jobs bypass every
+       executor. What times them depends on their kind:
+       - a **container body** (a non-collapsed loop iteration or a branch,
+         a `flownode` or a child `flowpreview` job) carries its container
+         module's evaluated timeout, and **nothing enforces it**;
+       - a **subflow step's flow** (a `flow` job) is timed by the server's
+         flow-timeout sweep, against the calling step's positive `timeout`
+         or else the subflow's own `value.timeout` ([FX-52](#fx-52), CE
+         1.861.0). At v1.767.0 nothing timed it.
     5. **Collapsed loops** ([FX-46](#fx-46)): the loop module's timeout is
        evaluated again for every iteration and applies to each iteration's
-       script job through path 1 or 2. The body module's own timeout is
-       ignored. For a `script` body by path, the script's own timeout applies
-       only when the loop module has none.
+       script job through path 1 or 2. A body module with a `timeout` of its
+       own is no longer collapsed (1.852.0), so this path only meets bodies
+       without one; such a body then runs in an iteration child flow, under
+       its own timeout (path 1 or 2), while the loop's timeout falls under
+       path 4. For a `script` body by path, the script's own timeout applies
+       when the loop module has no positive timeout.
 - **Evidence:**
-  - `backend/windmill-worker/src/worker_flow.rs:4379-4401`, `:5657-5697`,
-    `:5908-5983`, `:6140-6144`
-  - `backend/windmill-worker/src/common.rs:1056-1114` (premium multiplier at
-    `:1063-1082`; cap equality at `:1084-1097`)
-  - `backend/windmill-worker/src/handle_child.rs:172-192`, `:199-229`
-    (process timer), `:723-747` (in-process timer and messages)
-  - `backend/windmill-worker/src/js_eval.rs:143-210`
-  - `backend/windmill-worker/src/worker.rs:3536-3576` (native TypeScript
-    passes the job timeout), `:3564`, `:3815-3845` (flows bypass executors),
-    `:4032-4038` (identity)
-  - `backend/windmill-worker/src/result_processor.rs:622-627`
-  - `backend/windmill-types/src/flows.rs:566-571`, `:805-830`
-  - `backend/windmill-common/src/worker.rs:210-211`, `:295-298`
-  - In-process timer users: `ai_executor.rs`, `bigquery_executor.rs`,
-    `duckdb_executor.rs`, `graphql_executor.rs`, `mssql_executor.rs`,
-    `mysql_executor.rs`, `oracledb_executor.rs`, `pg_executor.rs`,
-    `snowflake_executor.rs`, `js_eval.rs`, `bash_executor.rs` (one mode),
-    all under `backend/windmill-worker/src/`
-  - `backend/src/monitor.rs`: searched; only zombie/ping timeouts and
-    setting reloads
+  - value and precedence: `backend/windmill-worker/src/worker_flow.rs:5030-5049`
+    (evaluation; a non-positive value falls back), `:6736-6746` (the
+    fallback rule), `:6830-6842` (a script's own timeout, normalised),
+    `:5765-5905` (no script-level timeout for raw, flow-script and flow
+    steps); `backend/windmill-types/src/runnable_settings.rs:105-114` (the
+    shared rule that a value of 0 or less is unset);
+    `backend/windmill-api-scripts/src/scripts.rs:1366` (a script's stored
+    timeout normalised); `backend/windmill-queue/src/jobs.rs:7988-7991` (the
+    stored job timeout); v1.767.0's refusal of a negative value was at
+    `backend/windmill-worker/src/worker_flow.rs:4392-4396 @ v1.767.0`
+  - cap, source and setup phases: `backend/windmill-worker/src/common.rs:1106-1137`
+    (the four sources and their names), `:1139-1175` (the running job's
+    custom timeout seen by setup phases), `:1177-1277` (resolution, cap and
+    lengthening; a non-positive custom value unset at `:1206-1208`);
+    `backend/windmill-common/src/worker.rs:294-308`, `:464-467` (the maximum)
+  - enforcement: `backend/windmill-worker/src/handle_child.rs:310-346`
+    (process timer), `:870-911` (one wall clock across phases), `:943-963`
+    (in-process timer and messages); `backend/windmill-worker/src/worker.rs:5058-5065`
+    (flow jobs go to the flow engine), `:5286-5292` (identity);
+    `backend/windmill-queue/src/jobs.rs:433-458` (the flow-timeout sweep
+    and the job kinds it reads)
+  - collapse: `backend/windmill-worker/src/worker_flow.rs:5955-5960`,
+    `:6389-6406`, `:6570-6643`
   - Docs: https://www.windmill.dev/docs/flows/custom_timeout
 - **Conformance:** [FX-24/a–FX-24/g](conformance.md#fx-24)
 - **Revision 2026-10-29 (SC4, recordings of milestones N2, NI and E1):** FX-24/a, FX-24/c and FX-24/f were recorded as stated
@@ -1809,39 +1881,115 @@ run of batch E3f in the [design README](../design/README.md).
   their bodies' results (fixture
   `conformance/flows/control-flow/cf-27-flow-timeouts`, oracle run
   40990751153).
+- **Revision 2026-11-07 (retarget to v1.862.0, source re-check and
+  oracle):** re-checked as a whole at v1.862.0. Four changes:
+  - a `timeout` of 0 or less is unset (1.768.0, "treat
+    concurrent_limit/timeout <= 0 as unset"): re-recorded on CE v1.862.0,
+    the zero, static and javascript negative timeouts of
+    `conformance/flows/execution/fx-24` (runs `zero`, `negative_static`,
+    `negative_later`, `negative_root`), the negative timeouts inside
+    containers of `conformance/flows/control-flow/waits` (runs
+    `body_timeout_negative_later`, `body_timeout_negative_pickup`,
+    `loop_timeout_negative_later`, `loop_timeout_negative_root`) and
+    `conformance/flows/execution/fx-15` run `root_pickup` all complete;
+  - the cap's two wordings ("job-specific", "instance-wide") became four
+    named sources, which the message names ([FX-25](#fx-25), 1.825.0), and
+    setup phases honour a longer custom timeout;
+  - a loop body whose module has a `timeout` is no longer collapsed
+    (1.852.0, [FX-46](#fx-46)): FX-24/d's deployed half now completes
+    (`conformance/flows/control-flow/cf-27` run `fx24_d`);
+  - a subflow step's flow is timed by the flow-timeout sweep
+    ([FX-52](#fx-52), 1.861.0): path 4 no longer holds for it
+    (`conformance/flows/control-flow/cf-27-flow-timeouts` run `subflow`).
+  Branches and non-collapsed iterations stay untimed (the same fixture's
+  `branchone` and `branchall`, and `cf-27` run `fx24_e`, recorded on CE
+  v1.862.0, oracle run 42243035193). The oracle runs are named in
+  [conformance.md](conformance.md#fx-24).
 
 <a id="fx-25"></a>
 ### FX-25 · Process timeout: enforcement and error
 
-**Scope:** core · **Confidence:** high (message, oracle-observed); medium (that the canceled step status leaves the flow uncanceled) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (message, stored status and step-failure handling; oracle-observed) · **Status:** confirmed
 
-- **Rule:** When a step's **process** outlives its timeout, the worker:
-  1. marks the job canceled with reason `duration > <secs>` and canceler
-     `timeout`;
-  2. interrupts the process, then terminates it, then kills it;
+- **Rule:** When a step's **process** outlives its timeout ([FX-24](#fx-24)),
+  the worker:
+  1. stops waiting and kills the process. With the default settings that
+     is an immediate `SIGKILL` to the job's process group: the interrupt
+     and terminate grace periods (`MAX_WAIT_FOR_SIGINT`, default 0 s;
+     `MAX_WAIT_FOR_SIGTERM`, default 5 s) apply only when configured or
+     when the executor asks for a terminate signal, which Bun's run phase
+     does not;
+  2. once the process is gone, marks the job's queue row canceled, with
+     canceler `timeout` and reason `` `<phase>` exceeded <limit> ``;
   3. fails the step.
 
-  The error object is `{"message": "execution error:\njob process terminated
-  due to timeout after exceeding job-specific duration limit", "name":
-  "ExecutionErr", "step_id": <id>}`. "job-specific duration limit" appears
-  only when the custom timeout is strictly below the maximum; a custom value
-  at or above the maximum, or the instance default, gives "instance-wide job
-  duration limit" ([FX-24](#fx-24)). The step job's completed status is
-  `canceled`, but **the flow is not canceled**: this is an ordinary step
-  failure, so retry, `continue_on_error` and the failure module apply (the
-  flow checks only its own cancel flag).
+  The error object is ``{"message": "execution error:\njob process
+  terminated due to timeout: `<phase>` exceeded <limit>", "name":
+  "ExecutionErr", "step_id": <id>}`` (1.825.0, "name the limit hit"):
+  - `<phase>` names the process. Bun's run phase is `bun run`, also when the
+    step runs on Node (`//nodejs`); its other phases are `bun install` and
+    `bun build`.
+  - `<limit>` names the limit by its source ([FX-24](#fx-24)), with `<n>`
+    the limit in whole seconds:
+
+    | Source | `<limit>` |
+    |---|---|
+    | custom | `the <n>s custom timeout set on the script or flow step` |
+    | instance default | `the <n>s instance default timeout (instance setting 'Default timeout'); set a longer custom timeout on the script or flow step to raise it` |
+    | instance maximum | `the <n>s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed` |
+    | remaining budget | `the <n>s left of the job's timeout, which its phases share` |
+
+  For example, a Bun step with `timeout: 1` that sleeps 3 s fails with
+  ``{"error": {"name": "ExecutionErr", "message": "execution
+  error:\njob process terminated due to timeout: `bun run` exceeded the 1s
+  custom timeout set on the script or flow step", "step_id": "a"}}``.
+
+  The step job's stored status is **`canceled`**, with that canceler and
+  reason: its completion passes no canceler, but keeps the cancel flag on
+  the queue row ([FX-38](#fx-38)). **The flow is not canceled**: this is an
+  ordinary step failure, so retry, `continue_on_error` and the failure
+  module apply, since the flow checks only its own cancel flag.
 
   This shape is for process timeouts only; in-process and identity paths
-  follow [FX-24](#fx-24).
-- **Evidence:** `backend/windmill-worker/src/handle_child.rs:172-192`,
-  `:199-229`, `:340-346`; `backend/windmill-worker/src/result_processor.rs:622-627`,
-  `:1625-1649`; `backend/windmill-worker/src/worker_flow.rs:1736`;
-  `backend/windmill-worker/src/common.rs:1056-1114`
+  follow [FX-24](#fx-24). A process killed because its flow was canceled,
+  by a user or by the flow's own timeout ([FX-52](#fx-52)), reads
+  `job process terminated due to cancelled by <canceler> (reason:
+  <reason>)` instead, each part present only when known.
+- **Evidence:** `backend/windmill-worker/src/handle_child.rs:232-260`
+  (kill reasons and their texts), `:310-346` (the timer and the reason),
+  `:347-374` (the reason written to the queue row), `:379-450` (the
+  signals), `:486-493` (the error); `backend/windmill-worker/src/common.rs:1106-1137`
+  (the limit's names); `backend/windmill-worker/src/worker.rs:704-712`
+  (the grace periods); `backend/windmill-worker/src/bun_executor.rs:3409-3434`
+  (`bun run`, the job's timeout, no terminate signal, also for Node),
+  `:1461`, `:504`, `:1734`, `:1786` (`bun install`, `bun build`);
+  `backend/windmill-worker/src/result_processor.rs:671-677` (the
+  `execution error:` wrapper with `step_id`);
+  `backend/windmill-common/src/worker.rs:2168-2186` (the queue row's
+  cancel); `backend/windmill-queue/src/jobs.rs:1994-2056`, `:2063-2128`
+  (the completion stores `canceled` when the row carries a canceler)
 - **Conformance:** [FX-25/a](conformance.md#fx-25)
 - **Revision 2026-10-29 (SC4, recordings of milestones N2, NI and E1):** FX-25/a was recorded as stated by milestone N2
   (`conformance/flows/execution/fx-25`, run `tolerated`, oracle run
   40818457347); run `retried` of the same fixture adds a timed-out step
   retried with the same args, which timed out again.
+- **Revision 2026-11-07 (retarget to v1.862.0, source re-check and
+  oracle):** re-checked as a whole at v1.862.0. The message names the
+  process phase and the limit's source (1.825.0) instead of saying
+  "after exceeding job-specific duration limit" or "instance-wide job
+  duration limit", and the queue row's reason is the same phrase instead
+  of `duration > <secs>`. The timed-out job is now stored `canceled`: the
+  rule said so at v1.767.0 too, but the v1.767.0 recordings show it
+  stored `failure`, since that completion kept the cancel flag only when
+  it was passed a canceler. Re-recorded on CE v1.862.0: FX-25/a and run
+  `retried` of `conformance/flows/execution/fx-25` (the retried attempt is
+  stored `canceled` as well), FX-24/a (`conformance/flows/execution/fx-24`
+  runs `process_timeout` and `js_timeout`,
+  `conformance/flows/languages/bun-results` run `timeout`), the collapsed
+  loop bodies of `conformance/flows/control-flow/cf-27` (runs `a`, `b`)
+  and `conformance/flows/control-flow/waits` (run `body_timeout_js`), and
+  `conformance/flows/languages/wr-55-processes` run `timeout` (a 2 s
+  limit).
 
 <a id="fx-26"></a>
 ### FX-26 · `retry`: the delay schedule and its exact arithmetic
@@ -3877,7 +4025,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-50"></a>
 ### FX-50 · How error messages gain an `Error: ` prefix and location suffixes
 
-**Scope:** core · **Confidence:** high (oracle-observed: the recorded shapes, FX-50/a's push failures included); high (source-traced: the layer list, the masking rule and derived values) · **Status:** confirmed; drafted (the layer list, the masking rule and derived values) · verified at v1.767.0 only, except the pickup and lookup locations (re-checked at v1.862.0)
+**Scope:** core · **Confidence:** high (oracle-observed: the recorded shapes, FX-50/a's push failures included); high (source-traced: the layer list, the masking rule and derived values) · **Status:** confirmed; drafted (the layer list, the masking rule and derived values) · verified at v1.767.0 only, except the pickup and lookup locations and the `timeout` texts (re-checked at v1.862.0)
 
 - **Rule:** Windmill's internal error kind `Anyhow` ([FX-12](#fx-12))
   displays as `Error: <inner text> @<location>`. `<inner text>` is the
@@ -3954,8 +4102,9 @@ run of batch E3f in the [design README](../design/README.md).
 
   For trailing suffixes, user text cannot imitate a layer at these sites.
   The innermost text starts with fixed text (`QuickJS evaluation error: `,
-  `Expected …`, `Timeout value cannot be negative`, `Error parsing result
-  as …`, `Bad request: …`, a database error), so it cannot add to k. It
+  `Expected …`, `Error parsing result as …`, `Bad request: …`, a database
+  error, and at v1.767.0 `Timeout value cannot be negative`), so it cannot
+  add to k. It
   ends in fixed text, in the engine's stack or debug form followed by a
   newline, or in a JSON text (`… Value was: <result text>`), none of which
   ends like a suffix. The one exception is a result text from a replaced
@@ -3991,7 +4140,8 @@ run of batch E3f in the [design README](../design/README.md).
   error as an argument. Every value derived from it therefore carries the
   suffix as characters. A copy of the message ends in the suffix
   ([FX-15/b](conformance.md#fx-15) records a handler returning
-  `{n: e.name, m: e.message}` with `m` = `Error: Timeout value cannot be negative<loc>`);
+  `{n: e.name, m: e.message}` with `m` = `Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"<loc>`;
+  at v1.767.0 it recorded `Error: Timeout value cannot be negative<loc>`);
   a concatenation or a JSON text that embeds the message keeps it in the
   middle; a substring keeps whatever part of it was taken; and a value
   computed from the message, such as its length or a hash, depends on the
@@ -4078,6 +4228,13 @@ run of batch E3f in the [design README](../design/README.md).
   [WA-19/d](conformance.md#wa-19)). The layer list, the masking rule and
   the other locations are not re-checked; the recordings of FX-50/a are
   pending a later revision.
+- **Revision 2026-11-07 (retarget to v1.862.0, the `timeout` texts):**
+  `Timeout value cannot be negative` is a v1.767.0 text only: v1.862.0
+  treats a negative `timeout` as unset ([FX-24](#fx-24)). FX-15/b's
+  derived copy is now recorded with the i32 parse error of a `timeout`
+  whose value is the string `"5"`, whose location suffix at a pickup is
+  ` @worker.rs:5065:13` on CE v1.862.0. The rest of the finding is as the
+  status line says.
 
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries
@@ -4233,6 +4390,122 @@ run of batch E3f in the [design README](../design/README.md).
   v1.862.0 recorded [FX-51/c](conformance.md#fx-51)'s two runs with that
   location and the envelope as stated. The rest of the finding is not
   re-checked.
+
+<a id="fx-52"></a>
+### FX-52 · Flow `timeout`: a wall-clock limit on a flow run
+
+**Scope:** core (a root flow's and a subflow's limit, the cancel and how the flow ends); later (root previews; how far past its limit a run goes) · **Confidence:** high (source-traced; oracle-observed: FX-52/a to FX-52/h) · **Status:** confirmed
+
+- **Rule** (CE 1.861.0, "flow-level timeout"):
+  1. **The field.** `value.timeout` on a flow ([OF-16](openflow.md#of-16)),
+     an i32 of whole seconds, limits the wall-clock time of a run of that
+     flow, counted from the flow job's start, including time spent waiting
+     on a `sleep`, a retry delay or an approval. The API stores the value
+     as written; a value of 0 or less is unset when the flow job is
+     pushed. It is not the flow's metadata `timeout` beside `value`, which
+     is stored with the flow and enforces nothing ([OF-16](openflow.md#of-16)).
+  2. **The limit a flow job carries.** When a flow job is pushed, its limit
+     is the calling step's evaluated `timeout` when positive, else the
+     flow's own `value.timeout` when positive, else none:
+     - a root run (by path, or a root preview) carries its flow's
+       `value.timeout`;
+     - a subflow step's flow (a `flow` module) carries the step's positive
+       `timeout`, which replaces the subflow's own, or else the subflow's
+       own; a step `timeout` of 0 or less leaves the subflow's own;
+     - a container body (a non-collapsed iteration or a branch, a
+       `flownode` or child `flowpreview` job) carries its container
+       module's timeout, which nothing enforces ([FX-24](#fx-24) path 4),
+       and a single-step flow (`singlestepflow`) is left out, since its
+       limit is its script's.
+  3. **Enforcement.** On each pass of the server's monitor (every
+     `LISTEN_NEW_EVENTS_INTERVAL_SEC`, default 10 s; 1 s on the oracle),
+     every running flow job of kind `flow`, or a root `flowpreview`, that is
+     not already canceled, has a positive limit and has run at least that
+     long is canceled as a user cancel would cancel it
+     ([FX-38](#fx-38), [CF-28](control-flow.md#cf-28)), with canceler
+     `timeout` and reason `the flow exceeded its <n>s timeout`. A run can
+     therefore go up to about one monitor pass past its limit. Each flow
+     is claimed under a row lock first, so one server cancels it once.
+  4. **What the cancel reaches.** Every queued or running descendant is
+     flagged with the same canceler and reason:
+     - a running step's process is killed, and the step fails with
+       ``{"error": {"name": "ExecutionErr", "message": "execution
+       error:\njob process terminated due to cancelled by timeout (reason:
+       the flow exceeded its <n>s timeout)", "step_id": <id>}}``, stored
+       `canceled` ([FX-25](#fx-25));
+     - a step waiting to start (on a `sleep`, a retry delay or an approval)
+       is made due at once and completes at its pickup without running,
+       stored `canceled`, with the **canceled value**
+       `{"error": {"name": "Canceled", "message": "Job canceled: the flow
+       exceeded its <n>s timeout by timeout", "reason": "the flow exceeded
+       its <n>s timeout", "canceler": "timeout"}}`.
+  5. **How the flow ends.** When the step the flow waits on reports, the
+     flow finds itself canceled by its own timeout (its canceler is
+     `timeout` and its parent's, if any, is not):
+     - its failure module, if any, runs once, from whatever step the flow
+       was at (a loop or an approval included), whatever the loops' stop
+       conditions say; its `error` is `{"name": "ExecutionErr", "message":
+       "flow terminated due to timeout: the flow exceeded its <n>s
+       timeout"}`, with no `step_id`;
+     - no other step, iteration or retry starts;
+     - the flow job completes **canceled**, its result the canceled value,
+       with or without a failure module and whatever that module returned.
+  6. **What a caller sees.** A subflow that ended on its own timeout is a
+     **failed step** to its parent, not a canceled one, whatever its last
+     step's error policy. The step's value is `{"error": {"name":
+     "ExecutionErr", "message": "flow terminated due to timeout: the flow
+     exceeded its <n>s timeout"}}`, or, when the subflow ran a failure
+     module, that module's result. The parent's retry, `continue_on_error`
+     and failure module apply as to any failed step. The subflow's own job
+     still reads `canceled`, with the canceled value.
+  7. **An ancestor's timeout.** A subflow canceled because an ancestor
+     timed out (its parent's canceler is `timeout` too) did not time out
+     itself: it ends as an ordinary canceled child, without running its
+     failure module.
+
+  Example: a root flow with `value.timeout: 1` whose only step sleeps 6 s
+  ends `canceled` after about 2 s on the oracle, with the canceled value
+  for 1 s; its step is stored `canceled` with the killed process's error.
+- **Evidence:**
+  - the field and the limit: `backend/windmill-types/src/flows.rs:304-347`;
+    `backend/windmill-queue/src/jobs.rs:6718-6719`, `:7048-7049`,
+    `:7361-7362`, `:7467-7468` (the flow's own limit read at the push),
+    `:7988-7991` (a calling step's positive timeout replaces it; values of
+    0 or less unset); `backend/windmill-worker/src/worker_flow.rs:5030-5049`,
+    `:5801-5816`, `:6691-6714` (a flow step's evaluated timeout handed to
+    the push, with nothing inherited); `backend/windmill-api-flows/src/flows.rs:673-677`
+    (only the metadata `timeout` is normalised at creation)
+  - enforcement: `backend/windmill-queue/src/jobs.rs:434-458` (the
+    selection), `:461-495` (the claim and the cancel);
+    `backend/windmill-common/src/jobs.rs:25-30` (canceler and reason);
+    `backend/src/monitor.rs:4181-4189` (each monitor pass);
+    `backend/src/main.rs:259-262`, `:1386` (the pass interval)
+  - the cancel: `backend/windmill-queue/src/jobs.rs:222-283`, `:285-432`
+    (the flow and its descendants), `:8426-8434` (the canceled value);
+    `backend/windmill-worker/src/handle_child.rs:246-257`, `:486-493` (the
+    killed process's text)
+  - the end: `backend/windmill-worker/src/worker_flow.rs:1805-1862` (own
+    timeout, the failure module, the timeout error), `:2088-2104` (a
+    canceled flow completes with the canceled value), `:2240-2262` (a
+    subflow's own timeout is a failed step to its parent), `:3708-3712`
+    (the failure module from any step), `:6719-6734` (own timeout or an
+    ancestor's); `backend/windmill-worker/src/result_processor.rs:2110-2135`
+    (a subflow woken by its timeout is updated as a flow first)
+  - schema: `FlowValue.timeout` in `openflow.openapi.yaml` (Apache-2.0,
+    vendored as `internal/openflow/schema/openflow.openapi.yaml`)
+- **Conformance:** [FX-52/a–FX-52/h](conformance.md#fx-52)
+- **Note:** the cancel is the server's, not the worker's: a flow is timed
+  even while no worker holds it (between steps, during a sleep or an
+  approval), and the enforcement's granularity is the monitor's pass, not
+  the limit. The oracle runs its monitor every second, so its recordings
+  show the flow ending between 1 and 2 s after the limit.
+- **Revision 2026-11-07 (retarget to v1.862.0, new):** added from the
+  source at v1.862.0 and recorded on CE v1.862.0
+  (`conformance/flows/execution/fx-52-flow-timeout`; the oracle run is
+  named in [conformance.md](conformance.md#fx-52)). A subflow step's
+  `timeout`, which [Q-FX-1](#q-fx-1) and [CF-27](control-flow.md#cf-27)
+  found unenforced at v1.767.0, is now this limit
+  (`conformance/flows/control-flow/cf-27-flow-timeouts` run `subflow`).
 
 <a id="fx-v1"></a>
 ### FX-V1 · A throwing `stop_after_all_iters_if` uses the EarlyStopError path
@@ -4399,6 +4672,12 @@ against Windmill CE `v1.767.0`.
   `[3000, 3000]` and a `flow` step with `3000`. No non-collapsed
   container's timeout is enforced, as [FX-24](#fx-24) path 4 says.
   Status: closed.
+  *2026-11-07 (retarget to v1.862.0):* the `flow` module's half no longer
+  holds on CE v1.862.0: a `flow` step's positive `timeout` now replaces the
+  subflow's own wall-clock limit, which the server enforces
+  ([FX-52](#fx-52), 1.861.0). The same run (`subflow`) now fails with
+  `flow terminated due to timeout: the flow exceeded its 1s timeout`;
+  the branches and loops still complete. Status stays closed.
 
 <a id="q-fx-2"></a>
 - **Q-FX-2** · affects [FX-24](#fx-24) · `timeout: 0` on process and
@@ -4408,6 +4687,12 @@ against Windmill CE `v1.767.0`.
   for the race.
   *2026-10-30 (SC5):* batch E3f did not record this; requested for the
   next run of batch E3f ([docs/design/README.md](../design/README.md), SC5 section). Still open.
+  **Answered 2026-11-07 (retarget to v1.862.0).** At v1.862.0 there is no
+  race: a `timeout` of 0 is unset (1.768.0, [FX-24](#fx-24)), so the step
+  runs under the instance default. Recorded on CE v1.862.0:
+  `conformance/flows/execution/fx-24` run `zero` (a Bun step with
+  `timeout: 0` returning `1`) completes with `1`. The v1.767.0 race was
+  never recorded. Status: closed.
 
 <a id="q-fx-3"></a>
 - **Q-FX-3** · affects [FX-19](#fx-19), [FX-30](#fx-30), [FX-31](#fx-31),
@@ -4444,6 +4729,13 @@ against Windmill CE `v1.767.0`.
   [FX-24/b](conformance.md#fx-24).
   *2026-10-30 (SC5):* batch E3f did not record FX-24/b; requested ([docs/design/README.md](../design/README.md), SC5 section).
   Still open.
+  **Answered 2026-11-07 (retarget to v1.862.0).** At v1.862.0 a negative
+  `timeout` is unset (1.768.0), so FX-24/b's pickup path no longer fails.
+  Recorded on CE v1.862.0: `conformance/flows/execution/fx-24` run
+  `negative_root` and `conformance/flows/execution/fx-15` run
+  `root_pickup` complete ([FX-24/b](conformance.md#fx-24)); the pickup
+  path of a chaining error is recorded with a `timeout` that is not an
+  i32 ([FX-15/b](conformance.md#fx-15)). Status: closed.
 
 <a id="q-fx-5"></a>
 - **Q-FX-5** · affects [FX-46](#fx-46), [FX-40](#fx-40) · Collapsed loops:

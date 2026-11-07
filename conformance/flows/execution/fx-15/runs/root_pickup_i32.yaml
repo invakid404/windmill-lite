@@ -7,13 +7,13 @@ spec: [FX-15/b, JE-29]
 target: f/wl_fx15/root_pickup_i32
 expect:
   status: failure
-  result: {n: Anyhow, m: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:0:0'}
+  result: {n: Anyhow, m: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:5065:13'}
   steps:
     "m:a": {status: failure, ran: false}
     "s:failure":
       status: success
-      args: {e: {name: Anyhow, message: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:0:0'}}
-      result: {n: Anyhow, m: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:0:0'}
+      args: {e: {name: Anyhow, message: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:5065:13'}}
+      result: {n: Anyhow, m: 'Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5" @worker.rs:5065:13'}
 # The failure module's argument e is a's error, which windmill-lite
 # generates at the root's pickup, and its result's m is that error's
 # message, which the flow ends with: copies of a's generated error, so the
