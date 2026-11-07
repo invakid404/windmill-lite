@@ -253,7 +253,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		return r.chainingAt(fr, pickup, o, text)
 	}
 	var it iterations
-	failed, ran, handled, forwarded := false, false, false, false
+	failed, ran, handled, recovered, forwarded := false, false, false, false, false
 	var stopErr error
 	r.progress(fr, i, nil)
 	for k := 0; n < 0 || k < n; k++ {
@@ -354,7 +354,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			// (CF-16, CF-V1).
 			if e.errorStop || !l.skipFailures {
 				failed = !l.skipFailures
-				handled = failed && e.handled
+				handled, recovered = failed && e.handled, failed && e.recovered
 				// The break clears the forwarded stop, not the failure, and
 				// the completion that carried it switches the loop's
 				// continue_on_error off; its retry still applies.
@@ -383,7 +383,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	o = handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled)
+	o = handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled, recovered)
 	o.forwarded = forwarded && o.end.failed()
 	return o
 }
@@ -392,9 +392,16 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 // child's failure module handled, when handled says so and o still fails
 // with it (outcome.handled): as a failure, or under a clean stop of its
 // stop_after_all_iters_if, which keeps that failure (endFailedStop); an
-// error stop of it is a failure of its own.
-func handledBy(o outcome, handled bool) outcome {
+// error stop of it is a failure of its own. recovered says that the child
+// that failed it reported its failure as recovered (flowEnd.recovered),
+// which o keeps only as a plain failure (outcome.recovered): a stop of a
+// failed container stops its flow as an error stop does, which drops the
+// mark ([FX-33]).
+//
+// [FX-33]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-33
+func handledBy(o outcome, handled, recovered bool) outcome {
 	o.handled = handled && (o.end == endFailed || o.end == endFailedStop)
+	o.recovered = recovered && o.end == endFailed
 	return o
 }
 
@@ -606,8 +613,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		switch {
 		case canceled && (!started[k] || ended(e.status)):
 			// The cancellation reaches every child, held ones included,
-			// which completes as failed with the Canceled error without
-			// running its body (CF-28, recorded by cf-28/held).
+			// which completes canceled with the Canceled error without
+			// running its body, a failed child to the loop (CF-28,
+			// recorded by cf-28/held).
 			it.add(canceledChild(ctx, nil))
 			continue
 		case !started[k]:
@@ -632,12 +640,15 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 // failed it, as completed through the parallel path. A failed one is
 // marked handled whenever the flow has a failure module, since each failed
 // child ran its copy of it, so the flow's own does not run ([CF-16] item
-// 8, [CF-22] rule 5).
+// 8, [CF-22] rule 5). It is never marked recovered: its recovered children
+// count as succeeded, so its failure comes from a child that did not
+// recover ([CF-V1]).
 //
 // [CF-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-16
 // [CF-22]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-22
+// [CF-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-v1
 func parallelDone(fr *frame, o outcome, failed bool) outcome {
-	o = handledBy(o, failed && fr.failure != nil)
+	o = handledBy(o, failed && fr.failure != nil, false)
 	o.parallel = true
 	return o
 }

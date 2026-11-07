@@ -35,7 +35,8 @@ func inputsOf(m *ir.Module) []ir.Input {
 // that failed fails the step with it (CF-17): its failure value, a failed
 // container's array, or its failure module's result, a recovered one
 // included, since a subflow that ran its failure module reports a failure
-// to its caller (CF-V1, FX-33); one that aborted at a later transition
+// to its caller (CF-V1, FX-33), marked as recovered when it recovered or
+// failed with a recovered failure; one that aborted at a later transition
 // hands the step its last carried value, while lookups read the stored
 // error (CF-23 route 3). The step's own stop_after_if is evaluated after a
 // success, whatever stop the subflow raised.
@@ -76,7 +77,7 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 		o.rec.Status = conformance.StepSuccess
 	}
 	if e.status == conformance.RunFailure || e.handled {
-		o.rec.Module, o.end = conformance.ModuleFailure, endFailed
+		o.rec.Module, o.end, o.recovered = conformance.ModuleFailure, endFailed, e.recovered
 		return o
 	}
 	o.rec.Module = conformance.ModuleSuccess

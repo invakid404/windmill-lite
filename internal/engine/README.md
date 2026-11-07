@@ -462,6 +462,22 @@ member or a one-element array by position; a decode error, an absent
 fails the flow with its own failure value
 ([FX-33](../../docs/semantics/execution.md#fx-33)).
 
+**The recovered mark** ([FX-33](../../docs/semantics/execution.md#fx-33),
+[CF-V1](../../docs/semantics/control-flow.md#cf-v1)). A flow whose
+failure module recovered reports its failure to what contains it marked
+as recovered:
+
+- a sequential loop, a sequential `branchall`, a `branchone` or a flow
+  step that this failure fails keeps the mark;
+- a parallel loop or parallel `branchall`, a stop of the failed
+  container, clean or an error, and any new failure drop it;
+- a child flow that a failure with the mark ends, when nothing retried,
+  tolerated or handled it, fails and passes the mark on to its parent;
+- a root flow that it ends that way is stored `success`, with the result
+  it would have failed with;
+- a caller's own failure module still runs across a flow step and
+  decides as usual.
+
 **Cancellation** ([FX-38](../../docs/semantics/execution.md#fx-38), H4).
 A run whose context ends finishes canceled, without retry,
 `continue_on_error` or the failure module, with the result
@@ -587,7 +603,7 @@ the step's success value, not the `EarlyStopError`
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "execution error:\nBad request: Invalid entrypoint override <value>: must match ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, not starting with a digit)", "name": "ExecutionErr", "step_id": <id>}}`, at the job's pickup, before the step runs | WR-12 |
 | the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
 | a job's result or failure value that jsonb refuses once its NUL escapes are removed (an unpaired surrogate, a number beyond numeric's range) | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-51 case 1, OR-27 |
-| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay fails without running, with the run's `Canceled` error | FX-38 |
+| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay completes without running, stored canceled, with the run's `Canceled` error | FX-38 |
 | a sleep's value is not a delay (N2) | a chaining error (always a later transition): `Expected an integer, found: <n>` for a negative integer, `Expected an integer, found: <debug form>` (`String("1")`, `Null`, `Array [Number(1)]`) for anything else, `Expected a number value, had error instead: ExecutionErr("Error during evaluation of expression `<text>`:\n<evaluator text>")`, a debug form with its newline escaped, for a failed evaluation | FX-23, JE-28, FX-15 |
 | a timeout's value fails (N2) | a chaining error: `Timeout value cannot be negative`; `Error parsing result as i32: <serde_json's error, with its position>. Value was: <the evaluator's text as it is>`; `Error during evaluation of expression `<text>`:\n<evaluator text>` | FX-24, JE-29, FX-15 |
 | `retry_if` throws while the completion is decided (N2) | the module fails unrecoverably with the string `{"error": "Error: <text>"}`, as for `stop_after_if` but converted once more, so two `Error: ` prefixes (and on Windmill two location suffixes) | FX-28, FX-21, FX-50 |
@@ -1515,8 +1531,8 @@ FX-2, the same in the failure module with its own `retry`:
 
 **Waiting** happens on the run's clock (`RunRequest.Clock`, H10), a timer
 on the run's context, so a cancellation or a deadline cuts it short; the
-queued job then fails without running, with the run's `Canceled` error
-(FX-38): a failed job, not a canceled one, as the oracle recorded. Each
+queued job then completes without running, with the run's `Canceled`
+error (FX-38), stored canceled, as the oracle recorded. Each
 requested wait is a `SpanWait` span. `RecordClock` records
 waits instead of sleeping them and runs ahead by them; a run whose clock
 is not `RealClock` records `H10` among its trace's deviations. The jitter
@@ -1558,9 +1574,20 @@ refreshes the flow's
 ping and starts its next transition, as a child's completion refreshes a
 Windmill flow job's ping. Hooks
 and waits do not count: Windmill has no hooks, and runs a sleep or a
-retry delay as a scheduled job. So a runaway expression, whose three
-20 s attempts and two 5 s pauses take 70 s, ends the run canceled at
-60 s, as on the oracle (JE-2/a).
+retry delay as a scheduled job. So a runaway expression at a later
+transition, whose three 20 s attempts and two 5 s pauses take 70 s,
+ends the run canceled at 60 s.
+
+The monitor cancels only a flow that has started, or one that runs on
+the same worker. A flow has started once one of its module attempts,
+jobs or child flows has completed, so its first module no longer waits.
+Windmill puts a flow that has not started back in the queue instead,
+which does not stop the evaluation, and the engine leaves it alone.
+
+A runaway expression at a flow's first module therefore runs its three
+attempts, and the module fails with the timeout error after about 70 s,
+as on the oracle (JE-2/a, JE-2/b). What a requeued flow does when a
+worker picks it up again is not modelled.
 
 **Unreadable child results** (`readback.go`,
 [FX-42](../../docs/semantics/execution.md#fx-42) rule 9). A loop or a
@@ -1702,8 +1729,8 @@ the reference left to them.
   flow is scheduled (`frame.due`): it is picked up once the delay has
   passed, before any of its modules starts, so a first module that
   completes without a job, an empty container, does not use the delay
-  up, and a cancellation while it is queued fails it without running its
-  body (CF-28); a collapsed iteration's body job waits as any job does. A
+  up, and a cancellation while it is queued cancels it before its body
+  runs (CF-28); a collapsed iteration's body job waits as any job does. A
   container's retry delay schedules its first push the same way. A
   container's own sleep delays the module after it, evaluated with the
   container's result, as any module's.
@@ -1762,8 +1789,9 @@ the reference left to them.
   completes as a failure whose array holds, for each child the
   cancellation reached, held ones included, the `Canceled` error (a
   collapsed body job's own killed result), and the children that had
-  completed keep theirs (recorded by `cf-28/held`); a canceled
-  `branchone` fails with its branch's `Canceled` error. The run then ends
+  completed keep theirs (recorded by `cf-28/held`). A canceled
+  `branchone` fails with its branch's `Canceled` error, and its job, the
+  branch's flow job, is canceled, queued or running. The run then ends
   canceled.
 - **`squash`** ([CF-25](../../docs/semantics/control-flow.md#cf-25)) is
   accepted and ignored. windmill-lite runs a squashed loop unsquashed,
