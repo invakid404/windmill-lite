@@ -259,7 +259,7 @@ validation. Open questions are `Q-OR-n`.
   `docker/DockerfileSlim:85 @ v1.862.0`), and a Bun step on CE v1.862.0
   reports `1.4.4`, recorded by the probe `bun_version`, which the `env`
   probe's `bun` field became ([OR-2/a](conformance.md#or-2), oracle run
-  ORACLE_RUN_W5E; [OR-29](#or-29)). The title no longer names a version.
+  42327335039; [OR-29](#or-29)). The title no longer names a version.
   The other images' contents, the sizes, the harness bullets and
   [OR-2/b](conformance.md#or-2) are not re-checked.
 
@@ -1231,7 +1231,7 @@ validation. Open questions are `Q-OR-n`.
   the three preview runs of `conformance/flows/openflow/of-drivers` the
   errors name jobs of flows the step started through the API, which the
   walk does not reach, so item 1 left the raw ids and the two repeats
-  differed (`unstable`, oracle run ORACLE_RUN_W5E). Item 1 now maps such an
+  differed (`unstable`, oracle run 42327335039). Item 1 now maps such an
   id, found as an error object's `job_id`, to a numbered placeholder
   `<job:?N>`, with new case [OR-14/c](conformance.md#or-14); the rule is a
   harness requirement the normaliser does not apply yet (drafted). Item 5
@@ -1997,7 +1997,7 @@ validation. Open questions are `Q-OR-n`.
   1.826.0 (job arguments); PostgreSQL's `jsonb` keeps the last value of a
   duplicate key and rejects `\u0000`
   (https://www.postgresql.org/docs/current/datatype-json.html); recorded
-  by `conformance/flows/oracle/nul` (oracle run ORACLE_RUN_W5E). At
+  by `conformance/flows/oracle/nul` (oracle run 42327335039). At
   v1.767.0: `backend/windmill-queue/src/jobs.rs:1095-1133` ("Could not add
   completed job …"), `:995-1017` (ten retries, 3 s apart);
   `backend/windmill-worker/src/worker.rs:1337-1340`,
@@ -2024,7 +2024,7 @@ validation. Open questions are `Q-OR-n`.
   escape from a result before the completion insert, and 1.826.0 does the
   same for a job's arguments, so a NUL no longer fails a step or refuses a
   run request. CE v1.862.0 recorded the three Bun runs succeeding with the
-  NUL gone (`"xy"`, `{"k":1}`, `{"a":["x"]}`, oracle run ORACLE_RUN_W5E);
+  NUL gone (`"xy"`, `{"k":1}`, `{"a":["x"]}`, oracle run 42327335039);
   the Python run is unchanged. The title, the rule, the evidence, the
   design note and [OR-27/a, OR-27/b](conformance.md#or-27) now state
   v1.862.0, with the v1.767.0 failure kept as history; which escapes are
@@ -2179,7 +2179,7 @@ validation. Open questions are `Q-OR-n`.
   probe was split: it returns the `WM_` variables, masks both new values
   with the variables they mirror and returns the two equalities instead,
   and Bun's version moved to probe `bun_version` (oracle run
-  ORACLE_RUN_W5E, [OR-29/a](conformance.md#or-29),
+  42327335039, [OR-29/a](conformance.md#or-29),
   [OR-2/a](conformance.md#or-2)). The rest of the list and the job-id
   scopes are not re-checked.
 

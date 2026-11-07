@@ -389,7 +389,7 @@ interface); `WA-Vn` findings were added during validation.
   the run routes (1.829.0), not only for an app run: the caller's address,
   or a calling job's end user, inherited by every step. CE v1.862.0
   recorded both through the `env` probe ([OR-29](oracle.md#or-29), oracle
-  run ORACLE_RUN_W5E): the root workspace equal to the workspace, and the
+  run 42327335039): the root workspace equal to the workspace, and the
   end user `admin@windmill.dev`, equal to `WM_EMAIL` for a run the admin
   started by path. The rest of the table is not re-checked.
 
@@ -1046,7 +1046,7 @@ interface); `WA-Vn` findings were added during validation.
   variable's text ends ` (variables.rs:1487)` when the body sets a value.
   CE v1.862.0 recorded [WA-11/c](conformance.md#wa-11),
   [WA-11/d](conformance.md#wa-11) and [WA-11/e](conformance.md#wa-11) in
-  run `answers` (oracle run ORACLE_RUN_W5E) as stated, with that
+  run `answers` (oracle run 42327335039) as stated, with that
   location. The `1505` case is not recorded.
 
 <a id="wa-12"></a>
@@ -1204,7 +1204,7 @@ interface); `WA-Vn` findings were added during validation.
   whatever identity the job runs as, so `getResource`, `resource()` and a
   step's `$res:` argument no longer reach the database settings. CE
   v1.862.0 recorded it ([WA-12/h](conformance.md#wa-12), run `answers`,
-  oracle run ORACLE_RUN_W5E): the oracle's admin, whose step's token had
+  oracle run 42327335039): the oracle's admin, whose step's token had
   read the settings at v1.767.0, got the 401, and the raw read still
   answered 404. The job lookup of an unusable `job_id` is unchanged but for
   its location, ` (resources.rs:1088)` ([WA-12/g](conformance.md#wa-12)).
@@ -2011,7 +2011,7 @@ interface); `WA-Vn` findings were added during validation.
   at `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0`, so the text ends
   ` (jobs.rs:12065)`. The rest of the finding is not re-checked.
 - **Revision 2026-11-07 (retarget to v1.862.0):** WA-19/b was re-recorded
-  on CE v1.862.0 (run `answers`, oracle run ORACLE_RUN_W5E): the same 400
+  on CE v1.862.0 (run `answers`, oracle run 42327335039): the same 400
   `SqlErr` text, with the root lookup's query at
   `backend/windmill-api/src/jobs.rs:676-687 @ v1.862.0`, so the body ends
   ` @jobs.rs:677:20`.

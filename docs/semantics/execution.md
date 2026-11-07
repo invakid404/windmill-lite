@@ -3782,7 +3782,7 @@ run of batch E3f in the [design README](../design/README.md).
   re-checked as a whole and its three cases reversed. Windmill removes
   every NUL escape before it stores a result (1.768.0) or a job's
   arguments (1.826.0). CE v1.862.0 recorded it at each boundary (oracle
-  run ORACLE_RUN_W5E):
+  run 42327335039):
   - the step returning `"x\u0000y"` succeeds with `"xy"`, as do the key
     and nested variants ([OR-27](oracle.md#or-27); fixture `oracle/nul`);
   - the transform `String.fromCharCode(0)` gives the argument `""` at root
@@ -4179,7 +4179,7 @@ run of batch E3f in the [design README](../design/README.md).
   @ v1.862.0`, after the NUL removal, so its location reads
   ` @jobs.rs:7908:5` (` @jobs.rs:6417:5` at v1.767.0). CE v1.862.0
   recorded [FX-51/b](conformance.md#fx-51) (oracle run 42243035193) and
-  [FX-51/d, FX-51/e](conformance.md#fx-51) (oracle run ORACLE_RUN_W5E)
+  [FX-51/d, FX-51/e](conformance.md#fx-51) (oracle run 42327335039)
   with that location and otherwise as stated.
 
 <a id="fx-v1"></a>

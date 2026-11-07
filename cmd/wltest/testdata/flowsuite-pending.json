@@ -302,14 +302,6 @@
       "milestone": "W5d",
       "reason": "CE 1.862.0 ends the run as failure (ExecutionErr) where the case expects canceled, as for the expression chain of je-51-chain"
     },
-    "conformance/flows/client-api/facade-answers/answers": {
-      "milestone": "W5e",
-      "reason": "a job token can no longer resolve CUSTOM_INSTANCE_DB at CE 1.862.0 (401), and the decrypt text and location suffixes changed"
-    },
-    "conformance/flows/client-api/raw-requests/requests": {
-      "milestone": "W5e",
-      "reason": "CE 1.862.0 accepts the two NUL requests and strips the NUL (1.826.0), so their bodies are job ids that differ per repeat"
-    },
     "conformance/flows/control-flow/cf-13/b": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
@@ -682,14 +674,6 @@
       "milestone": "W5b",
       "reason": "CE 1.862.0 adds job_id, step_id and flow_path to step error objects (1.847.0, 1.850.0), which the expect predates"
     },
-    "conformance/flows/execution/fx-48-jsonb/nul_later": {
-      "milestone": "W5e",
-      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
-    },
-    "conformance/flows/execution/fx-48-jsonb/nul_root": {
-      "milestone": "W5e",
-      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
-    },
     "conformance/flows/execution/fx-49/throws": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
@@ -901,26 +885,6 @@
     "conformance/flows/oracle/key-order/retry_keys": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
-    },
-    "conformance/flows/oracle/nul/nul": {
-      "milestone": "W5e",
-      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
-    },
-    "conformance/flows/oracle/nul/nul_key": {
-      "milestone": "W5e",
-      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
-    },
-    "conformance/flows/oracle/nul/nul_nested": {
-      "milestone": "W5e",
-      "reason": "CE 1.862.0 strips NUL before jsonb writes (1.768.0, 1.826.0), so the run succeeds where the expect has the storage error of OR-27"
-    },
-    "conformance/flows/oracle/probes/bun_version": {
-      "milestone": "W5e",
-      "reason": "a new run of the env probe split: Bun's version, recorded by this milestone's oracle run"
-    },
-    "conformance/flows/oracle/probes/env": {
-      "milestone": "W5e",
-      "reason": "at CE 1.862.0 the image runs Bun 1.4.4, WM_END_USER_EMAIL is set and WM_ROOT_WORKSPACE is new, so the env probe is split"
     },
     "conformance/flows/oracle/probes/fail_handler": {
       "milestone": "W5b",

@@ -115,7 +115,7 @@ defined in the [index](README.md#legend).
 - **Conformance:** [WR-3/a](conformance.md#wr-3)
 - **Design note (not Windmill behaviour):** windmill-lite pins a Bun version and reports it in its build info. It pins `1.4.3`, not the image's `1.4.4`; [ADR 0001](../design/0001-equivalence-contract.md) is where the equivalence contract treats such a difference.
 - **Revision 2026-10-29 (oracle, batch E3e):** the oracle's environment probe returns `Bun.version` = `1.3.10` from a Bun step (fixture `conformance/flows/oracle/probes`, run `env`, oracle run 40798097155), so the running binary matches the image recipe. WR-3/a is `oracle-observed`.
-- **Revision 2026-11-07 (retarget to v1.862.0):** re-checked as a whole. The image copies Bun `1.4.4`, and a Bun step on CE v1.862.0 reports it (fixture `conformance/flows/oracle/probes`, run `bun_version`, the `env` probe's former `bun` field, oracle run ORACLE_RUN_W5E). Node is `24.22.1`, Deno has left the standard image, Go is `1.27.3`, and the matching `windmill-client` is `1.862.0`. The design note no longer asks for the image's Bun: windmill-lite pins `1.4.3`.
+- **Revision 2026-11-07 (retarget to v1.862.0):** re-checked as a whole. The image copies Bun `1.4.4`, and a Bun step on CE v1.862.0 reports it (fixture `conformance/flows/oracle/probes`, run `bun_version`, the `env` probe's former `bun` field, oracle run 42327335039). Node is `24.22.1`, Deno has left the standard image, Go is `1.27.3`, and the matching `windmill-client` is `1.862.0`. The design note no longer asks for the image's Bun: windmill-lite pins `1.4.3`.
 
 <a id="wr-4"></a>
 ### WR-4 · Process exit status and how the job outcome is first decided
