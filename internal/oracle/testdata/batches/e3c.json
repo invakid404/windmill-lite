@@ -53,7 +53,7 @@
     {"case": "FX-14/a", "run": "conformance/flows/execution/fx-14/bad_transform_handled", "pointer": "/result/message", "prefix": "Error during isolated evaluation of expression `flow_input.a.b.c`:\n"},
     {"case": "FX-14/b", "run": "conformance/flows/execution/fx-14/retry_empty", "pointer": "/steps/m:a~1r:0/result/error/message", "prefix": "Error during isolated evaluation of expression `null.x`:\n"},
     {"case": "FX-15/a", "run": "conformance/flows/execution/fx-15/later_transition", "pointer": "/result/error/message", "prefix": "Error: "},
-    {"case": "FX-15/b", "run": "conformance/flows/execution/fx-15/root_pickup", "pointer": "/result/m", "prefix": "Error: Timeout value cannot be negative"},
+    {"case": "FX-15/b", "run": "conformance/flows/execution/fx-15/root_pickup_i32", "pointer": "/result/m", "prefix": "Error: Error parsing result as i32"},
     {"case": "FX-15/c", "run": "conformance/flows/execution/fx-15/child_pickup", "pointer": "/steps/m:s/result/error/message", "prefix": "Error: "}
   ],
   "contradictions": [

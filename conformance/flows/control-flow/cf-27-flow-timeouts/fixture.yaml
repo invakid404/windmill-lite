@@ -1,14 +1,16 @@
 # Recording batch E3f (ADR 0012): timeouts on branches and subflow steps
 # (Q-FX-1, CF-27): a 1 s timeout on a branchone, a parallel branchall and a
 # subflow step, each of whose bodies sleeps 3 s. The runs compare as a
-# subset.
+# subset. On CE 1.862.0 the subflow step's timeout becomes the subflow's
+# wall-clock limit, which the server enforces (FX-52/f); the branches stay
+# untimed.
 #
-# Each run's expect is the reference's source-derived prediction, written
-# before the oracle ran it. Synthetic, written for this repository from
+# Each run's expect was the reference's source-derived prediction, written
+# before the oracle first ran it. Synthetic, written for this repository from
 # docs/semantics/control-flow.md#cf-27 and
 # docs/semantics/execution.md#q-fx-1. Deployed with oracle.deploy api.
 id: control-flow/cf-27-flow-timeouts
-spec: [CF-27]
+spec: [CF-27, FX-52/f]
 scope: core
 provenance: oracle-observed
 languages: [bun]

@@ -1,0 +1,15 @@
+summary: "FX-52 subflow with its own timeout, 3 s step"
+value:
+  timeout: 1
+  modules:
+    - id: x
+      value:
+        type: rawscript
+        content: "!inline sleep.ts"
+        language: bun
+        input_transforms:
+          ms: {type: static, value: 3000}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

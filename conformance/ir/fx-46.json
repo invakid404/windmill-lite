@@ -309,7 +309,7 @@
       "spec": "FX-46",
       "variant": "timeout",
       "provenance": "source-derived",
-      "title": "timeout: collapse true",
+      "title": "timeout: collapse false",
       "given": {
         "files": {
           "wmill.yaml": "defaultTs: bun\n",
@@ -322,7 +322,7 @@
         "steps": {
           "f/x/main m:l": {
             "at": {
-              "/forloop/collapse": true
+              "/forloop/collapse": false
             }
           }
         }
