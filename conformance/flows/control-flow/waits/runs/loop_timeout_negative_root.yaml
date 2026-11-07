@@ -1,6 +1,6 @@
 # CF-21, FX-24: a collapsed loop's negative timeout is unset (at v1.767.0
 # it failed the first body job's push at the root's pickup), so the body
-# job runs untimed.
+# job runs with no custom timeout, under the instance default or maximum.
 spec: [CF-21, FX-24, FX-15]
 target: f/cfwaits/loop_timeout_negative_root
 expect:

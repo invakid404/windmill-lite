@@ -646,7 +646,7 @@ defined in the [index](README.md#legend).
   - **Which timeout applies:**
     - A requested timeout is used, and the message names it as the custom timeout, only when it is **strictly less than** the instance maximum (`TIMEOUT`). The default maximum is 604 800 s self-hosted. On the cloud the base default is 900 s, and in a premium cloud workspace the effective maximum is six times the instance maximum.
     - A request equal to or above the maximum is ignored. The instance maximum applies, the log gets `WARNING: Custom job timeout of <n> seconds was greater than the instance maximum job duration of <max> seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead`, and the message names the instance maximum.
-    - With no request, the instance default or maximum applies, and the message names it. A request of 0 or less is no request ([FX-24](execution.md#fx-24), 1.768.0).
+    - With no request, the instance default or maximum applies, and the message names it; an instance default of 0 is a zero-second limit, and a negative one falls to the maximum ([FX-24](execution.md#fx-24)). A request of 0 or less is no request (1.768.0).
   - **Flow-module timeouts** are input transforms. The flow engine evaluates them and passes the result when it pushes the job. A value of 0 or less is unset; at v1.767.0 a negative value failed with `Timeout value cannot be negative`.
   - **Kill sequence:**
     - SIGINT is sent first only if `MAX_WAIT_FOR_SIGINT` > 0, and the default is 0.

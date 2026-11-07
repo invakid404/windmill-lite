@@ -1743,7 +1743,7 @@ run of batch E3f in the [design README](../design/README.md).
 <a id="fx-24"></a>
 ### FX-24 · Per-step `timeout`: value, cap and enforcement by execution path
 
-**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; oracle-observed at v1.862.0: FX-24/a to FX-24/g, the deployed half of FX-24/d, and path 4 for loops, branches and subflow steps); medium (path 2's cap, read but not traced) · **Status:** confirmed
+**Scope:** core (process, identity, child-flow and collapsed-loop paths); later (in-process executors) · **Confidence:** high (paths 1, 3, 4, 5; oracle-observed at v1.862.0: FX-24/a to FX-24/g, the deployed half of FX-24/d, and path 4 for loops, branches and subflow steps); high (source-traced, not recorded: an instance default of 0 or less, which the oracle does not set); medium (path 2's cap, read but not traced) · **Status:** confirmed
 
 - **Rule:**
   - **Value.** `timeout` on a module is an input transform (a bare number is
@@ -1751,32 +1751,50 @@ run of batch E3f in the [design README](../design/README.md).
     [FX-8](#fx-8)) as a whole number of **seconds** that must deserialise as
     an i32; one that does not is a chaining error ([FX-15](#fx-15), texts in
     [JE-29](expressions.md#je-29)). **A value of 0 or less is unset:** the
-    module then behaves exactly as if it had no `timeout` (1.768.0). At
-    v1.767.0 a zero was used as it was, which left the job no time at all,
-    and a negative value was a chaining error ("Timeout value cannot be
-    negative").
-  - **Precedence.** The effective timeout is the first of these that is
+    module supplies no custom timeout, so the effective timeout is chosen
+    as if it had none (1.768.0). Only the field's presence still counts: a
+    loop body module with any `timeout`, `0` included, is not collapsed
+    ([FX-46](#fx-46)). At v1.767.0 a zero was used as it was, which left the
+    job no time at all, and a negative value was a chaining error ("Timeout
+    value cannot be negative").
+  - **Precedence.** The **custom timeout** is the first of these that is
     set and positive: the module's `timeout`; for a `script` module by path
     or hash, the script's own `timeout` metadata (a stored value of 0 or
-    less counts as none); the instance default job timeout; the instance
-    maximum. `rawscript` and `flowscript` steps have no script-level
-    timeout. On a `flow` step, the module's positive `timeout` is not a job
-    timer: it replaces the subflow's own wall-clock limit
-    ([FX-52](#fx-52)).
+    less counts as none). `rawscript` and `flowscript` steps have no
+    script-level timeout. With no custom timeout, the **instance default
+    job timeout** applies when it is set (the instance setting
+    `job_default_timeout`, or the `JOB_DEFAULT_TIMEOUT_SECS` environment
+    variable), else the **instance maximum**. The instance default is not
+    filtered to positive values; the cap below says what 0 or less does.
+    On a `flow` step, the module's positive `timeout` is not a job timer:
+    it replaces the subflow's own wall-clock limit ([FX-52](#fx-52)).
   - **Cap and source.** A custom value strictly below the maximum is used
     as it is; its source is the **custom** timeout. A custom value equal to
     or above the maximum is replaced by the maximum, with a warning in the
     job's log (`WARNING: Custom job timeout of <n> seconds was greater than
     the instance maximum job duration of <max> seconds (TIMEOUT env variable
     of the worker). It will be ignored and the max timeout will be used
-    instead`); its source is the **instance maximum**. With no custom value,
-    the instance default applies if it is strictly below the maximum
-    (source: the **instance default**), else the maximum (source: the
-    instance maximum, with the same kind of warning when a default was
-    set). The maximum is the instance's `TIMEOUT` (default 604 800 s, 7
-    days, self-hosted; 900 s on Windmill Cloud), ×6 for cloud premium
+    instead`); its source is the **instance maximum**. With no custom value
+    and no instance default, the maximum applies, with no warning (source:
+    the instance maximum). With an instance default `<d>`:
+    - `<d>` from 0 up to below the maximum is used as it is (source: the
+      **instance default**). A default of 0 is therefore a zero-second
+      limit: a step's process is killed as soon as the timer is checked,
+      unless it has already exited;
+    - `<d>` at or above the maximum is replaced by the maximum, with the
+      warning `WARNING: Default job timeout of <d> seconds was greater than
+      the instance maximum job duration of <max> seconds (TIMEOUT env
+      variable of the worker). It will be ignored and the max timeout will
+      be used instead` (source: the instance maximum);
+    - a negative `<d>` is read as an unsigned number of seconds, larger
+      than any maximum, so it takes the same branch: the maximum and the
+      warning, quoting the negative value.
+
+    The maximum is the instance's `TIMEOUT` (default 604 800 s, 7 days,
+    self-hosted; 900 s on Windmill Cloud), ×6 for cloud premium
     workspaces. The source decides how the timeout message names the limit
-    ([FX-25](#fx-25)).
+    ([FX-25](#fx-25)). The oracle sets no instance default, so its
+    recordings exercise only the custom timeout and the maximum.
   - **Setup phases.** A phase the executor starts without the job's timeout
     (a dependency install, a build) runs under the instance default; the
     job's custom timeout can lengthen it, up to the maximum, but never
@@ -1834,7 +1852,12 @@ run of batch E3f in the [design README](../design/README.md).
     (the four sources and their names), `:1139-1175` (the running job's
     custom timeout seen by setup phases), `:1177-1277` (resolution, cap and
     lengthening; a non-positive custom value unset at `:1206-1208`);
-    `backend/windmill-common/src/worker.rs:294-308`, `:464-467` (the maximum)
+    `backend/windmill-common/src/worker.rs:294-308`, `:464-467` (the maximum);
+    the instance default: `backend/windmill-worker/src/worker.rs:700` (an
+    optional signed number of seconds), `backend/src/monitor.rs:3292-3300`
+    (loaded from the setting or the variable), `:3888-3931` (parsed with no
+    range check), `backend/windmill-worker/src/common.rs:1231-1260` (used as
+    a duration below the maximum, else the maximum with the warning)
   - enforcement: `backend/windmill-worker/src/handle_child.rs:310-346`
     (process timer), `:870-911` (one wall clock across phases), `:943-963`
     (in-process timer and messages); `backend/windmill-worker/src/worker.rs:5058-5065`
@@ -4425,9 +4448,12 @@ run of batch E3f in the [design README](../design/README.md).
      not already canceled, has a positive limit and has run at least that
      long is canceled as a user cancel would cancel it
      ([FX-38](#fx-38), [CF-28](control-flow.md#cf-28)), with canceler
-     `timeout` and reason `the flow exceeded its <n>s timeout`. A run can
-     therefore go up to about one monitor pass past its limit. Each flow
-     is claimed under a row lock first, so one server cancels it once.
+     `timeout` and reason `the flow exceeded its <n>s timeout`. The pass
+     interval bounds only when the cancel starts, within about one pass
+     after the limit. The flow completes later still: once the canceled
+     steps have reported (a killed process, a waiting step picked up) and
+     its failure module, if any, has run. Each flow is claimed under a row
+     lock first, so one server cancels it once.
   4. **What the cancel reaches.** Every queued or running descendant is
      flagged with the same canceler and reason:
      - a running step's process is killed, and the step fails with
@@ -4498,9 +4524,11 @@ run of batch E3f in the [design README](../design/README.md).
 - **Conformance:** [FX-52/a–FX-52/h](conformance.md#fx-52)
 - **Note:** the cancel is the server's, not the worker's: a flow is timed
   even while no worker holds it (between steps, during a sleep or an
-  approval), and the enforcement's granularity is the monitor's pass, not
-  the limit. The oracle runs its monitor every second, so its recordings
-  show the flow ending between 1 and 2 s after the limit.
+  approval), and the cancel's granularity is the monitor's pass, not the
+  limit. The oracle runs its monitor every second. Its recordings of a
+  1 s limit show root durations of about 1.6 s (a step waiting on a
+  sleep), 2.0 s (a running step killed, also for a subflow) and 2.1 s
+  (with a failure module): observations of these fixtures, not a bound.
 - **Revision 2026-11-07 (retarget to v1.862.0, new):** added from the
   source at v1.862.0 and recorded on CE v1.862.0
   (`conformance/flows/execution/fx-52-flow-timeout`; the oracle run is

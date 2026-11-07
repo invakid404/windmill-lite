@@ -1706,7 +1706,8 @@ present, is `bun: return "H"`.
   - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `process_timeout`, and [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout`, oracle run 42334222423 (CE v1.862.0); at v1.767.0 oracle runs 40818457347 and 40771900586.
 - **FX-24/b** · oracle-observed · A negative timeout at root pickup is unset.
   - **Given:** `[a: bun: return 1 (timeout: {type: javascript, expr: "-1"})]`.
-  - **Expect:** `a` runs untimed and the flow succeeds with `1`.
+  - **Expect:** `a` runs with no custom timeout (under the instance
+    default or maximum) and the flow succeeds with `1`.
   - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected an
     `Anyhow` failure of `a` (as FX-15/b then did), the v1.767.0 behaviour,
     which was recorded only for a collapsed loop at step 0
@@ -1718,7 +1719,8 @@ present, is `bun: return "H"`.
 - **FX-24/c** · oracle-observed · A negative timeout at a later transition is unset.
   - **Given:** `[x: bun: return 1, a: bun: return 2 (timeout: {type:
     javascript, expr: "-1"})]`.
-  - **Expect:** `a` runs untimed and the flow succeeds with `2`.
+  - **Expect:** `a` runs with no custom timeout (under the instance
+    default or maximum) and the flow succeeds with `2`.
   - **Correction 2026-11-07 (retarget to v1.862.0):** at v1.767.0 the flow
     failed at once with the `InternalError` `"Timeout value cannot be
     negative"`, and `a` never got a job (oracle run 40818457347). CE
@@ -2853,8 +2855,9 @@ after a successful dependency job; a step `sleep(ms)` is a Bun step that
 waits `ms` milliseconds and returns `ms`. `C` is the canceled value
 `{"error": {"name": "Canceled", "message": "Job canceled: the flow exceeded its 1s timeout by timeout", "reason": "the flow exceeded its 1s timeout", "canceler": "timeout"}}`, `K` the killed step's error
 `{"error": {"name": "ExecutionErr", "message": "execution error:\njob process terminated due to cancelled by timeout (reason: the flow exceeded its 1s timeout)", "step_id": "a"}}`, and `E` the timeout error `{"error": {"name": "ExecutionErr", "message": "flow terminated due to timeout: the flow exceeded its 1s timeout"}}`.
-The oracle's monitor runs every second, so a timed-out run ends 1 to 2 s
-after its limit.
+The oracle's monitor runs every second; the recorded runs with a 1 s
+limit ended after about 1.6 to 2.1 s of root duration, which the cases do
+not assert.
 
 - **FX-52/a** · oracle-observed · The flow's timeout cancels it.
   - **Given:** `{timeout: 1, modules: [a: sleep(6000)]}`.
