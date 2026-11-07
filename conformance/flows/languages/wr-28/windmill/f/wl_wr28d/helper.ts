@@ -1,4 +1,4 @@
-// The helper of WR-28/c to WR-28/e.
+// The helper of WR-28/c.
 export function h() {
   return "helper";
 }

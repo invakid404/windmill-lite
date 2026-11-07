@@ -1,12 +1,16 @@
+# JE-9/l: JE-9 inspects only the first matching line and declines, so the
+# text reaches the engine. Since CE v1.862.0 nothing is rewritten:
+# the second line does not continue the first, so the expression returns
+# the length, 3.
 spec: [JE-9/l]
 target: f/wl_je_shortcuts/je9_l
 claims:
   - at: /status
-    equals: failure
+    equals: success
   - at: /steps/m:b/status
-    equals: failure
-  - at: /steps/m:b/result/error/message
-    contains: ["QuickJS evaluation error:"]
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: 3
 unit:
   - spec: JE-9/l
     site: m:b
@@ -18,5 +22,4 @@ unit:
       results:
         a: "[1, 2, 3]"
     expect:
-      error:
-        contains: ["QuickJS evaluation error:"]
+      text: "3"
