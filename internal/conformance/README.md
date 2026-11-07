@@ -459,6 +459,11 @@ Both sides call `NumberUnwalked` with their own observation.
 `TestNormaliseUnwalkedJobIDs` runs twice each, with the ids drawn in the
 opposite order of value the second time.
 
+One case is not settled. When unwalked ids are themselves member names,
+those names sort by their raw ids, which differ between executions, so
+the numbers can follow the ids' values there. OR-14 does not say how such
+names sort, and no recorded run has one.
+
 `Normaliser.Text` normalises a text kept as written, a run-and-wait body:
 job ids become placeholders, and, when the text is a JSON value, a
 stack is masked exactly where `Value` would mask it: in an object deep-equal
