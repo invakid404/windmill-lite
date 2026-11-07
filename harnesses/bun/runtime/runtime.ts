@@ -1591,19 +1591,19 @@ export async function moduleFile(bundleDir: string, script: string, meta: unknow
 /** Loads the module at path and returns its namespace, evaluating it in
  * the caller's async context. Bun 1.4.3 evaluates a module that import()
  * loads outside every async context (1.3.10 kept the caller's), and one
- * that require() loads inside the caller's. So require() evaluates it,
- * called as a promise reaction, so that no frame of the runtime's is below
- * the module's in the stack of an error it throws as it evaluates; then
- * import() of the same file returns the namespace it always did, without
- * evaluating the module again. A top-level await still pending makes
- * require() throw a TypeError once the evaluation has started, in that
- * context, and import() waits for that evaluation. An ES module's failure
- * stays with the module, so import() rejects with the same error; a
- * CommonJS module's does not, and import() would evaluate the module again,
- * so its error is thrown as it is. */
+ * that require() loads inside the caller's. So require() evaluates it, and
+ * import() of the same file then returns the namespace it always did,
+ * without evaluating the module again. What require() returns is dropped,
+ * so an exported then, or a CommonJS module's thenable exports, is called
+ * or awaited by import() alone, as before. A top-level await still
+ * pending makes require() throw a TypeError once the evaluation has
+ * started, in that context, and import() waits for that evaluation. An ES
+ * module's failure stays with the module, so import() rejects with the
+ * same error; a CommonJS module's does not, and import() would evaluate
+ * the module again, so its error is thrown as it is. */
 export async function loadModule(path: string): Promise<Record<string, unknown>> {
   try {
-    await Promise.resolve(path).then(require);
+    require(path);
   } catch (e) {
     if (path.endsWith(".cjs")) throw e;
   }

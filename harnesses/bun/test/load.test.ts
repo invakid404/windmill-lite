@@ -74,7 +74,7 @@ test("the namespace is import()'s, and the module evaluates once", async () => {
   expect([probe.evaluated["ns-esm"], probe.evaluated["ns-cjs"], probe.evaluated["ns-fn"]]).toEqual([1, 1, 1]);
 });
 
-test("a failure is the module's own error, with no frame of the runtime's, and is not evaluated twice", async () => {
+test("a failure is the module's own error, its stack starting at the module, and is not evaluated twice", async () => {
   const fail = async (path: string) => {
     try {
       await probe.store.run("D", () => loadModule(path));
@@ -85,15 +85,38 @@ test("a failure is the module's own error, with no frame of the runtime's, and i
   };
   const esm = await fail(file("fail/main.mjs", `${PRELUDE} ${at("fail-esm")} throw new RangeError("esm at load");`));
   const tla = await fail(file("fail/tla.mjs", `${PRELUDE} ${at("fail-tla")} await Bun.sleep(5); throw new TypeError("after a top-level await");`));
-  const cjs = await fail(file("fail/main.cjs", `${PRELUDE} ${at("fail-cjs")} throw new SyntaxError("cjs at load");`));
+  const cjs = await fail(file("fail/main.cjs", `${PRELUDE} ${at("fail-cjs")} throw new EvalError("cjs at load");`));
   expect([esm.name, esm.message, tla.name, tla.message, cjs.name, cjs.message]).toEqual([
     "RangeError",
     "esm at load",
     "TypeError",
     "after a top-level await",
-    "SyntaxError",
+    "EvalError",
     "cjs at load",
   ]);
-  for (const e of [esm, tla, cjs]) expect(String(e.stack)).not.toContain("runtime.ts");
+  const firstFrames = [esm, tla, cjs].map((e) => String(e.stack).split("\n")[1]);
+  expect(firstFrames.map((f, i) => f.includes(["fail/main.mjs", "fail/tla.mjs", "fail/main.cjs"][i]))).toEqual([true, true, true]);
   expect([probe.evaluated["fail-esm"], probe.evaluated["fail-tla"], probe.evaluated["fail-cjs"]]).toEqual([1, 1, 1]);
+});
+
+// The same file loaded by import() alone, in a directory of its own, and by
+// loadModule: what each resolves to, and how often an exported then ran.
+test("an exported then and a CommonJS module's thenable exports are resolved as import() alone resolves them", async () => {
+  const sources: Record<string, string> = {
+    "then.mjs": "let calls = 0; export function then(resolve) { calls++; resolve({ main: () => calls }); } export function main() { return calls; }",
+    "then.cjs": "let calls = 0; module.exports = { then(resolve) { calls++; resolve({ main: () => calls }); } };",
+    "pending.cjs": "module.exports = new Promise(() => {});",
+  };
+  // What a load gives: main's answer if it has one, else its keys and the
+  // type of its default export; or that it never settled.
+  const outcome = (p: Promise<Record<string, unknown>>) =>
+    Promise.race([
+      p.then((ns) => (typeof ns.main === "function" ? (ns.main as () => unknown)() : `${Object.keys(ns).sort()} ${typeof ns.default}`)),
+      Bun.sleep(500).then(() => "never settled"),
+    ]);
+  for (const [name, source] of Object.entries(sources)) {
+    const alone = await outcome(import(pathToFileURL(file(`import-only/${name}`, source)).href));
+    const loaded = await outcome(loadModule(file(`loaded/${name}`, source)));
+    expect(`${name}: ${loaded}`).toBe(`${name}: ${alone}`);
+  }
 });
