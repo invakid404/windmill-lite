@@ -95,6 +95,24 @@ cases:
           - {at: /result/error/name, equals: ExecutionErr}
           - {at: /result/error/step_id, equals: a}
   - spec: WR-45
+    variant: redeclare-text
+    provenance: policy
+    title: WR-45/c's redeclaration fails the load with JavaScriptCore's text, as the worker's execution error with step_id alone
+    note: >-
+      WR-45/c's script, as its run languages/wr-45/wr45_c_nativets has it.
+      Windmill 1.862.0 answers with V8's text, Uncaught SyntaxError:
+      Identifier 'BASE_URL' has already been declared, then the frame line
+      at file:///eval.ts:74:7 and the location @lib.rs:964:22. Deviation D5
+      keeps JavaScriptCore's redeclaration text, which names no frame, and
+      windmill-lite's own messages carry no location (D14); the rest of the
+      answer is Windmill's.
+    language: nativets
+    script: |
+      const BASE_URL = "x"; export function main() { return BASE_URL; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'BASE_URL'.", name: ExecutionErr, step_id: a}}}
+  - spec: WR-45
     variant: redeclare-bunnative
     provenance: source-derived
     title: both kinds declare process and BASE_URL, so a //native script that declares one fails its load too

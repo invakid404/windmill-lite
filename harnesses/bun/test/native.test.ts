@@ -923,6 +923,21 @@ describe("the transpile's line map (WR-43)", () => {
   });
 });
 
+// The 22 reserved variables of a flow step (WR-22), each with a value of
+// its own; on the oracle a flow step has 23 variables (WR-45).
+function reservedVariables(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of [
+    "WM_WORKSPACE", "WM_ROOT_WORKSPACE", "WM_EMAIL", "WM_USERNAME", "WM_PERMISSIONED_AS", "WM_TOKEN", "WM_BASE_URL",
+    "WM_JOB_ID", "WM_JOB_PATH", "WM_FLOW_JOB_ID", "WM_ROOT_FLOW_JOB_ID", "WM_ROOT_JOB_ID", "WM_FLOW_PATH",
+    "WM_FLOW_STEP_ID", "WM_SCHEDULE_PATH", "WM_SCHEDULED_FOR", "WM_STATE_PATH", "WM_OBJECT_PATH", "WM_END_USER_EMAIL",
+    "WM_WORKER_GROUP", "WM_RUNNABLE_ID", "WM_TESTED_RUNNABLE",
+  ]) {
+    env[name] = name.toLowerCase();
+  }
+  return env;
+}
+
 describe("a stack's source line (WR-43)", () => {
   // Scripts built as the build helper builds them: a nativets script is
   // transpiled and keeps its transpile's line map; a //native one is the
@@ -957,17 +972,7 @@ describe("a stack's source line (WR-43)", () => {
   // const on each further line.
   const throwing = (n: number) =>
     ["export function main() {", '  throw new Error("x");', "}", ...Array.from({ length: n - 3 }, (_, i) => `const v${i + 4} = ${i + 4};`)].join("\n") + "\n";
-  // The 22 reserved variables of a flow step (WR-22); on the oracle a flow
-  // step has 23 variables (WR-45).
-  const reserved: Record<string, string> = {};
-  for (const name of [
-    "WM_WORKSPACE", "WM_ROOT_WORKSPACE", "WM_EMAIL", "WM_USERNAME", "WM_PERMISSIONED_AS", "WM_TOKEN", "WM_BASE_URL",
-    "WM_JOB_ID", "WM_JOB_PATH", "WM_FLOW_JOB_ID", "WM_ROOT_FLOW_JOB_ID", "WM_ROOT_JOB_ID", "WM_FLOW_PATH",
-    "WM_FLOW_STEP_ID", "WM_SCHEDULE_PATH", "WM_SCHEDULED_FOR", "WM_STATE_PATH", "WM_OBJECT_PATH", "WM_END_USER_EMAIL",
-    "WM_WORKER_GROUP", "WM_RUNNABLE_ID", "WM_TESTED_RUNNABLE",
-  ]) {
-    reserved[name] = name.toLowerCase();
-  }
+  const reserved = reservedVariables();
 
   test("as nativets, a frame past the code's last mapping reads the line numbered as the code's last mapped line, in the preamble: WR-43/c's script reads BASE_INTERNAL_URL's", async () => {
     const meta = write("c", 'export function main() {\n  throw new Error("x");\n}\n');
@@ -1010,6 +1015,43 @@ describe("a stack's source line (WR-43)", () => {
     // 11, and the line read is the code's 11 - 7 = 4, not its line 2.
     const meta = write("types", "type A = number;\ntype B = string;\n" + throwing(20));
     expect(await firstLines("types", meta, { V: "v" })).toEqual(["const v4 = 4;", "Error: x"]);
+  });
+});
+
+describe("WR-45/c's redeclaration (languages/wr-45/wr45_c_nativets)", () => {
+  // WR-45/c's script, built as the build helper builds it, with a flow
+  // step's 23 variables as on the oracle. Windmill 1.862.0 answers with
+  // V8's text, its frame line file:///eval.ts:74:7 and the location
+  // @lib.rs:964:22; D5 keeps JavaScriptCore's redeclaration text, which
+  // names no frame, and windmill-lite's own messages carry no location
+  // (D14). The rest of the answer is Windmill's: the worker's execution
+  // error, with step_id alone, which the harness marks generated.
+  const dir = mkdtempSync(join(tmpdir(), "wl-native-wr45c-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("the load fails with the worker's execution error and JavaScriptCore's redeclaration text, nothing else", async () => {
+    const native = new Native({ bundleDir: dir, baseURL: () => "http://127.0.0.1:9", onError: () => {}, onUntracked: () => {} });
+    native.capture();
+    const source = 'const BASE_URL = "x"; export function main() { return BASE_URL; }\n';
+    const t = transpile(source);
+    if (!("js" in t)) throw new Error(t.error);
+    const m = nativeModule(t.js, "nativets");
+    mkdirSync(join(dir, "scripts", "bun"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "bun", "wr45c.native.js"), m.text);
+    const meta = { native: { ...m.form, line_map: lineMap(source, t.js) }, signatures: { main: { params: [] } } };
+    const env = { ...reservedVariables(), WM_FLOW_STEP_ID: "a", CUSTOM: "c" };
+    expect(Object.keys(env)).toHaveLength(23);
+    const resources = new InvocationResources();
+    const ctx: InvocationContext = { id: "i", run: "r", env, signal: new AbortController().signal, resources };
+    const inv = { id: "i", script: "wr45c", entry: "main", args: {}, env, resources };
+    expect(await invocations.run(ctx, () => native.run(inv, meta, ctx, "a"))).toEqual({
+      error: JSON.stringify({
+        message: "execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'BASE_URL'.",
+        name: "ExecutionErr",
+        step_id: "a",
+      }),
+      generated: true,
+    });
   });
 });
 
