@@ -57,14 +57,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 19 | 0 | 0 |
-| [Flow execution](#execution) | 171 | 112 | 58 | 1 | 0 | 157 | 0 | 1 |
+| [Flow execution](#execution) | 172 | 113 | 58 | 1 | 0 | 158 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 197 | 130 | 65 | 0 | 2 | 183 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
-| [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 68 | 0 | 0 |
+| [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1064 | 733 | 314 | 8 | 9 | 678 | 0 | 7 |
+| **Total** | 1066 | 735 | 314 | 8 | 9 | 679 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -2657,37 +2657,71 @@ contested and now carry their own provenance.
 
 **Scope:** core · **Finding:** [FX-48](execution.md#fx-48)
 
-- **FX-48/a** · oracle-observed · A NUL in a result fails the completion
-  insert.
+- **FX-48/a** · oracle-observed · A NUL in a result is removed when the
+  result is stored.
   - **Given:** `[a: bun: return "x\u0000y"]`.
-  - **Expect:** after the insert retries (up to 10 × 3 s), `{success: false,
-    result: {"error": {"name": "InternalErr", "message": <starts "Internal:
-    Could not add completed job ">}}}`. Normalise the job UUID, the database
-    detail and the location.
+  - **Expect:** `{success: true, result: "xy"}`: `a`'s stored result, which
+    the job API and every reader of storage get. The next step's
+    transforms read the in-memory text, which still holds the NUL
+    ([FX-48/e](#fx-48)).
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected,
+    after the insert retries (up to 10 × 3 s), `{success: false, result:
+    {"error": {"name": "InternalErr", "message": <starts "Internal: Could
+    not add completed job ">}}}`, as CE v1.767.0 did. Windmill 1.768.0
+    removes the NUL before the completion insert ([FX-48](execution.md#fx-48)
+    case 1).
   - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025 (with a second step `b`, which
-    does not run): the message ends `error returned from database: unsupported Unicode escape sequence<loc>`,
-    and the step job ran for about 30 s. Runs `nul_key` and `nul_nested`
-    record the same for a NUL in an object key and in a nested value
-    ([OR-27](#or-27)).
+    did not run): the message ended `error returned from database: unsupported Unicode escape sequence<loc>`,
+    and the step job ran for about 30 s. Re-recorded on CE v1.862.0,
+    oracle run 42327335039: `a` succeeds with `"xy"` and `b` receives it.
+    Runs `nul_key` and `nul_nested` record the same for a NUL in an object
+    key and in a nested value ([OR-27](#or-27)).
 - **FX-48/b** · oracle-observed · A NUL generated in args at root pickup.
   - **Given:** `[a: bun(s): return s]` with `s = "String.fromCharCode(0)"`.
-  - **Expect:** an `Anyhow` failure of `a`.
-  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_root`, oracle run 40994947681: the flow fails with ``{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5 @worker.rs:3822:13"}}``; `a`'s module is `Failure` with no job.
+  - **Expect:** `a`'s job is pushed with `{"s": ""}`; `a` and the flow
+    succeed with `""`.
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected an
+    `Anyhow` failure of `a`, as CE v1.767.0 gave. Windmill 1.826.0 removes
+    the NUL from a job's arguments before the push stores them.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_root`, oracle run 40994947681: the flow failed with ``{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5 @worker.rs:3822:13"}}``; `a`'s module was `Failure` with no job. Re-recorded on CE v1.862.0, oracle run 42327335039, as expected.
 - **FX-48/c** · oracle-observed · The same at a later transition.
-  - **Given:** the transform of FX-48/b on a second step.
-  - **Expect:** an `InternalError` chaining failure.
-  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_later`, oracle run 40994947681: ``{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5"}}`` after `x` succeeded; `a` has no job.
-- **FX-48/d** · oracle-observed · A NUL in the incoming input refuses the
-  run request.
+  - **Given:** the transform of FX-48/b on a second step, after
+    `x: bun: return 1`.
+  - **Expect:** as FX-48/b: `a` receives `{"s": ""}`, and `a` and the flow
+    succeed with `""`.
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected an
+    `InternalError` chaining failure, as CE v1.767.0 gave.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_later`, oracle run 40994947681: ``{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5"}}`` after `x` succeeded; `a` had no job. Re-recorded on CE v1.862.0, oracle run 42327335039, as expected.
+- **FX-48/d** · oracle-observed · A NUL in the incoming input is removed
+  from the stored arguments.
   - **Given:** a deployed flow `[a: bun(s): return s]` with `s =
     "flow_input.s"`, started by `POST /api/w/{w}/jobs/run/f/{path}` with the
     body `{"s": "x\u0000y"}` (the JSON escape); a second request with the
     body `{"k\u0000": 1}`.
-  - **Expect:** each request answers HTTP 400 with `Content-Type:
-    text/plain` and the body
-    `SqlErr: error returned from database: unsupported Unicode escape sequence<loc>`;
-    no job is created.
-  - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: both requests answered 400, `text/plain`, body `SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5`, and the number of flow jobs at the path did not change.
+  - **Expect:** each request answers HTTP 201 with `Content-Type:
+    text/plain; charset=utf-8` and its new flow job's id as the body; a
+    flow job is created for each, and its stored arguments read back as
+    `{"s": "xy"}` and `{"k": 1}`.
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
+    each request to answer HTTP 400, `text/plain`, with
+    `SqlErr: error returned from database: unsupported Unicode escape sequence<loc>`,
+    and no job, as CE v1.767.0 did. Windmill 1.826.0 removes the NUL from
+    a job's arguments before the job row is stored.
+  - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: both requests answered 400, `text/plain`, body `SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5`, and the number of flow jobs at the path did not change. Re-recorded on CE v1.862.0, oracle run 42327335039, as expected; the fixture masks the two job ids.
+- **FX-48/e** · oracle-observed · The next step's transforms see the NUL
+  in memory, storage readers see it removed.
+  - **Given:** `[a: bun: return "x\u0000y", b: bun(len, code, p), c:
+    bun(len, code)]` with `b`'s `len = "previous_result.length"`,
+    `code = "previous_result.charCodeAt(1)"` and `p = "previous_result"`,
+    and `c`'s `len = "results.a.length"` and
+    `code = "results.a.charCodeAt(1)"`; each step returns its arguments.
+  - **Expect:** `a` succeeds with the stored result `"xy"`. `b`'s
+    transforms read `a`'s in-memory text ([FX-42](execution.md#fx-42) rule
+    3): `b` receives `{"len": 3, "code": 0, "p": "xy"}`, the passed-on
+    string stripped when `b`'s job is pushed. `c` reads `a` from storage
+    (route 3 of [FX-10](execution.md#fx-10), another step's id) and
+    receives `{"len": 2, "code": 121}`, which is the flow's result.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_memory`, oracle run 42333908953, as expected.
 
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries
@@ -2709,7 +2743,7 @@ contested and now carry their own provenance.
     then the same transform on a second step.
   - **Expect:** as FX-48/b and FX-48/c: an `Anyhow` failure of `a` at root
     pickup, an `InternalError` chaining failure at the later transition.
-  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) runs `surrogate_root` (``{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5 @worker.rs:3822:13"}}``) and `surrogate_later` (``{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5"}}``), oracle run 40990751153.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) runs `surrogate_root` (``{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5 @worker.rs:3822:13"}}``) and `surrogate_later` (``{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5"}}``), oracle run 40990751153; on CE v1.862.0, oracle run 42243035193, with the locations `@jobs.rs:7908:5` and `@worker.rs:5065:13`.
 - **FX-51/c** · oracle-observed · later · `$jsonvar:` validates its text.
   - **Given:** a variable with the text `{"s": "\ud83d"}` passed as
     `v = "$jsonvar:<path>"` to a Bun step `a`; a second variable with the
@@ -2745,7 +2779,7 @@ contested and now carry their own provenance.
     no job is created ([FX-51](execution.md#fx-51) rule 4). The run API
     only checks the number's syntax. Confidence medium; PostgreSQL's text
     is still to be recorded through Windmill.
-  - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: 400, `text/plain`, body `SqlErr: error returned from database: value overflows numeric format @jobs.rs:6417:5`; no job.
+  - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: 400, `text/plain`, body `SqlErr: error returned from database: value overflows numeric format @jobs.rs:6417:5`; no job. Re-recorded on CE v1.862.0, oracle run 42327335039, with the location `@jobs.rs:7908:5`.
 - **FX-51/e** · oracle-observed · later · An unpaired surrogate in the
   incoming input.
   - **Given:** run requests whose bodies are `{"k": "\ud83d"}` (in a value)
@@ -2755,7 +2789,7 @@ contested and now carry their own provenance.
     insert: `SqlErr: error returned from database: invalid input syntax for type json<loc>`.
     The key is decoded by the run API, which refuses it first:
     `Bad request: invalid json: unexpected end of hex escape at line 1 column 10`.
-  - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: the value answered 400 `text/plain` with `SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5`, the key 400 `text/plain` with `Bad request: invalid json: unexpected end of hex escape at line 1 column 10`; no job in either case.
+  - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: the value answered 400 `text/plain` with `SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5`, the key 400 `text/plain` with `Bad request: invalid json: unexpected end of hex escape at line 1 column 10`; no job in either case. Re-recorded on CE v1.862.0, oracle run 42327335039, with the location `@jobs.rs:7908:5`.
 
 <a id="fx-49"></a>
 ### FX-49 · Cursor-0 checks run on every start phase at cursor 0
@@ -2800,17 +2834,23 @@ The recorded shapes are cases of [FX-15](#fx-15), [FX-14](#fx-14) and
 
 - **FX-50/a** · oracle-observed · A failed push reads as a database error.
   - **Given:** `[a: bun: return 1, b: bun(s): return s]` with
-    `s = "String.fromCharCode(0)"`; and the flow `[b: bun(s): return s]`
-    with the same transform, started through the run API.
+    `s = "String.fromCharCode(0xd83d)"`, an unpaired surrogate; and the
+    flow `[b: bun(s): return s]` with the same transform, started through
+    the run API.
   - **Expect:** pushing `b`'s job fails in the database
-    ([FX-48](execution.md#fx-48) case 2). After `a` (a later transition)
+    ([FX-51](execution.md#fx-51) case 2). After `a` (a later transition)
     the flow fails with
-    `{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: unsupported Unicode escape sequence<loc>"}}`:
+    `{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: invalid input syntax for type json<loc>"}}`:
     no `Error: ` prefix, one suffix. At the root's first pickup `b` fails
     with
-    `{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: unsupported Unicode escape sequence<loc><loc>"}}`:
+    `{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: invalid input syntax for type json<loc><loc>"}}`:
     one `Error: ` prefix, two suffixes.
-  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) runs `nul_later` and `nul_root`, oracle run 40994947681, with the texts of FX-48/c and FX-48/b (`<loc>` is `@jobs.rs:6417:5`, then `@worker.rs:3822:13`).
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case's transform
+    was `String.fromCharCode(0)`, a NUL, whose push failed the same way
+    with `unsupported Unicode escape sequence` on CE v1.767.0. Windmill
+    1.826.0 removes a NUL before the push ([FX-48](execution.md#fx-48)), so
+    the case now uses an unpaired surrogate, which still fails it.
+  - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) runs `nul_later` and `nul_root`, oracle run 40994947681, with the texts of FX-48/c and FX-48/b (`<loc>` is `@jobs.rs:6417:5`, then `@worker.rs:3822:13`); on CE v1.862.0 runs `surrogate_later` and `surrogate_root`, oracle run 42243035193, with the texts of [FX-51/b](#fx-51) (`<loc>` is `@jobs.rs:7908:5`, then `@worker.rs:5065:13`).
 - **FX-50/b** · source-derived · Which suffixes are generated.
   - **Given:** these messages, as Windmill writes them:
     1. `Error: Error: QuickJS evaluation error: Error: nope is not defined\n @worker_flow.rs:2451:11 @worker.rs:3822:13`;
@@ -5614,8 +5654,9 @@ Findings: [languages.md](languages.md).
 
 - **WR-3/a** · oracle-observed · runtime version
   - **Given:** `export function main() { return Bun.version; }`
-  - **Expect:** `"1.3.10"`.
-  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, whose step returns `Bun.version` with its environment, oracle run 40798097155.
+  - **Expect:** the image's Bun: `"1.4.4"` on CE v1.862.0 (`"1.3.10"` on
+    v1.767.0).
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, whose step returned `Bun.version` with its environment, oracle run 40798097155; run `bun_version` on CE v1.862.0, oracle run 42327335039.
 
 <a id="wr-5"></a>
 ### WR-5 · `args.json` is the job's args map after `$var:`/`$res:` resolution, with internal keys removed
@@ -7171,7 +7212,8 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     the driver sent the update `{"value":"c"}` itself (200, the same
     `updated` text) and read the variable back as `"c"` (200,
     `application/json`); the client's existence probe and its `undefined`
-    were not run.
+    were not run. Re-recorded on CE v1.862.0, oracle run 42327335039,
+    the same but for the 404's location, `(variables.rs:1487)`.
   - **Correction 2026-10-30 (SC5, batch E3f):** the case said each body is
     `text/plain`. The successes carry `; charset=utf-8`, the type the web
     framework gives a handler's plain-text answer, while a refusal is
@@ -7227,17 +7269,27 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     expected: `u/x/plain` 200 `application/json` for the three ids; the two
     404s `text/plain` with the location `(resources.rs:899)`, the completed
     job's included; the step's own id resolved; `job_id=nope` 400 for both
-    resources (only the status recorded).
+    resources (only the status recorded). Re-recorded on CE v1.862.0,
+    oracle run 42327335039, the same but for the location,
+    `(resources.rs:1088)`.
 - **WA-12/h** · oracle-observed · later · `CUSTOM_INSTANCE_DB/` paths
   - **Given:** `getResource("CUSTOM_INSTANCE_DB/demo")` in a step run as an
     instance super admin, and in a step run as a user who is not one; and
     `GET …/resources/get_value/CUSTOM_INSTANCE_DB/demo` as the super admin.
-  - **Expect:** the super admin gets
-    `{"host":<h>,"user":<u>,"password":<p>,"port":<n>,"sslmode":<s>,"dbname":"demo","root_certificate_pem":null,"accept_invalid_certs":null,"use_iam_auth":null,"region":null}`,
-    read from Windmill's own database URL (mask `host`, `user`, `password`,
-    `port` and `sslmode`). The other user's call throws
-    `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: This endpoint requires the caller to be a super admin`.
+  - **Expect:** both steps' reads are made with the job's token, so both
+    get HTTP 401
+    `Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`,
+    and the client throws
+    `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`.
     The raw read gives HTTP 404 `Not found: Resource CUSTOM_INSTANCE_DB/demo not found`.
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
+    what CE v1.767.0 answered: the super admin's step got
+    `{"host":<h>,"user":<u>,"password":<p>,"port":<n>,"sslmode":<s>,"dbname":"demo","root_certificate_pem":null,"accept_invalid_certs":null,"use_iam_auth":null,"region":null}`,
+    read from Windmill's own database URL, and the other user's call threw
+    `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: This endpoint requires the caller to be a super admin`.
+    At v1.862.0 the route refuses a job's token first
+    ([WA-12](client-api.md#wa-12)); a user's own or an API token still
+    gets those answers.
   - **Recorded:** [`flows/client-api/facade-answers`](../../conformance/flows/client-api/facade-answers) run `answers`, oracle run 41000318656, the super
     admin's half: the oracle's admin, an instance super admin, read
     `GET …/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo` (the
@@ -7246,7 +7298,10 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     the raw read 404, `text/plain`, with the text above. The other user's
     call is not recorded: the harness has one user; the SC5 request in the
     [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
-    asks for a second.
+    asks for a second. Re-recorded on CE v1.862.0, oracle run
+    42327335039: the admin's step got the 401 above for the interpolated
+    read (the request `getResource` makes; the stock client's wrapping text
+    was not run), and the raw read the same 404.
 
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
@@ -7479,7 +7534,8 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Recorded:** [`flows/client-api/facade-answers`](../../conformance/flows/client-api/facade-answers) run `answers`, oracle run 41000318656: 400,
     `text/plain`, the body above with the location ` @jobs.rs:498:20`. The
     driver called the route with `fetch`, so the stock client's
-    `[400, "<that body>"]` was not run.
+    `[400, "<that body>"]` was not run. Re-recorded on CE v1.862.0, oracle
+    run 42327335039, with the location ` @jobs.rs:677:20`.
 - **WA-19/c** · oracle-observed · later · the root lookup of an id that is not a UUID
   - **Given:** `GET …/jobs_u/get_root_job_id/abc`.
   - **Expect:** HTTP 400, `Content-Type: text/plain; charset=utf-8`, body
@@ -8173,8 +8229,11 @@ Findings: [oracle.md](oracle.md).
   cases written with the drafted encoding (`a`, `l[2]`, `b#0`, `failure`),
   replaced on 2026-10-30, read as `m:a`, `m:l/i:2`, `m:b/r:0` and
   `s:failure`.
-  `<job:PATH>` is a walked job id, `<stack>` a masked runtime stack, `<loc>` the
-  masked location of the NUL `InternalErr`, `<ws>` the workspace. In raw
+  `<job:PATH>` is a walked job id, `<job:?N>` the N-th job id an error
+  object names that the walk does not reach ([OR-14](oracle.md#or-14)),
+  `<stack>` a masked runtime stack, `<loc>` the masked location of the
+  completion failure's `InternalErr` ([OR-27](oracle.md#or-27)), `<ws>`
+  the workspace. In raw
   values, `<worker>`, `<job>`, `<uuid>` and `<64-hex>` elide volatile parts.
   In an expected error message, `<loc>` also stands for one Rust location
   suffix that Windmill appended, **including its leading space**
@@ -8216,15 +8275,17 @@ Findings: [oracle.md](oracle.md).
     where `got` is the served string.
 
 <a id="or-2"></a>
-### OR-2 · Image variants: Bun is 1.3.10, slim is amd64-only, the in-image CLI is unpinned
+### OR-2 · Image variants: the image's Bun, slim is amd64-only, the in-image CLI is unpinned
 
 **Scope:** core · **Finding:** [OR-2](oracle.md#or-2)
 
 - **OR-2/a** · oracle-observed · Bun version inside the oracle.
-  - **Given:** a Bun rawscript returning `Bun.version` (probe `env/bun_version`;
-    recorded as the `bun` field of the `env` probe).
-  - **Expect:** `"1.3.10"`.
-  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155.
+  - **Given:** a Bun rawscript returning `Bun.version` (probe
+    `env/bun_version`; the `bun` field of the `env` probe until
+    2026-11-07, now probe `bun_version`).
+  - **Expect:** the image's Bun: `"1.4.4"` on CE v1.862.0 (`"1.3.10"` on
+    v1.767.0).
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155 (`1.3.10`); run `bun_version` on CE v1.862.0, oracle run 42327335039 (`1.4.4`).
 - **OR-2/b** · source-derived · Harness self-test: a Bun version mismatch is a
   provenance failure.
   - **Given:** a windmill-lite run whose Bun harness reports a version other than
@@ -8504,6 +8565,23 @@ Findings: [oracle.md](oracle.md).
     encoding still to be chosen ([Q-OR-17](oracle.md#q-or-17)).
   - **Correction 2026-10-30 (SC5, batch E3f):** the drafted spelling was `"<job:a>"`; with the typed site paths the placeholder is `"<job:m:a>"` ([OR-V8](oracle.md#or-v8)).
   - **Recorded:** a returned or interpolated job id is rewritten to its site's placeholder in every recording that carries one, for example [`flows/je/je-20-providers`](../../conformance/flows/je/je-20-providers) run `d`, oracle run 40990751153 (`"job": "<job:m:b>"`, the step's own job id).
+- **OR-14/c** · source-derived · Harness self-test: an unwalked job's `job_id` in an error object.
+  - **Given:** step `d` of a flow starts three preview flows through the
+    API, each with a step that throws, waits for them, and returns
+    `{"seq": {"result": [{"error": {…, "job_id": <id3>}}, …]}, "par": {… <id2> …}, "ba": {… <id1> …}}`,
+    where each id is the failed step's job in its preview, which the walk
+    does not reach; the run is executed twice.
+  - **Expect:** `<id1>`, `<id2>` and `<id3>` read `<job:?1>`, `<job:?2>`
+    and `<job:?3>` (members in sorted order: `ba`, `par`, `seq`), in the
+    root's result and in `m:d`'s, and both executions give the same
+    observation. A walked id in the same position keeps its site's
+    placeholder, and a UUID anywhere else that no `job_id` member names
+    stays as it is ([OR-14](oracle.md#or-14) item 1).
+  - **Not recorded:** the runs `preview_absent`, `preview_false` and
+    `preview_true` of [`flows/openflow/of-drivers`](../../conformance/flows/openflow/of-drivers)
+    record it once the harness applies the rule; on CE v1.862.0 they are
+    `unstable` until then, their two executions differing only in these
+    ids (oracle run 42327335039).
 
 <a id="or-15"></a>
 ### OR-15 · Fixture format (language-neutral, shared by oracle record and windmill-lite replay)
@@ -8855,33 +8933,44 @@ schema:
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_empty`, oracle run 40794872025.
 
 <a id="or-27"></a>
-### OR-27 · A NUL character in a Bun result fails the step at storage time
+### OR-27 · A NUL character in a result is removed before the result is stored
 
 **Scope:** core · **Finding:** [OR-27](oracle.md#or-27)
 
 - **OR-27/a** · oracle-observed · A top-level string with U+0000.
-  - **Given:** probe `nul`: `a` returns `"x\u0000y"`, then `b`.
-  - **Expect:** `a` and the root have `status: failure` with result
-    ```json
-    {"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence<loc>"}}
-    ```
-    (no `step_id`; `PATH` is the failing step's path); `b` is `not_run`. The
-    raw message ended in ` @jobs.rs:1133:22`. The duration (about 30 s) is not
-    compared.
-  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025. The normalised observation keeps the space before the mask: `… escape sequence <loc>` ([OR-27](oracle.md#or-27)).
+  - **Given:** probe `nul`: `a` returns `"x\u0000y"`, then
+    `b(p→previous_result, r→results.a)`.
+  - **Expect:** `a`, `b` and the root have `status: success`; `a`'s stored
+    result is `"xy"`, and `b` receives and returns `{"p":"xy","r":"xy"}`,
+    the root's result. `b`'s transforms read `a`'s in-memory text with the
+    NUL; the arguments they give are stored without it when `b`'s job is
+    pushed ([FX-48/e](#fx-48)).
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
+    `a` and the root to fail with
+    `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence<loc>"}}`
+    (no `step_id`) and `b` `not_run`, as CE v1.767.0 did. Windmill 1.768.0
+    removes the NUL before the completion insert ([OR-27](oracle.md#or-27)).
+  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025 (the v1.767.0 failure, whose normalised message ends `… escape sequence <loc>`); re-recorded on CE v1.862.0, oracle run 42327335039, as expected.
 - **OR-27/b** · oracle-observed · Other NUL positions and languages.
   - **Given:** variants returning `{"k\u0000":1}` and `{"a":["x\u0000"]}`, a flow
     arg `"x\u0000"`, and a Python step returning the same (`"x\x00y"`), each
     followed by `b(p→previous_result, r→results.a)`.
-  - **Expect:** the key and the nested value fail exactly as OR-27/a does
-    (`a` and the root `InternalErr`, `b` `not_run`). The Python step
-    succeeds with `"x null y"`, and `b` receives and returns
+  - **Expect:** the key and the nested value lose the NUL as OR-27/a's
+    string does: `a` succeeds with the stored `{"k":1}` and `{"a":["x"]}`,
+    and `b` receives and returns the same under both names, its arguments
+    stripped when its job is pushed. The Python step succeeds
+    with `"x null y"`, and `b` receives and returns
     `{"p":"x null y","r":"x null y"}` ([WR-34](languages.md#wr-34)). The
-    flow argument is refused at submission, so there is no run to compare
-    (not recorded).
-  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) runs `nul_key`, `nul_nested` and `nul_python`, oracle run 40794872025.
+    flow argument is accepted and stored without the NUL, so the run
+    starts with `"x"` ([FX-48/d](#fx-48) records it through the run API).
   - **Correction 2026-10-29:** the case set no expectation
     ([Q-OR-6](oracle.md#q-or-6)); it now states the recorded outcomes.
+  - **Correction 2026-11-07 (retarget to v1.862.0):** on CE v1.767.0 the
+    key and the nested value failed exactly as OR-27/a did then, and the
+    flow argument was refused at submission. Since Windmill 1.768.0 and
+    1.826.0 the NUL is removed from results and from job arguments
+    ([OR-27](oracle.md#or-27)); the Python outcome is unchanged.
+  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) runs `nul_key`, `nul_nested` and `nul_python`, oracle run 40794872025; on CE v1.862.0 `nul_python` unchanged, and `nul_key` and `nul_nested` re-recorded as expected, oracle run 42327335039. The flow argument: [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests` ([FX-48/d](#fx-48)).
 
 <a id="or-28"></a>
 ### OR-28 · Job kinds the walker meets
@@ -8909,10 +8998,20 @@ schema:
 **Scope:** core · **Finding:** [OR-29](oracle.md#or-29)
 
 - **OR-29/a** · oracle-observed · Environment of step `a` in `f/wl_probe/env`.
-  - **Given:** probe `env`.
-  - **Expect:** after masking ids, timestamps and the username:
-    `{"bun":"1.3.10","env":{"WM_FLOW_STEP_ID":"a","WM_JOB_PATH":"f/wl_probe/env/a","WM_FLOW_PATH":"f/wl_probe/env","WM_STATE_PATH":"f/wl_probe/env/a_user","WM_WORKSPACE":"<ws>","WM_PERMISSIONED_AS":"u/admin",…}}`.
-  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155: all 21 `WM_` variables, with the workspace, object path, scheduled time and runnable id masked by the fixture, and `WM_USERNAME` `admin` under the harness's login token.
+  - **Given:** probe `env`, run by path with the admin's session; its step
+    returns the `WM_` variables and whether `WM_END_USER_EMAIL` equals
+    `WM_EMAIL` and `WM_ROOT_WORKSPACE` equals `WM_WORKSPACE`.
+  - **Expect:** after masking ids, timestamps and the user:
+    `{"env":{"WM_FLOW_STEP_ID":"a","WM_JOB_PATH":"f/wl_probe/env/a","WM_FLOW_PATH":"f/wl_probe/env","WM_STATE_PATH":"f/wl_probe/env/a_user","WM_WORKSPACE":"<ws>","WM_ROOT_WORKSPACE":"<ws>","WM_PERMISSIONED_AS":"u/admin","WM_END_USER_EMAIL":"admin@windmill.dev",…},"end_user_is_email":true,"root_workspace_is_workspace":true}`:
+    22 `WM_` variables, among them `WM_ROOT_WORKSPACE`, and
+    `WM_END_USER_EMAIL` set to the submitting user's address.
+  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected the
+    21 variables of CE v1.767.0, with `WM_END_USER_EMAIL` `""`, and the
+    probe also returned `{"bun":"1.3.10"}`. Windmill 1.793.0 added
+    `WM_ROOT_WORKSPACE` and 1.829.0 sets `WM_END_USER_EMAIL` for a run
+    started through the run API ([WA-4](client-api.md#wa-4)); Bun's version
+    is now probe `bun_version` ([OR-2/a](#or-2)).
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155: all 21 `WM_` variables, with the workspace, object path, scheduled time and runnable id masked by the fixture, and `WM_USERNAME` `admin` under the harness's login token; re-recorded on CE v1.862.0, oracle run 42327335039, as expected, the root workspace and the end user masked with the workspace and the user, and both equalities `true`.
 
 <a id="or-30"></a>
 ### OR-30 · Disk and pull behaviour of the oracle image (harness preflight)

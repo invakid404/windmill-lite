@@ -1,7 +1,9 @@
 # OF-7/a-c: the previews (flowpreview) of F7-seq, F7-par and F7-ba: a raw
 # value's absent flag reads false: F7-seq and F7-ba stop at the first
 # failure and F7-par fails after both iterations.
-spec: [OF-7/a, OF-7/b, OF-7/c]
+# On CE 1.862.0 each error names the job of its preview's failed step,
+# which the walk does not reach (OR-14/c).
+spec: [OF-7/a, OF-7/b, OF-7/c, OR-14/c]
 target: f/wl_ofd/preview_absent
 expect:
   status: success

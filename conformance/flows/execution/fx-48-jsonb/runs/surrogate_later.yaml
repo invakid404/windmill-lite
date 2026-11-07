@@ -1,6 +1,7 @@
-# FX-51/b: the same transform on a second step: an InternalError chaining
-# failure, as FX-48/c.
-spec: [FX-51/b]
+# FX-51/b and FX-50/a: the same transform on a second step: an
+# InternalError chaining failure, as FX-48/c was before CE 1.862.0 removed
+# a NUL; the recording holds the message with its one location suffix.
+spec: [FX-51/b, FX-50/a]
 target: f/wl_fx51/surrogate_later
 expect:
   status: failure

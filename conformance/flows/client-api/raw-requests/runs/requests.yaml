@@ -1,30 +1,33 @@
 # FX-48/d, FX-51/d and FX-51/e: run requests whose bodies hold a NUL in a
-# value and in a key, a number beyond numeric's range, and an unpaired
-# surrogate in a value and in a key are refused with HTTP 400 and
-# text/plain, and no job is created; Q-FX-7: a run request's {"n": 1.50e3,
-# "m": 1.50, "k": 1.50e1} is stored with PostgreSQL's numeric scale (a
-# prediction from PostgreSQL, not the Windmill source).
+# value and in a key are accepted (CE 1.862.0): each answers 201 with its
+# job's id, a flow job is created, and the arguments it stored have lost
+# the NUL. A number beyond numeric's range and an unpaired surrogate in a
+# value and in a key are refused with HTTP 400 and text/plain, and no job
+# is created. Q-FX-7: a run request's {"n": 1.50e3, "m": 1.50, "k": 1.50e1}
+# is stored with PostgreSQL's numeric scale (a prediction from PostgreSQL,
+# not the Windmill source).
 spec: [FX-48/d, FX-51/d, FX-51/e]
 target: f/wl_raw/requests
-note: "Predicted from the reference with locations written <loc>; oracle run 40994947681 recorded the locations. Its count of every job at the path was 2 before the first request too (oracle run 41000318656), the deployment's own jobs, so the step counts flow jobs against a count taken before the requests."
+note: "Predicted from the reference with locations written <loc>; oracle run 40994947681 recorded the locations. Its count of every job at the path was 2 before the first request too (oracle run 41000318656), the deployment's own jobs, so the step counts flow jobs against a count taken before the requests. On CE 1.862.0 the two NUL requests are accepted, so the counts are 1 and 2 after them, and the step reads back what their jobs stored."
 expect:
   status: success
   result:
-    refused:
+    answers:
+      - status: 201
+        type: "text/plain; charset=utf-8"
+        body: "<masked>"
+      - status: 201
+        type: "text/plain; charset=utf-8"
+        body: "<masked>"
       - status: 400
         type: text/plain
-        body: "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5"
+        body: "SqlErr: error returned from database: value overflows numeric format @jobs.rs:7908:5"
       - status: 400
         type: text/plain
-        body: "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5"
-      - status: 400
-        type: text/plain
-        body: "SqlErr: error returned from database: value overflows numeric format @jobs.rs:6417:5"
-      - status: 400
-        type: text/plain
-        body: "SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:6417:5"
+        body: "SqlErr: error returned from database: invalid input syntax for type json @jobs.rs:7908:5"
       - status: 400
         type: text/plain
         body: "Bad request: invalid json: unexpected end of hex escape at line 1 column 10"
-    created: [0, 0, 0, 0, 0]
+    created: [1, 2, 2, 2, 2]
+    accepted: ["{\"s\": \"xy\"}", "{\"k\": 1}"]
     stored_args: "{\"k\": 15.0, \"m\": 1.50, \"n\": 1500}"
