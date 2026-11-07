@@ -707,6 +707,10 @@
       "milestone": "W4e",
       "reason": "on Bun 1.4.3 a process.exit at a warm module's top level escapes the harness and ends the process",
       "modes": ["warm"]
+    },
+    "conformance/steps/bun/wr-44.yaml/wr-44-bun-timeout-text": {
+      "milestone": "W6b",
+      "reason": "CE 1.862.0's timeout text names the phase and the limit hit (1.825.0), where windmill-lite still gives v1.767.0's text"
     }
   },
   "oracle": {
@@ -750,22 +754,6 @@
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
     },
-    "conformance/flows/control-flow/cf-27-flow-timeouts/subflow": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 enforces a flow-level wall-clock timeout (1.861.0), so the run fails where the expect has a result"
-    },
-    "conformance/flows/control-flow/cf-27/a": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/control-flow/cf-27/b": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/control-flow/cf-27/fx24_d": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 honours the step's own timeout when it is a loop's only step (1.852.0), so the step succeeds"
-    },
     "conformance/flows/control-flow/cf-v1/a": {
       "milestone": "W5d",
       "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
@@ -773,26 +761,6 @@
     "conformance/flows/control-flow/cf-v1/c-seq": {
       "milestone": "W5d",
       "reason": "the flow status after failure handling changed at CE 1.862.0 (1.827.0, 1.855.0)"
-    },
-    "conformance/flows/control-flow/waits/body_timeout_js": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/control-flow/waits/body_timeout_negative_later": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/control-flow/waits/body_timeout_negative_pickup": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/control-flow/waits/loop_timeout_negative_later": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/control-flow/waits/loop_timeout_negative_root": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
     },
     "conformance/flows/execution/fx-14/bad_transform": {
       "milestone": "W5f",
@@ -814,14 +782,6 @@
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
     },
-    "conformance/flows/execution/fx-15/root_pickup": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/execution/fx-15/root_pickup_i32": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
     "conformance/flows/execution/fx-21/throwing_stop": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
@@ -833,38 +793,6 @@
     "conformance/flows/execution/fx-24/js_error": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
-    },
-    "conformance/flows/execution/fx-24/js_timeout": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/execution/fx-24/negative_later": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/execution/fx-24/negative_root": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/execution/fx-24/negative_static": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/execution/fx-24/process_timeout": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/execution/fx-24/zero": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0 treats a timeout <= 0 as unset (1.768.0), so the step succeeds where the expect has a timeout error"
-    },
-    "conformance/flows/execution/fx-25/retried": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
-    "conformance/flows/execution/fx-25/tolerated": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
     },
     "conformance/flows/execution/fx-28/throw_no_handler": {
       "milestone": "W5f",
@@ -902,50 +830,6 @@
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
     },
-    "conformance/flows/execution/fx-52-flow-timeout/concurrency": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/failure_module": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/negative": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/root": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/sleep": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/subflow_failure_module": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/subflow_override": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/subflow_own": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/subflow_step_zero": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/subflow_tolerated": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
-    "conformance/flows/execution/fx-52-flow-timeout/zero": {
-      "milestone": "W5c",
-      "reason": "a new run of the timeout bucket, recorded by this pull request's oracle run"
-    },
     "conformance/flows/execution/fx-7/result_unbound": {
       "milestone": "W5f",
       "reason": "the QuickJS frames and columns of an expression error changed at CE 1.862.0 (at <anonymous> where the expect has at <eval>)"
@@ -974,10 +858,6 @@
       "milestone": "W5f",
       "reason": "CE 1.862.0 evaluates the multi-line results expression (1.818.0), so the run succeeds where its claims and unit case have an error"
     },
-    "conformance/flows/languages/bun-results/timeout": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
-    },
     "conformance/flows/languages/wr-28/wr28-a": {
       "milestone": "W5f",
       "reason": "the image's lock job (bun install 1.4.4) refuses x_dyn_sub's relative dynamic import, so the fixture no longer deploys until it is split"
@@ -1001,10 +881,6 @@
     "conformance/flows/languages/wr-45/wr45_c_nativets": {
       "milestone": "W5f",
       "reason": "the native prelude grew three lines at CE 1.862.0, so the stack line numbers moved"
-    },
-    "conformance/flows/languages/wr-55-processes/timeout": {
-      "milestone": "W5c",
-      "reason": "CE 1.862.0's timeout message names the limit hit (1.825.0), where the expect has v1.767.0's text"
     },
     "conformance/flows/openflow/of-deployed/ba_shape": {
       "milestone": "W5h",

@@ -425,7 +425,7 @@ Common setup for OF-15/a–c: a Bun module `a` with a non-empty lock, a matching
     after the dependency job holds neither field, at either level. (CE
     ignores concurrency limits, an `EE` feature, so the run alone cannot
     show the limit is unset.)
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `concurrency`, oracle run ORACLE_RUN_W5C: the run's deployment evidence (`materialized`).
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `concurrency`, oracle run 42334222423: the run's deployment evidence (`materialized`).
 
 <a id="of-17"></a>
 ### OF-17 · Virtual trailing identity for a final sleep or suspend
@@ -1489,7 +1489,7 @@ Findings: [execution.md](execution.md).
     ([FX-24/b](#fx-24)), so the case now uses a `timeout` that is not an
     i32.
   - **Recorded:** [`flows/execution/fx-15`](../../conformance/flows/execution/fx-15)
-    run `root_pickup_i32`, oracle run ORACLE_RUN_W5C (CE v1.862.0); at v1.767.0 run
+    run `root_pickup_i32`, oracle run 42334222423 (CE v1.862.0); at v1.767.0 run
     `root_pickup` with the negative timeout, oracle run 40685766017.
 - **FX-15/c** · oracle-observed · Child pickup bypasses the child's handler.
   - **Given:** parent `[s: flow(path: f/child)]` with handler `bun: return
@@ -1695,7 +1695,7 @@ present, is `bun: return "H"`.
     the job is stored `canceled`. (At v1.767.0 the message ended "after
     exceeding job-specific duration limit" and the job was stored
     `failure`.)
-  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `process_timeout`, and [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout`, oracle run ORACLE_RUN_W5C (CE v1.862.0); at v1.767.0 oracle runs 40818457347 and 40771900586.
+  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `process_timeout`, and [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout`, oracle run 42334222423 (CE v1.862.0); at v1.767.0 oracle runs 40818457347 and 40771900586.
 - **FX-24/b** · oracle-observed · A negative timeout at root pickup is unset.
   - **Given:** `[a: bun: return 1 (timeout: {type: javascript, expr: "-1"})]`.
   - **Expect:** `a` runs untimed and the flow succeeds with `1`.
@@ -1706,7 +1706,7 @@ present, is `bun: return "H"`.
     run `loop_timeout_negative_root`, oracle run 40852609901:
     `Error: Timeout value cannot be negative @worker.rs:3822:13`). CE
     v1.862.0 treats a timeout of 0 or less as unset (1.768.0).
-  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_root` (a script step by path returning its input `1`), and [`flows/execution/fx-15`](../../conformance/flows/execution/fx-15) run `root_pickup` (with a failure module, which does not run), oracle run ORACLE_RUN_W5C (CE v1.862.0); the collapsed loop of `flows/control-flow/waits` run `loop_timeout_negative_root` completes with `[1]`.
+  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_root` (a script step by path returning its input `1`), and [`flows/execution/fx-15`](../../conformance/flows/execution/fx-15) run `root_pickup` (with a failure module, which does not run), oracle run 42334222423 (CE v1.862.0); the collapsed loop of `flows/control-flow/waits` run `loop_timeout_negative_root` completes with `[1]`.
 - **FX-24/c** · oracle-observed · A negative timeout at a later transition is unset.
   - **Given:** `[x: bun: return 1, a: bun: return 2 (timeout: {type:
     javascript, expr: "-1"})]`.
@@ -1716,7 +1716,7 @@ present, is `bun: return "H"`.
     negative"`, and `a` never got a job (oracle run 40818457347). CE
     v1.862.0 treats it as unset (1.768.0); a static `-1` and a `0` do the
     same.
-  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_later`, with runs `negative_static` and `zero`, oracle run ORACLE_RUN_W5C (CE v1.862.0); inside containers, [`flows/control-flow/waits`](../../conformance/flows/control-flow/waits) runs `body_timeout_negative_later`, `body_timeout_negative_pickup` and `loop_timeout_negative_later`.
+  - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_later`, with runs `negative_static` and `zero`, oracle run 42334222423 (CE v1.862.0); inside containers, [`flows/control-flow/waits`](../../conformance/flows/control-flow/waits) runs `body_timeout_negative_later`, `body_timeout_negative_pickup` and `loop_timeout_negative_later`.
 - **FX-24/d** · oracle-observed · A loop body with its own timeout is not
   collapsed, so the loop's timeout times nothing; a preview does not
   collapse either.
@@ -1731,7 +1731,7 @@ present, is `bun: return "H"`.
     1 s, with the loop's id as `step_id` (oracle run 40852609901). Since
     1.852.0 a body module's `timeout` prevents collapsing
     ([FX-46](execution.md#fx-46)).
-  - **Recorded:** the deployed half, [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `fx24_d`, oracle run ORACLE_RUN_W5C (CE v1.862.0): the iteration a `flownode` job, completed after about 3 s. The preview half is outside the reference configuration and is not recorded.
+  - **Recorded:** the deployed half, [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `fx24_d`, oracle run 42334222423 (CE v1.862.0): the iteration a `flownode` job, completed after about 3 s. The preview half is outside the reference configuration and is not recorded.
 - **FX-24/e** · oracle-observed · A parallel loop's timeout is not enforced.
   - **Given:** `[l: forloopflow(iterator: [1], parallel: true, timeout: 1,
     modules: [x: bun: await sleep(3000)])]`.
@@ -1764,7 +1764,7 @@ present, is `bun: return "H"`.
     "message": "execution error:\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step", "step_id": "a"}}}``; `a`'s job is stored
     `canceled`. (At v1.767.0 the message ended "after exceeding
     job-specific duration limit" and the job was stored `failure`.)
-  - **Recorded:** [`flows/execution/fx-25`](../../conformance/flows/execution/fx-25) run `tolerated`, oracle run ORACLE_RUN_W5C (CE v1.862.0); run `retried` also shows a timed-out step retried with the same args, timing out again, both attempts stored `canceled`. At v1.767.0, oracle run 40818457347.
+  - **Recorded:** [`flows/execution/fx-25`](../../conformance/flows/execution/fx-25) run `tolerated`, oracle run 42334222423 (CE v1.862.0); run `retried` also shows a timed-out step retried with the same args, timing out again, both attempts stored `canceled`. At v1.767.0, oracle run 40818457347.
 
 <a id="fx-26"></a>
 ### FX-26 · `retry`: the delay schedule and its exact arithmetic
@@ -2851,7 +2851,7 @@ after its limit.
   - **Given:** `{timeout: 1, modules: [a: sleep(6000)]}`.
   - **Expect:** status `canceled`, result `C`; `a` is stored `canceled`
     with `K`.
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `root`, oracle run ORACLE_RUN_W5C: the run ended after
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `root`, oracle run 42334222423: the run ended after
     about 2 s.
 - **FX-52/b** · oracle-observed · The failure module runs, and the flow still ends canceled.
   - **Given:** FX-52/a with `failure_module: bun(e): return {n: e.name, m: e.message}`, `e = "error"`.
@@ -2860,24 +2860,24 @@ after its limit.
     "message": "flow terminated due to timeout: the flow exceeded its 1s
     timeout"}}` and result `{"n": "ExecutionErr", "m": "flow terminated due
     to timeout: the flow exceeded its 1s timeout"}`.
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `failure_module`, oracle run ORACLE_RUN_W5C.
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `failure_module`, oracle run 42334222423.
 - **FX-52/c** · oracle-observed · A step waiting on a sleep is canceled at its pickup.
   - **Given:** `{timeout: 1, modules: [a: bun: return 1 (sleep: 6), b: bun: return 2]}`.
   - **Expect:** status `canceled`, result `C`; `a` succeeds with `1`; `b`
     is stored `canceled` with `C`, without running.
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `sleep`, oracle run ORACLE_RUN_W5C.
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `sleep`, oracle run 42334222423.
 - **FX-52/d** · oracle-observed · A flow timeout of 0 or less is unset.
   - **Given:** `{timeout: -1, modules: [a: sleep(2000)]}`, and the same with
     `timeout: 0`.
   - **Expect:** status success, result `2000`. (The API stores the `-1` as
     written.)
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) runs `negative` and `zero`, oracle run ORACLE_RUN_W5C.
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) runs `negative` and `zero`, oracle run 42334222423.
 - **FX-52/e** · oracle-observed · A subflow ends at its own timeout, and its caller's step fails.
   - **Given:** `[c: flow(path: f/demo/slow1)]`, where `f/demo/slow1` is
     `{timeout: 1, modules: [x: sleep(6000)]}`.
   - **Expect:** status failure, result `E`; the subflow's job is stored
     `canceled` with `C`, and its step `x` `canceled` with `K` for `x`.
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `subflow_own`, oracle run ORACLE_RUN_W5C.
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `subflow_own`, oracle run 42334222423.
 - **FX-52/f** · oracle-observed · A subflow step's timeout replaces the subflow's own.
   - **Given:** `[c: flow(path: f/demo/slow3) (timeout: 10)]`, where
     `f/demo/slow3` is `{timeout: 1, modules: [x: sleep(3000)]}`; then
@@ -2888,22 +2888,22 @@ after its limit.
     timeout of 0 is unset, ends as FX-52/e; the third fails with `E`, the
     subflow canceled with `C` and its step with `K` for `x`.
   - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) runs `subflow_override` and `subflow_step_zero`,
-    oracle run ORACLE_RUN_W5C; the third is
+    oracle run 42334222423; the third is
     [`flows/control-flow/cf-27-flow-timeouts`](../../conformance/flows/control-flow/cf-27-flow-timeouts)
-    run `subflow`, oracle run ORACLE_RUN_W5C (at v1.767.0 it succeeded with `3000`,
+    run `subflow`, oracle run 42334222423 (at v1.767.0 it succeeded with `3000`,
     oracle run 40990751153).
 - **FX-52/g** · oracle-observed · A timed-out subflow is a tolerable step failure.
   - **Given:** FX-52/e with `continue_on_error: true` on `c`, then
     `d: bun(x): return x` with `x = "previous_result"`.
   - **Expect:** status success, result `E`; `d`'s argument `x` is `E`.
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `subflow_tolerated`, oracle run ORACLE_RUN_W5C.
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `subflow_tolerated`, oracle run 42334222423.
 - **FX-52/h** · oracle-observed · A timed-out subflow's failure module runs before its caller hears of it.
   - **Given:** FX-52/e, where the subflow also has FX-52/b's failure module.
   - **Expect:** status failure, result the subflow's failure module's
     result, `{"n": "ExecutionErr", "m": "flow terminated due to timeout: the
     flow exceeded its 1s timeout"}`; the subflow's job is stored
     `canceled` with `C`.
-  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `subflow_failure_module`, oracle run ORACLE_RUN_W5C.
+  - **Recorded:** [`flows/execution/fx-52-flow-timeout`](../../conformance/flows/execution/fx-52-flow-timeout) run `subflow_failure_module`, oracle run 42334222423.
 
 <a id="fx-v1"></a>
 ### FX-V1 · A throwing `stop_after_all_iters_if` uses the EarlyStopError path
@@ -4097,11 +4097,11 @@ body job is stored `canceled`.
   - **Given:** the common setup with `skip_failures: false`.
   - **Expect:** status failure, result `[T]`; the second iteration never
     starts.
-  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `a`, oracle run ORACLE_RUN_W5C (CE v1.862.0); at v1.767.0, oracle run 40852609901.
+  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `a`, oracle run 42334222423 (CE v1.862.0); at v1.767.0, oracle run 40852609901.
 - **CF-27/b** · oracle-observed · Collapsed body jobs are timed; skip.
   - **Given:** the common setup with `skip_failures: true`.
   - **Expect:** status success, result `[T, T]`.
-  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `b`, oracle run ORACLE_RUN_W5C (CE v1.862.0); at v1.767.0, oracle run 40852609901.
+  - **Recorded:** [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `b`, oracle run 42334222423 (CE v1.862.0); at v1.767.0, oracle run 40852609901.
 - **CF-27/c** · oracle-observed · Child flows are not timed.
   - **Given:** the common setup with a two-step body (not collapsed); the
     inner steps have no timeouts and step 1 waits 3 s. The inner steps'
@@ -6171,7 +6171,7 @@ The dispute over the later dynamic-import consequence ([Q-WR-16](languages.md#q-
 - **WR-37/a** · oracle-observed · a per-step timeout below the instance cap
   - **Given:** flow step `a` with `timeout: {"type":"static","value":1}`, running `await new Promise(r => setTimeout(r, 5000))`.
   - **Expect:** ``{"error":{"message":"execution error:\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step","name":"ExecutionErr","step_id":"a"}}``. (At v1.767.0: `…terminated due to timeout after exceeding job-specific duration limit`.)
-  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout` (a 3 s sleep under the 1 s timeout), oracle run ORACLE_RUN_W5C (CE v1.862.0); at v1.767.0, oracle run 40771900586.
+  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout` (a 3 s sleep under the 1 s timeout), oracle run 42334222423 (CE v1.862.0); at v1.767.0, oracle run 40771900586.
 - **WR-37/b** · oracle-observed · a signature failure is one `Anyhow` layer and ends in one location
   - **Given:** a preview run of `export function main(...xs) { return xs.length; }`.
   - **Expect:** `error.name` = `ExecutionErr`; `error.message` starts with ``execution error:\nError: parameter syntax unsupported: `...xs`: `` and ends in exactly one `<loc>`, which at the pin is ` @bun_executor.rs:1715:13`; the script does not start. (The pin-removal parse accepts a rest parameter, so the signature parse is the one that fails.)
@@ -6743,7 +6743,7 @@ Both cases run on the reference configuration, where the worker is PID 1 of its 
 - **WR-55/b** · oracle-observed · a timeout kills the job's whole process group, even after the script returned
   - **Given:** the WR-55/a script with `sleep 30`, and the step's `timeout: {"type":"static","value":2}`.
   - **Expect:** ``{"error":{"message":"execution error:\njob process terminated due to timeout: `bun run` exceeded the 2s custom timeout set on the script or flow step","name":"ExecutionErr","step_id":"a"}}`` after about 2 s, although `main` had returned, and the `sleep` process is gone ([WR-37](languages.md#wr-37)). (At v1.767.0: `…terminated due to timeout after exceeding job-specific duration limit`.)
-  - **Recorded:** [`flows/languages/wr-55-processes`](../../conformance/flows/languages/wr-55-processes) run `timeout`, oracle run ORACLE_RUN_W5C (CE v1.862.0): the message exactly as written; at v1.767.0, oracle run 40994947681. That the `sleep` process is gone is not recorded (no step can look into the worker after the job).
+  - **Recorded:** [`flows/languages/wr-55-processes`](../../conformance/flows/languages/wr-55-processes) run `timeout`, oracle run 42334222423 (CE v1.862.0): the message exactly as written; at v1.767.0, oracle run 40994947681. That the `sleep` process is gone is not recorded (no step can look into the worker after the job).
 - **WR-55/c** · oracle-observed · no process serves two ordinary script jobs on CE
   - **Given:** a deployed Bun script `f/demo/counter` that keeps a counter at module scope and returns `{"pid": process.pid, "n": <the counter after adding 1>}`; a flow `[a: script f/demo/counter, b: script f/demo/counter]` with no loop, run twice by path on the default worker tags.
   - **Expect:** all four step results have `n: 1`, and no `pid` repeats across steps or runs (each ordinary job has its own process; the CE image starts no dedicated worker). The `pid` values themselves are not compared. A squashed loop is not covered: its runners are closed source and keep one runtime per body step across iterations ([CF-25/e](#cf-25), [Q-CF-19](control-flow.md#q-cf-19)).

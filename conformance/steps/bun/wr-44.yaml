@@ -36,7 +36,7 @@ cases:
       export async function main() { await new Promise(r => setTimeout(r, 5000)); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", name: ExecutionErr, step_id: a}}}
+        expect: {status: failure, result: {error: {message: "execution error:\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step", name: ExecutionErr, step_id: a}}}
   - spec: WR-44/b
     variant: nativets
     provenance: oracle-observed
