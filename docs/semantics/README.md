@@ -182,7 +182,7 @@ which), and added or extended drafted parts, from the source alone, in
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
 questions, which keep their numbers; openflow.md's `Q-OF-7` entry points to
-licensing.md, where that question lives. 666 cases are `oracle-observed`,
+licensing.md, where that question lives. 681 cases are `oracle-observed`,
 and seven cases are windmill-lite `policy` checks rather than Windmill
 behaviour ([conformance.md](conformance.md#summary)).
 
