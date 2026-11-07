@@ -188,6 +188,13 @@ throwing `stop_after_if` fails (N1a, N1b, and N3b in FX-20's error-stop
 run), which the oracle exposes no recording of: the recorder compares an
 `expect` without it.
 
+The runs whose subflow its own timeout ends state the flow step's
+`carried` value the same way: the timeout error, or the subflow's failure
+module's result, while the step's job keeps the canceled value
+([FX-52](../docs/semantics/execution.md#fx-52); runs `subflow_own`,
+`subflow_step_zero`, `subflow_tolerated` and `subflow_failure_module` of
+`fx-52-flow-timeout`, and `cf-27-flow-timeouts/subflow`).
+
 ### Recording batches
 
 The E3b rows above are recording batch E3b of
