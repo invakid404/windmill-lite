@@ -878,10 +878,10 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 2. A step's `timeout` ([FX-24](../semantics/execution.md#fx-24)) is a timer
    in the engine. When it fires, or the run is canceled, the engine sends
    `cancel` and completes the module at once with Windmill's error
-   ([WR-37](../semantics/languages.md#wr-37)), for example
-   `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}`.
-   The "job-specific" wording appears only when the requested timeout is
-   below the instance cap, which the host configures (default 604800 s).
+   ([FX-25](../semantics/execution.md#fx-25)), for example
+   ``{"error":{"message":"execution error:\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step","name":"ExecutionErr","step_id":"a"}}``.
+   It names the instance maximum when the requested timeout reaches the
+   instance cap, which the host configures (default 604800 s).
    That text is the process-executor path, which is the one Bun steps take;
    in a collapsed loop the loop module's timeout applies to each iteration;
    identity modules and child-flow containers have no deadline, and the
@@ -905,6 +905,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
    Effects of an abandoned step can happen after its module has failed, which
    cannot happen on Windmill; host plugins can tie outbound I/O to the
    invocation's signal to narrow the window.
+
+A flow's own wall-clock limit ([FX-52](../semantics/execution.md#fx-52))
+is a timer on the flow's context, not a step's. When it fires, the flow
+and its steps are canceled as in item 3, with canceler `timeout`; the
+flow's failure module still runs once, and the flow ends canceled.
 
 ## Consequences
 
@@ -1064,7 +1069,7 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     one of its timers and a throw from a microtask it queued fail a running
     native invocation with that value's WR-43 object (`settled` false), as
     they fail a native job, and are `late` errors after its outcome.
-  - **The step's timeout** gives the boundary's text: WR-37's for Bun,
+  - **The step's timeout** gives the boundary's text: FX-25's for Bun,
     `Query timeout after (>Ns)` for native
     ([WR-44](../semantics/languages.md#wr-44); `engine.TimeoutError`).
 

@@ -16,7 +16,9 @@ import (
 // §6), and its own innermost flow scope (WA-V1); it has its own failure
 // module and its own flow_env, or its caller's when it defines none (CF-1,
 // JE-38). Its steps see its job id and its path (WA-6). A stop inside it
-// ends only the subflow (CF-12, FX-20).
+// ends only the subflow (CF-12, FX-20). Its flow job runs under the flow
+// step's positive timeout, else its flow's own value.timeout, as its
+// wall-clock limit (FX-52).
 
 // inputsOf returns the input transforms of m, a leaf or a flow step.
 func inputsOf(m *ir.Module) []ir.Input {
@@ -39,14 +41,19 @@ func inputsOf(m *ir.Module) []ir.Input {
 // failed with a recovered failure; one that aborted at a later transition
 // hands the step its last carried value, while lookups read the stored
 // error (CF-23 route 3). The step's own stop_after_if is evaluated after a
-// success, whatever stop the subflow raised.
-func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, pushed *frame) outcome {
+// success, whatever stop the subflow raised. secs is the step's own
+// positive timeout, or nil, which limits the subflow's flow job (FX-52); a
+// subflow that its own limit ended fails the step, whose job is canceled
+// with the canceled value, which lookups read, while the step carries the
+// timeout error or the subflow's failure module's result.
+func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, pushed *frame, secs *int64) outcome {
 	m := fr.moduleAt(i)
 	c := pushed
 	if c == nil {
 		c = r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
 		r.addChild(fr, i, 0, c)
 	}
+	c.limit = flowLimit(secs, c.def)
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
 	if e.unreported {
@@ -56,6 +63,13 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	// The subflow's completion ends its step's job, which refreshes fr's
 	// ping (JE-2).
 	r.ended(fr, &o)
+	if e.timedOut {
+		r.recordJob(fr, i, e.result)
+		o.rec.Result, o.rec.ResultOrigin = e.result, e.origin
+		o = carryOn(o, e)
+		o.rec.Status, o.rec.Module, o.end = conformance.StepCanceled, conformance.ModuleFailure, endFailed
+		return o
+	}
 	if ended(e.status) {
 		return branchInterrupted(o, true, r.endedStatus(ctx, e.status))
 	}

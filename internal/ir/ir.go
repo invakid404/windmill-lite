@@ -65,8 +65,12 @@ type Flow struct {
 	CacheIgnoreS3Path *bool   `json:"cache_ignore_s3_path,omitempty"`
 	SameWorker        bool    `json:"same_worker,omitempty"`
 	// Timeout is the whole-flow timeout in seconds, from the flow's
-	// metadata.
+	// metadata, which is stored only and enforces nothing (OF-16).
 	Timeout *int32 `json:"timeout,omitempty"`
+	// ValueTimeout is value.timeout, the flow's wall-clock limit in
+	// seconds, as written: a value of 0 or less is unset when the flow
+	// runs (FX-52).
+	ValueTimeout *int32 `json:"value_timeout,omitempty"`
 }
 
 // EnvVar is one flow_env entry; Value is the JSON text as written.

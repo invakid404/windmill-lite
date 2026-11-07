@@ -174,12 +174,7 @@ func (c *compiler) flow(p string) {
 		CacheIgnoreS3Path: v.CacheIgnoreS3Path,
 		SameWorker:        v.SameWorker,
 		Timeout:           doc.Timeout,
-	}
-	if v.Timeout != nil {
-		// value.timeout, the flow's wall-clock limit that the v1.862.0
-		// schema adds, is not enforced by the engine yet: the flow is
-		// refused rather than run without it (0001 §5a).
-		c.fail(unsupported(p, "", "value.timeout"))
+		ValueTimeout:      v.Timeout,
 	}
 	if v.SkipExpr != nil {
 		out.SkipExpr = compileExpr(expr.SiteSkipExpr, *v.SkipExpr)
@@ -435,8 +430,9 @@ func (fc *flowCompiler) scriptStep(m *openflow.Module, v *openflow.PathScript, i
 // form, where container bodies are stored nodes, so the deployed rule holds
 // at every depth (0001 §1): a sequential for loop, or any while loop, whose
 // body is exactly one script or rawscript step with none of sleep,
-// suspend, cache_ttl, retry, stop_after_if, stop_after_all_iters_if,
-// skip_if or an enabled mock, in a flow with no failure module. The
+// suspend, cache_ttl, retry, timeout (1.852.0), stop_after_if,
+// stop_after_all_iters_if, skip_if or an enabled mock, in a flow with no
+// failure module. The
 // preprocessor module's bodies are not reduced to nodes, so they run as raw
 // flows, in which a for loop never collapses.
 //
@@ -456,7 +452,7 @@ func collapses(forLoop, parallel bool, body []openflow.Module, sc scope) bool {
 	default:
 		return false
 	}
-	return b.Sleep == nil && b.Suspend == nil && b.CacheTTL == nil && b.Retry == nil &&
+	return b.Sleep == nil && b.Suspend == nil && b.CacheTTL == nil && b.Retry == nil && b.Timeout == nil &&
 		b.StopAfterIf == nil && b.StopAfterAllItersIf == nil && b.SkipIf == nil &&
 		(b.Mock == nil || !b.Mock.Enabled)
 }

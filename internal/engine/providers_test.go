@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -221,13 +222,15 @@ func TestEngineResolvedArgsOnExecutionError(t *testing.T) {
 	in := inputs("v", static(`"$var:u/t/v"`))
 	for _, c := range []struct {
 		name   string
-		script string // f/t/zero's own metadata asks for a timeout of 0 s
+		script string
 		err    error
 		cancel bool
 		status conformance.StepStatus
 		result string
 	}{
-		{"timeout", "zero", nil, false, conformance.StepFailure, "job process terminated due to timeout"},
+		// The instance maximum, which the test makes 20 ms, times the job
+		// out; a timed-out Bun job is canceled (FX-25).
+		{"timeout", "echo", nil, false, conformance.StepCanceled, "job process terminated due to timeout"},
 		{"cancellation", "echo", nil, true, conformance.StepCanceled, "job process terminated due to cancelled by"},
 		{"executor error", "echo", errors.New("synthetic transport failure"), false, conformance.StepFailure, "synthetic transport failure"},
 	} {
@@ -239,6 +242,9 @@ func TestEngineResolvedArgsOnExecutionError(t *testing.T) {
 				x.cancel = cancel
 			}
 			e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", c.script, in, ""))}, x, testServices(t))
+			if c.name == "timeout" {
+				e.cap = 20 * time.Millisecond
+			}
 			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
 			if err != nil {
 				t.Fatal(err)

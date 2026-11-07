@@ -66,6 +66,11 @@ type frame struct {
 	// which runs a flow by its path.
 	child   bool
 	subflow bool
+	// limit is the flow job's own wall-clock limit in seconds (FX-52), 0
+	// for none: the root's value.timeout, or a subflow's, which a positive
+	// timeout of its calling step replaces (flowLimit). A container body's
+	// child flow has none.
+	limit int64
 	// due is when the flow is scheduled, the sleep of the module before
 	// its container or the container's retry delay (CF-21, FX-26): a child
 	// flow is picked up then, before any of its modules starts, and a

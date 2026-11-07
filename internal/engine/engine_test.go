@@ -31,7 +31,8 @@ import (
 //   - f/t/obj returns {"zz":1,"b":2,"aaa":3}, in that key order;
 //   - f/t/fail throws an Error named by its argument name, "Error" by
 //     default;
-//   - f/t/zero, whose metadata asks for a timeout of 0 s, is not run here;
+//   - f/t/zero, whose metadata asks for a timeout of 0 s, which is unset
+//     (FX-24), is not run here;
 //   - f/t/flaky fails once per site and run, then returns its arguments
 //     (retry_test.go's flaky executor).
 type scripts struct {
@@ -88,7 +89,8 @@ func testFolder(flows map[string]string) fstest.MapFS {
 	for _, name := range []string{"echo", "value", "obj", "fail", "zero", "flaky", "cached"} {
 		fsys["f/t/"+name+".ts"] = &fstest.MapFile{Data: []byte("export async function main(...a: any[]) { return null }\n")}
 	}
-	// f/t/zero's own metadata asks for a timeout of 0 s (FX-24).
+	// f/t/zero's own metadata asks for a timeout of 0 s, which is unset
+	// (FX-24).
 	fsys["f/t/zero.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ntimeout: 0\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
 	// f/t/cached's own metadata asks for a cache_ttl of 60 s (FX-40).
 	fsys["f/t/cached.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ncache_ttl: 60\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
@@ -849,25 +851,30 @@ func (waits) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
 }
 
 // FX-24, FX-25, WR-37: a leaf's timeout is the module's, else its path
-// script's own timeout metadata, else the instance maximum; a request
-// strictly below the maximum is job-specific, zero included, which leaves
-// the step no time; one at or above it is instance-wide. An identity job
-// is never timed.
+// script's own timeout metadata, else the instance maximum; a value of 0
+// or less, the module's or the script's, is unset (1.768.0). A custom
+// timeout strictly below the maximum is named as such; one at or above
+// it, or none, gives the instance maximum. The timed-out Bun job is
+// canceled, while its step fails. An identity job is never timed.
 func TestEngineTimeouts(t *testing.T) {
-	const limit = `execution error:\njob process terminated due to timeout after exceeding `
+	const phase = "execution error:\\njob process terminated due to timeout: `bun run` exceeded "
+	const atMax = phase + "the 0s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed"
 	for _, c := range []struct {
 		name, module, result string
+		cap                  time.Duration
 	}{
-		{"none", mod("a", "value", "", ""), limit + "instance-wide job duration limit"},
-		{"null", mod("a", "value", "", `"timeout":{"type":"static","value":null}`), limit + "instance-wide job duration limit"},
-		{"zero", mod("a", "value", "", `"timeout":{"type":"static","value":0}`), limit + "job-specific duration limit"},
-		{"at the maximum", mod("a", "value", "", `"timeout":{"type":"static","value":1}`), limit + "instance-wide job duration limit"},
-		{"script metadata", mod("a", "zero", "", ""), limit + "job-specific duration limit"},
-		{"module over metadata", mod("a", "zero", "", `"timeout":{"type":"static","value":5}`), limit + "instance-wide job duration limit"},
+		{"none", mod("a", "value", "", ""), atMax, 20 * time.Millisecond},
+		{"null", mod("a", "value", "", `"timeout":{"type":"static","value":null}`), atMax, 20 * time.Millisecond},
+		{"zero", mod("a", "value", "", `"timeout":{"type":"static","value":0}`), atMax, 20 * time.Millisecond},
+		{"negative", mod("a", "value", "", `"timeout":{"type":"static","value":-1}`), atMax, 20 * time.Millisecond},
+		{"at the maximum", mod("a", "value", "", `"timeout":{"type":"static","value":1}`), atMax, 20 * time.Millisecond},
+		{"script metadata of zero", mod("a", "zero", "", ""), atMax, 20 * time.Millisecond},
+		{"module over metadata", mod("a", "zero", "", `"timeout":{"type":"static","value":5}`), atMax, 20 * time.Millisecond},
+		{"custom", mod("a", "zero", "", `"timeout":{"type":"static","value":1}`), phase + "the 1s custom timeout set on the script or flow step", time.Hour},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.module)}, waits{})
-			e.cap = 20 * time.Millisecond
+			e.cap = c.cap
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
@@ -875,12 +882,13 @@ func TestEngineTimeouts(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"`+c.result+`","name":"ExecutionErr","step_id":"a"}}`)
-			if a := step(t, tr, "a"); !a.Abandoned {
+			if a := step(t, tr, "a"); !a.Abandoned || a.Status != conformance.StepCanceled || a.Module != conformance.ModuleFailure {
 				t.Fatalf("a %+v", a)
 			}
 		})
 	}
-	e := mustOpen(t, map[string]string{"f/t/main": flowOf(`{"id":"a","value":{"type":"identity"},"timeout":{"type":"static","value":0}}`)}, waits{})
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(`{"id":"a","value":{"type":"identity"},"timeout":{"type":"static","value":1}}`)}, waits{})
+	e.cap = 20 * time.Millisecond
 	wantStatus(t, runIt(t, e, `{"x":1}`, nil), conformance.RunSuccess, `{"x":1}`)
 }
 
@@ -898,7 +906,7 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		}
 	}
 	// What milestones N2 and NI run opens: retries, sleeps, javascript and
-	// negative timeouts (whose failure is a chaining error at run time),
+	// negative timeouts (a negative one is unset, FX-24),
 	// a static timeout of null, a failure module's retry, a loop's static
 	// timeout and a loop's body's, and all of them in and on containers.
 	for name, value := range map[string]string{

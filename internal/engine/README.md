@@ -288,9 +288,9 @@ run's result is the same.
 a static or javascript `timeout`, `retry` and `retry_if`,
 `continue_on_error`, a failure module of those kinds, `flow_env`,
 `early_return` (which changes only the synchronous HTTP response,
-[FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own `timeout`,
-which nothing enforces: a flow job bypasses every executor timer
-([FX-24](../../docs/semantics/execution.md#fx-24), path 4), for and while
+[FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own
+`timeout`, its wall-clock limit
+([FX-52](../../docs/semantics/execution.md#fx-52), below), for and while
 loops and `branchall` with `stop_after_all_iters_if`, `branchone`, and
 subflows by path, in a flow with a failure module too, whose bodies each
 carry a copy of it (below), with N2's waits and retries in, on and before
@@ -354,11 +354,11 @@ that windmill-lite does not reproduce
    sets `MayHaveMutated` and disarms the pre-write deadline, whatever
    then stops the launch), H12 edits the environment, and the step
    runs through the `StepExecutor` with its timeout as a timer in the
-   engine. The timeout is the module's own, static or evaluated, else a
-   path script's own timeout metadata; a request strictly below the
-   instance maximum is job-specific, zero included (no time at all); none,
-   or one at or above the maximum, gives the maximum, instance-wide
-   (FX-24, FX-25, WR-37). `StoreOutcome` maps the outcome, H1's included.
+   engine. The timeout is the module's own positive one, static or
+   evaluated, else a path script's own positive timeout metadata; one
+   strictly below the instance maximum is the custom timeout; none, or
+   one at or above the maximum, gives the instance maximum (FX-24, FX-25,
+   WR-37). `StoreOutcome` maps the outcome, H1's included.
    The completion stores a leaf's result or failure value without its NUL
    escapes, which every reader of storage sees, while the flow carries the
    producer's text on in memory, so the next module's `previous_result`
@@ -604,11 +604,11 @@ the step's success value, not the `EarlyStopError`
 | a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
 | `stop_after_all_iters_if` fails | an error stop of the flow: ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<text>`: <predicate text>"}}``, carried by the loop, whose result stays its array | CF-13, JE-27 |
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "execution error:\nBad request: Invalid entrypoint override <value>: must match ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, not starting with a digit)", "name": "ExecutionErr", "step_id": <id>}}`, at the job's pickup, before the step runs | WR-12 |
-| the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
+| the step's timeout | `TimeoutError`'s value for the step's boundary, `ExecutionErr` with `step_id`: for Bun, ``execution error:\njob process terminated due to timeout: `bun run` exceeded <limit>``, the limit named as the custom timeout or the instance maximum, and the job stored canceled; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied, a failed job | FX-25, WR-37, WR-44 |
 | a job's result or failure value that jsonb refuses once its NUL escapes are removed (an unpaired surrogate, a number beyond numeric's range) | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-51 case 1, OR-27 |
 | the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay completes without running, stored canceled, with the run's `Canceled` error | FX-38 |
 | a sleep's value is not a delay (N2) | a chaining error (always a later transition): `Expected an integer, found: <n>` for a negative integer, `Expected an integer, found: <debug form>` (`String("1")`, `Null`, `Array [Number(1)]`) for anything else, `Expected a number value, had error instead: ExecutionErr("Error during evaluation of expression `<text>`:\n<evaluator text>")`, a debug form with its newline escaped, for a failed evaluation | FX-23, JE-28, FX-15 |
-| a timeout's value fails (N2) | a chaining error: `Timeout value cannot be negative`; `Error parsing result as i32: <serde_json's error, with its position>. Value was: <the evaluator's text as it is>`; `Error during evaluation of expression `<text>`:\n<evaluator text>` | FX-24, JE-29, FX-15 |
+| a timeout's value fails (N2) | a chaining error: `Error parsing result as i32: <serde_json's error, with its position>. Value was: <the evaluator's text as it is>`; `Error during evaluation of expression `<text>`:\n<evaluator text>`. A value of 0 or less is no error but unset | FX-24, JE-29, FX-15 |
 | `retry_if` throws while the completion is decided (N2) | the module fails unrecoverably with the string `{"error": "Error: <text>"}`, as for `stop_after_if` but converted once more, so two `Error: ` prefixes (and on Windmill two location suffixes) | FX-28, FX-21, FX-50 |
 | `retry_if` throws at re-entry (N2) | a chaining error of a later transition: the flow fails at once with `{"error": {"message": <text>, "name": "InternalError"}}` | FX-28, FX-15 |
 | a transition outlives the monitor (N2) | the run is canceled by `monitor` (below) | JE-2 |
@@ -1236,6 +1236,12 @@ through the job registry.
   (`scriptView`), which renders it running, then completed while its root
   lives: a dispatch that tracked it in its parent keeps it in another
   run's tree.
+- **A canceled script job.** A Bun job that its process timeout killed,
+  or one its run's cancellation killed, is stored canceled
+  (`ScriptResult.Canceled`, FX-25, FX-38). Its record is then not
+  rendered, as a canceled step's is not, while its result is still a
+  failure and its arguments are read. A native job's timeout leaves an
+  ordinary failed job.
 
 **The result cache (N4, `cache.go`).** Before a job with a `cache_ttl`
 runs, the engine looks it up in the result cache of its platform
@@ -1500,6 +1506,11 @@ identity and skipped modules included, though only a leaf's job is timed
 deserialise as an i32 (`timeoutResult` and `parseI32` write serde_json's
 texts). Its failures are chaining errors, as are a sleep's.
 
+A value of 0 or less is unset, as is a path script's own timeout of 0 or
+less: the step then runs as if neither were set. A flow step's positive
+timeout is its subflow's wall-clock limit (below), and a container's
+bounds only its collapsed body jobs.
+
 **Retries.** A module with a `retry` is retried, by the decision list of
 FX-2, the same in the failure module with its own `retry`:
 
@@ -1562,8 +1573,35 @@ timer: an atomic state, armed, disarmed or expired, lets one of the
 first write and the timer win, and whoever reads it expired cancels the
 run (idempotently) before acting on it, so the run never stops a write
 before its context says why. After the first write it no longer
-applies. A flow's
-own `timeout` is accepted and not enforced (FX-24, path 4).
+applies.
+
+**The flow's own timeout**
+([FX-52](../../docs/semantics/execution.md#fx-52)). A flow job carries a
+wall-clock limit: its calling flow step's positive `timeout`, else its
+flow's own positive `value.timeout`. A root run and each subflow run under
+theirs, counted from their start. A container body's child flow carries
+none, and the metadata `timeout` beside `value` enforces nothing.
+
+Once the limit has passed, `runList` cancels the flow's context with
+canceler `timeout` and reason `the flow exceeded its <n>s timeout`. Its
+jobs end as a cancellation ends them: a running step is killed, a queued
+one is canceled at its pickup. Windmill's server cancels on its
+monitor's first pass after the limit, every 10 s by default;
+windmill-lite cancels at the limit, which the reference leaves
+unbounded.
+
+The flow then ends as `timedOut` says. Its failure module runs once, with
+`{"error": {"name": "ExecutionErr", "message": "flow terminated due to
+timeout: <reason>"}}` as its `previous_result`, the module the flow was at
+as its preceding id. The flow job completes canceled with the canceled
+value, whatever that module returned.
+
+A root run ends there. A subflow is a failed step to its caller, whose
+retry, `continue_on_error` and failure module apply: the step's job is
+canceled with the canceled value, which lookups read, and it carries the
+timeout error or the failure module's result (`flowEnd.delivered`). A
+subflow that its caller's cancellation reached, an ancestor's timeout
+included, ends as any canceled child, without its failure module.
 
 **The monitor of flows that hang between steps** (JE-2). Windmill's
 server cancels a flow job whose transition, the work between two jobs,
@@ -1700,7 +1738,7 @@ its counter reset, the restored `previous_result` from storage and the
 failure, the final module's, not on a retry, not before the failure
 module, its chaining errors) and a canceled sleep, the timeouts' values
 and contexts (every module evaluates its own, the root's Anyhow and its
-retry, a failed transform with a negative timeout, the evaluated value
+retry, a failed transform with a string timeout, the evaluated value
 timing the leaf), the monitor (a runaway expression, one transition at a
 time, two evaluations in one transition, disabled) and the pre-write
 deadline (one already passed at the start, one that passes while the
@@ -1710,6 +1748,13 @@ subflow calls (a veto before the child flow starts, an approval, and of
 two calls of one subflow only the marked one asked, F2b), that the monitor's budget ignores a recording clock other runs
 move on, that child flows refresh their loop's ping, and sleep and
 timeout values that are not JSON.
+
+`TestEngineTimeoutValues` also runs timeouts of 0 or less, which are
+unset, and `TestEngineTimeouts` which limit applies, with its name in the
+message and the timed-out job canceled. `flowtimeout_test.go` runs the
+flow's own timeout: a root's and a subflow's, a step's timeout replacing
+a subflow's, the failure module, a tolerated or retried subflow, the
+unset values and an ancestor's timeout.
 
 ## Containers and waits
 
