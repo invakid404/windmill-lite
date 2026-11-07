@@ -9,6 +9,9 @@ locks:
   f/wl_fx15/later_transition.flow+a.ts: 3eed85e0b1b936ae339f2b391d534b57f149ff20e95a2f2152d5977134a21fa2
   f/wl_fx15/later_transition.flow+b.ts: c52317f0a8744a6ba488fbec77e81d2b9e2236733275689347e3edc5c4f51c87
   f/wl_fx15/later_transition.flow+failure.ts: f721018335d90cab1296ddf31a7c7b647a75c0cf4f841bf56ad1f9e52eff7467
+  f/wl_fx15/root_pickup_i32.flow+__flow_hash: 22fcac13a4f50c37b2bcd894b4d7a60fb1a70f40ac6b37aceb3289eee7ef00d0
+  f/wl_fx15/root_pickup_i32.flow+a.ts: 3eed85e0b1b936ae339f2b391d534b57f149ff20e95a2f2152d5977134a21fa2
+  f/wl_fx15/root_pickup_i32.flow+failure.ts: c3bcf85df2ce3563adfe4ed61d8c3f16717a4b08970e12a8f821c18a7b7c7d53
   f/wl_fx15/root_pickup.flow+__flow_hash: 22fcac13a4f50c37b2bcd894b4d7a60fb1a70f40ac6b37aceb3289eee7ef00d0
   f/wl_fx15/root_pickup.flow+a.ts: 3eed85e0b1b936ae339f2b391d534b57f149ff20e95a2f2152d5977134a21fa2
   f/wl_fx15/root_pickup.flow+failure.ts: c3bcf85df2ce3563adfe4ed61d8c3f16717a4b08970e12a8f821c18a7b7c7d53

@@ -2359,44 +2359,55 @@ defined in the [index](README.md#legend).
 <a id="cf-27"></a>
 ### CF-27 · Container `timeout` enforcement
 
-**Scope:** later · **Confidence:** high (oracle-observed: points 2 to 4 on the ordinary worker path); medium (the rest of the ordinary worker path); low (other execution modes) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** later · **Confidence:** high (oracle-observed on CE v1.862.0: points 2 to 4 on the ordinary worker path); medium (the rest of the ordinary worker path); low (other execution modes) · **Status:** confirmed
 
 - **Rule** (ordinary, non-dedicated worker path):
-  1. **Where a job timeout is enforced:** by the process supervisor of script
-     executors, and by the native/SQL/AI executors' own timers.
-  2. **Flow-kind jobs are not timed.** Jobs of kind `Flow`, `FlowNode` and
-     `FlowPreview` go straight to the flow engine, which has no wall-clock
-     timer. A flow job's own `timeout` is not handed down to its steps; each
-     step evaluates its own `timeout`.
-  3. **Effect of a container module's `timeout`:** it bounds **each collapsed
-     body job** separately when the fast path applies ([CF-8](#cf-8)). It has
-     no effect on child flows: non-collapsed iterations, branches, subflow
-     jobs. Whether a loop collapses depends on job kind ([CF-V5](#cf-v5)).
-  4. **Error shape.** A timed-out Bun body job fails with
-     `{"error":{"name":"ExecutionErr","message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","step_id":"<loop id>"}}`
+  1. **Where a timeout is enforced:** by the process supervisor of script
+     executors, by the native, SQL and AI executors' own timers, and, for
+     flow jobs of kind `Flow` and root previews only, by the server's
+     flow-timeout sweep ([FX-52](execution.md#fx-52)).
+  2. **Container bodies are not timed.** Jobs of kind `FlowNode` and child
+     `FlowPreview` jobs (non-collapsed iterations and branches) go straight
+     to the flow engine, which has no wall-clock timer, and the sweep
+     leaves them out. A flow job's own `timeout` is not handed down to its
+     steps; each step evaluates its own `timeout`.
+  3. **Effect of a container module's `timeout`:** it bounds **each
+     collapsed body job** separately when the fast path applies
+     ([CF-8](#cf-8)); a body whose module has a `timeout` of its own does
+     not collapse ([FX-46](execution.md#fx-46), 1.852.0). It has no effect
+     on non-collapsed iterations or branches. On a `flow` step it is the
+     subflow's wall-clock limit, replacing the subflow's own
+     `value.timeout` ([FX-52](execution.md#fx-52), 1.861.0). Whether a loop
+     collapses depends on job kind ([CF-V5](#cf-v5)). A value of 0 or less
+     is unset ([FX-24](execution.md#fx-24)).
+  4. **Error shape.** A timed-out Bun body job is stored `canceled` and
+     fails with
+     ``{"error":{"name":"ExecutionErr","message":"execution error:\njob process terminated due to timeout: `bun run` exceeded the <n>s custom timeout set on the script or flow step","step_id":"<loop id>"}}``
      when the custom timeout is strictly below the instance maximum.
      Otherwise the instance maximum applies, a warning is logged, and the
-     message ends with `instance-wide job duration limit`.
+     message names the instance maximum instead ([FX-25](execution.md#fx-25)).
+     A `flow` step whose subflow outlives the step's timeout fails with
+     `{"error":{"name":"ExecutionErr","message":"flow terminated due to timeout: the flow exceeded its <n>s timeout"}}`
+     ([FX-52](execution.md#fx-52)).
   5. **Not covered:** EE dedicated runners, `squash`, and agent workers
      ([Q-CF-8](#q-cf-8)).
-- **Evidence:** `backend/windmill-worker/src/worker.rs:3815-3840` (flow kinds
-  go to the flow engine); `backend/windmill-worker/src/handle_child.rs:165-232`
-  (timer race and kill reasons; `:172-180`, `:199-229`), `:335-347`
-  (`job process terminated due to …`), `:200`, `:724`, `:803`;
-  `backend/windmill-worker/src/common.rs:1056-1123` (job-specific vs instance
-  cap); `backend/windmill-worker/src/result_processor.rs:587-627`
+- **Evidence:** `backend/windmill-worker/src/worker.rs:5058-5065` (flow
+  kinds go to the flow engine); `backend/windmill-queue/src/jobs.rs:434-458`
+  (the sweep times only `flow` jobs and root previews);
+  `backend/windmill-worker/src/handle_child.rs:232-260` (kill reasons),
+  `:310-346` (the timer), `:486-493` (`job process terminated due to …`),
+  `:913-963` (the in-process executors' shared timer);
+  `backend/windmill-worker/src/common.rs:1106-1137`, `:1177-1277` (the
+  limit, its source and the cap); `backend/windmill-worker/src/result_processor.rs:671-677`
   (`execution error:` prefix, `ExecutionErr`, `step_id`);
-  `backend/windmill-worker/src/bun_executor.rs:2418-2435`; native executors
-  `backend/windmill-worker/src/graphql_executor.rs:84`,
-  `backend/windmill-worker/src/bigquery_executor.rs:372`,
-  `backend/windmill-worker/src/snowflake_executor.rs:750`,
-  `backend/windmill-worker/src/ai_executor.rs:981`;
-  `worker_flow.rs:4379-4400`, `:4429`; `backend/src/monitor.rs` (only the
-  default-timeout setting and zombie handling).
+  `backend/windmill-worker/src/bun_executor.rs:3409-3434`;
+  `backend/windmill-worker/src/worker_flow.rs:5030-5049` (the evaluated
+  timeout handed to the push), `:6389-6406` (collapse).
 - **Conformance:** [CF-27/a to CF-27/d](conformance.md#cf-27)
-- **Note:** the "no enforcement on flow jobs" conclusion rests on a search of
-  timeout consumers on the ordinary path; it is not extended to other
-  execution modes. The positive-control fixtures need inner steps whose
+- **Note:** the "no enforcement on container bodies" conclusion rests on a
+  search of timeout consumers on the ordinary path (at v1.862.0 the
+  flow-timeout sweep is the only one that reads a flow job's timeout); it
+  is not extended to other execution modes. The positive-control fixtures need inner steps whose
   effective default or instance deadlines exceed three seconds. The timeout
   findings [FX-24](execution.md#fx-24) and [FX-25](execution.md#fx-25)
   should be read with the same job-kind distinction.
@@ -2410,6 +2421,17 @@ defined in the [index](README.md#legend).
   parallel, are not timed. CF-27/d needs a raw submission and is not
   recorded. Where the container's `timeout` is evaluated, and in which
   scope, is [CF-21](#cf-21).
+- **Revision 2026-11-07 (retarget to v1.862.0, source re-check and
+  oracle):** re-checked as a whole at v1.862.0. Points 1 and 3 now name the
+  flow-timeout sweep, which times a `flow` step's subflow (1.861.0): run
+  `subflow` of `conformance/flows/control-flow/cf-27-flow-timeouts`, which
+  succeeded at v1.767.0, fails on CE v1.862.0 with the subflow canceled at
+  about 1.5 s. Point 3 adds the collapse rule for a body with its own
+  `timeout` (1.852.0; `conformance/flows/control-flow/cf-27` run `fx24_d`
+  now completes). Point 4 has the message that names the limit
+  (1.825.0), and the body job stored `canceled`: CF-27/a and CF-27/b
+  re-recorded on CE v1.862.0 (runs `a`, `b`). CF-27/c and the branches
+  recorded as before.
 
 <a id="cf-28"></a>
 ### CF-28 · Cancellation inside containers

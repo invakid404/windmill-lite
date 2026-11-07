@@ -1,0 +1,10 @@
+# FX-52/c: b waits on a's sleep of 6 s when the flow's timeout of 1 s
+# cancels the flow; b is canceled at its pickup without running.
+spec: [FX-52/c]
+target: f/wl_fx52/sleep
+expect:
+  status: canceled
+  result: {error: {name: Canceled, message: "Job canceled: the flow exceeded its 1s timeout by timeout", reason: "the flow exceeded its 1s timeout", canceler: timeout}}
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: canceled, args: {}, result: {error: {name: Canceled, message: "Job canceled: the flow exceeded its 1s timeout by timeout", reason: "the flow exceeded its 1s timeout", canceler: timeout}}}

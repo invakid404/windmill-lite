@@ -1,0 +1,15 @@
+summary: "FX-52 a negative flow timeout is unset"
+value:
+  timeout: -1
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline sleep.ts"
+        language: bun
+        input_transforms:
+          ms: {type: static, value: 2000}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
