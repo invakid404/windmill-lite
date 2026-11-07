@@ -108,9 +108,8 @@ type StepRecord struct {
 	Site conformance.SitePath
 	// Superseded marks a record that Windmill's job tree no longer reaches
 	// (milestone NI): what a container's failed attempt ran besides the job
-	// its retry records (CF-22), what a sequential loop ran before its
-	// skip_if held mid-loop (CF-21), and the job a collapsed iteration
-	// never pushed. Trace.Step and observations leave it out.
+	// its retry records (CF-22), and the job a collapsed iteration never
+	// pushed. Trace.Step and observations leave it out.
 	Superseded bool
 	// Attempt is the module's attempt the record is of: 0 for its first
 	// run, n for its nth retry.
