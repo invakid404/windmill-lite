@@ -40,7 +40,7 @@
       "site": "input_transform",
       "text": "(JSON.stringify = () => Promise.reject(new Error(\"serializer failed\")), 1)",
       "context": {"previous_id": ""},
-      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: serializer failed\n    at <anonymous> (eval_script:1:70)\n    at <anonymous> (eval_script:1:135)\n"}}
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: serializer failed\n    at <anonymous> (eval_script:1:99)\n    at <anonymous> (eval_script:1:165)\n"}}
     },
     {
       "spec": "JE-15/j",

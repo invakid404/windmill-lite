@@ -146,7 +146,7 @@ func TestContainerTimeoutPerChild(t *testing.T) {
 			`{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`},
 		// The timeout is evaluated before the parallelism.
 		{"parallel loop later", flowOf(mod("a", "value", "", ""), loopOf("l", two, `"iterator":{"type":"static","value":[1]},"parallel":true,"parallelism":`+js("never")+`,"skip_failures":false`, `"timeout":`+js("nope"))),
-			"{\"error\":{\"message\":\"Error during evaluation of expression `nope`:\\nQuickJS evaluation error: Error: nope is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:33)\\n\",\"name\":\"InternalError\"}}"},
+			"{\"error\":{\"message\":\"Error during evaluation of expression `nope`:\\nQuickJS evaluation error: Error: nope is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:62)\\n\",\"name\":\"InternalError\"}}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &scripts{})

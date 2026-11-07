@@ -155,7 +155,7 @@ func TestEngineFailureModule(t *testing.T) {
 		// FX-15 context 1: a chaining error while it starts fails the flow
 		// at once with an InternalError, and it never starts.
 		{name: "chaining", flow: withFailure(handler("echo", "", `"skip_if":{"expr":"nope"}`), mod("a", "fail", "", "")),
-			status: conformance.RunFailure, result: `{"error":{"name":"InternalError","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n"}}`, calls: []string{"m:a"},
+			status: conformance.RunFailure, result: `{"error":{"name":"InternalError","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n"}}`, calls: []string{"m:a"},
 			check: func(t *testing.T, f StepRecord) {
 				if f.Ran || f.Status != conformance.StepNotRun {
 					t.Fatalf("failure module %+v", f)
@@ -278,7 +278,7 @@ func TestEngineErrorStops(t *testing.T) {
 // continue_on_error does not apply, and the failure module runs, its error
 // the string.
 func TestEngineUnrecoverableStop(t *testing.T) {
-	const text = `"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n"`
+	const text = `"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n"`
 	throwing := mod("a", "value", inputs("v", static("1")), `"stop_after_if":{"expr":"null.x","skip_if_stopped":false},"continue_on_error":true`)
 	b := mod("b", "value", "", "")
 	s := &scripts{}
@@ -306,7 +306,7 @@ func TestEngineUnrecoverableStop(t *testing.T) {
 // flow fails at once with an InternalError and the failure module does not
 // run (JE-35/a).
 func TestEngineChainingErrorsWithFailureModule(t *testing.T) {
-	const anyhow = `{"error":{"name":"Anyhow","message":"Error: Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n"}}`
+	const anyhow = `{"error":{"name":"Anyhow","message":"Error: Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n"}}`
 	throwing := `"skip_if":{"expr":"nope"}`
 	fm := handler("echo", inputs("e", js("error"), "r", js("results.a")), "")
 	s := &scripts{}

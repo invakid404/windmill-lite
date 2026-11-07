@@ -128,13 +128,14 @@ harness, which is (a) with its duplication.
 1. **One flow interpreter, in Go** (`engine`). It owns the run state, the
    decision list, containers, retries, sleeps, timeouts, failure modules,
    cancellation and host hooks.
-2. **One expression pipeline, in Go** (`expr`). The textual stages
-   (trimming, the shortcuts of [JE-6](../semantics/expressions.md#je-6) to
-   [JE-9](../semantics/expressions.md#je-9), the rewrites of
-   [JE-11](../semantics/expressions.md#je-11) and
-   [JE-12](../semantics/expressions.md#je-12), statement-mode detection,
-   binding analysis) run at bundle open where they depend only on the text,
-   and at run time where they depend on the preceding id.
+2. **One expression pipeline, in Go** (`expr`). The textual stages run
+   at bundle open where they depend only on the text, and at run time
+   where they depend on the preceding id. They are trimming, the shortcuts
+   of [JE-6](../semantics/expressions.md#je-6) to
+   [JE-9](../semantics/expressions.md#je-9), the rewrite of
+   [JE-11](../semantics/expressions.md#je-11), the static results reads
+   that [JE-12](../semantics/expressions.md#je-12) prefetches,
+   statement-mode detection and binding analysis.
    - **Member paths are answered in Go (PS1).** A text that only reads a
      member path of a JSON value, such as `previous_result.items[0]?.id`,
      gets the program's own answer without the engine. That is
@@ -162,15 +163,17 @@ harness, which is (a) with its duplication.
    - A predicate site's text is taken inside its `Boolean(` … `)` wrapper,
      and `Boolean` is the only call `jsExpr` parses. That wrapper is the
      only one a predicate site adds
-     ([JE-24](../semantics/expressions.md#je-24)). The flow pipeline's two
-     other wrappers change nothing `jsExpr` answers:
-     - the `(await …)` around a results read
-       ([JE-12](../semantics/expressions.md#je-12)): `jsExpr` requires the
-       text to spell the read exactly as that rewrite does;
-     - the evaluator's `async function`
-       ([JE-13](../semantics/expressions.md#je-13)): only a statement,
-       `await`, `this` or `arguments` could observe it, and `jsExpr`
-       parses none of them.
+     ([JE-24](../semantics/expressions.md#je-24)). The rest of the flow
+     pipeline's program changes nothing `jsExpr` answers:
+     - the prefetch of the static results reads
+       ([JE-12](../semantics/expressions.md#je-12)): every static read
+       must be one of `jsExpr`'s roots. It reads every step they name
+       before it evaluates, as the prefetch does, and declines a read of a
+       step whose lookup failed, where the program throws;
+     - the evaluator's `async function`, called inside the prefetch's
+       `.then` ([JE-13](../semantics/expressions.md#je-13)): only a
+       statement, `await`, `this` or `arguments` could observe it, and
+       `jsExpr` parses none of them.
    - It declines wherever JavaScript would do more than compute over the
      values' own data, and the engine then answers or fails as it would.
      It declines:
@@ -178,7 +181,7 @@ harness, which is (a) with its duplication.
      - an object compared or returned, or converted to a primitive when
        it has a `toString` or `valueOf` key;
      - a string or an object converted to a number, and a lone surrogate;
-     - a lookup that fails;
+     - a read of a step whose lookup failed;
      - a comment, a line break, a text that is not UTF-8, and any text it
        does not parse whole.
    - It keeps the evaluation's limits by answering only where the engine
