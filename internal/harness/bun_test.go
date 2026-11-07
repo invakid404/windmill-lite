@@ -323,11 +323,12 @@ func TestBunWorkAfterTheResultIsLate(t *testing.T) {
 // rejection whose text is longer than max_message still fails nothing, and
 // the co-resident invocation's warning carries as much of it as fits.
 //
-// The warning quotes the error's stack, which Bun 1.3.10 builds without the
-// message when a garbage collection formats it before anything has read
+// The warning quotes the error's stack, which Bun 1.3.10 built without the
+// message when a garbage collection formatted it before anything had read
 // it; under load that happened in about 2% of runs (FU5). The gc variant
-// forces that collection, so every run takes that path, and the harness
-// puts the message back (describe in runtime.ts).
+// forces that collection, so every run takes that path: Bun 1.4.3 keeps the
+// message there, and the harness quotes the stack as Bun built it
+// (describe in runtime.ts).
 func TestBunLongUnattributedErrorUnderASmallMessageLimit(t *testing.T) {
 	for _, tc := range []struct{ name, args string }{
 		{"rejected at once", `{"ms":20,"size":5000}`},

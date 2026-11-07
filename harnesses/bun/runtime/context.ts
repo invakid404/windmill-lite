@@ -919,10 +919,10 @@ function calledBySocketModule(fn: (...args: never[]) => unknown): boolean {
  * way, and that timer stays the step's. Promise-based waits (Bun.sleep,
  * node:timers/promises) do not go through these functions and are not
  * fenced. node:timers is patched before any step module imports it. On
- * Bun 1.3.10 the first named import of a builtin fixes its named bindings
- * for every later importer, so when a host's own module imported it by
- * name before the runtime was made, named imports keep Bun's functions;
- * the default import and require see these. */
+ * Bun 1.4.3, as on 1.3.10, the first named import of a builtin fixes its
+ * named bindings for every later importer, so when a host's own module
+ * imported it by name before the runtime was made, named imports keep
+ * Bun's functions; the default import and require see these. */
 export function installTimers() {
   if (timersInstalled) return;
   timersInstalled = true;
@@ -934,7 +934,8 @@ export function installTimers() {
     if (done) done();
   };
   // Handles the step cleared, which refresh() does not re-arm on Bun
-  // 1.3.10, and the live ones by numeric id, for a clear by id.
+  // 1.4.3 (nor on 1.3.10), and the live ones by numeric id, for a clear by
+  // id.
   const cleared = new WeakSet<object>();
   const byId = new Map<number, object>();
   const remember = (work: InvocationResources, kind: string, h: object, clear: (h: any) => void) => {
@@ -1278,15 +1279,18 @@ let childrenInstalled = false;
  * and Bun.spawn and Bun.spawnSync (ADR 0004, failure model item 7), before
  * any step module loads: a child started inside an invocation without an
  * explicit environment gets the invocation's view, not the process
- * environment, which Bun would otherwise pass (spawnSync, execSync and
- * Bun.spawn read neither process.env nor its view).
+ * environment, which Bun would otherwise pass: on Bun 1.4.3 Bun.spawn and
+ * Bun.spawnSync pass the environment the process started with, reading
+ * neither process.env nor its view (the node:child_process functions read
+ * process.env at the call; on 1.3.10 the sync ones did not).
  *
- * On Bun 1.3.10 every node:child_process function starts its child through
+ * On Bun 1.4.3 every node:child_process function starts its child through
  * Bun.spawn (the asynchronous ones) or Bun.spawnSync (the sync ones), each
- * once, with detached set only where Bun honours the step's own: spawn and
- * fork. So the Bun functions alone register children and give them
- * groups, and a child is counted once whichever way it started. Bun.$
- * starts its processes by neither, and is not wrapped.
+ * once, with detached set only where Bun honours the step's own: spawn,
+ * fork and the sync forms (1.3.10 dropped it for the sync forms; both drop
+ * it for exec and execFile). So the Bun functions alone register children
+ * and give them groups, and a child is counted once whichever way it
+ * started. Bun.$ starts its processes by neither, and is not wrapped.
  *
  * Each job of Windmill's leads its own process group, which its children
  * join, and the group is killed on a timeout or a cancellation (WR-55).
@@ -1314,7 +1318,9 @@ let childrenInstalled = false;
  * the process ends, a watchdog's kill of a process the call blocks
  * included. What a synchronous child leaves running after it exits stays
  * in that group too, unattributed: it is not reported, and runs until the
- * process ends.
+ * process ends. A synchronous child the step started detached leads a
+ * group of its own, which registers as "detached" if it outlives the
+ * child.
  *
  * A child the step itself starts detached, where Bun honours it, is in a
  * session of its own on Windmill too, outside the job's group: never
@@ -1434,8 +1440,10 @@ let handlersInstalled = false;
  * model, item 1): without them one detached rejection ends the process and
  * every invocation in it. Each error goes to onError, called inside the
  * handler, where current() names the invocation whose context raised it,
- * if any: on Bun 1.3.10 a throw from a timer keeps its context, and an
- * unhandled rejection or a throw from a microtask has none (item 2). For
+ * if any: on Bun 1.4.3 a throw from a timer, or from a node:fs or node:dns
+ * callback, keeps its context (1.3.10 raised the latter as unhandled
+ * rejections, with none), and an unhandled rejection or a throw from a
+ * microtask has none (item 2). For
  * a rejection, onError also gets the promise, whose realm names a native
  * invocation (native.ts). A ProcessExit thrown out of a callback never
  * reaches onError: its call already fixed the outcome or was reported. */
@@ -1489,8 +1497,8 @@ export function installExit(onExit: (c: InvocationContext, status: number) => vo
   } as typeof process.exit;
 }
 
-/** The exit status process.exit(code) gives on Bun 1.3.10, which checks a
- * code before it exits:
+/** The exit status process.exit(code) gives on Bun 1.4.3, as on 1.3.10,
+ * which checks a code before it exits:
  *
  * - no code (undefined or null) is process.exitCode, or 0;
  * - a number must be an integer within ±(2^53 − 1);
@@ -1509,8 +1517,9 @@ export function exitStatus(code: unknown): number {
   if (Number.isSafeInteger(n)) return ((n % 256) + 256) % 256;
   const before = process.exitCode;
   process.exitCode = code as number;
-  // Not reached on Bun 1.3.10, which refuses every such code. Should a
-  // later Bun accept one, the step's exit is not changed by the probe.
+  // Not reached on Bun 1.4.3 or 1.3.10, which refuse every such code.
+  // Should a later Bun accept one, the step's exit is not changed by the
+  // probe.
   if (before !== undefined) process.exitCode = before;
   throw new TypeError(`windmill-lite: process.exit(${String(code)}) was accepted as an exit code`);
 }
