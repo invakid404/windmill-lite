@@ -763,17 +763,19 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    `undefined` replacer ([WR-13](../../docs/semantics/languages.md#wr-13),
    [WR-14](../../docs/semantics/languages.md#wr-14)).
 6. **A throw** from the export check, the binding, the call or the
-   serialisation is printed to the invocation's stderr, its log, and
-   shaped as
-   [WR-18](../../docs/semantics/languages.md#wr-18)'s object: `message`,
-   `name`, `stack`, then the step context keys of
-   [FX-12](../../docs/semantics/execution.md#fx-12), `step_id`, `job_id`
-   and `flow_path` from `WM_FLOW_STEP_ID`, `WM_JOB_ID` and `WM_FLOW_PATH`
-   as the step sees them, each when it is not empty, then `extra` with the
-   other own properties. When that object cannot be built
+   serialisation is printed to the invocation's stderr, its log. It is
+   shaped as [WR-18](../../docs/semantics/languages.md#wr-18)'s object:
+   `message`, `name`, `stack`, the step context keys, then `extra` with
+   the other own properties. When that object cannot be built
    or serialised (`throw null`, a cycle in `extra`) the failure is
-   `escaped`, with the handler's error at the end of its log. An
-   unparsable signature's error is the worker's, with `step_id` alone.
+   `escaped`, with the handler's error at the end of its log.
+
+The step context keys of a throw's object
+([FX-12](../../docs/semantics/execution.md#fx-12)) are `step_id`,
+`job_id` and `flow_path`, read from `WM_FLOW_STEP_ID`, `WM_JOB_ID` and
+`WM_FLOW_PATH` as the step sees them when the object is built. Each is
+left out when its variable is empty. An unparsable signature's error is
+the worker's, with `step_id` alone.
 
 | The call | Outcome |
 |---|---|
@@ -955,10 +957,10 @@ this mode cannot reproduce is deviation D5 of
   realm, with no replacer: `undefined` fields are left out, a value with no
   JSON text is `null`, and a `BigInt` fails with V8's message.
 - **Errors.** A thrown value, from the module, the call or the
-  serialisation, is `{message, stack, name}`: for an `Error` of the realm
-  or of a web API, name and message decoded together, and the stack with
-  the source line its first frame points at in front when that frame is in
-  the script; three `null`s for anything else.
+  serialisation, is `{message, stack, name}`. For an `Error` of the realm
+  or of a web API, name and message are decoded together, and the stack
+  has the source line its first frame points at in front when that frame
+  is in the script. Anything else gives three `null`s.
 - **Its step context keys.** That object then gets `step_id`, `job_id`
   and `flow_path` from the job's `WM_FLOW_STEP_ID`, `WM_JOB_ID` and
   `WM_FLOW_PATH`, each when it is not empty, as the worker adds them after
@@ -971,7 +973,7 @@ this mode cannot reproduce is deviation D5 of
   `step_id` alone. They are `error` outcomes, as a thrown value's object
   is, but their `result` frame says `origin`
   `harness`, as a Bun step's unparsable signature does (WR-37), so that the
-  engine records the message as generated (ADR 0004, FU5).
+  engine records the message as generated (ADR 0004).
 - **Process-level errors** of a native invocation are its own: by its
   async context (a timer), by the realm of the promise (a rejection nobody
   handles, which has no context) or directly (a throw from a microtask it

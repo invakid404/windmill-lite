@@ -265,15 +265,15 @@ left running after it settled, which the D9 fence must stop, fails the
 case; in `warm` mode the process is observed for 200 ms more after a last
 run that states its late reports or settlement, before it is drained.
 
-Before the comparison, the run's own job id, its `WM_JOB_ID`, is written
-in the stored value as the job placeholder of the run's site, as the flow
-suite's normaliser writes a walked job's id
+Before the comparison, the run's own job id is written in the stored
+value as the job placeholder of the run's site, as the flow suite's
+normaliser writes a walked job's id
 ([OR-14](../../docs/semantics/oracle.md#or-14) rule 1). The site is
-`m:<step_id>`, and `m:a` for a script job. So a case states the `job_id`
+`m:<step_id>`, or `m:a` for a script job. So a case states the `job_id`
 of a wrapper or native error
 ([FX-12](../../docs/semantics/execution.md#fx-12)) as `"<job:m:a>"`, and
-a flow step's `flow_path` is `f/wl_step/flow`. The Node side of a
-CommonJS case is written the same way.
+a flow step's `flow_path` as `f/wl_step/flow`. Node runs are written the
+same way.
 
 A step file with `shared_code: true` (`d18.yaml`) is built
 with shared code whatever the flag, so its cases compare `warm`, which runs
@@ -728,9 +728,9 @@ of Windmill 1.862.0's image).
   of `execution/fx-36-http`, which the flow suite leaves unsupported:
   `extra` ([FX-12](../../docs/semantics/execution.md#fx-12)/a) and
   `failed` (FX-36/b). Each is submitted as an ordinary run and must match
-  its `expect` without the `response`, the HTTP adapter's (F7b), in
-  `fresh` and in `warm`: the stored error with its step context keys. The
-  fixture's other runs are only logged.
+  its `expect` without the `response`, which needs windmill-lite's HTTP
+  adapter, in `fresh` and in `warm`: the stored error with its step
+  context keys. The fixture's other runs are only logged.
 - `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a
