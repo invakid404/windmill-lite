@@ -69,8 +69,8 @@ it depends on a run.
 5. **Static results reads**
    ([JE-12](../../docs/semantics/expressions.md#je-12)). `Prefetch` names
    the steps that the trimmed text reads statically, before the helper
-   rewrite. Nothing is rewritten: the program fetches these steps before
-   the code runs (below).
+   rewrite. The reads are not rewritten: the program fetches these steps
+   before the code runs (below).
    - A static read is `results`, at the text's start or after a character
      outside `[A-Za-z0-9_$]`, then a dot read or a bracket read.
    - A dot read is `.` or `?.` and `[A-Za-z0-9_]+`. A bracket read is `[`
