@@ -1,0 +1,17 @@
+summary: "OF-16 a concurrent_limit of 0 is unset"
+value:
+  concurrent_limit: 0
+  concurrency_time_window_s: 60
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline one.ts"
+        language: bun
+        input_transforms: {}
+        concurrent_limit: 0
+        concurrency_time_window_s: 60
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

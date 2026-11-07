@@ -1,0 +1,21 @@
+summary: "FX-52 the flow timeout reaches a step waiting on a sleep"
+value:
+  timeout: 1
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline one.ts"
+        language: bun
+        input_transforms: {}
+      sleep: {type: static, value: 6}
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline two.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
