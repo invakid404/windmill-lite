@@ -225,12 +225,12 @@ export async function main(timings: boolean) {
   const got = Array.isArray(g[sink]) ? (g[sink] as unknown[]) : [];
   g[sink] = timings ? [] : undefined;
   const c = process.cpuUsage();
-  // The peak resident set, in bytes: Bun gives it in bytes on macOS and
-  // in kilobytes on Linux, as getrusage does.
+  // The peak resident set, in bytes: Bun 1.4.3 gives it in kilobytes on
+  // every platform, as Node does.
   const peak = process.resourceUsage().maxRSS;
   // A plugin host's count of its provider hooks' calls, by run and path.
   const calls = g[Symbol.for("windmill-lite.bench.calls")] ?? {};
-  return { user: c.user, system: c.system, timings: got, rss_peak: process.platform === "darwin" ? peak : peak * 1024, calls };
+  return { user: c.user, system: c.system, timings: got, rss_peak: peak * 1024, calls };
 }
 `,
 		"f/bench/work.ts":              benchWork,

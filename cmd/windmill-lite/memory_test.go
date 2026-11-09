@@ -177,10 +177,17 @@ type memHarness struct {
 	s *supervisor
 }
 
+// sample reads the host's memory. The peak so far is never below the
+// resident set, so a peak that is reads it in the wrong unit; 1 MiB allows
+// for the rounding of a peak in kilobytes and for what the host allocates
+// between its two readings.
 func (h memHarness) sample() memSample {
 	h.t.Helper()
 	var m memSample
 	h.s.getJSON(h.t, "/rss", &m)
+	if m.Peak+1<<20 < m.RSS {
+		h.t.Fatalf("the host reports a peak of %d B, below its resident set of %d B", m.Peak, m.RSS)
+	}
 	return m
 }
 
@@ -408,10 +415,9 @@ func TestModuleMemoryClosure(t *testing.T) {
 			perModule := (loaded.mib() - one.mib()) / (steps - 1)
 			t.Logf("%s: %.1f MiB at connect, %.1f after one module, %.1f after %d (%.2f MiB per further module; first run %.0f ms), %.1f after eight concurrent runs, %.1f after 1,000 runs, 125 rounds of eight (%.0f ms); peak %.1f MiB",
 				layout, connect.mib(), one.mib(), loaded.mib(), steps, perModule, first.MS, eight.mib(), after.mib(), soak.MS, mib(after.Peak))
-			// The peak so far at each reading shows which phase set it, and
-			// the JavaScript heap how much of the resident set it holds.
-			t.Logf("%s: peak %.1f MiB after one module, %.1f after %d, %.1f after eight concurrent runs, %.1f after 1,000 runs; JavaScript heap %.1f, %.1f, %.1f and %.1f MiB",
-				layout, mib(one.Peak), mib(loaded.Peak), steps, mib(eight.Peak), mib(after.Peak), mib(one.Heap), mib(loaded.Heap), mib(eight.Heap), mib(after.Heap))
+			// The peak so far at each reading shows which phase set it.
+			t.Logf("%s: peak %.1f MiB at connect, %.1f after one module, %.1f after %d, %.1f after eight concurrent runs, %.1f after 1,000 runs",
+				layout, mib(connect.Peak), mib(one.Peak), mib(loaded.Peak), steps, mib(eight.Peak), mib(after.Peak))
 			if loaded.Modules != steps {
 				t.Fatalf("modules loaded: %d; want %d", loaded.Modules, steps)
 			}

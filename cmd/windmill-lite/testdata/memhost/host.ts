@@ -32,14 +32,14 @@ const host = await connect({
 });
 
 // The resident set after a full collection, the peak resident set so far,
-// and the script modules loaded. Bun reports the peak in bytes on macOS and
-// in kilobytes on Linux, as getrusage does.
+// and the script modules loaded. Bun 1.4.3 reports the peak in kilobytes
+// on every platform, as Node does; Bun 1.3.10 reported bytes on macOS.
 function memory() {
   for (let i = 0; i < 3; i++) Bun.gc(true);
   const peak = process.resourceUsage().maxRSS;
   return {
     rss: process.memoryUsage().rss,
-    peak: process.platform === "darwin" ? peak : peak * 1024,
+    peak: peak * 1024,
     heap: heapStats().heapSize,
     modules: host.health().modules,
   };

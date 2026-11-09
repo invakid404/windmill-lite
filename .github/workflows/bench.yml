@@ -360,7 +360,7 @@ jobs:
               name=${pair%%=*}
               echo "### $name"
               echo '```'
-              grep -E 'MiB at connect|: peak [0-9.]+ MiB after one module|^Container memory|^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
+              grep -E 'MiB at connect|^Container memory|^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
               echo '```'
             done
           } >> "$GITHUB_STEP_SUMMARY"

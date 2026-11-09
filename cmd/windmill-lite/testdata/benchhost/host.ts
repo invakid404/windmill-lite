@@ -77,7 +77,8 @@ const plugin: Plugin = {
 };
 
 // On SIGUSR1 the host writes its CPU time (microseconds), its peak
-// resident set (bytes) and a count of these writes to bench-probe.json in
+// resident set (bytes; Bun 1.4.3 reports it in kilobytes on every
+// platform) and a count of these writes to bench-probe.json in
 // its working directory: the probe of a bundle that has no probe step
 // (the benchmarks' signalProbe). It reads nothing else there.
 let probes = 0;
@@ -85,7 +86,7 @@ process.on("SIGUSR1", () => {
   const c = process.cpuUsage();
   const peak = process.resourceUsage().maxRSS;
   probes++;
-  writeFileSync("bench-probe.json", JSON.stringify({ n: probes, user: c.user, system: c.system, rss_peak: process.platform === "darwin" ? peak : peak * 1024 }));
+  writeFileSync("bench-probe.json", JSON.stringify({ n: probes, user: c.user, system: c.system, rss_peak: peak * 1024 }));
 });
 
 await connect({
