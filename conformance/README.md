@@ -444,7 +444,7 @@ A load case gives a sync folder as a map of files and what the loader of
 the folder opens, which items it lists or filters out, and for named items
 parts of the record read or the error
 ([SY-1](../docs/semantics/openflow.md#sy-1) to
-[SY-19](../docs/semantics/openflow.md#sy-19),
+[SY-20](../docs/semantics/openflow.md#sy-20),
 [SY-V1](../docs/semantics/openflow.md#sy-v1) to
 [SY-V4](../docs/semantics/openflow.md#sy-v4), PA-1, PA-2).
 
