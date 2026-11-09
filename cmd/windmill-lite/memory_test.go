@@ -336,8 +336,11 @@ func TestModuleMemory(t *testing.T) {
 // the host's resident set with one module, with all 34, with eight
 // concurrent runs of them, and after a soak of 1,000 runs, as the embedder
 // soaked its host. With shared code, the memory gate of [ADR 0013] holds:
-// each further module costs at most 16 MiB and the soak's peak stays within
-// closurePeakBudget. It runs only with WL_MEMORY_PROBE set.
+// each further module costs at most closureModuleBudget and the soak's peak
+// stays within closurePeakBudget. It runs only with WL_MEMORY_PROBE set. With
+// WL_MEMORY_VERDICT=median it logs each budget and fails on neither, for a
+// caller that judges each budget on the median of several runs (the
+// Benchmarks workflow; ADR 0013 says why).
 //
 // [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#measurements
 func TestModuleMemoryClosure(t *testing.T) {
@@ -427,11 +430,20 @@ func TestModuleMemoryClosure(t *testing.T) {
 			if loaded.Modules != steps {
 				t.Fatalf("modules loaded: %d; want %d", loaded.Modules, steps)
 			}
-			if layout == "shared-code" && perModule > 16 {
-				t.Errorf("shared-code: %.2f MiB per further module; want at most 16", perModule)
-			}
-			if layout == "shared-code" && mib(after.Peak) > closurePeakBudget {
-				t.Errorf("shared-code: peak %.1f MiB after the soak; the budget is %d, half of a container limited to 1,536 MiB", mib(after.Peak), closurePeakBudget)
+			if layout == "shared-code" {
+				// Each budget's line is what the Benchmarks workflow reads:
+				// with WL_MEMORY_VERDICT=median it judges each budget on the
+				// median of its rounds, so a run over a budget fails nothing
+				// on its own. Otherwise this run is judged alone.
+				perRun := os.Getenv("WL_MEMORY_VERDICT") != "median"
+				t.Logf("Budget shared-code-per-module: %.2f MiB, at most %d MiB", perModule, closureModuleBudget)
+				t.Logf("Budget shared-code-peak: %.1f MiB, at most %d MiB", mib(after.Peak), closurePeakBudget)
+				if perRun && perModule > closureModuleBudget {
+					t.Errorf("shared-code: %.2f MiB per further module; want at most %d", perModule, closureModuleBudget)
+				}
+				if perRun && mib(after.Peak) > closurePeakBudget {
+					t.Errorf("shared-code: peak %.1f MiB after the soak; the budget is %d, half of a container limited to 1,536 MiB", mib(after.Peak), closurePeakBudget)
+				}
 			}
 		})
 	}
@@ -444,6 +456,10 @@ func TestModuleMemoryClosure(t *testing.T) {
 //
 // [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#decision
 const closurePeakBudget = 768
+
+// closureModuleBudget is what each further module of the shared-code
+// closure may cost, in MiB, after a full collection.
+const closureModuleBudget = 16
 
 // closureShared is the shared module of the embedder-shaped closure.
 const closureShared = `// ADR 0013's closure shaped like the embedder's (cmd/windmill-lite/memory_test.go).

@@ -45,7 +45,10 @@ name: Benchmarks
 #       memory       the tests of memory_test.go, with -v: TestModuleMemory,
 #                    then the shared-instance and shared-code layouts of
 #                    TestModuleMemoryClosure (WL_MEMORY_PROBE=1), whose
-#                    hosts stay well under 1 GiB
+#                    hosts stay well under 1 GiB. The closure's budgets
+#                    are judged on the median of each build's rounds
+#                    (WL_MEMORY_VERDICT=median): a round over a budget is
+#                    listed, and only a median over it fails the job
 #       closure-per-script
 #                    the per-script layout of TestModuleMemoryClosure,
 #                    whose host grows to about 2 GiB
@@ -173,10 +176,13 @@ jobs:
         run: |
           # bun_of prints the path of the Bun a tree pins, which it
           # downloads once per version and checks against the release's
-          # SHASUMS256.txt.
+          # SHASUMS256.txt. It is called in a command substitution, where
+          # bash does not stop at a failed command, so every step returns
+          # on failure; the executable reaches its version's directory
+          # only once its archive matched its checksum and extracted.
           bun_of() {
-            local v asset dir base
-            v=$(sed -n 's/^const PinnedBun = "\(.*\)"$/\1/p' "$1/internal/harness/process.go")
+            local v asset dir base tmp
+            v=$(sed -n 's/^const PinnedBun = "\(.*\)"$/\1/p' "$1/internal/harness/process.go") || return 1
             if [ -z "$v" ]; then
               echo "no PinnedBun in $1/internal/harness/process.go" >&2
               return 1
@@ -188,13 +194,25 @@ jobs:
             esac
             dir="$RUNNER_TEMP/bun/$v"
             if [ ! -x "$dir/bun" ]; then
-              mkdir -p "$dir"
+              tmp=$(mktemp -d "$RUNNER_TEMP/bun-download.XXXXXX") || return 1
               base="https://github.com/oven-sh/bun/releases/download/bun-v$v"
-              curl -fsSL --retry 3 -o "$dir/$asset.zip" "$base/$asset.zip"
-              curl -fsSL --retry 3 -o "$dir/SHASUMS256.txt" "$base/SHASUMS256.txt"
-              (cd "$dir" && grep " $asset.zip\$" SHASUMS256.txt | sha256sum -c - >&2)
-              unzip -q -j "$dir/$asset.zip" "$asset/bun" -d "$dir"
-              rm "$dir/$asset.zip"
+              curl -fsSL --retry 3 -o "$tmp/$asset.zip" "$base/$asset.zip" || return 1
+              curl -fsSL --retry 3 -o "$tmp/SHASUMS256.txt" "$base/SHASUMS256.txt" || return 1
+              # Exactly one line of the release's checksums names the
+              # archive, and the archive must match it.
+              grep " $asset.zip\$" "$tmp/SHASUMS256.txt" > "$tmp/sum" || true
+              if [ "$(wc -l < "$tmp/sum")" -ne 1 ]; then
+                echo "SHASUMS256.txt of Bun $v has no single line for $asset.zip" >&2
+                return 1
+              fi
+              if ! (cd "$tmp" && sha256sum --strict -c sum >&2); then
+                echo "$asset.zip of Bun $v does not match its checksum" >&2
+                return 1
+              fi
+              unzip -q -j "$tmp/$asset.zip" "$asset/bun" -d "$tmp/x" || return 1
+              mkdir -p "$dir" || return 1
+              mv "$tmp/x/bun" "$dir/bun" || return 1
+              rm -rf "$tmp"
             fi
             echo "$dir/bun"
           }
@@ -243,7 +261,7 @@ jobs:
               genv=(WL_BENCH_FRESH=1)
               cmds=("10x BenchmarkHostShapes/shape=(s50-50KiB|s200-mixed|s600-10KiB|s600-50KiB|s600-mixed)\$") ;;
             memory)
-              genv=(WL_MEMORY_PROBE=1)
+              genv=(WL_MEMORY_PROBE=1 WL_MEMORY_VERDICT=median)
               cmds=("run ^TestModuleMemory\$"
                     "run ^TestModuleMemoryClosure\$/^(shared-instance|shared-code)\$") ;;
             closure-per-script)
@@ -321,12 +339,50 @@ jobs:
                   echo "::error::round $r: $name, $pattern skipped a test"
                   failed=1
                 fi
-                cat "$RUNNER_TEMP/cmd.txt" >> "$RUNNER_TEMP/out/$name.txt"
+                { echo "Round $r"; cat "$RUNNER_TEMP/cmd.txt"; } >> "$RUNNER_TEMP/out/$name.txt"
                 grep -E '^Container memory' "$RUNNER_TEMP/cmd.txt" || true
               done
             done
           done
           grep -c '^Benchmark' "$RUNNER_TEMP"/out/*.txt || true
+          # The memory tests log each budget as "Budget <name>: <value> MiB,
+          # at most <limit> MiB", after the round's "Round <n>" line in the
+          # build's output. Each budget is judged on
+          # the median of a build's rounds: a round over it is listed, and
+          # only a median over it fails the step. Medians, not single
+          # rounds, because the rounds of one tree spread widely on shared
+          # runners (ADR 0013).
+          names=()
+          for pair in "${builds[@]}"; do names+=("${pair%%=*}"); done
+          if ! python3 -I - "$RUNNER_TEMP/out" "${names[@]}" > "$RUNNER_TEMP/out/verdict.txt" <<'PY'; then
+          import re, statistics, sys
+          from pathlib import Path
+
+          out, names = Path(sys.argv[1]), sys.argv[2:]
+          budget_line = re.compile(r"Budget ([\w-]+): ([0-9.]+) MiB, at most ([0-9.]+) MiB")
+          missed = False
+          for name in names:
+              budgets, round_ = {}, 0
+              for text in (out / f"{name}.txt").read_text().splitlines():
+                  if m := re.fullmatch(r"Round (\d+)", text):
+                      round_ = int(m[1])
+                  elif m := budget_line.search(text):
+                      budgets.setdefault(m[1], (float(m[3]), []))[1].append((round_, float(m[2])))
+              for budget, (limit, rounds) in budgets.items():
+                  values = [v for _, v in rounds]
+                  median = statistics.median(values)
+                  over = [f"round {r}: {v:g} MiB" for r, v in rounds if v > limit]
+                  verdict = "pass" if median <= limit else "miss"
+                  missed |= median > limit
+                  print(f"{name}, {budget}: median {median:g} MiB of {len(values)} rounds, at most {limit:g} MiB: {verdict}; "
+                        f"{len(over)} round{'' if len(over) == 1 else 's'} over" + (f" ({'; '.join(over)})" if over else ""))
+                  if median > limit:
+                      print(f"::error::{name}, {budget}: median {median:g} MiB over {limit:g} MiB")
+          sys.exit(1 if missed else 0)
+          PY
+            failed=1
+          fi
+          cat "$RUNNER_TEMP/out/verdict.txt"
           exit "$failed"
       - name: Compare with benchstat
         run: |
@@ -363,9 +419,13 @@ jobs:
               name=${pair%%=*}
               echo "### $name"
               echo '```'
-              grep -E 'MiB at connect|^Container memory|^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
+              grep -E 'MiB at connect|Budget |^Container memory|^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
               echo '```'
             done
+            echo "### Verdict: each budget on the median of the rounds"
+            echo '```'
+            cat verdict.txt 2>/dev/null || echo "no verdict"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload
         if: always()

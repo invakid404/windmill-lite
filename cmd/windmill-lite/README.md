@@ -338,6 +338,12 @@ peak of at most 768 MiB after its soak (`closurePeakBudget`). The peak
 budget was 650 MiB on Bun 1.3.10; Bun 1.4.3 keeps more memory per module
 ([ADR 0013](../../docs/design/0013-shared-module-code.md#decision)).
 
+`TestModuleMemoryClosure` logs each of its two budgets on a line of its
+own: `Budget <name>: <value> MiB, at most <limit> MiB`. With
+`WL_MEMORY_VERDICT=median`, it fails on neither, and the caller judges
+each budget on the median of several runs, as the workflow `Benchmarks`
+does. `TestModuleMemory` always judges its own run.
+
 The host's peak is its own high-water mark:
 
 - On Linux it reads `VmHWM` from `/proc/self/status`. `getrusage`'s peak,
@@ -608,6 +614,9 @@ Each job runs one group on one architecture:
 2. It runs the rounds; each round runs every build once, in a rotating
    order. A command that fails, or a test run that skips a test, fails the
    job once every round has run. A test run times out after 30 minutes.
+   In the `memory` group, the closure's budgets are judged on the median of
+   each build's rounds instead: the job lists each round over a budget,
+   and fails only when a median is over its budget.
 3. It compares each build with the one before it, and the last with the
    first, with `benchstat`.
 
