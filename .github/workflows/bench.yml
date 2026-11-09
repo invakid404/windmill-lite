@@ -253,7 +253,9 @@ jobs:
           esac
           # inside DIR CMD... runs CMD in DIR: on the runner, or, with a
           # memory limit, in a container of its own, after which it prints
-          # the container's peak, limits and OOM kills.
+          # the container's peak, limits and OOM kills on a line that
+          # benchstat ignores (a line "key: value" would be a configuration
+          # line of the benchmark format).
           mkdir -p "$RUNNER_TEMP/home"
           inside() {
             local dir=$1
@@ -268,7 +270,7 @@ jobs:
               -e HOME="$RUNNER_TEMP/home" -v "$RUNNER_TEMP:$RUNNER_TEMP" -w "$dir" "$MEMORY_IMAGE" \
               sh -c '"$@"; s=$?; c=/sys/fs/cgroup
                 peak=$(awk "{ printf \"%.1f MiB\", \$1 / 1048576 }" $c/memory.peak 2>/dev/null || echo n/a)
-                echo "container: memory.peak $peak, memory.max $(cat $c/memory.max), memory.swap.max $(cat $c/memory.swap.max 2>/dev/null || echo n/a), $(grep -w oom_kill $c/memory.events)"
+                echo "Container memory.peak $peak, memory.max $(cat $c/memory.max), memory.swap.max $(cat $c/memory.swap.max 2>/dev/null || echo n/a), $(grep -w oom_kill $c/memory.events)"
                 exit $s' sh "$@"
           }
           read -r -a builds <<< "$BUILDS"
@@ -317,7 +319,7 @@ jobs:
                   failed=1
                 fi
                 cat "$RUNNER_TEMP/cmd.txt" >> "$RUNNER_TEMP/out/$name.txt"
-                grep -E '^container: ' "$RUNNER_TEMP/cmd.txt" || true
+                grep -E '^Container memory' "$RUNNER_TEMP/cmd.txt" || true
               done
             done
           done
@@ -358,7 +360,7 @@ jobs:
               name=${pair%%=*}
               echo "### $name"
               echo '```'
-              grep -E 'MiB at connect|^container: |^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
+              grep -E 'MiB at connect|^Container memory|^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
               echo '```'
             done
           } >> "$GITHUB_STEP_SUMMARY"
