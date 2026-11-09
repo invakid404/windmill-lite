@@ -338,9 +338,10 @@ cases:
     provenance: policy
     title: an ES module dependency and a CommonJS dependency initialise in import order in both layouts
     note: >-
-      esbuild 0.28.0 and Bun 1.3.10 both keep import order in a per-script
+      esbuild 0.28.2 and Bun 1.4.3 both keep import order in a per-script
       bundle (esbuild splits the entry's code around each hoisted ES
-      module), as the shared layout does, so the order is the same.
+      module), as esbuild 0.28.0 and Bun 1.3.10 did and as the shared
+      layout does, so the order is the same.
     codebase: {relative_path: f/wl_step}
     files:
       f/wl_step/d18_order_cjs.js: |

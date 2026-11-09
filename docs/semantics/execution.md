@@ -4904,7 +4904,7 @@ run of batch E3f in the [design README](../design/README.md).
 ## Open questions
 
 All oracle recordings below are runs of the [oracle](oracle.md) harness
-against Windmill CE `v1.767.0`.
+against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
 
 <a id="q-fx-1"></a>
 - **Q-FX-1** · affects [FX-24](#fx-24) · Is a `timeout` on a non-collapsed

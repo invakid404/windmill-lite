@@ -36,8 +36,9 @@ interface); `WA-Vn` findings were added during validation.
   `job_helpers_ee` under the `private` feature, and a pure OSS build registers
   no job-helper routes (`:46-49`). Its server behaviour is knowable only from the
   oracle.
-- **TS** means `windmill-client@1.767.0` (npm; its version equals the Windmill
-  version). **Python** means the `wmill` package
+- **TS** means `windmill-client@1.862.0` (npm; its version equals the Windmill
+  version), or `windmill-client@1.767.0` in a finding marked `verified at
+  v1.767.0 only`. **Python** means the `wmill` package
   (`python-client/wmill/wmill/client.py`).
 - **Routes** are written relative to the client's `OpenAPI.BASE`, which is
   `<base>/api`; `{ws}` is the workspace id (`WM_WORKSPACE`). In examples,
@@ -68,7 +69,7 @@ interface); `WA-Vn` findings were added during validation.
 3. **Per-invocation identity is a core requirement.** `process.env` and the
    import-time `OpenAPI.TOKEN` are process-global, so concurrent in-process steps
    cannot get their own `WM_*` view or be told apart by token. A candidate
-   mechanism works on Bun 1.4.2 and must pass a gate on the pinned Bun 1.3.10
+   mechanism works on Bun 1.4.2 and must pass a gate on the pinned Bun 1.4.3
    ([Q-WA-4](#q-wa-4)). Windmill's own dedicated worker (EE) drops per-job env.
    ([WA-31](#wa-31), [WA-7](#wa-7))
 4. **Keep three root notions apart.** The **stored `root_job`** is often null by
@@ -2794,8 +2795,8 @@ interface); `WA-Vn` findings were added during validation.
   boundary; the SC5 request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) lists them.
 <a id="q-wa-4"></a>
 - **Q-WA-4** · affects [WA-31](#wa-31) · Does the per-invocation isolation
-  mechanism hold on the pinned Bun 1.3.10 with the real client? (build gate)
-  *Settled by:* rerunning the [WA-31](#wa-31) experiment on Bun 1.3.10 with the
+  mechanism hold on the pinned Bun, `1.4.3`, with the real client? (build gate)
+  *Settled by:* rerunning the [WA-31](#wa-31) experiment on that Bun with the
   stock pinned `windmill-client`, using both namespace and default imports,
   bundled and unbundled, plus one unbundled `node_modules` dependency that reads
   `Bun.env`; 16/16 isolation is required for every channel.

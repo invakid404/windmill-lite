@@ -474,7 +474,7 @@ func TestHostScopesThroughAHostProvidedModule(t *testing.T) {
 
 // C2b's exit gate (ADR 0012): "an esbuild CJS codebase script that imports
 // a host-provided module reads the host's store 16/16 on Bun 1.3.10", now
-// in host mode on wl and a built bundle (F3a). The script,
+// on the pinned Bun, in host mode on wl and a built bundle (F3a). The script,
 // testdata/hostfolder/f/hostcb/cb_scope.ts, is the CommonJS codebase
 // script of the folder, its import of f/host/scopes.ts resolved to the
 // module's generated shim. Sixteen concurrent runs, each submitted inside

@@ -208,8 +208,8 @@ cases:
     title: the module's scope has no arguments (bunnative), and its this is what Bun's bundle makes of it
     note: >-
       Bun's bundler writes a module's own `this` as `null`, so `this ===
-      undefined` is false in the bundle as loaded; a //native bundle on
-      Windmill is Bun 1.3.10's too (WR-40).
+      undefined` is false in the bundle as loaded; on Windmill a //native
+      bundle is built by the image's Bun too (1.3.10 at v1.767.0, WR-40).
     script: |
       //native
       const top = [typeof arguments, this === undefined];

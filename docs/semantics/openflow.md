@@ -25,7 +25,9 @@ were added during validation. Licence findings (`LIC-`) are in
 
 Conventions used below:
 
-- A pointer without an explicit pin is at v1.767.0. Pointers into windmill-ts
+- A pointer without an explicit pin is at the release the header above gives
+  for its finding: `v1.862.0`, or `v1.767.0` in a finding marked
+  `verified at v1.767.0 only`. Pointers into windmill-ts
   carry `@ af2b1e325320`.
 - **Schema** means the Apache-2.0 `openflow.openapi.yaml`. **Effective
   decoder** means Windmill's typed model in `backend/windmill-types/src/flows.rs`,

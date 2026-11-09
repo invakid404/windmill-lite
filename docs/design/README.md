@@ -227,7 +227,9 @@ flowchart LR
 ## Measurements behind the decisions
 
 Apple M4, macOS, Go 1.27.3, Bun 1.4.2 unless a row names another version
-(details in each record):
+(details in each record). windmill-lite pins Bun 1.4.3. A row on another
+Bun was not measured again on 1.4.3, unless a row of its own measures the
+same on 1.4.3:
 
 | Question | Result | Used in |
 |---|---|---|
@@ -292,6 +294,8 @@ Apple M4, macOS, Go 1.27.3, Bun 1.4.2 unless a row names another version
 | Which child-process calls honour `detached` on Bun 1.4.3 | `spawn`, `fork`, `spawnSync`, `execSync`, `execFileSync`, `Bun.spawn` and `Bun.spawnSync` start a detached child in a new session and group; `exec` and `execFile` ignore it. Every `node:child_process` function still starts its child through the global `Bun.spawn` or `Bun.spawnSync`, once, and now passes `detached` on from the sync forms too | 0004 |
 | The async context of the process-level error handlers on Bun 1.4.3, for a throw from a callback started inside `run()`, against 1.3.10 | A timer's, `process.nextTick`'s, `exec`'s, a child's `exit` listener's, a socket's `error` listener's and `zlib`'s reach `uncaughtException` with the caller's store, and so now do those of `node:fs` and `dns.lookup`, which 1.3.10 raised as unhandled rejections without one. `queueMicrotask`'s and `crypto`'s have no store. Rejections, `fs.promises`' and `fetch`'s included, reach `unhandledRejection` without one | 0004 |
 | `process.exit(code)` on Bun 1.4.3 | The same codes exit with the same statuses, and the same are refused with the same error names and codes, as on 1.3.10. Only the range text changed: `It must be >= -9007199254740991 && <= 9007199254740991. Received 9_007_199_254_740_992`, where 1.3.10 wrote `and` and plain digits | 0004 |
+| `Bun.build` with a plugin whose resolve filter matches the import of a package marked `sideEffects: false` that re-exports `export { x } from "./x.js"`, its callback resolving nothing, Bun 1.4.3 against 1.3.10. Also the tree of [WR-27](../semantics/languages.md#wr-27)/c: a transitive bare import of a package named `leaf.ts`, under a filter for every specifier that ends in `.ts` | Bun 1.4.3 keeps the re-exported module in both, and the bundle returns its value. Bun 1.3.10 drops it, and reading the binding throws a `ReferenceError` (`v is not defined` in WR-27/c's tree) | 0001, 0010 |
+| `vm.SourceTextModule` with a top-level `await`, linked and evaluated in a new `node:vm` context, Bun 1.4.3 against 1.3.10 | Bun 1.4.3 evaluates it, and the process goes on. Bun 1.3.10 ends the process with exit status 133 | 0010 |
 
 ## Unsettled findings
 
@@ -1674,7 +1678,7 @@ OR)**, in the reference session unless a bullet says otherwise:
   deferred all of them for one reason: the harness pushes a fixture's tree
   once, before its runs, and fails the fixture when that push fails. They
   need a harness session in which **a run is a push**: the pinned
-  `windmill-cli@1.767.0` (Node) runs `wmill sync push --yes` from the
+  `windmill-cli@1.862.0` (Node) runs `wmill sync push --yes` from the
   tree's root into a fresh, empty workspace (one per run), and the run
   records the exit status, standard output and standard error (with the
   workspace, URL and token masked), the files the push wrote into the tree,

@@ -512,7 +512,7 @@ re-exports the plugin types. `connect(options)`:
 4. starts the engine binary as `<engine> host --bundle <dir> --workdir
    <workdir> --kill-after <ms>ms` and `engineFlags` after them (such as
    `-variables` and `-resources`), with one end of a socketpair as its fd 3
-   (Node's extra `"pipe"` stdio, which Bun 1.3.10 makes a socket), or fails
+   (Node's extra `"pipe"` stdio, which Bun 1.4.3 makes a socket), or fails
    with `engine_start`, and runs the runtime in this process in host mode.
    Its hello names the working directory (`workdir`), which the engine
    checks again; an engine that refuses the host makes `connect` fail with
@@ -523,7 +523,7 @@ re-exports the plugin types. `connect(options)`:
    the `child` frames that announce the steps' child groups (WR-55): the
    runtime's `children` option writes each, synchronously, to the host's
    end of it (its descriptor from the socket's handle, `_handle.fd` on Bun
-   1.3.10), waiting for a full channel. The socket may hold bytes it has
+   1.4.3), waiting for a full channel. The socket may hold bytes it has
    not written yet, which a synchronous write to it would overtake, and a
    step can back it up and then block the event loop, so the
    announcement cannot wait in its queue. Without a descriptor the

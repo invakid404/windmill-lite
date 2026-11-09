@@ -83,16 +83,15 @@ validation. Open questions are `Q-OR-n`.
 ## Summary for the design
 
 1. **The oracle is two containers.** The unmodified CE image
-   `ghcr.io/windmill-labs/windmill:1.767.0` pinned by its full digest
+   `ghcr.io/windmill-labs/windmill:1.862.0` pinned by its full digest
    ([OR-1](#or-1); abbreviated digests are not usable pins) runs in
    `MODE=standalone` (API server and one worker in one process, no privileged
    mode), next to `postgres:16-alpine` pinned by digest, with its data on tmpfs
-   and a 1 GiB memory limit. Observed: healthy 6 s after `up` on arm64 and
-   6.4 s on amd64 in CI, `/api/version` =
-   `CE v1.767.0`, Bun `1.3.10`. Public CI may pull and run the image unmodified
+   and a 1 GiB memory limit. Observed: `/api/version` = `CE v1.862.0`, Bun
+   `1.4.4` ([OR-2](#or-2)); healthy 6 to 6.4 s after `up` at v1.767.0. Public CI may pull and run the image unmodified
    as a test oracle; windmill-lite never redistributes, rebuilds, modifies or
    wraps it ([OR-1](#or-1)–[OR-4](#or-4)).
-2. **Fixtures are pushed by the pinned CLI.** `windmill-cli@1.767.0` from npm,
+2. **Fixtures are pushed by the pinned CLI.** `windmill-cli@1.862.0` from npm,
    run on the harness host, is the reference loader for the sync tree. Commit
    exactly what `generate-metadata` writes and gate drift by regenerating and
    diffing. `sync push` removes selected remote items that are absent locally,
@@ -2764,6 +2763,9 @@ spells them ([OR-V9](#or-v9), [Q-OR-16](#q-or-16), answered).
 
 Original configuration written for windmill-lite. It applies the 1 GiB
 Postgres limit ([OR-4](#or-4)) and the Postgres digest pin ([OR-1](#or-1)).
+Its Windmill image is the current pin; oracle run 1 ran it with
+`ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43`
+and pushed with `windmill-cli@1.767.0`.
 
 ```yaml
 name: wl-oracle
@@ -2775,7 +2777,7 @@ services:
     mem_limit: 1g
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 2s, retries: 30 }
   windmill:
-    image: ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43
+    image: ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19
     environment:
       DATABASE_URL: postgres://postgres:changeme@db/windmill?sslmode=disable
       MODE: standalone
@@ -2805,7 +2807,7 @@ no ports, and `mem_limit: 2g`.
    peak).
 4. Log in, keep the token, create the run's workspace ([OR-6](#or-6)).
 5. From the fixture's `windmill/` directory, with a fresh `--config-dir`, run
-   `windmill-cli@1.767.0` `folder add-missing --yes` and `generate-metadata --yes`
+   `windmill-cli@1.862.0` `folder add-missing --yes` and `generate-metadata --yes`
    (when creating or refreshing the fixture), then `sync push --yes`
    ([OR-8](#or-8)). Apply `setup.yaml` after the push ([OR-31](#or-31)), then
    pass the deployment gate ([OR-9](#or-9)).

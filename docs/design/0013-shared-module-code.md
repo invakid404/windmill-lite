@@ -510,8 +510,9 @@ instance of every module it imports, as on Windmill.
      as in the per-script bundle. A dependency the step never reaches never
      runs in its instance.
    - **Import order.** Dependencies initialise in import order, ES modules
-     and CommonJS ones alike, as in a per-script bundle: esbuild 0.28.0 and
-     Bun 1.3.10 both keep import order there. esbuild splits the entry's
+     and CommonJS ones alike, as in a per-script bundle: esbuild 0.28.2 and
+     Bun 1.4.3 both keep import order there, as esbuild 0.28.0 and Bun
+     1.3.10 did. esbuild splits the entry's
      code around each hoisted ES module.
    - **CommonJS dependencies** are reached through a CommonJS reference,
      with the bundler's interop as in the per-script bundle.
@@ -709,7 +710,7 @@ instance of every module it imports, as on Windmill.
 
 **Memory target.** The target is the host's budget, for the host's shape:
 
-- **The shape:** a compiled Bun 1.3.10 host serves one bundle of 53
+- **The shape:** a compiled host serves one bundle of 53
   CommonJS codebase scripts of about 6.9 MB each that share one dependency
   closure.
 - **The target:** with 34 distinct step modules loaded and eight concurrent
@@ -872,7 +873,7 @@ cases of the semantics catalogue:
   - Each step returns the per-script bundle's result in `warm`, in host
     mode and in `fresh`.
   - `TestWindmillClientSharesTheClosure` does the same for the stock
-    `windmill-client` 1.767.0, by a named and a namespace import.
+    `windmill-client` 1.862.0, by a named and a namespace import.
 - `TestModuleMemory` and `TestModuleMemoryClosure` run with the real shared
   layout, against the targets above.
 

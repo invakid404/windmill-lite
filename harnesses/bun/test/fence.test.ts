@@ -445,18 +445,25 @@ test("a synchronous call the step starts detached leads a group of its own, as B
   });
   // The shell leaves a sleep behind and prints its pid and its own.
   const sh = "sleep 30 </dev/null >/dev/null 2>&1 & echo $! $$";
-  const groups: number[] = [];
+  const calls = [
+    () => String(cp.spawnSync("sh", ["-c", sh], { detached: true }).stdout),
+    () => String(cp.execSync(sh, { detached: true })),
+    () => String(cp.execFileSync("sh", ["-c", sh], { detached: true })),
+    () => new TextDecoder().decode(Bun.spawnSync(["sh", "-c", sh], { detached: true }).stdout),
+  ];
+  // Each call's sleep and shell, kept as soon as the call returns, so that
+  // the cleanup below reaches them when a later call throws or an
+  // assertion fails.
+  const started: { sleep: number; shell: number }[] = [];
   const c = context();
   try {
-    const out = invocations.run(c, () => [
-      String(cp.spawnSync("sh", ["-c", sh], { detached: true }).stdout),
-      String(cp.execSync(sh, { detached: true })),
-      String(cp.execFileSync("sh", ["-c", sh], { detached: true })),
-      new TextDecoder().decode(Bun.spawnSync(["sh", "-c", sh], { detached: true }).stdout),
-    ]);
-    for (const line of out) {
-      const [sleep, shell] = line.trim().split(/\s+/).map(Number);
-      groups.push(shell);
+    invocations.run(c, () => {
+      for (const call of calls) {
+        const [sleep, shell] = call().trim().split(/\s+/).map(Number);
+        started.push({ sleep, shell });
+      }
+    });
+    for (const { sleep, shell } of started) {
       expect(shell).not.toBe(own);
       expect(pgidOf(sleep)).toBe(shell);
     }
@@ -464,14 +471,20 @@ test("a synchronous call the step starts detached leads a group of its own, as B
     expect(c.resources.settle()).toEqual({ detached: 4 });
     expect(announced).toEqual([]);
     await Bun.sleep(20);
-    expect(groups.every(groupAlive)).toBe(true);
+    expect(started.every(({ shell }) => groupAlive(shell))).toBe(true);
   } finally {
     setChildAnnouncer(record);
-    for (const pgid of groups) {
-      try {
-        process.kill(-pgid, "SIGKILL");
-      } catch {
-        // gone
+    for (const { sleep, shell } of started) {
+      // The shell's group, unless the call left it in the test runner's
+      // own, which is never signalled; then the sleep itself, in case it is
+      // not in that group.
+      const targets = [shell > 1 && shell !== own ? -shell : 0, sleep > 1 ? sleep : 0];
+      for (const target of targets.filter((t) => Number.isInteger(t) && t !== 0)) {
+        try {
+          process.kill(target, "SIGKILL");
+        } catch {
+          // gone
+        }
       }
     }
   }

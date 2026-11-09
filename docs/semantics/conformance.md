@@ -7094,8 +7094,9 @@ Findings: [client-api.md](client-api.md).
 - Paths are synthetic (`u/x/…`, `u/t/…`, `u/test/…`, `f/t/…`). Job ids and
   timestamps are normalised; `<flow>`, `F` and `S` stand for normalised job ids.
 - `…/` in a request path abbreviates `/api/w/{ws}/`.
-- **TS** is the stock `windmill-client@1.767.0`; **Python** is the stock `wmill`
-  client of the same version.
+- **TS** is the stock `windmill-client@1.862.0`, or `windmill-client@1.767.0`
+  in the cases of a finding marked `verified at v1.767.0 only`; **Python** is
+  the stock `wmill` client of the same version.
 - A *recording facade* is a test HTTP server that returns the stated responses
   and records the client's requests. Cases that use one test client behaviour
   only and need no Windmill server.

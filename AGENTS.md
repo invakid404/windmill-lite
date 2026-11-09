@@ -73,7 +73,7 @@ The semantics team writes and validates the semantics reference
 - You may read Windmill's AGPL source at a pinned release.
 - Describe its behaviour in your own words: rules, tables, decision lists,
   input-to-output examples, and source pointers such as
-  `path/to/file.rs:123 @ v1.767.0`.
+  `path/to/file.rs:123 @ v1.862.0`.
 - Never include code blocks or line-by-line paraphrases of that source.
 - Do not author or review designs or implementation for this repository.
 

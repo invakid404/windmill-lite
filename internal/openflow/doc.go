@@ -1,7 +1,7 @@
 // Package openflow holds windmill-lite's OpenFlow types and the effective
-// decoder: the rules by which Windmill v1.767.0 accepts, rejects and
-// defaults a flow value, which differ from its schema in both directions
-// (OF-1).
+// decoder: the rules by which Windmill v1.862.0 accepts, rejects and
+// defaults a flow value, as the reference states them, which differ from
+// its schema in both directions (OF-1).
 //
 // The decoder reads JSON text, the form in which the `wmill` CLI sends a
 // flow to the server. DecodeFlowValue decodes a flow's `value` in Windmill's
