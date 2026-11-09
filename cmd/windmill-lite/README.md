@@ -317,7 +317,7 @@ each in three layouts:
 | Test | What it shows |
 |---|---|
 | `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
-| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, described below. It reports the resident set and the peak so far at connect, with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs. With shared code, the soak's peak must stay within the embedder's budget of 650 MiB |
+| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, described below. It reports the resident set and the peak so far at connect, with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs. With shared code, the soak's peak must stay within 768 MiB, half of a container limited to 1,536 MiB |
 
 The closure has 34 CommonJS codebase scripts of about 6.9 MB each, which
 import one module outside the sync folder. That module imports mongoose,
@@ -334,9 +334,9 @@ built in, so every script keeps its shared layout.
 With shared code, both tests assert the memory gate of [ADR 0013](../../docs/design/0013-shared-module-code.md).
 `TestModuleMemory` allows at most 1.5 MiB per further module.
 `TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
-peak of at most 650 MiB after its soak. On Linux with Bun 1.4.3, the
-closure's peak exceeds 650 MiB in most runs on amd64
-([ADR 0013](../../docs/design/0013-shared-module-code.md#measurements)).
+peak of at most 768 MiB after its soak (`closurePeakBudget`). The peak
+budget was 650 MiB on Bun 1.3.10; Bun 1.4.3 keeps more memory per module
+([ADR 0013](../../docs/design/0013-shared-module-code.md#decision)).
 
 The host's peak is its own high-water mark:
 

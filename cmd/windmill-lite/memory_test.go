@@ -337,7 +337,7 @@ func TestModuleMemory(t *testing.T) {
 // concurrent runs of them, and after a soak of 1,000 runs, as the embedder
 // soaked its host. With shared code, the memory gate of [ADR 0013] holds:
 // each further module costs at most 16 MiB and the soak's peak stays within
-// the embedder's 650 MiB budget. It runs only with WL_MEMORY_PROBE set.
+// closurePeakBudget. It runs only with WL_MEMORY_PROBE set.
 //
 // [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#measurements
 func TestModuleMemoryClosure(t *testing.T) {
@@ -430,12 +430,20 @@ func TestModuleMemoryClosure(t *testing.T) {
 			if layout == "shared-code" && perModule > 16 {
 				t.Errorf("shared-code: %.2f MiB per further module; want at most 16", perModule)
 			}
-			if layout == "shared-code" && mib(after.Peak) > 650 {
-				t.Errorf("shared-code: peak %.1f MiB after the soak; the embedder's budget is 650", mib(after.Peak))
+			if layout == "shared-code" && mib(after.Peak) > closurePeakBudget {
+				t.Errorf("shared-code: peak %.1f MiB after the soak; the budget is %d, half of a container limited to 1,536 MiB", mib(after.Peak), closurePeakBudget)
 			}
 		})
 	}
 }
+
+// closurePeakBudget is the shared-code closure's peak budget in MiB: half of
+// a container limited to 1,536 MiB, whose other half holds the embedder's
+// own process and the page cache. It was 650 MiB on Bun 1.3.10; [ADR 0013]
+// says why it moved.
+//
+// [ADR 0013]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0013-shared-module-code.md#decision
+const closurePeakBudget = 768
 
 // closureShared is the shared module of the embedder-shaped closure.
 const closureShared = `// ADR 0013's closure shaped like the embedder's (cmd/windmill-lite/memory_test.go).

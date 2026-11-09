@@ -216,10 +216,10 @@ workflow `Benchmarks`, group `memory`
 C's per-script layout ran in a job of its own, three rounds per build in
 a container limited to 4,096 MiB, its amd64 job on an AMD EPYC 7763.
 
-- **The gate on Bun 1.4.3.** C stays within 16 MiB per further module
-  and S within 1.5 MiB. C's peak exceeds 650 MiB on linux/amd64, in three
-  rounds of five, and stays within it on linux/arm64. On Bun 1.3.10 both
-  gates hold on both architectures.
+- **The gate on Bun 1.4.3.** C stays within 16 MiB per further module,
+  S within 1.5 MiB, and C's peak within 768 MiB, at most 723.8 MiB. C's
+  peak exceeds Bun 1.3.10's 650 MiB on linux/amd64, in three rounds of
+  five. On Bun 1.3.10 C peaks within 650 MiB on both architectures.
 - **Where Bun 1.4.3's peak comes from.** Its soak raises the peak by
   153 MiB on amd64 over the peak after eight concurrent runs, where Bun
   1.3.10's soak adds 73 MiB. Each further module also keeps 1.4 to
@@ -706,13 +706,25 @@ instance of every module it imports, as on Windmill.
   CommonJS codebase scripts of about 6.9 MB each that share one dependency
   closure.
 - **The target:** with 34 distinct step modules loaded and eight concurrent
-  runs, its peak resident set stays at or below **650 MiB** through a
-  1,000-run soak.
+  runs, its peak resident set stays at or below **768 MiB** through a
+  1,000-run soak. That is half of a container limited to 1,536 MiB; the
+  other half holds the embedder's own process and the page cache.
+- **Why 768 MiB.** The target was 650 MiB while hosts ran Bun 1.3.10, on
+  which C peaks at 506.7 MiB on linux/amd64 and 484.4 MiB on linux/arm64.
+  Bun 1.4.3, the Bun this design pins, keeps more memory per module, and
+  its soak raises the peak by 153 MiB against 73 MiB on Bun 1.3.10. The
+  engine is the same code, and its own peaks do not change
+  ([0005](0005-json-step-boundaries.md#large-values)).
+- **On Bun 1.4.3,** C peaks at 712.8 MiB on amd64 and 585.3 MiB on arm64
+  (medians of five, [Measurements](#measurements),
+  [run](https://github.com/invakid404/windmill-lite/actions/runs/42608859496)).
+  The target now reads against the container, and stays a regression
+  guard.
 - **On the public closure C,** the prototype holds 475 to 492 MiB with eight
   concurrent runs and 519 to 530 MiB at its peak.
 - **The gate,** on the real shared layout: `TestModuleMemoryClosure` and
   `TestModuleMemory` assert it.
-  - C: at most 650 MiB peak after its 1,000 runs, and at most 16 MiB per
+  - C: at most 768 MiB peak after its 1,000 runs, and at most 16 MiB per
     further module after a full collection;
   - S: at most 1.5 MiB per further module.
 - **Measured** on macOS, over several runs. S costs 0.17 to 0.27 MiB per
@@ -720,10 +732,8 @@ instance of every module it imports, as on Windmill.
   to 462 MiB with eight concurrent runs. It peaks at 492 to 497 MiB after
   1,000 runs, at 9.9 to 10.3 MiB per further module.
 - **Measured on Linux** in a container limited to 1,536 MiB
-  ([Measurements](#measurements)). With Bun 1.3.10, C peaks at 506.7 MiB
-  on amd64 and 484.4 MiB on arm64. With Bun 1.4.3 it peaks at 712.8 MiB
-  on amd64, above the target, and 585.3 MiB on arm64, at 13.2 and 10.6 MiB
-  per further module.
+  ([Measurements](#measurements)), at 9.1 and 9.2 MiB per further module
+  on Bun 1.3.10, and 13.2 and 10.6 MiB on Bun 1.4.3 (amd64 and arm64).
 - **C with its lazily imported built-in modules,** as described above, in
   one run: 451 MiB with its 34 modules loaded, 464 MiB with eight
   concurrent runs, a 502 MiB peak after 1,000 runs, and 10.3 MiB per

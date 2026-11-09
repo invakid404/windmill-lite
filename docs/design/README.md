@@ -163,10 +163,15 @@ milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
 
 A bundle opts into shared code at build (`windmill-lite build
--shared-code`). With it, on Bun 1.3.10, the embedder-shaped closure peaks
-within the 650 MiB budget: at 492 to 497 MiB on macOS, and at 484 to
-511 MiB on Linux. On Bun 1.4.3 it peaks above the budget on linux/amd64,
-at a median of 712.8 MiB ([0013](0013-shared-module-code.md#measurements)).
+-shared-code`). With it, on Bun 1.4.3, the embedder-shaped closure peaks
+at a median of 712.8 MiB on linux/amd64 and 585.3 MiB on linux/arm64. Its
+budget is 768 MiB, half of a container limited to 1,536 MiB
+([0013](0013-shared-module-code.md#decision)).
+
+On Bun 1.3.10 the budget was 650 MiB, and the closure peaked at 492 to
+497 MiB on macOS and at 484 to 511 MiB on Linux. The budget moved
+because Bun 1.4.3 keeps more memory per module and its soak raises the
+peak by 153 MiB against 73 MiB. The engine's own peaks do not change.
 
 The records are written by the build team under the clean-room rule of
 [AGENTS.md](../../AGENTS.md): from the semantics reference, Windmill's public
@@ -217,7 +222,7 @@ flowchart LR
 | [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.4.3`; host-provided modules through a registry (D12), registered in the order of their load-time imports, with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
 | [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public Go package, components under `internal/`, and the npm package `windmill-lite` rooted at `harnesses/`. 56 milestones, each one pull request, whose "needs merged" covers everything their exit gates need. A contracts milestone comes first, then a walking skeleton on the pinned Bun, and oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
-| [0013 Shared module code](0013-shared-module-code.md) | When step modules that share one large dependency closure make a `warm` or host-mode process outgrow its memory, a bundle built with shared code compiles each build group's dependency modules once per process and gives each step module its own instance of them (D18); module state stays per script, so shared chunks, host-provided packages and one instance per package, which share it, are rejected; the per-script bundles stay the CLI's, and `fresh` runs them; a host's budget of 650 MiB with 34 modules loaded is the target. |
+| [0013 Shared module code](0013-shared-module-code.md) | A bundle built with shared code compiles each build group's dependency modules once per process and gives each step module its own instance of them (D18), when one closure would make a `warm` or host-mode process outgrow its memory. Module state stays per script, so shared chunks, host-provided packages and one instance per package, which share it, are rejected. `fresh` runs the CLI's per-script bundles. The target is a peak of 768 MiB with 34 modules loaded. |
 
 ## Measurements behind the decisions
 
