@@ -8,7 +8,7 @@ that keep what runs equal to what was built.
 
 Once flows are data, a deployed worker must prove which flows, scripts,
 locks and runtimes it carries. A Windmill job runs on a pinned Bun
-(`1.3.10` in the reference image, [WR-3](../semantics/languages.md#wr-3)) and
+(`1.4.4` in the `v1.862.0` image, [WR-3](../semantics/languages.md#wr-3)) and
 bundles each script with fixed settings ([WR-27](../semantics/languages.md#wr-27)).
 Practices that worked for a compiled Bun worker carry over: refuse to build on
 an unpinned Bun, keep the bundler's metafile, write a release manifest with
@@ -482,7 +482,7 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   `scripts/bun/<id>.native.js`: the source of one async function, which the
   harness compiles in the invocation's realm with the environment preamble
   inserted at a recorded offset, and calls with the static imports it
-  resolved and linked. An ES module cannot be evaluated in such a realm:
+  resolved and linked. An ES module could not be evaluated in such a realm:
   Bun 1.3.10's `vm.SourceTextModule` ends the process on top-level `await`.
   The script's metadata records the form (`boundary`, `native`).
   - A **nativets** script is transpiled, not bundled

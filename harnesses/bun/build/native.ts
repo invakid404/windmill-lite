@@ -4,8 +4,9 @@
 // Windmill runs those steps in a fresh V8 isolate per job, as the ES module
 // `file:///eval.ts` with an environment preamble in front of its text. The
 // Bun harness runs them in a fresh realm per invocation instead (a node:vm
-// context), where an ES module cannot be evaluated: Bun 1.3.10's
-// vm.SourceTextModule crashes the process on top-level await. So the build
+// context), where Bun 1.3.10 could not evaluate an ES module: its
+// vm.SourceTextModule crashes the process on top-level await (Bun 1.4.3's
+// evaluates it; see the measurements in docs/design/README.md). So the build
 // turns each module into the source of one async function, its native
 // form, which the harness compiles in the invocation's realm:
 //

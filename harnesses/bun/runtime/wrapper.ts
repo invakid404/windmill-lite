@@ -57,7 +57,7 @@ export function patchBigInt() {
  * replacer that maps every undefined to null, so object fields holding
  * undefined are kept as null. A top-level function or symbol has no JSON
  * text; the wrapper's write then fails with a TypeError, whose exact text
- * on Bun 1.3.10 is not recorded (Q-WR-12). */
+ * on Windmill is not recorded (Q-WR-12). */
 export function resultText(value: unknown): string {
   const text = JSON.stringify(value ?? null, (_k, v) => (v === undefined ? null : v));
   if (text === undefined) throw new TypeError(`The result has no JSON text: a ${typeof value} cannot be written`);

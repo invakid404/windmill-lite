@@ -76,7 +76,7 @@
       "allowedVersions": "<17"
     },
     {
-      "description": "The Windmill oracle image is the semantics pin (v1.767.0); it is never bumped by Renovate.",
+      "description": "The Windmill oracle image is the semantics pin (v1.862.0); it is never bumped by Renovate.",
       "matchPackageNames": [
         "/windmill-labs\\/windmill/"
       ],

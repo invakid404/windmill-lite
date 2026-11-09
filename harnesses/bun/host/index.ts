@@ -275,7 +275,8 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   }
   const digest = "sha256:" + new Bun.CryptoHasher("sha256").update(manifest).digest("hex");
   const killAfter = o.watchdog?.killAfter ?? 30000;
-  // The extra "pipe" is a socketpair on Bun 1.3.10: the child's fd 3.
+  // The extra "pipe" is a socketpair on Bun 1.4.3, as on 1.3.10: the
+  // child's fd 3.
   // Through require, not a named import: a named import of a builtin fixes
   // its ESM bindings for every later importer, so a step's named import of
   // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
@@ -301,8 +302,8 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     throw new HostError("engine_start", `${o.engine}: ${failed?.message ?? "no socket for file descriptor 3"}`);
   }
   child.on("error", (e) => diag(`windmill-lite: engine process: ${e.message}`));
-  // The child channel's own descriptor, which Bun 1.3.10's socket keeps in
-  // its handle; the socket itself is never read or written, and holds the
+  // The child channel's own descriptor, which Bun 1.4.3's socket keeps in
+  // its handle, as 1.3.10's did; the socket itself is never read or written, and holds the
   // host's event loop open no more than the engine's socket does.
   const chan = child.stdio[4] as (Socket & { _handle?: { fd?: unknown } }) | null;
   chan?.unref();

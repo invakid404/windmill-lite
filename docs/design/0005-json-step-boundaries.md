@@ -77,7 +77,7 @@ boundary configuration in a test process of its own.
 They ran on an Apple M4 (10 cores) with 16 GiB, macOS 26.5.1, Go 1.27.3
 and Bun 1.3.10. Each figure is the median of three runs (`-count 3`) of
 its benchmark, taken while no other build, benchmark or heavy indexing
-ran.
+ran. They were not measured again on Bun 1.4.3, the pinned Bun.
 
 **Why it was re-taken.** In one process, a benchmark runs on the heap the
 benchmarks before it left. The engine used to keep every finished run
@@ -97,16 +97,17 @@ end-to-end parts overlapped heavy indexing and was discarded. The
 one-minute load average was 1.4 to 4.6, from the machine's own services
 and the benchmarks themselves.
 
-The commands below produced the baseline, from the repository root. They
-need the build helper's dependencies
+The commands below produced the baseline, from the repository root, with
+`WL_BUN` naming Bun 1.3.10. They need the build helper's dependencies
 ([harnesses/bun/build](../../harnesses/bun/build/README.md#running)) and
-`WL_BUN` exported, naming Bun 1.3.10; a benchmark fails without it.
+`WL_BUN` exported, naming the pinned Bun, 1.4.3; a benchmark fails without
+it.
 `WL_BENCH_FRESH=1` runs each shape and configuration in a process of its
 own, and `-timeout` covers them all. The last command measures what the
 stage readings cost:
 
 ```sh
-export WL_BUN=/path/to/bun-1.3.10/bun
+export WL_BUN=/path/to/bun-1.4.3/bun
 (cd harnesses/bun/build && "$WL_BUN" install --frozen-lockfile)
 go test ./internal/jsonval -run '^$' -bench BenchmarkStored -benchtime 1s -count 3
 go test ./internal/harness -run '^$' -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
@@ -303,7 +304,8 @@ The large-value benchmarks of the plan (items 4 to 7 below) were
 recorded on GitHub's hosted runners, through the workflow `Benchmarks`:
 Go 1.27.3, Bun 1.3.10, `ubuntu-24.04` and `ubuntu-24.04-arm`, 4 vCPUs
 each. Each figure is the median of 10 rounds, the builds rotating within
-one job.
+one job. Of these figures, only the peaks of the last three rows were
+measured again on Bun 1.4.3 (below); the times and CPU are Bun 1.3.10's.
 
 Each job draws its own CPU. On amd64 the step boundary ran on an AMD EPYC
 9V74 and the rest on an EPYC 7763; on arm64 every job ran on a

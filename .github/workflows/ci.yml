@@ -81,9 +81,10 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Set up Bun
-        # The harness tests run on the Bun of Windmill v1.767.0's images
-        # (WR-3); this pin moves only with that reference, never with a
-        # Bun release (harness.PinnedBun).
+        # The harness tests run on the Bun that windmill-lite pins
+        # (harness.PinnedBun), the reference Bun of ADR 0001, not the
+        # oracle image's (deviation D23); this pin moves only with that
+        # one, never with a Bun release.
         id: bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:

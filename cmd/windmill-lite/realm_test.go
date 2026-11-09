@@ -22,9 +22,11 @@ import (
 // realm (harnesses/bun/runtime/native.ts). Under Bun 1.3.10, every script
 // that node:vm compiles from a string stays reachable after a full
 // collection, so a harness that compiles one per invocation grows with
-// every invocation it serves, without bound. Bun 1.4.3 keeps none of them;
-// these checks still hold the harness to compiling each script once, as
-// it does on any Bun. The probe step f/native/probe
+// every invocation it serves, without bound. Bun 1.4.3 keeps none of them,
+// so on it these checks bound the Script objects a process retains, but
+// they cannot tell a harness that compiles a script per invocation from
+// one that compiles it once, as this harness does on any Bun
+// (harnesses/bun/README.md). The probe step f/native/probe
 // reads, after a full collection, the count of JavaScriptCore Script
 // objects (heapStats().objectTypeCounts.Script, from bun:jsc), the
 // JavaScript heap and the resident set of the process it runs in: the

@@ -109,7 +109,7 @@ For each script the build:
      reads a hashbang line, where `scanImports` throws) reports, starting
      with `.`, `/u/` or `/f/` and not ending in `.ts`, gets `.ts` appended to
      every occurrence of its text, in the scanner's order and without
-     deduplication. Bun 1.3.10's scanner lists `export … from` as a static
+     deduplication. Bun 1.4.3's scanner lists `export … from` as a static
      import, keeps source order, does not deduplicate and omits type-only
      imports. Overlapping and repeated specifiers therefore collide as on
      Windmill ([WR-38](../../../docs/semantics/languages.md#wr-38)), which the
@@ -178,6 +178,9 @@ Bun 1.3.10 drops a module that a package marked `sideEffects: false`
 re-exports (`export { x } from "./x.js"`) whenever a resolve filter
 matches the import of that package, even when the callback resolves
 nothing. The bundle then references a binding that it never defines.
+
+Bun 1.4.3 keeps that module
+([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
 
 Windmill's import plugin matches every specifier that ends in `.ts`. So a
 bare import such as `leaf.ts` or `pkg/index.ts` from a package loses the
@@ -273,6 +276,8 @@ listings across builds in one process. On a file system with coarse
 timestamps, a file written in the same tick as an earlier read of its
 directory can be missing from that listing, so a relative import of it can
 fail to resolve.
+
+Bun 1.4.3 has not been measured for this.
 
 ### Native scripts
 

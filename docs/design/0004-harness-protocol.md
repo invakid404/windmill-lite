@@ -151,7 +151,7 @@ The engine maps a `result` to Windmill's stored value with the rules of
 A harness process that dies fails its in-flight invocations as `escaped`
 with its real exit code, or as `process terminated by signal: …`
 ([WR-4](../semantics/languages.md#wr-4)). For the escaped cases the reference
-predicts exit code 1 but has not recorded Bun 1.3.10's exit status for
+predicts exit code 1 but has not recorded Windmill's exit status for
 `throw null`, top-level throws and unhandled rejections
 ([Q-WR-2](../semantics/languages.md#q-wr-2)); the harness reports exit code 1
 until that is recorded.
@@ -994,8 +994,8 @@ flow's failure module still runs once, and the flow ends canceled.
     resource registry, which the runtime settles with the invocation, so
     the settle-time fence that milestone C3b adds to D9 (timers and
     `fetch` requests an invocation started) registers there and needs no
-    global table. Its counts are the leak report: Bun 1.3.10's
-    `process._getActiveHandles()` lists nothing.
+    global table. Its counts are the leak report: Bun's
+    `process._getActiveHandles()` lists nothing (1.4.3, as 1.3.10).
   - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
     returns a runner for the caller's async context without the
     invocation's store, so a pooled client or a host-provided module that

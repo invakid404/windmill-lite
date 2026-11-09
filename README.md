@@ -15,7 +15,7 @@ a Go module, the `windmill-lite` command, which builds, verifies and runs
 bundles and serves host mode,
 CI, a
 documentation gate, the [semantics reference](docs/semantics/README.md) (the
-Windmill `v1.767.0` behaviour that windmill-lite must match, written as
+Windmill `v1.862.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
@@ -252,7 +252,7 @@ import { connect } from "windmill-lite/bun";
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, the export scan of host-provided modules, the source parse of codebase scripts, and the native form of native steps with their embedded client. |
 | [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases (host mode's working-directory cases among them), the host-plugin cases, the Bun build cases (codebase scripts included), the Bun step cases (with D13's, Node against Bun), the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's and N3c's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture, PF1's job-identity fixture, PF2's platform-services fixture, and batch E3e's remaining recordings) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
 | [scripts](scripts/README.md) | Repository tooling: the documentation check, and the release helper, which reads the one version of the engine and the npm package and builds the release engine. The scripts that acknowledge Renovate dependency bumps are installed, awaiting activation (a repository secret). |
-| [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
+| [docs/semantics](docs/semantics/README.md) | The Windmill `v1.862.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
 | [docs/memoria.md](docs/memoria.md) | How the documentation gate works and the per-session review flow. |
 | [RELEASING.md](RELEASING.md) | How a release works, the owner's one-time steps for the first npm publish and its trusted publisher, and the steps of each later release. |

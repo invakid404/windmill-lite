@@ -6,8 +6,8 @@ loader ([internal/syncfolder](../syncfolder/README.md)) decodes every
 `flow.yaml` with it, and the compiler ([internal/ir](../ir/README.md))
 compiles the decoded model. This README covers `internal/openflow/` and its
 `schema/` directory. The package holds windmill-lite's OpenFlow types and the
-*effective decoder*: the rules by which Windmill `v1.767.0` accepts, rejects
-and defaults a flow value, which differ from the OpenFlow schema in both
+*effective decoder*: the rules by which Windmill `v1.862.0` accepts, rejects
+and defaults a flow value, as the reference states them, which differ from the OpenFlow schema in both
 directions ([OF-1](../../docs/semantics/openflow.md#of-1)).
 
 What the package does not do:
@@ -209,9 +209,12 @@ commit and digest, and `schema/LICENSE-APACHE` is the licence text. These
 files are not covered by the Unlicense of the rest of the repository. Only
 the coverage test reads the schema; no code is generated from it.
 
-The reference still describes Windmill `v1.767.0`. The coverage test finds
-every property that a flow document reaches in this schema decoded or listed
-as ignored. Of the nine added since, all but the question tool's `timeout`
+The schema is Windmill `v1.862.0`'s, while many of the reference's OpenFlow
+findings are still verified at `v1.767.0` only
+([Pinned version](../../docs/semantics/README.md#pinned-version)). The
+coverage test finds every property that a flow document reaches in this
+schema decoded or listed as ignored. Of the nine added since `v1.767.0`,
+all but the question tool's `timeout`
 are decoded, as
 [Readings the reference does not settle](#readings-the-reference-does-not-settle)
 says. At run time they follow

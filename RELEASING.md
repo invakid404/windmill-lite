@@ -28,12 +28,15 @@ When the tag is pushed, the
    trusted publishing. A version that is on npm already is not published
    again.
 
+A version with a pre-release part, such as `0.2.0-rc.1`, becomes a GitHub
+pre-release and the npm dist-tag `next`, not `latest`
+([Release a release candidate](#release-a-release-candidate)).
+
 Trusted publishing needs no npm token or secret. npm exchanges the publish
 job's GitHub OIDC token for a short-lived publish token, and accepts it
 only from a run of the workflow file `release.yml` of this repository,
 once the package's trusted publisher names it
-([Set up trusted publishing](#set-up-trusted-publishing)). A pre-release version, such as `0.2.0-rc.1`, becomes a GitHub pre-release
-and the npm dist-tag `next`.
+([Set up trusted publishing](#set-up-trusted-publishing)).
 
 ## Publish the first version by hand
 
@@ -43,10 +46,10 @@ comes from the release workflow, once trusted publishing is set up.
 
 1. Check out the commit to publish, on `main`.
 2. Check that `python3 scripts/release.py version` prints `0.1.0`.
-3. Get a Bun 1.3.10 executable, such as `bun-darwin-aarch64.zip` from
-   [Bun's release bun-v1.3.10](https://github.com/oven-sh/bun/releases/tag/bun-v1.3.10).
+3. Get a Bun 1.4.3 executable, such as `bun-darwin-aarch64.zip` from
+   [Bun's release bun-v1.4.3](https://github.com/oven-sh/bun/releases/tag/bun-v1.4.3).
    The package's build refuses any other Bun.
-4. Point `WL_BUN` at it: `export WL_BUN=/path/to/bun-1.3.10/bun`.
+4. Point `WL_BUN` at it: `export WL_BUN=/path/to/bun-1.4.3/bun`.
 5. Change to the package's root: `cd harnesses`.
 6. Install the build's dependencies: `"$WL_BUN" install --frozen-lockfile`.
 7. Sign in to npm as the account that will own the package: `npm login`.
@@ -133,6 +136,50 @@ A failed run creates nothing after the step that failed. When the publish
 fails because of npm's settings, such as a missing trusted publisher, fix
 them and re-run the failed jobs. A cause in the code needs a new version
 and a new tag, because a release runs only from its tag.
+
+## Release a release candidate
+
+A version with a pre-release part, such as `0.2.0-rc.1`, is a release
+candidate. The release workflow builds, tests and publishes it as it does
+any version, with two differences:
+
+- The GitHub Release is marked as a pre-release, so GitHub keeps the last
+  final version as the latest release.
+- npm publishes the package under the dist-tag `next`, not `latest`.
+
+`npm install windmill-lite` keeps installing the version that `latest`
+names. To try a candidate, install it by its dist-tag or by its version:
+
+```sh
+npm install windmill-lite@next
+npm install windmill-lite@0.2.0-rc.1
+```
+
+To release a candidate:
+
+1. In a pull request, set `version` in `harnesses/package.json` to the
+   candidate, such as `0.2.0-rc.1`.
+2. Merge the pull request once CI passes.
+3. Tag the merge commit on `main`: `git tag v0.2.0-rc.1 <merge commit>`.
+4. Push the tag: `git push origin v0.2.0-rc.1`.
+5. Watch the run of the release workflow under **Actions**. When it
+   passes, the GitHub pre-release `v0.2.0-rc.1` and the npm package
+   `windmill-lite@0.2.0-rc.1` exist.
+6. Check the dist-tags with `npm view windmill-lite dist-tags`: `next` is
+   `0.2.0-rc.1`, and `latest` has not changed.
+
+npm never replaces a published version, so a fix to a candidate is the
+next candidate, such as `0.2.0-rc.2`, released by the same steps.
+
+The final version is the candidate's version without its pre-release
+part, such as `0.2.0`. Release it as
+[Release a new version](#release-a-new-version) says, and npm publishes it
+under `latest`.
+
+The workflow never moves `next` to a final version. After the final
+version, `next` names the last candidate until a later candidate
+replaces it. To point it at the final version, sign in to npm as an owner
+of the package, and run `npm dist-tag add windmill-lite@0.2.0 next`.
 
 ## Try a release without releasing
 

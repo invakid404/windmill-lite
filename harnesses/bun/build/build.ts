@@ -141,7 +141,8 @@ const LATE_SPECIFIER = "windmill-lite:late/";
 // re-exports (`export { x } from "./x.js"`) when an
 // onResolve filter matches the import of that package, even one whose
 // callback resolves nothing, so the bundle references a binding it never
-// defines; every other package import is left to Bun without the callback.
+// defines (Bun 1.4.3 keeps the module); every other package import is left
+// to Bun without the callback.
 // That includes a bare specifier ending in `.ts` (a package named
 // `leaf.ts`, or a deep `pkg/index.ts`), which Windmill's own import plugin
 // matches, so there Windmill's bundle loses the module and the step fails
@@ -964,7 +965,8 @@ export class Builder {
     }
     // Every file this build writes is reached by the path the plugin
     // returns, never through Bun's resolver: Bun 1.3.10 keeps directory
-    // listings across builds in one process, and on a file system with
+    // listings across builds in one process (not measured on 1.4.3), and
+    // on a file system with
     // coarse timestamps a file written in the same tick as an earlier read
     // of its directory leaves the listing unchanged, so a relative import of
     // it can fail to resolve.

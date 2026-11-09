@@ -27,17 +27,17 @@ The `oracle` package implements the reference's design as written:
 1. **Topology** (image pins [OR-1](../semantics/oracle.md#or-1) and
    [OR-2](../semantics/oracle.md#or-2); topology [OR-4](../semantics/oracle.md#or-4);
    lifecycle and port binding [OR-18](../semantics/oracle.md#or-18)):
-   `ghcr.io/windmill-labs/windmill:1.767.0` pinned by its full index digest,
+   `ghcr.io/windmill-labs/windmill:1.862.0` pinned by its full index digest,
    in `MODE=standalone`, next to `postgres:16-alpine` pinned by digest, data
    on tmpfs, memory limits, ports on `127.0.0.1`; a preflight that requires
-   `/api/version` to be exactly `CE v1.767.0`. Fixtures that declare
+   `/api/version` to be exactly `CE v1.862.0`. Fixtures that declare
    `workers: 2` get a second worker container ([OR-5](../semantics/oracle.md#or-5)).
 2. **Bootstrap and push** ([OR-6](../semantics/oracle.md#or-6),
    [OR-8](../semantics/oracle.md#or-8), [OR-9](../semantics/oracle.md#or-9),
    [OR-31](../semantics/oracle.md#or-31)): a fresh workspace per fixture run,
    deleted after its runs, because CE refuses a third workspace besides
    `admins`;
-   the sync tree pushed with `windmill-cli@1.767.0` from npm on the runner,
+   the sync tree pushed with `windmill-cli@1.862.0` from npm on the runner,
    never the CLI inside the image; setup applied after the push; the
    deployment gate polls each lock job to success. A fixture whose tree
    must reach the server as written (`oracle.deploy: api`: a container

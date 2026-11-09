@@ -204,7 +204,7 @@
       "provenance": "source-derived",
       "title": "a transitive bare import of a package named leaf.ts keeps the module that the package re-exports",
       "deviation": "D19",
-      "note": "Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10 drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
+      "note": "At v1.767.0 Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10, its image's Bun then, drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
       "given": {
         "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
         "dependencies": {
@@ -241,7 +241,7 @@
       "provenance": "source-derived",
       "title": "a transitive deep import of a package's index.ts keeps the module that it re-exports",
       "deviation": "D19",
-      "note": "Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10 drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
+      "note": "At v1.767.0 Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10, its image's Bun then, drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
       "given": {
         "source": "import { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
         "dependencies": {
@@ -278,7 +278,7 @@
       "provenance": "source-derived",
       "title": "a //nodejs bundle keeps the module behind a transitive bare import of leaf.ts",
       "deviation": "D19",
-      "note": "Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10 drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
+      "note": "At v1.767.0 Windmill's Bun build drops value.js here and the step fails reading v with ReferenceError `v is not defined`: its import plugin's filter matches every specifier that ends in .ts, and Bun 1.3.10, its image's Bun then, drops a module that a sideEffects: false package re-exports when a plugin's resolve filter matches the import that reaches the package. windmill-lite's build helper filters only the specifiers it resolves itself (relative and absolute ones, the env support module and listed host-provided packages), so the bare import reaches Bun without the plugin, the module stays, and the step returns the value.",
       "given": {
         "source": "//nodejs\nimport { v } from \"outer\";\nexport function main() { return [v, globalThis.loaded ?? 0]; }\n",
         "dependencies": {

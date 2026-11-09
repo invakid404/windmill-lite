@@ -311,8 +311,8 @@ copy in its working directory, where it has extracted the assets
 
 A harness gives each invocation its own `process.env`
 ([WA-31](../../docs/semantics/client-api.md#wa-31)), but `Bun.env` is a
-separate object, and on Bun 1.3.10 both it and the global `Bun` are
-read-only and non-configurable, so the runtime cannot replace them.
+separate object, and on Bun 1.4.3, as on 1.3.10, both it and the global
+`Bun` are read-only and non-configurable, so the runtime cannot replace them.
 `EnvRewrite(format)` returns what every bundler applies instead
 ([ADR 0010](../../docs/design/0010-packaging.md) step 5):
 
