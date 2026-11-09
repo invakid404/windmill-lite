@@ -21,7 +21,7 @@
 //     markers (WR-6 to WR-8, WR-31, WR-32, WR-39), scans the exports of
 //     host-provided modules and refuses live bindings, and writes
 //     scripts/bun/<id>.mjs with its <id>.meta.json.
-//   - BuildCodebase bundles codebase scripts (SY-8) with esbuild 0.28.0
+//   - BuildCodebase bundles codebase scripts (SY-8) with esbuild 0.28.2
 //     through its Go API, with the pinned CLI's settings (CodebaseSettings,
 //     WR-47) plus the env rewrite and the shims, and carries their assets
 //     (WR-49): scripts/bun/<id>.cjs (or .mjs) and assets/<to>.

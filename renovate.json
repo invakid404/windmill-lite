@@ -83,7 +83,7 @@
       "enabled": false
     },
     {
-      "description": "The oracle and parity workflows' Node runs the pinned windmill-cli@1.767.0 (OR-8); its major moves only with the oracle pin.",
+      "description": "The oracle and parity workflows' Node runs the pinned windmill-cli@1.862.0 (OR-8); its major moves only with the oracle pin.",
       "matchFileNames": [
         ".github/workflows/oracle.yml",
         ".github/workflows/parity.yml"
@@ -126,12 +126,12 @@
       "allowedVersions": "<23"
     },
     {
-      "description": "esbuild is pinned to the version the pinned windmill-cli@1.767.0 bundles with (ADR 0002); the Codebase parity check compares byte for byte, so it moves only with the CLI/semantics pin.",
+      "description": "esbuild is pinned to the version the pinned windmill-cli@1.862.0 bundles with (ADR 0002, WR-47); the Codebase parity check compares byte for byte, so it moves only with the CLI/semantics pin.",
       "matchPackageNames": [
         "github.com/evanw/esbuild",
         "esbuild"
       ],
-      "allowedVersions": "0.28.0"
+      "allowedVersions": "0.28.2"
     }
   ]
 }

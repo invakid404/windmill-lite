@@ -350,6 +350,9 @@ Decisions:
    with no path to normalise, once a text upload's CRLF line breaks (the
    form-data encoding's) are read as LF. The settings comparison runs too,
    as the fallback where the CLI does not (`TestCLIOptionsFollowWR47`).
+   - After the retarget to Windmill 1.862.0 the check runs
+     `windmill-cli@1.862.0` against esbuild 0.28.2. It finds the same: the
+     same three requests, and the same bytes once the CRLF is read as LF.
 
 Loader divergences from the CLI, each labelled in the loader's diagnostics:
 reject a script file with a dot before its script extension, and always use

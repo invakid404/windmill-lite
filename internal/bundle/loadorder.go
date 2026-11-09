@@ -65,7 +65,7 @@ type importGraph struct {
 // bundle loads only through an import() inside a function. Such a module
 // reads what it imports while it is initialised, and both bundlers
 // initialise a module once: a read of an unregistered module there would
-// leave that module's exports undefined for every later import of it.
+// fail its initialisation, and so every later import of it.
 //
 // Where the analysis cannot tell, it takes the reading that orders more: a
 // key of which g holds no import is a load-time one, since the bundler's
