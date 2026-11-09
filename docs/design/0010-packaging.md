@@ -444,6 +444,9 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     check found the pinned CLI's uploads the same bytes as this
     reproduction; a single-file upload is a multipart text field, whose
     line breaks the form-data encoding sends as CRLF.
+  - Since the retarget to Windmill 1.862.0 the build uses esbuild 0.28.2,
+    the version `windmill-cli@1.862.0` bundles with. The parity check
+    finds that CLI's uploads the same bytes too.
   - **The transforms** reach esbuild through a plugin that only maps
     paths. The env rewrite's support module is injected, before the
     entry's own `inject` files, from the plugin's `windmill-lite`
