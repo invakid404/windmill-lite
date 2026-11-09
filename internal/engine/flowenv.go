@@ -128,10 +128,12 @@ func envEntry(env jsonval.Value, key string) ([]byte, bool) {
 // flow_env?.[…] with the key in double, single or back quotes, with no
 // such character before flow_env. The test reads only the text, so a
 // computed key or a use of the whole object is not seen.
+//
+// An empty key, which an env may define, follows the same rule:
+// flow_env[""] reads it, and so does a dot form followed by any other
+// character, such as flow_env?.["k"], which the text test cannot tell
+// apart; that seals more than the read needs, never less.
 func readsByName(text, key string) bool {
-	if key == "" {
-		return false
-	}
 	for at := 0; ; {
 		i := strings.Index(text[at:], "flow_env")
 		if i < 0 {

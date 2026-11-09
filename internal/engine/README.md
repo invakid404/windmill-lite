@@ -1484,8 +1484,9 @@ with the sealed values unmasked: exact reads in both spellings, computed
 reads sealed or in clear, a `$res:` entry, a chained reference, a
 computed key and the whole object (`TestFlowEnvStoredArguments`). It also
 covers a subflow's input, a collapsed body, the failure module, a
-host-provided site, a failed secrecy lookup, and the texts that read an
-entry by name (`TestReadsByName`).
+host-provided site, a failed secrecy lookup, a secret entry under the
+empty key (`TestFlowEnvEmptyKey`), and the texts that read an entry by
+name (`TestReadsByName`).
 
 `readback_test.go` covers unreadable child results:
 

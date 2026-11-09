@@ -272,4 +272,41 @@ func TestReadsByName(t *testing.T) {
 			t.Errorf("%s: %v, want %v", c.text, got, c.want)
 		}
 	}
+	// An empty key follows the same rule; the dot form's test over-reads
+	// (flow_env?.["k"]), which only seals more.
+	for _, c := range []struct {
+		text string
+		want bool
+	}{
+		{`flow_env[""] + "!"`, true},
+		{`flow_env['']`, true},
+		{"flow_env[``]", true},
+		{`flow_env?.[""]`, true},
+		{`flow_env?.["k"]`, true},
+		{`flow_env["k"]`, false},
+		{`flow_env.k`, false},
+		{`my_flow_env[""]`, false},
+		{`JSON.stringify(flow_env)`, false},
+	} {
+		if got := readsByName(c.text, ""); got != c.want {
+			t.Errorf("empty key, %s: %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
+// JE-38, JE-7: an env may define the empty key. flow_env[""] is not an
+// exact read (JE-7's bracket form needs a key), so a read of a secret
+// empty-key entry, in either bracket spelling, is evaluated and stored
+// sealed, and the script job opens it.
+func TestFlowEnvEmptyKey(t *testing.T) {
+	s := &scripts{}
+	p, _ := envServices(t)
+	e := openWithPlatform(t, map[string]string{"f/t/main": withEnv(flowOf(
+		mod("b", "echo", inputs("e", js(`flow_env[""]`), "w", js(`flow_env[""] + "!"`), "o", js(`flow_env?.[''] + "?"`), "k", js("flow_env.K")), ""),
+	), `{"":"$var:u/t/s","K":"lit"}`)}, s, p)
+	tr := runIt(t, e, `{}`, nil)
+	b := step(t, tr, "b")
+	sealedArgs(t, b.RecordedArgs, "e", "w", "o")
+	sameJSON(t, "O2", withSealed(t, b.RecordedArgs, "e", "w", "o"), `{"e":"<sealed>","w":"<sealed>","o":"<sealed>","k":"lit"}`)
+	sameJSON(t, "O3", b.ResolvedArgs, `{"e":"hidden","w":"hidden!","o":"hidden?","k":"lit"}`)
 }
