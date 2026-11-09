@@ -23,6 +23,6 @@
     {"spec": "WR-49/g", "reason": "later: the server's no-op snapshot; windmill-lite has no server-side bundle store", "expected_in": "not applicable (no deploy step)"},
     {"spec": "WR-49/h", "reason": "later: the CLI's form-data encoding sends a single-file upload with CRLF line breaks, which the server and the worker keep; windmill-lite uploads nothing and builds the bundle with LF line breaks (ADR 0002: the CLI parity check reads the upload's CRLF as LF)", "expected_in": "a later milestone that reproduces the upload's line breaks (L1)"},
     {"spec": "WR-49/i", "reason": "later: when a push selects a script, with an extra digest path; windmill-lite deploys nothing and computes no codebase id", "expected_in": "not applicable (no deploy step)"},
-    {"spec": "WR-49/j", "reason": "later: the CLI refuses a missing extra digest path before any request; windmill-lite computes no codebase id, and its build ignores extra_digest_paths", "expected_in": "not applicable (no deploy step)"}
+    {"spec": "WR-49/j", "reason": "later: the CLI refuses a missing extra digest path when it computes the digest, before uploading anything; windmill-lite computes no codebase id, and its build ignores extra_digest_paths", "expected_in": "not applicable (no deploy step)"}
   ]
 }

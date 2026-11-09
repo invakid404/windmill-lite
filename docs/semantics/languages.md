@@ -1028,7 +1028,7 @@ defined in the [index](README.md#legend).
     - **Extra paths** (since CLI 1.818.0). An entry may list `extra_digest_paths`: paths relative to the CLI's working directory, allowed outside the sync tree, with a bare string counting as one. The digest above is then hashed again together with one hash per extra path, in list order.
       - Each extra path gives the walk above for a directory, the file's bytes otherwise. An extra path that is itself a symbolic link is followed.
       - Listing the key, even as `[]`, also changes the settings text and so the id.
-      - A path that does not exist fails the push before any request, with ``Codebase extra_digest_paths entry not found: <path> (resolved to <absolute path>)``.
+      - A path that does not exist fails the push when the digest is first needed, with ``Codebase extra_digest_paths entry not found: <path> (resolved to <absolute path>)``. That comes after the CLI's preparatory reads (`wmill sync push` downloads the remote workspace to compare with, `wmill script push` reads the deployed script) and before anything is uploaded, so the workspace is unchanged.
       - esbuild never sees the key ([WR-47](#wr-47)).
     - **What it does not cover:**
       - entry names: renaming a file or directory leaves the digest unchanged as long as the visiting order of contents stays the same, while a rename that reorders files of different contents changes it;
@@ -1074,6 +1074,7 @@ defined in the [index](README.md#legend).
 - **Revision 2026-10-28 (source re-check):** decision 3 said that an omitted optional field never equals its stored default. That holds for most fields, `ws_error_handler_muted` among them, but `is_template`, `kind` and `envs` default when omitted, and an absent `lock` or `codebase` equals an empty one. The independent check of this finding raised the point; the rule and the evidence now say so, and WR-49/g notes the `is_template` variant.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-49/h was recorded as written (fixture `conformance/flows/languages/import-base`, runs `crlf_single` and `crlf_tar`, pushed with the pinned CLI, oracle run 41000318656): the single-file bundle runs with CRLF line breaks, `[true,true]`, and the tar's `main.js` with LF only, `[false,true]`.
 - **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** the codebase id now also covers each `extra_digest_paths` entry (CLI 1.818.0, "include extra paths in codebase digest for monorepo imports"), and the CLI's up-to-date check was repaired in 1.792.0, so decision 2 no longer always sends the request. New cases WR-49/i and WR-49/j; WR-49/f now expects the v1.862.0 outcome, source-derived. The upload formats, the suffixes and the server's storage are re-verified unchanged; decisions 3 and 4 are verified at v1.767.0 only.
+- **Revision 2026-11-09 (retarget validation round 1, finding 2):** a missing extra path was said to fail the push before any request. The CLI raises the error when it first computes the digest (`cli/src/utils/codebase.ts:12-24`, `:65-74 @ v1.862.0`), after its preparatory reads of the remote side (`cli/src/commands/script/script.ts:550-572`, `cli/src/commands/sync/sync.ts:5044-5092 @ v1.862.0`) and before any upload; the extra-paths bullet and WR-49/j say so.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime

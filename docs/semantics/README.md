@@ -23,7 +23,7 @@ records the Windmill behaviour windmill-lite must reproduce, as numbered
 findings with a scope, a confidence level and a status. Expected outputs were
 first derived from the pinned source; recording batches E3a to E3f (design
 record 0012) and the recordings committed with later fixtures have since
-recorded 700 of the catalogue's cases on the CE oracle, and the findings and cases they settled or corrected say so in dated
+recorded 701 of the catalogue's cases on the CE oracle, and the findings and cases they settled or corrected say so in dated
 revision and correction notes. Each pending recording is tracked as an open
 question. Disputed findings are shown with both claims and are not settled.
 windmill-lite's code and tests cite these findings; this reference describes
@@ -103,12 +103,12 @@ and [licensing.md](licensing.md) maps which parts do.
 | [openflow.md](openflow.md) | 52 | 42 | 9 | 1 | 0 | 0 | 13 | 156 |
 | [execution.md](execution.md) | 58 | 47 | 9 | 2 | 0 | 0 | 21 | 180 |
 | [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 124 |
-| [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 202 |
+| [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 203 |
 | [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 217 |
 | [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 121 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 18 | 89 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **352** | **272** | **68** | **7** | **5** | **0** | **130** | **1092** |
+| **Total** | **352** | **272** | **68** | **7** | **5** | **0** | **130** | **1093** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
@@ -181,7 +181,7 @@ which), and added or extended drafted parts, from the source alone, in
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
 questions, which keep their numbers; openflow.md's `Q-OF-7` entry points to
-licensing.md, where that question lives. 700 cases are `oracle-observed`,
+licensing.md, where that question lives. 701 cases are `oracle-observed`,
 and seven cases are windmill-lite `policy` checks rather than Windmill
 behaviour ([conformance.md](conformance.md#summary)).
 

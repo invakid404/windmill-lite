@@ -153,7 +153,7 @@
     {
       "case": "WR-49/j",
       "milestone": "none",
-      "reason": "a push the CLI refuses before any request, whose output the harness does not keep (a fixture error, OR-9); windmill-lite computes no codebase id"
+      "reason": "a push the CLI refuses when it computes the digest, after its preparatory reads and before uploading anything, whose output the harness does not keep (a fixture error, OR-9); windmill-lite computes no codebase id"
     },
     {
       "case": "FX-36/i",

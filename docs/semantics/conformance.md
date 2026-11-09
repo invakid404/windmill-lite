@@ -59,12 +59,12 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [OpenFlow model and the sync folder](#openflow) | 156 | 131 | 24 | 1 | 0 | 22 | 0 | 0 |
 | [Flow execution](#execution) | 180 | 121 | 58 | 1 | 0 | 167 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
-| [Expressions](#expressions) | 202 | 131 | 69 | 0 | 2 | 188 | 0 | 0 |
+| [Expressions](#expressions) | 203 | 131 | 70 | 0 | 2 | 189 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 217 | 132 | 85 | 0 | 0 | 96 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 121 | 70 | 46 | 5 | 0 | 45 | 0 | 6 |
 | [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1092 | 750 | 324 | 9 | 9 | 700 | 0 | 7 |
+| **Total** | 1093 | 750 | 325 | 9 | 9 | 701 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -5439,7 +5439,7 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
   - **Expect:** `"parent"`
   - **Recorded:** [`flows/je/scopes`](../../conformance/flows/je/scopes) run `je38-d`, oracle run 40687124625.
 
-*Setup for JE-38/e–h:* a flow with `flow_env: {"V":"$var:u/test/v","S":"$var:u/test/s","K":"lit"}`, a variable `u/test/v` = `"plain"` that is not secret and a secret variable `u/test/s` = `"hidden"`; each script returns its arguments as an object. An `$encrypted:` argument changes from run to run, so a fixture masks it.
+*Setup for JE-38/e–i:* a flow with `flow_env: {"V":"$var:u/test/v","S":"$var:u/test/s","K":"lit"}`, a variable `u/test/v` = `"plain"` that is not secret and a secret variable `u/test/s` = `"hidden"`; each script returns its arguments as an object. An `$encrypted:` argument changes from run to run, so a fixture masks it.
 
 - **JE-38/e** · oracle-observed · exact reads store the entries as written, secret or not, in both spellings
   - **Given:** a Bun step `b` with `x = flow_env.V`, `y = flow_env["S"]`, `z = flow_env.K`
@@ -5457,6 +5457,10 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
   - **Given:** a resource `u/test/rs` whose whole value is `"$var:u/test/s"`; a flow with `flow_env: {"R":"$res:u/test/rs"}` and a Bun step `b` with `x = flow_env.R`, `y = flow_env.R + "!"`
   - **Expect:** O2 `{"x":"$res:u/test/rs","y":"hidden!"}`: the exact read keeps the reference and the computed value is stored in clear; O4 `{"x":"hidden","y":"hidden!"}`.
   - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `alias`, oracle run 42605323019.
+- **JE-38/i** · oracle-observed · a kept reference is resolved at the leaf, terminally
+  - **Given:** a variable `u/test/c` that is not secret, holding the text `$var:u/test/v`; a flow with `flow_env: {"C":"$var:u/test/c"}` and a Bun step `b` with `x = flow_env.C` and ``y = `${flow_env.C}` ``
+  - **Expect:** O2 `{"x":"$var:u/test/c","y":"$var:u/test/v"}`: the exact read keeps the entry, and the computed one stores the env's resolved value, which still holds a reference. O4 `{"x":"$var:u/test/v","y":"plain"}`: the leaf resolves `x` once, without walking `u/test/c`'s value again, and resolves `y`'s reference. Before 1.855.0 `x` was stored and received as `y` is.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `chain`, oracle run (pending).
 
 <a id="je-39"></a>
 ### JE-39 · Names that do not exist
@@ -6779,9 +6783,9 @@ These cases test when a push deploys and which bytes then run, not how the bundl
 - **WR-49/i** · source-derived · later · an extra path makes a change outside `relative_path` visible
   - **Given:** WR-49/e's setup, with the entry adding `extra_digest_paths: ["shared"]`; after the first run, `shared/a.txt` changes to `two`, and the tree is pushed with `wmill sync push`.
   - **Expect:** the push selects `f/cb/runtime`, its `hash` and `codebase` change, and a run after it returns `"two"`. Adding `extra_digest_paths: []` instead, with no file change, also changes `codebase`, since the settings text changed.
-- **WR-49/j** · source-derived · later · a missing extra path fails the push before any request
+- **WR-49/j** · source-derived · later · a missing extra path fails the push before anything is uploaded
   - **Given:** the WR-47/a fixture whose entry lists `extra_digest_paths: ["nope"]`, no such path; `wmill sync push`.
-  - **Expect:** the CLI exits with an error whose message is ``Codebase extra_digest_paths entry not found: nope (resolved to <absolute path>)``, and the workspace is unchanged.
+  - **Expect:** the CLI exits with an error whose message is ``Codebase extra_digest_paths entry not found: nope (resolved to <absolute path>)``, raised when it computes the digest: after it downloaded the remote workspace to compare, and before it uploads any script or bundle. The workspace is unchanged.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime

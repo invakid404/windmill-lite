@@ -2,5 +2,6 @@ resource_types: [{name: wl_je38_obj, schema: {type: object}}]
 variables:
   - {path: f/wl_je38/v, value: plain}
   - {path: f/wl_je38/s, value: hidden, is_secret: true}
+  - {path: f/wl_je38/c, value: "$var:f/wl_je38/v"}
 resources:
   - {path: f/wl_je38/rs, resource_type: wl_je38_obj, value: "$var:f/wl_je38/s"}
