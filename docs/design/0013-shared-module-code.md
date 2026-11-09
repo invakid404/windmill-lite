@@ -217,7 +217,8 @@ C's per-script layout ran in a job of its own, three rounds per build in
 a container limited to 4,096 MiB, its amd64 job on an AMD EPYC 7763.
 
 - **The gate on Bun 1.4.3.** C stays within 16 MiB per further module,
-  S within 1.5 MiB, and C's peak within 768 MiB, at most 723.8 MiB. C's
+  S within 1.5 MiB, and C's peak within 768 MiB in these rounds, at most
+  723.8 MiB. C's
   peak exceeds Bun 1.3.10's 650 MiB on linux/amd64, in three rounds of
   five. On Bun 1.3.10 C peaks within 650 MiB on both architectures.
 - **Where Bun 1.4.3's peak comes from.** Its soak raises the peak by
@@ -225,6 +226,11 @@ a container limited to 4,096 MiB, its amd64 job on an AMD EPYC 7763.
   1.3.10's soak adds 73 MiB. Each further module also keeps 1.4 to
   4.1 MiB more after collections. From round to round, the 34 modules settle at
   about 450 to 480 MiB or at 550 to 560 MiB on amd64.
+- **A higher round.** In a later run of five rounds, one amd64 round kept
+  653.1 MiB with the 34 modules loaded, 16.32 MiB per further module, and
+  peaked at 783.5 MiB, over both budgets. The other four passed, and the
+  medians were 13.26 MiB per further module and a 653.9 MiB peak
+  ([run](https://github.com/invakid404/windmill-lite/actions/runs/42618480343)).
 - **What Bun 1.4.3 saves.** Its host starts 16 to 21 MiB smaller. Per
   script, C costs 4 to 5 MiB less per further module, and peaks 157 to
   228 MiB lower.
