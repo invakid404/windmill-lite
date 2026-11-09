@@ -325,8 +325,10 @@ request into `main`, or a push to it, while the ledger file or any marker
 exists.
 
 The [benchmark workflow](.github/workflows/bench.yml) compares builds of
-the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
-runs only when started by hand and gates nothing
+the engine on GitHub's hosted runners, linux/amd64 and linux/arm64, each
+build on the Bun its own tree pins. It runs the benchmarks and the
+module-memory tests, optionally each command in a container with a memory
+limit. It runs only when started by hand and gates nothing
 ([cmd/windmill-lite](cmd/windmill-lite/README.md#comparing-builds-on-githubs-runners)).
 
 On macOS, the Go tests run as three parallel jobs, split by complementary

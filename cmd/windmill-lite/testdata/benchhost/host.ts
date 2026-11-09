@@ -24,7 +24,7 @@
 // (the bundle directory), WL_BENCH_PLUGIN, WL_BENCH_TRACE,
 // WL_BENCH_TRACE_KEYS, WL_BENCH_STORE_URL and WL_BENCH_EMB_API_US. Its working directory is the one it passes.
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { connect, type Plugin, type TraceDetail, type TraceNone } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
@@ -79,13 +79,17 @@ const plugin: Plugin = {
 // On SIGUSR1 the host writes its CPU time (microseconds), its peak
 // resident set (bytes) and a count of these writes to bench-probe.json in
 // its working directory: the probe of a bundle that has no probe step
-// (the benchmarks' signalProbe). It reads nothing else there.
+// (the benchmarks' signalProbe). It reads nothing else there. On Linux the
+// peak is the process's own high-water mark (VmHWM), as getrusage's keeps
+// the peak of what the process was before its execve; Bun 1.4.3 reports
+// getrusage's in kilobytes on every platform.
 let probes = 0;
 process.on("SIGUSR1", () => {
   const c = process.cpuUsage();
-  const peak = process.resourceUsage().maxRSS;
+  const hwm = process.platform === "linux" ? /^VmHWM:\s*(\d+) kB$/m.exec(readFileSync("/proc/self/status", "utf8")) : null;
+  const peak = hwm ? Number(hwm[1]) : process.resourceUsage().maxRSS;
   probes++;
-  writeFileSync("bench-probe.json", JSON.stringify({ n: probes, user: c.user, system: c.system, rss_peak: process.platform === "darwin" ? peak : peak * 1024 }));
+  writeFileSync("bench-probe.json", JSON.stringify({ n: probes, user: c.user, system: c.system, rss_peak: peak * 1024 }));
 });
 
 await connect({
