@@ -1,10 +1,10 @@
 name: Benchmarks
 
 # Non-gating comparisons of G1's end-to-end benchmarks (cmd/windmill-lite,
-# ADR 0005's benchmark plan) between builds of the engine, on GitHub's
-# hosted runners, linux/amd64 and linux/arm64. It is started by hand
-# (workflow_dispatch) and never gates a pull request; the figures of a
-# change come from here, not from a laptop.
+# ADR 0005's benchmark plan) and of the module-memory tests (ADR 0013)
+# between builds of the engine, on GitHub's hosted runners, linux/amd64 and
+# linux/arm64. It is started by hand (workflow_dispatch) and never gates a
+# pull request; the figures of a change come from here, not from a laptop.
 #
 # Inputs:
 #   - builds: the builds to compare, in order, as name=ref pairs separated
@@ -14,7 +14,11 @@ name: Benchmarks
 #     one before it and the last with the first. A build can add
 #     environment to its runs, to compare a runtime setting on the same
 #     code: name=ref:VAR=value:VAR=value (git refuses ':' in ref names), as
-#     in tmpfs=<sha>:TMPDIR=/dev/shm or gc=<sha>:GOGC=400.
+#     in tmpfs=<sha>:TMPDIR=/dev/shm or gc=<sha>:GOGC=400. Each build runs
+#     on the Bun its own tree pins (PinnedBun in internal/harness/process.go),
+#     downloaded from Bun's releases and checked against their
+#     SHASUMS256.txt, so a build from before a Bun upgrade runs on its own
+#     Bun.
 #   - groups: which benchmarks, a job per group and architecture:
 #       boundary     BenchmarkStepBoundary, host, one run at a time,
 #                    256 KiB to 16 MiB
@@ -38,9 +42,26 @@ name: Benchmarks
 #                    process after a full collection), at 8,000 runs:
 #                    the resident set levels off only after about
 #                    20,000 native invocations
+#       memory       the tests of memory_test.go, with -v: TestModuleMemory,
+#                    then the shared-instance and shared-code layouts of
+#                    TestModuleMemoryClosure (WL_MEMORY_PROBE=1), whose
+#                    hosts stay well under 1 GiB. The closure's budgets
+#                    are judged on the median of each build's rounds
+#                    (WL_MEMORY_VERDICT=median): a round over a budget is
+#                    listed, and only a median over it fails the job
+#       closure-per-script
+#                    the per-script layout of TestModuleMemoryClosure,
+#                    whose host grows to about 2 GiB
 #   - rounds: the rounds per job.
 #   - small_builds: the builds of the small group, when it compares others
 #     (empty: builds).
+#   - memory_limit: empty runs each command on the runner. A size that
+#     docker run's --memory takes (1536m) runs each command in a container
+#     of its own with that cgroup v2 memory limit and no swap, and appends
+#     the container's peak memory (memory.peak, page cache included) and
+#     its OOM kills (memory.events) to the command's output. The container
+#     image is MEMORY_IMAGE, the runner's Ubuntu release, so the binaries
+#     built on the runner run in it.
 on:
   workflow_dispatch:
     inputs:
@@ -49,7 +70,7 @@ on:
         required: true
         default: "main=origin/main"
       groups:
-        description: "Groups: boundary shapes passthrough expressions peaks small mid retained native embedder"
+        description: "Groups: boundary shapes passthrough expressions peaks small mid retained native embedder memory closure-per-script"
         required: true
         default: "boundary shapes passthrough expressions peaks small"
       rounds:
@@ -58,6 +79,10 @@ on:
         default: "10"
       small_builds:
         description: "Builds of the small group, when not the builds above"
+        required: false
+        default: ""
+      memory_limit:
+        description: "Run each command in a container with this memory limit and no swap (1536m); empty: on the runner"
         required: false
         default: ""
 
@@ -76,6 +101,7 @@ jobs:
       small_builds: ${{ steps.plan.outputs.small_builds }}
       groups: ${{ steps.plan.outputs.groups }}
       rounds: ${{ steps.plan.outputs.rounds }}
+      memory_limit: ${{ steps.plan.outputs.memory_limit }}
     steps:
       - id: plan
         env:
@@ -83,18 +109,26 @@ jobs:
           IN_GROUPS: ${{ inputs.groups }}
           IN_ROUNDS: ${{ inputs.rounds }}
           IN_SMALL: ${{ inputs.small_builds }}
+          IN_LIMIT: ${{ inputs.memory_limit }}
         run: |
           groups='[]'
           if [ -n "$IN_GROUPS" ] && [ "$IN_GROUPS" != none ]; then
             groups=$(printf '%s\n' $IN_GROUPS | jq -R . | jq -sc .)
           fi
+          # docker run takes a number and an optional unit.
+          if [ -n "$IN_LIMIT" ] && ! printf '%s' "$IN_LIMIT" | grep -Eq '^[0-9]+[bkmgBKMG]?$'; then
+            echo "memory_limit must be a number with an optional unit b, k, m or g: $IN_LIMIT" >&2
+            exit 1
+          fi
           echo "builds: $IN_BUILDS"
           echo "groups: $groups"
+          echo "memory limit: ${IN_LIMIT:-none}"
           {
             echo "builds=$IN_BUILDS"
             echo "small_builds=${IN_SMALL:-$IN_BUILDS}"
             echo "groups=$groups"
             echo "rounds=${IN_ROUNDS:-10}"
+            echo "memory_limit=$IN_LIMIT"
           } >> "$GITHUB_OUTPUT"
 
   bench:
@@ -112,6 +146,8 @@ jobs:
       BUILDS: ${{ matrix.group == 'small' && needs.plan.outputs.small_builds || needs.plan.outputs.builds }}
       ROUNDS: ${{ needs.plan.outputs.rounds }}
       GROUP: ${{ matrix.group }}
+      MEMORY_LIMIT: ${{ needs.plan.outputs.memory_limit }}
+      MEMORY_IMAGE: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,36 +159,83 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - name: Set up Bun
-        id: bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.3
       - name: Record the machine
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          { uname -a; nproc; lscpu; free -m; go version; "${{ steps.bun.outputs.bun-path }}" --version; echo "builds: $BUILDS"; } > "$RUNNER_TEMP/out/machine.txt" 2>&1
+          { uname -a; nproc; lscpu; free -m; go version
+            echo "cgroup file system: $(stat -fc %T /sys/fs/cgroup)"
+            echo "memory limit: ${MEMORY_LIMIT:-none}"
+            echo "builds: $BUILDS"; } > "$RUNNER_TEMP/out/machine.txt" 2>&1
           cat "$RUNNER_TEMP/out/machine.txt"
+      - name: Pull the container image
+        if: env.MEMORY_LIMIT != ''
+        run: |
+          docker pull "$MEMORY_IMAGE"
+          docker info --format 'docker {{.ServerVersion}}, cgroup v{{.CgroupVersion}}, driver {{.CgroupDriver}}' | tee -a "$RUNNER_TEMP/out/machine.txt"
       - name: Build each build's benchmarks
         run: |
+          # bun_of prints the path of the Bun a tree pins, which it
+          # downloads once per version and checks against the release's
+          # SHASUMS256.txt. It is called in a command substitution, where
+          # bash does not stop at a failed command, so every step returns
+          # on failure; the executable reaches its version's directory
+          # only once its archive matched its checksum and extracted.
+          bun_of() {
+            local v asset dir base tmp
+            v=$(sed -n 's/^const PinnedBun = "\(.*\)"$/\1/p' "$1/internal/harness/process.go") || return 1
+            if [ -z "$v" ]; then
+              echo "no PinnedBun in $1/internal/harness/process.go" >&2
+              return 1
+            fi
+            case "$(uname -m)" in
+              x86_64) asset="bun-linux-x64" ;;
+              aarch64) asset="bun-linux-aarch64" ;;
+              *) echo "no Bun release for $(uname -m)" >&2; return 1 ;;
+            esac
+            dir="$RUNNER_TEMP/bun/$v"
+            if [ ! -x "$dir/bun" ]; then
+              tmp=$(mktemp -d "$RUNNER_TEMP/bun-download.XXXXXX") || return 1
+              base="https://github.com/oven-sh/bun/releases/download/bun-v$v"
+              curl -fsSL --retry 3 -o "$tmp/$asset.zip" "$base/$asset.zip" || return 1
+              curl -fsSL --retry 3 -o "$tmp/SHASUMS256.txt" "$base/SHASUMS256.txt" || return 1
+              # Exactly one line of the release's checksums names the
+              # archive, and the archive must match it.
+              grep " $asset.zip\$" "$tmp/SHASUMS256.txt" > "$tmp/sum" || true
+              if [ "$(wc -l < "$tmp/sum")" -ne 1 ]; then
+                echo "SHASUMS256.txt of Bun $v has no single line for $asset.zip" >&2
+                return 1
+              fi
+              if ! (cd "$tmp" && sha256sum --strict -c sum >&2); then
+                echo "$asset.zip of Bun $v does not match its checksum" >&2
+                return 1
+              fi
+              unzip -q -j "$tmp/$asset.zip" "$asset/bun" -d "$tmp/x" || return 1
+              mkdir -p "$dir" || return 1
+              mv "$tmp/x/bun" "$dir/bun" || return 1
+              rm -rf "$tmp"
+            fi
+            echo "$dir/bun"
+          }
+          mkdir -p "$RUNNER_TEMP/bun-of"
           for pair in $BUILDS; do
             name=${pair%%=*} ref=${pair#*=} ref=${ref%%:*}
             src="$RUNNER_TEMP/src/$name"
             git worktree add --detach "$src" "$ref"
-            echo "$name: $(git -C "$src" rev-parse HEAD)" | tee -a "$RUNNER_TEMP/out/machine.txt"
-            (cd "$src/harnesses/bun/build" && bun install --frozen-lockfile)
+            bun=$(bun_of "$src")
+            echo "$bun" > "$RUNNER_TEMP/bun-of/$name"
+            echo "$name: $(git -C "$src" rev-parse HEAD), Bun $("$bun" --version)" | tee -a "$RUNNER_TEMP/out/machine.txt"
+            (cd "$src/harnesses/bun/build" && "$bun" install --frozen-lockfile)
             (cd "$src" && go test -c -o "$RUNNER_TEMP/bin/$name.test" ./cmd/windmill-lite)
           done
       - name: Run the rounds
-        env:
-          WL_BUN: ${{ steps.bun.outputs.bun-path }}
         run: |
-          # Each line is one benchmark command of a round: its benchtime,
-          # then its -bench pattern; WL_BENCH_SIZES and WL_BENCH_FRESH as
-          # the group needs them.
+          # Each line is one command of a round: a benchtime and a -bench
+          # pattern, or "run" and a -run pattern, which runs tests with -v.
+          # genv is the group's environment.
+          genv=()
           case "$GROUP" in
             boundary)
-              export WL_BENCH_SIZES=256KiB,1MiB,4MiB,16MiB
+              genv=("WL_BENCH_SIZES=256KiB,1MiB,4MiB,16MiB")
               cmds=("3s BenchmarkStepBoundary/topology=host/conc=1/") ;;
             shapes)
               cmds=("5x BenchmarkHostShapes/shape=(s20-256KiB|s10-1MiB|s8-4MiB|s4-16MiB)\$") ;;
@@ -165,40 +248,142 @@ jobs:
             retained)
               cmds=("1x BenchmarkRetainedHeap") ;;
             native)
-              export WL_NATIVE_RUNS=8000
+              genv=(WL_NATIVE_RUNS=8000)
               cmds=("1x BenchmarkNativeRealm") ;;
             embedder)
-              export WL_BENCH_EMB_N=20
+              genv=(WL_BENCH_EMB_N=20)
               cmds=("1x BenchmarkEmbedder") ;;
             small)
-              export WL_BENCH_FRESH=1 WL_BENCH_SIZES=26B,1KiB
+              genv=(WL_BENCH_FRESH=1 "WL_BENCH_SIZES=26B,1KiB")
               cmds=("3s BenchmarkStepBoundary/topology=(host|subprocess)/conc=(1|8)/"
                     "20x BenchmarkHostShapes/shape=(bare-s600-1KiB|s50-1KiB|s600-1KiB|plain-s600-1KiB|pathsA-s50|resA-s50|resA-s50-1ms|s200-mixed-conc8)\$") ;;
             mid)
-              export WL_BENCH_FRESH=1
+              genv=(WL_BENCH_FRESH=1)
               cmds=("10x BenchmarkHostShapes/shape=(s50-50KiB|s200-mixed|s600-10KiB|s600-50KiB|s600-mixed)\$") ;;
+            memory)
+              genv=(WL_MEMORY_PROBE=1 WL_MEMORY_VERDICT=median)
+              cmds=("run ^TestModuleMemory\$"
+                    "run ^TestModuleMemoryClosure\$/^(shared-instance|shared-code)\$") ;;
+            closure-per-script)
+              genv=(WL_MEMORY_PROBE=1)
+              cmds=("run ^TestModuleMemoryClosure\$/^per-script\$") ;;
             *) echo "unknown group $GROUP" >&2; exit 1 ;;
           esac
+          # inside DIR CMD... runs CMD in DIR: on the runner, or, with a
+          # memory limit, in a container of its own, after which it prints
+          # the container's peak, limits and OOM kills on a line that
+          # benchstat ignores (a line "key: value" would be a configuration
+          # line of the benchmark format).
+          mkdir -p "$RUNNER_TEMP/home"
+          inside() {
+            local dir=$1
+            shift
+            if [ -z "$MEMORY_LIMIT" ]; then
+              (cd "$dir" && "$@")
+              return
+            fi
+            # shellcheck disable=SC2016 # expanded by the container's shell
+            docker run --rm --init --user "$(id -u):$(id -g)" \
+              --memory "$MEMORY_LIMIT" --memory-swap "$MEMORY_LIMIT" \
+              -e HOME="$RUNNER_TEMP/home" -v "$RUNNER_TEMP:$RUNNER_TEMP" -w "$dir" "$MEMORY_IMAGE" \
+              sh -c '"$@"; s=$?; c=/sys/fs/cgroup
+                peak=$(awk "{ printf \"%.1f MiB\", \$1 / 1048576 }" $c/memory.peak 2>/dev/null || echo n/a)
+                echo "Container memory.peak $peak, memory.max $(cat $c/memory.max), memory.swap.max $(cat $c/memory.swap.max 2>/dev/null || echo n/a), $(grep -w oom_kill $c/memory.events)"
+                exit $s' sh "$@"
+          }
           read -r -a builds <<< "$BUILDS"
           nb=${#builds[@]}
+          # What each build's Bun reads of the machine, on the runner and in
+          # a container: its memory limit (process.constrainedMemory), the
+          # machine's memory and its CPUs.
+          view='const os = require("node:os"); console.log(JSON.stringify({ bun: Bun.version, constrainedMemory: typeof process.constrainedMemory === "function" ? process.constrainedMemory() : null, totalmem: os.totalmem(), availableParallelism: typeof os.availableParallelism === "function" ? os.availableParallelism() : null, hardwareConcurrency: navigator.hardwareConcurrency }))'
+          for pair in "${builds[@]}"; do
+            name=${pair%%=*}
+            bun=$(cat "$RUNNER_TEMP/bun-of/$name")
+            echo "$name, on the runner: $("$bun" -e "$view")"
+            if [ -n "$MEMORY_LIMIT" ]; then
+              echo "$name, in a container: $(inside "$RUNNER_TEMP" "$bun" -e "$view" | tr '\n' ' ')"
+            fi
+          done | tee -a "$RUNNER_TEMP/out/machine.txt"
+          failed=0
           for r in $(seq 1 "$ROUNDS"); do
             for i in $(seq 0 $((nb - 1))); do
               pair=${builds[$(( (i + r) % nb ))]}
               name=${pair%%=*} spec=${pair#*=}
+              bun=$(cat "$RUNNER_TEMP/bun-of/$name")
               # The build's own environment: the VAR=value fields after
               # its ref.
               envs=()
               IFS=: read -r -a fields <<< "$spec"
               for f in "${fields[@]:1}"; do envs+=("$f"); done
               for c in "${cmds[@]}"; do
-                bt=${c%% *} pattern=${c#* }
+                kind=${c%% *} pattern=${c#* }
+                # A test run is bounded, so that a hung test fails its
+                # command, with every goroutine's stack, instead of holding
+                # the job until its timeout.
+                if [ "$kind" = run ]; then
+                  args=(-test.run "$pattern" -test.v -test.timeout 30m)
+                else
+                  args=(-test.run '^$' -test.bench "$pattern" -test.benchtime "$kind" -test.timeout 0)
+                fi
                 echo "round $r: $name ${envs[*]}, $pattern, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
-                (cd "$RUNNER_TEMP/src/$name/cmd/windmill-lite" &&
-                  env "${envs[@]}" "$RUNNER_TEMP/bin/$name.test" -test.run '^$' -test.bench "$pattern" -test.benchtime "$bt" -test.count 1 -test.timeout 0) >> "$RUNNER_TEMP/out/$name.txt"
+                # A command that fails or skips a test fails the step once
+                # every round has run.
+                if ! inside "$RUNNER_TEMP/src/$name/cmd/windmill-lite" \
+                    env "PATH=${bun%/*}:$PATH" "WL_BUN=$bun" WL_REQUIRE_BUN=1 "${genv[@]}" "${envs[@]}" \
+                    "$RUNNER_TEMP/bin/$name.test" "${args[@]}" -test.count 1 > "$RUNNER_TEMP/cmd.txt"; then
+                  echo "::error::round $r: $name, $pattern failed"
+                  failed=1
+                fi
+                if [ "$kind" = run ] && grep -q -e '--- SKIP' "$RUNNER_TEMP/cmd.txt"; then
+                  echo "::error::round $r: $name, $pattern skipped a test"
+                  failed=1
+                fi
+                { echo "Round $r"; cat "$RUNNER_TEMP/cmd.txt"; } >> "$RUNNER_TEMP/out/$name.txt"
+                grep -E '^Container memory' "$RUNNER_TEMP/cmd.txt" || true
               done
             done
           done
-          grep -c '^Benchmark' "$RUNNER_TEMP"/out/*.txt
+          grep -c '^Benchmark' "$RUNNER_TEMP"/out/*.txt || true
+          # The memory tests log each budget as "Budget <name>: <value> MiB,
+          # at most <limit> MiB", after the round's "Round <n>" line in the
+          # build's output. Each budget is judged on
+          # the median of a build's rounds: a round over it is listed, and
+          # only a median over it fails the step. Medians, not single
+          # rounds, because the rounds of one tree spread widely on shared
+          # runners (ADR 0013).
+          names=()
+          for pair in "${builds[@]}"; do names+=("${pair%%=*}"); done
+          if ! python3 -I - "$RUNNER_TEMP/out" "${names[@]}" > "$RUNNER_TEMP/out/verdict.txt" <<'PY'; then
+          import re, statistics, sys
+          from pathlib import Path
+
+          out, names = Path(sys.argv[1]), sys.argv[2:]
+          budget_line = re.compile(r"Budget ([\w-]+): ([0-9.]+) MiB, at most ([0-9.]+) MiB")
+          missed = False
+          for name in names:
+              budgets, round_ = {}, 0
+              for text in (out / f"{name}.txt").read_text().splitlines():
+                  if m := re.fullmatch(r"Round (\d+)", text):
+                      round_ = int(m[1])
+                  elif m := budget_line.search(text):
+                      budgets.setdefault(m[1], (float(m[3]), []))[1].append((round_, float(m[2])))
+              for budget, (limit, rounds) in budgets.items():
+                  values = [v for _, v in rounds]
+                  median = statistics.median(values)
+                  over = [f"round {r}: {v:g} MiB" for r, v in rounds if v > limit]
+                  verdict = "pass" if median <= limit else "miss"
+                  missed |= median > limit
+                  print(f"{name}, {budget}: median {median:g} MiB of {len(values)} rounds, at most {limit:g} MiB: {verdict}; "
+                        f"{len(over)} round{'' if len(over) == 1 else 's'} over" + (f" ({'; '.join(over)})" if over else ""))
+                  if median > limit:
+                      print(f"::error::{name}, {budget}: median {median:g} MiB over {limit:g} MiB")
+          sys.exit(1 if missed else 0)
+          PY
+            failed=1
+          fi
+          cat "$RUNNER_TEMP/out/verdict.txt"
+          exit "$failed"
       - name: Compare with benchstat
         run: |
           go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
@@ -206,16 +391,42 @@ jobs:
           read -r -a builds <<< "$BUILDS"
           names=()
           for pair in "${builds[@]}"; do names+=("${pair%%=*}"); done
+          # Only outputs with benchmark lines: the memory groups run tests.
+          compare() {
+            if grep -q '^Benchmark' "$1.txt" && grep -q '^Benchmark' "$2.txt"; then
+              "$(go env GOPATH)/bin/benchstat" "$1=$1.txt" "$2=$2.txt" > "cmp-$1-$2.txt"
+            fi
+          }
           for i in $(seq 1 $((${#names[@]} - 1))); do
-            a=${names[$((i - 1))]} b=${names[$i]}
-            "$(go env GOPATH)/bin/benchstat" "$a=$a.txt" "$b=$b.txt" > "cmp-$a-$b.txt"
+            compare "${names[$((i - 1))]}" "${names[$i]}"
           done
           if [ ${#names[@]} -gt 2 ]; then
-            a=${names[0]} b=${names[$((${#names[@]} - 1))]}
-            "$(go env GOPATH)/bin/benchstat" "$a=$a.txt" "$b=$b.txt" > "cmp-$a-$b.txt"
+            compare "${names[0]}" "${names[$((${#names[@]} - 1))]}"
           fi
-          ls cmp-*.txt
-          head -80 "cmp-${names[0]}-${names[$((${#names[@]} - 1))]}.txt" || true
+          ls cmp-*.txt 2>/dev/null || echo "no benchmark lines to compare"
+          head -80 "cmp-${names[0]}-${names[$((${#names[@]} - 1))]}.txt" 2>/dev/null || true
+      - name: Summarise the memory tests
+        if: always() && (matrix.group == 'memory' || matrix.group == 'closure-per-script')
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          # Each build's figures as the tests log them, with the outcome
+          # of each test and each container's peak.
+          cd "$RUNNER_TEMP/out"
+          {
+            echo "## Memory tests, $ARCH, memory limit ${MEMORY_LIMIT:-none}"
+            for pair in $BUILDS; do
+              name=${pair%%=*}
+              echo "### $name"
+              echo '```'
+              grep -E 'MiB at connect|Budget |^Container memory|^ *--- |^(ok|FAIL)' "$name.txt" | sed 's/^ *//' || true
+              echo '```'
+            done
+            echo "### Verdict: each budget on the median of the rounds"
+            echo '```'
+            cat verdict.txt 2>/dev/null || echo "no verdict"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
