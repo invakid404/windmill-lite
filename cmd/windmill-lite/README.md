@@ -317,7 +317,14 @@ each in three layouts:
 | Test | What it shows |
 |---|---|
 | `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
-| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, 34 CommonJS codebase scripts of about 6.9 MB each that import one module outside the sync folder, over mongoose, `windmill-client`, js-yaml, Babel's parser and types (pinned by `testdata/memory/closure.package.json` and `closure.bun.lock`, which it installs, so it needs the network once) and a generated package shaped like an API client. It reports the resident set with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs; with shared code, the soak's peak must stay within the embedder's budget of 650 MiB |
+| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, described below. It reports the resident set and the peak so far at connect, with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs. With shared code, the soak's peak must stay within 768 MiB, half of a container limited to 1,536 MiB |
+
+The closure has 34 CommonJS codebase scripts of about 6.9 MB each, which
+import one module outside the sync folder. That module imports mongoose,
+`windmill-client`, js-yaml, Babel's parser and types, and a generated
+package shaped like an API client.
+`testdata/memory/closure.package.json` and `closure.bun.lock` pin the
+packages, which the test installs, so it needs the network once.
 
 In `TestModuleMemoryClosure`, the shared module imports `node:async_hooks`
 by `import()`, and the generated package imports `node:fs/promises` by
@@ -327,7 +334,25 @@ built in, so every script keeps its shared layout.
 With shared code, both tests assert the memory gate of [ADR 0013](../../docs/design/0013-shared-module-code.md).
 `TestModuleMemory` allows at most 1.5 MiB per further module.
 `TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
-peak of at most 650 MiB after its soak.
+peak of at most 768 MiB after its soak (`closurePeakBudget`). The peak
+budget was 650 MiB on Bun 1.3.10; Bun 1.4.3 keeps more memory per module
+([ADR 0013](../../docs/design/0013-shared-module-code.md#decision)).
+
+`TestModuleMemoryClosure` logs each of its two budgets on a line of its
+own: `Budget <name>: <value> MiB, at most <limit> MiB`. With
+`WL_MEMORY_VERDICT=median`, it fails on neither, and the caller judges
+each budget on the median of several runs, as the workflow `Benchmarks`
+does. `TestModuleMemory` always judges its own run.
+
+The host's peak is its own high-water mark:
+
+- On Linux it reads `VmHWM` from `/proc/self/status`. `getrusage`'s peak,
+  which the host also reports, keeps the peak of what the process was
+  before its `execve`: here the Go test process that built the bundles.
+- On macOS it reads `getrusage`'s peak, which Bun 1.4.3 reports in
+  kilobytes.
+- Each reading fails the test when a peak is below the resident set,
+  which a wrong unit would cause.
 
 `realm_test.go` checks what native-boundary invocations leave behind in a
 long-lived Bun process. Its synthetic folder's flows each run ten native
@@ -560,17 +585,38 @@ Its figures, per request (for H, per batch) and per step run:
 The workflow `Benchmarks` (`.github/workflows/bench.yml`) compares builds
 of the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
 is started by hand and gates nothing. It takes the builds as `name=ref`
-pairs, the benchmark groups and the number of rounds. A build can add
+pairs, the benchmark groups, the number of rounds and an optional memory
+limit.
+
+A build can add
 environment to its runs, to compare a runtime setting on the same code in
 the same job: `name=ref:VAR=value`, with more `:VAR=value` fields as
 needed (git refuses `:` in ref names), as in
 `tmpfs=<sha>:TMPDIR=/dev/shm` or `gc=<sha>:GOGC=400`.
 
+Each build runs on the Bun its own tree pins (`PinnedBun` in
+`internal/harness`). The workflow downloads it from Bun's releases and
+checks it against the release's `SHASUMS256.txt`. So a build from before a
+Bun upgrade runs on its own Bun, in the same job as one after it.
+
+With `memory_limit` set to a size that `docker run --memory` takes, such
+as `1536m`, each command runs in a container of its own:
+
+- The container has that cgroup v2 memory limit and no swap.
+- Its image is Ubuntu 24.04, the runners' release, pinned by digest, so
+  the binaries built on the runner run in it.
+- After each command, the output gives the container's peak
+  (`memory.peak`, page cache included) and its OOM kills.
+
 Each job runs one group on one architecture:
 
 1. It builds every ref's test binary in a worktree of its own.
 2. It runs the rounds; each round runs every build once, in a rotating
-   order.
+   order. A command that fails, or a test run that skips a test, fails the
+   job once every round has run. A test run times out after 30 minutes.
+   In the `memory` group, the closure's budgets are judged on the median of
+   each build's rounds instead: the job lists each round over a budget,
+   and fails only when a median is over its budget.
 3. It compares each build with the one before it, and the last with the
    first, with `benchstat`.
 
@@ -589,9 +635,12 @@ groups:
 | `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
 | `mid` | in a process each (`WL_BENCH_FRESH=1`), the sequential shapes between 1 KiB and 256 KiB: `s50-50KiB`, `s200-mixed`, `s600-10KiB`, `s600-50KiB` and `s600-mixed`, `-benchtime 10x` |
 | `embedder` | `BenchmarkEmbedder`, all twelve workloads, `-benchtime 1x`, 20 measured requests per side per round (`WL_BENCH_EMB_N=20`) |
+| `memory` | the tests of `memory_test.go`, with `-v` and `WL_MEMORY_PROBE=1`: `TestModuleMemory`, then the shared-instance and shared-code layouts of `TestModuleMemoryClosure`. The job's summary gives each build's figures |
+| `closure-per-script` | the per-script layout of `TestModuleMemoryClosure`, whose host grows to about 2 GiB, so it needs a `memory_limit` above that, or none |
 
 ```sh
 gh workflow run bench.yml -f builds="main=origin/main head=my-branch" -f groups="boundary small" -f rounds=10
+gh workflow run bench.yml -f builds="main=origin/main head=my-branch" -f groups=memory -f rounds=5 -f memory_limit=1536m
 ```
 
 ### One process per shape
