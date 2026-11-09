@@ -174,6 +174,7 @@ func (c *compiler) flow(p string) {
 		CacheIgnoreS3Path: v.CacheIgnoreS3Path,
 		SameWorker:        v.SameWorker,
 		Timeout:           doc.Timeout,
+		ValueTimeout:      v.Timeout,
 	}
 	if v.SkipExpr != nil {
 		out.SkipExpr = compileExpr(expr.SiteSkipExpr, *v.SkipExpr)
@@ -315,7 +316,7 @@ func (fc *flowCompiler) module(m *openflow.Module, seg conformance.Segment, sc s
 		for i, br := range v.Branches {
 			if br.SkipFailure == nil && fc.opts.Strict {
 				fc.fail(&Error{Kind: ErrAbsentSkipFlag, Flow: sc.flow, Step: m.ID, Selector: -1,
-					Msg: fmt.Sprintf("strict: branch %d's skip_failure is absent (the deployed default is true)", i)})
+					Msg: fmt.Sprintf("strict: branch %d's skip_failure is absent (the deployed default is false)", i)})
 			}
 			bs := body
 			bs.site = site.Child(conformance.Branch(i))
@@ -339,8 +340,9 @@ func (fc *flowCompiler) module(m *openflow.Module, seg conformance.Segment, sc s
 }
 
 // envelope copies the envelope fields that matter at run time. Queue,
-// placement and cleanup fields (priority, debouncing, delete_after_use,
-// delete_after_secs) have no effect and are dropped (0001 §3, OF-12).
+// placement, permission and cleanup fields (priority, debouncing,
+// job_token_scopes, delete_after_use, delete_after_secs) have no effect and
+// are dropped (0001 §3, OF-12).
 func (fc *flowCompiler) envelope(m *openflow.Module, out *Module, sc scope) {
 	if m.Suspend != nil {
 		// Durable suspend is out of scope (FX-39). A suspend on a provided
@@ -428,8 +430,9 @@ func (fc *flowCompiler) scriptStep(m *openflow.Module, v *openflow.PathScript, i
 // form, where container bodies are stored nodes, so the deployed rule holds
 // at every depth (0001 §1): a sequential for loop, or any while loop, whose
 // body is exactly one script or rawscript step with none of sleep,
-// suspend, cache_ttl, retry, stop_after_if, stop_after_all_iters_if,
-// skip_if or an enabled mock, in a flow with no failure module. The
+// suspend, cache_ttl, retry, timeout (1.852.0), stop_after_if,
+// stop_after_all_iters_if, skip_if or an enabled mock, in a flow with no
+// failure module. The
 // preprocessor module's bodies are not reduced to nodes, so they run as raw
 // flows, in which a for loop never collapses.
 //
@@ -449,17 +452,45 @@ func collapses(forLoop, parallel bool, body []openflow.Module, sc scope) bool {
 	default:
 		return false
 	}
-	return b.Sleep == nil && b.Suspend == nil && b.CacheTTL == nil && b.Retry == nil &&
+	return b.Sleep == nil && b.Suspend == nil && b.CacheTTL == nil && b.Retry == nil && b.Timeout == nil &&
 		b.StopAfterIf == nil && b.StopAfterAllItersIf == nil && b.SkipIf == nil &&
 		(b.Mock == nil || !b.Mock.Enabled)
 }
 
+// StoredNode reports whether a deploy stores body, a container's module
+// list, as a node of the flow's lite form (CF-8, CF-V4): every body but an
+// empty one and the simple body of collapses, exactly one script or
+// rawscript step with none of the envelope fields that keep a loop from
+// collapsing, in a flow with no failure module (hasFailure). Windmill runs
+// a body stored as a node as a FlowNode child flow and an inline one as a
+// FlowPreview child flow, whose job records differ (WA-19). A provided site
+// keeps its original kind, as in collapses. The preprocessor module's
+// bodies, which a deploy keeps inline, are not judged here.
+func StoredNode(body []*Module, hasFailure bool) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if hasFailure || len(body) != 1 {
+		return true
+	}
+	b := body[0]
+	kind := b.Kind
+	if b.Provided != nil {
+		kind = b.Provided.Target.Kind
+	}
+	if kind != KindScript && kind != KindRawScript {
+		return true
+	}
+	return b.Sleep != nil || b.CacheTTL != nil || b.Retry != nil || b.StopAfterIf != nil ||
+		b.StopAfterAllItersIf != nil || b.SkipIf != nil || (b.Mock != nil && b.Mock.Enabled)
+}
+
 // compileExpr is the compiled expression at a site: the expression
-// pipeline's textual stages (trimming, shortcuts, rewrites, mode, bound
-// names and the engine source, JE-5 to JE-15), which depend on the site and
-// the text alone, so the program carries them and nothing recomputes them
-// per run (ADR 0003). The engine compiles each Source to bytecode when it
-// opens the program.
+// pipeline's textual stages (trimming, shortcuts, the helper rewrite, the
+// steps to prefetch, mode, bound names and the engine source, JE-5 to
+// JE-15), which depend on the site and the text alone, so the program
+// carries them and nothing recomputes them per run (ADR 0003). The engine
+// compiles each Source to bytecode when it opens the program.
 func compileExpr(site expr.SiteKind, text string) *expr.Expr {
 	return expr.Compile(site, text)
 }

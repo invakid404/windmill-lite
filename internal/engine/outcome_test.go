@@ -71,6 +71,11 @@ func TestManualFailure(t *testing.T) {
 		`{"x":1}`:                                   "",
 		`["wm_failure"]`:                            "",
 		`"wm_failure"`:                              "",
+		// Only an object carries the markers: an array that would fill
+		// the record by position (wm_labels, then wm_failure) marks
+		// nothing (FX-13 at 1.862.0).
+		`[[], "boom"]`:   "",
+		`[null, "boom"]`: "",
 		// Keys spelled with escapes are the same keys.
 		`{"\u0077m_failure":"esc"}`:                      `{"\u0077m_failure":"esc","error":{"name":"ManualFailure","message":"esc"}}`,
 		`{"wm\u005ffailure":"esc","wm_labels":[1]}`:      "",
@@ -196,25 +201,27 @@ func TestStoredEntrypoint(t *testing.T) {
 	}
 }
 
-// A step that its timeout ended fails with its boundary's text: WR-37's
-// for Bun, naming the limit that applied; WR-44's for native, the
-// duration in whole seconds, rounded down, whichever limit applied.
+// A step that its timeout ended fails with its boundary's text: FX-25's
+// for Bun, naming the process phase and the limit that applied, in whole
+// seconds, rounded down; WR-44's for native, the duration in whole
+// seconds, rounded down, whichever limit applied.
 func TestTimeoutError(t *testing.T) {
 	for _, tc := range []struct {
-		b            Boundary
-		step         string
-		d            time.Duration
-		instanceWide bool
-		want         string
+		b     Boundary
+		step  string
+		d     time.Duration
+		atMax bool
+		want  string
 	}{
-		{BoundaryBun, "a", time.Second, false, `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}`},
-		{BoundaryBun, "", time.Hour, true, `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding instance-wide job duration limit","name":"ExecutionErr"}}`},
+		{BoundaryBun, "a", time.Second, false, "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step\",\"name\":\"ExecutionErr\",\"step_id\":\"a\"}}"},
+		{BoundaryBun, "a", 2900 * time.Millisecond, false, "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 2s custom timeout set on the script or flow step\",\"name\":\"ExecutionErr\",\"step_id\":\"a\"}}"},
+		{BoundaryBun, "", 604800 * time.Second, true, "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 604800s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed\",\"name\":\"ExecutionErr\"}}"},
 		{BoundaryNative, "a", time.Second, false, `{"error":{"message":"execution error:\nQuery timeout after (>1s)","name":"ExecutionErr","step_id":"a"}}`},
 		{BoundaryNative, "a", 2900 * time.Millisecond, false, `{"error":{"message":"execution error:\nQuery timeout after (>2s)","name":"ExecutionErr","step_id":"a"}}`},
 		{BoundaryNative, "a", 604800 * time.Second, true, `{"error":{"message":"execution error:\nQuery timeout after (>604800s)","name":"ExecutionErr","step_id":"a"}}`},
 	} {
-		if got := string(TimeoutError(tc.b, tc.step, tc.d, tc.instanceWide).Producer()); got != tc.want {
-			t.Errorf("TimeoutError(%s, %q, %s, %v) = %s, want %s", tc.b, tc.step, tc.d, tc.instanceWide, got, tc.want)
+		if got := string(TimeoutError(tc.b, tc.step, tc.d, tc.atMax).Producer()); got != tc.want {
+			t.Errorf("TimeoutError(%s, %q, %s, %v) = %s, want %s", tc.b, tc.step, tc.d, tc.atMax, got, tc.want)
 		}
 	}
 }

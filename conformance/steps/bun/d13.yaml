@@ -144,7 +144,7 @@ cases:
       export function main() { throw new AppError("boom"); }
     runs:
       - args: '{}'
-        expect: {status: failure, result: {error: {message: boom, name: AppError, stack: "<stack>", step_id: a, extra: {code: 42}}}}
+        expect: {status: failure, result: {error: {message: boom, name: AppError, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_step/flow, extra: {code: 42}}}}
   - spec: D13
     variant: load-failure
     provenance: policy
@@ -181,8 +181,9 @@ cases:
     title: a script can tell the runtimes apart
     note: >-
       process.versions.bun exists only on Bun. Bun reports a Node version
-      of its own, and Windmill's image installs Node 20 (WR-50), so the
-      two process.version values differ as well.
+      of its own (v26.3.0 on Bun 1.4.3), and Windmill 1.862.0's image runs
+      Node v24.22.1 (WR-50), so the two process.version values differ as
+      well.
     codebase: {relative_path: f/wl_step}
     path: f/wl_step/cb_identity
     script: |

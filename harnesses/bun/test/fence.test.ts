@@ -93,6 +93,133 @@ test("a timer made after settlement is cleared at once; one outside every invoca
   expect(fired.sort()).toEqual(["module", "outside"]);
 });
 
+test("the timers Bun's networking modules set are a socket's, not the invocation's: a node:http client's and server's run on with their sockets; the step's own are fenced, also one a listener sets in a tail call, whose frame JavaScriptCore drops", async () => {
+  const http = require("node:http") as typeof import("node:http");
+  const { EventEmitter } = require("node:events") as typeof import("node:events");
+  const get = (url: string) =>
+    new Promise((resolve) => {
+      http.get(url, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      }).on("error", (e: NodeJS.ErrnoException) => resolve(e.code));
+    });
+  const c = context();
+  let server: import("node:http").Server | undefined;
+  try {
+    await invocations.run(c, async () => {
+      // The server tracks its connections; the client's agent keeps the
+      // socket alive, timing its idle time.
+      server = http.createServer((_req, res) => res.end("ok"));
+      await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
+      expect(await get(`http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/`)).toBe(200);
+      // Refused: the socket's handle is closed in a setImmediate.
+      expect(await get("http://127.0.0.1:1/")).toBe("ECONNREFUSED");
+      // The step's own: called directly, by a native function, and by a
+      // listener that node:events calls.
+      setTimeout(() => {}, 1000);
+      [() => {}].forEach(setImmediate);
+      const e = new EventEmitter();
+      e.on("tail", () => setTimeout(() => {}, 1000));
+      e.emit("tail");
+    });
+    expect(c.resources.settle()).toEqual({ immediate: 1, timeout: 2 });
+  } finally {
+    http.globalAgent.destroy();
+    server?.closeAllConnections();
+    server?.close();
+  }
+});
+
+test("a step's own callback that node:net calls keeps its timers fenced, also one it sets in a tail call, whose frame shows node:net as the caller; none fires after settlement", async () => {
+  const net = require("node:net") as typeof import("node:net");
+  type Lookup = (host: string, options: unknown, cb: (err: null, address: string, family: number) => void) => unknown;
+  const fired: string[] = [];
+  const sockets: import("node:net").Socket[] = [];
+  const connect = (lookup: Lookup) => {
+    const socket = net.connect({ host: "test.invalid", port: 1234, lookup: lookup as never });
+    socket.on("error", () => {});
+    sockets.push(socket);
+  };
+  const c = context();
+  try {
+    await invocations.run(c, async () => {
+      connect((_host, _options, cb) =>
+        setTimeout(() => {
+          fired.push("tail");
+          cb(null, "127.0.0.1", 4);
+        }, 30),
+      );
+      connect((_host, _options, cb) => {
+        setTimeout(() => {
+          fired.push("statement");
+          cb(null, "127.0.0.1", 4);
+        }, 30);
+      });
+      // Both lookups have run, and neither timer has fired.
+      await Bun.sleep(5);
+    });
+    expect(c.resources.settle()).toEqual({ timeout: 2 });
+    await Bun.sleep(60);
+    expect(fired).toEqual([]);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+  }
+});
+
+test("finding who set a timer runs none of the step's stack hooks, data, accessor, read-only or throwing, nor a replaced captureStackTrace, and puts each back as it was", () => {
+  const E = Error as unknown as Record<string, unknown>;
+  const keys = ["prepareStackTrace", "stackTraceLimit", "captureStackTrace"];
+  const saved = keys.map((k) => Object.getOwnPropertyDescriptor(E, k));
+  let calls = 0;
+  const hit = () => {
+    calls++;
+    throw new Error("a step's hook ran");
+  };
+  const cases: Record<string, PropertyDescriptor>[] = [
+    { prepareStackTrace: { value: hit, writable: true, configurable: true }, stackTraceLimit: { value: 0, writable: true, enumerable: true, configurable: true } },
+    { prepareStackTrace: { get: hit, set: hit, configurable: true }, stackTraceLimit: { get: hit, set: hit, configurable: true } },
+    { prepareStackTrace: { value: hit, writable: false, configurable: true }, stackTraceLimit: { value: 3, writable: false, configurable: true } },
+  ];
+  // Checked once the hooks are put back, since a failing expect reads them.
+  const seen: { before: unknown[]; after: unknown[]; left: Record<string, number>; thrown?: unknown }[] = [];
+  try {
+    for (const hooks of cases) {
+      for (const [k, d] of Object.entries(hooks)) Object.defineProperty(E, k, d);
+      Object.defineProperty(E, "captureStackTrace", { value: hit, writable: true, configurable: true });
+      const before = keys.map((k) => Object.getOwnPropertyDescriptor(E, k));
+      const c = context();
+      let thrown: unknown;
+      try {
+        invocations.run(c, () => setTimeout(() => {}, 1000));
+      } catch (e) {
+        thrown = e;
+      }
+      seen.push({ before, after: keys.map((k) => Object.getOwnPropertyDescriptor(E, k)), left: c.resources.settle(), thrown });
+    }
+  } finally {
+    keys.forEach((k, i) => (saved[i] === undefined ? delete E[k] : Object.defineProperty(E, k, saved[i]!)));
+  }
+  expect(calls).toBe(0);
+  for (const { before, after, left, thrown } of seen) {
+    expect(thrown).toBeUndefined();
+    expect(after).toEqual(before);
+    expect(left).toEqual({ timeout: 1 });
+  }
+});
+
+test("with Error frozen, so that its hooks cannot be swapped, a timer counts as the step's", () => {
+  const code = [
+    `import { installTimers, InvocationLog, InvocationResources, invocations } from ${JSON.stringify(join(import.meta.dir, "../runtime/context.ts"))};`,
+    "installTimers();",
+    "Object.freeze(Error);",
+    "const resources = new InvocationResources();",
+    'invocations.run({ id: "i", run: "r", env: {}, signal: new AbortController().signal, resources, work: resources, log: new InvocationLog() }, () => setTimeout(() => {}, 1000));',
+    "console.log(JSON.stringify(resources.settle()));",
+  ].join("\n");
+  const out = Bun.spawnSync([process.execPath, "-e", code], { stdout: "pipe", stderr: "pipe" });
+  expect([out.exitCode, out.stdout.toString().trim(), out.stderr.toString()]).toEqual([0, '{"timeout":1}', ""]);
+});
+
 test("util.promisify(setTimeout) keeps Bun's promise form", async () => {
   expect(await invocations.run(context(), () => promisify(setTimeout)(1, "v"))).toBe("v");
 });
@@ -169,6 +296,43 @@ test("a child started without an environment gets the invocation's; one given an
   // promisify(exec) keeps Node's {stdout, stderr} form (c3b review).
   expect(got).toEqual(["inv", "inv", "inv", "", "inv", "inv", '{"child":1}', "{}"]);
   expect(process.env.WL_FENCE_TEST_CHILD).toBeUndefined();
+});
+
+test("every child-process call gets the invocation's environment, Bun.spawn's and Bun.spawnSync's too, which Bun 1.4.3 would give the process's", async () => {
+  const cp = require("node:child_process");
+  const name = "WL_FENCE_TEST_EVERY_CALL";
+  const text = (s: unknown) => String(s).trim();
+  // With child groups (warm) and without (fresh), whose options differ.
+  const calls = () => invocations.run(context({ [name]: "inv" }), async () => {
+    const out: Record<string, string> = {};
+    out.spawn = await new Promise((resolve) => {
+      let s = "";
+      const child = cp.spawn("printenv", [name]);
+      child.stdout.on("data", (d: Buffer) => (s += d));
+      child.on("close", () => resolve(text(s)));
+    });
+    out.exec = await new Promise((resolve) => cp.exec(`printenv ${name}`, (_e: unknown, so: string) => resolve(text(so))));
+    out.execFile = await new Promise((resolve) => cp.execFile("printenv", [name], (_e: unknown, so: string) => resolve(text(so))));
+    out.promisifyExecFile = text((await promisify(cp.execFile)("printenv", [name])).stdout);
+    out.spawnSync = text(cp.spawnSync("printenv", [name]).stdout);
+    out.execSync = text(cp.execSync(`printenv ${name}`));
+    out.execFileSync = text(cp.execFileSync("printenv", [name]));
+    const child = Bun.spawn(["printenv", name]);
+    out.bunSpawn = text(await new Response(child.stdout).text());
+    await child.exited;
+    out.bunSpawnSync = text(Bun.spawnSync(["printenv", name]).stdout);
+    return out;
+  });
+  const every = { spawn: "inv", exec: "inv", execFile: "inv", promisifyExecFile: "inv", spawnSync: "inv", execSync: "inv", execFileSync: "inv", bunSpawn: "inv", bunSpawnSync: "inv" };
+  try {
+    for (const groups of [true, false]) {
+      setChildGroups(groups);
+      expect([groups, await calls()]).toEqual([groups, every]);
+    }
+  } finally {
+    setChildGroups(true);
+  }
+  expect(process.env[name]).toBeUndefined();
 });
 
 /** The process group of pid, or undefined once no process has pid. */
@@ -267,6 +431,63 @@ test("a synchronous call's child stays in the caller's group and registers nothi
   ]);
   expect(groups).toEqual([own, own, own]);
   expect(c.resources.pending()).toEqual({});
+});
+
+test("a synchronous call the step starts detached leads a group of its own, as Bun 1.4.3 honours it for spawnSync, execSync and execFileSync; what it left there is detached, never announced or killed (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const own = pgidOf(process.pid);
+  const announced: number[] = [];
+  setChildAnnouncer((id, pid) => {
+    record(id, pid);
+    announced.push(pid);
+  });
+  // The shell leaves a sleep behind and prints its pid and its own.
+  const sh = "sleep 30 </dev/null >/dev/null 2>&1 & echo $! $$";
+  const calls = [
+    () => String(cp.spawnSync("sh", ["-c", sh], { detached: true }).stdout),
+    () => String(cp.execSync(sh, { detached: true })),
+    () => String(cp.execFileSync("sh", ["-c", sh], { detached: true })),
+    () => new TextDecoder().decode(Bun.spawnSync(["sh", "-c", sh], { detached: true }).stdout),
+  ];
+  // Each call's sleep and shell, kept as soon as the call returns, so that
+  // the cleanup below reaches them when a later call throws or an
+  // assertion fails.
+  const started: { sleep: number; shell: number }[] = [];
+  const c = context();
+  try {
+    invocations.run(c, () => {
+      for (const call of calls) {
+        const [sleep, shell] = call().trim().split(/\s+/).map(Number);
+        started.push({ sleep, shell });
+      }
+    });
+    for (const { sleep, shell } of started) {
+      expect(shell).not.toBe(own);
+      expect(pgidOf(sleep)).toBe(shell);
+    }
+    expect(c.resources.pending()).toEqual({ detached: 4 });
+    expect(c.resources.settle()).toEqual({ detached: 4 });
+    expect(announced).toEqual([]);
+    await Bun.sleep(20);
+    expect(started.every(({ shell }) => groupAlive(shell))).toBe(true);
+  } finally {
+    setChildAnnouncer(record);
+    for (const { sleep, shell } of started) {
+      // The shell's group, unless the call left it in the test runner's
+      // own, which is never signalled; then the sleep itself, in case it is
+      // not in that group.
+      const targets = [shell > 1 && shell !== own ? -shell : 0, sleep > 1 ? sleep : 0];
+      for (const target of targets.filter((t) => Number.isInteger(t) && t !== 0)) {
+        try {
+          process.kill(target, "SIGKILL");
+        } catch {
+          // gone
+        }
+      }
+    }
+  }
 });
 
 test("exec and execFile, where Bun ignores the step's detached, start a child in a group of its own, announced to the engine with its invocation (WR-55)", async () => {

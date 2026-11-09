@@ -1,10 +1,11 @@
 finding: OR-27
 note: >-
-  OR-27 is the oracle's recording of FX-48 case 1. The entry checks the
-  rejection and the database message recorded on the oracle; rest_in names
-  where the step's outcome is checked. OR-27/b's expectations are step
-  outcomes, recorded in conformance/flows/oracle/nul, and it is in
-  deferred.yaml.
+  OR-27 is the oracle's recording of FX-48 case 1. The entry checks jsonb's
+  own rejection of the escape and its database message, which PostgreSQL
+  keeps: since Windmill 1.768.0 the completion removes the NUL before the
+  insert, so the step succeeds; rest_in names where the step's outcome is
+  checked. OR-27/b's expectations are step outcomes, recorded in
+  conformance/flows/oracle/nul, and it is in deferred.yaml.
 cases:
   - spec: OR-27/a
     provenance: oracle-observed
@@ -14,4 +15,4 @@ cases:
       reject:
         kind: nul
         database: unsupported Unicode escape sequence
-    rest_in: N1b, which fails the step and the root with InternalErr and no step_id
+    rest_in: the engine, which removes the NUL before it stores the result (internal/jsonval's WithoutNUL), so the step and the root succeed with "xy" (conformance/flows/oracle/nul, run nul)

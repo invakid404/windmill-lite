@@ -23,8 +23,8 @@ import (
 
 const (
 	schemaFile   = "schema/openflow.openapi.yaml"
-	schemaSHA256 = "6e1a84317bff02fefdd0bfee7092dbc46ddb0f1120ce5e039c9ebf8094d138e3"
-	schemaPin    = "1.767.0"
+	schemaSHA256 = "9f4b6d76a05874998de2b0dc8db12ad6f8520df7da2323d065f8b0f8e666972b"
+	schemaPin    = "1.862.0"
 )
 
 type schemaMapping struct {
@@ -98,6 +98,7 @@ func coverageMap() map[string]schemaMapping {
 			opaque: map[string]string{
 				"assets":           "not executed; kept verbatim",
 				"input_transforms": "a map of input transforms by parameter name (OF-9); AiAgent's listed keys are conventions, not fields",
+				"tool_inputs":      "AiAgent's tool input wiring, checked as a map and kept verbatim; the kind is out of scope (OF-9)",
 			},
 		},
 		"BranchOne.branches[]": {
@@ -115,7 +116,12 @@ func coverageMap() map[string]schemaMapping {
 			},
 		},
 		"AgentTool": {decoded: fieldNames(agentToolFields)},
-		"ToolValue": {decoded: tool},
+		"ToolValue": {
+			decoded: tool,
+			ignored: map[string]string{
+				"timeout": "QuestionToolValue's own field: the decoder accepts the tool types OF-9 lists (flowmodule, mcp, websearch), not question",
+			},
+		},
 	}
 }
 

@@ -1,9 +1,10 @@
 // Command wltest is windmill-lite's conformance and oracle runner (ADR
-// 0011). It has three verbs so far:
+// 0011). It has four verbs so far:
 //
 //	wltest record [flags] <fixture, expression file or directory>...
 //	wltest stub --out <dir> <sync tree>
 //	wltest check [flags] <step file, fixture or directory>...
+//	wltest ledger [--repo DIR]
 //
 // record runs flow fixtures, and the expression cases of conformance/exprs
 // lifted into generated one-step flows, on the pinned Windmill CE oracle
@@ -11,7 +12,9 @@
 // stubbed, with the replay service answering from each run's table. stub
 // writes a stubbed copy of a sync tree. check runs the step cases of
 // conformance/steps on windmill-lite's Bun harness (milestone C3a) and the
-// flow fixtures of conformance/flows on its engine (milestone E1). diff,
+// flow fixtures of conformance/flows on its engine (milestone E1). ledger
+// fails while a retarget ledger or any of its markers exists (ledger.go).
+// diff,
 // which would run the oracle and windmill-lite live and compare them, is
 // not implemented: no milestone of ADR 0012 has it yet.
 package main
@@ -49,9 +52,10 @@ func main() {
 const usage = `usage: wltest record [flags] <fixture, expression file or directory>...
        wltest stub --out <dir> <sync tree>
        wltest check [flags] <step file, fixture or directory>...
+       wltest ledger [--repo DIR]
 
 record runs flow fixtures, and expression-case files lifted into generated
-one-step flows, on the Windmill CE v1.767.0 oracle and writes their
+one-step flows, on the Windmill CE v1.862.0 oracle and writes their
 recordings with provenance. Run wltest record -h for its flags.
 stub copies a sync tree to <dir> with every Bun script body replaced by a
 replay stub (ADR 0011).
@@ -61,7 +65,9 @@ compares each step's stored value with the case's, and runs flow fixtures
 (conformance/flows) on windmill-lite, in warm mode, with --mode fresh, or
 with --mode host on a Bun host that embeds the host SDK, and compares each
 run's observation with its expect or recording. Run wltest check -h for
-its flags. diff is not implemented yet.
+its flags. ledger fails while the retarget ledger file or any of its
+markers exists, and lists the markers.
+diff is not implemented yet.
 `
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -76,6 +82,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return stub(args[1:], stdout, stderr)
 	case "check":
 		return check(ctx, args[1:], stdout, stderr)
+	case "ledger":
+		return ledger(args[1:], stdout, stderr)
 	case "diff":
 		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0011; no milestone of ADR 0012 has it): wltest check compares windmill-lite with the committed recordings\n", args[0])
 		return 2
@@ -92,6 +100,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	check := fs.Bool("check", false, "fail when a run has no committed recording or its observation differs from it; never write into fixtures")
 	out := fs.String("out", "", "write new and changed recordings under this directory instead of in place")
+	mismatched := fs.String("mismatched", "", "write the observation of every run that does not match its expect, as a recording, under this directory")
 	raw := fs.String("raw", "", "write the raw API captures of every run under this directory")
 	report := fs.String("report", "", "write the session report (JSON) to this file")
 	repeat := fs.Int("repeat", 1, "run every run this many times and require equal observations")
@@ -195,6 +204,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		RegenerateMetadata: *regen,
 		Check:              *check,
 		OutDir:             *out,
+		MismatchDir:        *mismatched,
 		RawDir:             *raw,
 		RepoRoot:           root,
 		Harness:            harnessInfo(),
@@ -218,26 +228,40 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "wltest:", runErr)
 	}
-	for _, r := range rep.Runs {
-		line := fmt.Sprintf("%-10s %s %s", r.Outcome, r.Fixture, r.Run)
-		if r.Wrote != "" {
-			line += " -> " + r.Wrote
-		}
-		fmt.Fprintln(stdout, line)
-		if r.Error != "" {
-			fmt.Fprintln(stdout, "  error:", r.Error)
-		}
-		for _, d := range r.Differences {
-			fmt.Fprintln(stdout, "  "+d)
-		}
-		if r.Failed(*check) {
-			failed = true
-		}
+	if printRuns(stdout, rep.Runs, *check) {
+		failed = true
 	}
 	if failed {
 		return 1
 	}
 	return 0
+}
+
+// printRuns prints one line per run, then the file holding a mismatched
+// run's observation, any error and the differences, and reports whether a
+// run failed the session.
+func printRuns(w io.Writer, runs []oracle.RunReport, check bool) bool {
+	failed := false
+	for _, r := range runs {
+		line := fmt.Sprintf("%-10s %s %s", r.Outcome, r.Fixture, r.Run)
+		if r.Wrote != "" {
+			line += " -> " + r.Wrote
+		}
+		fmt.Fprintln(w, line)
+		if r.Observation != "" {
+			fmt.Fprintln(w, "  observation:", r.Observation)
+		}
+		if r.Error != "" {
+			fmt.Fprintln(w, "  error:", r.Error)
+		}
+		for _, d := range r.Differences {
+			fmt.Fprintln(w, "  "+d)
+		}
+		if r.Failed(check) {
+			failed = true
+		}
+	}
+	return failed
 }
 
 // stub writes the stubbed copy of a sync tree (ADR 0011 stub mode). Its

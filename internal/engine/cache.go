@@ -239,13 +239,16 @@ func (e *Engine) cacheGet(ctx context.Context, key string, now time.Time) (cache
 
 // cachePut stores v, of origin and nested, under key until now, rounded
 // down to the second, plus ttl, as Windmill writes an entry's expiry in
-// whole Unix seconds ([FX-40]). A value jsonb refuses is never stored,
-// since no job completes with it ([FX-48]).
+// whole Unix seconds ([FX-40]). The entry is the job's stored result, v
+// without its NUL escapes ([FX-48]), whether the caller passes the stored
+// copy (a leaf's job) or the value carried in memory (a flow's, whose last
+// module's result kept them); a value jsonb still refuses is never stored,
+// since no job completes with it.
 //
 // [FX-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-48
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
 func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl time.Duration, v jsonval.Value, origin Origin, nested []string) error {
-	stored, err := v.Stored()
+	stored, err := v.WithoutNUL().Stored()
 	if err != nil {
 		return nil
 	}

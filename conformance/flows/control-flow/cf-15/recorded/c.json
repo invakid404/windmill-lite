@@ -10,8 +10,10 @@
         "error": {
           "name": "Error",
           "stack": "<stack>",
+          "job_id": "<job:m:ba/b:1/m:b1>",
           "message": "b",
-          "step_id": "b1"
+          "step_id": "b1",
+          "flow_path": "f/cf15/sequential_fail/branchall-1"
         }
       }
     ],
@@ -34,8 +36,10 @@
             "error": {
               "name": "Error",
               "stack": "<stack>",
+              "job_id": "<job:m:ba/b:1/m:b1>",
               "message": "b",
-              "step_id": "b1"
+              "step_id": "b1",
+              "flow_path": "f/cf15/sequential_fail/branchall-1"
             }
           }
         ]
@@ -59,8 +63,10 @@
           "error": {
             "name": "Error",
             "stack": "<stack>",
+            "job_id": "<job:m:ba/b:1/m:b1>",
             "message": "b",
-            "step_id": "b1"
+            "step_id": "b1",
+            "flow_path": "f/cf15/sequential_fail/branchall-1"
           }
         }
       }
@@ -68,19 +74,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261028125853-14b36aa88aec",
-      "revision": "14b36aa88aec74ba9f1ae702f9f9d8a4810e5aeb",
+      "version": "v0.0.0-20261106214647-3678528a0b25",
+      "revision": "3678528a0b25e00b4e168aa14a2fd6911028619e",
       "go": "go1.27.3"
     },
     "host": {
@@ -88,62 +94,62 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40692334073"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42299510925"
     },
-    "recorded_at": "2026-10-28T13:10:44Z",
+    "recorded_at": "2026-11-06T21:51:00Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:37389"
+      "WL_EFFECT_SINK": "http://host.docker.internal:42993"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 407,
+      "submit_to_complete_ms": 408,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-28T13:10:43.754852Z",
-          "started_at": "2026-10-28T13:10:43.764568Z",
-          "completed_at": "2026-10-28T13:10:43.964894Z",
-          "duration_ms": 200
+          "created_at": "2026-11-06T21:51:00.173829Z",
+          "started_at": "2026-11-06T21:51:00.222084Z",
+          "completed_at": "2026-11-06T21:51:00.408323Z",
+          "duration_ms": 186
         },
         "m:a": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.765921Z",
-          "started_at": "2026-10-28T13:10:43.768019Z",
-          "completed_at": "2026-10-28T13:10:43.790572Z",
-          "duration_ms": 20
+          "created_at": "2026-11-06T21:51:00.223525Z",
+          "started_at": "2026-11-06T21:51:00.226500Z",
+          "completed_at": "2026-11-06T21:51:00.241539Z",
+          "duration_ms": 13
         },
         "m:ba/b:0": {
           "kind": "flowpreview",
-          "created_at": "2026-10-28T13:10:43.794450Z",
-          "started_at": "2026-10-28T13:10:43.842935Z",
-          "completed_at": "2026-10-28T13:10:43.878882Z",
-          "duration_ms": 36
+          "created_at": "2026-11-06T21:51:00.245137Z",
+          "started_at": "2026-11-06T21:51:00.295202Z",
+          "completed_at": "2026-11-06T21:51:00.321221Z",
+          "duration_ms": 26
         },
         "m:ba/b:0/m:b0": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.848107Z",
-          "started_at": "2026-10-28T13:10:43.850985Z",
-          "completed_at": "2026-10-28T13:10:43.875020Z",
-          "duration_ms": 21
+          "created_at": "2026-11-06T21:51:00.300778Z",
+          "started_at": "2026-11-06T21:51:00.302925Z",
+          "completed_at": "2026-11-06T21:51:00.318291Z",
+          "duration_ms": 13
         },
         "m:ba/b:1": {
           "kind": "flowpreview",
-          "created_at": "2026-10-28T13:10:43.881767Z",
-          "started_at": "2026-10-28T13:10:43.926256Z",
-          "completed_at": "2026-10-28T13:10:43.960396Z",
+          "created_at": "2026-11-06T21:51:00.324676Z",
+          "started_at": "2026-11-06T21:51:00.370098Z",
+          "completed_at": "2026-11-06T21:51:00.404136Z",
           "duration_ms": 34
         },
         "m:ba/b:1/m:b1": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.929696Z",
-          "started_at": "2026-10-28T13:10:43.932660Z",
-          "completed_at": "2026-10-28T13:10:43.956047Z",
-          "duration_ms": 23
+          "created_at": "2026-11-06T21:51:00.375736Z",
+          "started_at": "2026-11-06T21:51:00.379379Z",
+          "completed_at": "2026-11-06T21:51:00.399530Z",
+          "duration_ms": 20
         }
       }
     },
@@ -258,7 +264,7 @@
                     }
                   ],
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 },
                 {
                   "expr": "",
@@ -297,7 +303,7 @@
                     }
                   ],
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 }
               ],
               "parallel": false
@@ -342,7 +348,7 @@
                   ],
                   "expr": "",
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 },
                 {
                   "modules": [
@@ -381,7 +387,7 @@
                   ],
                   "expr": "",
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 }
               ],
               "parallel": false

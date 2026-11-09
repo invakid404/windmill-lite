@@ -13,11 +13,15 @@ expect:
     "m:a":
       status: failure
       args: {msg: x}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
-      carried: {error: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx28/throw_handler}}
+      carried: {error: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n @worker_flow.rs:2666:11 @worker_flow.rs:1781:32"}
     "s:failure": {status: success, args: {x: string}, result: string}
 note: >-
   Corrected after recording. The prediction had FX-21's string, one
   "Error: " prefix and one location suffix; oracle run 40818457347 recorded
   a second prefix and a second suffix, @worker_flow.rs:1710:32, the
-  completion's conversion of retry_if's error.
+  completion's conversion of retry_if's error. The oracle does not observe
+  the carried string; on CE v1.862.0 it is the string that run
+  throw_no_handler records as its result, with the expression wrapper's
+  frames and columns moved and the suffixes @worker_flow.rs:2666:11 and
+  @worker_flow.rs:1781:32.

@@ -78,7 +78,9 @@ func loadFrames(t *testing.T) (string, framesFile) {
 }
 
 // TestFrameCases runs the shared codec cases. With -update it rewrites the
-// payloads and part frames from Go's encoder.
+// payloads and part frames from Go's encoder. Without it, the file must be
+// exactly what -update writes, so that -update changes only what the
+// encoder changes.
 func TestFrameCases(t *testing.T) {
 	path, f := loadFrames(t)
 	if f.Level != "protocol" || f.Provenance != "policy" || len(f.Cases) == 0 {
@@ -105,17 +107,25 @@ func TestFrameCases(t *testing.T) {
 			}
 		})
 	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(f); err != nil {
+		t.Fatal(err)
+	}
 	if *update {
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetEscapeHTML(false)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(f); err != nil {
-			t.Fatal(err)
-		}
 		if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(b, buf.Bytes()) {
+		t.Errorf("%s is not as -update writes it: run go test ./internal/harness -run TestFrameCases -args -update", framesPath)
 	}
 }
 

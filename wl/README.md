@@ -32,7 +32,7 @@ A runtime runs bundles built with the shared code of
 
 | File | Contents |
 |---|---|
-| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
+| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; `Clock`, `RealClock`, `RecordClock`, `Jitter`, `SeededJitter`, `ErrPreWriteDeadline` (H4, H10); the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `FatalError`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs it serves |
@@ -81,7 +81,7 @@ A runtime runs bundles built with the shared code of
    Harness processes start lazily, on the first step: one pool of warm
    processes, or one process per step in `fresh` mode, on `Options.Bun`
    (`bun` on the `PATH` by default), whose handshake checks the harness's
-   kind, the pinned Bun 1.3.10 and the bundle digest. A warm process reaches
+   kind, the pinned Bun 1.4.3 and the bundle digest. A warm process reaches
    the facade through its intercepted `fetch`, a fresh one over loopback
    TCP. Their working directories are under `<data>/work`.
 7. **Engine.** The program's expressions are compiled once, on a
@@ -195,6 +195,12 @@ site's stored arguments and returns an `Outcome`, once per attempt. A
 mandatory provider cannot decline: declining latches the run with
 `ErrProviderDeclined` (`provider_declined`), and the run fails closed. The
 site's record has `Ran` set, no job, and `provided` among its hooks.
+
+**Sealed arguments.** A step stores an argument computed from a secret
+`flow_env` entry sealed, as an `$encrypted:` value that only the engine
+opens ([JE-38](../docs/semantics/expressions.md#je-38)). An interceptor's or
+a rewriter's `Call` therefore holds it sealed. A provided site stores it in
+clear, since its provider runs outside the engine.
 
 **Per-run providers** (H13). `RunOptions.Platform` gives a run its own
 resources and variables, over the runtime's at the same paths, and its
@@ -395,7 +401,7 @@ bridge).
      the error names it as the host SDK's run options do, such as
      `the run's haltAfter[0]`.
 
-## BuildInfo and Close
+## BuildInfo, PlatformOrigin and Close
 
 `BuildInfo()` reports the bundle digest, the engine version, the Bun and
 esbuild versions, the harness runtime digests, the module state in effect,
@@ -412,6 +418,14 @@ bundle has it and steps run warm, as in host mode. [D18](../docs/design/0001-equ
 differences of shared code, is then among the deviations, as warm mode's
 are. A run's trace records shared code too (`Trace.SharedCode`, and
 `shared_code` in the trace that a host plugin reads).
+
+`PlatformOrigin()` is the origin at which the runtime's steps reach its
+platform facade: the one where nothing listens, which a warm or host-mode
+process reaches through its intercepted `fetch`, or in `fresh` mode the
+loopback one it reaches over TCP. A step reads it as `BASE_URL`, and a
+native step as `BASE_INTERNAL_URL` too
+([WR-45](../docs/semantics/languages.md#wr-45)); `cmd/wltest` compares it
+as the oracle's base URL.
 
 `Close()` stops admitting runs, cancels the runs in flight and the
 dispatcher's and waits for them, then drains the harness pool (in host

@@ -11,6 +11,8 @@ expect:
         stack: "<stack>"
         message: one
         step_id: l
+        job_id: "<job:m:l/i:0/m:b>"
+        flow_path: f/cf6/absent_skip
     - 2
   steps:
     "m:l":
@@ -21,6 +23,8 @@ expect:
             stack: "<stack>"
             message: one
             step_id: l
+            job_id: "<job:m:l/i:0/m:b>"
+            flow_path: f/cf6/absent_skip
         - 2
     "m:l/i:0/m:b":
       status: failure
@@ -31,4 +35,6 @@ expect:
           stack: "<stack>"
           message: one
           step_id: l
+          job_id: "<job:m:l/i:0/m:b>"
+          flow_path: f/cf6/absent_skip
     "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}

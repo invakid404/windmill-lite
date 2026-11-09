@@ -776,10 +776,11 @@ func (cfg *CodebaseConfig) buildGroup(ctx context.Context, bc *BunConfig, g *cod
 // builtins are the specifiers that name a module the runtime has built
 // in, as the build helper lists them on its Bun (the kept op): each name
 // that node:module's builtinModules lists, alone or after node:, that
-// Bun's resolver resolves to a built-in module. Bun 1.3.10 resolves
+// Bun's resolver resolves to a built-in module. Bun 1.4.3 resolves
 // node:fs/promises, for example, but not node:ws or node:bun:sqlite, whose
-// names it lists only bare. The build requires that Bun to be the pinned
-// Bun 1.3.10 unless BunConfig.AllowBunMismatch is set. The runtime
+// names it lists only bare, and lists node:sqlite only with its prefix.
+// The build requires that Bun to be the pinned Bun 1.4.3 unless
+// BunConfig.AllowBunMismatch is set. The runtime
 // resolves an import of one to the same module from every file, and a
 // require of one loads it as an import does. So neither a static import
 // nor an import() of one costs a script its shared layout.

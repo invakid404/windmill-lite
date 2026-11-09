@@ -1,7 +1,9 @@
 # OF-7/d: the previews (flowpreview) of F7-seq, F7-par and F7-ba: with the
 # flag explicitly true each preview matches its deployed run: the failures
 # are kept as values.
-spec: [OF-7/d]
+# On CE 1.862.0 each error names the job of its preview's failed step,
+# which the walk does not reach (OR-14/c).
+spec: [OF-7/d, OR-14/c]
 target: f/wl_ofd/preview_true
 expect:
   status: success

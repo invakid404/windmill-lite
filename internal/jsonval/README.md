@@ -125,7 +125,17 @@ FX-48 says.
 | `ErrSyntax` | anything that is not one JSON value in valid UTF-8 | `invalid input syntax for type json` | producers never write it |
 
 `HasNUL` is the one rejection known without canonicalising, as ADR 0005
-specifies. The reference states only the NUL case. Whether Windmill fails a
+specifies. Windmill removes every NUL escape from a job's result and
+arguments before it stores them, so a NUL never reaches `jsonb` there
+([OR-27](../../docs/semantics/oracle.md#or-27),
+[FX-48](../../docs/semantics/execution.md#fx-48)). `StripNUL` removes them
+from a text as Windmill does: only a real escape, whose backslash is not
+itself escaped, in keys and values at any depth. `WithoutNUL` gives the
+`Value` of that text, or the same `Value` when it holds none; of two keys the
+removal makes equal, its stored text keeps the last, as `jsonb` does.
+`Stored` itself still rejects a NUL, as `jsonb` input does, and the engine
+strips the stored copy first at those two boundaries. The reference states
+only the NUL case. Whether Windmill fails a
 step whose result holds an unpaired surrogate or an out-of-range number, as
 PostgreSQL's rejection implies, is request 4 to the semantics team
 ([docs/design](../../docs/design/README.md)).

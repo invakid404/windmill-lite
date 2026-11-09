@@ -1,0 +1,16 @@
+# FX-37/c: early_return names l, a sequential loop inside the chosen branch
+# of a branchone. Once l completes, run-and-wait answers with its array,
+# assembled from its children's results (compact JSON), and l's success
+# read from its entry in the branch's flow job; the flow then completes
+# with b's 2.
+spec: [FX-37/c]
+target: f/wl_fx37b/loop_in_branch
+submit: run_wait_result
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:bo": {status: success, result: [1, 2]}
+    "m:bo/b:0/m:l": {status: success, result: [1, 2]}
+    "m:b": {status: success, result: 2}
+  response: {status: 200, content_type: application/json, body: '[1,2]'}

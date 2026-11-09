@@ -1,0 +1,14 @@
+summary: "WR-5/g: a whole-value $var: whose variable is missing"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          x: {type: static, value: "$res:f/wl_wv/rx"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

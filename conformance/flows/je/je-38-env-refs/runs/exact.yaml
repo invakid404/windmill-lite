@@ -1,0 +1,14 @@
+# JE-38/e: exact reads, in the dot and the bracket spelling, store the env's
+# entries as written, the secret variable's reference included; the script
+# job resolves both references, so b receives the variables' values.
+spec: [JE-38/e]
+target: f/wl_je38/exact
+expect:
+  status: success
+  result: {x: plain, "y": hidden, z: lit}
+  steps:
+    "m:b":
+      status: success
+      args: {x: "$var:f/wl_je38/v", "y": "$var:f/wl_je38/s", z: lit}
+      resolved_args: {x: plain, "y": hidden, z: lit}
+      result: {x: plain, "y": hidden, z: lit}

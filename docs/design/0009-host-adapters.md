@@ -121,7 +121,7 @@ is `harnesses/`, whose [README](../../harnesses/README.md) describes it.
   stamps the same into the SDK's harness version, so the handshake pairs
   the SDK only with the engine of its release.
 - **Built JavaScript and declarations.** The package ships the SDK and the
-  harness runtime bundled by Bun 1.3.10, as the host-mode tests bundle
+  harness runtime bundled by Bun 1.4.3, as the host-mode tests bundle
   them, and `.d.ts` declarations. A host's `tsc` never checks the
   runtime's code under the host's own compiler options. Each entry is an
   ES module, and the runtime module that both entries import is an ES
@@ -187,7 +187,7 @@ package.
 
 **Bun and Node.** The entry imports only `runtime/context.ts`, which reads
 no Bun global when it is evaluated or in what the entry calls. So the entry
-runs on Bun 1.3.10 and on Node 22 or newer, the oldest Node major that the
+runs on Bun 1.4.3 and on Node 22 or newer, the oldest Node major that the
 Node.js project still maintains, for host test suites on Node test runners
 such as vitest. Its declarations need no Bun types, and the packaging test
 runs it on both.

@@ -2,15 +2,19 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
 // waitResult polls a dispatched run until it has completed.
@@ -93,7 +97,7 @@ func TestDispatcherRunsRoots(t *testing.T) {
 		}
 	}
 	var pe *platform.Error
-	for _, args := range []string{`[]`, `"x"`, `{"a":"\u0000"}`} {
+	for _, args := range []string{`[]`, `"x"`, `{"a":"\ud800"}`} {
 		if _, err := dispatch(platform.DispatchScript, "f/t/echo", args); !errors.As(err, &pe) || pe.HTTPStatus() != 400 {
 			t.Errorf("arguments %s: %v", args, err)
 		}
@@ -103,14 +107,71 @@ func TestDispatcherRunsRoots(t *testing.T) {
 	}
 }
 
+// FX-48/d: a run request whose arguments hold a NUL escape, in a value or
+// in a key, is accepted, as Windmill's run API accepts it since 1.826.0:
+// the push removes the NUL, so the run starts with, and stores, the
+// arguments without it.
+func TestDispatchRemovesNUL(t *testing.T) {
+	s := &scripts{}
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("s", js("flow_input.s")), ""))}, s, testServices(t))
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	for _, c := range []struct {
+		kind         platform.DispatchKind
+		target, args string
+		result       string
+	}{
+		{platform.DispatchFlow, "f/t/main", `{"s": "x\u0000y"}`, `{"s":"xy"}`},
+		{platform.DispatchScript, "f/t/echo", `{"s": "x\u0000y"}`, `{"s":"xy"}`},
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1}`, `{"k":1}`},
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "k": 2}`, `{"k":2}`},
+		{platform.DispatchScript, "f/t/echo", `{"k": 2, "k\u0000": 1}`, `{"k":2}`},
+		// A name given twice keeps its last value, however it is spelled.
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "k\u0000": 2}`, `{"k":2}`},
+		{platform.DispatchScript, "f/t/echo", `{"k\u0000": 1, "\u006b\u0000": 2}`, `{"k":2}`},
+		{platform.DispatchFlow, "f/t/main", `{"s\u0000": "a", "s\u0000": "b"}`, `{"s":"b"}`},
+	} {
+		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: c.kind, Target: c.target, Args: []byte(c.args)})
+		if err != nil {
+			t.Fatalf("%s %s: %v", c.target, c.args, err)
+		}
+		if r := waitResult(t, d, id); !r.Success || string(r.Result) != c.result {
+			t.Errorf("%s %s: %+v %s; want %s", c.target, c.args, r, r.Result, c.result)
+		}
+	}
+	// Removing a NUL repairs nothing else: a request that is not one JSON
+	// object is refused with a NUL as without one, and starts no job; so
+	// is a run's or a script run's input.
+	n := len(s.invs)
+	for _, args := range []string{`{"s":"x"}!`, `{"s":"x\u0000y"}!`, `{"s":"x"} {}`, `{"s":"x\u0000y"} {}`} {
+		for _, kind := range []platform.DispatchKind{platform.DispatchFlow, platform.DispatchScript} {
+			target := map[platform.DispatchKind]string{platform.DispatchFlow: "f/t/main", platform.DispatchScript: "f/t/echo"}[kind]
+			id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: kind, Target: target, Args: []byte(args)})
+			var pe *platform.Error
+			if id != "" || !errors.As(err, &pe) || pe.HTTPStatus() != 400 {
+				t.Errorf("%s %s: id %q, error %v; want a 400 and no job", kind, args, id, err)
+			}
+		}
+		if _, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(args))}); err == nil {
+			t.Errorf("Run %s: no error", args)
+		}
+		if _, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/echo", Args: jsonval.FromProducer([]byte(args))}); err == nil {
+			t.Errorf("RunScript %s: no error", args)
+		}
+	}
+	if len(s.invs) != n {
+		t.Fatalf("a refused request ran %v", s.calls()[n:])
+	}
+}
+
 // FX-48/d, FX-51/d, FX-51/e: a run request whose arguments jsonb refuses
 // is refused with no job, as Windmill's run API answers it, with HTTP 400
-// and a plain-text body: the database error, SqlErr, for a NUL in a value
-// or a key, a number beyond numeric's range and an unpaired surrogate in a
-// value; and, for an unpaired surrogate in a top-level key, which the API
-// decodes first, Bad request: invalid json with the JSON library's message
-// and position, which internal/platform's reader of that library's rules
-// gives too.
+// and a plain-text body: the database error, SqlErr, for a number beyond
+// numeric's range and an unpaired surrogate in a value; and, for an
+// unpaired surrogate in a top-level key, which the API decodes first, Bad
+// request: invalid json with the JSON library's message and position,
+// which internal/platform's reader of that library's rules gives too. A
+// NUL refuses nothing (TestDispatchRemovesNUL).
 func TestDispatchRefusesUnstorableArguments(t *testing.T) {
 	s := &scripts{}
 	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("s", js("flow_input.s")), ""))}, s, testServices(t))
@@ -120,8 +181,6 @@ func TestDispatchRefusesUnstorableArguments(t *testing.T) {
 		args, body string
 		key        bool
 	}{
-		{`{"s": "x\u0000y"}`, "SqlErr: error returned from database: unsupported Unicode escape sequence", false},
-		{`{"k\u0000": 1}`, "SqlErr: error returned from database: unsupported Unicode escape sequence", false},
 		{`{"x": 1e131072}`, "SqlErr: error returned from database: value overflows numeric format", false},
 		{`{"k": "\ud83d"}`, "SqlErr: error returned from database: invalid input syntax for type json", false},
 		{`{"k\ud83d": 1}`, "Bad request: invalid json: unexpected end of hex escape at line 1 column 10", true},
@@ -201,21 +260,116 @@ func TestDispatcherDetachedAndClose(t *testing.T) {
 	}
 }
 
-// A script job's own timeout fails it with the worker's text, without a
-// step id (WR-37); f/t/zero's metadata asks for 0 s.
+// A script job's timeout fails it with the worker's text, without a step
+// id (WR-37, FX-25); f/t/zero's metadata asks for 0 s, which is unset
+// (FX-24), so the instance maximum applies.
 func TestRunScriptTimeout(t *testing.T) {
 	g := &gate{release: make(chan struct{}), started: make(chan Invocation, 1)}
 	e := openWithPlatform(t, map[string]string{}, g, &platform.Services{})
+	e.cap = 20 * time.Millisecond
 	r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/zero", Args: jsonval.FromProducer([]byte(`{}`))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr"}}`
+	want := "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 0s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed\",\"name\":\"ExecutionErr\"}}"
 	if !r.Failed || string(r.Result.Producer()) != want {
 		t.Errorf("%+v %s", r, r.Result.Producer())
 	}
 	if _, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/none", Args: jsonval.FromProducer([]byte(`{}`))}); err == nil {
 		t.Error("a script that is not a root")
+	}
+}
+
+// FX-24 path 1, FX-25, FX-38, ADR 0007: a script job that windmill-lite
+// canceled, a Bun job its process timeout killed or one its run's
+// cancellation killed, is stored canceled. While the parent its dispatch
+// tracked it in lives, its record is not served, as a canceled step's is
+// not, though its arguments are; its result is still a failure, which the
+// dispatcher's result poll reports. A native job's timeout leaves an
+// ordinary failed job, whose record is served.
+func TestRunScriptCanceledRecord(t *testing.T) {
+	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
+	if jsErr != nil {
+		t.Fatal(jsErr)
+	}
+	fsys := testFolder(nil)
+	// f/t/headed is a //native script (bunnative).
+	fsys["f/t/headed.ts"] = &fstest.MapFile{Data: []byte("//native\nexport async function main() { return null }\n")}
+	folder, err := syncfolder.Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer folder.Close()
+	prog, err := ir.Compile(folder, nil, ir.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := &platform.Services{}
+	e, err := New(Config{Program: prog, Bundle: "sha256:test", Exec: waits{}, JS: jsEng, Platform: services})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The instance maximum times every job out.
+	e.cap = 20 * time.Millisecond
+	defer services.JobRegistry().Begin(platform.Job{ID: "parent", Kind: platform.JobFlow, Root: "parent"})()
+
+	// A Bun job dispatched tracked in the parent times out: the result
+	// poll reports its failure, and its record is refused.
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchScript, Target: "f/t/echo", Args: []byte(`{"x":1}`), ParentJob: "parent", RootJob: "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := waitResult(t, d, id); r.Success || !strings.Contains(string(r.Result), "job process terminated due to timeout: `bun run` exceeded") {
+		t.Fatalf("the timed-out dispatch's result %+v (%s)", r, r.Result)
+	}
+	var ns *platform.NotServed
+	if body, err := services.GetJob(id); !errors.As(err, &ns) || ns.Reason != "the job was canceled" {
+		t.Fatalf("the timed-out job's record: %s, %v", body, err)
+	}
+	if args, err := services.GetJobArgs(id); err != nil || string(args) != `{"x": 1}` {
+		t.Fatalf("the timed-out job's arguments: %s, %v", args, err)
+	}
+
+	for _, c := range []struct {
+		name, path, text string
+		kill, canceled   bool
+	}{
+		{"native timeout", "f/t/headed", "execution error:\\nQuery timeout after (>0s)", false, false},
+		{"killed", "f/t/echo", "execution error:\\njob process terminated due to cancelled by unknown (reason: no reason given)", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var exec StepExecutor = waits{}
+			if c.kill {
+				// The run is canceled while the job runs.
+				exec = execFunc(func(sctx context.Context, inv Invocation) (StepOutcome, error) {
+					cancel()
+					return waits{}.Execute(sctx, inv)
+				})
+			}
+			r, err := e.RunScript(ctx, ScriptRequest{Path: c.path, Args: jsonval.FromProducer([]byte(`{}`)), Exec: exec, ParentJob: "parent", RootJob: "parent"})
+			if err != nil || !r.Failed || r.Canceled != c.canceled || !strings.Contains(string(r.Result.Producer()), c.text) {
+				t.Fatalf("%+v %s, %v", r, r.Result.Producer(), err)
+			}
+			body, err := services.GetJob(r.ID)
+			if c.canceled {
+				if !errors.As(err, &ns) || ns.Reason != "the job was canceled" {
+					t.Fatalf("the canceled job's record: %s, %v", body, err)
+				}
+				return
+			}
+			var rec struct {
+				Type     string `json:"type"`
+				Canceled bool   `json:"canceled"`
+				Success  *bool  `json:"success"`
+			}
+			if err != nil || json.Unmarshal(body, &rec) != nil || rec.Type != "CompletedJob" || rec.Canceled || rec.Success == nil || *rec.Success {
+				t.Fatalf("the failed job's record: %s, %v", body, err)
+			}
+		})
 	}
 }
 

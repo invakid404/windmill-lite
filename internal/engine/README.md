@@ -50,6 +50,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; wl (F1) |
 | `provided.go` | `ProvideFunc`, `ErrProviderDeclined`: a mandatory host-provided site's launch ([ADR 0008](../../docs/design/0008-host-hooks.md), below) | wl (F2a) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
+| `flowenv.go` | `envStore`, `readsByName`: what a step's input transforms store when their text reads `flow_env` ([JE-38](../../docs/semantics/expressions.md#je-38), below) | `run.go`, at each module's arguments |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `cache.go` | The `cache_ttl` result cache (below): the key, S3 object arguments, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
 | `readback.go` | `readFailed`, `hang`: a container whose children's results the backend cannot read back, and the end of a flow left waiting (below) | `loop.go`, `branch.go`, `run.go` |
@@ -288,9 +289,9 @@ run's result is the same.
 a static or javascript `timeout`, `retry` and `retry_if`,
 `continue_on_error`, a failure module of those kinds, `flow_env`,
 `early_return` (which changes only the synchronous HTTP response,
-[FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own `timeout`,
-which nothing enforces: a flow job bypasses every executor timer
-([FX-24](../../docs/semantics/execution.md#fx-24), path 4), for and while
+[FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own
+`timeout`, its wall-clock limit
+([FX-52](../../docs/semantics/execution.md#fx-52), below), for and while
 loops and `branchall` with `stop_after_all_iters_if`, `branchone`, and
 subflows by path, in a flow with a failure module too, whose bodies each
 carry a copy of it (below), with N2's waits and retries in, on and before
@@ -354,13 +355,16 @@ that windmill-lite does not reproduce
    sets `MayHaveMutated` and disarms the pre-write deadline, whatever
    then stops the launch), H12 edits the environment, and the step
    runs through the `StepExecutor` with its timeout as a timer in the
-   engine. The timeout is the module's own, static or evaluated, else a
-   path script's own timeout metadata; a request strictly below the
-   instance maximum is job-specific, zero included (no time at all); none,
-   or one at or above the maximum, gives the maximum, instance-wide
-   (FX-24, FX-25, WR-37). `StoreOutcome` maps the outcome, H1's included;
-   a leaf's result or failure value that jsonb refuses fails its job
-   instead (FX-48 case 1, below).
+   engine. The timeout is the module's own positive one, static or
+   evaluated, else a path script's own positive timeout metadata; one
+   strictly below the instance maximum is the custom timeout; none, or
+   one at or above the maximum, gives the instance maximum (FX-24, FX-25,
+   WR-37). `StoreOutcome` maps the outcome, H1's included.
+   The completion stores a leaf's result or failure value without its NUL
+   escapes, which every reader of storage sees, while the flow carries the
+   producer's text on in memory, so the next module's `previous_result`
+   keeps them (FX-48 case 1); one that jsonb still refuses fails its job
+   instead (FX-51 case 1, below).
    The environment H12 edits is the step's job identity
    ([internal/platform](../platform/README.md), milestone PF1): a fresh
    `WM_JOB_ID` (the invocation's id), the run as `WM_FLOW_JOB_ID`,
@@ -459,6 +463,22 @@ member or a one-element array by position; a decode error, an absent
 fails the flow with its own failure value
 ([FX-33](../../docs/semantics/execution.md#fx-33)).
 
+**The recovered mark** ([FX-33](../../docs/semantics/execution.md#fx-33),
+[CF-V1](../../docs/semantics/control-flow.md#cf-v1)). A flow whose
+failure module recovered reports its failure to what contains it marked
+as recovered:
+
+- a sequential loop, a sequential `branchall`, a `branchone` or a flow
+  step that this failure fails keeps the mark;
+- a parallel loop or parallel `branchall`, a stop of the failed
+  container, clean or an error, and any new failure drop it;
+- a child flow that a failure with the mark ends, when nothing retried,
+  tolerated or handled it, fails and passes the mark on to its parent;
+- a root flow that it ends that way is stored `success`, with the result
+  it would have failed with;
+- a caller's own failure module still runs across a flow step and
+  decides as usual.
+
 **Cancellation** ([FX-38](../../docs/semantics/execution.md#fx-38), H4).
 A run whose context ends finishes canceled, without retry,
 `continue_on_error` or the failure module, with the result
@@ -499,9 +519,15 @@ latched or halted run has no result.
   one evaluated ([JE-23](../../docs/semantics/expressions.md#je-23)).
 - Each argument, its key and its value, becomes its stored text (step 3
   of the ADR's pipeline), in the shuffled order, the last of two keys that
-  store alike winning, as in jsonb; a key or a value jsonb refuses fails
-  the push ([FX-48](../../docs/semantics/execution.md#fx-48),
-  [FX-51](../../docs/semantics/execution.md#fx-51)). The stored arguments
+  store alike winning, as in jsonb. The push first removes every NUL
+  escape from the keys and values: a name given twice keeps its last
+  value, and of two distinct names the removal makes equal it keeps the
+  one that held no NUL, else the smallest original name
+  ([FX-48](../../docs/semantics/execution.md#fx-48) cases 2 and 3,
+  `argsWithoutNUL`). Text that is not exactly one object only loses its
+  NULs, so a malformed request stays refused; a key or a value jsonb
+  still refuses fails the push
+  ([FX-51](../../docs/semantics/execution.md#fx-51)). The stored arguments
   are the recorded ones (O2); the resolved ones (O3) are the script's,
   which the job's pickup resolves (below), and are the recorded ones for an
   identity job or a launch a hook answers.
@@ -568,7 +594,7 @@ the step's success value, not the `EarlyStopError`
 | the same at a later module | the flow fails at once, the module not run: `{"error": {"message": <text>, "name": "InternalError"}}` | FX-15 context 1, JE-35 (a) |
 | `stop_after_if` fails | the module fails unrecoverably with the string `{"error": <text>}` | FX-21, JE-26 |
 | a for loop's iterator throws, is not an array, or is `ai` | a chaining error, routed as above: `Error: <evaluator text>`, ``Expected an array value in the iterator expression, found: <serde's message>``, or `AI input transform not supported for iterator` | CF-2, CF-23, JE-30 |
-| jsonb refuses the iterator's array (a NUL, an unpaired surrogate, a number beyond numeric's range), or a child flow's input | a chaining error, routed as above, before any iteration runs: `SqlErr: error returned from database: <PostgreSQL's message>` | CF-2, FX-48, FX-51, FX-50 |
+| jsonb refuses the iterator's array (a NUL, which the flow status that holds it keeps, an unpaired surrogate, a number beyond numeric's range), or a child flow's input | a chaining error, routed as above, before any iteration runs: `SqlErr: error returned from database: <PostgreSQL's message>` | CF-2, FX-48, FX-51, FX-50 |
 | a parallel loop's `parallelism` throws or is not a u16 | a chaining error: ``Error during evaluation of expression `<text>`:
 <evaluator text>``, `Error parsing result as u16: <serde's message>. Value was: <value>` or `Error parsing static value as u16: <serde's message>` | JE-V1 |
 | a parallel loop of two or more iterations in a `same_worker` flow | a chaining error: `Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker` | CF-7 |
@@ -579,11 +605,11 @@ the step's success value, not the `EarlyStopError`
 | a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
 | `stop_after_all_iters_if` fails | an error stop of the flow: ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<text>`: <predicate text>"}}``, carried by the loop, whose result stays its array | CF-13, JE-27 |
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "execution error:\nBad request: Invalid entrypoint override <value>: must match ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, not starting with a digit)", "name": "ExecutionErr", "step_id": <id>}}`, at the job's pickup, before the step runs | WR-12 |
-| the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
-| a job's result or failure value that jsonb refuses | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-48 case 1, OR-27 |
-| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay fails without running, with the run's `Canceled` error | FX-38 |
+| the step's timeout | `TimeoutError`'s value for the step's boundary, `ExecutionErr` with `step_id`: for Bun, ``execution error:\njob process terminated due to timeout: `bun run` exceeded <limit>``, the limit named as the custom timeout or the instance maximum, and the job stored canceled; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied, a failed job | FX-25, WR-37, WR-44 |
+| a job's result or failure value that jsonb refuses once its NUL escapes are removed (an unpaired surrogate, a number beyond numeric's range) | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-51 case 1, OR-27 |
+| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay completes without running, stored canceled, with the run's `Canceled` error | FX-38 |
 | a sleep's value is not a delay (N2) | a chaining error (always a later transition): `Expected an integer, found: <n>` for a negative integer, `Expected an integer, found: <debug form>` (`String("1")`, `Null`, `Array [Number(1)]`) for anything else, `Expected a number value, had error instead: ExecutionErr("Error during evaluation of expression `<text>`:\n<evaluator text>")`, a debug form with its newline escaped, for a failed evaluation | FX-23, JE-28, FX-15 |
-| a timeout's value fails (N2) | a chaining error: `Timeout value cannot be negative`; `Error parsing result as i32: <serde_json's error, with its position>. Value was: <the evaluator's text as it is>`; `Error during evaluation of expression `<text>`:\n<evaluator text>` | FX-24, JE-29, FX-15 |
+| a timeout's value fails (N2) | a chaining error: `Error parsing result as i32: <serde_json's error, with its position>. Value was: <the evaluator's text as it is>`; `Error during evaluation of expression `<text>`:\n<evaluator text>`. A value of 0 or less is no error but unset | FX-24, JE-29, FX-15 |
 | `retry_if` throws while the completion is decided (N2) | the module fails unrecoverably with the string `{"error": "Error: <text>"}`, as for `stop_after_if` but converted once more, so two `Error: ` prefixes (and on Windmill two location suffixes) | FX-28, FX-21, FX-50 |
 | `retry_if` throws at re-entry (N2) | a chaining error of a later transition: the flow fails at once with `{"error": {"message": <text>, "name": "InternalError"}}` | FX-28, FX-15 |
 | a transition outlives the monitor (N2) | the run is canceled by `monitor` (below) | JE-2 |
@@ -593,14 +619,14 @@ evaluation, or `Expected a boolean value, found: "<value's JSON>"`
 ([JE-24](../../docs/semantics/expressions.md#je-24)); an argument's is
 the push's database error,
 `SqlErr: error returned from database: <PostgreSQL's message>`
-([FX-48](../../docs/semantics/execution.md#fx-48) case 2,
+([FX-51](../../docs/semantics/execution.md#fx-51) case 2,
 [FX-50/a](../../docs/semantics/conformance.md#fx-50)), also when the
 arguments are not JSON because a replaced `JSON.stringify` wrote them
 (`invalid input syntax for type json`,
 [JE-15/k](../../docs/semantics/conformance.md#je-15); H2's not-an-object
 check applies only to arguments a hook changed). The completion insert of
 a result quotes the bare `error returned from database: …` after its own
-`Internal: Could not add completed job <job id>: ` instead (FX-48 case
+`Internal: Could not add completed job <job id>: ` instead (FX-51 case
 1). serde's message is
 what Windmill's JSON library reports for the value (`serde.go`), such as
 ``invalid type: map, expected a sequence at line 1 column 0`` or
@@ -635,7 +661,7 @@ its branch's result with its origin and pointers.
   open).
 - An invalid entrypoint override fails as a pre-run error, with no
   `step_id`.
-- The storage failure of FX-48 case 1 applies to a leaf's outcome, never
+- The storage failure of FX-51 case 1 applies to a leaf's outcome, never
   to an identity job's result, which the `wm_failure` marker is checked
   on (FX-13); an H1 intercept, which runs no job, is checked for
   `wm_failure` but not for storage.
@@ -680,11 +706,11 @@ its branch's result with its origin and pointers.
   behave alike; a stop that a branch propagates is not followed by the
   `branchone`'s own `stop_after_if`; a child flow that aborts on a
   chaining error raised before a sequential container's child after the
-  first (its timeout, the push, a loop's mid-loop `skip_if`) delivers as
-  its last carried value the flow's last result that a mid-loop `skip_if`
-  sees (CF-21: the previous child's result, or the flow's input for a
-  loop at its flow's first module), a sequential `branchall` the previous
-  branch's result (pinned by `TestBranchOneAbortedMidLoop`), and one
+  first (its timeout or the push) delivers as its last carried value the
+  flow's last result (a loop the previous child's result, or the flow's
+  input for a loop at its flow's first module, pinned by
+  `TestBranchOneAbortedMidLoop`; a sequential `branchall` the previous
+  branch's result), and one
   whose failure module's start fails delivers the failing value (CF-23
   route 3 names a module's start only); an error
   stop a `branchone` or a sequential `branchall` propagates is an error
@@ -1020,6 +1046,29 @@ so every read is a not-found. A host gives the facade the same services.
   top-level flow job's. A failure leaves the map as stored, with the
   warning `flow_env_unresolved` in the trace, and is not cached; a success
   becomes the frame's cached map.
+- **What input transforms store from `flow_env`** (`flowenv.go`,
+  [JE-38](../../docs/semantics/expressions.md#je-38)). A transform whose
+  text contains `flow_env` stores the following, at a step, a failure
+  module or a collapsed loop body:
+  - **An exact read** of a key the env defines (`flow_env.K` or
+    `flow_env["K"]`) stores the entry as written in the env, so a
+    reference stays unresolved, and the leaf resolves it. Into a subflow
+    called by path (a `flow` module), only a secret entry is kept so.
+  - **Any other text** stores its value from the resolved env. When the
+    text reads a secret entry by name, the value is sealed under the
+    run's root job (`platform.SealForRoot`), and the leaf, or a subflow's
+    step, opens it. A read by name is `flow_env.K` or `flow_env?.K` with
+    no letter, digit, `_` or `$` around it, or `flow_env["K"]` in any of
+    the three quotes; a computed key or a use of the whole object is not
+    one.
+  - **A secret entry** is a literal `$encrypted:` string, or a `$var:` or
+    `$jsonvar:` reference to a secret variable. The engine looks the
+    entries up once per module start. An entry whose lookup fails counts
+    as secret, so a failure never stores a secret in clear.
+  - **At a host-provided site** nothing is sealed: its provider runs
+    outside the engine and could not open the value, so it gets the value
+    in clear. An interception (H1) at a real step gets the stored
+    arguments, sealed values included.
 - **`variable(path)` and `resource(path)`** answer at every site, which
   all have an authenticated client: the variable's value (a secret's
   plaintext), and the resource read as the stock client reads it, without
@@ -1106,11 +1155,13 @@ flows with its own, and the runs the dispatcher starts read its own.
   [FX-51](../../docs/semantics/execution.md#fx-51) cases 3 and 4 trace it:
   a surrogate escape without its pair in a top-level key, which the API
   decodes, is `Bad request: invalid json: <message> at line <l> column
-  <c>` in Windmill's JSON library's words; a NUL, an unpaired surrogate
-  in a value or a number beyond numeric's range, which reach the job
-  row's insert, are the database error, the `SqlErr` variant
+  <c>` in Windmill's JSON library's words; an unpaired surrogate in a
+  value or a number beyond numeric's range, which reach the job row's
+  insert, are the database error, the `SqlErr` variant
   (`SqlErr: error returned from database: <PostgreSQL's message>`); both
-  answer 400 with the display as plain text (FX-48/d, FX-51/d and /e). A
+  answer 400 with the display as plain text (FX-51/d and /e). A NUL is
+  removed before the insert, in a key or a value, so such a request is
+  accepted and the run starts with the arguments without it (FX-48/d). A
   run's links (its `parent_job`, `root_job` and the
   parent job's runnable path, from the job registry) are taken when the
   dispatch is accepted, so a run that starts after its parent has ended,
@@ -1137,8 +1188,8 @@ through the job registry.
   names its job and its stored arguments from its launch on. A child flow
   records its end, and its place among the ends of the run's child flows;
   the run its own. A parallel loop registers all its children at its
-  start, the ones its parallelism holds included, and marks each it
-  releases (`frame.released`). Nothing is rendered until a step asks.
+  start, the ones its parallelism holds included. Nothing is rendered
+  until a step asks.
 - **Per attempt.** Each frame holds, per module, the record of its
   current attempt (`frame.recs`) and that attempt's child flows or
   collapsed iterations by slot (`frame.kids`), both set when the attempt
@@ -1152,10 +1203,10 @@ through the job registry.
   `type`, `id`, `parent_job` (the flow job of the frame the job runs in),
   `root_job` (the innermost scope: a frame's scope, absent when the frame
   starts its own), `running` and `flow_step_id` while it runs, `canceled`,
-  `success` and `result` once it has completed, `args`, `script_path`,
-  `is_flow_step`, `language`, the host's workspace and user, and a flow
-  job's `flow_status`. Each argument's value and the result are written
-  as jsonb's text output.
+  `success`, `result` and `resolved` (`false`) once it has completed,
+  `args`, `script_path`, `is_flow_step`, `language`, the host's workspace
+  and user, and a flow job's `flow_status`. Each argument's value and the
+  result are written as jsonb's text output.
 - **`flow_status`** comes from the frame: each module's current record
   (none: `WaitingForPriorSteps`; no status yet: `InProgress`; then its
   module status), its job (a subflow step's from its child flow while it
@@ -1164,12 +1215,16 @@ through the job registry.
   and, while a container runs, its `iterator` (`run.iterLen`; a parallel
   loop's index counts its completed children), `parallel`, `while_loop`
   or `branchall`. A container's job is its last child; a running
-  parallel loop's, its last child released, the last by index among
-  children released together, as a running parallel branchall's
-  (Windmill names whichever of those a worker picked up last); a
+  parallel container's, the flow job it runs in, the frame's own; a
   completed parallel container's, the child that completed last. A container that completed
   with no child, or whose start failed, and a branchone whose predicate
-  threw, have the nil job. `step` follows the module cursor.
+  threw, have the nil job. `step` follows the module cursor. The status
+  of a child flow whose body the deploy stored as a node, a loop
+  iteration's or a branch's whose body is not empty and not CF-8's simple
+  body (`frame.storedNode`, `ir.StoredNode`), also holds
+  `no_inherited_flow_env`, `true`. CE 1.862.0's recordings show these
+  three, `resolved` among them, which the reference does not describe
+  yet.
 - **Jobs pushed for later.** A job scheduled after the sleep of the step
   before it or a retry's delay is pushed with its id before the wait, as
   Windmill pushes it: a step's job (`run.jobScheduled`), the identity job
@@ -1205,6 +1260,12 @@ through the job registry.
   (`scriptView`), which renders it running, then completed while its root
   lives: a dispatch that tracked it in its parent keeps it in another
   run's tree.
+- **A canceled script job.** A Bun job that its process timeout killed,
+  or one its run's cancellation killed, is stored canceled
+  (`ScriptResult.Canceled`, FX-25, FX-38). Its record is then not
+  rendered, as a canceled step's is not, while its result is still a
+  failure and its arguments are read. A native job's timeout leaves an
+  ordinary failed job.
 
 **The result cache (N4, `cache.go`).** Before a job with a `cache_ttl`
 runs, the engine looks it up in the result cache of its platform
@@ -1265,7 +1326,10 @@ an engine with none keeps one of its own, per process, D4)
   result; a canceled script root's hit is killed, as its job would be.
 - **A store** follows a job that succeeded: a leaf's result, until now
   plus the TTL on the run's clock (H10). An intercepted (H1) outcome is
-  never stored.
+  never stored. Every entry is a stored result, without the NUL escapes a
+  flow's result can still carry in memory from its last module
+  ([FX-48](../../docs/semantics/execution.md#fx-48)), so a hit answers
+  the stored text.
 - **A flow job's store** follows the store table of
   [FX-40](../../docs/semantics/execution.md#fx-40). The flow job stores
   its final result when its completion counts as a success before the
@@ -1415,6 +1479,15 @@ the helpers and a helper's failure, and an engine with no platform.
 `waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
 below.
 
+`flowenv_test.go` checks what input transforms store from `flow_env`,
+with the sealed values unmasked: exact reads in both spellings, computed
+reads sealed or in clear, a `$res:` entry, a chained reference, a
+computed key and the whole object (`TestFlowEnvStoredArguments`). It also
+covers a subflow's input, a collapsed body, the failure module, a
+host-provided site, a failed secrecy lookup, a secret entry under the
+empty key (`TestFlowEnvEmptyKey`), and the texts that read an entry by
+name (`TestReadsByName`).
+
 `readback_test.go` covers unreadable child results:
 
 - the flow left waiting and canceled by `monitor` for a loop, a parallel
@@ -1466,6 +1539,11 @@ identity and skipped modules included, though only a leaf's job is timed
 deserialise as an i32 (`timeoutResult` and `parseI32` write serde_json's
 texts). Its failures are chaining errors, as are a sleep's.
 
+A value of 0 or less is unset, as is a path script's own timeout of 0 or
+less: the step then runs as if neither were set. A flow step's positive
+timeout is its subflow's wall-clock limit (below), and a container's
+bounds only its collapsed body jobs.
+
 **Retries.** A module with a `retry` is retried, by the decision list of
 FX-2, the same in the failure module with its own `retry`:
 
@@ -1503,8 +1581,8 @@ FX-2, the same in the failure module with its own `retry`:
 
 **Waiting** happens on the run's clock (`RunRequest.Clock`, H10), a timer
 on the run's context, so a cancellation or a deadline cuts it short; the
-queued job then fails without running, with the run's `Canceled` error
-(FX-38): a failed job, not a canceled one, as the oracle recorded. Each
+queued job then completes without running, with the run's `Canceled`
+error (FX-38), stored canceled, as the oracle recorded. Each
 requested wait is a `SpanWait` span. `RecordClock` records
 waits instead of sleeping them and runs ahead by them; a run whose clock
 is not `RealClock` records `H10` among its trace's deviations. The jitter
@@ -1528,8 +1606,35 @@ timer: an atomic state, armed, disarmed or expired, lets one of the
 first write and the timer win, and whoever reads it expired cancels the
 run (idempotently) before acting on it, so the run never stops a write
 before its context says why. After the first write it no longer
-applies. A flow's
-own `timeout` is accepted and not enforced (FX-24, path 4).
+applies.
+
+**The flow's own timeout**
+([FX-52](../../docs/semantics/execution.md#fx-52)). A flow job carries a
+wall-clock limit: its calling flow step's positive `timeout`, else its
+flow's own positive `value.timeout`. A root run and each subflow run under
+theirs, counted from their start. A container body's child flow carries
+none, and the metadata `timeout` beside `value` enforces nothing.
+
+Once the limit has passed, `runList` cancels the flow's context with
+canceler `timeout` and reason `the flow exceeded its <n>s timeout`. Its
+jobs end as a cancellation ends them: a running step is killed, a queued
+one is canceled at its pickup. Windmill's server cancels on its
+monitor's first pass after the limit, every 10 s by default;
+windmill-lite cancels at the limit, which the reference leaves
+unbounded.
+
+The flow then ends as `timedOut` says. Its failure module runs once, with
+`{"error": {"name": "ExecutionErr", "message": "flow terminated due to
+timeout: <reason>"}}` as its `previous_result`, the module the flow was at
+as its preceding id. The flow job completes canceled with the canceled
+value, whatever that module returned.
+
+A root run ends there. A subflow is a failed step to its caller, whose
+retry, `continue_on_error` and failure module apply: the step's job is
+canceled with the canceled value, which lookups read, and it carries the
+timeout error or the failure module's result (`flowEnd.delivered`). A
+subflow that its caller's cancellation reached, an ancestor's timeout
+included, ends as any canceled child, without its failure module.
 
 **The monitor of flows that hang between steps** (JE-2). Windmill's
 server cancels a flow job whose transition, the work between two jobs,
@@ -1546,9 +1651,20 @@ refreshes the flow's
 ping and starts its next transition, as a child's completion refreshes a
 Windmill flow job's ping. Hooks
 and waits do not count: Windmill has no hooks, and runs a sleep or a
-retry delay as a scheduled job. So a runaway expression, whose three
-20 s attempts and two 5 s pauses take 70 s, ends the run canceled at
-60 s, as on the oracle (JE-2/a).
+retry delay as a scheduled job. So a runaway expression at a later
+transition, whose three 20 s attempts and two 5 s pauses take 70 s,
+ends the run canceled at 60 s.
+
+The monitor cancels only a flow that has started, or one that runs on
+the same worker. A flow has started once one of its module attempts,
+jobs or child flows has completed, so its first module no longer waits.
+Windmill puts a flow that has not started back in the queue instead,
+which does not stop the evaluation, and the engine leaves it alone.
+
+A runaway expression at a flow's first module therefore runs its three
+attempts, and the module fails with the timeout error after about 70 s,
+as on the oracle (JE-2/a, JE-2/b). What a requeued flow does when a
+worker picks it up again is not modelled.
 
 **Unreadable child results** (`readback.go`,
 [FX-42](../../docs/semantics/execution.md#fx-42) rule 9). A loop or a
@@ -1655,7 +1771,7 @@ its counter reset, the restored `previous_result` from storage and the
 failure, the final module's, not on a retry, not before the failure
 module, its chaining errors) and a canceled sleep, the timeouts' values
 and contexts (every module evaluates its own, the root's Anyhow and its
-retry, a failed transform with a negative timeout, the evaluated value
+retry, a failed transform with a string timeout, the evaluated value
 timing the leaf), the monitor (a runaway expression, one transition at a
 time, two evaluations in one transition, disabled) and the pre-write
 deadline (one already passed at the start, one that passes while the
@@ -1665,6 +1781,13 @@ subflow calls (a veto before the child flow starts, an approval, and of
 two calls of one subflow only the marked one asked, F2b), that the monitor's budget ignores a recording clock other runs
 move on, that child flows refresh their loop's ping, and sleep and
 timeout values that are not JSON.
+
+`TestEngineTimeoutValues` also runs timeouts of 0 or less, which are
+unset, and `TestEngineTimeouts` which limit applies, with its name in the
+message and the timed-out job canceled. `flowtimeout_test.go` runs the
+flow's own timeout: a root's and a subflow's, a step's timeout replacing
+a subflow's, the failure module, a tolerated or retried subflow, the
+unset values and an ancestor's timeout.
 
 ## Containers and waits
 
@@ -1690,8 +1813,8 @@ the reference left to them.
   flow is scheduled (`frame.due`): it is picked up once the delay has
   passed, before any of its modules starts, so a first module that
   completes without a job, an empty container, does not use the delay
-  up, and a cancellation while it is queued fails it without running its
-  body (CF-28); a collapsed iteration's body job waits as any job does. A
+  up, and a cancellation while it is queued cancels it before its body
+  runs (CF-28); a collapsed iteration's body job waits as any job does. A
   container's retry delay schedules its first push the same way. A
   container's own sleep delays the module after it, evaluated with the
   container's result, as any module's.
@@ -1733,25 +1856,26 @@ the reference left to them.
   - A parallel container's record never lists the flow's failed attempts.
 - **`flow_env`** is resolved again (JE-38) at each transition of a
   sequential container's flow that pushes its next child, after the
-  previous one completed, so the next push's `skip_if`, timeout and a
-  collapsed body job's arguments see what the previous child changed. A
+  previous one completed, so the next push's timeout and a collapsed body
+  job's arguments see what the previous child changed. A
   collapsed iteration's job belongs to its loop's flow, whose resolution
   it uses (`frame.owner`); the predicates evaluated after a child
   completes keep reading the flow's cached map.
-- **A sequential loop's `skip_if`** (for or while) is evaluated again
-  before every iteration after the first, with the flow's last result as
-  `previous_result` (the previous iteration's, or the flow's input for a
-  loop at its first module) and the loop's preceding id. When it holds the
-  loop ends as a skipped identity job of that result, and its iterations
-  so far are superseded (recorded by `cf-21/skip_mid`, `skip_mid_flows`
-  and `skip_mid_while`); a throw is a chaining error of a later
-  transition. A parallel loop evaluates it once (`cf-21/skip_parallel`).
+- **A loop's `skip_if`** is evaluated once, when the module is entered
+  while it still waits to start, as any module's is
+  ([FX-17](../../docs/semantics/execution.md#fx-17)). An iteration's
+  result never skips a sequential, collapsed or while loop part-way: every
+  iteration runs and the loop returns its whole array (recorded by
+  `cf-21/skip_mid`, `skip_mid_flows` and `skip_mid_while`; a parallel loop
+  by `cf-21/skip_parallel`). A retry that re-enters the loop evaluates it
+  again.
 - **Cancellation** (CF-28) reaches every child: a canceled container
   completes as a failure whose array holds, for each child the
   cancellation reached, held ones included, the `Canceled` error (a
   collapsed body job's own killed result), and the children that had
-  completed keep theirs (recorded by `cf-28/held`); a canceled
-  `branchone` fails with its branch's `Canceled` error. The run then ends
+  completed keep theirs (recorded by `cf-28/held`). A canceled
+  `branchone` fails with its branch's `Canceled` error, and its job, the
+  branch's flow job, is canceled, queued or running. The run then ends
   canceled.
 - **`squash`** ([CF-25](../../docs/semantics/control-flow.md#cf-25)) is
   accepted and ignored. windmill-lite runs a squashed loop unsquashed,
@@ -1779,9 +1903,9 @@ the reference left to them.
 - A container's timeout is evaluated for each child before its
   `parallelism`, in the order the reference lists them (pinned by
   `TestContainerTimeoutPerChild`).
-- The flow's last result that a mid-loop `skip_if` sees for a loop of
-  child flows is the previous child flow's result, as for a collapsed
-  loop (recorded by `cf-21/skip_mid_flows`).
+- The flow's last result that an abort before a later iteration of a loop
+  of child flows carries is the previous child flow's result, as for a
+  collapsed loop (CF-23 route 3; pinned by `TestBranchOneAbortedMidLoop`).
 
 **Tests.**
 
@@ -1793,9 +1917,10 @@ the reference left to them.
   - a container's timeout per child and its routes;
   - a container's retry: the re-run, the attempt record, `iter_parent`, a
     `branchall`, spent attempts;
-  - the mid-loop `skip_if` (collapsed, child flows, while, parallel, a
-    throw), `squash`, and the waits and retries in a parallel loop's child
-    flows with the virtual identity.
+  - a loop's `skip_if` evaluated once (collapsed, child flows, while,
+    parallel, a predicate that would throw later, a skip at the entry, a
+    retry's re-entry), `squash`, and the waits and retries in a parallel
+    loop's child flows with the virtual identity.
 - `while_test.go` and `branch_test.go` cover a canceled container's
   failure.
 - `container_outcomes_test.go` covers a retried parallel loop's base and

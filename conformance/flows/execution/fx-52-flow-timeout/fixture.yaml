@@ -1,0 +1,17 @@
+# FX-52: a flow's own wall-clock timeout (value.timeout, Windmill 1.861.0)
+# and the timeout of a subflow step, which replaces the subflow's own. The
+# server's monitor cancels a timed-out flow with its steps: a running step
+# is killed, a step waiting on a sleep is canceled at its pickup, the
+# failure module runs, and the flow ends canceled with the canceled value;
+# a caller sees its subflow step fail with the timeout error. A timeout <= 0
+# is unset, on the flow and on the step. Also OF-16's concurrent_limit <= 0,
+# which is unset. Each timed-out step sleeps 6 s against a 1 s limit, so the
+# monitor (every second on the oracle) cuts it first. Synthetic, written for
+# this repository from docs/semantics/execution.md#fx-52. Deployed with
+# oracle.deploy api.
+id: execution/fx-52-flow-timeout
+spec: [FX-52, FX-52/a, FX-52/b, FX-52/c, FX-52/d, FX-52/e, FX-52/f, FX-52/g, FX-52/h, OF-16/e]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

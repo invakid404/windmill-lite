@@ -1,5 +1,7 @@
-# FX-51/b: an unpaired surrogate generated in args at the root's pickup: an
-# Anyhow failure of a, as FX-48/b.
-spec: [FX-51/b]
+# FX-51/b and FX-50/a: an unpaired surrogate generated in args at the
+# root's pickup: an Anyhow failure of a, as FX-48/b was before CE 1.862.0
+# removed a NUL; the recording holds the message with its two location
+# suffixes.
+spec: [FX-51/b, FX-50/a]
 target: f/wl_fx51/surrogate_root
 expect: {status: failure, result: {error: {name: Anyhow}}}

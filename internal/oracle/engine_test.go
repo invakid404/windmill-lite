@@ -237,8 +237,12 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // flow, the job's parent flow, the flow input and the results so far.
 type scope struct {
 	root, rootFlow, flow string
-	input                map[string]any
-	results              map[string]any
+	// path is the runnable path of the flow job the scope runs in, which
+	// its steps see as WM_FLOW_PATH and their errors carry as flow_path
+	// (FX-12, WA-6).
+	path    string
+	input   map[string]any
+	results map[string]any
 }
 
 func (e *fakeEngine) run(w http.ResponseWriter, r *http.Request, path string) {
@@ -262,7 +266,7 @@ func (e *fakeEngine) run(w http.ResponseWriter, r *http.Request, path string) {
 		if group != nil {
 			group.arrive()
 		}
-		ok, res := e.flow(scope{root: root, rootFlow: root, flow: root, input: input}, fs, fl.Document.Value.Modules)
+		ok, res := e.flow(scope{root: root, rootFlow: root, flow: root, path: path, input: input}, fs, fl.Document.Value.Modules)
 		e.complete(root, ok, res)
 	}()
 	w.WriteHeader(201)
@@ -376,7 +380,7 @@ func (e *fakeEngine) module(sc scope, entry *fmod, m *openflow.Module) (bool, an
 		input := e.transforms(sc, v.InputTransforms)
 		id := e.newJob("flow", v.Path, input, fs)
 		e.set(func() { entry.Type, entry.Job = "InProgress", &id })
-		ok, res := e.flow(scope{root: sc.root, rootFlow: id, flow: id, input: input}, fs, sub.Document.Value.Modules)
+		ok, res := e.flow(scope{root: sc.root, rootFlow: id, flow: id, path: v.Path, input: input}, fs, sub.Document.Value.Modules)
 		e.complete(id, ok, res)
 		e.set(func() { entry.Type = status(ok) })
 		return ok, res
@@ -423,13 +427,14 @@ func (e *fakeEngine) loop(sc scope, entry *fmod, m *openflow.Module, v *openflow
 			})
 			return
 		}
-		kind, child := "flownode", scope{root: sc.root, rootFlow: sc.rootFlow, input: in}
+		kind, child := "flownode", scope{root: sc.root, rootFlow: sc.rootFlow, path: fmt.Sprintf("%s/loop-%d", sc.path, i), input: in}
 		fs := waitingStatus(body)
 		id := e.newJob(kind, "", in, fs)
 		child.flow = id
 		if v.Parallel {
 			e.set(func() { e.jobs[id].kind = "flowpreview" })
 			child.rootFlow = id
+			child.path = fmt.Sprintf("%s/forloop-%d", sc.path, i)
 		}
 		e.set(func() { jobs[i] = id })
 		oks[i], results[i] = e.flow(child, fs, body)
@@ -533,7 +538,9 @@ func (e *fakeEngine) leaf(sc scope, entry *fmod, step, module, kind, content str
 
 // call is the stub: it POSTs to the replay service as the generated stub
 // does, and turns the answer into the job's outcome as the Bun wrapper
-// stores it (OR-12).
+// stores it (OR-12), with the step context keys: the step's id, its own
+// job and the scope's path (FX-12). A collapsed iteration runs in its
+// loop's scope, so it carries the enclosing flow's path.
 func (e *fakeEngine) call(sc scope, job, step string, args []any) (bool, any) {
 	if step == e.skipCall {
 		return true, "not stubbed"
@@ -553,7 +560,7 @@ func (e *fakeEngine) call(sc scope, job, step string, args []any) (bool, any) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	fail := func(name, message string, extra map[string]any) (bool, any) {
-		obj := map[string]any{"name": name, "message": message, "stack": name + ": " + message + "\n    at main (/tmp/windmill/cache/bun/x.ts:1:1)", "step_id": step}
+		obj := map[string]any{"name": name, "message": message, "stack": name + ": " + message + "\n    at main (/tmp/windmill/cache/bun/x.ts:1:1)", "step_id": step, "job_id": job, "flow_path": sc.path}
 		if len(extra) > 0 {
 			obj["extra"] = extra
 		}

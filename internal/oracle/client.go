@@ -18,7 +18,7 @@ import (
 )
 
 // Client calls the oracle's REST API: the endpoints of the Apache-2.0
-// backend/windmill-api/openapi.yaml at v1.767.0, vendored in openapi/. A
+// backend/windmill-api/openapi.yaml at v1.862.0, vendored in openapi/. A
 // test checks that every operation it calls is in that file. Arguments and
 // results stay raw JSON text, because their member order and number
 // spelling are observable (OR-13).

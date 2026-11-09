@@ -13,7 +13,7 @@
 //   which one.
 //
 // It imports only runtime/context.ts, which reads no Bun global when it is
-// evaluated or in what this entry calls, so it runs on Bun 1.3.10 and on
+// evaluated or in what this entry calls, so it runs on Bun 1.4.3 and on
 // Node 22 or newer. The npm package ships context.ts as one module that
 // this entry and the host SDK both import, so a process that loads both has
 // one invocation context, one timer fence and one process scope.
@@ -83,7 +83,7 @@ export type Settlement<T> = {
  * no child-process wrappers, and no process-level error handlers.
  *
  * Call it in the test's setup, before the test imports a module that
- * imports `node:timers` by name: on Bun 1.3.10 the first named import of a
+ * imports `node:timers` by name: on Bun 1.4.3 the first named import of a
  * builtin fixes its named bindings for every later importer.
  */
 export function install(): void {

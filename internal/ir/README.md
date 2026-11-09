@@ -18,11 +18,11 @@ decided program, and it validates what the contract's roots reach.
 What it does not do, and which milestone does:
 
 - **Expressions' bytecode:** the compiler runs every expression's textual
-  stages with [`expr.Compile`](../expr/README.md) (trimming, shortcuts,
-  rewrites, mode, bound names, the engine source; JE-5 to JE-15), which
-  depend on the site and the text alone, so `ir.json` carries them. The
-  engine compiles each source to bytecode when it opens the program
-  (ADR 0003).
+  stages with [`expr.Compile`](../expr/README.md): trimming, shortcuts,
+  the helper rewrite, the steps to prefetch, mode, bound names and the
+  engine source (JE-5 to JE-15). They depend on the site and the text
+  alone, so `ir.json` carries them. The engine compiles each source to
+  bytecode when it opens the program (ADR 0003).
 - **The build:** signatures, the relative-import closure, workflow-as-code
   detection and the refusal of a bundled script that imports a bare
   package with no lock need the Bun helper's scans (C2a), and bundling is
@@ -53,9 +53,10 @@ applies, once:
 - **container defaults** ([OF-6](../../docs/semantics/openflow.md#of-6),
   [OF-7](../../docs/semantics/openflow.md#of-7),
   [CF-6](../../docs/semantics/control-flow.md#cf-6)): an absent for-loop
-  `skip_failures` and branchall branch `skip_failure` are `true`, a
-  while-loop's `skip_failures` is `false`, branchall `parallel` is `true`;
-  under `Strict` the first two are refused instead (`absent_skip_flag`);
+  `skip_failures` is `true`, a branchall branch's `skip_failure` and a
+  while-loop's `skip_failures` are `false`, branchall `parallel` is
+  `true`; under `Strict` an absent for-loop or branch flag is refused
+  instead (`absent_skip_flag`);
 - **the language a deploy records** for a Bun-family rawscript: `bunnative`
   when its header carries the `native` annotation, `bun` otherwise, in
   either direction ([SY-V3](../../docs/semantics/openflow.md#sy-v3),
@@ -75,6 +76,9 @@ applies, once:
   `preserve_step_tags`), and a `script` or `flow` value's own
   `pass_flow_input_directly`, which only the envelope's triggers
   ([OF-V4](../../docs/semantics/openflow.md#of-v4));
+- **dropped permission fields:** the flow's `on_behalf_of` and
+  `on_behalf_of_email`, and a step's `job_token_scopes`
+  ([0001](../../docs/design/0001-equivalence-contract.md) §3);
 - **locks** are kept exactly as the folder gives them, never generated or
   relocked; an empty or absent lock is not an error by itself
   ([OF-15](../../docs/semantics/openflow.md#of-15),
@@ -98,6 +102,13 @@ envelope already decoded (`skip_if`, `stop_after_if`,
 | `identity` | none | `virtual` marks the `<id>-v` step |
 | `provided` | `Provided` | the contract's site index, the static value or provider name, the original target and its input transforms |
 
+**Flow timeouts.** A `Flow` keeps two timeouts apart. `ValueTimeout` is
+the flow's `value.timeout`, its wall-clock limit, as written; the engine
+treats a value of 0 or less as unset
+([FX-52](../../docs/semantics/execution.md#fx-52)). `Timeout` is the
+metadata `timeout` beside `value`, which is stored and enforces nothing
+([OF-16](../../docs/semantics/openflow.md#of-16)).
+
 **Occurrences.** Windmill does not check ids
 ([OF-2](../../docs/semantics/openflow.md#of-2)). A module whose id occurs
 more than once in its module list records its occurrence, counted from 0 in
@@ -113,14 +124,23 @@ transforms of the failure module itself have the site
 
 **Collapse** ([FX-46](../../docs/semantics/execution.md#fx-46),
 [CF-8](../../docs/semantics/control-flow.md#cf-8),
-[CF-V5](../../docs/semantics/control-flow.md#cf-v5)) is decided once, by one
+[CF-V5](../../docs/semantics/control-flow.md#cf-v5)) is decided by one
 function, `collapses`. In the lite form nested bodies are stored nodes, so
 the deployed rule holds at every depth: a loop collapses when it is a
 sequential for loop or any while loop, its body as written is exactly one
 `script` or `rawscript` step with none of `sleep`, `suspend`, `cache_ttl`,
-`retry`, `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or an enabled
-`mock`, and its flow has no failure module. A body module that is a
+`retry`, `timeout`, `stop_after_if`, `stop_after_all_iters_if`, `skip_if` or
+an enabled `mock`, and its flow has no failure module. A body module that is a
 provided site keeps its original kind for the rule.
+
+A deploy applies the same body test, except that `timeout` does not count,
+to choose which container bodies it stores as nodes
+([CF-V4](../../docs/semantics/control-flow.md#cf-v4)). `StoredNode`
+reports it for a compiled body, every body but an empty or simple one,
+and the engine's job records follow it (a child flow of a stored body
+reads as a `FlowNode` job's). [CF-8](../../docs/semantics/control-flow.md#cf-8)'s
+test, which the deploy's follows, predates `timeout` joining the collapse
+test ([FX-46](../../docs/semantics/execution.md#fx-46), 1.852.0).
 
 ## Harness classes
 

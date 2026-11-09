@@ -17,7 +17,8 @@ In Windmill a value changes form as it moves:
 - that **producer text** is kept in memory as `previous_result` and as
   `stop_after_if`'s `result`, and is also **stored** in PostgreSQL `jsonb`,
   which orders keys (shorter first, then bytewise), keeps the last duplicate,
-  rewrites exponent numbers and rejects `\u0000`
+  rewrites exponent numbers and rejects `\u0000`, which Windmill removes
+  from a result and from a job's arguments before it stores them
   ([FX-42](../semantics/execution.md#fx-42), [FX-48](../semantics/execution.md#fx-48));
 - the read **route** decides which form a consumer sees
   ([FX-10](../semantics/execution.md#fx-10), [JE-44](../semantics/expressions.md#je-44),
@@ -76,7 +77,7 @@ boundary configuration in a test process of its own.
 They ran on an Apple M4 (10 cores) with 16 GiB, macOS 26.5.1, Go 1.27.3
 and Bun 1.3.10. Each figure is the median of three runs (`-count 3`) of
 its benchmark, taken while no other build, benchmark or heavy indexing
-ran.
+ran. They were not measured again on Bun 1.4.3, the pinned Bun.
 
 **Why it was re-taken.** In one process, a benchmark runs on the heap the
 benchmarks before it left. The engine used to keep every finished run
@@ -96,16 +97,17 @@ end-to-end parts overlapped heavy indexing and was discarded. The
 one-minute load average was 1.4 to 4.6, from the machine's own services
 and the benchmarks themselves.
 
-The commands below produced the baseline, from the repository root. They
-need the build helper's dependencies
+The commands below produced the baseline, from the repository root, with
+`WL_BUN` naming Bun 1.3.10. They need the build helper's dependencies
 ([harnesses/bun/build](../../harnesses/bun/build/README.md#running)) and
-`WL_BUN` exported, naming Bun 1.3.10; a benchmark fails without it.
+`WL_BUN` exported, naming the pinned Bun, 1.4.3; a benchmark fails without
+it.
 `WL_BENCH_FRESH=1` runs each shape and configuration in a process of its
 own, and `-timeout` covers them all. The last command measures what the
 stage readings cost:
 
 ```sh
-export WL_BUN=/path/to/bun-1.3.10/bun
+export WL_BUN=/path/to/bun-1.4.3/bun
 (cd harnesses/bun/build && "$WL_BUN" install --frozen-lockfile)
 go test ./internal/jsonval -run '^$' -bench BenchmarkStored -benchtime 1s -count 3
 go test ./internal/harness -run '^$' -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
@@ -302,7 +304,8 @@ The large-value benchmarks of the plan (items 4 to 7 below) were
 recorded on GitHub's hosted runners, through the workflow `Benchmarks`:
 Go 1.27.3, Bun 1.3.10, `ubuntu-24.04` and `ubuntu-24.04-arm`, 4 vCPUs
 each. Each figure is the median of 10 rounds, the builds rotating within
-one job.
+one job. Of these figures, only the peaks of the last three rows were
+measured again on Bun 1.4.3 (below); the times and CPU are Bun 1.3.10's.
 
 Each job draws its own CPU. On amd64 the step boundary ran on an AMD EPYC
 9V74 and the rest on an EPYC 7763; on arm64 every job ran on a
@@ -335,6 +338,25 @@ trace.
 | whole run, two steps, 16 MiB: engine / host / paired sample, MiB | 264.9 / 277.2 / 531.6 | 260.4 / 280.1 / 529 |
 | whole run, two steps, 32 MiB: engine / host / paired sample, MiB | 497.3 / 464.9 / 887 | 494.2 / 483.2 / 951.6 |
 | whole run, eight steps, 16 MiB: engine / host / paired sample, MiB | 612 / 297 / 875 | 604.6 / 295.1 / 870.4 |
+
+The peaks of the last three rows were measured again on Bun 1.4.3, against
+Bun 1.3.10 in the same job:
+
+- Each test process ran in a container limited to 1,536 MiB without swap
+  (the workflow's `memory_limit`).
+- Each figure is the median of 5 rounds.
+- The amd64 job ran on an AMD EPYC 9V45 and the arm64 job on a
+  Neoverse-N2
+  ([run](https://github.com/invakid404/windmill-lite/actions/runs/42606138796)).
+
+| Whole run: engine / host / paired sample, MiB | amd64, Bun 1.3.10 | amd64, Bun 1.4.3 | arm64, Bun 1.3.10 | arm64, Bun 1.4.3 |
+|---|---|---|---|---|
+| two steps, 16 MiB | 276.1 / 290.9 / 555.9 | 272.3 / 238.3 / 512.7 | 276.5 / 273.1 / 532.7 | 270.0 / 231.2 / 499.0 |
+| two steps, 32 MiB | 508.0 / 482.4 / 945.6 | 508.8 / 358.7 / 827.2 | 494.0 / 468.1 / 966.1 | 505.7 / 334.1 / 768.1 |
+| eight steps, 16 MiB | 623.3 / 363.8 / 940.6 | 614.5 / 298.0 / 851.7 | 620.1 / 284.3 / 882.3 | 616.5 / 240.7 / 822.2 |
+
+On Bun 1.4.3 the host's peak is 15 to 29 % lower. The engine's moves by
+at most 2.4 %, which `benchstat` does not find significant.
 
 A long-lived engine keeps about 2 KiB per finished run on every
 topology (`BenchmarkRetainedHeap`,
@@ -372,8 +394,10 @@ The engine's value type (`jsonval`) holds:
 - the **producer text**, byte for byte as the harness or QuickJS-ng wrote it;
 - the **stored text**, the jsonb-canonical form, computed lazily the first
   time a storage route reads the value;
-- a NUL flag, computed eagerly, because every result is stored in Windmill
-  and a NUL fails the step there ([OR-27](../semantics/oracle.md#or-27)).
+- a NUL flag, computed eagerly, because every result is stored in Windmill,
+  which removes a NUL from the stored copy, and only from it
+  ([OR-27](../semantics/oracle.md#or-27); until Windmill 1.768.0 a NUL
+  failed the step).
 
 Which form each consumer gets:
 
@@ -404,15 +428,15 @@ the precision of numbers that are not 64-bit integers.
    output ([JE-15](../semantics/expressions.md#je-15)).
 2. The engine assembles the argument object with its top-level keys in an
    order shuffled by the run's seed ([0001](0001-equivalence-contract.md) §2).
-3. **Storage boundary:** each argument becomes its stored text. A NUL here
-   is a push failure, which is a chaining error routed as
-   [FX-15](../semantics/execution.md#fx-15) says
-   ([FX-48](../semantics/execution.md#fx-48) case 2): a module failure named
-   `Anyhow` at root pickup, a failed child at child pickup, or `InternalError`
-   at a later transition. That routing is source-derived at medium
-   confidence; the exact message text
-   is open ([Q-FX-8](../semantics/execution.md#q-fx-8)) and is pinned by a
-   recording.
+3. **Storage boundary:** each argument becomes its stored text, every NUL
+   escape removed first ([FX-48](../semantics/execution.md#fx-48) case 2,
+   since Windmill 1.826.0). A text jsonb still refuses (an unpaired
+   surrogate, a number beyond `numeric`'s range) is a push failure, which is
+   a chaining error routed as [FX-15](../semantics/execution.md#fx-15) says
+   ([FX-51](../semantics/execution.md#fx-51) case 2): a module failure
+   named `Anyhow` at root pickup, a failed child at child pickup, or
+   `InternalError` at a later transition, with the texts a recording pins
+   ([FX-50/a](../semantics/conformance.md#fx-50)).
 4. **Resolution:** only arguments whose stored text contains `$var:`,
    `$jsonvar:`, `$res:` or `$encrypted:` are walked, with the depth and
    array rules of [WA-12](../semantics/client-api.md#wa-12) and
@@ -561,6 +585,19 @@ local one above.
   number outside `numeric`'s range. The reference covers only NUL, so
   whether Windmill fails a step on them as it does on NUL is request 4 of the
   [README](README.md); until then the eager flag covers NUL alone.
+- The retarget to Windmill 1.862.0 changed the NUL. Windmill removes every
+  NUL escape before it stores a result (1.768.0) or a job's arguments
+  (1.826.0), so a NUL fails nothing there
+  ([FX-48](../semantics/execution.md#fx-48),
+  [OR-27](../semantics/oracle.md#or-27)). The canonicaliser still rejects
+  it, as `jsonb` input does; the engine removes it from the stored copy
+  first (`jsonval.WithoutNUL`), at those two boundaries only, and the
+  producer text keeps it, so a memory route still reads it (FX-48/e). A
+  for loop's iterator array, which Windmill stores in the flow's status,
+  neither a result nor arguments, still fails on a NUL: whether that write
+  removes it too is a question for the reference. An unpaired surrogate and
+  an out-of-range number fail as before
+  ([FX-51](../semantics/execution.md#fx-51)).
 - Milestone B2a found that the spaces of jsonb's text output can show.
   The [JE-9](../semantics/expressions.md#je-9) shortcut answers the
   database's text unparsed, and the `timeout` site's parse error quotes it:

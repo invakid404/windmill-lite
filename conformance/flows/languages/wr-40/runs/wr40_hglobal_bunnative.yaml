@@ -9,6 +9,9 @@ expect:
       message: "Buffer is not defined"
       stack: "<stack>"
       name: ReferenceError
+      step_id: a
+      job_id: "<job:m:a>"
+      flow_path: f/wl_n40/wr40_hglobal_bunnative
   steps:
     "m:a":
       status: failure
@@ -18,3 +21,6 @@ expect:
           message: "Buffer is not defined"
           stack: "<stack>"
           name: ReferenceError
+          step_id: a
+          job_id: "<job:m:a>"
+          flow_path: f/wl_n40/wr40_hglobal_bunnative

@@ -66,6 +66,11 @@ type frame struct {
 	// which runs a flow by its path.
 	child   bool
 	subflow bool
+	// limit is the flow job's own wall-clock limit in seconds (FX-52), 0
+	// for none: the root's value.timeout, or a subflow's, which a positive
+	// timeout of its calling step replaces (flowLimit). A container body's
+	// child flow has none.
+	limit int64
 	// due is when the flow is scheduled, the sleep of the module before
 	// its container or the container's retry delay (CF-21, FX-26): a child
 	// flow is picked up then, before any of its modules starts, and a
@@ -101,14 +106,17 @@ type frame struct {
 	// per module, that its last status is Success, which a retry's
 	// restored previous_result depends on (FX-6, JE-36). spent is what the
 	// flow's current transition, since its last job ended (pinged), has
-	// spent evaluating expressions, against JE-2's monitor. The goroutine
-	// that runs the frame owns them all; a collapsed iteration's monitor
-	// state is its loop's flow's (owner).
+	// spent evaluating expressions, against JE-2's monitor, and begun says
+	// that the flow has started: its first module no longer waits, since
+	// one of its attempts, jobs or child flows has completed. The
+	// goroutine that runs the frame owns them all; a collapsed iteration's
+	// monitor state is its loop's flow's (owner).
 	failCount uint32
 	failed    []conformance.SitePath
 	succeeded []bool
 	spent     time.Duration
 	pinged    time.Time
+	begun     bool
 	// env is flow_env as the flow's current transition resolved it, and
 	// envCached the last resolution that succeeded, which the predicates
 	// after a child completes read (JE-38); zero before the frame's first
@@ -139,11 +147,19 @@ type frame struct {
 	// container that its retry kept: the child flow that failed it, which
 	// the record of the attempt does not name (run.attempt).
 	attempts map[int]string
-	// released marks a parallel child flow that its container released to
-	// run, one that a parallelism holds not being released yet (CF-7), and
-	// scheduled a flow job pushed for later that waits to be picked up,
-	// after a sleep or a retry delay (CF-21, FX-26). run.mu guards them.
-	released, scheduled bool
+	// scheduled marks a flow job pushed for later that waits to be picked
+	// up, after a sleep or a retry delay (CF-21, FX-26). run.mu guards it.
+	scheduled bool
+}
+
+// storedNode reports whether fr is a child flow whose body the deploy
+// stored as a node, which Windmill runs as a FlowNode job, where an inline
+// body runs as a FlowPreview one: a loop iteration's or a branch's child
+// flow whose body is not empty and is not the simple body of CF-8, which a
+// flow with a failure module never has (CF-V4, ir.StoredNode). A subflow
+// is a flow job of its own path, and a collapsed iteration no flow.
+func (fr *frame) storedNode() bool {
+	return fr.child && !fr.subflow && fr.collapsed == nil && ir.StoredNode(fr.modules, fr.failure != nil)
 }
 
 // nodeScope is one scope of the result-by-node-id map (JE-19, CF-19): the
@@ -235,9 +251,11 @@ func (r *run) jobPath(fr *frame, i int) string {
 }
 
 // recordJob records the stored result of module i's job, which results
-// lookups read (JE-18, JE-19). A collapsed iteration registers nothing
+// lookups read (JE-18, JE-19): v without its NUL escapes, which no stored
+// result holds (FX-48 case 1). A collapsed iteration registers nothing
 // under its body module's id (CF-8).
 func (r *run) recordJob(fr *frame, i int, v jsonval.Value) {
+	v = v.WithoutNUL()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fr.jobs[i] = v

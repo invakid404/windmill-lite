@@ -70,12 +70,12 @@ supplies secrets (PF2).
 |---|---|
 | `format` | `FormatVersion`, 1 |
 | `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
-| `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
+| `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.2) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `no_args_file_reader` | set when no script of the bundle can read `args.json`, the job's arguments ([WR-5](../../docs/semantics/languages.md#wr-5)). Host mode leaves the file out only for such a bundle, when its host opts in ([ADR 0004](../../docs/design/0004-harness-protocol.md), host mode item 7). The search (`argsfile.go`) reads each script's module after the build's own leading sections. A script is no reader only when its module holds no way to a file, a process or code made at run time, and calls no host-provided module, shared closure, codebase or native code |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
 | `shared_code`, `closures` | set for a bundle built with shared code, and the ids of its closures ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Such a bundle in `warm` mode also lists [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations), the differences of shared code, among its `deviations`, and `ModeDeviations` swaps it as it swaps the mode's other deviations |
-| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13, D19), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16, D17 and D22, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
+| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13, D19), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16, D17, D22 and D23, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
 | `contract` | the host contract compiled against; with none, every flow and script of the folder is a root |
 | `host_modules` | the host-provided modules (D12), `key` and `id`, in registration order: a module after the modules it imports |
 | `harness_runtimes` | by harness class, the `TreeDigest` of the harness runtime the bundle was built for |
@@ -213,21 +213,25 @@ selects ([SY-8](../../docs/semantics/openflow.md#sy-8)); Windmill's CLI
 bundles it with esbuild at deploy time
 ([WR-30](../../docs/semantics/languages.md#wr-30)). `BuildCodebase(ctx,
 CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
-`go.mod` at the CLI's version, 0.28.0 (`EsbuildVersion`,
+`go.mod` at the CLI's version, 0.28.2 (`EsbuildVersion`,
 [WR-47](../../docs/semantics/languages.md#wr-47)):
 
 - **The CLI's build.** `ParseCodebaseSettings` reads the entry
   (`format`, `external`, `inject`, `define`, `loader`, `banner`, `assets`;
   `relative_path`, `includes` and `excludes` do not shape the bundle).
-  `CLIOptions` is WR-47's table: the script file as the single entry point,
-  resolved from the sync root (the CLI's working directory, which `inject`
-  paths and asset sources are relative to too), `bundle`, platform `node`,
-  packages inlined, format `cjs` (absent `format`; engine `node20.15.1`) or
-  `esm` (target `esnext`), output in memory under `/`, the entry's
-  `external`, `inject`, `define` and `banner` unchanged, its `loader` map in
-  place of the default `{".node": "file"}`, and no minification, source map,
-  splitting or metafile. `CLIBundle` runs it as it is: the CLI parity check
-  compares it with what the CLI uploads.
+  `CLIOptions` is WR-47's table, listed below. `CLIBundle` runs it as it
+  is: the CLI parity check compares it with what the CLI uploads.
+  - The script file is the single entry point, resolved from the sync
+    root. That is the CLI's working directory, which `inject` paths and
+    asset sources are relative to too.
+  - `bundle`, platform `node`, packages inlined, and output in memory
+    under `/`.
+  - Format `cjs` for an absent `format`, with engine `node20.15.1`, or
+    `esm` with target `esnext`.
+  - The entry's `external`, `inject`, `define` and `banner` unchanged, and
+    its `loader` map in place of the default `{".node": "file"}`.
+  - The metafile on, as on the CLI's deploy path, where it changes no
+    output. No minification, source map or splitting.
 - **windmill-lite's transforms**, from the same single implementation as
   the Bun build ([ADR 0010](../../docs/design/0010-packaging.md)): the env
   rewrite (below) for the entry's format, with the define table's keys
@@ -307,8 +311,8 @@ copy in its working directory, where it has extracted the assets
 
 A harness gives each invocation its own `process.env`
 ([WA-31](../../docs/semantics/client-api.md#wa-31)), but `Bun.env` is a
-separate object, and on Bun 1.3.10 both it and the global `Bun` are
-read-only and non-configurable, so the runtime cannot replace them.
+separate object, and on Bun 1.4.3, as on 1.3.10, both it and the global
+`Bun` are read-only and non-configurable, so the runtime cannot replace them.
 `EnvRewrite(format)` returns what every bundler applies instead
 ([ADR 0010](../../docs/design/0010-packaging.md) step 5):
 
@@ -443,10 +447,11 @@ A module the runtime has built in is neither an external import nor a kept
 
 `builtins` holds the specifiers the build helper accepts on its Bun: each
 name that `node:module`'s `builtinModules` lists, alone or after `node:`,
-that Bun's resolver resolves to a built-in module. Bun 1.3.10 resolves its
-own modules only bare, so `node:ws` and `node:bun:sqlite`, for example, are
-external modules, while `node:fs/promises` is built in. The build requires
-that Bun to be 1.3.10 unless `BunConfig.AllowBunMismatch` is set.
+that Bun's resolver resolves to a built-in module. Bun resolves its own
+modules only bare, so `node:ws` and `node:bun:sqlite`, for example, are
+external modules, while `node:fs/promises` is built in, and Bun 1.4.3 lists
+`node:sqlite` only with its prefix. The build requires the pinned Bun,
+1.4.3, unless `BunConfig.AllowBunMismatch` is set.
 
 The build helper finds namespace imports and kept imports by parsing with
 Babel: its `namespaces` op parses each module, and its `kept` op parses the
@@ -495,7 +500,7 @@ The build has these steps:
 1. The helper's `parse` op reads each source for
    `host_module_live_binding` (`export let` or `export var`), with the
    syntax of the loader esbuild bundles it with. `loaderFor` picks it as
-   esbuild 0.28.0 does: the longest suffix of the name that starts at a
+   esbuild 0.28.2 does: the longest suffix of the name that starts at a
    dot, over esbuild's own loaders with the entry's `loader` map on top.
    - TSX and JSX parse; another loader's file is not read.
    - A file with no loader (no suffix has one, or its loader is `default`)
@@ -575,10 +580,17 @@ of the bundle holds one alone.
 - The late shim always exports `then`, from the registry like its other
   names. An `import()` reads `then` on the namespace it resolves to, so it
   rejects before the module registers, a module without exports included.
+- Bun 1.4.3 gives an `import()` whose value goes unused, or only has
+  exports read, an empty object in place of the namespace. Nothing reads
+  `then` then, so in a Bun-built copy such an `import()` resolves before
+  the module registers, without its load effects. esbuild keeps the
+  namespace. A module that waits for another's load effects keeps the
+  namespace its `import()` gives.
 - Both bundlers initialise a module once, so a plain shim that failed can
-  never yield the registered values. On Bun 1.3.10 and esbuild, every later
-  import gets its exports undefined, or seems to succeed for a module
-  without exports.
+  never yield the registered values: esbuild 0.28.2 and Bun 1.4.3 both
+  throw the first failure again on every later import. esbuild 0.28.0
+  gave every later import its exports undefined, or seemed to succeed for
+  a module without exports.
 
 ## BuildBun
 
@@ -620,6 +632,10 @@ offset, the static imports and the links they need, the `//useragent` and
 `//proxy` header, and a nativets script's transpile error, which does not
 fail the build). A nativets script imports nothing at build time, so it is
 never `missing_lock`.
+
+A nativets script's `native` record also holds its transpile's line map
+(`line_map`), in which the harness reads the source line in front of an
+error's stack ([WR-43](../../docs/semantics/languages.md#wr-43)).
 
 A script's lock is in the format of
 [WR-25](../../docs/semantics/languages.md#wr-25); scripts with one lock
@@ -668,12 +684,12 @@ failure and preprocessor slots; [internal/ir](../ir/README.md) decides, and
 ## Tests
 
 The build tests run the real helper on the pinned Bun. Install the helper's
-parser once, then point `WL_BUN` at Bun 1.3.10; without it they skip, unless
+parser once, then point `WL_BUN` at Bun 1.4.3; without it they skip, unless
 `WL_REQUIRE_BUN` is set, as CI sets it:
 
 ```sh
 (cd harnesses/bun/build && bun install --frozen-lockfile)
-WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
+WL_BUN=/path/to/bun-1.4.3/bun go test -race ./internal/bundle
 ```
 
 - `TestConformanceBuild` runs every case of
@@ -712,6 +728,9 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
     registers, caught and uncaught (`run.register_error`), a module
     whose loading awaits one, and an `import()` of a module without exports
     attempted twice before its registration.
+  - An `import()` made to wait for a module's load effects keeps the
+    namespace it gives, and a Bun-built copy's `import()` whose value goes
+    unused resolves before the registration.
 - The shared-code cases of `TestConformanceBuild` (`given.shared_code`)
   check `expect.shared`: each script's record by a case-local closure
   label, what each closure names and contains, and text of each script's
@@ -797,8 +816,8 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 4
   ([Q-WR-24](../../docs/semantics/languages.md#q-wr-24)). With
   `WL_WMILL_CLI` naming the command that runs the unmodified
-  `windmill-cli@1.767.0` (CI's `parity.yml`: `npx --yes
-  windmill-cli@1.767.0`; never run locally, never a dependency), it pushes
+  `windmill-cli` at the oracle's pinned version (`oracle.CLIPackage`;
+  never run locally, never a dependency), it pushes
   each synthetic WR-47 fixture with `wmill script push` to a recording HTTP
   stub and checks that the bundle the CLI uploads (`main.js`, or a tar of
   it and the assets) equals `CLIBundle`'s, byte for byte. Without it, it

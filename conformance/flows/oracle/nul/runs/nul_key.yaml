@@ -1,10 +1,12 @@
-# Q-OR-6 (key): a NUL in an object key fails the step at storage time
-# like OR-27/a's top-level string.
+# Q-OR-6 (key): a NUL in an object key is removed like OR-27/a's
+# top-level one, so the stored key is "k".
 spec: [OR-27/b]
 target: f/wl_probe/nul_key
 expect:
-  status: failure
-  result: {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+  status: success
+  result: {"p": {"k": 1}, "r": {"k": 1}}
   steps:
-    "m:a": {"status": "failure", "args": {}, "result": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}}
-    "m:b": {"status": "not_run", "ran": false}
+    # The value a carries on in memory keeps the NUL (FX-48 case 1), which
+    # only windmill-lite's observation holds.
+    "m:a": {"status": "success", "args": {}, "result": {"k": 1}, "carried": {"k\u0000": 1}}
+    "m:b": {"status": "success", "args": {"p": {"k": 1}, "r": {"k": 1}}, "result": {"p": {"k": 1}, "r": {"k": 1}}}

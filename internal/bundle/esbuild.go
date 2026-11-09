@@ -26,7 +26,7 @@ import (
 // EsbuildVersion is the esbuild that bundles codebase scripts: the version
 // the pinned CLI uses (WR-47), which go.mod pins for
 // github.com/evanw/esbuild. The manifest records it.
-const EsbuildVersion = "0.28.0"
+const EsbuildVersion = "0.28.2"
 
 // Problem kinds of codebase scripts.
 const (
@@ -98,7 +98,7 @@ func ParseCodebaseSettings(raw json.RawMessage) (*CodebaseSettings, error) {
 	return s, nil
 }
 
-// defaultLoaders are esbuild 0.28.0's own loaders by file suffix, which
+// defaultLoaders are esbuild 0.28.2's own loaders by file suffix, which
 // a build's loader map adds to and overrides; "" is a name without a dot.
 var defaultLoaders = map[string]string{
 	"": "js", ".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "jsx",
@@ -152,9 +152,10 @@ var loaders = map[string]api.Loader{
 // in the entry's format (target node20.15.1 for cjs, esnext for esm), into
 // memory under the output directory "/", with the entry's external,
 // inject, define and banner, and its loader map in place of the default
-// {".node": "file"}. Minification, source maps, code splitting and the
-// metafile are left off. This is the reproduction that the CLI parity
-// check compares (ADR 0002, decision 4).
+// {".node": "file"}. The metafile is on, as on the CLI's deploy path
+// (wmill sync push and wmill script push), where it changes no output;
+// minification, source maps and code splitting are left off. This is the
+// reproduction that the CLI parity check compares (ADR 0002, decision 4).
 func (s *CodebaseSettings) CLIOptions(root, file string) (api.BuildOptions, error) {
 	o := api.BuildOptions{
 		EntryPoints:   []string{file},
@@ -164,6 +165,7 @@ func (s *CodebaseSettings) CLIOptions(root, file string) (api.BuildOptions, erro
 		Packages:      api.PackagesBundle,
 		Outdir:        "/",
 		Write:         false,
+		Metafile:      true,
 		LogLevel:      api.LogLevelSilent,
 		External:      slices.Clone(s.External),
 		Inject:        slices.Clone(s.Inject),

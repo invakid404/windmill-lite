@@ -1,10 +1,11 @@
 # The facade's error answers and the variable and resource routes, each
 # status, content type and body, from one Bun step that calls the API with
 # its own token: WA-19/b and /c, WA-V2/c, WA-14/d, WA-11/e, WA-11/c (the
-# first candidate ciphertext whose read fails with the padding cause),
+# first candidate ciphertext whose read fails),
 # WA-11/d, WA-12/g (job ids in bodies written <random>, <completed> and
-# <self>) and WA-12/h's superadmin half (the connection fields masked by the
-# step).
+# <self>) and WA-12/h: the superadmin's own job token is refused on the
+# CUSTOM_INSTANCE_DB/ path since CE 1.862.0 (before, the step masked the
+# connection fields it was given), and the raw read finds no resource.
 spec:
   - WA-19/b
   - WA-19/c
@@ -16,14 +17,14 @@ spec:
   - WA-12/g
   - WA-12/h
 target: f/wl_fa/answers
-note: "Predicted from the reference with locations written <loc> and every error answer of the variable and resource routes typed text/plain; charset=utf-8. Recorded in oracle run 40994947681: the locations as given, some written (file.rs:line) in parentheses, and the 400, 404 and 500 answers of those routes (and the 404 of the resource route) typed text/plain without a charset, while the 2xx answers keep the charset. The <masked> the step writes is escaped as <<masked> by the normaliser."
+note: "Predicted from the reference with locations written <loc> and every error answer of the variable and resource routes typed text/plain; charset=utf-8. Recorded in oracle run 40994947681: the locations as given, some written (file.rs:line) in parentheses, and the 400, 404 and 500 answers of those routes (and the 404 of the resource route) typed text/plain without a charset, while the 2xx answers keep the charset. The <masked> the step writes is escaped as <<masked> by the normaliser. On CE 1.862.0 the locations moved, and the step's job token is refused on CUSTOM_INSTANCE_DB/ (401), so it masks nothing."
 expect:
   status: success
   result:
     wa19b:
       status: 400
       type: text/plain
-      body: "SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:498:20"
+      body: "SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:677:20"
     wa19c:
       status: 400
       type: "text/plain; charset=utf-8"
@@ -54,7 +55,7 @@ expect:
         body: "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")"
       - status: 404
         type: text/plain
-        body: "Not found: Variable not found at name f/wl_fa/none (variables.rs:1275)"
+        body: "Not found: Variable not found at name f/wl_fa/none (variables.rs:1487)"
       - status: 200
         type: "text/plain; charset=utf-8"
         body: "variable f/wl_fa/w updated (npath: \"f/wl_fa/w\")"
@@ -64,7 +65,7 @@ expect:
       read:
         status: 500
         type: text/plain
-        body: "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:265:45 @resolver.rs:262:17"
+        body: "Internal: Error decrypting variable f/wl_fa/s: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:519:9 @resolver.rs:311:17"
     wa11d:
       - status: 400
         type: text/plain
@@ -75,7 +76,7 @@ expect:
       - {status: 201}
       - status: 500
         type: text/plain
-        body: "Internal: Error decrypting variable f/wl_fa/p: Internal: Invalid byte 36, offset 0. @variables.rs:269:14 @resolver.rs:262:17"
+        body: "Internal: Error decrypting variable f/wl_fa/p: Internal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:519:9 @resolver.rs:311:17"
     wa12g:
       plain:
         - {status: 200, body: "{\"a\":1}"}
@@ -83,25 +84,15 @@ expect:
         - {status: 200, body: "{\"a\":1}"}
       ctx:
         - status: 404
-          body: "Not found: Job not found at name <random> (resources.rs:899)"
+          body: "Not found: Job not found at name <random> (resources.rs:1088)"
         - status: 404
-          body: "Not found: Job not found at name <completed> (resources.rs:899)"
+          body: "Not found: Job not found at name <completed> (resources.rs:1088)"
         - {status: 200, body: "{\"j\":\"<self>\"}"}
       nope: [400, 400]
     wa12h:
       interpolated:
-        status: 200
-        value:
-          host: "<<masked>"
-          user: "<<masked>"
-          password: "<<masked>"
-          port: "<<masked>"
-          sslmode: "<<masked>"
-          dbname: demo
-          root_certificate_pem: null
-          accept_invalid_certs: null
-          use_iam_auth: null
-          region: null
+        status: 401
+        value: "Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)"
       raw:
         status: 404
         type: text/plain

@@ -1,18 +1,20 @@
 # internal/openflow
 
-**Current state:** implemented (milestone A3 of
-[0012](../../docs/design/0012-layout-and-milestones.md)). The sync-folder
+**Current state:** implemented, per
+[0012](../../docs/design/0012-layout-and-milestones.md). The sync-folder
 loader ([internal/syncfolder](../syncfolder/README.md)) decodes every
 `flow.yaml` with it, and the compiler ([internal/ir](../ir/README.md))
 compiles the decoded model. This README covers `internal/openflow/` and its
 `schema/` directory. The package holds windmill-lite's OpenFlow types and the
-*effective decoder*: the rules by which Windmill `v1.767.0` accepts, rejects
-and defaults a flow value, which differ from the OpenFlow schema in both
+*effective decoder*: the rules by which Windmill `v1.862.0` accepts, rejects
+and defaults a flow value, as the reference states them, which differ from the OpenFlow schema in both
 directions ([OF-1](../../docs/semantics/openflow.md#of-1)).
 
 What the package does not do:
 
-- read YAML or a sync folder, or resolve `!inline` references (A2 and A4);
+- read YAML or a sync folder, or resolve `!inline` references
+  ([internal/yamlx](../yamlx/README.md) and
+  [internal/syncfolder](../syncfolder/README.md));
 - apply what a successful deploy adds: the `bun` and `bunnative` switch,
   virtual `<id>-v` steps, the lock policy and validation of out-of-scope
   features, including the refusal of `aiagent` and `flowscript` modules
@@ -24,7 +26,7 @@ What the package does not do:
 | Name | What it does |
 |---|---|
 | `DecodeFlowValue(data)` | Decodes a flow `value` from JSON text in Windmill's two stages and runs its two server checks. |
-| `DecodeFlow(data)` | Decodes a flow document, the OpenFlow object of `flow.yaml`: `summary`, `description`, `value`, `schema` and `on_behalf_of_email`, plus the metadata field `timeout`. Other metadata keys are ignored, except that `ws_error_handler_muted: true` is rejected as Windmill CE does. |
+| `DecodeFlow(data)` | Decodes a flow document, the OpenFlow object of `flow.yaml`: `summary`, `description`, `value`, `schema`, `on_behalf_of_email` and `on_behalf_of`, plus the metadata field `timeout`. Other metadata keys are ignored, except that `ws_error_handler_muted: true` is rejected as Windmill CE does. |
 | `FlowValue`, `Module`, the value types | Decoded values. A module's `Value` is one of `*RawScript`, `*PathScript`, `*PathFlow`, `*ForLoop`, `*WhileLoop`, `*BranchOne`, `*BranchAll`, `*Identity`, `*AIAgent` and `*FlowScript`. |
 | `(*FlowValue).AllModules()` | Iterates over every module envelope in the traversal order below. |
 | `MarshalJSON` on `FlowValue` and `Flow` | Writes the *decoded form*: windmill-lite's JSON rendering of a decoded value, with the decoder's defaults written out. It is a lossy projection, not Windmill's stored full form: see [The decoded form](#the-decoded-form). |
@@ -44,7 +46,7 @@ copies verbatim JSON as written. Conformance expectations address it with
 JSON Pointers.
 
 Writing defaults out loses whether a field was written. An absent
-`skip_failures` or branch `skip_failure` is rendered `true`, and a derived id
+`skip_failures` or branch `skip_failure` is written out, and a derived id
 as an ordinary id. Decoding the decoded form therefore gives the same
 decoded form, but not an equal model: `ForLoop.SkipFailures` and
 `Branch.SkipFailure` are set where the original had them unset, and
@@ -133,15 +135,14 @@ quotes it, and are compared with Windmill by substring, as the reference does.
 
 ## Readings the reference does not settle
 
-Each is the smallest reading consistent with the reference; the milestone's
-pull request lists them as open questions.
+Each is the smallest reading consistent with the reference.
 
 - A null `expr` in an ordinary transform counts as absent, as it does in a
   restricted slot.
 - In a restricted slot, a `type` other than `static` or `javascript` is
   rejected with the ordinary transform's message, with one exception: a
   loop's `parallelism` also takes `ai`, as the reference says it decodes
-  ([CF-7/e](../../docs/semantics/conformance.md#cf-7), milestone FU8). The
+  ([CF-7/e](../../docs/semantics/conformance.md#cf-7)). The
   reference says nothing of an `ai` timeout, which stays refused.
 - Within one module, the value decodes first, then the retry check runs, then
   the path check.
@@ -149,7 +150,24 @@ pull request lists them as open questions.
   are decoded as i64. Rawscript `concurrent_limit` and
   `concurrency_time_window_s` are i32, like the flow-level fields.
 - `assets` is checked as a list and kept verbatim. AI-agent tools follow
-  OF-9's outline; the kind is out of scope.
+  [OF-9](../../docs/semantics/openflow.md#of-9)'s outline; the kind is out
+  of scope.
+- The fields the `v1.862.0` schema adds are decoded with the types it
+  declares, under the rules above:
+  - `on_behalf_of` and `agent` as strings, and an AI-agent tool's
+    `requires_approval` as a bool;
+  - `value.timeout` as an i32, the width of the metadata `timeout`;
+  - `job_token_scopes`, on an envelope or an AI-agent tool, as a list of
+    strings; an empty list is kept, and differs from an absent one;
+  - `suspend.skin` as any string: the schema's two values are not enforced;
+  - `tool_inputs` as a map, kept verbatim.
+
+  Every module kind type-checks `agent` and `tool_inputs`.
+- The tool type `question` and the module kind `aidecision`, which the
+  `v1.862.0` schema declares, are rejected as unknown variants. The
+  reference lists neither ([OF-9](../../docs/semantics/openflow.md#of-9)),
+  and the variant lists and messages stay as it gives them. The question
+  tool's own `timeout` is therefore never read.
 - Nesting is limited to 10000 levels, against stack exhaustion.
 
 ## Tests
@@ -173,6 +191,9 @@ pull request lists them as open questions.
   storage with another, with a later decode or with the input.
   `FuzzDecodeFlowValue` checks that decoding never panics and that the
   decoded form of accepted input is stable.
+- `TestFieldsAddedAtV1862` and `TestDecodeFlow` check the fields the
+  `v1.862.0` schema adds once decoded, and again after an encode and a
+  second decode, so an encoder that dropped one of them would fail.
 
 ```sh
 go test -race ./internal/openflow
@@ -181,9 +202,26 @@ go test -run '^$' -fuzz FuzzDecodeFlowValue ./internal/openflow
 
 ## Vendored schema
 
-`schema/openflow.openapi.yaml` is Windmill's OpenFlow schema at `v1.767.0`,
+`schema/openflow.openapi.yaml` is Windmill's OpenFlow schema at `v1.862.0`,
 unmodified. Windmill licenses its OpenAPI files under Apache-2.0, so the file
 keeps that licence: [`schema/NOTICE`](schema/NOTICE) records its source,
 commit and digest, and `schema/LICENSE-APACHE` is the licence text. These
 files are not covered by the Unlicense of the rest of the repository. Only
 the coverage test reads the schema; no code is generated from it.
+
+The schema is Windmill `v1.862.0`'s, while many of the reference's OpenFlow
+findings are still verified at `v1.767.0` only
+([Pinned version](../../docs/semantics/README.md#pinned-version)). The
+coverage test finds every property that a flow document reaches in this
+schema decoded or listed as ignored. Of the nine added since `v1.767.0`,
+all but the question tool's `timeout`
+are decoded, as
+[Readings the reference does not settle](#readings-the-reference-does-not-settle)
+says. At run time they follow
+[0001](../../docs/design/0001-equivalence-contract.md):
+
+- the identity and the job token scopes are decoded and ignored (§3);
+- the AI-agent fields and `suspend.skin` belong to features the compiler
+  refuses, `aiagent` modules and `suspend`;
+- `value.timeout` is the flow's wall-clock limit, which the engine
+  enforces ([FX-52](../../docs/semantics/execution.md#fx-52)).

@@ -60,6 +60,12 @@ type flowChecker struct {
 	// afterRuns, when set, is called in host mode once a fixture's runs
 	// have ended, before its host's teardown (tests: hostmode_test.go).
 	afterRuns func(*hostRuntime)
+	// runWaitOutcome runs a run-and-wait run (submit: run_wait_result) as
+	// an ordinary submission and checks it without its response, which is
+	// the HTTP adapter's (milestone F7b): the flow's status, result and
+	// steps, which the response carries, are the engine's
+	// (TestRunWaitOutcomes).
+	runWaitOutcome bool
 }
 
 // quickJSOnlyAll sets every flowChecker's quickJSOnly (testmode_test.go).
@@ -76,9 +82,9 @@ type runResult struct {
 }
 
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
-// fails. The slowest runs wait for real: a transition the monitor of
-// flows that hang between steps cancels at 60 s (JE-2/a), and retry delays
-// that add up to 26 s (FX-26/a). Tests replace it.
+// fails. The slowest runs wait for real: an expression at a flow's first
+// module whose three attempts time out, about 70 s (JE-2/a), and retry
+// delays that add up to 26 s (FX-26/a). Tests replace it.
 var flowRunTimeout = 150 * time.Second
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
@@ -249,7 +255,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			switch {
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
-			case r.RunsAndWaits():
+			case r.RunsAndWaits() && !fc.runWaitOutcome:
 				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
@@ -257,6 +263,8 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 				res.unsupported = t.unsupported
 			case t.problem != "":
 				res.problems = []string{t.problem}
+			case r.RunsAndWaits():
+				live = append(live, withoutResponse(r))
 			default:
 				live = append(live, r)
 			}
@@ -792,8 +800,91 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if err != nil {
 		return append(problems, "observe: "+err.Error())
 	}
+	got = asOracleBase(got, rt.PlatformOrigin())
 	problems = append(problems, compareRun(f, r, got, generated)...)
 	return append(problems, checkDelays(tr, r.Delays)...)
+}
+
+// asOracleBase is o with the runtime's platform origin read as the oracle's
+// base URL. A native step reads that origin as BASE_URL and
+// BASE_INTERNAL_URL (WR-45), and its error's stack can hold it (WR-43/c),
+// where the oracle's worker has the base URL it is configured with, which
+// the oracle keeps stable because jobs can observe it (OR-7): a value of
+// the deployment, which each side gets from its own. So every occurrence
+// of the origin in o's values, unless another digit of a port follows it,
+// becomes oracle.BaseURL, and nothing else changes. A Bun step's BASE_URL
+// is that origin too, and the oracle's has localhost rewritten (WA-2), so
+// a run that compares it still differs.
+func asOracleBase(o conformance.Observation, origin string) conformance.Observation {
+	if origin == "" {
+		return o
+	}
+	swap := func(v json.RawMessage) json.RawMessage {
+		if v == nil {
+			return nil
+		}
+		return json.RawMessage(replaceOrigin(string(v), origin))
+	}
+	o.Result = swap(o.Result)
+	if o.Steps != nil {
+		steps := make(map[conformance.SitePath]conformance.StepObservation, len(o.Steps))
+		for site, s := range o.Steps {
+			s.Args, s.ResolvedArgs, s.Result, s.Carried = swap(s.Args), swap(s.ResolvedArgs), swap(s.Result), swap(s.Carried)
+			steps[site] = s
+		}
+		o.Steps = steps
+	}
+	if o.Effects != nil {
+		effects := make([]json.RawMessage, len(o.Effects))
+		for i, e := range o.Effects {
+			effects[i] = swap(e)
+		}
+		o.Effects = effects
+	}
+	if o.Response != nil && o.Response.Encoding == "" {
+		r := *o.Response
+		r.Body = replaceOrigin(r.Body, origin)
+		o.Response = &r
+	}
+	return o
+}
+
+// replaceOrigin replaces each occurrence of origin in s that no digit
+// follows with oracle.BaseURL.
+func replaceOrigin(s, origin string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, origin)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		end := i + len(origin)
+		b.WriteString(s[:i])
+		if end < len(s) && s[end] >= '0' && s[end] <= '9' {
+			b.WriteString(origin)
+		} else {
+			b.WriteString(oracle.BaseURL)
+		}
+		s = s[end:]
+	}
+}
+
+// withoutResponse is r with the response left out of its expect and of its
+// recording, for a run-and-wait run checked by its outcome alone
+// (flowChecker.runWaitOutcome).
+func withoutResponse(r conformance.Run) conformance.Run {
+	if r.Expect != nil {
+		e := *r.Expect
+		e.Response = nil
+		r.Expect = &e
+	}
+	if r.Recorded != nil {
+		rec := *r.Recorded
+		rec.Observation.Response = nil
+		r.Recorded = &rec
+	}
+	return r
 }
 
 // counterDir is where fixtures keep the files that count a step's attempts

@@ -6,7 +6,7 @@ the recording batches E3a to E3f). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
-fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
+fixtures on an unmodified Windmill CE `v1.862.0`, which runs in public CI
 only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
 and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
 records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)),
@@ -55,7 +55,7 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    and `docker compose up -d`. A two-worker session enables the `workers2`
    profile ([OR-5](../../docs/semantics/oracle.md#or-5)). The disk watchdog
    covers the start and the rest of the session.
-3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.767.0`,
+3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.862.0`,
    then for a healthy status with enough workers; log in as the seeded
    superadmin ([OR-6](../../docs/semantics/oracle.md#or-6)).
 4. **Per fixture.** Skip a fixture with host-provided sites
@@ -126,6 +126,20 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    whole when the session is canceled, so a launcher such as `npx` cannot
    leave the CLI running and block the teardown.
 
+A run that does not match its `expect` writes no recording. A session's
+`MismatchDir` (`--mismatched`) receives its observation instead, with its
+provenance, in the recording format, at the path `OutDir` would give its
+recording, and the run's report names the file (`observation`). A write
+that fails, or a fixture outside `RepoRoot`, fails the run with its
+differences kept. The session refuses to start when `MismatchDir` is
+`RepoRoot`, where the observations would replace the fixtures' recordings,
+or `OutDir`.
+
+A run that fails in the session itself, after the oracle's part, has
+`local_failure` set in its report. Its observation could not be compared
+with the committed recording, or its recording, observation or raw capture
+could not be placed or written.
+
 A session's `ListenInterval` (`--listen-interval`) sets the oracle's
 `LISTEN_NEW_EVENTS_INTERVAL_SEC` through compose's
 `WL_LISTEN_NEW_EVENTS_INTERVAL_SEC`, in place of 1; it is in the
@@ -169,7 +183,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
-| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
+| `cli.go` | Runs the published `windmill-cli@1.862.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.862.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
 | `redact.go` | Keeps the session's bearer token out of everything the session writes ([The session token](#the-session-token)). |
 | `layout.go` | Copies of a sync tree (milestone E4c): `PlanLayout` finds the paths outside the tree that its codebase entries name, `CopyLayout` copies the tree with them beside it ([Copies of a sync tree](#copies-of-a-sync-tree)). |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
@@ -182,7 +196,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `walk.go` | The walker ([OR-11](../../docs/semantics/oracle.md#or-11)). |
 | `record.go` | The session, `Observe` (walk to normalised observation) and provenance. |
 | `lint.go` | The repository checks: `LintImages` and `GuardManifests`. |
-| `openapi/` | `openapi.yaml` and `LICENSE-APACHE`, copied unmodified from Windmill `v1.767.0`, with their [NOTICE](openapi/NOTICE). Apache-2.0, not Unlicense. |
+| `openapi/` | `openapi.yaml` and `LICENSE-APACHE`, copied unmodified from Windmill `v1.862.0`, with their [NOTICE](openapi/NOTICE). Apache-2.0, not Unlicense. |
 
 ### The CLI is a tool, not a dependency
 
@@ -446,11 +460,19 @@ attempt, step id, job ids (as placeholders) and arguments.
 `Observe` normalises with `conformance.Normaliser` and the fixture's
 `stack` and `mask` paths: walked job ids become `<job:PATH>` placeholders;
 a stack becomes `<stack>` only on a failed script leaf's stored error and on
-values deep-equal to it or to its inner error ([OR-V3](../../docs/semantics/oracle.md#or-v3));
-only the NUL `InternalErr` loses its location to `<loc>`
-([OR-27](../../docs/semantics/oracle.md#or-27)); user text that looks like
-a placeholder or marker is escaped. The comparator, the escape and the
+values deep-equal to it or its inner error ([OR-V3](../../docs/semantics/oracle.md#or-v3)).
+Only the completion failure's `InternalErr` loses its location to `<loc>`
+([OR-27](../../docs/semantics/oracle.md#or-27)), and user text that looks
+like a placeholder or marker is escaped. The comparator, the escape and the
 fixture format are in [internal/conformance](../conformance/README.md).
+
+A job the walk never reaches can still appear: an error object names its
+job as `job_id`, and a step that runs a flow through the API can return
+that flow's errors (the previews of `conformance/flows/openflow/of-drivers`).
+Before any value is normalised, `Observe` has the normaliser number such
+ids over the whole observation, and each becomes `<job:?N>` wherever it
+occurs ([OR-14](../../docs/semantics/oracle.md#or-14) item 1), so the two
+executions of a run agree.
 
 A recording is `{"observation": …, "provenance": …}`. Provenance holds the
 oracle version, image and Postgres image references and ids, the CLI and its
@@ -532,6 +554,11 @@ the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
 HTTP adapter, WR-28/f to C2a, WR-50/c, WR-50/f and WR-50/h to C3n, and
 WR-50/g to E3f, whose fixture records it.
 
+`e3c.json` defers the Deno case of
+[FX-12](../../docs/semantics/execution.md#fx-12), the error object of a
+failed Deno step, to `none`: the oracle's standard CE image ships no Deno,
+so no run can record it.
+
 Batch E3f's manifest has no `gates` either. Its fixtures name the session
 they need, its deployment checks hold the deploy-shape cases of
 [Q-OF-1](../../docs/semantics/openflow.md#q-of-1), and it defers to
@@ -594,10 +621,12 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
 | `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionDeploysThroughTheAPI`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
+| `TestSessionWritesMismatchedObservations`, `TestSessionMismatchDirRefusals` | whole sessions as above with `MismatchDir`. An `expect_mismatch` run's observation is written beside the fixture as a recording and named in the report, and a later session finds it unchanged once the run's expect follows the oracle. The directory is refused at the repository root and at `OutDir`, and a fixture outside the root or a failed write fails the run with its differences | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestRedactingWriter`, `TestClientHidesItsToken`, `TestCLIOutputHidesTheToken`, `TestSessionNeverWritesTheToken` | where the session token is replaced: in output split across writes; in the client's bodies, `Content-Type` headers, errors, run-and-wait responses and captures, with the login not captured; and in the CLI's output and error. A whole session whose run hands the token back in a trigger event's headers, a result, an effect and the run-and-wait response's body and `Content-Type`, with a CLI that prints it, writes no recording, raw capture, report or log that holds it | the smoke fixture |
-| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
+| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording, of a flow run or of an expression case, names the pinned oracle, image and CLI; the previous pin's identity is refused | `conformance/flows`, `conformance/exprs` |
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
+| `TestUnwalkedJobIDsAcrossRepeats` | the two executions of each `of-drivers` preview, captured on CE v1.862.0, give one observation (OR-14/c). The jobs their error objects name, which the walk never reaches, read `<job:?1>` to `<job:?3>` in sorted member order. `TestReplayRecordedCaptures` also replays both executions against the recording | `testdata/captures/` |
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language, as the sync folder reads it) | `conformance/flows` |
 | `TestTreeScriptsAreSources` | only a script's source file makes a script there: a flow directory, a resource, a variable or a script's metadata of the same name does not (E3a review R1-2) | a synthetic tree |
 | `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |
@@ -625,6 +654,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
 | `TestSessionDeletesWorkspacesOnFailure` | a workspace whose check after creation or whose deployment gate failed is deleted too, and a workspace that cannot be deleted ends the session | the smoke fixture |
+| `TestLocalFailureOnSessions` | a run that misses its expect saves its observation, and a run that fails on the oracle fails without `local_failure`; a run whose observation, recording or raw capture cannot be placed or written fails with `local_failure` set | the smoke fixture |
 | `TestExprFilesLift`, `TestBatchFixturesDecode` | every expression file lifts into flows that the walker reads back as their cases describe them; every flow fixture's tree decodes and holds its runs' targets | `conformance/exprs`, `conformance/flows` |
 | `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings`, `TestUnitCasesMatchRecordings` | committed recordings against what their cases say (batch E3a's form): claims and delays hold, a recorded case is `oracle-observed`, an expected evaluator text has the recorded argument as its stored form, and each unit case's expression and previous id match its flow, and its flow input, previous result and database reads have the recorded texts as their stored forms; at a `timeout` site the expected text is exactly the value the recorded i32 parse error quotes ([JE-29](../../docs/semantics/expressions.md#je-29)), and a timeout case whose recording quotes none fails (FU5) | `conformance/exprs`, `conformance/flows` |
 | `TestBatchCoverage` | every JE case of the catalogue, and every CF-19 and CF-V6 case, is an expression case, a flow fixture's run, or deferred with a reason and a milestone (batch E3a) | `conformance/exprs/deferred.yaml` |

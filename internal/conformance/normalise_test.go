@@ -3,8 +3,11 @@ package conformance
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -70,6 +73,138 @@ func TestNormaliseCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNormaliseUnwalkedJobIDs runs testdata/normalise/unwalked.json: the
+// unwalked job ids of a run, numbered over its whole observation and then
+// replaced like walked ones (OR-14 item 1). Each case runs twice, its
+// unwalked ids drawn the second time in the opposite order of value, and
+// both executions must give its want: the numbers follow where the ids
+// stand, never their values, so two repeats of a run agree.
+func TestNormaliseUnwalkedJobIDs(t *testing.T) {
+	data, err := os.ReadFile("testdata/normalise/unwalked.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		About string `json:"about"`
+		IDs   map[string]struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"ids"`
+		Cases []struct {
+			caseMeta
+			Raw  json.RawMessage `json:"raw"`
+			Want json.RawMessage `json:"want"`
+		} `json:"cases"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&file); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]SitePath{}
+	var pairs []string
+	for name, v := range file.IDs {
+		p, err := ParseSitePath(v.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[v.ID] = p
+		pairs = append(pairs, "${"+name+"}", v.ID)
+	}
+	walked := strings.NewReplacer(pairs...)
+	unwalked := regexp.MustCompile(`\$\{u([1-9][0-9]?)\}`)
+	for _, c := range file.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			if len(c.Spec) == 0 || !validProvenances[c.Provenance] {
+				t.Fatalf("case needs spec IDs and a provenance (%q)", c.Provenance)
+			}
+			for exec := range 2 {
+				fill := func(text []byte) []byte {
+					return unwalked.ReplaceAllFunc([]byte(walked.Replace(string(text))), func(m []byte) []byte {
+						k, _ := strconv.Atoi(string(unwalked.FindSubmatch(m)[1]))
+						if exec == 1 {
+							k = 100 - k
+						}
+						return fmt.Appendf(nil, "%08x-0000-4000-8000-%012x", k, k)
+					})
+				}
+				var raw, want Observation
+				if err := json.Unmarshal(fill(c.Raw), &raw); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(fill(c.Want), &want); err != nil {
+					t.Fatal(err)
+				}
+				got, err := normaliseObservation(ids, raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				g, err := json.Marshal(got)
+				if err != nil {
+					t.Fatal(err)
+				}
+				w, err := json.Marshal(want)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if g, w := mustIndent(t, g), mustIndent(t, w); !bytes.Equal(g, w) {
+					t.Fatalf("execution %d: got\n%s\nwant\n%s", exec, g, w)
+				}
+			}
+		})
+	}
+}
+
+// normaliseObservation normalises a raw observation as the oracle's and
+// windmill-lite's sides do: unwalked job ids numbered first, then every
+// value and a text response body.
+func normaliseObservation(ids map[string]SitePath, raw Observation) (Observation, error) {
+	n := &Normaliser{IDs: ids}
+	if err := n.NumberUnwalked(raw); err != nil {
+		return Observation{}, err
+	}
+	o := Observation{Status: raw.Status}
+	var err error
+	if o.Result, err = n.Value(raw.Result); err != nil {
+		return o, err
+	}
+	for p, st := range raw.Steps {
+		for _, v := range []*json.RawMessage{&st.Args, &st.ResolvedArgs, &st.Result, &st.Carried} {
+			if *v, err = n.Value(*v); err != nil {
+				return o, err
+			}
+		}
+		if o.Steps == nil {
+			o.Steps = map[SitePath]StepObservation{}
+		}
+		o.Steps[p] = st
+	}
+	for _, e := range raw.Effects {
+		v, err := n.Value(e)
+		if err != nil {
+			return o, err
+		}
+		o.Effects = append(o.Effects, v)
+	}
+	if raw.Response != nil {
+		r := *raw.Response
+		if r.Body, err = n.Text(r.Body); err != nil {
+			return o, err
+		}
+		o.Response = &r
+	}
+	return o, nil
+}
+
+func mustIndent(t *testing.T, data []byte) []byte {
+	t.Helper()
+	out, err := IndentJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // TestMaskPaths checks fixture-declared stack and mask paths (OR-V3 clause

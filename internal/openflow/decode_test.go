@@ -425,7 +425,7 @@ func TestKinds(t *testing.T) {
 	if b := v.Modules[6].Value.(*BranchAll); b.Parallel || b.Branches[0].EffectiveSkipFailure() || b.Branches[0].Parallel {
 		t.Errorf("branchall = %+v", b)
 	}
-	if o := v.Modules[5].Value.(*BranchOne); o.Branches[0].SkipFailure != nil || !o.Branches[0].EffectiveSkipFailure() || !o.Branches[0].Parallel {
+	if o := v.Modules[5].Value.(*BranchOne); o.Branches[0].SkipFailure != nil || o.Branches[0].EffectiveSkipFailure() || !o.Branches[0].Parallel {
 		t.Errorf("branchone = %+v", o)
 	}
 	g := v.Modules[8].Value.(*AIAgent)
@@ -453,6 +453,76 @@ func TestKinds(t *testing.T) {
 		{"tool path", valueWith(`{"type":"aiagent","tools":[{"id":"t","value":{"type":"script","path":"/x"}}]}`), ErrStepPath, "step 't' references '/x'"},
 		{"tool type", valueWith(`{"type":"aiagent","tools":[{"id":"t","value":{"tool_type":"x"}}]}`), ErrModule, "unknown variant `x`, expected one of `flowmodule`, `mcp`, `websearch`"},
 		{"mcp path", valueWith(`{"type":"aiagent","tools":[{"id":"t","value":{"tool_type":"mcp"}}]}`), ErrModule, "missing field `resource_path`"},
+	})
+}
+
+// The fields the schema gained by v1.862.0 decode with the types it
+// declares, under the rules above: optional, null as absent, and checked on
+// every module kind (OF-V1).
+func TestFieldsAddedAtV1862(t *testing.T) {
+	v := decodeOK(t, `{"timeout":30,"modules":[
+		{"id":"a","value":{"type":"identity"},"job_token_scopes":["oidc:write"],"suspend":{"skin":"minimal"}},
+		{"id":"b","value":{"type":"identity"},"job_token_scopes":[],"suspend":{"skin":"unlisted"}},
+		{"id":"c","value":{"type":"identity"},"job_token_scopes":null,"suspend":{"skin":null}},
+		{"id":"g","value":{"type":"aiagent","agent":"f/x/agent","tool_inputs":{"t": {"x": {"type": "static", "value": 1}}},"tools":[
+			{"id":"t","job_token_scopes":["jobs:read"],"requires_approval":true,"value":{"tool_type":"websearch"}},
+			{"id":"u","job_token_scopes":null,"requires_approval":null,"value":{"tool_type":"websearch"}},
+			{"id":"w","job_token_scopes":[],"requires_approval":false,"value":{"tool_type":"websearch"}}]}}]}`)
+	// The fields hold their values as decoded, and again once encoded and
+	// decoded: the encoder writes each of them, an empty scope list and a
+	// false requires_approval included.
+	check := func(when string, v *FlowValue) {
+		t.Helper()
+		if v.Timeout == nil || *v.Timeout != 30 {
+			t.Errorf("%s: value.timeout = %v", when, v.Timeout)
+		}
+		if m := v.Modules[0]; len(m.JobTokenScopes) != 1 || m.JobTokenScopes[0] != "oidc:write" || m.Suspend.Skin == nil || *m.Suspend.Skin != "minimal" {
+			t.Errorf("%s: module a = %+v, suspend %+v", when, m, m.Suspend)
+		}
+		// An empty scope list is kept: it differs from an absent one.
+		if m := v.Modules[1]; m.JobTokenScopes == nil || len(m.JobTokenScopes) != 0 || m.Suspend.Skin == nil || *m.Suspend.Skin != "unlisted" {
+			t.Errorf("%s: module b = %+v, suspend %+v", when, m, m.Suspend)
+		}
+		if m := v.Modules[2]; m.JobTokenScopes != nil || m.Suspend.Skin != nil {
+			t.Errorf("%s: module c = %+v, suspend %+v", when, m, m.Suspend)
+		}
+		g := v.Modules[3].Value.(*AIAgent)
+		if g.Agent == nil || *g.Agent != "f/x/agent" || string(g.ToolInputs) != `{"t": {"x": {"type": "static", "value": 1}}}` {
+			t.Errorf("%s: aiagent = %+v (%s)", when, g, g.ToolInputs)
+		}
+		if tl := g.Tools[0]; len(tl.JobTokenScopes) != 1 || tl.JobTokenScopes[0] != "jobs:read" || tl.RequiresApproval == nil || !*tl.RequiresApproval {
+			t.Errorf("%s: tool t = %+v", when, tl)
+		}
+		if tl := g.Tools[1]; tl.JobTokenScopes != nil || tl.RequiresApproval != nil {
+			t.Errorf("%s: tool u = %+v", when, tl)
+		}
+		if tl := g.Tools[2]; tl.JobTokenScopes == nil || len(tl.JobTokenScopes) != 0 || tl.RequiresApproval == nil || *tl.RequiresApproval {
+			t.Errorf("%s: tool w = %+v", when, tl)
+		}
+	}
+	check("decoded", v)
+	encoded, err := v.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("encoded and decoded", decodeOK(t, string(encoded)))
+	if v := decodeOK(t, `{"modules":[],"timeout":null}`); v.Timeout != nil {
+		t.Errorf("value.timeout null = %v", *v.Timeout)
+	}
+
+	checkRejects(t, []rejectCase{
+		{"value.timeout string", `{"modules":[],"timeout":"30"}`, ErrFlowValue, `invalid type: string "30", expected i32`},
+		{"value.timeout width", `{"modules":[],"timeout":2147483648}`, ErrFlowValue, "expected i32"},
+		{"scopes not a list", identityWith(`,"job_token_scopes":"oidc:write"`), ErrFlowValue, "expected a sequence"},
+		{"scope not a string", identityWith(`,"job_token_scopes":[1]`), ErrFlowValue, "expected a string"},
+		{"skin not a string", identityWith(`,"suspend":{"skin":1}`), ErrFlowValue, "expected a string"},
+		{"agent on rawscript", valueWith(`{"type":"rawscript","content":"","language":"bun","agent":1}`), ErrModule, "expected a string"},
+		{"tool_inputs on identity", valueWith(`{"type":"identity","tool_inputs":[]}`), ErrModule, "expected a map"},
+		{"tool scopes", valueWith(`{"type":"aiagent","tools":[{"id":"t","job_token_scopes":{},"value":{"tool_type":"websearch"}}]}`), ErrModule, "expected a sequence"},
+		{"tool approval", valueWith(`{"type":"aiagent","tools":[{"id":"t","requires_approval":"yes","value":{"tool_type":"websearch"}}]}`), ErrModule, "expected a boolean"},
+		// The question tool is not among OF-9's tool types, so its timeout
+		// is never read.
+		{"question tool", valueWith(`{"type":"aiagent","tools":[{"id":"t","value":{"tool_type":"question","timeout":5}}]}`), ErrModule, "unknown variant `question`"},
 	})
 }
 

@@ -92,13 +92,13 @@ func TestDecodeFlow(t *testing.T) {
 		"summary": "s", "description": "d", "timeout": 60,
 		"schema": {"type": "object", "properties": {"x": {"default": 5}}},
 		"value": {"modules": []},
-		"on_behalf_of_email": "someone@example.invalid",
+		"on_behalf_of_email": "someone@example.invalid", "on_behalf_of": "u/someone",
 		"tag": 1, "dedicated_worker": "ignored", "ws_error_handler_muted": false
 	}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *f.Summary != "s" || *f.Description != "d" || *f.Timeout != 60 || f.Value == nil || *f.OnBehalfOfEmail != "someone@example.invalid" {
+	if *f.Summary != "s" || *f.Description != "d" || *f.Timeout != 60 || f.Value == nil || *f.OnBehalfOfEmail != "someone@example.invalid" || *f.OnBehalfOf != "u/someone" {
 		t.Fatalf("flow = %+v", f)
 	}
 	if string(f.Schema) != `{"type": "object", "properties": {"x": {"default": 5}}}` {
@@ -115,6 +115,12 @@ func TestDecodeFlow(t *testing.T) {
 	if reencoded, _ := again.MarshalJSON(); !bytes.Equal(reencoded, encoded) {
 		t.Errorf("round trip changed %s to %s", encoded, reencoded)
 	}
+	// The encoder writes the identity fields, on_behalf_of (added at
+	// v1.862.0) and on_behalf_of_email, which the second decode then holds
+	// as the first did.
+	if again.OnBehalfOf == nil || *again.OnBehalfOf != "u/someone" || again.OnBehalfOfEmail == nil || *again.OnBehalfOfEmail != "someone@example.invalid" {
+		t.Errorf("the second decode = %+v", again)
+	}
 
 	for _, c := range []struct {
 		in, want string
@@ -122,6 +128,7 @@ func TestDecodeFlow(t *testing.T) {
 	}{
 		{`{"summary":"s"}`, "invalid flow: missing field `value`", ErrFlow},
 		{`{"value":{"modules":[]},"timeout":"60"}`, `invalid flow: /timeout: invalid type: string "60", expected i32`, ErrFlow},
+		{`{"value":{"modules":[]},"on_behalf_of":1}`, "invalid flow: /on_behalf_of: invalid type: integer `1`, expected a string", ErrFlow},
 		{`{"value":{"modules":[{"id":"a","value":{"type":"foo"}}]}}`, "Module 'a': unknown variant `foo`", ErrModule},
 		{`{"value":{"modules":[{"id":"a"}]}}`, "Invalid flow value: missing field `value`", ErrFlowValue},
 		{`{"value":{"modules":[]},"ws_error_handler_muted":true}`, "ws_error_handler_muted: true is an EE setting", ErrEEOnly},
@@ -147,17 +154,17 @@ const richFlow = `{
 			"skip_if": {"expr": "false"}, "sleep": {"type": "javascript", "expr": "1"}, "timeout": 5,
 			"retry": {"constant": {"attempts": 1, "seconds": 2}, "exponential": {"attempts": 2, "multiplier": 3, "seconds": 4, "random_factor": 50}, "retry_if": {"expr": "true"}},
 			"continue_on_error": true, "mock": {"enabled": false, "return_value": {"m": 1}},
-			"suspend": {"required_events": 1, "timeout": 60, "resume_form": {"schema": {}}, "user_auth_required": true, "user_groups_required": {"type": "static", "value": ["g"]}, "self_approval_disabled": false, "hide_cancel": true, "continue_on_disapprove_timeout": false},
+			"suspend": {"required_events": 1, "timeout": 60, "resume_form": {"schema": {}}, "user_auth_required": true, "user_groups_required": {"type": "static", "value": ["g"]}, "self_approval_disabled": false, "hide_cancel": true, "continue_on_disapprove_timeout": false, "skin": "minimal"},
 			"cache_ttl": 10, "cache_ignore_s3_path": true, "priority": -1, "delete_after_use": true, "delete_after_secs": 30, "apply_preprocessor": false, "pass_flow_input_directly": true,
-			"debouncing": {"debounce_key": "k", "debounce_delay_s": 1, "max_total_debouncing_time": 2, "max_total_debounces_amount": 3, "debounce_args_to_accumulate": ["a"]}},
+			"debouncing": {"debounce_key": "k", "debounce_delay_s": 1, "max_total_debouncing_time": 2, "max_total_debounces_amount": 3, "debounce_args_to_accumulate": ["a"]}, "job_token_scopes": ["oidc:write"]},
 		{"id": "s", "value": {"type": "script", "path": "hub/1/x", "hash": "0123456789ABCDEF00", "tag_override": "t", "is_trigger": true, "pass_flow_input_directly": false}},
 		{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": [1, 2]}, "skip_failures": false, "parallel": true, "parallelism": {"type": "javascript", "expr": "2"}, "squash": false, "modules": [{"id": "l1", "value": {"type": "flow", "path": "f/x/sub"}}]}},
-		{"id": "g", "value": {"type": "aiagent", "tag": "ai", "tools": [{"id": "t", "summary": "s", "description": "d", "value": {"tool_type": "mcp", "resource_path": "u/x/m", "exclude_tools": []}}, {"id": "u", "value": {"type": "flowscript", "id": 1}}, {"id": "w", "value": {"tool_type": "websearch"}}]}}
+		{"id": "g", "value": {"type": "aiagent", "tag": "ai", "agent": "f/x/agent", "tool_inputs": {"t": {"x": {"type": "static", "value": 1.0}}}, "tools": [{"id": "t", "summary": "s", "description": "d", "job_token_scopes": [], "requires_approval": true, "value": {"tool_type": "mcp", "resource_path": "u/x/m", "exclude_tools": []}}, {"id": "u", "value": {"type": "flowscript", "id": 1}}, {"id": "w", "value": {"tool_type": "websearch"}}]}}
 	],
 	"failure_module": {"id": "failure", "value": {"type": "flowscript", "id": 7, "extra": [1]}},
 	"same_worker": true, "preserve_step_tags": true, "concurrent_limit": 1, "concurrency_key": "c", "concurrency_time_window_s": 2,
 	"custom_debounce_key": "d", "debounce_delay_s": 3, "debounce_args_to_accumulate": [], "skip_expr": "false", "cache_ttl": 4, "cache_ignore_s3_path": false,
-	"early_return": "r", "priority": 5, "chat_input_enabled": false, "flow_env": {"V": "$var:u/x/v", "N": 1.0}, "delete_after_use": false, "delete_after_secs": 6
+	"early_return": "r", "priority": 5, "chat_input_enabled": false, "flow_env": {"V": "$var:u/x/v", "N": 1.0}, "delete_after_use": false, "delete_after_secs": 6, "timeout": 7
 }`
 
 func TestDecodedFormRoundTrip(t *testing.T) {
@@ -178,6 +185,7 @@ func TestDecodedFormRoundTrip(t *testing.T) {
 		`"value":{"type": "flowscript", "id": 7, "extra": [1]}`,
 		`"value":{"type": "flowscript", "id": 1}`,
 		`"hash":"0123456789abcdef"`,
+		`"tool_inputs":{"t": {"x": {"type": "static", "value": 1.0}}}`,
 	} {
 		if !bytes.Contains(encoded, []byte(want)) {
 			t.Errorf("decoded form lacks %s:\n%s", want, encoded)
@@ -247,7 +255,7 @@ func TestDecodedFormIsAProjection(t *testing.T) {
 	assertRoundTrip(t, encoded)
 	again := decodeOK(t, string(encoded))
 	loop, branch = again.Modules[0].Value.(*ForLoop), again.Modules[1].Value.(*BranchAll).Branches[0]
-	if loop.SkipFailures == nil || !*loop.SkipFailures || branch.SkipFailure == nil || !*branch.SkipFailure || again.Modules[0].IDDerived {
+	if loop.SkipFailures == nil || !*loop.SkipFailures || branch.SkipFailure == nil || *branch.SkipFailure || again.Modules[0].IDDerived {
 		t.Fatal("the decoded form writes defaults and ids out; re-decoding sees them as written")
 	}
 }

@@ -12,5 +12,5 @@ expect:
     "m:a":
       status: failure
       args: {}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx33/recover}}
     "s:failure": {status: success, args: {v: [true]}, result: [true]}

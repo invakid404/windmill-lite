@@ -19,6 +19,9 @@ embeds. `diff`, which
 running the oracle and windmill-lite live, is in no milestone of ADR 0012
 yet: it prints that it is not implemented and exits 2.
 
+A fourth verb, `ledger`, fails while a retarget ledger or any of its
+markers exists ([The ledger guard](#the-ledger-guard)).
+
 `check` can build every bundle with the shared code of
 [ADR 0013](../../docs/design/0013-shared-module-code.md) (`-shared-code`, below).
 
@@ -26,7 +29,7 @@ yet: it prints that it is not implemented and exits 2.
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
 flow fixtures (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
 loaded by [internal/conformance](../../internal/conformance/README.md)) on
-the pinned Windmill CE `v1.767.0` oracle through
+the pinned Windmill CE `v1.862.0` oracle through
 [internal/oracle](../../internal/oracle/README.md), and writes
 `recorded/<run>.json` with provenance. It also takes expression-case files
 (`conformance/exprs/<finding>.yaml`), lifts each into a generated one-step
@@ -49,8 +52,8 @@ fixtures are recorded first, then the expression files, with files marked
 `slow` last, so that what a slow case leaves running on the oracle (the
 spinning evaluation of [JE-2](../../docs/semantics/expressions.md#je-2))
 cannot slow the others. It needs Docker, which pulls the CE image
-(1,373 MB compressed on amd64, [OR-2](../../docs/semantics/oracle.md#or-2))
-and Postgres, and `npx` on `PATH` to run `windmill-cli@1.767.0`. Pulls are
+(1,737 MB compressed on amd64, [OR-2](../../docs/semantics/oracle.md#or-2))
+and Postgres, and `npx` on `PATH` to run `windmill-cli@1.862.0`. Pulls are
 refused without enough free disk ([OR-30](../../docs/semantics/oracle.md#or-30)).
 The oracle runs in public CI; see
 [the oracle workflow](../../.github/workflows/oracle.yml).
@@ -59,6 +62,7 @@ The oracle runs in public CI; see
 |---|---|---|
 | `--check` | off | Fail when a run has no committed recording or its observation differs from it, and never write into a fixture. |
 | `--out DIR` | — | Write new and changed recordings under `DIR`, at their committed path (`DIR/<fixture path>/recorded/`, `DIR/conformance/exprs/recorded/<finding>/`), instead of in place. |
+| `--mismatched DIR` | — | Write the observation of every `expect_mismatch` run under `DIR`, normalised and in the recording format with its provenance, at the path `--out` would give its recording; see [Mismatched observations](#mismatched-observations). `DIR` must not be the repository root (the working directory) or the `--out` directory. |
 | `--raw DIR` | — | Write the raw API captures of every run to `DIR`. |
 | `--report FILE` | — | Write the session report: disk readings, pulls, images, boot times, CLI version, deployments, memory peaks, teardown. |
 | `--repeat N` | 1 | Run each run `N` times and require equal observations. |
@@ -68,7 +72,7 @@ The oracle runs in public CI; see
 | `--session NAME` | `""` | The oracle configuration of the session, a name of `SessionConfigs` in [internal/oracle](../../internal/oracle/README.md#a-session): `native` (a worker that serves `nativets`), `long`, `result_size` or `flow_script_off`; empty is the reference configuration. A fixture runs only in the session its `oracle.session` names; an unknown name is refused (batch E3f). |
 | `--skip-unmet-session` | off | Skip a fixture that needs another session's configuration, reporting its runs as `skipped`, instead of refusing it; the oracle workflow runs one session per configuration. |
 | `--listen-interval N` | 1 | The oracle's `LISTEN_NEW_EVENTS_INTERVAL_SEC`, for the knob comparison of [OR-7/a](../../docs/semantics/conformance.md#or-7); the value is in every recording's provenance, which is never compared. |
-| `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must report exactly `1.767.0` (a pre-release such as `1.767.0-beta` is refused). |
+| `--cli CMD` | `npx -y windmill-cli@1.862.0` | The command that runs the CLI; its `--version` must report exactly `1.862.0` (a pre-release such as `1.862.0-beta` is refused). |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
 | `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
@@ -107,6 +111,35 @@ and fail together when one fails or when they did not overlap. Each
 fixture's workspace is deleted after its runs, because CE admits only two
 workspaces besides `admins`.
 
+### Mismatched observations
+
+A run whose observation does not match its `expect` is `expect_mismatch`
+and writes no recording, in place or under `--out`: a recording must meet
+its run's `expect`. With `--mismatched DIR`, `record` writes that
+observation under `DIR` instead, in the recording format with its
+provenance (`{"observation": …, "provenance": …}`), at the path `--out`
+would give its recording.
+
+- The path is `DIR/<fixture path>/recorded/<run>.json`, or
+  `DIR/conformance/exprs/recorded/<finding>/<case>.json` for an expression
+  case.
+- The run stays `expect_mismatch` and still fails the session. An
+  `observation: <file>` line under the run's line, and the `observation`
+  field of its entry in the report (`--report`), name the file.
+- An `unstable`, `failed` or `refused` run has no single observation and
+  writes nothing there.
+- A file that cannot be written, or a fixture outside the working
+  directory, makes the run `failed`, with the error and the differences.
+
+One oracle pass thus gives both the recordings of the runs whose `expect`
+still holds (`--out`) and the new observations of the others. Once a run's
+`expect` says what the oracle now does, its file is the recording to
+commit: copied over the repository (`cp -R DIR/. .`), the next
+`record --check` reports it `unchanged`. The
+[oracle workflow](../../.github/workflows/oracle.yml) passes
+`--mismatched` and uploads the directory with the recordings, the raw
+captures and the report.
+
 ## stub
 
 ```sh
@@ -132,7 +165,7 @@ outside the tree that a spelling passes through (made empty), and a
 `tree <root>` line
 ([internal/oracle](../../internal/oracle/README.md#copies-of-a-sync-tree)).
 The copy's metadata still describes the originals, so run `npx -y
-windmill-cli@1.767.0 generate-metadata` in the stubbed tree before pushing
+windmill-cli@1.862.0 generate-metadata` in the stubbed tree before pushing
 it. A tree in which some executed script would keep its body is refused,
 with `{"error":"stub_unsupported","file":…,"reason":…}` on standard output
 and exit 1.
@@ -140,7 +173,7 @@ and exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.4.3/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of
@@ -230,6 +263,16 @@ case states them, at the end of its case, so that a late report of work it
 left running after it settled, which the D9 fence must stop, fails the
 case; in `warm` mode the process is observed for 200 ms more after a last
 run that states its late reports or settlement, before it is drained.
+
+Before the comparison, the run's own job id is written in the stored
+value as the job placeholder of the run's site, as the flow suite's
+normaliser writes a walked job's id
+([OR-14](../../docs/semantics/oracle.md#or-14) rule 1). The site is
+`m:<step_id>`, or `m:a` for a script job. So a case states the `job_id`
+of a wrapper or native error
+([FX-12](../../docs/semantics/execution.md#fx-12)) as `"<job:m:a>"`, and
+a flow step's `flow_path` as `f/wl_step/flow`. Node runs are written the
+same way.
 
 A step file with `shared_code: true` (`d18.yaml`) is built
 with shared code whatever the flag, so its cases compare `warm`, which runs
@@ -355,7 +398,7 @@ a few at a time (`flows.go`):
    run that has not ended after 150 s fails: sleeps and retry delays are
    waited for on the real clock, and the monitor of flows that hang between
    steps ends a runaway expression's run after 60 s, as on the oracle
-   (JE-2/a, milestone N2). Each run has its own id, which its
+   after a first step ([JE-2](../../docs/semantics/expressions.md#je-2)). Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
    `WM_ROOT_JOB_ID`; the trace records each step's job id (`WM_JOB_ID`),
    superseded attempts' included, with its site.
@@ -409,10 +452,17 @@ a few at a time (`flows.go`):
    ([CF-22](../../docs/semantics/control-flow.md#cf-22)), which a later
    module that lists the attempt (FX-29) shows again below its own
    `r:<k>`, with everything below it, its modules' own attempts
-   included, as the walker walks the attempt's flow there; what a loop ran
-   before its `skip_if` held mid-loop
-   ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
+   included, as the walker walks the attempt's flow there; and a collapsed
    iteration's job that was never pushed.
+   - *The platform origin.* The runtime's platform origin, which a native
+     step reads as `BASE_URL` and `BASE_INTERNAL_URL` and its stack can
+     hold (WR-43/c), then becomes the oracle's base URL,
+     `http://localhost:8000`, unless a further digit of a port follows it
+     (`asOracleBase`). Each side reads a value of its own deployment, which
+     the oracle keeps stable because jobs can observe it
+     ([OR-7](../../docs/semantics/oracle.md#or-7)). A Bun step's
+     `BASE_URL` still differs: the oracle rewrites its `localhost`
+     ([WA-2](../../docs/semantics/client-api.md#wa-2)).
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location
@@ -456,6 +506,12 @@ a few at a time (`flows.go`):
    `wl-<fixture>-<job id>-<tag>` after a job of the run, are removed
    (`removeCounters`, milestone FU8): on Windmill they stay in the worker's
    `/tmp`, but a windmill-lite run would leave them in the host's.
+
+**Unwalked job ids.** A job id that no record names but an error object
+gives as its `job_id`, such as a job of a flow a step ran through the
+facade, becomes `<job:?N>`. The observation numbers such ids before any
+value is normalised, as the oracle's side does
+([OR-14](../../docs/semantics/oracle.md#or-14) item 1).
 
 **Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
 `oracle: {effects: true}` or `stub: true` gets an effect server of its
@@ -536,8 +592,8 @@ JE-48/a, which does not overflow the 1 MiB stack (D17).
 `go test ./cmd/wltest` runs both suites. The Bun tests need `WL_BUN`;
 without it they skip, unless `WL_REQUIRE_BUN` is set, as CI sets it. The
 Node side needs `WL_NODE`; without it the step suite runs on Bun only,
-unless `WL_REQUIRE_NODE` is set, as CI sets it (with Node 20, the major of
-Windmill v1.767.0's image).
+unless `WL_REQUIRE_NODE` is set, as CI sets it (with Node 24.22.1, the Node
+of Windmill 1.862.0's image).
 
 - `TestStepSuite` is the exit gate of milestones C3a and C3b, and with
   `wr-40.yaml` to `wr-45.yaml` and `d5.yaml` milestone C3n's: every step
@@ -582,8 +638,12 @@ Windmill v1.767.0's image).
   in its native mode), FU5 the `oracle/nul` runs that
   N1b's engine passes, E4b the stub runs and the runs of the probe
   catalogue (`oracle/probes`, a fixture with effects) that the effect sink
-  made checkable, and FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
-  inside a branchone (CF-23/d to f). A required run stays required. The test runs every
+  made checkable, FU8 `control-flow/cf-23`'s `carry_*` runs, route 3
+  inside a branchone (CF-23/d to f), and the retarget to Windmill 1.862.0
+  `je/je-20-providers`' decryption runs `j1` to `j3` and
+  `execution/fx-48-jsonb`'s `nul_memory`, once windmill-lite gave CE's
+  decryption text and removed a NUL at storage. A required run stays
+  required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log
@@ -614,7 +674,7 @@ Windmill v1.767.0's image).
     `warm` and `host` with shared code.
 - `TestWindmillClientSharesTheClosure` does the same with
   `testdata/esm-client`, whose scripts read `JobService.getJob` of the
-  stock `windmill-client` 1.767.0 by a named and a namespace import. It
+  stock `windmill-client` 1.862.0 by a named and a namespace import. It
   needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules` holds the
   client.
 - `TestEndedRunJobRead` checks deviation D22 on
@@ -672,10 +732,23 @@ Windmill v1.767.0's image).
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
   the copy of a body module's carried-over attempt inside that subtree.
+- `TestObserveTraceUnwalkedJobs` needs no Bun either. A job that an error
+  object names and no record does reads `<job:?N>`, numbered in sorted
+  member order, while the step's own job keeps its site's placeholder.
+- `TestAsOracleBase` needs no Bun: the platform origin reads as the
+  oracle's base URL in each value of an observation, but not where a
+  further digit of a port follows it.
 - `TestSubflowRetryFixturesFreshAndWarm` is milestone N5's gate. Every
   run of `control-flow/subflow-retry` (a retry on a flow step, and on a
   while loop and a branchone) matches its recording in `fresh` and in
   `warm`.
+- `TestRunWaitOutcomes` checks the flow outcomes of run-and-wait runs,
+  which the flow suite leaves unsupported. Each is submitted as an
+  ordinary run and must match its `expect` without the `response`, which
+  needs windmill-lite's HTTP adapter, in `fresh` and in `warm`. The runs
+  are `execution/fx-36-http`'s `extra`, `failed` and `array`, and every
+  run of `execution/fx-37-branches`, an `early_return` step inside a
+  branch. Other runs are only logged.
 - `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a
@@ -712,6 +785,20 @@ Windmill v1.767.0's image).
     other failing with `group_not_concurrent`, a failed run with
     `group_member_failed`, and a run that starts no module holding up no
     other.
+- `TestPrintRuns` checks `record`'s per-run lines: the `observation:` line
+  of a mismatched run under `--mismatched`, the error and the differences,
+  and which outcomes fail the session. `TestUsage` covers the verbs' flag
+  refusals, among them `--mismatched` at the working directory or at
+  `--out`, refused before Docker is asked anything. The sessions behind
+  `record` are tested in [internal/oracle](../../internal/oracle/README.md#tests).
+- The guard's tests need no Bun ([The ledger guard](#the-ledger-guard)):
+  - `TestLedgerGuard` runs the guard on generated Git trees, with the files
+    staged and untracked. It fails on a ledger file, with an entry or
+    empty, on a marker in a Go test, a bun test or a data file, and on a
+    malformed marker in a Go or bun test file.
+  - In the same trees, prose about the marker form and ignored files are
+    not markers, and a tree without them passes.
+  - `TestParseMarker` checks the marker form.
 
 ### Host mode
 
@@ -758,6 +845,32 @@ fixtures leave no descriptor open, with garbage collection off
 `TestFlowSuite` runs the suite in `warm`, `fresh` and `host` mode, and in
 `warm` and `host` from bundles built with shared code; every
 required run must pass in all five.
+
+## The ledger guard
+
+`wltest ledger [--repo DIR]` keeps a retarget ledger out of every tree that
+CI checks. A retarget ledger lists the failures that pull requests into a
+retarget branch knowingly leave: a branch that moves windmill-lite to a new
+Windmill or Bun version. `--repo` names the repository's root, by default
+the working directory.
+
+A retarget ledger has two parts:
+
+- **The ledger file**, `testdata/flowsuite-pending.json`.
+- **Markers** in test code. A marker is the skip message of a Go test, or
+  the name of a skipped bun test, of the form
+  `retarget-pending: <milestone> <reason>`. The milestone's id is the
+  capital letter `W` or `X`, a number and an optional lower-case letter.
+
+No test reads the ledger file, and a marker skips its test without a
+failure. So the guard fails while the ledger file exists, even empty, or
+while a marker remains in a file that Git tracks or would track. It prints
+each marker with its file and line.
+
+In a Go or bun test file, an occurrence of the prefix that is not a marker
+also fails the guard, since it could still skip a test. In any other file
+it is prose, such as this section. The CI jobs `Go (ubuntu-latest)` and
+`Go (macos-latest, packages)` run the guard.
 
 ## Version
 

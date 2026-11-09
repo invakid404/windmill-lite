@@ -8,7 +8,7 @@ that keep what runs equal to what was built.
 
 Once flows are data, a deployed worker must prove which flows, scripts,
 locks and runtimes it carries. A Windmill job runs on a pinned Bun
-(`1.3.10` in the reference image, [WR-3](../semantics/languages.md#wr-3)) and
+(`1.4.4` in the `v1.862.0` image, [WR-3](../semantics/languages.md#wr-3)) and
 bundles each script with fixed settings ([WR-27](../semantics/languages.md#wr-27)).
 Practices that worked for a compiled Bun worker carry over: refuse to build on
 an unpinned Bun, keep the bundler's metafile, write a release manifest with
@@ -72,7 +72,7 @@ host upgrades the engine and rebuilds the bundle together.
    does only in ESM output. In CommonJS output `import.meta` stays empty, as
    it does in the CLI's esbuild bundles, so code that reads
    `import.meta.env` there fails as it would on Windmill. A rewrite at run
-   time cannot do this: on Bun 1.3.10 the global `Bun` and its `env` are
+   time cannot do this: on Bun 1.4.3 the global `Bun` and its `env` are
    read-only and non-configurable. Every bundle imports the support module
    before its own code; being a module of its own, its references to the
    real globals are kept apart from a script's bindings by the bundler,
@@ -165,8 +165,8 @@ the host was a compiled Bun executable.
      which the bundle loads only through an `import()` inside a function,
      still orders the listed modules it imports statically. It reads them
      while it is initialised, and both bundlers initialise a module once, so
-     a read before their registration would leave its exports undefined for
-     every later import of it.
+     a read before their registration would fail its initialisation, and
+     with it every later import of it.
    - **A cycle of load-time imports** fails the build with
      `host_module_cycle`, which names the cycle by module ID.
    - **Where the build cannot tell,** it counts an import as a load-time
@@ -188,6 +188,14 @@ the host was a compiled Bun executable.
      to wait for a module's load effects fails before they ran, a module
      without exports included. The namespace an import gets therefore lists
      a `then` key even when the module exports none.
+   - **Unless Bun drops the namespace:** Bun 1.4.3 gives an `import()`
+     whose value goes unused, or only has exports read, an empty object in
+     place of the namespace. Nothing then reads the late shim's `then`, so
+     in a Bun-built copy such an `import()` resolves before the module
+     registers, without its load effects; a read of an export still fails,
+     and esbuild's copies still reject. A module that waits for another's
+     load effects keeps the namespace its `import()` gives (D12 cases
+     `lazy-import-no-exports` and `lazy-import-unused-result`).
    - **A module whose own loading awaits such an import** at its top level
      fails to load, with the same error. The bundlers keep that failure, so
      every later import of the module fails the same way, as an ES module
@@ -195,9 +203,11 @@ the host was a compiled Bun executable.
      exports.
    - **A late shim, not the plain one:** both bundlers run a module's
      initialisation once, so a plain shim that failed can never yield the
-     registered values. On Bun 1.3.10 and esbuild, every later import of it
-     gets its exports undefined, or, for a module without exports, seems to
-     succeed although the module has not loaded.
+     registered values. esbuild 0.28.2 and Bun 1.4.3 both throw the first
+     failure again on every later `import()` or `require()`, so the module
+     never loads, even once it is registered. Earlier, on esbuild 0.28.0
+     and Bun 1.3.10, a later import got undefined exports, or seemed to
+     succeed for a module without exports.
    - Rejected: counting every import. It refuses a cycle that closes only
      through an `import()` in a function, such as a hook that loads a
      module lazily. A host then leaves those modules unlisted, and every
@@ -282,18 +292,23 @@ the host was a compiled Bun executable.
    elsewhere) rather than when a step's module loads. So a listed module
    that a step imports without using, which `sideEffects: false` prunes
    from a plain bundle, still runs its load effects.
-
-   Bun 1.3.10 drops a module that a `sideEffects: false` package re-exports
+8. **The resolve filter.** The Bun helper's filter matches only the
+   specifiers it resolves, for a reason measured on Bun 1.3.10. It drops a
+   module that a `sideEffects: false` package re-exports
    (`export { x } from "./x.js"`) whenever a plugin's resolve filter
    matches the import of that package, even when the callback resolves
-   nothing. The bundle then references a binding it never defines, so the
-   Bun helper's filter matches only the specifiers it resolves.
-
-   Windmill's own Bun build filters every specifier that ends in `.ts`. So
-   it drops such a module behind a package's bare import that ends in `.ts`
-   (a package named `*.ts`, or a deep `pkg/index.ts`), where windmill-lite
-   keeps it ([WR-27](../semantics/languages.md#wr-27)). This is deviation
-   D19 of [0001](0001-equivalence-contract.md).
+   nothing, so the bundle references a binding it never defines. Bun 1.4.3
+   keeps the module
+   ([measurements](README.md#measurements-behind-the-decisions)), and the
+   filter is unchanged.
+9. **Bare imports that end in `.ts`.** At `v1.767.0` Windmill's own Bun
+   build filters every specifier that ends in `.ts`. So it drops such a
+   module behind a package's bare import that ends in `.ts`, a package
+   named `*.ts` or a deep `pkg/index.ts`, where windmill-lite keeps it
+   ([WR-27](../semantics/languages.md#wr-27)): deviation D19 of
+   [0001](0001-equivalence-contract.md). Whether CE `v1.862.0`, whose image
+   runs Bun 1.4.4, still drops it is open until WR-27 is checked at that
+   release.
 
 This departs from Windmill, which inlines every import into each script's
 bundle ([WR-27](../semantics/languages.md#wr-27)): it is deviation D12, and the
@@ -394,7 +409,7 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     as the digest of its directory tree, which refuses a symbolic link
     below the runtime's directory. Its deviations are the program's,
     those of the module-state mode (D1, D2, D9 to D11 in `warm`) and those
-    every bundle has (D3, D8, D14, D16, D17, D22).
+    every bundle has (D3, D8, D14, D16, D17, D22, D23).
   - **Source inventory.** It lists the files the build read: what the
     compiler read through a recording file system, the workspace scripts
     the bundles inline, and each host-provided module's file, metadata and
@@ -434,6 +449,9 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     check found the pinned CLI's uploads the same bytes as this
     reproduction; a single-file upload is a multipart text field, whose
     line breaks the form-data encoding sends as CRLF.
+  - Since the retarget to Windmill 1.862.0 the build uses esbuild 0.28.2,
+    the version `windmill-cli@1.862.0` bundles with. The parity check
+    finds that CLI's uploads the same bytes too.
   - **The transforms** reach esbuild through a plugin that only maps
     paths. The env rewrite's support module is injected, before the
     entry's own `inject` files, from the plugin's `windmill-lite`
@@ -469,13 +487,17 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   `scripts/bun/<id>.native.js`: the source of one async function, which the
   harness compiles in the invocation's realm with the environment preamble
   inserted at a recorded offset, and calls with the static imports it
-  resolved and linked. An ES module cannot be evaluated in such a realm:
+  resolved and linked. An ES module could not be evaluated in such a realm:
   Bun 1.3.10's `vm.SourceTextModule` ends the process on top-level `await`.
   The script's metadata records the form (`boundary`, `native`).
   - A **nativets** script is transpiled, not bundled
     ([WR-40](../semantics/languages.md#wr-40)); one that does not transpile
     builds, and its diagnostic fails the step when it runs
-    ([WR-43](../semantics/languages.md#wr-43)).
+    ([WR-43](../semantics/languages.md#wr-43)). Its metadata records its
+    transpile's line map, which the build derives because the transpiler
+    writes no source map, and in which the harness reads a stack's source
+    line as Windmill 1.862.0's native runtime does through its transpiler's
+    map ([WR-43](../semantics/languages.md#wr-43)).
   - A **`//native`** script is bundled for the browser target, without the
     env rewrite, and inlines host-provided modules instead of using their
     shims: a realm does not reach the process-wide registry, so D12 does not
@@ -490,12 +512,21 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     `./windmill.ts` is `windmill-client@1.326.0` (Apache-2.0), pinned in the
     Bun helper's lock, bundled as CommonJS for the browser target into
     `scripts/native/windmill.js` when the bundle has a nativets script.
+    Like Windmill 1.862.0's bundle of that version, it lacks
+    `WorkspaceService.editDeployTo` ([WR-40](../semantics/languages.md#wr-40)).
 - Milestone W1 measured on Bun 1.3.10 that the harness's environment view
   isolates `Bun.env` and `import.meta.env` reads at run time even without
   the env rewrite of step 5 ([0004](0004-harness-protocol.md)), including
   in unbundled code. Step 5 stays: it keeps a bundle's reads on
   `process.env`, the one name the view replaces, so their isolation does
   not depend on the run-time mechanism alone.
+- The retarget to Bun 1.4.3 measured that its `process.env` object takes
+  only data properties. So the view's third path moves a variable that an
+  invocation claims out of that object, into the view's own store, instead
+  of making it an accessor, and reads by name stay isolated through every
+  name. Code the rewrite does not reach that enumerates `Bun.env` no longer
+  lists a claimed variable; step 5 makes a bundle enumerate `process.env`,
+  the view, instead.
 - Milestone F8a's record, [0013](0013-shared-module-code.md), adds
   **shared code**, a build setting. With it, the bundle carries one closure
   per build group (the Bun-built scripts, and each codebase entry) and a

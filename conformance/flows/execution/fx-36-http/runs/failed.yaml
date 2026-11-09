@@ -1,13 +1,13 @@
 # FX-36/b: HTTP 422 with the failure value as the body; the stack is
 # masked inside the text. The body is jsonb's text output, so its members
-# come in jsonb order (name, stack, message, step_id), the order the
-# catalogue gives since its correction of 2026-10-29.
+# come in jsonb order (name, stack, job_id, message, step_id, flow_path),
+# the order the catalogue gives since its correction of 2026-10-29.
 spec: [FX-36/b]
 target: f/wl_fx36h/failed
 submit: run_wait_result
 expect:
   status: failure
-  result: {error: {name: Error, message: z, stack: "<stack>", step_id: a}}
+  result: {error: {name: Error, message: z, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx36h/failed}}
   steps:
-    "m:a": {status: failure, args: {}, result: {error: {name: Error, message: z, stack: "<stack>", step_id: a}}}
-  response: {status: 422, content_type: application/json, body: '{"error": {"name": "Error", "stack": "<stack>", "message": "z", "step_id": "a"}}'}
+    "m:a": {status: failure, args: {}, result: {error: {name: Error, message: z, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx36h/failed}}}
+  response: {status: 422, content_type: application/json, body: '{"error": {"name": "Error", "stack": "<stack>", "job_id": "<job:m:a>", "message": "z", "step_id": "a", "flow_path": "f/wl_fx36h/failed"}}'}

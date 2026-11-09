@@ -169,7 +169,9 @@ func TestConformanceIR(t *testing.T) {
 				t.Fatalf("finding %s: two cases are named %s; give a variant", f.Finding, name)
 			}
 			names[name] = true
-			t.Run(name, func(t *testing.T) { runCase(t, c) })
+			t.Run(name, func(t *testing.T) {
+				runCase(t, c)
+			})
 			n++
 		}
 	}

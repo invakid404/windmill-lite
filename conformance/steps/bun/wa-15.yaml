@@ -10,7 +10,7 @@ note: >-
   stock client makes, by fetch at BASE_URL with its token: the async
   dispatch, which takes the body for a job id (WA-V5/a), and the
   synchronous one, whose result poll that id then fails at once with a
-  400. The same refusals on windmill-client@1.767.0 are checked by
+  400. The same refusals on windmill-client@1.862.0 are checked by
   internal/platform/facade's TestDispatchRefusedOnTheClient, and WA-15's
   catalogue cases at the flow level by conformance/flows/client-api/dispatch.
 cases:

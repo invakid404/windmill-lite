@@ -108,25 +108,64 @@ func TestTextMarkersDistinct(t *testing.T) {
 	}
 }
 
+// TestTextUnwalkedPlaceholder checks the placeholder of an unwalked job,
+// <job:?N> (OR-14 item 1): written and read back like a walked job's, and
+// distinct from user text that spells it.
+func TestTextUnwalkedPlaceholder(t *testing.T) {
+	// spec: OR-14/c
+	const id = "01a1b47f-0fbb-67de-aaf0-dfc021fceabe"
+	for _, c := range []struct{ raw, want string }{
+		{id, "<job:?2>"},
+		{"<job:?2>", "<<job:?2>"},
+		{"<" + id, "<<<job:?2>"},
+		{"job " + id + " of " + fuzzA, "job <job:?2> of <job:m:a>"},
+	} {
+		got := EncodeText(splitJobIDs(c.raw, fuzzIDs, map[string]int{id: 2}))
+		if got != c.want {
+			t.Errorf("%q: got %q, want %q", c.raw, got, c.want)
+		}
+		parts, err := ParseText(got)
+		if err != nil {
+			t.Fatalf("ParseText(%q): %v", got, err)
+		}
+		if again := EncodeText(parts); again != got {
+			t.Errorf("re-encoding %q gives %q", got, again)
+		}
+	}
+	if parts, err := ParseText("<job:?12>"); err != nil || len(parts) != 1 || parts[0].Unwalked != 12 {
+		t.Errorf("ParseText(<job:?12>) = %+v, %v", parts, err)
+	}
+}
+
 func TestParseTextRejects(t *testing.T) {
-	for _, s := range []string{"<job:m:a", "<job:a>", "<job:m:a/>", "x<<<job:zz>"} {
+	for _, s := range []string{"<job:m:a", "<job:a>", "<job:m:a/>", "x<<<job:zz>", "<job:?>", "<job:?0>", "<job:?01>", "<job:?-1>", "<job:?+1>", "<job:?a>", "<job:?1/m:a>", "<job:??1>"} {
 		if _, err := ParseText(s); err == nil {
 			t.Errorf("ParseText(%q) accepted", s)
 		}
 	}
 }
 
-// fuzzIDs are the walked ids of the fuzz targets. The fuzzer's bytes 0x01
-// and 0x02 stand for them, so random inputs mix ids and text freely.
+// fuzzIDs are the walked ids of the fuzz targets, and fuzzUnwalked the
+// unwalked ones with their numbers. The fuzzer's bytes 0x01 and 0x02 stand
+// for the walked ids and 0x03 for the unwalked one, so random inputs mix
+// ids and text freely.
 var fuzzIDs = map[string]SitePath{
-	"11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa": SitePath{}.Child(Module("a")),
+	fuzzA:                                  SitePath{}.Child(Module("a")),
 	"22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb": SitePath{}.Child(Module("a>b"), Iteration(0)),
 }
 
-var fuzzReplacer = strings.NewReplacer("\x01", "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "\x02", "22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+const fuzzA = "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+var fuzzUnwalked = map[string]int{"44444444-dddd-4ddd-8ddd-dddddddddddd": 1}
+
+var fuzzReplacer = strings.NewReplacer("\x01", fuzzA, "\x02", "22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "\x03", "44444444-dddd-4ddd-8ddd-dddddddddddd")
+
+// fuzzNormalise normalises raw text with the fuzz targets' walked and
+// unwalked ids.
+func fuzzNormalise(raw string) string { return EncodeText(splitJobIDs(raw, fuzzIDs, fuzzUnwalked)) }
 
 func fuzzSeeds(f *testing.F) {
-	for _, s := range []string{"", "<", "<\x01", "<job:m:a>", "<<job:", "\x01\x02", "<stack>", "<<<loc>", "a<b>c", "<masked>\x01<"} {
+	for _, s := range []string{"", "<", "<\x01", "<job:m:a>", "<<job:", "\x01\x02", "<stack>", "<<<loc>", "a<b>c", "<masked>\x01<", "<\x03", "<job:?1>\x03"} {
 		f.Add(s)
 	}
 }
@@ -135,7 +174,7 @@ func fuzzSeeds(f *testing.F) {
 func FuzzTextRoundTrip(f *testing.F) {
 	fuzzSeeds(f)
 	f.Fuzz(func(t *testing.T, s string) {
-		parts := mergeLiterals(SplitJobIDs(fuzzReplacer.Replace(s), fuzzIDs))
+		parts := mergeLiterals(splitJobIDs(fuzzReplacer.Replace(s), fuzzIDs, fuzzUnwalked))
 		enc := EncodeText(parts)
 		got, err := ParseText(enc)
 		if err != nil {
@@ -156,10 +195,11 @@ func FuzzTextInjective(f *testing.F) {
 	f.Add("<\x01", "<job:m:a>")
 	f.Add("\x02", "\x01b>")
 	f.Add("<<\x01", "<<job:m:a>")
+	f.Add("<\x03", "<job:?1>")
 	f.Fuzz(func(t *testing.T, a, b string) {
 		ra, rb := fuzzReplacer.Replace(a), fuzzReplacer.Replace(b)
-		if ra != rb && normaliseText(ra, fuzzIDs) == normaliseText(rb, fuzzIDs) {
-			t.Fatalf("%q and %q both normalise to %q", ra, rb, normaliseText(ra, fuzzIDs))
+		if ra != rb && fuzzNormalise(ra) == fuzzNormalise(rb) {
+			t.Fatalf("%q and %q both normalise to %q", ra, rb, fuzzNormalise(ra))
 		}
 	})
 }

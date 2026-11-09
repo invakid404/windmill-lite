@@ -1,0 +1,12 @@
+# OF-11/d: deployment keeps both retries' settings and retry_if, and writes
+# an unset random_factor out; the submitted null is dropped too (checked in
+# the batch manifest against the deployment evidence). At v1.767.0 the
+# write-back added "random_factor": null to both exponential settings. a's
+# retry_if refuses its error, so a fails at its first attempt.
+spec: [OF-11/d]
+target: f/wl_of/retry_shape
+expect:
+  status: failure
+  result: {error: {message: stop, name: Error}}
+  steps:
+    "m:b": {status: success, result: ok}

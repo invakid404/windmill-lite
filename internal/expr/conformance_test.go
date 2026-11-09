@@ -99,6 +99,9 @@ type pipelineExpect struct {
 	Binds    *[]string `json:"binds,omitempty"`
 	// Code is the rewritten code inside the source's wrapper.
 	Code *string `json:"code,omitempty"`
+	// Prefetch is the literals of the steps the text's static results
+	// reads name (JE-12), as Expr.Prefetch holds them.
+	Prefetch *[]string `json:"prefetch,omitempty"`
 	// RewritePanic is the byte offset at which JE-11's rewrite would close
 	// a call inside a character, where Windmill's evaluator panics; such a
 	// text has no code.
@@ -567,8 +570,8 @@ func TestPipelineCases(t *testing.T) {
 				if string(out.Producer()) != fakeAnswer {
 					t.Errorf("the engine answered %s, the pipeline returned %s", fakeAnswer, out.Producer())
 				}
-				if call.source != programSource(e) {
-					t.Errorf("the engine ran %q, the expression's program is %q", call.source, programSource(e))
+				if want := programSource(e, call.fn(hostResults) != nil); call.source != want {
+					t.Errorf("the engine ran %q, the expression's program is %q", call.source, want)
 				}
 				if c.Expect.Text != nil {
 					t.Error("the case expects a shortcut's text, but the engine answered")
@@ -667,6 +670,9 @@ func checkCompiled(t *testing.T, e *Expr, w pipelineExpect) {
 	}
 	if w.RewritePanic != nil && e.RewritePanic != *w.RewritePanic {
 		t.Errorf("rewrite panic at %d, want %d", e.RewritePanic, *w.RewritePanic)
+	}
+	if w.Prefetch != nil && !slices.Equal(e.Prefetch, *w.Prefetch) {
+		t.Errorf("prefetch %q, want %q", e.Prefetch, *w.Prefetch)
 	}
 	if e.RewritePanic != 0 {
 		if e.Source != "" || w.Code != nil {

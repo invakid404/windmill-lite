@@ -136,9 +136,10 @@ type ProcessConfig struct {
 // therefore been handed to it before Execute returns that result.
 type PlatformHandler func(req PlatformRequest) func(ctx context.Context) PlatformReply
 
-// PinnedBun is the Bun version the harness must run on: the version of
-// Windmill v1.767.0's images (WR-3, ADR 0001).
-const PinnedBun = "1.3.10"
+// PinnedBun is the Bun version the harness must run on. It is not the
+// reference image's: Windmill CE v1.862.0's image runs Bun 1.4.4 (WR-3),
+// a difference that deviation D23 of ADR 0001 names.
+const PinnedBun = "1.4.3"
 
 // BunCommand returns the Path and Args that run the Bun harness runtime at
 // runtimeMain (harnesses/bun/runtime/main.ts) with bun, on the bundle in

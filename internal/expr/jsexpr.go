@@ -31,6 +31,10 @@ import (
 // assignment, a comment, a new line).
 type jsExpr struct {
 	n jsNode
+	// steps are the steps its results roots read, in the order the
+	// program's prefetch resolves them (JE-12): by their literals, sorted
+	// by their bytes, each step once.
+	steps []string
 }
 
 type jsNode struct {
@@ -124,12 +128,13 @@ func parseJSExpr(e *Expr) *jsExpr {
 	if len(t) > jsMaxText {
 		return nil
 	}
-	p := &jsParser{t: t, matches: resultsRead.FindAllStringIndex(t, -1)}
+	p := &jsParser{t: t, matches: staticReads(t)}
 	n, ok := p.cond()
 	p.space()
-	// Every match of JE-12's rewrite must be a results root this parser
-	// read, spelled as the rewrite reads it: a match anywhere else (in a
-	// string, in another identifier) changes the program's text.
+	// Every static read of JE-12 must be a results root this parser read,
+	// spelled as the scan reads it: a read anywhere else (in a string, in
+	// another identifier's member) names a step that the program fetches
+	// and this parser does not.
 	if ok && p.used != len(p.matches) {
 		return nil
 	}
@@ -139,7 +144,20 @@ func parseJSExpr(e *Expr) *jsExpr {
 		// results lookup, or a string's length.
 		return nil
 	}
-	return &jsExpr{n: n}
+	slices.SortStableFunc(p.reads, func(a, b jsRead) int { return strings.Compare(a.literal, b.literal) })
+	var steps []string
+	for _, r := range p.reads {
+		if !slices.Contains(steps, r.step) {
+			steps = append(steps, r.step)
+		}
+	}
+	return &jsExpr{n: n, steps: steps}
+}
+
+// jsRead is a results root the parser read: the literal that names its
+// step in the program's prefetch, and the step.
+type jsRead struct {
+	literal, step string
 }
 
 // memoResults is a Results that keeps what each lookup returned, so that
@@ -177,10 +195,11 @@ type jsParser struct {
 	i int
 	// depth is the nesting so far (cond), held under jsMaxDepth.
 	depth int
-	// matches are JE-12's rewrite matches in t, and used how many of them
-	// the parser read as results roots.
-	matches [][]int
+	// matches are JE-12's static reads in t, and used how many of them the
+	// parser read as results roots, which reads holds.
+	matches []staticRead
 	used    int
+	reads   []jsRead
 }
 
 func (p *jsParser) space() {
@@ -464,10 +483,11 @@ func (p *jsParser) pathNode() (jsNode, bool) {
 		if !ok || k.key == "" {
 			return jsNode{}, false
 		}
-		// The read must be JE-12's rewrite match, exactly.
-		if p.used >= len(p.matches) || p.matches[p.used][0] != start || p.matches[p.used][1] != p.i {
+		// The read must be one of JE-12's static reads, exactly.
+		if p.used >= len(p.matches) || p.matches[p.used].start != start || p.matches[p.used].end != p.i {
 			return jsNode{}, false
 		}
+		p.reads = append(p.reads, jsRead{p.matches[p.used].literal, k.key})
 		p.used++
 		path.step = k.key
 	}
@@ -670,7 +690,11 @@ func (x *jsExpr) eval(ctx context.Context, s *Scope, lim jsLimits) (out []byte, 
 	ev.budget.add(jsBaseline)
 	for _, hs := range lim.bound {
 		ev.budget.text(len(hs.Text))
+		if hs.Name == hostPreviousID {
+			ev.previousID, ev.previousBound = string(hs.Text), true
+		}
 	}
+	ev.prefetch(x.steps)
 	v := ev.node(x.n)
 	ev.charge(valueSize(v)) // the serialisation
 	out = jsStringify(v)
@@ -684,9 +708,15 @@ type jsEval struct {
 	roots       map[string][]byte // each root's checked JSON text
 	reads       map[string]jsVal  // each path read so far, by its spelling
 	memoryReads bool
-	budget      jsBudget
-	work        int64
-	deadline    time.Time
+	// previousID is the id whose read the results prelude answers from
+	// memory, when previousBound: the evaluation binds hostPreviousID.
+	previousID    string
+	previousBound bool
+	// prefetched holds the stored text the prefetch read of each step.
+	prefetched map[string][]byte
+	budget     jsBudget
+	work       int64
+	deadline   time.Time
 }
 
 func decline() { panic(jsDecline{}) }
@@ -747,6 +777,49 @@ func fromValue(v *jsValue) jsVal {
 	return m
 }
 
+// prefetch reads the steps that the program's prefetch resolves before the
+// expression runs, in its order (JE-12): each through the lookup but the
+// previous step, which the results prelude answers from memory, and none
+// at a site without a results context, where the program fetches nothing.
+// The results prelude parses every text it reads, so each counts against
+// the heap. A read that fails declines, even of a step the expression would
+// not read: the program keeps the failure's message and its Error on the
+// heap before the expression runs, and nothing here bounds their size
+// (JE-3). The read memo keeps the failure for the engine.
+func (ev *jsEval) prefetch(steps []string) {
+	s := ev.s
+	if s.Results == nil {
+		return
+	}
+	for _, step := range steps {
+		if _, ok := s.context("previous_result"); ok && ev.previousBound && step == ev.previousID {
+			continue
+		}
+		if !ev.memoryReads {
+			// A lookup that could wait is the engine's, under its attempt
+			// limit (JE-2).
+			decline()
+		}
+		ev.tick()
+		if ev.prefetched == nil {
+			ev.prefetched = map[string][]byte{}
+		}
+		v, err := s.Results.Lookup(ev.ctx, step)
+		if err != nil {
+			decline()
+		}
+		text := jsonNullText
+		if !v.IsZero() {
+			// A value with no stored form fails the host lookup too.
+			if text, err = v.Stored(); err != nil {
+				decline()
+			}
+		}
+		ev.prefetched[step] = text
+		ev.budget.text(len(text))
+	}
+}
+
 // root returns the checked JSON text of p's root.
 func (ev *jsEval) root(p *jsPath) []byte {
 	key := p.root
@@ -773,27 +846,17 @@ func (ev *jsEval) root(p *jsPath) []byte {
 		if s.Results == nil {
 			decline()
 		}
-		if prev, ok := s.context("previous_result"); ok && p.step == s.PreviousID && s.PreviousID != "" {
-			// JE-18 rule 1: the previous step's result, from memory.
+		if prev, ok := s.context("previous_result"); ok && ev.previousBound && p.step == ev.previousID {
+			// JE-18 rule 1: the previous step's result, from memory, where
+			// the evaluation binds previous_result (JE-10): a lone
+			// results['<id>'] does not, and reads the stored result.
 			text = prev.Producer()
 			break
 		}
-		if !ev.memoryReads {
-			// A lookup that could wait is the engine's, under its attempt
-			// limit (JE-2).
+		// The prefetch read every step a root names.
+		if text = ev.prefetched[p.step]; text == nil {
 			decline()
 		}
-		v, err := s.Results.Lookup(ev.ctx, p.step)
-		if err != nil {
-			decline()
-		}
-		if v.IsZero() {
-			text = jsonNullText
-		} else if text, err = v.Stored(); err != nil {
-			decline()
-		}
-		// The results prelude parses what the lookup answers.
-		ev.budget.text(len(text))
 	}
 	// A text JSON.parse rejects, or that JE-16's rebuild would change,
 	// is the engine's.

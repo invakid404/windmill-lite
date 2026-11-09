@@ -24,8 +24,7 @@ protocol of [ADR 0004](../../docs/design/0004-harness-protocol.md);
 [ADR 0009](../../docs/design/0009-host-adapters.md) and its test entry; and
 `test/`, the developer checks. The build helper, which bundles scripts and parses their
 signatures, has its own README: [build/](build/README.md). The harness runs
-on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
-([WR-3](../../docs/semantics/languages.md#wr-3)).
+on the pinned Bun 1.4.3 ([WR-3](../../docs/semantics/languages.md#wr-3)).
 
 The runtime and the host SDK have no dependencies and no `package.json` of
 their own. The npm package `windmill-lite`, whose root is `harnesses/`,
@@ -56,9 +55,9 @@ cannot corrupt the protocol.
 |---|---|
 | `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, loads the host plugin `--plugin` names, connects to fd 3, starts the runtime |
 | `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
-| `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
+| `runtime/runtime.ts` | The handshake, the step runner and how it loads a step module, cancel, health, drain, platform calls, host mode's runs, and the benchmark timings |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
-| `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
+| `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result, the error shapes and a stack's source line |
 | `runtime/context.ts` | The per-invocation context: the environment view, the fetch view, the timer fence, the log view, child-process wrapping, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
 | `runtime/frame.ts` | The codec and the send queue: canonical envelopes, the decoding rules and error codes of the Go side, the frame reader, whose buffer grows by doubling so that a frame read in small pieces is copied a bounded number of times, part streams, and the order of messages about one invocation |
 
@@ -93,6 +92,11 @@ cannot corrupt the protocol.
   ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
   `__filename` and `import.meta`, and the relative paths its own `require`
   resolves at run time, are the working directory's (`moduleFile`).
+- **A `WebSocket`'s listeners** run outside that context on Bun 1.4.3,
+  which Bun 1.4.4 fixes. In a warm or host-mode process, a step's
+  `WebSocket` listener therefore reads the process environment and has its
+  facade requests refused, as code outside every invocation does
+  (deviation [D23](../../docs/design/0001-equivalence-contract.md#5-named-deviations)).
 - **Metadata.** The runtime keeps only the metadata fields it reads
   (`runtimeMeta`: `bundler`, `format`, `boundary`, `native`, `signatures`,
   `shared`), so a process does not hold every script's metafile.
@@ -167,33 +171,39 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 
 - **The environment view.** Each of `process.env`, `Bun.env` and
   `import.meta.env` answers from the current invocation's variables first.
-  On Bun 1.3.10 the three start as one object, and assigning `process.env`
-  leaves the other two on it, so the view has three parts:
+  On Bun 1.4.3 the three start as one object. Assigning `process.env`
+  leaves the other two on it, and neither `Bun.env` nor the global `Bun`
+  can be redefined, so the view has three parts:
   1. `process.env` becomes a Proxy over the process environment. It also
      keeps a step's writes and deletes in its own copy, so they never reach
      the process or other invocations, and lists its variables when the
      environment is copied or enumerated.
   2. The original object gets a Proxy as its prototype, which answers a
-     read of a variable the process does not have from the current
+     read of a variable the object does not hold from the current
      invocation. This reaches code that reads `Bun.env` or
      `import.meta.env` at run time, bundled or not, so it does not depend on
-     the build's define rewrite (C2a).
-  3. A variable that the process has and an invocation sets or deletes, or
-     that the process writes while invocations are in flight, is turned
-     into an accessor that answers from the current invocation first.
+     the build's define rewrite. Its `set` trap never writes into the object
+     directly, since Bun 1.4.3's object would walk that write back to it.
+  3. Bun 1.4.3's object takes only data properties, which answer every
+     invocation alike. So a variable that an invocation is given, writes or
+     deletes is claimed for good: if the object holds it, its value moves
+     into the view's own store, and the prototype answers it from then on.
 
-  Outside any invocation every name reads the process environment. W1's
-  Q-WA-4 test in [internal/harness](../../internal/harness/README.md)
-  measures every channel. A step's first write of a variable the process
-  has makes it an accessor too, so `Bun.env` reads the written value. A
-  write through the original object itself (`Bun.env.X = …` in code the
-  build does not rewrite) stays with the invocation: one of a variable the
-  process lacks reaches the prototype's `set` trap, one of an accessor its
-  setter. Two still reach the process, since an ordinary object cannot
-  trap them: a delete through the original object, and a write of a
-  process variable that no invocation has set yet. Enumerating `Bun.env`
-  lists the process's variables; enumerating `process.env`, which the
-  build's define rewrite puts in its place, lists the invocation's view.
+  - Outside every invocation each name reads the process environment. The
+    Q-WA-4 test in [internal/harness](../../internal/harness/README.md)
+    measures every channel, warm and fresh, with and without the variables
+    in the process.
+  - A write through the original object itself (`Bun.env.X = …` in code
+    the build does not rewrite) of a variable it does not hold reaches the
+    prototype's `set` trap, so it stays with the invocation. Bun's object
+    cannot trap the rest: a write of a process variable that no invocation
+    has claimed reaches the process, and so does a delete of one.
+  - A delete through the original object of a claimed variable changes
+    nothing. Enumerating `process.env`, which the build's define rewrite
+    puts in the place of the other two, lists the invocation's view.
+    Enumerating `Bun.env`, or asking it for an own property, sees only what
+    the object holds: the process's variables that no invocation has
+    claimed.
 - **The fetch view.** `globalThis.fetch` is wrapped. A request to the
   welcome's `facade` origin becomes a `platform` frame attributed to the
   invocation whose context made it, with its body's bytes, and its
@@ -238,13 +248,31 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   it, wherever it is called; once that invocation has settled, `refresh()`
   re-arms nothing. Bun's `util.promisify` form is kept. Handles created outside every invocation, in a process scope, or
   while a step module evaluates are not registered. `node:timers` is
-  patched before any step module imports it. On Bun 1.3.10 the first named
+  patched before any step module imports it. On Bun 1.4.3 the first named
   import of a builtin fixes its named bindings for every later importer:
   in host mode, a host whose own modules import `node:timers` or
   `node:child_process` by name before it connects leaves steps' named
   imports of them unwrapped (default imports and `require` always see the
   wrappers), which is why the host SDK requires `node:child_process`. The
   runtime's own timers use `realTimers`, the functions as Bun has them.
+- **A socket's timers.** The timers that Bun's networking modules
+  (`node:net` and `node:http`'s own) set are part of a socket, which runs
+  on (D9), so the fence leaves them alone. On Bun 1.4.3 they time a
+  socket's idle time and its connection attempts, close a destroyed
+  socket's handle and track a server's connections.
+  - The fence tells them by the file and function of the frame that calls
+    the timer function: `node:net`'s `setTimeout`, `closeSocketHandle`
+    and `internalConnectMultiple`, and `node:_http_server`'s `setTimeout`
+    and `setupConnectionsTracking`.
+  - The module alone would not do: JavaScriptCore drops the frame of a
+    function that ends by returning a call, so a step's `net.connect`
+    `lookup` callback that returns `setTimeout(…)` shows `node:net` as
+    the caller. Its timer stays fenced.
+  - Reading the frame runs none of the step's code. The fence assigns
+    `Error.prepareStackTrace` and `Error.stackTraceLimit` for the capture
+    only while each is a writable data property, and puts them back. A
+    step that made one an accessor, read-only or removed gets every timer
+    fenced, a socket's included.
 - **The log view.** Inside an invocation, `console`'s methods and
   `process.stdout.write` and `process.stderr.write` write to the
   invocation's log (`InvocationLog`). A console call is formatted by a
@@ -262,20 +290,20 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 - **Child processes.** `child_process`'s `spawn`, `exec`, `execFile` and
   `fork`, their sync forms, and `Bun.spawn` and `Bun.spawnSync` give a
   child started inside an invocation without an `env` the invocation's
-  view, a plain copy of `process.env`; on Bun 1.3.10 `spawnSync`,
-  `execSync` and `Bun.spawn` would otherwise pass the process's own
-  environment. `util.promisify(exec)` and `util.promisify(execFile)` keep
-  their `{stdout, stderr}` form.
+  view, a plain copy of `process.env`. On Bun 1.4.3 `Bun.spawn` and
+  `Bun.spawnSync` would otherwise pass the environment the process started
+  with. `util.promisify(exec)` and `util.promisify(execFile)` keep their
+  `{stdout, stderr}` form.
 
   **Process groups** ([WR-55](../../docs/semantics/languages.md#wr-55),
   milestone FU6). A Windmill job leads its own process group, which its
   children join unless they start a session of their own; a timeout or a
   cancellation kills the group, and a normal exit kills nothing. On Bun
-  1.3.10 every `node:child_process` function starts its child through
-  `Bun.spawn` or `Bun.spawnSync`, once, with `detached` set only from
-  `spawn` and `fork`, where Bun honours a step's own (it ignores it for
-  `exec`, `execFile` and the sync forms). So the wrappers of the two Bun
-  functions alone register children (a child is counted once) and:
+  1.4.3 every `node:child_process` function starts its child through
+  `Bun.spawn` or `Bun.spawnSync`, once, with `detached` set only where Bun
+  honours a step's own: `spawn`, `fork` and the sync forms (it ignores it
+  for `exec` and `execFile`). So the wrappers of the two Bun functions
+  alone register children (a child is counted once) and:
   - **in a warm or host process** (`setChildGroups(true)`, from the
     welcome), start each child an invocation starts detached, so it leads
     a group of its own that stands for the job's, and register it as
@@ -305,18 +333,19 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     other than the command, is spawned without a guardian, as Bun spawns
     it. A guarded child counts as `child` while its own process runs: its
     guardian keeps the group, so what it left there after it exited is
-    killed with the group but not counted.
-    A synchronous call (`Bun.spawnSync`, and so `spawnSync`, `execSync`
-    and `execFileSync`) gets no group: its child's pid is known only once
-    it has exited, too late to announce, so it stays in the harness's
-    group, which the engine kills when the process ends; what it left
-    running is not attributed or reported;
+    killed with the group but not counted;
   - **in a fresh process**, which the engine spawned as the leader of the
     job's group, leave each child in that group, which the engine waits
     for or kills: `child` is registered, with a release that does nothing;
   - in either, register a child the step started detached (where Bun
     honours it) as `detached`, alive while its group has a process, never
-    killed: it is outside the job's group on Windmill too.
+    killed: it is outside the job's group on Windmill too;
+  - for a synchronous call (`Bun.spawnSync`, and so `spawnSync`,
+    `execSync` and `execFileSync`), give no group: its child's pid is
+    known only once it has exited, too late to announce. Unless the step
+    started it detached, it stays in the harness's group, which the engine
+    kills when the process ends, and what it left there is neither
+    attributed nor reported.
 
   `Bun.$` starts its processes by neither Bun function and is not wrapped.
   windmill-lite has no log limit, WR-55's third kill trigger.
@@ -324,9 +353,10 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `unhandledRejection` handlers that never exit
   ([ADR 0004](../../docs/design/0004-harness-protocol.md), the
   shared-process failure model, item 1). Each error is written to stderr
-  and attributed through the context the handler runs in (item 2): on Bun
-  1.3.10 a throw from a timer keeps its invocation's context, and an
-  unhandled rejection or a microtask's throw has none.
+  and attributed through the context the handler runs in (item 2). On Bun
+  1.4.3 a throw from a timer, or from a `node:fs` or `node:dns` callback,
+  keeps its invocation's context; an unhandled rejection or a microtask's
+  throw has none.
   - In a **running** invocation's context, the error fixes its outcome:
     `escaped`, exit code 1
     ([Q-WR-2](../../docs/semantics/languages.md#q-wr-2)), the error's text
@@ -382,7 +412,7 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   or after `revoke(kind)` for its kind, is released at once. The
   connection's end settles every invocation too. Nothing global is keyed
   by invocation, and the counts are the only leak report:
-  `process._getActiveHandles()` lists nothing on Bun 1.3.10. The fence
+  `process._getActiveHandles()` lists nothing on Bun 1.4.3. The fence
   never touches sockets or shared objects, and cannot stop promise
   continuations already queued (`Bun.sleep`, `node:timers/promises`); what
   they do through the fenced channels is refused.
@@ -395,6 +425,37 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `D9/module-evaluation`). Once the loading invocation has settled, what
   that work writes goes to the process's streams, and its platform calls
   are refused, as from a process scope.
+- **Errors of a module's work.** An error from work a module started while
+  it evaluated is still the loading invocation's. It fails that invocation
+  while it runs, and is `late` once it has settled, even while another
+  invocation runs (cases `D9/module-evaluation-error` and
+  `D9/module-evaluation-late-error`). Cases `WR-2/top-level-*`,
+  `D9/module-evaluation-context` and `D11/top-level*` check the rest of the
+  rule above.
+- **How a module loads.** Bun 1.4.3 evaluates a module that `import()`
+  loads outside every async context (1.3.10 kept the caller's), and one
+  that `require()` loads inside the caller's. So `loadModule`
+  (`runtime/runtime.ts`) evaluates a step module with `require()`, then
+  takes its namespace from `import()` of the same file. That `import()`
+  does not evaluate it again, and gives the namespace it always gave.
+- **A top-level `await`** still pending makes `require()` throw a
+  `TypeError` once the evaluation has started, in the loading context;
+  `import()` then waits for that evaluation. An ES module's failure stays
+  with the module, so `import()` rejects with the same error. A CommonJS
+  module's is thrown as it is: `import()` would evaluate it again.
+- **What that changes** against `import()` alone is stack text only. An
+  error the module throws as it evaluates has Bun's own `at unknown` frame
+  and `loadModule`'s below the module's frames, and a link error (an import
+  that the module it names does not export) gets a stack. What `require()`
+  returns is dropped, so an exported `then`, or a CommonJS module's
+  thenable exports, is resolved by `import()` alone, as before.
+- **A module that step code imports at run time.** On Bun 1.4.3 a module
+  that step code loads with `import()` while it runs, from a file the
+  bundle does not contain (a codebase asset), evaluates outside every
+  invocation, since the harness does not load it. Its top-level code reads
+  the process's environment, writes to the process's streams, and a
+  `process.exit` there is the real one. A lazy `import()` of bundled code
+  is inlined by the build and keeps the context.
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client
@@ -451,7 +512,7 @@ re-exports the plugin types. `connect(options)`:
 4. starts the engine binary as `<engine> host --bundle <dir> --workdir
    <workdir> --kill-after <ms>ms` and `engineFlags` after them (such as
    `-variables` and `-resources`), with one end of a socketpair as its fd 3
-   (Node's extra `"pipe"` stdio, which Bun 1.3.10 makes a socket), or fails
+   (Node's extra `"pipe"` stdio, which Bun 1.4.3 makes a socket), or fails
    with `engine_start`, and runs the runtime in this process in host mode.
    Its hello names the working directory (`workdir`), which the engine
    checks again; an engine that refuses the host makes `connect` fail with
@@ -462,7 +523,7 @@ re-exports the plugin types. `connect(options)`:
    the `child` frames that announce the steps' child groups (WR-55): the
    runtime's `children` option writes each, synchronously, to the host's
    end of it (its descriptor from the socket's handle, `_handle.fd` on Bun
-   1.3.10), waiting for a full channel. The socket may hold bytes it has
+   1.4.3), waiting for a full channel. The socket may hold bytes it has
    not written yet, which a synchronous write to it would overtake, and a
    step can back it up and then block the event loop, so the
    announcement cannot wait in its queue. Without a descriptor the
@@ -613,7 +674,7 @@ describes them for a host
   as the runtime settles a step, and `left` is what that returns.
 - **Where it runs.** `context.ts` reads the `Bun` global only in the
   child-process wrappers, which the entry never installs. So the entry runs
-  on Node 22 or newer as well as on Bun 1.3.10.
+  on Node 22 or newer as well as on Bun 1.4.3.
 - **Vendored.** A host that vendors the SDK imports `host/testing.ts` from
   its copy of `host/`.
 
@@ -704,8 +765,8 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    read is `escaped`.
 2. **The module** loads; a failure to load or evaluate it is `escaped`
    ([WR-19](../../docs/semantics/languages.md#wr-19)), on every invocation
-   of the script, and an intercepted `process.exit` during its evaluation
-   ends every invocation of it as that exit did.
+   of the script, and an intercepted `process.exit` whose sentinel escapes
+   its evaluation ends every invocation of it as that exit did.
 3. **The export** must be a function, or the step fails with `<entry>
    function is missing` in the wrapper-catch shape
    ([WR-7](../../docs/semantics/languages.md#wr-7),
@@ -732,13 +793,19 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    `undefined` replacer ([WR-13](../../docs/semantics/languages.md#wr-13),
    [WR-14](../../docs/semantics/languages.md#wr-14)).
 6. **A throw** from the export check, the binding, the call or the
-   serialisation is printed to the invocation's stderr, its log, and
-   shaped as
-   [WR-18](../../docs/semantics/languages.md#wr-18)'s object: `message`,
-   `name`, `stack`, `step_id` from `WM_FLOW_STEP_ID` as the step sees it,
-   `extra` with the other own properties. When that object cannot be built
+   serialisation is printed to the invocation's stderr, its log. It is
+   shaped as [WR-18](../../docs/semantics/languages.md#wr-18)'s object:
+   `message`, `name`, `stack`, the step context keys, then `extra` with
+   the other own properties. When that object cannot be built
    or serialised (`throw null`, a cycle in `extra`) the failure is
    `escaped`, with the handler's error at the end of its log.
+
+The step context keys of a throw's object
+([FX-12](../../docs/semantics/execution.md#fx-12)) are `step_id`,
+`job_id` and `flow_path`, read from `WM_FLOW_STEP_ID`, `WM_JOB_ID` and
+`WM_FLOW_PATH` as the step sees them when the object is built. Each is
+left out when its variable is empty. An unparsable signature's error is
+the worker's, with `step_id` alone.
 
 | The call | Outcome |
 |---|---|
@@ -770,7 +837,7 @@ this mode cannot reproduce is deviation D5 of
   the ECMAScript built-ins and the web APIs WR-45 lists, taken from this
   realm once fetch is wrapped and before any step loads (`fetch`, `URL`,
   `URLPattern`, `crypto`, the streams, `structuredClone`, `console` and the
-  rest; Bun 1.3.10 has no `FileReader`), a `Deno` object holding only an
+  rest; Bun 1.4.3 has no `FileReader`), a `Deno` object holding only an
   empty `core`, and `addEventListener`, `removeEventListener` and
   `dispatchEvent` on `globalThis`. Nothing of Bun's: no `Bun`, `Buffer`,
   `require`, `module`, `process`, `setImmediate` or `ShadowRealm`.
@@ -850,14 +917,17 @@ this mode cannot reproduce is deviation D5 of
   no `arguments`, as a module's has none, and its module-level `this` is
   `undefined`. It is compiled for each preamble, as the next item says.
   - *Its preamble* declares `process = { env }`, `BASE_URL` and
-    `BASE_INTERNAL_URL`, and for nativets each job variable its code can
-    name as a `const` of its name. A top-level declaration of one of those
-    names fails the load.
+    `BASE_INTERNAL_URL`, and for nativets a `const` of each job variable
+    its code can name, if the name can be one. At v1.862.0 that is an
+    ASCII identifier that is neither a reserved word of strict mode nor
+    `process`, `BASE_URL` or `BASE_INTERNAL_URL`. Any other variable is in
+    `process.env` alone, so its name fails no load, while a top-level
+    declaration of a declared name fails it.
   - *The values* are the invocation's job variables and nothing else. Both
     base URLs are the facade's origin: the welcome's, or in a fresh
     process, which the welcome does not tell, the `BASE_URL` it was spawned
     with.
-- **Compiled once, run in each realm.** Under the pinned Bun 1.3.10, every
+- **Compiled once, run in each realm.** Under Bun 1.3.10, every
   script that `node:vm` compiles from a string stays reachable after a full
   collection, so one compiled per invocation grows the process with every
   native invocation. So never compile a script from a string with
@@ -870,19 +940,24 @@ this mode cannot reproduce is deviation D5 of
     about 72 KiB of heap per call. A new context keeps nothing. The realm's
     own `eval` and `Function` keep no script and no heap, though each
     compiles anew.
+  - *On Bun 1.4.3.* No script that `node:vm` compiles from a string stays
+    reachable after a full collection, so the test below cannot tell a
+    harness that compiles per invocation from one that compiles once. The
+    rule stays: compiling once still saves a compile per invocation, and
+    keeps the process bounded on a Bun that keeps the scripts.
   - *What is compiled once.* The realm's global read (`GLOBAL_SCRIPT`) and
     its helpers (`REALM_SCRIPT`), once per process. A module, once per
     process for each of its first 16 preambles (`MAX_VARIANTS`). Any further
     preamble is compiled by the realm's own `eval` on each load, with the
     module's URL in a `sourceURL` comment at the end of its first line, so
     its bindings, errors and stacks are the same.
-  - *Which names a preamble declares.* Each job variable the module's text
-    spells, with its `\u` escapes or without. It also declares every name
-    that is not plain ASCII, whose `const` fails to compile (a reserved
-    word, `await`, `eval`, `arguments`), or that the preamble binds itself
-    (`process`, so a variable of that name still fails the load). Code
-    cannot read or declare a name it never spells, so leaving it out
-    changes nothing; a text that spells `eval` declares every variable.
+  - *Which names a preamble declares.* Of the variables that get a
+    `const`, each one the module's text spells, with its `\u` escapes or
+    without, or every one when the text spells `eval`. Also `eval` and
+    `arguments`: they are not reserved words, so they get a `const`, which
+    fails to compile, and a variable of either name still fails the load.
+    Code cannot read or declare a name it never spells, so leaving it out
+    changes nothing.
   - *Why the bound holds.* The reserved job variables have the same names in
     every invocation. A host's environment hook
     ([H12](../../docs/design/0008-host-hooks.md)), which sets an
@@ -915,15 +990,45 @@ this mode cannot reproduce is deviation D5 of
   realm, with no replacer: `undefined` fields are left out, a value with no
   JSON text is `null`, and a `BigInt` fails with V8's message.
 - **Errors.** A thrown value, from the module, the call or the
-  serialisation, is `{message, stack, name}`: for an `Error` of the realm
-  or of a web API, name and message decoded together, and the stack with
-  the source line its first frame points at in front when that frame is in
-  the script; three `null`s for anything else. A transpile error, a
+  serialisation, is `{message, stack, name}`. For an `Error` of the realm
+  or of a web API, name and message are decoded together, and the stack
+  has a source line in front when its first frame is in the script.
+  Anything else gives three `null`s.
+  - *The source line of a `//native` script* is the line the frame points
+    at.
+  - *The source line of a nativets script* is the one Windmill 1.862.0
+    reads ([WR-43](../../docs/semantics/languages.md#wr-43)). The frame's
+    line in the code, after the lines of Windmill's preamble, is looked up
+    in the transpile's line map ([build/](build/README.md)), as a position
+    in the code alone. The line read, at the source line found, is in that
+    preamble and the code together.
+  - *So a script shorter than the preamble* reads the line numbered as its
+    last mapped line. For `WR-43/c`'s three lines that is the preamble's
+    third, `const BASE_INTERNAL_URL = '<the facade's origin>';`.
+  - *Windmill's preamble* is written for this alone
+    (`NativeJob.windmillPreamble`): four fixed lines (the `process`
+    object, `BASE_URL`, `BASE_INTERNAL_URL`, the copy of both into
+    `process.env`), then each variable, sorted, then an empty line. A
+    variable is its `const`, when it gets one, and its `process.env`
+    entry, single-quoted with backslash, quote, LF and CR escaped, and an
+    empty line separates two. So with n variables, all `const`s, the code
+    starts on line 3n + 5.
+  - *What can differ.* Only the preamble's third line is recorded. The
+    code lines are the native form's, and the map is of Bun's transpile,
+    not deno_ast's (ADR 0001, D5).
+- **Its step context keys.** That object then gets `step_id`, `job_id`
+  and `flow_path` from the job's `WM_FLOW_STEP_ID`, `WM_JOB_ID` and
+  `WM_FLOW_PATH`, each when it is not empty, as the worker adds them after
+  the run ([FX-12](../../docs/semantics/execution.md#fx-12)). They come
+  from the invocation's environment, not from the realm's `process.env`,
+  which the script may have changed.
+- **The worker's errors.** A transpile error, a
   signature that did not parse, a `//proxy` header (an EE feature) and a
-  load or link failure are the worker's `execution error:` object. Both
-  are `error` outcomes; the second kind's `result` frame says `origin`
+  load or link failure are the worker's `execution error:` object, with
+  `step_id` alone. They are `error` outcomes, as a thrown value's object
+  is, but their `result` frame says `origin`
   `harness`, as a Bun step's unparsable signature does (WR-37), so that the
-  engine records the message as generated (ADR 0004, FU5).
+  engine records the message as generated (ADR 0004).
 - **Process-level errors** of a native invocation are its own: by its
   async context (a timer), by the realm of the promise (a rejection nobody
   handles, which has no context) or directly (a throw from a microtask it
@@ -996,9 +1101,9 @@ untracked, and when a pending entrypoint fails as one that nothing can
 settle), and
 `test/fit.test.ts` how a warning's message
 is cut to fit `max_message`, and `test/describe.test.ts` the text the
-harness's own messages give an error: Bun 1.3.10 builds the stack of an
-error that a garbage collection formats before anything read it without
-the message, which `describe` puts back. `test/sender.test.ts`
+harness's own messages give an error: its stack as Bun builds it, which
+on Bun 1.4.3 keeps the message even when a collection formats the stack
+before anything read it. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation (a result held behind a large
 platform call of its invocation included), partial writes,
@@ -1015,7 +1120,7 @@ response, an intercepted reply without a body for `HEAD` or a null-body
 status, and a refused platform call), the log view, the `Bun.env` write trap,
 the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
-sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
+sync forms, detached too, and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
 `test/plugin.test.ts` host plugins: the declaration (its run-end trace
 detail included), each hook's answer
@@ -1040,6 +1145,13 @@ runs host mode end to end in a host compiled with `bun build --compile`.
 
 `test/host.test.ts` also checks that a run frame carries the run's
 write-capable selectors and halts as the host gave them.
+
+`test/load.test.ts` checks [how a module loads](#the-per-invocation-context):
+the caller's context at the top level of an ES module, its static imports
+and a CommonJS module, after a top-level `await`, and in the work it
+starts. It checks `import()`'s namespace, one evaluation, and a failure's
+own error. A differential check against `import()` alone covers an exported `then`,
+a CommonJS module's thenable exports and a pending promise as its exports.
 
 `test/testing.test.ts` checks the [test entry](#the-test-entry) against
 the runtime:
@@ -1066,7 +1178,7 @@ cd harnesses/bun && bun test
 vendors them as source sees them
 ([ADR 0009](../../docs/design/0009-host-adapters.md)). It copies both
 directories into a temporary package of type module. There it runs
-TypeScript 6.0.3 against `@types/bun` 1.3.10, the type declarations of the
+TypeScript 6.0.3 against `@types/bun` 1.4.3, the type declarations of the
 pinned Bun.
 
 `@types/bun` accepts any version of `@types/node`, and a host brings its
@@ -1083,7 +1195,7 @@ by its own lockfile:
   each in strict and in non-strict mode. It exits 1 if any of the eight
   runs reports an error.
 - CI's non-required `Bun SDK types` job runs it.
-- Renovate keeps `@types/bun` at 1.3.10 in both sets, and the oldest set's
+- Renovate keeps `@types/bun` at 1.4.3 in both sets, and the oldest set's
   `@types/node` within major version 24.
 
 The code uses only names that Bun's type declarations define, with or

@@ -1,10 +1,10 @@
 // Package expr is windmill-lite's expression pipeline (ADR 0003).
 //
 // Every flow expression is evaluated in Go: a textual pipeline (trimming,
-// the shortcuts of JE-6 to JE-9, the rewrites of JE-11 and JE-12,
-// statement-mode detection, binding analysis) and, when no shortcut answers,
-// QuickJS-ng embedded through cgo. This package defines the contracts the
-// two halves meet at:
+// the shortcuts of JE-6 to JE-9, the rewrite of JE-11, the static results
+// reads of JE-12, statement-mode detection, binding analysis) and, when no
+// shortcut answers, QuickJS-ng embedded through cgo. This package defines
+// the contracts the two halves meet at:
 //
 //   - Expr, the compiled expression the IR carries (ADR 0002);
 //   - Engine, the JavaScript engine behind a Go interface; package
@@ -180,11 +180,20 @@ type Expr struct {
 	// A spelling of the previous id also binds previous_result (JE-8); that
 	// depends on the run, so the evaluator adds it.
 	Binds []string `json:"binds,omitempty"`
+	// Prefetch names the steps that the trimmed text's static results
+	// reads name, before the rewrite of JE-11 (JE-12): for each, a dot
+	// read's identifier in double quotes or a bracket read's string literal
+	// as written, sorted by their bytes and without repeats. At a site with
+	// a results context the program fetches these steps before the code
+	// runs, and the list is part of the program's text, so it moves the
+	// columns that stack frames show (JE-13, JE-21).
+	Prefetch []string `json:"prefetch,omitempty"`
 	// Source is the expression's code on the engine: Trimmed after the
-	// rewrites of JE-11 and JE-12, in the single-line async function that
-	// Mode selects (JE-13, JE-14), called at once. The program the engine
-	// compiles is Source followed by the serialisation of JE-15, and the
-	// preludes that bind the scope run before it (program.go).
+	// rewrite of JE-11, in the async function that Mode selects (JE-13,
+	// JE-14), called at once. The program the engine compiles is the
+	// prefetch, then Source inside .then(() => …), then the serialisation
+	// of JE-15, and the preludes that bind the scope run before it
+	// (program.go).
 	Source string `json:"source,omitempty"`
 	// RewritePanic is the byte offset at which the rewrite of JE-11 would
 	// insert a call's closing parenthesis inside a multi-byte character,

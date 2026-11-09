@@ -95,7 +95,7 @@ func compiledHost(t *testing.T) string {
 		if os.Getenv("WL_REQUIRE_BUN") != "" {
 			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
 		}
-		t.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
+		t.Skip("WL_BUN is not set; it names the pinned Bun 1.4.3")
 	}
 	buildOnce.Do(func() {
 		buildDir, buildErr = os.MkdirTemp("", "wl-host-")
@@ -463,7 +463,7 @@ func TestHostScopesThroughAHostProvidedModule(t *testing.T) {
 		}
 		jobs[got.Shim.Job], runs[got.Shim.Run] = true, true
 	}
-	t.Logf("H11 in a compiled host on Bun 1.3.10: through the host-provided module %d/16; through a bundled copy %d/16 (expected 0)", shim, copies)
+	t.Logf("H11 in a compiled host on Bun 1.4.3: through the host-provided module %d/16; through a bundled copy %d/16 (expected 0)", shim, copies)
 	if shim != 16 || copies != 0 || len(jobs) != 16 || len(runs) != 16 {
 		t.Fatalf("shim %d/16, copy %d/16, %d job ids, %d run ids", shim, copies, len(jobs), len(runs))
 	}
@@ -474,7 +474,7 @@ func TestHostScopesThroughAHostProvidedModule(t *testing.T) {
 
 // C2b's exit gate (ADR 0012): "an esbuild CJS codebase script that imports
 // a host-provided module reads the host's store 16/16 on Bun 1.3.10", now
-// in host mode on wl and a built bundle (F3a). The script,
+// on the pinned Bun, in host mode on wl and a built bundle (F3a). The script,
 // testdata/hostfolder/f/hostcb/cb_scope.ts, is the CommonJS codebase
 // script of the folder, its import of f/host/scopes.ts resolved to the
 // module's generated shim. Sixteen concurrent runs, each submitted inside
@@ -514,7 +514,7 @@ func TestHostScopesThroughACodebaseScript(t *testing.T) {
 		}
 		jobs[got.Job], runs[got.Run] = true, true
 	}
-	t.Logf("C2b in a compiled host on Bun 1.3.10: an esbuild CommonJS codebase script read the host's store through the host-provided module %d/16", read)
+	t.Logf("C2b in a compiled host on Bun 1.4.3: an esbuild CommonJS codebase script read the host's store through the host-provided module %d/16", read)
 	if read != 16 || len(jobs) != 16 || len(runs) != 16 {
 		t.Fatalf("read %d/16, %d job ids, %d run ids", read, len(jobs), len(runs))
 	}
@@ -557,7 +557,7 @@ func TestHostScopesThroughAnOutsideModule(t *testing.T) {
 			read++
 		}
 	}
-	t.Logf("F3h in a compiled host on Bun 1.3.10: a codebase script read the host's store through a host-provided module outside the folder %d/16", read)
+	t.Logf("F3h in a compiled host on Bun 1.4.3: a codebase script read the host's store through a host-provided module outside the folder %d/16", read)
 	if read != 16 {
 		t.Fatalf("read %d/16", read)
 	}
@@ -639,7 +639,7 @@ func TestHostNeverSettlingStep(t *testing.T) {
 		other <- res{r, err, time.Now()}
 	}()
 	n, o := <-never, <-other
-	const timeoutText = `{"error":{"name":"ExecutionErr","message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","step_id":"a"}}`
+	const timeoutText = "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step\",\"step_id\":\"a\"}}"
 	if n.e != nil || n.r.Status != "failure" || string(n.r.Result) != timeoutText {
 		t.Fatalf("the never-settling run: %+v, %v", n.r, n.e)
 	}
@@ -916,7 +916,7 @@ func TestHostStepLatency(t *testing.T) {
 	if p.N != 300 {
 		t.Fatalf("bench %+v", p)
 	}
-	t.Logf("per-step latency in host mode, one-step flow in a compiled Bun 1.3.10 host, %d sequential runs: p50 %dµs, p95 %dµs, p99 %dµs", p.N, p.P50US, p.P95US, p.P99US)
+	t.Logf("per-step latency in host mode, one-step flow in a compiled Bun 1.4.3 host, %d sequential runs: p50 %dµs, p95 %dµs, p99 %dµs", p.N, p.P50US, p.P95US, p.P99US)
 }
 
 type syncBuffer struct {

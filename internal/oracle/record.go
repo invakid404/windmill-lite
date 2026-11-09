@@ -58,6 +58,12 @@ type Session struct {
 	// a flow fixture <OutDir>/<fixture path>/recorded/<run>.json, instead
 	// of the recording directory.
 	OutDir string
+	// MismatchDir, when set, receives the observation of every run that
+	// does not match its expect, with its provenance, in the recording
+	// format and at the place OutDir would give its recording. Such a run
+	// writes no recording, so this is where the observation that replaces
+	// the expect can be read, and later committed, after one session.
+	MismatchDir string
 	// RawDir, when set, receives the raw API captures of every run.
 	RawDir string
 	// RepoRoot is the directory fixture paths are reported relative to.
@@ -156,7 +162,22 @@ type RunReport struct {
 	Differences []string `json:"differences,omitempty"`
 	Error       string   `json:"error,omitempty"`
 	Wrote       string   `json:"wrote,omitempty"`
+	// Observation is the file in MismatchDir that holds the observation
+	// of a run that did not match its expect.
+	Observation string `json:"observation,omitempty"`
+	// LocalFailure marks a failed run that failed in the session itself,
+	// after the oracle's part: its observation could not be compared with
+	// the committed recording, or its recording, observation or raw
+	// capture could not be placed or written.
+	LocalFailure bool `json:"local_failure,omitempty"`
 }
+
+// An outputError is a failure to write a run's raw capture, which the run
+// reports as a local failure.
+type outputError struct{ err error }
+
+func (e outputError) Error() string { return e.err.Error() }
+func (e outputError) Unwrap() error { return e.err }
 
 // Failed reports whether the run fails the session: always for a failure,
 // refusal, instability or expectation mismatch, and in check mode also for
@@ -204,6 +225,21 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	rep := &Report{Session: SessionReport{Images: map[string]ImageInfo{}, MemoryPeak: map[string]int64{}, Deployments: map[string]Deployment{}}}
 	if _, ok := SessionConfigs[s.Config]; !ok {
 		return rep, ErrUnknownSession(s.Config)
+	}
+	// Placed below the repository root, an observation that misses its
+	// expect would replace the fixture's own recording; placed in OutDir,
+	// it would sit among the recordings to commit.
+	if s.MismatchDir != "" {
+		root := s.RepoRoot
+		if root == "" {
+			root = "."
+		}
+		switch {
+		case sameDir(s.MismatchDir, root):
+			return rep, fmt.Errorf("oracle: --mismatched %s is the repository root, where the observations would replace the fixtures' recordings", s.MismatchDir)
+		case s.OutDir != "" && sameDir(s.MismatchDir, s.OutDir):
+			return rep, fmt.Errorf("oracle: --mismatched and --out are both %s, which would mix the observations with the recordings", s.MismatchDir)
+		}
 	}
 
 	left, err := Leftovers(ctx, s.Docker)
@@ -840,6 +876,8 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 			switch {
 			case res.err != nil:
 				fail(k, OutcomeFailed, res.err, nil)
+				var oe outputError
+				out[k].LocalFailure = errors.As(res.err, &oe)
 			case i == 0:
 				first[k], prov[k] = res.obs, res.prov
 				prov[k].Group = group
@@ -900,26 +938,48 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 	fail := func(outcome string, err error, diffs []conformance.Difference) *RunReport {
 		out.Outcome = outcome
 		if err != nil {
-			out.Error = err.Error()
+			if out.Error != "" {
+				out.Error += "; "
+			}
+			out.Error += err.Error()
 		}
 		for _, d := range diffs {
 			out.Differences = append(out.Differences, d.String())
 		}
 		return out
 	}
+	// A failure after the oracle's part is the session's own.
+	local := func(err error) *RunReport {
+		out.LocalFailure = true
+		return fail(OutcomeFailed, err, nil)
+	}
 	if r.Expect != nil {
 		ro := expectOpts
 		ro.WithRecording = true
 		diffs, err := conformance.Compare(first, *r.Expect, ro)
 		if err != nil || len(diffs) > 0 {
-			return fail(OutcomeExpectMismatch, err, diffs)
+			fail(OutcomeExpectMismatch, err, diffs)
+			if s.MismatchDir == "" {
+				return out
+			}
+			// A write that fails fails the run, as a recording's does,
+			// keeping the differences.
+			dest, err := s.place(s.MismatchDir, "--mismatched", f, r.Name)
+			if err == nil {
+				err = writeRecording(dest, first, prov)
+			}
+			if err != nil {
+				return local(err)
+			}
+			out.Observation = dest
+			return out
 		}
 	}
 	out.Outcome = OutcomeNew
 	if r.Recorded != nil {
 		diffs, err := conformance.Compare(first, r.Recorded.Observation, opts)
 		if err != nil {
-			return fail(OutcomeFailed, err, nil)
+			return local(err)
 		}
 		out.Outcome = OutcomeUnchanged
 		for _, d := range diffs {
@@ -933,25 +993,54 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 	dest := ""
 	switch {
 	case s.OutDir != "":
-		rel := s.rel(f.RecordingDir())
-		if rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(filepath.FromSlash(rel)) {
-			return fail(OutcomeFailed, fmt.Errorf("oracle: fixture %s is outside %s, so --out cannot place its recording", f.Dir, s.RepoRoot), nil)
+		var err error
+		if dest, err = s.place(s.OutDir, "--out", f, r.Name); err != nil {
+			return local(err)
 		}
-		dest = filepath.Join(s.OutDir, filepath.FromSlash(rel), r.Name+".json")
 	case !s.Check:
 		dest = f.RecordingPath(r.Name)
 	}
 	if dest != "" {
-		pj, err := json.Marshal(prov)
-		if err != nil {
-			return fail(OutcomeFailed, err, nil)
-		}
-		if err := conformance.WriteRecording(dest, conformance.Recording{Observation: first, Provenance: pj}); err != nil {
-			return fail(OutcomeFailed, err, nil)
+		if err := writeRecording(dest, first, prov); err != nil {
+			return local(err)
 		}
 		out.Wrote = dest
 	}
 	return out
+}
+
+// place returns the path of a run's recording below dir, which flag names:
+// the fixture's recording directory relative to RepoRoot, below dir. A
+// fixture outside RepoRoot has no such place.
+func (s *Session) place(dir, flag string, f *conformance.Fixture, run string) (string, error) {
+	rel := s.rel(f.RecordingDir())
+	if rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(filepath.FromSlash(rel)) {
+		return "", fmt.Errorf("oracle: fixture %s is outside %s, so %s cannot place its recording", f.Dir, s.RepoRoot, flag)
+	}
+	return filepath.Join(dir, filepath.FromSlash(rel), run+".json"), nil
+}
+
+// sameDir reports whether two paths name the same directory: the same
+// absolute path, or, when both exist, the same directory by identity.
+func sameDir(a, b string) bool {
+	if aa, err1 := filepath.Abs(a); err1 == nil {
+		if ab, err2 := filepath.Abs(b); err2 == nil && aa == ab {
+			return true
+		}
+	}
+	ia, err1 := os.Stat(a)
+	ib, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(ia, ib)
+}
+
+// writeRecording writes an observation and its provenance to dest in the
+// recording format.
+func writeRecording(dest string, obs conformance.Observation, prov Provenance) error {
+	pj, err := json.Marshal(prov)
+	if err != nil {
+		return err
+	}
+	return conformance.WriteRecording(dest, conformance.Recording{Observation: obs, Provenance: pj})
 }
 
 // execute submits one run, waits for it, walks it and normalises it. In
@@ -1050,7 +1139,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	w, err := (&Walker{Client: &wc, Workspace: ws, Tree: tree}).Walk(ctx, id, r.Target, r.IsScript())
 	if s.RawDir != "" {
 		if werr := s.writeRaw(f, r, rep, ws, root, effects, resp, capture); werr != nil && err == nil {
-			err = werr
+			err = outputError{werr}
 		}
 	}
 	if err != nil {
@@ -1131,11 +1220,20 @@ func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, w
 // then applies the fixture's stack and mask paths. The response keeps its
 // status, its Content-Type header as sent, parameters included, and its
 // body: as normalised text when it is UTF-8 (conformance.Normaliser.Text),
-// else losslessly as base64.
+// else losslessly as base64. The job ids it replaces are the walk's and
+// the unwalked ones its error objects name, which it numbers over the
+// whole observation first (conformance.Normaliser.NumberUnwalked).
 func Observe(w *Walk, effects []json.RawMessage, resp *HTTPResponse, spec conformance.CompareSpec) (conformance.Observation, error) {
 	n := &conformance.Normaliser{IDs: w.IDs, RuntimeErrors: w.RuntimeErrors}
-	var err error
 	o := conformance.Observation{Status: w.Status}
+	raw := conformance.Observation{Result: w.Result, Effects: effects, Steps: make(map[conformance.SitePath]conformance.StepObservation, len(w.Sites))}
+	for _, site := range w.Sites {
+		raw.Steps[site.Path] = site.Step
+	}
+	if err := n.NumberUnwalked(raw); err != nil {
+		return o, err
+	}
+	var err error
 	if o.Result, err = n.Value(w.Result); err != nil {
 		return o, err
 	}
@@ -1200,8 +1298,8 @@ type Provenance struct {
 }
 
 // CheckRecordingIdentity requires a recording's provenance to name the
-// pinned reference: oracle.version CE v1.767.0, oracle.image the pinned
-// image and digest, oracle.cli windmill-cli@1.767.0 (OR-15, OR-V5/b). A
+// pinned reference: oracle.version CE v1.862.0, oracle.image the pinned
+// image and digest, oracle.cli windmill-cli@1.862.0 (OR-15, OR-V5/b). A
 // missing, malformed or different identity is refused with
 // recording_identity_mismatch. Dates, timings, the host and the other
 // provenance fields are never checked.

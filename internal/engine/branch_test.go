@@ -446,6 +446,84 @@ func TestBranchHostSignals(t *testing.T) {
 	}
 }
 
+// waitingClock is a real clock whose waits signal waiting when they start
+// and last until their context ends, so a test cancels a run while one of
+// its jobs is queued.
+type waitingClock struct {
+	RealClock
+	waiting chan struct{}
+}
+
+func (c *waitingClock) Wait(ctx context.Context, d time.Duration) error {
+	c.waiting <- struct{}{}
+	<-ctx.Done()
+	return context.Cause(ctx)
+}
+
+// CF-28 point 2 and point 4, FX-38: a branchone whose branch flow the
+// cancellation ends records Failure with the run's Canceled error, and its
+// job, the branch's flow job, is canceled. That holds for a branch flow
+// queued behind the sleep before the module, which completes at pickup
+// without running its body or its copy of the failure module, and for a
+// running one, whose step is killed.
+func TestBranchOneCanceled(t *testing.T) {
+	const canceled = `{"error":{"message":"Job canceled: r by u","name":"Canceled","reason":"r","canceler":"u"}}`
+	wantCanceled := func(t *testing.T, tr *Trace) {
+		t.Helper()
+		wantStatus(t, tr, conformance.RunCanceled, canceled)
+		b := step(t, tr, "b")
+		if b.Status != conformance.StepCanceled || b.Module != conformance.ModuleFailure || !b.Ran {
+			t.Fatalf("b %+v", b)
+		}
+		sameJSON(t, "b's result", b.Result, canceled)
+		noRecord(t, tr, "s:failure")
+	}
+
+	t.Run("queued", func(t *testing.T) {
+		s := &scripts{}
+		e := mustOpen(t, map[string]string{"f/t/main": withFailure(handler("echo", "", ""),
+			value("a", "1", `"sleep":`+static("30")), branchOneOf("b", nil, []string{value("x", "2", "")}, ""))}, s)
+		clock := &waitingClock{waiting: make(chan struct{}, 1)}
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		out := make(chan *Trace, 1)
+		go func() {
+			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Clock: clock})
+			if err != nil {
+				panic(err)
+			}
+			out <- tr
+		}()
+		select {
+		case <-clock.waiting:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the branch flow never waited")
+		}
+		cancel(&Cancellation{Reason: "r", Canceler: "u"})
+		tr := <-out
+		wantCanceled(t, tr)
+		noRecord(t, tr, "m:b/b:default/m:x")
+		noRecord(t, tr, "m:b/b:default/s:failure")
+		wantCalls(t, s, "m:a")
+	})
+
+	t.Run("running", func(t *testing.T) {
+		g := newGated()
+		g.hold = "/b:"
+		e := mustOpen(t, map[string]string{"f/t/main": flowOf(branchOneOf("b", nil, []string{value("x", "2", "")}, ""))}, g)
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		out := runAsync(ctx, e, `{}`, nil)
+		g.next(t)
+		cancel(&Cancellation{Reason: "r", Canceler: "u"})
+		tr := <-out
+		wantCanceled(t, tr)
+		if x := at(t, tr, "m:b/b:default/m:x"); x.Status != conformance.StepCanceled {
+			t.Fatalf("the killed step %+v", x)
+		}
+	})
+}
+
 // ADR 0011, D14: errors the engine generates in a branch keep their
 // provenance: inside a branchall's array as pointers into it, and as the
 // origin of a branchone's result; a user's error has none.
@@ -854,12 +932,13 @@ func TestBranchOneAbortedRetryIf(t *testing.T) {
 }
 
 // CF-23 route 3, a reading: a chaining error raised before a sequential
-// loop's iteration after the first, here its skip_if throwing, aborts the
-// flow with the flow's last result, the previous child's (CF-21), so the
-// branchone carries the loop's first iteration's 1, not r's 5.
+// loop's iteration after the first, here its timeout throwing for the
+// second child (CF-21), aborts the flow with the flow's last result, the
+// previous child's, so the branchone carries the loop's first iteration's
+// 1, not r's 5.
 func TestBranchOneAbortedMidLoop(t *testing.T) {
-	loop := loopOf("l", []string{mod("x", "value", inputs("v", js("flow_input.iter.value")), "")},
-		`"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"skip_if":`+`{"expr":"previous_result === 5 ? false : null.x"}`)
+	body := []string{mod("x", "value", inputs("v", js("flow_input.iter.value")), ""), mod("y", "value", inputs("v", js("results.x")), "")}
+	loop := loopOf("l", body, `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"timeout":`+js("results.l.length > 0 ? null.x : 10"))
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(branchOneOf("b", nil, []string{value("r", "5", ""), loop}, ""))}, &scripts{})
 	tr := runIt(t, e, `{}`, nil)
 	wantStatus(t, tr, conformance.RunFailure, `1`)

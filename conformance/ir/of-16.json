@@ -42,7 +42,67 @@
           }
         }
       }
+    },
+    {
+      "spec": "OF-16",
+      "variant": "value-timeout",
+      "provenance": "source-derived",
+      "title": "value.timeout, the flow's wall-clock limit, is kept as written, 0 or less included, which is unset when the flow runs (FX-52); the metadata timeout beside it stays apart",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "summary: s\ntimeout: 5\nvalue:\n  timeout: -1\n  modules:\n    - id: a\n      value: {type: flow, path: f/x/sub}\n",
+          "f/x/sub.flow/flow.yaml": "summary: s\nvalue:\n  timeout: 30\n  modules:\n    - id: b\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "flows": {
+          "f/x/main": {
+            "at": {
+              "/timeout": 5,
+              "/value_timeout": -1
+            }
+          },
+          "f/x/sub": {
+            "at": {
+              "/value_timeout": 30
+            },
+            "absent": [
+              "/timeout"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-16",
+      "variant": "permissions",
+      "provenance": "policy",
+      "policy": "0001 §3",
+      "title": "the flow's identity and a step's job token scopes are decoded and dropped; a null value.timeout is absent",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "summary: s\non_behalf_of: u/someone\non_behalf_of_email: someone@example.invalid\nvalue:\n  timeout: null\n  modules:\n    - id: a\n      job_token_scopes: ['oidc:write']\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "flows": {
+          "f/x/main": {
+            "at": {
+              "/modules/0/id": "a"
+            },
+            "absent": [
+              "/on_behalf_of",
+              "/on_behalf_of_email",
+              "/timeout",
+              "/value_timeout",
+              "/modules/0/job_token_scopes"
+            ]
+          }
+        }
+      }
     }
   ],
-  "note": "The flow fields of OF-16 that the engine reads; queue and placement controls are dropped."
+  "note": "The flow fields of OF-16 that the engine reads, value.timeout included (FX-52); queue, placement and permission controls are dropped."
 }

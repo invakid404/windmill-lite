@@ -10,8 +10,10 @@
         "error": {
           "name": "Error",
           "stack": "<stack>",
+          "job_id": "<job:m:ba/b:1/m:b1>",
           "message": "b",
-          "step_id": "b1"
+          "step_id": "b1",
+          "flow_path": "f/cf15/parallel_fail/branchall-1"
         }
       },
       [
@@ -38,8 +40,10 @@
             "error": {
               "name": "Error",
               "stack": "<stack>",
+              "job_id": "<job:m:ba/b:1/m:b1>",
               "message": "b",
-              "step_id": "b1"
+              "step_id": "b1",
+              "flow_path": "f/cf15/parallel_fail/branchall-1"
             }
           },
           [
@@ -67,8 +71,10 @@
           "error": {
             "name": "Error",
             "stack": "<stack>",
+            "job_id": "<job:m:ba/b:1/m:b1>",
             "message": "b",
-            "step_id": "b1"
+            "step_id": "b1",
+            "flow_path": "f/cf15/parallel_fail/branchall-1"
           }
         }
       },
@@ -88,19 +94,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261028125853-14b36aa88aec",
-      "revision": "14b36aa88aec74ba9f1ae702f9f9d8a4810e5aeb",
+      "version": "v0.0.0-20261106214647-3678528a0b25",
+      "revision": "3678528a0b25e00b4e168aa14a2fd6911028619e",
       "go": "go1.27.3"
     },
     "host": {
@@ -108,76 +114,76 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40692334073"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42299510925"
     },
-    "recorded_at": "2026-10-28T13:10:43Z",
+    "recorded_at": "2026-11-06T21:50:59Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:37389"
+      "WL_EFFECT_SINK": "http://host.docker.internal:42993"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 408,
+      "submit_to_complete_ms": 409,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-28T13:10:43.102958Z",
-          "started_at": "2026-10-28T13:10:43.149614Z",
-          "completed_at": "2026-10-28T13:10:43.350123Z",
-          "duration_ms": 201
+          "created_at": "2026-11-06T21:50:59.519379Z",
+          "started_at": "2026-11-06T21:50:59.558304Z",
+          "completed_at": "2026-11-06T21:50:59.725680Z",
+          "duration_ms": 167
         },
         "m:a": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.152859Z",
-          "started_at": "2026-10-28T13:10:43.156019Z",
-          "completed_at": "2026-10-28T13:10:43.179725Z",
-          "duration_ms": 20
+          "created_at": "2026-11-06T21:50:59.561420Z",
+          "started_at": "2026-11-06T21:50:59.564594Z",
+          "completed_at": "2026-11-06T21:50:59.582295Z",
+          "duration_ms": 14
         },
         "m:ba/b:0": {
           "kind": "flowpreview",
-          "created_at": "2026-10-28T13:10:43.184517Z",
-          "started_at": "2026-10-28T13:10:43.233601Z",
-          "completed_at": "2026-10-28T13:10:43.289839Z",
-          "duration_ms": 56
+          "created_at": "2026-11-06T21:50:59.585746Z",
+          "started_at": "2026-11-06T21:50:59.636474Z",
+          "completed_at": "2026-11-06T21:50:59.684642Z",
+          "duration_ms": 48
         },
         "m:ba/b:0/m:b0": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.240993Z",
-          "started_at": "2026-10-28T13:10:43.261331Z",
-          "completed_at": "2026-10-28T13:10:43.285969Z",
-          "duration_ms": 21
+          "created_at": "2026-11-06T21:50:59.643527Z",
+          "started_at": "2026-11-06T21:50:59.663275Z",
+          "completed_at": "2026-11-06T21:50:59.680630Z",
+          "duration_ms": 14
         },
         "m:ba/b:1": {
           "kind": "flowpreview",
-          "created_at": "2026-10-28T13:10:43.184517Z",
-          "started_at": "2026-10-28T13:10:43.244069Z",
-          "completed_at": "2026-10-28T13:10:43.318303Z",
-          "duration_ms": 74
+          "created_at": "2026-11-06T21:50:59.585746Z",
+          "started_at": "2026-11-06T21:50:59.646627Z",
+          "completed_at": "2026-11-06T21:50:59.707464Z",
+          "duration_ms": 61
         },
         "m:ba/b:1/m:b1": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.248302Z",
-          "started_at": "2026-10-28T13:10:43.286234Z",
-          "completed_at": "2026-10-28T13:10:43.313652Z",
-          "duration_ms": 27
+          "created_at": "2026-11-06T21:50:59.650680Z",
+          "started_at": "2026-11-06T21:50:59.680671Z",
+          "completed_at": "2026-11-06T21:50:59.699325Z",
+          "duration_ms": 19
         },
         "m:ba/b:2": {
           "kind": "flowpreview",
-          "created_at": "2026-10-28T13:10:43.184517Z",
-          "started_at": "2026-10-28T13:10:43.250982Z",
-          "completed_at": "2026-10-28T13:10:43.344167Z",
-          "duration_ms": 93
+          "created_at": "2026-11-06T21:50:59.585746Z",
+          "started_at": "2026-11-06T21:50:59.653503Z",
+          "completed_at": "2026-11-06T21:50:59.719731Z",
+          "duration_ms": 66
         },
         "m:ba/b:2/m:b2": {
           "kind": "flowscript",
-          "created_at": "2026-10-28T13:10:43.258232Z",
-          "started_at": "2026-10-28T13:10:43.313911Z",
-          "completed_at": "2026-10-28T13:10:43.340260Z",
-          "duration_ms": 22
+          "created_at": "2026-11-06T21:50:59.660525Z",
+          "started_at": "2026-11-06T21:50:59.699258Z",
+          "completed_at": "2026-11-06T21:50:59.716949Z",
+          "duration_ms": 13
         }
       }
     },
@@ -291,7 +297,7 @@
                     }
                   ],
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 },
                 {
                   "expr": "",
@@ -330,7 +336,7 @@
                     }
                   ],
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 }
               ],
               "parallel": true
@@ -375,7 +381,7 @@
                   ],
                   "expr": "",
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 },
                 {
                   "modules": [
@@ -414,7 +420,7 @@
                   ],
                   "expr": "",
                   "parallel": true,
-                  "skip_failure": true
+                  "skip_failure": false
                 }
               ],
               "parallel": true

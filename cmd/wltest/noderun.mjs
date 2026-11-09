@@ -19,7 +19,7 @@
 // process.exit or crashed; the runner reads that from its exit status.
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { bind, errorText, patchBigInt, resultText, signatureErrorText, signatureOf } from "./wl-wrapper.mjs";
+import { bind, errorText, patchBigInt, resultText, signatureErrorText, signatureOf, stepContext } from "./wl-wrapper.mjs";
 
 const TAIL_LENGTH = 600;
 const entry = process.argv[2];
@@ -43,7 +43,7 @@ function caught(e) {
     // Printing is for the logs; it never changes the outcome.
   }
   try {
-    return { outcome: "error", body: errorText(e, stepId()) };
+    return { outcome: "error", body: errorText(e, stepContext(process.env)) };
   } catch (inner) {
     return escaped(describe(inner));
   }

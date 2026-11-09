@@ -9,5 +9,5 @@ expect:
   result:
     error:
       name: Anyhow
-      message: "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"
+      message: "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:5065:13"
   steps: {"m:l": {status: failure, ran: false}}

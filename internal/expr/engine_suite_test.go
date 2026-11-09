@@ -25,11 +25,11 @@ import (
 
 // engineSkipped are the E3a cases the suite does not run, with the reason.
 var engineSkipped = map[string]string{
-	// The oracle's monitor of flows hanging between steps cancels the run
-	// at 60 s, before Windmill's third attempt ends at about 70 s, so the
-	// recording holds no evaluator text. TestJE2OnEngine runs the same
-	// expression's three attempts with a short limit.
-	"JE-2/a": "the oracle canceled the run before the evaluator's text surfaced",
+	// The evaluation takes Windmill's three 20 s attempts and two 5 s
+	// pauses, about 70 s, before the recorded timeout error surfaces.
+	// TestJE2OnEngine runs the same expression's three attempts with a
+	// short limit, and the flow suite runs the recorded case in full.
+	"JE-2/a": "the three attempts take about 70 s; TestJE2OnEngine runs them with a short limit",
 	// The panic report names its task number, which differs between runs,
 	// so the recording masks the message; pipeline case JE-11/e checks the
 	// evaluator's text.

@@ -151,7 +151,7 @@ The engine maps a `result` to Windmill's stored value with the rules of
 A harness process that dies fails its in-flight invocations as `escaped`
 with its real exit code, or as `process terminated by signal: …`
 ([WR-4](../semantics/languages.md#wr-4)). For the escaped cases the reference
-predicts exit code 1 but has not recorded Bun 1.3.10's exit status for
+predicts exit code 1 but has not recorded Windmill's exit status for
 `throw null`, top-level throws and unhandled rejections
 ([Q-WR-2](../semantics/languages.md#q-wr-2)); the harness reports exit code 1
 until that is recorded.
@@ -166,6 +166,10 @@ one detached `Promise.reject` exits the process with code 1 and a concurrent
 handlers, a throw from a timer sees the throwing invocation's
 `AsyncLocalStorage` store, but an unhandled rejection and a throw from a
 microtask see none.
+
+On Bun 1.4.3 a throw from a `node:fs` or `node:dns` callback sees the
+store too, as a timer's does; 1.3.10 raised it as an unhandled rejection
+with none.
 
 1. **Handlers.** Before any step module loads, the harness installs
    `uncaughtException` and `unhandledRejection` handlers that never exit.
@@ -231,7 +235,7 @@ microtask see none.
    the exit then cuts the work off and the engine waits for the job's
    group (item 8), so a script that leaves work behind is flagged in both
    modes. The counts come from the invocation's own registry, since Bun
-   1.3.10's `process._getActiveHandles()` lists nothing.
+   1.4.3's `process._getActiveHandles()` lists nothing.
 
    Killing a `child` at settlement is windmill-lite's reading. On
    Windmill a process left in the job's group after the script returns
@@ -246,7 +250,9 @@ microtask see none.
    - promise continuations already queued, `Bun.sleep` and
      `node:timers/promises` waits included (what they do through the
      fenced channels is refused);
-   - sockets and clients the step opened itself, and shared objects;
+   - sockets and clients the step opened itself, with the timers that
+     Bun's networking modules (`node:net` and `node:http`'s own) set for
+     them, and shared objects;
    - a child the step started detached, in a session of its own, and
      processes `Bun.$` starts, which the harness does not wrap;
    - what a synchronous child call left running after its child exited,
@@ -254,8 +260,11 @@ microtask see none.
    - CPU work.
 
    Their errors are reported as `late` (D9). Work started in a process
-   scope, or while a step module evaluates (item 2 of the lifecycle),
-   belongs to no invocation and is never fenced.
+   scope belongs to no invocation, and work a step module starts while it
+   evaluates is the module's (item 2 of the lifecycle): neither is ever
+   fenced. An error from the module's work is still the loading
+   invocation's, `late` once that has settled; one from a process scope is
+   unattributed (item 3).
 5. **Working directory.** Each harness process the engine spawns gets one
    private directory, created at spawn, as its working directory for all
    invocations ([WR-1](../semantics/languages.md#wr-1) gives each job its
@@ -270,18 +279,21 @@ microtask see none.
    invocation's outcome (`empty` for code 0 with no result written,
    `escaped` otherwise) and throws a sentinel. `finally` blocks run and a
    `catch` can swallow the sentinel and keep going; whatever the code does
-   afterwards is reported as `late` (D11).
+   afterwards is reported as `late` (D11). A call while a step module
+   evaluates fixes the loading invocation's outcome (lifecycle item 2); a
+   sentinel that escapes the evaluation fails the module's load for every
+   later invocation.
 7. **Child processes and other output paths.** The harness wraps
    `child_process.spawn`, `exec`, `execFile` and `fork` (and the sync
    forms) and `Bun.spawn`/`Bun.spawnSync`, so that a child started without
    an explicit environment receives the invocation's view, not the process
-   environment. On Bun 1.3.10, `spawnSync`, `execSync` and `Bun.spawn`
-   would otherwise pass the process's own environment, since they read
-   neither `process.env` nor its view. Output written through
+   environment. On Bun 1.4.3, `Bun.spawn` and `Bun.spawnSync` would
+   otherwise pass the environment the process started with, since they
+   read neither `process.env` nor its view. Output written through
    `Bun.stdout`, a raw file descriptor or a child's inherited stdio is not
    attributed: it reaches the process log, not the invocation's log tail.
    The wrappers, like the timer fence's, replace the functions on the
-   builtins' CommonJS objects before any step module loads. On Bun 1.3.10
+   builtins' CommonJS objects before any step module loads. On Bun 1.4.3
    the first named import of a builtin fixes its named bindings for every
    later importer, so the host SDK reaches `node:child_process` through
    `require`. A host whose own modules import `node:child_process` or
@@ -297,11 +309,11 @@ microtask see none.
    invocation starts leads a group of its own instead, which stands for the
    job's: the wrapper starts it detached and registers it as `child`, its
    group being what is alive and what is killed, so a child's own children
-   are reached after it has exited. On Bun 1.3.10 every `node:child_process`
+   are reached after it has exited. On Bun 1.4.3 every `node:child_process`
    function starts its child through `Bun.spawn` (the asynchronous ones) or
    `Bun.spawnSync` (the sync ones), once each, and passes `detached` on
-   only from `spawn` and `fork`, the functions that honour a step's own
-   `detached`; `exec`, `execFile` and the sync forms ignore it, so their
+   only from `spawn`, `fork` and the sync forms, the functions that honour
+   a step's own `detached`; `exec` and `execFile` ignore it, so their
    children are in the job's group on Windmill. The wrapper of `Bun.spawn`
    therefore registers every asynchronous child, once, and gives each its
    group. A child the step started detached where Bun honours it registers
@@ -381,7 +393,8 @@ microtask see none.
    ends, a watchdog's kill included, and at once for a group announced
    after any of these. Every process the engine spawns leads a
    process group of its own, which its kill and its end reach. A
-   synchronous call's child gets no group of its own, because its pid is
+   synchronous call's child that the step did not start detached gets no
+   group of its own, because its pid is
    known only once it has exited, too late to announce: it stays in the
    harness's group, which the end of the process kills, so a call that
    blocks the event loop past the watchdog ends with the process. What a
@@ -448,16 +461,18 @@ step, never releases them.
 - `process.env` is replaced by a view that answers from the current
   invocation first; bundles rewrite `Bun.env` and `import.meta.env` to
   `process.env` at build time ([WA-31](../semantics/client-api.md#wa-31)).
-  This mechanism is gated: the walking skeleton (milestone W1) runs the
-  16-way isolation test of [Q-WA-4](../semantics/client-api.md#q-wa-4) on the
-  pinned Bun before anything depends on it. On Bun 1.3.10 it passed 16 of
-  16 on every channel. The view also reaches `Bun.env` and
-  `import.meta.env` at run time: their object, which assigning
-  `process.env` leaves in place, takes a prototype that answers from the
-  current invocation, and a variable the process already has becomes an
-  accessor. Code the build does not rewrite, such as an unbundled
-  dependency or a host's own module, is therefore covered too; the build's
-  define rewrite ([0010](0010-packaging.md)) stays.
+  This mechanism is gated: the 16-way isolation test of
+  [Q-WA-4](../semantics/client-api.md#q-wa-4) runs on the pinned Bun before
+  anything depends on it. On Bun 1.4.3 it passes 16 of 16 on every
+  channel, as it did on 1.3.10.
+- The view also reaches `Bun.env` and `import.meta.env` at run time: their
+  object, which assigning `process.env` leaves in place, takes a prototype
+  that answers from the current invocation. Bun 1.4.3's object takes no
+  accessors, so a variable the process has moves out of it, into the view's
+  own store, once an invocation claims it. Code the build does not rewrite,
+  such as an unbundled dependency or a host's own module, is therefore
+  covered too; the build's define rewrite ([0010](0010-packaging.md))
+  stays.
 - `console.*`, `process.stdout.write` and `process.stderr.write` are
   attributed to the current invocation. A console call is formatted by a
   Console of the invocation's own (Node's, without colours), so its
@@ -541,6 +556,20 @@ sequenceDiagram
    unless the host sets a cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
    ones, sends `drain`, and the harness exits after `bye`.
+
+**Loading on Bun 1.4.3.** Bun 1.4.3 evaluates a module that `import()`
+loads outside every async context, and one that `require()` loads inside
+the caller's. So the harness evaluates a step module with `require()` in
+the loading context, then takes its namespace from `import()` of the same
+file, which does not evaluate it again. A pending top-level `await` makes
+`require()` throw once the evaluation has started, and `import()` waits for
+that evaluation ([harness README](../../harnesses/bun/README.md)).
+
+That reaches only what the harness loads. A module that step code itself
+imports at run time from a file outside the bundle, such as a codebase
+asset, evaluates outside every invocation on Bun 1.4.3. Its top-level code
+reads the process's environment, and a `process.exit` there is the real
+one (failure model item 6, D11).
 
 ### Pooling (processes the engine spawns)
 
@@ -849,10 +878,10 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 2. A step's `timeout` ([FX-24](../semantics/execution.md#fx-24)) is a timer
    in the engine. When it fires, or the run is canceled, the engine sends
    `cancel` and completes the module at once with Windmill's error
-   ([WR-37](../semantics/languages.md#wr-37)), for example
-   `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}`.
-   The "job-specific" wording appears only when the requested timeout is
-   below the instance cap, which the host configures (default 604800 s).
+   ([FX-25](../semantics/execution.md#fx-25)), for example
+   ``{"error":{"message":"execution error:\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step","name":"ExecutionErr","step_id":"a"}}``.
+   It names the instance maximum when the requested timeout reaches the
+   instance cap, which the host configures (default 604800 s).
    That text is the process-executor path, which is the one Bun steps take;
    in a collapsed loop the loop module's timeout applies to each iteration;
    identity modules and child-flow containers have no deadline, and the
@@ -876,6 +905,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
    Effects of an abandoned step can happen after its module has failed, which
    cannot happen on Windmill; host plugins can tie outbound I/O to the
    invocation's signal to narrow the window.
+
+A flow's own wall-clock limit ([FX-52](../semantics/execution.md#fx-52))
+is a timer on the flow's context, not a step's. When it fires, the flow
+and its steps are canceled as in item 3, with canceler `timeout`; the
+flow's failure module still runs once, and the flow ends canceled.
 
 ## Consequences
 
@@ -940,7 +974,7 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     other, and one from there ends the process.
   - **A signature that did not parse** fails the step before its module
     loads (§Entrypoints).
-  - **`process.exit`** checks its code as Bun 1.3.10 does: a safe integer
+  - **`process.exit`** checks its code as Bun 1.4.3 does: a safe integer
     (within ±(2^53 − 1)), or a string other than `""` that `Number` reads
     as one (`" "` is 0), modulo 256 (`process.exit(258)` exits 2), no code
     being `process.exitCode` or 0; any other code makes Bun throw before it
@@ -960,8 +994,8 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     resource registry, which the runtime settles with the invocation, so
     the settle-time fence that milestone C3b adds to D9 (timers and
     `fetch` requests an invocation started) registers there and needs no
-    global table. Its counts are the leak report: Bun 1.3.10's
-    `process._getActiveHandles()` lists nothing.
+    global table. Its counts are the leak report: Bun's
+    `process._getActiveHandles()` lists nothing (1.4.3, as 1.3.10).
   - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
     returns a runner for the caller's async context without the
     invocation's store, so a pooled client or a host-provided module that
@@ -1035,7 +1069,7 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     one of its timers and a throw from a microtask it queued fail a running
     native invocation with that value's WR-43 object (`settled` false), as
     they fail a native job, and are `late` errors after its outcome.
-  - **The step's timeout** gives the boundary's text: WR-37's for Bun,
+  - **The step's timeout** gives the boundary's text: FX-25's for Bun,
     `Query timeout after (>Ns)` for native
     ([WR-44](../semantics/languages.md#wr-44); `engine.TimeoutError`).
 
@@ -1057,12 +1091,12 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     every client a module makes at load after the first run, which is the
     breakage the owner's correction of the fence forbids.
   - **The environment view** keeps a step's `Bun.env.X = …` write of a
-    variable the process lacks in the invocation's copy (a `set` trap on
-    the prototype). A delete through `Bun.env`, and a write of an
-    unshadowed process variable, still reach the process: an ordinary
-    object cannot trap them. Enumerating `Bun.env` lists the process's
-    variables; `process.env`, which the build's define rewrite puts in its
-    place, and a child's environment list the invocation's.
+    variable that object does not hold in the invocation's copy (a `set`
+    trap on the prototype). A delete through `Bun.env`, and a write of an
+    unclaimed process variable, are not kept per invocation: Bun's object
+    cannot trap them. Enumerating `Bun.env` lists the process variables no
+    invocation has claimed; `process.env`, which the build's define rewrite
+    puts in its place, and a child's environment list the invocation's.
   - **`fresh` mode** (failure model item 8). The engine treats the exit 0
     of a fresh process before any result as
     [WR-V2](../semantics/languages.md#wr-v2)'s empty result, and kills a

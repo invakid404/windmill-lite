@@ -4,7 +4,7 @@
     "result": {
       "error": {
         "name": "ExecutionErr",
-        "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12 @common.rs:299:17",
+        "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12 @common.rs:319:17",
         "step_id": "b"
       }
     },
@@ -22,7 +22,7 @@
         "result": {
           "error": {
             "name": "ExecutionErr",
-            "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12 @common.rs:299:17",
+            "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 12 @common.rs:319:17",
             "step_id": "b"
           }
         }
@@ -31,19 +31,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.854.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261030030051-3c1bb5db00ea",
-      "revision": "3c1bb5db00ea465aea4cbf9145a35e24a05c295b",
+      "version": "v0.0.0-20261106213237-3d0bf53cd5ae",
+      "revision": "3d0bf53cd5aec8d14ae134ff91028d6f6f8624c8",
       "go": "go1.27.3"
     },
     "host": {
@@ -51,41 +51,41 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40994947681"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42297591675"
     },
-    "recorded_at": "2026-10-30T03:20:31Z",
+    "recorded_at": "2026-11-06T21:50:51Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:39551"
+      "WL_EFFECT_SINK": "http://host.docker.internal:46499"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 208,
+      "submit_to_complete_ms": 205,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-30T03:20:31.233864Z",
-          "started_at": "2026-10-30T03:20:31.268338Z",
-          "completed_at": "2026-10-30T03:20:31.360228Z",
-          "duration_ms": 92
+          "created_at": "2026-11-06T21:50:51.471540Z",
+          "started_at": "2026-11-06T21:50:51.482583Z",
+          "completed_at": "2026-11-06T21:50:51.555869Z",
+          "duration_ms": 73
         },
         "m:a": {
           "kind": "flowscript",
-          "created_at": "2026-10-30T03:20:31.269526Z",
-          "started_at": "2026-10-30T03:20:31.272194Z",
-          "completed_at": "2026-10-30T03:20:31.295258Z",
-          "duration_ms": 20
+          "created_at": "2026-11-06T21:50:51.484459Z",
+          "started_at": "2026-11-06T21:50:51.486443Z",
+          "completed_at": "2026-11-06T21:50:51.497357Z",
+          "duration_ms": 9
         },
         "m:b": {
           "kind": "flowscript",
-          "created_at": "2026-10-30T03:20:31.299416Z",
-          "started_at": "2026-10-30T03:20:31.349489Z",
-          "completed_at": "2026-10-30T03:20:31.356717Z",
-          "duration_ms": 7
+          "created_at": "2026-11-06T21:50:51.499274Z",
+          "started_at": "2026-11-06T21:50:51.548563Z",
+          "completed_at": "2026-11-06T21:50:51.553490Z",
+          "duration_ms": 5
         }
       }
     },

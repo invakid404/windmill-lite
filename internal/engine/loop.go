@@ -137,7 +137,10 @@ func bodyOf(m *ir.Module) loopBody {
 // error in its generic form, the array check's, the ai one's, or the
 // database's (pushError) when jsonb refuses the array (a NUL, FX-48; an
 // unpaired surrogate or a number beyond numeric's range, FX-51), which
-// fails the write before any iteration starts.
+// fails the write before any iteration starts. The array is stored in the
+// flow's status, not as a result or a job's arguments, the two writes from
+// which FX-48 says Windmill removes a NUL, so a NUL still fails it (whether
+// that write removes it too is a question for the reference).
 func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) ([][]byte, string, error) {
 	it := m.ForLoop.Iterator
 	var text []byte
@@ -230,9 +233,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	// A collapsed iteration's previous_result is the step before the loop's
 	// result, then the previous iteration's; a loop at the first module of
 	// its flow gives every iteration the flow's input (JE-36 rules 1 and 5).
-	// The flow's last result, which the loop's skip_if sees before each
-	// iteration after the first, follows the same rule, a child flow's
-	// result standing for a collapsed job's (CF-21).
+	// The flow's last result, which an abort before a later iteration
+	// carries, follows the same rule, a child flow's result standing for a
+	// collapsed job's.
 	iterPrev := prev
 	if i == 0 {
 		iterPrev = fr.input
@@ -250,7 +253,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		return r.chainingAt(fr, pickup, o, text)
 	}
 	var it iterations
-	failed, ran, handled, forwarded := false, false, false, false
+	failed, ran, handled, recovered, forwarded := false, false, false, false, false
 	var stopErr error
 	r.progress(fr, i, nil)
 	for k := 0; n < 0 || k < n; k++ {
@@ -260,24 +263,13 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		if k > 0 {
 			// The previous child's completion starts a transition of the
 			// loop's flow, which pushes the next child: flow_env is resolved
-			// again (JE-38) for what it evaluates, the loop's skip_if and
-			// timeout and a collapsed body job's arguments.
+			// again (JE-38) for what it evaluates, the loop's timeout and a
+			// collapsed body job's arguments. The loop's skip_if is not
+			// among them: only a module still waiting to start evaluates
+			// it, so it gated the loop once, at its entry, and an
+			// iteration's result never skips the loop part-way (CF-21,
+			// Q-CF-6).
 			r.resolveEnv(ctx, fr)
-		}
-		if k > 0 && m.SkipIf != nil {
-			// A sequential loop's skip_if is evaluated again before every
-			// iteration after the first (CF-21, Q-CF-6); a throw is a chaining
-			// error of a later transition (FX-15).
-			skip, err := r.predicate(ctx, fr, m.SkipIf, fr.sites[i], r.startScope(fr, iterPrev, prevID))
-			switch {
-			case err != nil && ctx.Err() != nil:
-				return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
-			case err != nil:
-				return chaining(k, false, predicateText(err))
-			case skip:
-				o.last = &carry{iterPrev, iterOrigin, iterNested}
-				return r.loopSkipped(ctx, fr, i, o, iterPrev)
-			}
 		}
 		ran = true
 		var e flowEnd
@@ -351,7 +343,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			// (CF-16, CF-V1).
 			if e.errorStop || !l.skipFailures {
 				failed = !l.skipFailures
-				handled = failed && e.handled
+				handled, recovered = failed && e.handled, failed && e.recovered
 				// The break clears the forwarded stop, not the failure, and
 				// the completion that carried it switches the loop's
 				// continue_on_error off; its retry still applies.
@@ -380,7 +372,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	o = handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled)
+	o = handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled, recovered)
 	o.forwarded = forwarded && o.end.failed()
 	return o
 }
@@ -389,26 +381,17 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 // child's failure module handled, when handled says so and o still fails
 // with it (outcome.handled): as a failure, or under a clean stop of its
 // stop_after_all_iters_if, which keeps that failure (endFailedStop); an
-// error stop of it is a failure of its own.
-func handledBy(o outcome, handled bool) outcome {
+// error stop of it is a failure of its own. recovered says that the child
+// that failed it reported its failure as recovered (flowEnd.recovered),
+// which o keeps only as a plain failure (outcome.recovered): a stop of a
+// failed container stops its flow as an error stop does, which drops the
+// mark ([FX-33]).
+//
+// [FX-33]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-33
+func handledBy(o outcome, handled, recovered bool) outcome {
 	o.handled = handled && (o.end == endFailed || o.end == endFailedStop)
+	o.recovered = recovered && o.end == endFailed
 	return o
-}
-
-// loopSkipped ends module i of fr, a sequential loop whose skip_if held
-// before an iteration after the first, as a skipped identity job of p, the
-// flow's last result (CF-21, Q-CF-6): the identity job replaces the loop's
-// state, so its iterations so far are lost (recorded by cf-21/skip_mid),
-// and the flow goes on with p. o.last is p with its provenance, which a
-// failed push of the identity job delivers.
-func (r *run) loopSkipped(ctx context.Context, fr *frame, i int, o outcome, p jsonval.Value) outcome {
-	r.supersede(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
-	stored, err := storeMembers(objectOf(member{"previous_result", p.Producer()}), p)
-	if err != nil {
-		return r.chainingAt(fr, false, o, err.Error())
-	}
-	o.rec.RecordedArgs, o.rec.ResolvedArgs, o.rec.Start = stored, stored, r.clock.Now()
-	return r.identityJob(ctx, fr, i, fr.sites[i], o, stored, true)
 }
 
 // childTimeout evaluates the timeout of module i of fr, a container, for a
@@ -511,7 +494,6 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		started[k] = true
 		nStarted++
 		running++
-		r.released(children[k])
 		go func() {
 			ends[k] = r.runList(ctx, children[k])
 			regs[k]()
@@ -604,8 +586,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		switch {
 		case canceled && (!started[k] || ended(e.status)):
 			// The cancellation reaches every child, held ones included,
-			// which completes as failed with the Canceled error without
-			// running its body (CF-28, recorded by cf-28/held).
+			// which completes canceled with the Canceled error without
+			// running its body, a failed child to the loop (CF-28,
+			// recorded by cf-28/held).
 			it.add(canceledChild(ctx, nil))
 			continue
 		case !started[k]:
@@ -630,12 +613,15 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 // failed it, as completed through the parallel path. A failed one is
 // marked handled whenever the flow has a failure module, since each failed
 // child ran its copy of it, so the flow's own does not run ([CF-16] item
-// 8, [CF-22] rule 5).
+// 8, [CF-22] rule 5). It is never marked recovered: its recovered children
+// count as succeeded, so its failure comes from a child that did not
+// recover ([CF-V1]).
 //
 // [CF-16]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-16
 // [CF-22]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-22
+// [CF-V1]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/control-flow.md#cf-v1
 func parallelDone(fr *frame, o outcome, failed bool) outcome {
-	o = handledBy(o, failed && fr.failure != nil)
+	o = handledBy(o, failed && fr.failure != nil, false)
 	o.parallel = true
 	return o
 }
@@ -947,6 +933,8 @@ func array(entries []jsonval.Value, strict bool) (jsonval.Value, error) {
 		}
 		text := []byte("null")
 		if !e.IsZero() {
+			// A child's stored result has lost its NUL escapes (FX-48).
+			e = e.WithoutNUL()
 			text = e.Producer()
 			if s, err := e.Stored(); err == nil {
 				text = s

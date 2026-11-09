@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { types } from "node:util";
 import vm from "node:vm";
 import { current, type InvocationResources, invocations, realTimers, type RequestOf } from "./context.ts";
-import { type Param, signatureErrorText, signatureOf } from "./wrapper.ts";
+import { type Param, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
 /** The URL a native step's module is loaded as, and the embedded client's,
  * against which import specifiers resolve (WR-40). */
@@ -54,6 +54,8 @@ export type NativeForm = {
   user_agent?: string;
   proxy?: string;
   transpile_error?: string;
+  /** A nativets script's transpile's line map (NativeJob.sourceLine). */
+  line_map?: number[];
 };
 
 /** How a native invocation ended: the result's JSON text, or the error
@@ -77,8 +79,8 @@ export type NativeInvocation = {
   stopped?: () => boolean;
 };
 
-/** The web APIs the native runtime installs (WR-45), by name. Bun 1.3.10
- * has no FileReader, so a native step finds none. */
+/** The web APIs the native runtime installs (WR-45), by name. Bun 1.4.3
+ * has no FileReader, as 1.3.10 had none, so a native step finds none. */
 export const WEB_GLOBALS = [
   "Request", "Response", "Headers", "FormData",
   "URL", "URLSearchParams", "URLPattern",
@@ -99,8 +101,9 @@ export const WEB_GLOBALS = [
 // a web API hands to a native invocation is either tracked, the moment the
 // boundary hands it over, or counted, and the count is reported when the
 // invocation settles. The harness realm's prototypes cannot be changed (Bun
-// 1.3.10 makes most of their methods read-only, and Bun steps share them),
-// so the boundary sits between the realm and them:
+// makes many of their members read-only or non-configurable, 1.4.3 as
+// 1.3.10, and Bun steps share them), so the boundary sits between the
+// realm and them:
 //
 // - Every web API class above is given to the realm as a realm-facing
 //   subclass (Native.realmClass), made once per process. Its constructor
@@ -211,11 +214,11 @@ const REALM_SCRIPT = new vm.Script(`(function () {
 })`, { filename: "windmill-lite:native" });
 
 /** The realm's global object, read by a script compiled once per process
- * and run in each new realm. Under the pinned Bun 1.3.10, every script
- * that node:vm compiles from a string stays reachable after a full
- * collection, so vm.runInContext("globalThis", ctx) kept one per native
- * invocation; running a compiled script in a new context keeps nothing.
- * The global it reads is the same object. */
+ * and run in each new realm. Under Bun 1.3.10, every script that node:vm
+ * compiles from a string stays reachable after a full collection, so
+ * vm.runInContext("globalThis", ctx) kept one per native invocation
+ * (Bun 1.4.3 keeps none); running a compiled script in a new context
+ * keeps nothing. The global it reads is the same object. */
 const GLOBAL_SCRIPT = new vm.Script("globalThis", { filename: "windmill-lite:native" });
 
 /** How many variants of one module Native.compile keeps compiled, one per
@@ -235,34 +238,64 @@ const MAX_VARIANTS = 16;
  * frame points into (WR-43). */
 type Compiled = { script: vm.Script; lines: string[] } | { source: string; lines: string[] };
 
-/** An identifier the preamble can declare as a const. A variable name that
- * is not one fails every nativets step's load on Windmill too (WR-45). */
-const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*$/u;
-
-/** A variable name that a module's preamble may leave out when the
- * module's text never spells it: plain ASCII, so that the words of the
- * text (spelling) find it wherever the code names it, and none of
- * UNBINDABLE or OWN_BINDINGS. Any other name is always declared, so
- * JavaScriptCore still decides whether it binds. */
+/** An ASCII identifier, the only kind of variable name that the preamble
+ * can declare as a const (constName), and one that the words of a
+ * module's text (spelling) find wherever its code names it. */
 const PLAIN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-/** The bindings the preamble itself makes, before the variables. A
- * variable of the same name collides with one and fails the load, so the
- * preamble always declares it. The scope's other bindings (the function's
- * parameter, the import bindings, the module's own declarations) are in
- * the module's text, where spelling finds them. */
-const OWN_BINDINGS = new Set(["process"]);
+/** The bindings the preamble itself makes, before the variables: a
+ * variable of one of these names gets no const. The scope's other bindings
+ * (the function's parameter, the import bindings, the module's own
+ * declarations) are in the module's text, where spelling finds them. */
+const OWN_BINDINGS = new Set(["process", "BASE_URL", "BASE_INTERNAL_URL"]);
 
-/** The names whose const declaration in the module's scope (strict code
- * in an async function) fails to compile whatever the module's text is:
- * the reserved words, await, and eval and arguments. The preamble always
- * declares them, so the load still fails as it does on Windmill. */
-const UNBINDABLE = new Set([
+/** The reserved words of strict mode: ECMAScript's reserved words, with
+ * the ones strict mode adds. A variable of one of these names gets no
+ * const. */
+const RESERVED = new Set([
   "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum",
   "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return",
   "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield", "let", "static",
-  "implements", "interface", "package", "private", "protected", "public", "eval", "arguments",
+  "implements", "interface", "package", "private", "protected", "public",
 ]);
+
+/** The names that get a const (constName) whose declaration in the
+ * module's scope (strict code in an async function) fails to compile
+ * whatever the module's text is: eval and arguments, which are not
+ * reserved words. The preamble always declares them, so the load still
+ * fails as it does on Windmill. */
+const UNBINDABLE = new Set(["eval", "arguments"]);
+
+/** Whether the nativets preamble declares a variable as a const of its
+ * name (WR-45, v1.862.0): an ASCII identifier that is neither a reserved
+ * word of strict mode nor one of the preamble's own bindings. Any other
+ * variable is a process.env entry only, so its name never fails a load. */
+function constName(name: string): boolean {
+  return PLAIN.test(name) && !RESERVED.has(name) && !OWN_BINDINGS.has(name);
+}
+
+/** A value or a name as the native runtime's preamble writes it (WR-45): a
+ * single-quoted literal with backslash, quote, LF and CR escaped. */
+function quoted(s: string): string {
+  return `'${s.replace(/[\\'\n\r]/g, (c) => (c === "\n" ? "\\n" : c === "\r" ? "\\r" : `\\${c}`))}'`;
+}
+
+/** The source line of the last mapping at or before a position (line from
+ * 1, column from 0) in a line map (the build's lineMap: triples of line,
+ * column and source line, in order), or undefined before the first. */
+function mappedLine(map: readonly number[], line: number, column: number): number | undefined {
+  let lo = 0;
+  let hi = map.length / 3 - 1;
+  let found: number | undefined;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (map[3 * mid] < line || (map[3 * mid] === line && map[3 * mid + 1] <= column)) {
+      found = map[3 * mid + 2];
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return found;
+}
 
 /** A run of ASCII identifier characters that starts as an identifier does. */
 const WORD = /[A-Za-z_$][A-Za-z0-9_$]*/g;
@@ -315,8 +348,9 @@ export class Native {
   /** The arrays, maps, sets and plain objects of the harness realm whose
    * contents were passed on already. */
   private walked = new WeakSet<object>();
-  /** The realm-facing File's prototype: Bun 1.3.10's File shares Blob's
-   * prototype, so a File the harness made is told apart by instanceof. */
+  /** The realm-facing File's prototype: Bun's File shares Blob's
+   * prototype (1.4.3, as 1.3.10), so a File the harness made is told apart
+   * by instanceof. */
   private fileProto: object | undefined;
   /** Each event target's listener wrappers, by the listener. */
   private listeners = new WeakMap<object, WeakMap<object, (e: unknown) => unknown>>();
@@ -363,7 +397,7 @@ export class Native {
     this.console = console;
     this.trackedProto ??= this.trackedPromise().prototype;
     // Each class gets its own, even one whose prototype another shares
-    // (Bun 1.3.10's File has Blob's); an instance takes the first's.
+    // (Bun's File has Blob's); an instance takes the first's.
     const made: [object, object][] = [];
     for (const name of WEB_GLOBALS) {
       const v = this.web[name];
@@ -991,6 +1025,8 @@ export class NativeJob {
   private modules = new Map<string, Promise<Record<string, unknown>>>();
   /** The lines of the script's module as compiled. */
   private lines: string[] = [];
+  /** Windmill's preamble lines for this invocation (windmillPreamble). */
+  private windmillLines: string[] | undefined;
   /** What the boundary handed this invocation untracked, by kind
    * (Native.untracked). */
   private untrackedKinds = new Map<string, number>();
@@ -1262,14 +1298,20 @@ export class NativeJob {
       });
   }
 
+  /** Both base URLs (WR-45): the facade's origin. */
+  private get base(): string | undefined {
+    return this.native.baseURL ?? this.inv.env.BASE_INTERNAL_URL ?? this.inv.env.BASE_URL;
+  }
+
   /** The realm's process.env and the preamble that declares it (WR-45):
    * `process`, BASE_URL and BASE_INTERNAL_URL in both kinds, and for
-   * nativets and the client every variable as a const of its name. The
+   * nativets and the client each variable that constName allows as a
+   * const of its name; any other variable is in process.env alone. The
    * values are the invocation's job variables and the facade's origin as
    * both base URLs; nothing else (no PATH, HOME or TZ).
    *
-   * The preamble leaves out each PLAIN name that the module's text never
-   * spells (words) and that it does not bind itself (OWN_BINDINGS): the
+   * The preamble leaves out each const that the module's text never spells
+   * (words) and whose declaration would not fail anyway (UNBINDABLE): the
    * code can neither read nor declare a name it does not spell, and no
    * other binding of the scope can collide with it, so the const is not
    * observable. That keeps the preamble the
@@ -1278,7 +1320,7 @@ export class NativeJob {
    * spells `eval` keeps every name, since a direct eval reads any. */
   private preamble(form: NativeForm, P: string, words: Set<string>): { text: string; env: Record<string, string> } {
     const env = new this.g.Object() as Record<string, string>;
-    const base = this.native.baseURL ?? this.inv.env.BASE_INTERNAL_URL ?? this.inv.env.BASE_URL;
+    const base = this.base;
     if (base !== undefined) {
       env.BASE_URL = base;
       env.BASE_INTERNAL_URL = base;
@@ -1286,13 +1328,44 @@ export class NativeJob {
     for (const [k, v] of Object.entries(this.inv.env)) {
       if (k !== "BASE_URL" && k !== "BASE_INTERNAL_URL") Object.defineProperty(env, k, { value: v, writable: true, enumerable: true, configurable: true });
     }
-    const names = form.kind === "bunnative" ? ["BASE_URL", "BASE_INTERNAL_URL"] : Object.keys(env);
-    for (const n of names) {
-      if (!IDENTIFIER.test(n)) throw new LoadFailure(`SyntaxError: the environment variable ${JSON.stringify(n)} is not a valid identifier`);
-    }
-    const bound = words.has("eval") ? names : names.filter((n) => words.has(n) || OWN_BINDINGS.has(n) || !PLAIN.test(n) || UNBINDABLE.has(n));
+    const names = ["BASE_URL", "BASE_INTERNAL_URL", ...(form.kind === "bunnative" ? [] : Object.keys(env).filter(constName))];
+    const bound = words.has("eval") ? names : names.filter((n) => words.has(n) || UNBINDABLE.has(n));
     const decls = [`process = { env: ${P}.env }`, ...bound.map((n) => `${n} = ${P}.env[${JSON.stringify(n)}]`)];
     return { text: `const ${decls.join(", ")};`, env };
+  }
+
+  /** The lines that Windmill's nativets preamble puts in front of the code
+   * (WR-45), as windmill-lite spells them: four fixed lines (the process
+   * object, BASE_URL, BASE_INTERNAL_URL, then one line that copies both
+   * into process.env), then each job variable, as its const when it gets
+   * one (constName) and its process.env entry, with an empty line between
+   * two variables, then an empty line. So with n variables, all of them
+   * consts, the code starts on line 3n + 5. Windmill orders the variables
+   * as a hash map does, which changes between jobs; here they are sorted.
+   * Of these lines only the third's text is recorded (WR-43/c); the others
+   * have the shapes WR-45 gives. sourceLine reads them; the realm runs its
+   * own preamble (preamble). */
+  private windmillPreamble(): string[] {
+    if (this.windmillLines !== undefined) return this.windmillLines;
+    const base = quoted(this.base ?? "");
+    const lines = [
+      "const process = { env: {} };",
+      `const BASE_URL = ${base};`,
+      `const BASE_INTERNAL_URL = ${base};`,
+      "process.env['BASE_URL'] = BASE_URL; process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;",
+    ];
+    const names = Object.keys(this.inv.env)
+      .filter((k) => k !== "BASE_URL" && k !== "BASE_INTERNAL_URL")
+      .sort();
+    for (const [i, k] of names.entries()) {
+      if (i > 0) lines.push("");
+      const v = quoted(this.inv.env[k]);
+      if (constName(k)) lines.push(`const ${k} = ${v};`);
+      lines.push(`process.env[${quoted(k)}] = ${v};`);
+    }
+    lines.push("");
+    this.windmillLines = lines;
+    return lines;
   }
 
   /** Loads a module in this realm: resolves and links its static imports
@@ -1415,14 +1488,17 @@ export class NativeJob {
   }
 
   /** The error object of a JavaScript exception that reached the end of
-   * the run (WR-43): exactly message, stack and name. For an Error (of this
-   * realm, or of the harness's web APIs), name and message are decoded
-   * together, each a string or null, both null when either is anything
-   * else; stack is the error's stack, if a string, after the source line
-   * its first frame points at when that frame is in the script's module.
-   * Any other value gives three nulls. */
+   * the run (WR-43): message, stack and name, then the step context keys
+   * of the job's environment, which the worker adds after the run whatever
+   * was thrown (FX-12), and no extra. For an Error (of this realm, or of
+   * the harness's web APIs), name and message are decoded together, each
+   * a string or null, both null when either is anything else; stack is the
+   * error's stack, if a string, after the source line its first frame
+   * points at when that frame is in the script's module. Any other value
+   * gives three nulls. */
   errorText(e: unknown): string {
-    if (!this.isError(e)) return JSON.stringify({ message: null, stack: null, name: null });
+    const ctx = stepContext(this.inv.env);
+    if (!this.isError(e)) return JSON.stringify({ message: null, stack: null, name: null, ...ctx });
     const x = e as Record<string, unknown>;
     let name: string | null = null;
     let message: string | null = null;
@@ -1446,7 +1522,7 @@ export class NativeJob {
       stack = stack.replace(`RangeError: ${OVERFLOW}.`, `RangeError: ${OVERFLOW}`);
     }
     const s = this.sourceLine(stack) + stack;
-    return JSON.stringify({ message, stack: s === "" ? null : s, name });
+    return JSON.stringify({ message, stack: s === "" ? null : s, name, ...ctx });
   }
 
   private isError(e: unknown): boolean {
@@ -1460,12 +1536,33 @@ export class NativeJob {
     return false;
   }
 
-  /** The text of the script's line that a stack's first frame points at,
-   * and a newline, when that frame is in the script's module. */
+  /** The text of the line that a stack's first frame points at, and a
+   * newline, when that frame is in the script's module (WR-43). For a
+   * bunnative script that is the frame's own line.
+   *
+   * For a nativets script the native runtime maps the frame through the
+   * transpile's source map first: the frame's line in its module, which
+   * counts the preamble's lines, is looked up as a position in the code
+   * alone, and the line it reads, at the source line found, is in the
+   * preamble and the code together. So a frame past the code's last
+   * mapping, as in every script shorter than the preamble, reads the line
+   * numbered as the code's last mapped line, a preamble line. Here the
+   * frame is in the native form, whose first line holds the head, so the
+   * code's line k is its line k + 1; the map is the transpile's line map,
+   * and the preamble windmillPreamble's. With no line map the frame keeps
+   * its own line. */
   private sourceLine(stack: string): string {
     const frame = stack.split("\n").find((l) => /^\s+at /.test(l));
-    const m = frame === undefined ? null : /(?:\(|at )file:\/\/\/eval\.ts:(\d+):\d+\)?$/.exec(frame);
-    const line = m === null ? undefined : this.lines[Number(m[1]) - 1];
+    const m = frame === undefined ? null : /(?:\(|at )file:\/\/\/eval\.ts:(\d+):(\d+)\)?$/.exec(frame);
+    if (m === null) return "";
+    const n = Number(m[1]);
+    let line: string | undefined;
+    if (this.form.kind === "nativets" && n > 1) {
+      const pre = this.windmillPreamble();
+      const at = pre.length + n - 1;
+      const read = mappedLine(this.form.line_map ?? [], at, Number(m[2]) - 1) ?? at;
+      line = read <= pre.length ? pre[read - 1] : this.lines[read - pre.length];
+    } else line = this.lines[n - 1];
     return line === undefined ? "" : line + "\n";
   }
 }

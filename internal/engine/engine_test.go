@@ -31,7 +31,8 @@ import (
 //   - f/t/obj returns {"zz":1,"b":2,"aaa":3}, in that key order;
 //   - f/t/fail throws an Error named by its argument name, "Error" by
 //     default;
-//   - f/t/zero, whose metadata asks for a timeout of 0 s, is not run here;
+//   - f/t/zero, whose metadata asks for a timeout of 0 s, which is unset
+//     (FX-24), is not run here;
 //   - f/t/flaky fails once per site and run, then returns its arguments
 //     (retry_test.go's flaky executor).
 type scripts struct {
@@ -88,7 +89,8 @@ func testFolder(flows map[string]string) fstest.MapFS {
 	for _, name := range []string{"echo", "value", "obj", "fail", "zero", "flaky", "cached"} {
 		fsys["f/t/"+name+".ts"] = &fstest.MapFile{Data: []byte("export async function main(...a: any[]) { return null }\n")}
 	}
-	// f/t/zero's own metadata asks for a timeout of 0 s (FX-24).
+	// f/t/zero's own metadata asks for a timeout of 0 s, which is unset
+	// (FX-24).
 	fsys["f/t/zero.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ntimeout: 0\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
 	// f/t/cached's own metadata asks for a cache_ttl of 60 s (FX-40).
 	fsys["f/t/cached.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ncache_ttl: 60\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
@@ -403,7 +405,7 @@ func TestEngineStopAfterIf(t *testing.T) {
 		{"error", `{"expr":"result > 2","skip_if_stopped":false,"error_message":"too big"}`, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"too big"}}`, conformance.ModuleFailure, false},
 		{"empty message", `{"expr":" result > 2 ","skip_if_stopped":false,"error_message":"","error_include_result":true}`, conformance.RunFailure, `{"error":{"name":"EarlyStopError","message":"stop after if:  result > 2 ","result":3}}`, conformance.ModuleFailure, false},
 		{"throws", `{"expr":"null.x","skip_if_stopped":false}`, conformance.RunFailure,
-			`{"error":"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n"}`, conformance.ModuleFailure, false},
+			`{"error":"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n"}`, conformance.ModuleFailure, false},
 		{"not a boolean", `{"expr":"false ||\nresults.b\n","skip_if_stopped":false}`, conformance.RunFailure, `{"error":"Expected a boolean value, found: \"3\""}`, conformance.ModuleFailure, false},
 		// results is bound only when the text holds results., results[ or
 		// results?.; flow_env only when it holds flow_env.
@@ -437,7 +439,7 @@ func TestEngineStopAfterIf(t *testing.T) {
 // InternalError and the module never starts. windmill-lite writes no Rust
 // location (D14).
 func TestEngineSkipIfChainingErrors(t *testing.T) {
-	const thrown = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n`
+	const thrown = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:71)\n`
 	for _, c := range []struct {
 		name, flow, result string
 		at                 string
@@ -461,10 +463,12 @@ func TestEngineSkipIfChainingErrors(t *testing.T) {
 	}
 }
 
-// FX-14, WR-12, FX-48, FX-50/a: a failing transform launches the step with
-// empty arguments and fails it without running; an entrypoint override
-// selects the export, and an invalid one fails the job before it runs; an
-// argument jsonb refuses fails the push, a chaining error whose text is the
+// FX-14, WR-12, FX-48, FX-51, FX-50/a: a failing transform launches the
+// step with empty arguments and fails it without running; an entrypoint
+// override selects the export, and an invalid one fails the job before it
+// runs; a NUL in an argument is removed when the job is pushed, at the
+// root's pickup and at a later transition alike, while an argument jsonb
+// still refuses fails the push, a chaining error whose text is the
 // database error's, SqlErr.
 func TestEngineArgumentFailures(t *testing.T) {
 	s := &scripts{}
@@ -473,9 +477,10 @@ func TestEngineArgumentFailures(t *testing.T) {
 		"f/t/entry": flowOf(mod("a", "echo", inputs("_ENTRYPOINT_OVERRIDE", static(`"other"`)), ""), mod("b", "echo", inputs("_ENTRYPOINT_OVERRIDE", static(`"no-way"`)), "")),
 		"f/t/nul":   flowOf(mod("a", "echo", inputs("x", static(`"a\u0000b"`)), "")),
 		"f/t/nul2":  flowOf(mod("a", "echo", "", ""), mod("b", "echo", inputs("x", js(`"a\u0000b"`)), "")),
+		"f/t/sur":   flowOf(mod("a", "echo", "", ""), mod("b", "echo", inputs("x", js(`"a\ud800b"`)), "")),
 	}, s)
 	tr := runIt(t, e, `{}`, nil)
-	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"Error during isolated evaluation of expression ` null.x `:\\nQuickJS evaluation error: Error: cannot read property 'x' of null\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:35)\\n\"}}")
+	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"name\":\"ExecutionErr\",\"message\":\"Error during isolated evaluation of expression ` null.x `:\\nQuickJS evaluation error: Error: cannot read property 'x' of null\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:64)\\n\"}}")
 	if a := step(t, tr, "a"); !a.Ran || string(a.RecordedArgs.Producer()) != "{}" || a.ResultOrigin != OriginEngine || len(s.calls()) != 0 {
 		t.Fatalf("a %+v, calls %v", a, s.calls())
 	}
@@ -492,8 +497,9 @@ func TestEngineArgumentFailures(t *testing.T) {
 	if inv := s.invs[0]; inv.Entry != "other" || len(s.invs) != 1 {
 		t.Fatalf("invocations %+v", s.invs)
 	}
-	wantStatus(t, run("f/t/nul"), conformance.RunFailure, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
-	wantStatus(t, run("f/t/nul2"), conformance.RunFailure, `{"error":{"name":"InternalError","message":"SqlErr: error returned from database: unsupported Unicode escape sequence"}}`)
+	wantStatus(t, run("f/t/nul"), conformance.RunSuccess, `{"x":"ab"}`)
+	wantStatus(t, run("f/t/nul2"), conformance.RunSuccess, `{"x":"ab"}`)
+	wantStatus(t, run("f/t/sur"), conformance.RunFailure, `{"error":{"name":"InternalError","message":"SqlErr: error returned from database: invalid input syntax for type json"}}`)
 }
 
 // JE-15/k, FX-50/a: an input transform whose replaced JSON.stringify
@@ -803,15 +809,16 @@ func TestEngineIdentityJobs(t *testing.T) {
 }
 
 // ADR 0005 step 3, FX-48, FX-51: the storage boundary checks every
-// argument's key as well as its value, after H2; a key jsonb refuses
-// fails the push before the step runs. A key jsonb accepts is stored in
-// its escaping, and of two keys that store alike the last value stays.
+// argument's key as well as its value, after H2; a NUL is removed from a
+// key, and a key jsonb still refuses fails the push before the step runs.
+// A key jsonb accepts is stored in its escaping, and of two keys that
+// store alike the last value stays.
 func TestEngineArgumentKeys(t *testing.T) {
 	for _, c := range []struct {
 		name, args, result string
 		calls              int
 	}{
-		{"NUL key", `{"\u0000":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: unsupported Unicode escape sequence"}}`, 0},
+		{"NUL key", `{"\u0000":1,"v":7}`, `7`, 1},
 		{"unpaired surrogate key", `{"\ud800":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: SqlErr: error returned from database: invalid input syntax for type json"}}`, 0},
 		{"unusual key", `{"\u00e9\n":1,"v":7}`, `7`, 1},
 		{"duplicate keys", `{"v":1,"\u0076":7}`, `7`, 1},
@@ -825,7 +832,7 @@ func TestEngineArgumentKeys(t *testing.T) {
 				t.Fatalf("calls %v", s.calls())
 			}
 			if c.calls == 1 {
-				if args := string(s.invs[0].Args.Producer()); c.name == "unusual key" && !strings.Contains(args, `"é\n":1`) || c.name == "duplicate keys" && args != `{"v":7}` {
+				if args := string(s.invs[0].Args.Producer()); c.name == "unusual key" && !strings.Contains(args, `"é\n":1`) || c.name == "duplicate keys" && args != `{"v":7}` || c.name == "NUL key" && args != `{"":1,"v":7}` {
 					t.Fatalf("the stored arguments: %s", args)
 				}
 			}
@@ -844,25 +851,30 @@ func (waits) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
 }
 
 // FX-24, FX-25, WR-37: a leaf's timeout is the module's, else its path
-// script's own timeout metadata, else the instance maximum; a request
-// strictly below the maximum is job-specific, zero included, which leaves
-// the step no time; one at or above it is instance-wide. An identity job
-// is never timed.
+// script's own timeout metadata, else the instance maximum; a value of 0
+// or less, the module's or the script's, is unset (1.768.0). A custom
+// timeout strictly below the maximum is named as such; one at or above
+// it, or none, gives the instance maximum. The timed-out Bun job is
+// canceled, while its step fails. An identity job is never timed.
 func TestEngineTimeouts(t *testing.T) {
-	const limit = `execution error:\njob process terminated due to timeout after exceeding `
+	const phase = "execution error:\\njob process terminated due to timeout: `bun run` exceeded "
+	const atMax = phase + "the 0s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed"
 	for _, c := range []struct {
 		name, module, result string
+		cap                  time.Duration
 	}{
-		{"none", mod("a", "value", "", ""), limit + "instance-wide job duration limit"},
-		{"null", mod("a", "value", "", `"timeout":{"type":"static","value":null}`), limit + "instance-wide job duration limit"},
-		{"zero", mod("a", "value", "", `"timeout":{"type":"static","value":0}`), limit + "job-specific duration limit"},
-		{"at the maximum", mod("a", "value", "", `"timeout":{"type":"static","value":1}`), limit + "instance-wide job duration limit"},
-		{"script metadata", mod("a", "zero", "", ""), limit + "job-specific duration limit"},
-		{"module over metadata", mod("a", "zero", "", `"timeout":{"type":"static","value":5}`), limit + "instance-wide job duration limit"},
+		{"none", mod("a", "value", "", ""), atMax, 20 * time.Millisecond},
+		{"null", mod("a", "value", "", `"timeout":{"type":"static","value":null}`), atMax, 20 * time.Millisecond},
+		{"zero", mod("a", "value", "", `"timeout":{"type":"static","value":0}`), atMax, 20 * time.Millisecond},
+		{"negative", mod("a", "value", "", `"timeout":{"type":"static","value":-1}`), atMax, 20 * time.Millisecond},
+		{"at the maximum", mod("a", "value", "", `"timeout":{"type":"static","value":1}`), atMax, 20 * time.Millisecond},
+		{"script metadata of zero", mod("a", "zero", "", ""), atMax, 20 * time.Millisecond},
+		{"module over metadata", mod("a", "zero", "", `"timeout":{"type":"static","value":5}`), atMax, 20 * time.Millisecond},
+		{"custom", mod("a", "zero", "", `"timeout":{"type":"static","value":1}`), phase + "the 1s custom timeout set on the script or flow step", time.Hour},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.module)}, waits{})
-			e.cap = 20 * time.Millisecond
+			e.cap = c.cap
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
@@ -870,12 +882,13 @@ func TestEngineTimeouts(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"`+c.result+`","name":"ExecutionErr","step_id":"a"}}`)
-			if a := step(t, tr, "a"); !a.Abandoned {
+			if a := step(t, tr, "a"); !a.Abandoned || a.Status != conformance.StepCanceled || a.Module != conformance.ModuleFailure {
 				t.Fatalf("a %+v", a)
 			}
 		})
 	}
-	e := mustOpen(t, map[string]string{"f/t/main": flowOf(`{"id":"a","value":{"type":"identity"},"timeout":{"type":"static","value":0}}`)}, waits{})
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(`{"id":"a","value":{"type":"identity"},"timeout":{"type":"static","value":1}}`)}, waits{})
+	e.cap = 20 * time.Millisecond
 	wantStatus(t, runIt(t, e, `{"x":1}`, nil), conformance.RunSuccess, `{"x":1}`)
 }
 
@@ -893,7 +906,7 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		}
 	}
 	// What milestones N2 and NI run opens: retries, sleeps, javascript and
-	// negative timeouts (whose failure is a chaining error at run time),
+	// negative timeouts (a negative one is unset, FX-24),
 	// a static timeout of null, a failure module's retry, a loop's static
 	// timeout and a loop's body's, and all of them in and on containers.
 	for name, value := range map[string]string{

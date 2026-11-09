@@ -32,7 +32,7 @@ import (
 // this process, so that they read each run's trace and the engine's CPU
 // time:
 //
-//   - host: a warm Bun 1.3.10 host in host mode, testdata/benchhost/host.ts
+//   - host: a warm Bun 1.4.3 host in host mode, testdata/benchhost/host.ts
 //     compiled with `bun build --compile`, which embeds the host SDK; the
 //     SDK starts its engine as its child, as it always does, and that
 //     child is this test binary as an engine proxy (benchProxy), which
@@ -225,12 +225,15 @@ export async function main(timings: boolean) {
   const got = Array.isArray(g[sink]) ? (g[sink] as unknown[]) : [];
   g[sink] = timings ? [] : undefined;
   const c = process.cpuUsage();
-  // The peak resident set, in bytes: Bun gives it in bytes on macOS and
-  // in kilobytes on Linux, as getrusage does.
-  const peak = process.resourceUsage().maxRSS;
+  // The peak resident set, in bytes. On Linux it is the process's own
+  // high-water mark (VmHWM), as getrusage's keeps the peak of what the
+  // process was before its execve; Bun 1.4.3 gives getrusage's in
+  // kilobytes on every platform, as Node does.
+  const hwm = process.platform === "linux" ? /^VmHWM:\s*(\d+) kB$/m.exec(await Bun.file("/proc/self/status").text()) : null;
+  const peak = hwm ? Number(hwm[1]) : process.resourceUsage().maxRSS;
   // A plugin host's count of its provider hooks' calls, by run and path.
   const calls = g[Symbol.for("windmill-lite.bench.calls")] ?? {};
-  return { user: c.user, system: c.system, timings: got, rss_peak: process.platform === "darwin" ? peak : peak * 1024, calls };
+  return { user: c.user, system: c.system, timings: got, rss_peak: peak * 1024, calls };
 }
 `,
 		"f/bench/work.ts":              benchWork,
@@ -494,9 +497,9 @@ func benchSetup(b testing.TB) string {
 		// A benchmark run asks for figures: a skip, which go test reports
 		// as a pass with no rows, would hide that it measured nothing.
 		if _, benchmark := b.(*testing.B); benchmark || os.Getenv("WL_REQUIRE_BUN") != "" {
-			b.Fatal("WL_BUN is not set: export it, naming the pinned Bun 1.3.10")
+			b.Fatal("WL_BUN is not set: export it, naming the pinned Bun 1.4.3")
 		}
-		b.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
+		b.Skip("WL_BUN is not set; it names the pinned Bun 1.4.3")
 	}
 	benchOnce.Do(func() {
 		if benchDir, benchErr = os.MkdirTemp("", "wl-bench-"); benchErr != nil {

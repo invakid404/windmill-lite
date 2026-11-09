@@ -3,6 +3,6 @@ spec: [FX-28/a]
 target: f/wl_fx28/false_prevents
 expect:
   status: failure
-  result: {error: {message: fatal, name: Error, stack: "<stack>", step_id: a}}
+  result: {error: {message: fatal, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx28/false_prevents}}
   steps:
-    "m:a": {status: failure, args: {msg: fatal}, result: {error: {message: fatal, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {msg: fatal}, result: {error: {message: fatal, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx28/false_prevents}}}

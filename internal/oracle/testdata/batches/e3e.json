@@ -71,6 +71,7 @@
     "conformance/flows/languages/codebase-cases",
     "conformance/flows/languages/wr-16",
     "conformance/flows/languages/wr-28",
+    "conformance/flows/languages/wr-28-lock",
     "conformance/flows/oracle/big-payload",
     "conformance/flows/oracle/key-order",
     "conformance/flows/oracle/nul",
@@ -145,9 +146,39 @@
       "reason": "source-derived; no E3e run records it: a single-file upload's CRLF line breaks come from the CLI's form-data encoding, and the server and the worker keep them byte for byte; windmill-lite uploads nothing and builds each bundle from the folder it loads, with LF line breaks (ADR 0002, C2b's parity check), so no milestone of ADR 0012 reproduces them; a later one would belong to L1"
     },
     {
+      "case": "WR-49/i",
+      "milestone": "none",
+      "reason": "the deploy pipeline's selection with an extra digest path, as for WR-49/c; the harness's layout copier does not carry extra_digest_paths either"
+    },
+    {
+      "case": "WR-49/j",
+      "milestone": "none",
+      "reason": "a push the CLI refuses when it computes the digest, after its preparatory reads and before uploading anything, whose output the harness does not keep (a fixture error, OR-9); windmill-lite computes no codebase id"
+    },
+    {
       "case": "FX-36/i",
       "milestone": "F7b",
       "reason": "source-derived; no E3e run records it: the arrays of other lengths, the string status code and the alias given twice, which decode to no metadata, are FX-36's HTTP part, which F7b, the HTTP adapter, implements"
+    },
+    {
+      "case": "FX-37/b",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where a script step inside the chosen branch answers early; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run script_in_branch), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
+      "case": "FX-37/c",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where a loop inside the chosen branch answers early with its array; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run loop_in_branch), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
+      "case": "FX-37/d",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where a step in a branch that does not run gives the flow's final result; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run untaken_branch), and windmill-lite's run-and-wait response is F7b's"
+    },
+    {
+      "case": "FX-37/e",
+      "milestone": "F7b",
+      "reason": "added in the reference's retarget revision for Windmill 1.862.0 (2026-11-06): early_return on a step inside a branch (1.835.0), where an empty loop inside a branch gives the flow's final result; no run of this batch records it. conformance/flows/execution/fx-37-branches records it on CE v1.862.0 through run-and-wait (run empty_loop), and windmill-lite's run-and-wait response is F7b's"
     },
     {
       "case": "OR-24/e",
@@ -181,7 +212,7 @@
       "case": "OR-27/b",
       "part": "a flow argument holding a NUL",
       "milestone": "none",
-      "reason": "the job API refuses such arguments before a job exists, which is a refused submission, not a run the harness can record"
+      "reason": "no run of this batch submits one: on CE v1.767.0 the job API refused such an argument before a job existed; since CE 1.862.0 it is accepted and stored without the NUL, which batch E3f's conformance/flows/client-api/raw-requests records through the run API (FX-48/d)"
     },
     {
       "case": "OR-16/b",
@@ -207,7 +238,7 @@
       "case": "WR-50/b",
       "run": "conformance/flows/languages/codebase-cases/node_version",
       "pointer": "/result",
-      "prefix": "v20."
+      "prefix": "v24."
     }
   ]
 }

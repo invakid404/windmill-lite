@@ -258,7 +258,7 @@
       "spec": "WR-28",
       "variant": "re-export",
       "provenance": "source-derived",
-      "title": "export from is a static import to Bun 1.3.10's scanner, so it is rewritten too",
+      "title": "export from is a static import to Bun's scanner (1.4.3, as 1.3.10), so it is rewritten too",
       "note": "Part of Q-WR-13 for the pinned Bun: its scanner reports export … from as an import statement.",
       "given": {
         "path": "f/a/main",

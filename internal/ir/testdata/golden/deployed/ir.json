@@ -212,7 +212,10 @@
                       "result",
                       "results"
                     ],
-                    "source": "(async function() { return (await results.twice); })()"
+                    "prefetch": [
+                      "\"twice\""
+                    ],
+                    "source": "(async function() { return results.twice; })()"
                   }
                 }
               },
@@ -229,6 +232,10 @@
           "id": "each",
           "kind": "forloopflow",
           "summary": "collapses (one simple rawscript body, sequential, no failure module)",
+          "timeout": {
+            "type": "static",
+            "value": 5
+          },
           "forloop": {
             "iterator": {
               "type": "static",
@@ -242,10 +249,6 @@
               {
                 "id": "inc",
                 "kind": "rawscript",
-                "timeout": {
-                  "type": "static",
-                  "value": 5
-                },
                 "leaf": {
                   "script": "inline-344fadc3068781bf",
                   "harness": "bun",
@@ -390,7 +393,10 @@
                     "result",
                     "results"
                   ],
-                  "source": "(async function() { return Boolean((await results.twice) > 10); })()"
+                  "prefetch": [
+                    "\"twice\""
+                  ],
+                  "source": "(async function() { return Boolean(results.twice > 10); })()"
                 },
                 "modules": [
                   {
@@ -433,7 +439,7 @@
             "branches": [
               {
                 "modules": [],
-                "skip_failure": true
+                "skip_failure": false
               },
               {
                 "modules": [

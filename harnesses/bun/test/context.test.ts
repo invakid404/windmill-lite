@@ -91,6 +91,151 @@ test("the first write of a variable the process has shadows it, so Bun.env reads
   expect(inside({}, () => Bun.env.WL_CONTEXT_TEST_FIRST_WRITE)).toBe("process");
 });
 
+test("the process writes a new variable through either object without reaching the view's prototype again, and Bun.env lists it", () => {
+  // Bun 1.4.3's object walks a write of a key it does not hold to its
+  // prototype, and once walked back into the trap until the stack overflowed.
+  process.env.WL_CONTEXT_TEST_NEW = "a";
+  Bun.env.WL_CONTEXT_TEST_NEW_BUN = "b";
+  Object.defineProperty(Bun.env, "WL_CONTEXT_TEST_NEW_DEFINED", { value: "c", writable: true, enumerable: true, configurable: true });
+  const names = ["WL_CONTEXT_TEST_NEW", "WL_CONTEXT_TEST_NEW_BUN", "WL_CONTEXT_TEST_NEW_DEFINED"];
+  expect(names.map((k) => [process.env[k], Bun.env[k], Object.hasOwn(Bun.env, k), Object.keys(Bun.env).includes(k)])).toEqual([
+    ["a", "a", true, true],
+    ["b", "b", true, true],
+    ["c", "c", true, true],
+  ]);
+  // A value becomes its string, and a symbol key or value is refused as
+  // Bun refuses it, through either object.
+  (process.env as Record<string, unknown>).WL_CONTEXT_TEST_NEW_OBJECT = { toString: () => "o" };
+  expect([process.env.WL_CONTEXT_TEST_NEW_OBJECT, Bun.env.WL_CONTEXT_TEST_NEW_OBJECT]).toEqual(["o", "o"]);
+  expect(() => ((process.env as Record<symbol, unknown>)[Symbol("s")] = "x")).toThrow(TypeError);
+  expect(() => ((Bun.env as Record<symbol, unknown>)[Symbol("s")] = "x")).toThrow(TypeError);
+  expect(() => ((process.env as Record<string, unknown>).WL_CONTEXT_TEST_NEW_SYMBOL = Symbol("v"))).toThrow(TypeError);
+  expect(() => ((Bun.env as Record<string, unknown>).WL_CONTEXT_TEST_NEW_SYMBOL = Symbol("v"))).toThrow(TypeError);
+  expect(inside({}, () => [
+    () => ((process.env as Record<string, unknown>).WL_CONTEXT_TEST_INV_SYMBOL = Symbol("v")),
+    () => ((Bun.env as Record<string, unknown>).WL_CONTEXT_TEST_INV_SYMBOL = Symbol("v")),
+  ].map((write) => {
+    try {
+      write();
+      return "written";
+    } catch (e) {
+      return e instanceof TypeError ? "TypeError" : String(e);
+    }
+  }))).toEqual(["TypeError", "TypeError"]);
+});
+
+test("a process write whose value's conversion makes an invocation claim the variable leaves it claimed, through either object", () => {
+  for (const [k, write] of [
+    ["WL_CONTEXT_TEST_REENTRY", (v: unknown) => ((process.env as Record<string, unknown>).WL_CONTEXT_TEST_REENTRY = v)],
+    ["WL_CONTEXT_TEST_REENTRY_BUN", (v: unknown) => ((Bun.env as Record<string, unknown>).WL_CONTEXT_TEST_REENTRY_BUN = v)],
+  ] as const) {
+    const ctx = context({});
+    write({
+      toString() {
+        invocations.run(ctx, () => {
+          process.env[k] = "inv";
+        });
+        return "host";
+      },
+    });
+    const read = () => [process.env[k], Bun.env[k], import.meta.env[k]];
+    expect(invocations.run(ctx, read)).toEqual(["inv", "inv", "inv"]);
+    expect([read(), Object.hasOwn(Bun.env, k)]).toEqual([["host", "host", "host"], false]);
+    shadow(ctx.env);
+    expect(invocations.run(ctx, read)).toEqual(["inv", "inv", "inv"]);
+  }
+});
+
+test("a variable the process has that an invocation claims answers per invocation through every name, and the process keeps its own value", async () => {
+  process.env.WL_CONTEXT_TEST_MOVED = "process";
+  const got = inside({ WL_CONTEXT_TEST_MOVED: "inv" }, () => [process.env.WL_CONTEXT_TEST_MOVED, Bun.env.WL_CONTEXT_TEST_MOVED, import.meta.env.WL_CONTEXT_TEST_MOVED, "WL_CONTEXT_TEST_MOVED" in Bun.env]);
+  expect(got).toEqual(["inv", "inv", "inv", true]);
+  expect([process.env.WL_CONTEXT_TEST_MOVED, Bun.env.WL_CONTEXT_TEST_MOVED, import.meta.env.WL_CONTEXT_TEST_MOVED, "WL_CONTEXT_TEST_MOVED" in Bun.env]).toEqual(["process", "process", "process", true]);
+  // process.env lists, copies and describes it, outside and inside.
+  expect([Object.keys(process.env).includes("WL_CONTEXT_TEST_MOVED"), { ...process.env }.WL_CONTEXT_TEST_MOVED, Object.getOwnPropertyDescriptor(process.env, "WL_CONTEXT_TEST_MOVED")?.value]).toEqual([true, "process", "process"]);
+  expect(inside({ WL_CONTEXT_TEST_MOVED: "inv" }, () => ({ ...process.env }).WL_CONTEXT_TEST_MOVED)).toBe("inv");
+  // The process's writes and deletes change its own value only.
+  const later = invocations.run(context({ WL_CONTEXT_TEST_MOVED: "inv" }), async () => {
+    await Bun.sleep(5);
+    return [process.env.WL_CONTEXT_TEST_MOVED, Bun.env.WL_CONTEXT_TEST_MOVED];
+  });
+  process.env.WL_CONTEXT_TEST_MOVED = "process 2";
+  expect([Bun.env.WL_CONTEXT_TEST_MOVED, Object.hasOwn(Bun.env, "WL_CONTEXT_TEST_MOVED")]).toEqual(["process 2", false]);
+  Bun.env.WL_CONTEXT_TEST_MOVED = "process 3";
+  expect([process.env.WL_CONTEXT_TEST_MOVED, Object.hasOwn(Bun.env, "WL_CONTEXT_TEST_MOVED")]).toEqual(["process 3", false]);
+  expect(await later).toEqual(["inv", "inv"]);
+  delete process.env.WL_CONTEXT_TEST_MOVED;
+  expect([process.env.WL_CONTEXT_TEST_MOVED, Bun.env.WL_CONTEXT_TEST_MOVED, "WL_CONTEXT_TEST_MOVED" in process.env, "WL_CONTEXT_TEST_MOVED" in Bun.env]).toEqual([undefined, undefined, false, false]);
+  expect(inside({ WL_CONTEXT_TEST_MOVED: "inv" }, () => Bun.env.WL_CONTEXT_TEST_MOVED)).toBe("inv");
+});
+
+test("writes through Bun.env stay with the invocation, except one of a process variable no invocation has claimed", () => {
+  process.env.WL_CONTEXT_TEST_UNCLAIMED = "process";
+  process.env.WL_CONTEXT_TEST_CLAIMED = "process";
+  shadow({ WL_CONTEXT_TEST_CLAIMED: "" });
+  const got = inside({}, () => {
+    Bun.env.WL_CONTEXT_TEST_BUN_WRITE = "inv";
+    Bun.env.WL_CONTEXT_TEST_CLAIMED = "inv";
+    Bun.env.WL_CONTEXT_TEST_UNCLAIMED = "inv";
+    return [process.env.WL_CONTEXT_TEST_BUN_WRITE, Bun.env.WL_CONTEXT_TEST_BUN_WRITE, process.env.WL_CONTEXT_TEST_CLAIMED, Bun.env.WL_CONTEXT_TEST_CLAIMED];
+  });
+  expect(got).toEqual(["inv", "inv", "inv", "inv"]);
+  expect([Bun.env.WL_CONTEXT_TEST_BUN_WRITE, Bun.env.WL_CONTEXT_TEST_CLAIMED]).toEqual([undefined, "process"]);
+  // The residual: Bun's object cannot trap a write of a variable it holds.
+  expect(Bun.env.WL_CONTEXT_TEST_UNCLAIMED).toBe("inv");
+});
+
+test("a delete through Bun.env is never kept per invocation: it removes an unclaimed process variable and changes nothing for a claimed one", () => {
+  process.env.WL_CONTEXT_TEST_DEL_UNCLAIMED = "process";
+  process.env.WL_CONTEXT_TEST_DEL_CLAIMED = "process";
+  shadow({ WL_CONTEXT_TEST_DEL_CLAIMED: "" });
+  const got = inside({}, () => {
+    delete Bun.env.WL_CONTEXT_TEST_DEL_UNCLAIMED;
+    delete Bun.env.WL_CONTEXT_TEST_DEL_CLAIMED;
+    return [process.env.WL_CONTEXT_TEST_DEL_UNCLAIMED, Bun.env.WL_CONTEXT_TEST_DEL_CLAIMED];
+  });
+  expect(got).toEqual([undefined, "process"]);
+  expect([process.env.WL_CONTEXT_TEST_DEL_UNCLAIMED, process.env.WL_CONTEXT_TEST_DEL_CLAIMED]).toEqual([undefined, "process"]);
+});
+
+test("enumerating Bun.env lists only the variables it holds: none an invocation has claimed, none of the invocation's own", () => {
+  process.env.WL_CONTEXT_TEST_LISTED = "process";
+  process.env.WL_CONTEXT_TEST_NOT_LISTED = "process";
+  const got = inside({ WL_CONTEXT_TEST_NOT_LISTED: "inv", WL_CONTEXT_TEST_INV_ONLY: "inv" }, () => {
+    const keys = Object.keys(Bun.env);
+    return [keys.includes("WL_CONTEXT_TEST_LISTED"), keys.includes("WL_CONTEXT_TEST_NOT_LISTED"), keys.includes("WL_CONTEXT_TEST_INV_ONLY"), { ...Bun.env }.WL_CONTEXT_TEST_NOT_LISTED];
+  });
+  expect(got).toEqual([true, false, false, undefined]);
+  expect(Object.keys(Bun.env).includes("WL_CONTEXT_TEST_NOT_LISTED")).toBe(false);
+  expect(Object.keys(process.env).includes("WL_CONTEXT_TEST_NOT_LISTED")).toBe(true);
+});
+
+test("concurrent invocations each read their own value through every name, across awaits", async () => {
+  process.env.WL_CONTEXT_TEST_SHARED = "process";
+  const one = (i: number) =>
+    invocations.run(context({ WL_CONTEXT_TEST_SHARED: `inv ${i}`, WL_CONTEXT_TEST_ONLY_INV: `only ${i}` }), async () => {
+      const seen: (string | undefined)[] = [];
+      for (let round = 0; round < 3; round++) {
+        await Bun.sleep(1 + ((i * 7 + round) % 4));
+        if (i % 2 === 0) process.env.WL_CONTEXT_TEST_WRITTEN = `written ${i}`;
+        else Bun.env.WL_CONTEXT_TEST_WRITTEN = `written ${i}`;
+        await Promise.resolve();
+        seen.push(
+          process.env.WL_CONTEXT_TEST_SHARED,
+          Bun.env.WL_CONTEXT_TEST_SHARED,
+          import.meta.env.WL_CONTEXT_TEST_SHARED,
+          Bun.env.WL_CONTEXT_TEST_ONLY_INV,
+          Bun.env.WL_CONTEXT_TEST_WRITTEN,
+          { ...process.env }.WL_CONTEXT_TEST_WRITTEN,
+        );
+      }
+      return seen;
+    });
+  const all = await Promise.all(Array.from({ length: 16 }, (_, i) => one(i)));
+  all.forEach((seen, i) => expect(seen).toEqual(Array.from({ length: 3 }, () => [`inv ${i}`, `inv ${i}`, `inv ${i}`, `only ${i}`, `written ${i}`, `written ${i}`]).flat()));
+  expect([process.env.WL_CONTEXT_TEST_SHARED, Bun.env.WL_CONTEXT_TEST_SHARED, Bun.env.WL_CONTEXT_TEST_ONLY_INV, Bun.env.WL_CONTEXT_TEST_WRITTEN]).toEqual(["process", "process", undefined, undefined]);
+});
+
 test("the registry releases what is still pending when the invocation settles, once, and counts it by kind", () => {
   const r = new InvocationResources();
   const released: string[] = [];

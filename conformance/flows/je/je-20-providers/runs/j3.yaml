@@ -1,6 +1,7 @@
-# JE-42/j: the static $encrypted:not!base64 does not decrypt, so b fails
-# before its script runs with CE's cause: Invalid byte 33, offset 3.
-# @variables.rs:269:14
+# JE-42/j: the static $encrypted:not!base64 is not base64 and does not
+# decrypt, so b fails before its script runs with CE's one decryption
+# cause, the same as j1's (CE v1.767.0 gave the decoder's Invalid byte 33,
+# offset 3.).
 spec: [JE-42/j]
 target: f/wl_je20/j3
 expect:
@@ -8,5 +9,5 @@ expect:
   result:
     error:
       name: ExecutionErr
-      message: "execution error:\nInternal: Invalid byte 33, offset 3. @variables.rs:269:14"
+      message: "execution error:\nInternal: Could not decrypt value. The value may have been encrypted with a different key. @variables.rs:519:9"
       step_id: b

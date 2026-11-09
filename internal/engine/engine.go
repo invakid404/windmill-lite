@@ -290,10 +290,11 @@ func flowModules(f *ir.Flow) []*ir.Module {
 
 // supported checks that f uses only what the engine runs, scripts being
 // the program's inventory. Each refusal names the milestone of ADR 0012
-// that implements the feature. A flow's own timeout (its metadata's,
-// OF-16) is accepted and has no effect: a flow job bypasses every executor
-// timer, so nothing enforces it (FX-24, path 4). N2's waits and retries run
-// on every module, containers and their bodies included (milestone NI).
+// that implements the feature. A flow's metadata timeout (OF-16) is
+// accepted and enforces nothing; its value.timeout is the flow's
+// wall-clock limit, which the run enforces (FX-52). N2's waits and retries
+// run on every module, containers and their bodies included (milestone
+// NI).
 func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	switch {
 	case f.PreprocessorModule != nil:
@@ -390,7 +391,7 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		return unsupported("an ai timeout (later)")
 	}
 	if t := m.Timeout; t != nil && t.Type == ir.Static {
-		if _, err := staticTimeout(t.Value); err != nil && err != errNegativeTimeout {
+		if _, err := staticTimeout(t.Value); err != nil {
 			return err
 		}
 	}
@@ -420,8 +421,8 @@ func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
 }
 
 // staticTimeout reads a static step timeout: seconds, or nil for none.
-// The decoder admits only an i32 or null (OF-V2); a negative one fails the
-// module's start with errNegativeTimeout, a chaining error (FX-24, FX-15).
+// The decoder admits only an i32 or null (OF-V2); a value of 0 or less is
+// unset, so it is none too (FX-24, 1.768.0).
 func staticTimeout(raw []byte) (*int64, error) {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 || string(t) == "null" {
@@ -431,10 +432,38 @@ func staticTimeout(raw []byte) (*int64, error) {
 	if err != nil {
 		return nil, fmt.Errorf("engine: timeout %s is not an i32", t)
 	}
-	if secs < 0 {
-		return nil, errNegativeTimeout
+	return positive(secs), nil
+}
+
+// positive is secs when it is above 0, else nil: a timeout of 0 or less is
+// unset, whether a module's (FX-24), a script's own or a flow's (FX-52).
+func positive(secs int64) *int64 {
+	if secs <= 0 {
+		return nil
 	}
-	return &secs, nil
+	return &secs
+}
+
+// scriptTimeout is a script's own timeout metadata in seconds, or nil when
+// it has none: a stored value of 0 or less counts as none (FX-24).
+func scriptTimeout(s *ir.Script) *int64 {
+	if s == nil || s.Metadata == nil || s.Metadata.Timeout == nil {
+		return nil
+	}
+	return positive(int64(*s.Metadata.Timeout))
+}
+
+// jobTimeout is the timeout a script job runs under, given its custom
+// timeout in seconds or nil, and whether it is the instance maximum (FX-24):
+// a custom timeout strictly below the maximum is used as it is; none, or
+// one at or above the maximum, gives the maximum.
+func (e *Engine) jobTimeout(secs *int64) (time.Duration, bool) {
+	if secs != nil {
+		if d := time.Duration(*secs) * time.Second; d < e.cap {
+			return d, false
+		}
+	}
+	return e.cap, true
 }
 
 // RunRequest is one run of a flow.
@@ -530,8 +559,10 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// (JE-44): flow_input and the first step's previous_result are a
 	// compact object the worker writes from the stored arguments, its
 	// top-level keys in an unspecified order (FX-42 item 1, ADR 0005) and
-	// each member in jsonb's printed form (JE-44's table of texts).
-	stored, err := req.Args.Stored()
+	// each member in jsonb's printed form (JE-44's table of texts). The push
+	// removes every NUL escape first, so the run starts with the arguments
+	// without them (FX-48 case 3).
+	stored, err := argsWithoutNUL(req.Args).Stored()
 	if err != nil {
 		return nil, fmt.Errorf("engine: the arguments cannot be stored: %w", err)
 	}

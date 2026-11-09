@@ -1,0 +1,10 @@
+# FX-52/f: the step's timeout of 10 s replaces the subflow's own of 1 s,
+# so the subflow's 3 s step completes.
+spec: [FX-52/f]
+target: f/wl_fx52/subflow_override
+expect:
+  status: success
+  result: 3000
+  steps:
+    "m:c": {status: success, args: {}, result: 3000}
+    "m:c/m:x": {status: success, args: {ms: 3000}, result: 3000}

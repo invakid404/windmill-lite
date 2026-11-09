@@ -89,6 +89,7 @@
     "JE-50/a",
     "JE-51/a",
     "JE-52/a",
+    "OF-11/d",
     "OF-14/f",
     "OF-16/c",
     "OF-16/d",
@@ -100,6 +101,7 @@
     "OF-3/c",
     "OF-3/d",
     "OF-6/a",
+    "OF-6/b",
     "OF-7/a",
     "OF-7/b",
     "OF-7/c",
@@ -708,12 +710,36 @@
           {
             "expr": "",
             "modules": [],
-            "skip_failure": true,
+            "skip_failure": false,
             "parallel": true
           }
         ],
         "parallel": true
       }
+    },
+    {
+      "case": "OF-6/b",
+      "run": "conformance/flows/openflow/of-deployed/branchone_shape",
+      "pointer": "/materialized/modules/0/value/branches/0/skip_failure",
+      "value": false
+    },
+    {
+      "case": "OF-6/b",
+      "run": "conformance/flows/openflow/of-deployed/branchone_shape",
+      "pointer": "/materialized/modules/0/value/branches/0/parallel",
+      "value": true
+    },
+    {
+      "case": "OF-6/b",
+      "run": "conformance/flows/openflow/of-deployed/branchone_shape",
+      "pointer": "/materialized/modules/0/value/branches/0/summary",
+      "value": "pick"
+    },
+    {
+      "case": "OF-6/b",
+      "run": "conformance/flows/openflow/of-deployed/branchone_shape",
+      "pointer": "/materialized/modules/0/value/branches/0/expr",
+      "value": "true"
     },
     {
       "case": "OF-7/a",
@@ -731,7 +757,7 @@
       "case": "OF-7/c",
       "run": "conformance/flows/openflow/of-deployed/f7_ba",
       "pointer": "/materialized/modules/0/value/branches/0/skip_failure",
-      "value": true
+      "value": false
     },
     {
       "case": "OF-8/a",
@@ -744,6 +770,43 @@
       "run": "conformance/flows/openflow/of-deployed/while_shape",
       "pointer": "/materialized/modules/0/value/parallelism",
       "absent": true
+    },
+    {
+      "case": "OF-11/d",
+      "run": "conformance/flows/openflow/of-deployed/retry_shape",
+      "pointer": "/submitted/modules/1/retry/exponential/random_factor",
+      "value": null
+    },
+    {
+      "case": "OF-11/d",
+      "run": "conformance/flows/openflow/of-deployed/retry_shape",
+      "pointer": "/materialized/modules/0/retry",
+      "value": {
+        "exponential": {
+          "attempts": 1,
+          "multiplier": 2,
+          "seconds": 1
+        }
+      }
+    },
+    {
+      "case": "OF-11/d",
+      "run": "conformance/flows/openflow/of-deployed/retry_shape",
+      "pointer": "/materialized/modules/1/retry",
+      "value": {
+        "constant": {
+          "attempts": 2,
+          "seconds": 0
+        },
+        "exponential": {
+          "attempts": 1,
+          "multiplier": 1,
+          "seconds": 1
+        },
+        "retry_if": {
+          "expr": "error.message !== 'stop'"
+        }
+      }
     }
   ]
 }

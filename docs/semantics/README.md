@@ -22,21 +22,46 @@ This README covers
 records the Windmill behaviour windmill-lite must reproduce, as numbered
 findings with a scope, a confidence level and a status. Expected outputs were
 first derived from the pinned source; recording batches E3a to E3f (design
-record 0012) and the recordings the build milestones committed with their
-fixtures have since recorded 666 of the catalogue's cases on the CE
-oracle, and the findings and cases they settled or corrected say so in dated
+record 0012) and the recordings committed with later fixtures have since
+recorded 701 of the catalogue's cases on the CE oracle, and the findings and cases they settled or corrected say so in dated
 revision and correction notes. Each pending recording is tracked as an open
 question. Disputed findings are shown with both claims and are not settled.
 windmill-lite's code and tests cite these findings; this reference describes
 Windmill only.
 
+The reference is moving from Windmill `v1.767.0` to `v1.862.0`, the
+release windmill-lite now follows, one area file at a time.
+[Pinned version](#pinned-version) says how to read a file during the move.
+
 ## Pinned version
 
 | | |
 |---|---|
-| Windmill release | `v1.767.0` |
-| Commit | `6de4ec0f665ad856002495c4d86269105ec28ad7` |
-| Source pointers | `path:line @ v1.767.0`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.767.0) |
+| Windmill release | `v1.862.0` |
+| Commit | `120415af151593716d39140c8a7d7f3bbe9d99cf` |
+| Previous pin | `v1.767.0`, commit `6de4ec0f665ad856002495c4d86269105ec28ad7` |
+| Source pointers | `path:line @ <release>`, relative to the root of the [Windmill repository](https://github.com/windmill-labs/windmill/tree/v1.862.0) |
+
+Each area file's header names the release it is pinned at:
+
+- **A file still at `v1.767.0`** has not moved yet. All of it, its bare
+  source pointers included, is at `v1.767.0`.
+- **In a file at `v1.862.0`,** a finding whose tag line ends
+  `verified at v1.767.0 only` has not been re-checked against `v1.862.0`
+  yet. Its rule and cases were checked at `v1.767.0`, its status refers to
+  that check, and its bare pointers are lines of `v1.767.0`. Build on it
+  as stated until a revision re-checks it.
+- **`verified at v1.767.0 only, except …`** names the part a revision
+  re-checked at `v1.862.0`. A dated revision note in the finding says what
+  changed, and the pointers of that part say `@ v1.862.0`.
+- **A finding without the marker** was re-checked at `v1.862.0` as a whole,
+  and its pointers are lines of `v1.862.0`.
+
+The oracle records CE `v1.862.0` since 2026-11-06, and each committed
+recording names its release in its provenance. A case whose run has such a
+recording holds at `v1.862.0` for what the run's `expect` asserts, whether
+or not its finding carries the marker. Recordings and oracle runs that
+revisions name before that date are of CE `v1.767.0`.
 
 The reference claims nothing about other Windmill versions. Where the source
 and the [public documentation](https://www.windmill.dev/docs) disagree, the
@@ -67,7 +92,7 @@ and [licensing.md](licensing.md) maps which parts do.
 | [expressions.md](expressions.md) | The JavaScript expression evaluator: engine and limits, fast paths, every expression site and its scope, static values and `$var:`/`$res:` references. | `JE-` |
 | [languages.md](languages.md) | How a script runs, by language: Bun in depth (arguments, results, errors, environment, bundling and imports), codebase bundles, the native runtime of `nativets` and `bunnative` steps, and Deno, Python, Go and Bash in summary. | `WR-` |
 | [client-api.md](client-api.md) | The `wmill` client surface a script can call, the endpoint behind each call, and the platform services windmill-lite must provide. | `WA-` |
-| [oracle.md](oracle.md) | Differential testing against a real Windmill CE `v1.767.0`: topology, bootstrap, running flows, capturing per-step results, normalisation, fixture format, and observations recorded so far. | `OR-` |
+| [oracle.md](oracle.md) | Differential testing against a real Windmill CE `v1.862.0`: topology, bootstrap, running flows, capturing per-step results, normalisation, fixture format, and observations recorded so far. | `OR-` |
 | [licensing.md](licensing.md) | The licence map of Windmill's repository, what windmill-lite may read, depend on or copy, and the decision on using the CE image as a test oracle. | `LIC-` |
 | [conformance.md](conformance.md) | The catalogue of conformance cases drawn from every finding, grouped by area and tagged by scope: the seed of the shared Go and harness conformance suite. | case IDs |
 
@@ -75,20 +100,20 @@ and [licensing.md](licensing.md) maps which parts do.
 
 | Area | Findings | `core` | `later` | `out` | `EE` | Not settled | Question entries | Conformance cases |
 |---|---|---|---|---|---|---|---|---|
-| [openflow.md](openflow.md) | 51 | 42 | 8 | 1 | 0 | 0 | 13 | 149 |
-| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 21 | 161 |
+| [openflow.md](openflow.md) | 52 | 42 | 9 | 1 | 0 | 0 | 13 | 156 |
+| [execution.md](execution.md) | 58 | 47 | 9 | 2 | 0 | 0 | 21 | 180 |
 | [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 124 |
-| [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 195 |
-| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 212 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 120 |
-| [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 18 | 88 |
+| [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 203 |
+| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 217 |
+| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 121 |
+| [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 18 | 89 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **350** | **271** | **67** | **7** | **5** | **0** | **130** | **1052** |
+| **Total** | **352** | **272** | **68** | **7** | **5** | **0** | **130** | **1093** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
 status is `DISPUTED`, `needs-evidence` or `open` (listed under
-[Findings that are not settled](#not-settled)). Sixteen findings are
+[Findings that are not settled](#not-settled)). Seventeen findings are
 `drafted` and not yet independently checked; they are not counted as
 unsettled. They are the findings a revision added or changed from the
 pinned source alone, with no recording behind the change:
@@ -96,7 +121,7 @@ pinned source alone, with no recording behind the change:
 [SY-5](openflow.md#sy-5), [SY-7](openflow.md#sy-7), [SY-8](openflow.md#sy-8),
 [SY-10](openflow.md#sy-10), [SY-11](openflow.md#sy-11),
 [SY-13](openflow.md#sy-13), [SY-15](openflow.md#sy-15) and
-[SY-16](openflow.md#sy-16) to [SY-19](openflow.md#sy-19), whose
+[SY-16](openflow.md#sy-16) to [SY-20](openflow.md#sy-20), whose
 recordings need a harness that pushes sync trees as runs; and
 [WR-51](languages.md#wr-51) to [WR-53](languages.md#wr-53). The SC5
 revision of 2026-10-30 moved eight findings that were wholly drafted to
@@ -156,7 +181,7 @@ which), and added or extended drafted parts, from the source alone, in
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
 questions, which keep their numbers; openflow.md's `Q-OF-7` entry points to
-licensing.md, where that question lives. 666 cases are `oracle-observed`,
+licensing.md, where that question lives. 701 cases are `oracle-observed`,
 and seven cases are windmill-lite `policy` checks rather than Windmill
 behaviour ([conformance.md](conformance.md#summary)).
 
@@ -164,7 +189,9 @@ behaviour ([conformance.md](conformance.md#summary)).
 ## Legend
 
 Every finding opens with one tag line:
-`**Scope:** … · **Confidence:** … · **Status:** …`.
+`**Scope:** … · **Confidence:** … · **Status:** …`. In a file pinned at
+`v1.862.0` it may end with a re-check marker
+([Pinned version](#pinned-version)).
 
 ### Scope
 
@@ -190,8 +217,8 @@ before `out`).
 
 A qualifier in parentheses gives the provenance: `source-traced` (no oracle
 recording yet), `oracle pending` (an open question asks for a recording), or
-`oracle-observed` (recorded on a running Windmill CE `v1.767.0`; see
-[oracle.md](oracle.md)).
+`oracle-observed` (recorded on a running Windmill CE: `v1.767.0`, or
+`v1.862.0` for recordings made since 2026-11-06; see [oracle.md](oracle.md)).
 
 ### Status
 

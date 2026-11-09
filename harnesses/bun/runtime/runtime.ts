@@ -69,7 +69,9 @@ import {
 import { Native, type NativeJob } from "./native.ts";
 import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
-import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
+import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
+
+const require = createRequire(import.meta.url);
 
 export { TAIL_LENGTH } from "./context.ts";
 
@@ -765,13 +767,14 @@ export class Runtime {
    * writes to its log, and a throw fails it; but the timers, requests and
    * children its evaluation starts belong to the module, which outlives
    * the invocation (D1), so they are registered in no invocation and never
-   * fenced (ADR 0004, loading). */
+   * fenced (ADR 0004, loading). loadModule keeps that context through the
+   * evaluation, its top-level awaits and what it starts. */
   private load(script: string, meta: unknown): Promise<Record<string, unknown>> {
     let p = this.modules.get(script);
     if (!p) {
       const c = current();
       const shared = this.mode !== "fresh" && sharedClosure(meta) !== undefined;
-      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir, shared).then((path) => import(pathToFileURL(path).href));
+      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir, shared).then(loadModule);
       p = c === undefined ? evaluate() : invocations.run({ ...c, work: undefined }, evaluate);
       this.modules.set(script, p);
     }
@@ -1019,7 +1022,7 @@ export class Runtime {
    * a late error that settles nothing (D9). Its body is the error's WR-18
    * object (a native invocation's WR-43 one), or none when that cannot be
    * built. */
-  private lateError(id: string, e: unknown, text: () => string = () => errorText(e, stepId())) {
+  private lateError(id: string, e: unknown, text: () => string = () => errorText(e, stepContext(process.env))) {
     let body: Raw | undefined;
     try {
       body = new Raw(text());
@@ -1438,15 +1441,16 @@ function caught(e: unknown): Outcome {
     // Printing is for the logs; it never changes the outcome.
   }
   try {
-    return { outcome: "error", body: errorText(e, stepId()) };
+    return { outcome: "error", body: errorText(e, stepContext(process.env)) };
   } catch (inner) {
     return escaped(describe(inner));
   }
 }
 
-/** The step id a wrapper error carries: WM_FLOW_STEP_ID as the invocation
- * sees it, when it is not empty (WR-18). It is read through the
- * environment view, in the invocation's context. */
+/** The step id the worker's own errors carry: WM_FLOW_STEP_ID as the
+ * invocation sees it, when it is not empty (WR-37). It is read through the
+ * environment view, in the invocation's context, as a wrapper error reads
+ * its step context keys (WR-18). */
 function stepId(): string | undefined {
   return process.env.WM_FLOW_STEP_ID || undefined;
 }
@@ -1454,19 +1458,11 @@ function stepId(): string | undefined {
 /** An error as the harness's own texts give it (diagnostics, warnings, a
  * fresh process's log, an escaped invocation's tail): an Error's stack,
  * whose first line names the error and its message, or the value as text.
- * Bun 1.3.10 builds the stack of an Error that a garbage collection
- * formats before anything read it with the name alone on that line, so a
- * non-empty message missing from it is put back. It never throws. */
+ * It never throws. */
 export function describe(e: unknown): string {
   try {
     if (!(e instanceof Error)) return String(e);
-    const stack = e.stack;
-    if (typeof stack !== "string") return stack ?? `${e.name}: ${e.message}`;
-    const message = e.message;
-    const end = stack.indexOf("\n");
-    const head = end < 0 ? stack : stack.slice(0, end);
-    if (typeof message !== "string" || message === "" || head.includes(":")) return stack;
-    return `${head}: ${message}${stack.slice(head.length)}`;
+    return e.stack ?? `${e.name}: ${e.message}`;
   } catch {
     return "(an error that cannot be printed)";
   }
@@ -1591,6 +1587,28 @@ export async function moduleFile(bundleDir: string, script: string, meta: unknow
   const copy = join(workdir, ".windmill-lite-" + new Bun.CryptoHasher("sha256").update(script).digest("hex").slice(0, 16) + ext);
   copyFileSync(file, copy);
   return copy;
+}
+
+/** Loads the module at path and returns its namespace, evaluating it in
+ * the caller's async context. Bun 1.4.3 evaluates a module that import()
+ * loads outside every async context (1.3.10 kept the caller's), and one
+ * that require() loads inside the caller's. So require() evaluates it, and
+ * import() of the same file then returns the namespace it always did,
+ * without evaluating the module again. What require() returns is dropped,
+ * so an exported then, or a CommonJS module's thenable exports, is called
+ * or awaited by import() alone, as before. A top-level await still
+ * pending makes require() throw a TypeError once the evaluation has
+ * started, in that context, and import() waits for that evaluation. An ES
+ * module's failure stays with the module, so import() rejects with the
+ * same error; a CommonJS module's does not, and import() would evaluate
+ * the module again, so its error is thrown as it is. */
+export async function loadModule(path: string): Promise<Record<string, unknown>> {
+  try {
+    require(path);
+  } catch (e) {
+    if (path.endsWith(".cjs")) throw e;
+  }
+  return import(pathToFileURL(path).href);
 }
 
 /** Extracts a bundle's codebase assets, assets/ in the bundle (ADR 0010),

@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/openflow/of-drivers",
+  "run": "preview_absent",
+  "repeat": 0,
+  "workspace": "wl-854bb5-8",
+  "root": "851d9e56-78e0-42b3-8910-3ccf834787a8",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/get/851d9e56-78e0-42b3-8910-3ccf834787a8?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-854bb5-8\",\"id\":\"851d9e56-78e0-42b3-8910-3ccf834787a8\",\"created_by\":\"admin\",\"created_at\":\"2026-11-07T05:33:04.503249Z\",\"started_at\":\"2026-11-07T05:33:04.519971Z\",\"completed_at\":\"2026-11-07T05:33:05.315195Z\",\"duration_ms\":795,\"success\":true,\"script_hash\":\"0000000000000021\",\"script_path\":\"f/wl_ofd/preview_absent\",\"args\":{},\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-02ca-525d-33fd-949f7faa4e79\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}], \"success\": false}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-01ac-c3ec-679b-f0c98af42b07\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": false}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-00b2-6dbc-ba5d-452627182f1a\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}], \"success\": false}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"d\", \"job\": \"01a1b47f-008a-11ea-19f6-ce8d393add08\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"resolved\":false,\"raw_flow\":{\"modules\":[{\"id\":\"d\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-4c13996a7dac-lUlQ3\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/completed/get_result_maybe/851d9e56-78e0-42b3-8910-3ccf834787a8?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-02ca-525d-33fd-949f7faa4e79\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}], \"success\": false}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-01ac-c3ec-679b-f0c98af42b07\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": false}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-00b2-6dbc-ba5d-452627182f1a\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}], \"success\": false}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/get/01a1b47f-008a-11ea-19f6-ce8d393add08?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-854bb5-8\",\"id\":\"01a1b47f-008a-11ea-19f6-ce8d393add08\",\"parent_job\":\"851d9e56-78e0-42b3-8910-3ccf834787a8\",\"created_by\":\"admin\",\"created_at\":\"2026-11-07T05:33:04.522381Z\",\"started_at\":\"2026-11-07T05:33:04.525297Z\",\"completed_at\":\"2026-11-07T05:33:05.310485Z\",\"duration_ms\":781,\"success\":true,\"script_hash\":\"0000000000000036\",\"script_path\":\"f/wl_ofd/preview_absent/d\",\"args\":{},\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-02ca-525d-33fd-949f7faa4e79\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}], \"success\": false}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-01ac-c3ec-679b-f0c98af42b07\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": false}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-00b2-6dbc-ba5d-452627182f1a\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}], \"success\": false}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":22412,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"resolved\":false,\"worker\":\"wk-default-4c13996a7dac-lUlQ3\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/get_args/01a1b47f-008a-11ea-19f6-ce8d393add08",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-854bb5-8/jobs_u/completed/get_result_maybe/01a1b47f-008a-11ea-19f6-ce8d393add08?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"ba\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-02ca-525d-33fd-949f7faa4e79\", \"message\": \"b\", \"step_id\": \"f\", \"flow_path\": \"tmp/main/branchall-0\"}}], \"success\": false}, \"par\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-01ac-c3ec-679b-f0c98af42b07\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/forloop-0\"}}, 2], \"success\": false}, \"seq\": {\"result\": [{\"error\": {\"name\": \"Error\", \"job_id\": \"01a1b47f-00b2-6dbc-ba5d-452627182f1a\", \"message\": \"boom\", \"step_id\": \"b\", \"flow_path\": \"tmp/main/loop-0\"}}], \"success\": false}}}"
+    }
+  ]
+}

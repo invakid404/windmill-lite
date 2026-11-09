@@ -544,7 +544,7 @@ func (o *fakeOracle) start(r *http.Request) string {
 	}
 	bType := "Success"
 	if !success {
-		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b"}}`, n, n, b)
+		bRes = fmt.Sprintf(`{"error":{"name":"Error","message":"too big: %d","stack":"Error: too big: %d\n    at run (/tmp/windmill/wk-x/%s/wrapper.mjs:30:21)","step_id":"b","job_id":%q,"flow_path":"f/wl_smoke/two_step"}}`, n, n, b, b)
 		bType = "Failure"
 	}
 	fs := fmt.Sprintf(`{"step":2,"modules":[{"type":"Success","id":"a","job":%q},{"type":%q,"id":"b","job":%q}],"failure_module":{"type":"WaitingForPriorSteps","id":"failure"}}`, a, bType, b)
@@ -673,7 +673,7 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 	// and fail (OR-11/a, OR-12/a) was compared during the session.
 	b := rec["fail"].Observation.Steps[conformance.SitePath{}.Child(conformance.Module("b"))]
 	var compact bytes.Buffer
-	if err := json.Compact(&compact, b.Result); err != nil || compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"\u003cstack\u003e","step_id":"b"}}` && compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b"}}` {
+	if err := json.Compact(&compact, b.Result); err != nil || compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"\u003cstack\u003e","step_id":"b","job_id":"\u003cjob:m:b\u003e","flow_path":"f/wl_smoke/two_step"}}` && compact.String() != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b","job_id":"<job:m:b>","flow_path":"f/wl_smoke/two_step"}}` {
 		t.Fatalf("fail run step b: %s", b.Result)
 	}
 	// Effects are grouped by the outer run and normalised (OR-16, OR-V6).
@@ -727,7 +727,7 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = outcomes(rep)
-	if got["ok"].Outcome != OutcomeExpectMismatch || !contains(got["ok"].Differences, `/steps/m:b/args/tag: "ho" != "hi"`) {
+	if got["ok"].Outcome != OutcomeExpectMismatch || !contains(got["ok"].Differences, `/steps/m:b/args/tag: "ho" != "hi"`) || got["ok"].Observation != "" {
 		t.Fatalf("ok: %+v", got["ok"])
 	}
 	if got["effects"].Outcome != OutcomeChanged || !got["effects"].Failed(true) || !contains(got["effects"].Differences, `/result: "ho:6" != "hi:6"`) {
@@ -902,9 +902,9 @@ func TestSessionRefusals(t *testing.T) {
 	t.Run("OR-1/b: a version mismatch aborts the session", func(t *testing.T) {
 		// spec: OR-1/b
 		rig := newRig(t)
-		rig.oracle.version = "EE v1.767.0"
+		rig.oracle.version = "EE v1.862.0"
 		_, err := rig.session(20*GiB).Run(ctx, []*conformance.Fixture{rig.load(t)})
-		if code(err) != "oracle_version_mismatch" || err.Error() != `{"error":"oracle_version_mismatch","got":"EE v1.767.0"}` || rig.docker.up {
+		if code(err) != "oracle_version_mismatch" || err.Error() != `{"error":"oracle_version_mismatch","got":"EE v1.862.0"}` || rig.docker.up {
 			t.Fatalf("got %v, up %v", err, rig.docker.up)
 		}
 	})
@@ -1051,6 +1051,183 @@ func TestSessionOutDirStaysInside(t *testing.T) {
 	}
 }
 
+// TestSessionWritesMismatchedObservations: with MismatchDir, a run that
+// does not match its expect still writes no recording, and its observation,
+// with provenance, goes to the side directory in the recording format, at
+// the place --out would give its recording, named in the report. Once the
+// expect says what the oracle now does, that file is the recording a
+// second session confirms unchanged (OR-15, OR-V5/a).
+func TestSessionWritesMismatchedObservations(t *testing.T) {
+	// spec: OR-V5/a
+	rig := newRig(t)
+	ctx := context.Background()
+	rig.oracle.tag = "ho"
+	mis := t.TempDir()
+	s := rig.session(20 * GiB)
+	s.Check, s.MismatchDir, s.RepoRoot = true, mis, filepath.Dir(rig.fixture)
+	rep, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := outcomes(rep)
+	for _, name := range []string{"ok", "fail"} {
+		r := got[name]
+		want := filepath.Join(mis, "smoke", "recorded", name+".json")
+		if r.Outcome != OutcomeExpectMismatch || !r.Failed(true) || r.Observation != want || r.Wrote != "" || r.Error != "" ||
+			!contains(r.Differences, `/steps/m:b/args/tag: "ho" != "hi"`) {
+			t.Fatalf("%s: %+v", name, r)
+		}
+	}
+	// A run without an expect is new, as without the side directory, and
+	// check mode writes its recording nowhere.
+	if e := got["effects"]; e.Outcome != OutcomeNew || e.Observation != "" || e.Wrote != "" {
+		t.Fatalf("effects: %+v", e)
+	}
+	var files []string
+	if err := filepath.WalkDir(mis, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(mis, p)
+			files = append(files, filepath.ToSlash(rel))
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(files, " ") != "smoke/recorded/fail.json smoke/recorded/ok.json" {
+		t.Fatalf("side directory holds %q", files)
+	}
+	if _, err := os.Stat(filepath.Join(rig.fixture, "recorded")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the fixture gained a recording directory: %v", err)
+	}
+	data, err := os.ReadFile(got["ok"].Observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec conformance.Recording
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	b := rec.Observation.Steps[conformance.SitePath{}.Child(conformance.Module("b"))]
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, b.Args); err != nil || compact.String() != `{"n":6,"tag":"ho"}` || rec.Observation.Status != "success" {
+		t.Fatalf("observation %s", data)
+	}
+	if err := CheckRecordingIdentity(rec.Provenance); err != nil {
+		t.Fatal(err)
+	}
+	var prov Provenance
+	if err := json.Unmarshal(rec.Provenance, &prov); err != nil || prov.Repeats != 2 || prov.Workers != 1 || prov.Timings.Jobs["m:a"].Kind != "script" {
+		t.Fatalf("provenance %+v (%v)", prov, err)
+	}
+
+	// The expects now say what the oracle does, and the side directory is
+	// laid over the repository: the next session finds each observation
+	// as the run's recording, unchanged.
+	for _, name := range []string{"ok", "fail"} {
+		p := filepath.Join(rig.fixture, "runs", name+".yaml")
+		run, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run = []byte(strings.NewReplacer("tag: hi", "tag: ho", `"hi:6"`, `"ho:6"`).Replace(string(run)))
+		if err := os.WriteFile(p, run, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		side, err := os.ReadFile(filepath.Join(mis, "smoke", "recorded", name+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(rig.fixture, "recorded"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rig.fixture, "recorded", name+".json"), side, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s = rig.session(20 * GiB)
+	s.Check, s.MismatchDir, s.RepoRoot = true, t.TempDir(), filepath.Dir(rig.fixture)
+	rep, err = s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = outcomes(rep)
+	for _, name := range []string{"ok", "fail"} {
+		if r := got[name]; r.Outcome != OutcomeUnchanged || r.Observation != "" || len(r.Differences) != 0 {
+			t.Fatalf("%s after the expect changed: %+v", name, r)
+		}
+	}
+}
+
+// TestSessionMismatchDirRefusals: the side directory is never a place
+// where recordings live or are collected, and a run whose observation
+// cannot be written there fails with its differences.
+func TestSessionMismatchDirRefusals(t *testing.T) {
+	ctx := context.Background()
+	t.Run("the repository root", func(t *testing.T) {
+		rig := newRig(t)
+		s := rig.session(20 * GiB)
+		root := filepath.Dir(rig.fixture)
+		s.MismatchDir, s.RepoRoot = filepath.Join(root, "smoke", ".."), root
+		_, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+		if err == nil || !strings.Contains(err.Error(), "is the repository root") || len(rig.docker.calls) != 0 {
+			t.Fatalf("got %v; docker calls %q", err, rig.docker.calls)
+		}
+	})
+	t.Run("the working directory without a repository root", func(t *testing.T) {
+		rig := newRig(t)
+		s := rig.session(20 * GiB)
+		s.MismatchDir = "."
+		_, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+		if err == nil || !strings.Contains(err.Error(), "is the repository root") || len(rig.docker.calls) != 0 {
+			t.Fatalf("got %v; docker calls %q", err, rig.docker.calls)
+		}
+	})
+	t.Run("the --out directory", func(t *testing.T) {
+		rig := newRig(t)
+		s := rig.session(20 * GiB)
+		out := t.TempDir()
+		s.OutDir, s.MismatchDir, s.RepoRoot = out, out+string(filepath.Separator), filepath.Dir(rig.fixture)
+		_, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+		if err == nil || !strings.Contains(err.Error(), "--mismatched and --out are both") || len(rig.docker.calls) != 0 {
+			t.Fatalf("got %v; docker calls %q", err, rig.docker.calls)
+		}
+	})
+	t.Run("a fixture outside the repository root", func(t *testing.T) {
+		rig := newRig(t)
+		rig.oracle.tag = "ho"
+		s := rig.session(20 * GiB)
+		s.Check, s.MismatchDir, s.RepoRoot = true, t.TempDir(), t.TempDir()
+		rep, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ok := outcomes(rep)["ok"]
+		if ok.Outcome != OutcomeFailed || !strings.Contains(ok.Error, "so --mismatched cannot place its recording") || ok.Observation != "" ||
+			!contains(ok.Differences, `/steps/m:b/args/tag: "ho" != "hi"`) {
+			t.Fatalf("ok: %+v", ok)
+		}
+	})
+	t.Run("a write that fails", func(t *testing.T) {
+		rig := newRig(t)
+		rig.oracle.tag = "ho"
+		blocked := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s := rig.session(20 * GiB)
+		s.Check, s.MismatchDir, s.RepoRoot = true, blocked, filepath.Dir(rig.fixture)
+		rep, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ok := outcomes(rep)["ok"]
+		if ok.Outcome != OutcomeFailed || ok.Error == "" || ok.Observation != "" || !ok.Failed(false) ||
+			!contains(ok.Differences, `/steps/m:b/args/tag: "ho" != "hi"`) {
+			t.Fatalf("ok: %+v", ok)
+		}
+	})
+}
+
 // TestSessionRefusesARecordingOfAnotherOracle is OR-V5/b: a committed
 // recording whose oracle identity does not match the pin is refused before
 // anything runs, whatever its observation says.
@@ -1065,9 +1242,9 @@ func TestSessionRefusesARecordingOfAnotherOracle(t *testing.T) {
 		name, provenance, field string
 	}{
 		{"another version", `{"oracle":{"version":"EE v1.766.0","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`, "oracle.version"},
-		{"another image", `{"oracle":{"version":"CE v1.767.0","image":"ghcr.io/windmill-labs/windmill-ee:1.767.0@sha256:0e743cd6","cli":"` + CLIPackage + `"}}`, "oracle.image"},
-		{"another CLI", `{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.766.0"}}`, "oracle.cli"},
-		{"no CLI", `{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `"}}`, "oracle.cli"},
+		{"another image", `{"oracle":{"version":"CE v1.862.0","image":"ghcr.io/windmill-labs/windmill-ee:1.862.0@sha256:0e743cd6","cli":"` + CLIPackage + `"}}`, "oracle.image"},
+		{"another CLI", `{"oracle":{"version":"CE v1.862.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.861.0"}}`, "oracle.cli"},
+		{"no CLI", `{"oracle":{"version":"CE v1.862.0","image":"` + WindmillImage + `"}}`, "oracle.cli"},
 		{"no oracle", `{"recorded_at":"2026-10-28T00:00:00Z"}`, "oracle"},
 		{"not an object", `[]`, "oracle"},
 	} {
@@ -1134,5 +1311,110 @@ func TestSessionKillsAHungCLIAndTearsDown(t *testing.T) {
 	}
 	if rig.docker.calledWith(" down -v") != 1 || rig.docker.up {
 		t.Fatalf("calls %q", rig.docker.calls)
+	}
+}
+
+// TestLocalFailureOnSessions: a run that does not match its expect saves
+// its observation in the side directory, and a run that fails on the
+// oracle fails without local_failure; a run whose observation, recording
+// or raw capture the session cannot place or write fails with
+// local_failure set, since the failure is the session's own. Each fails
+// the session.
+func TestLocalFailureOnSessions(t *testing.T) {
+	ctx := context.Background()
+	blocked := func(t *testing.T) string {
+		p := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		// setup adjusts the rig and the session, and returns the runs it
+		// checks.
+		setup   func(t *testing.T, rig *sessionRig, s *Session) []string
+		outcome string
+		local   bool
+		saved   bool // the run's observation is in the side directory
+	}{
+		{
+			name: "a mismatch saves its observation",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				rig.oracle.tag = "ho"
+				s.MismatchDir = t.TempDir()
+				return []string{"ok", "fail"}
+			},
+			outcome: OutcomeExpectMismatch, saved: true,
+		},
+		{
+			name: "a failure on the oracle",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				rig.oracle.hang = true
+				s.Repeat = 1
+				s.RunTimeout, s.minRunTimeout = 50*time.Millisecond, time.Millisecond
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed,
+		},
+		{
+			name: "an observation that cannot be written",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				rig.oracle.tag = "ho"
+				s.MismatchDir = blocked(t)
+				return []string{"ok", "fail"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+		{
+			name: "a recording that cannot be written",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				s.OutDir = blocked(t)
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+		{
+			name: "a recording that --out cannot place",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				s.OutDir, s.RepoRoot = t.TempDir(), t.TempDir()
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+		{
+			name: "a raw capture that cannot be written",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				s.RawDir = blocked(t)
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := newRig(t)
+			s := rig.session(20 * GiB)
+			s.Check, s.RepoRoot = true, filepath.Dir(rig.fixture)
+			names := tc.setup(t, rig, s)
+			rep, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := outcomes(rep)
+			for _, name := range names {
+				r := got[name]
+				if r.Outcome != tc.outcome || r.LocalFailure != tc.local {
+					t.Errorf("%s: %+v, want outcome %s and local_failure %v", name, r, tc.outcome, tc.local)
+				}
+				if !r.Failed(true) {
+					t.Errorf("%s: a %s run does not fail the session", name, r.Outcome)
+				}
+				if tc.saved {
+					if _, err := os.Stat(r.Observation); r.Observation == "" || err != nil {
+						t.Errorf("%s: observation %q not saved: %v", name, r.Observation, err)
+					}
+				}
+			}
+		})
 	}
 }

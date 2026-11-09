@@ -1,10 +1,12 @@
-# Q-OR-6 (nested): a NUL in a nested value fails the step at storage time
-# like OR-27/a's top-level string.
+# Q-OR-6 (nested): a NUL in a nested value is removed like OR-27/a's
+# top-level one, so the stored value is ["x"].
 spec: [OR-27/b]
 target: f/wl_probe/nul_nested
 expect:
-  status: failure
-  result: {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+  status: success
+  result: {"p": {"a": ["x"]}, "r": {"a": ["x"]}}
   steps:
-    "m:a": {"status": "failure", "args": {}, "result": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}}
-    "m:b": {"status": "not_run", "ran": false}
+    # The value a carries on in memory keeps the NUL (FX-48 case 1), which
+    # only windmill-lite's observation holds.
+    "m:a": {"status": "success", "args": {}, "result": {"a": ["x"]}, "carried": {"a": ["x\u0000"]}}
+    "m:b": {"status": "success", "args": {"p": {"a": ["x"]}, "r": {"a": ["x"]}}, "result": {"p": {"a": ["x"]}, "r": {"a": ["x"]}}}

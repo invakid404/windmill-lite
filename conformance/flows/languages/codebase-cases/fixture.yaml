@@ -10,7 +10,9 @@
 # (WR-50/b, WR-50/d, WR-50/e; a //native script's job never completed on
 # the oracle, so WR-50/c is deferred), and, in both formats, a relative
 # import between codebase files and the step's environment (process.env on
-# Node, Bun.env on Bun). On windmill-lite a CommonJS bundle runs on Bun
+# Node, Bun.env on Bun), and a CommonJS module whose evaluation throws,
+# required twice, whose second error shows the CLI's esbuild version
+# (WR-47/g). On windmill-lite a CommonJS bundle runs on Bun
 # (deviation D13), so the runs that report the runtime record Windmill's
 # Node, which windmill-lite does not reproduce. Synthetic, written for
 # this repository from docs/semantics/conformance.md#wr-47.

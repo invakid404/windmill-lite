@@ -80,9 +80,9 @@ function workOf(): InvocationResources | undefined {
  * Work started in a process scope (PROCESS_SCOPE) has no invocation, and
  * work a step module starts while it evaluates belongs to the module, so
  * neither registers here or is ever fenced. What pending() counts just
- * before settlement is the leak report: Bun 1.3.10's
- * process._getActiveHandles() lists nothing, so this registry is the only
- * record of what an invocation left behind. */
+ * before settlement is the leak report: Bun's process._getActiveHandles()
+ * lists nothing (1.4.3, as 1.3.10), so this registry is the only record of
+ * what an invocation left behind. */
 export class InvocationResources {
   /** Set once the invocation has settled; it never clears. */
   settled = false;
@@ -392,40 +392,52 @@ function read(k: string | symbol, fallback: () => unknown): unknown {
 
 // process.env, Bun.env and import.meta.env start out as one object.
 const real = process.env as Record<string, string | undefined>;
+const realProto: object | null = Object.getPrototypeOf(real);
 let envInstalled = false;
-const shadowed = new Set<string>();
+/** The prototype installEnvView gives the original object (path 2). */
+let envTrap: object | null = realProto;
+/** Variables some invocation has had a say on (shadow): the original
+ * object never holds one as its own property again. */
+const claimed = new Set<string>();
+/** The process's values of the claimed variables it has (path 3). */
+const moved = new Map<string, string>();
 
 /** Installs the environment view. Three paths read the environment, and
  * each is made to see the current invocation's variables first:
  *
  * 1. process.env is replaced by a Proxy over the process environment.
- *    Bun 1.3.10 lets it be assigned, but Bun.env and import.meta.env keep
- *    pointing at the original object.
+ *    Bun 1.4.3 lets it be assigned, but Bun.env and import.meta.env keep
+ *    pointing at the original object, and neither Bun.env nor the global
+ *    Bun can be redefined.
  * 2. That original object accepts a new prototype: a read of a variable
- *    the process does not have falls through to it, and it answers from
+ *    the object does not hold falls through to it, and it answers from
  *    the current invocation. This reaches code that reads Bun.env or
  *    import.meta.env at run time, bundled or not.
- * 3. A variable the process has as its own property would shadow that
- *    prototype, so shadow() turns each one an invocation sets into an
- *    accessor that answers from the current invocation first.
+ * 3. A variable the process has as its own property would hide that
+ *    prototype, and Bun 1.4.3 takes only data properties there, so
+ *    shadow() moves each one an invocation has a say on into the view's
+ *    own store (moved), which path 2 answers from when the current
+ *    invocation has nothing of its own.
  *
  * Outside any invocation every path reads the process environment, so a
  * host's own code sees no change. Writes and deletes through process.env
  * inside an invocation go to its own copy and never reach the process
- * environment; the first write of a variable the process has shadows it,
- * so Bun.env and import.meta.env read the written value too. Enumerating
- * Bun.env lists only the process's variables; enumerating process.env
- * lists the invocation's view, and so does a child process started
- * without an environment (installChildProcesses).
+ * environment; the first write or delete of a variable the process has
+ * moves it, so Bun.env and import.meta.env answer with the invocation's
+ * value too. Enumerating process.env lists the invocation's view, and so
+ * does a child process started without an environment
+ * (installChildProcesses). Enumerating Bun.env, or asking it for an own
+ * property, sees only what the original object holds: the process's
+ * variables that no invocation has claimed.
  *
  * Writes through the original object itself (Bun.env.X = … in code the
  * build does not rewrite, such as an unbundled dependency) are isolated
- * too: one of a variable the process does not have reaches the
- * prototype's set trap, which keeps it in the invocation's copy, and one
- * of a shadowed variable reaches its accessor. Two remain the process's,
- * because an ordinary object cannot trap them: a delete through the
- * original object, and a write of a variable the process has that no
- * invocation has written or been given yet. */
+ * too: one of a variable the object does not hold, moved or not, reaches
+ * the prototype's set trap, which keeps it in the invocation's copy. Two
+ * remain outside the view, because Bun's object cannot trap them: a
+ * delete through it, which removes a variable no invocation has claimed
+ * from the process and does nothing to a claimed one, and a write of a
+ * variable the process has that no invocation has claimed yet. */
 export function installEnvView() {
   if (envInstalled) return;
   envInstalled = true;
@@ -440,19 +452,17 @@ export function installEnvView() {
     set(t, k, v) {
       const c = invocations.getStore();
       if (c && typeof k === "string") {
-        c.env[k] = String(v);
+        c.env[k] = envString(v);
         c.unset?.delete(k);
         // Bun.env reads a variable the process has as its own property:
-        // make it an accessor, so it answers with the written value there
-        // too (W1 review, finding 1).
+        // move it, so it answers with the written value there too (W1
+        // review, finding 1).
         shadow({ [k]: "" });
         return true;
       }
-      const ok = Reflect.set(t, k, v);
-      // A variable the host writes while invocations that set it are in
-      // flight must keep answering them from their own copies.
-      if (ok && typeof k === "string") shadow({ [k]: "" });
-      return ok;
+      if (typeof k !== "string") return Reflect.set(t, k, v);
+      writeProcess(k, v);
+      return true;
     },
     deleteProperty(t, k) {
       const c = invocations.getStore();
@@ -460,14 +470,18 @@ export function installEnvView() {
         delete c.env[k];
         (c.unset ??= new Set()).add(k);
         // Bun.env reads a variable the process has as its own property:
-        // make it an accessor, so it is gone for this invocation there too.
+        // move it, so it is gone for this invocation there too.
         shadow({ [k]: "" });
+        return true;
+      }
+      if (typeof k === "string" && claimed.has(k)) {
+        moved.delete(k);
         return true;
       }
       return Reflect.deleteProperty(t, k);
     },
     ownKeys(t) {
-      const keys = new Set(Reflect.ownKeys(t));
+      const keys = new Set([...Reflect.ownKeys(t), ...moved.keys()]);
       const c = invocations.getStore();
       if (c) {
         for (const k of c.unset ?? []) keys.delete(k);
@@ -478,62 +492,88 @@ export function installEnvView() {
     getOwnPropertyDescriptor(t, k) {
       const v = ownVar(k);
       if (v === ABSENT) return undefined;
-      if (v !== undefined) return { value: v, writable: true, enumerable: true, configurable: true };
+      const value = v ?? (typeof k === "string" ? moved.get(k) : undefined);
+      if (value !== undefined) return { value, writable: true, enumerable: true, configurable: true };
       return Reflect.getOwnPropertyDescriptor(t, k);
     },
   });
   (process as { env: unknown }).env = view;
-  const proto = Object.getPrototypeOf(real);
-  Object.setPrototypeOf(
-    real,
-    new Proxy(proto ?? Object.prototype, {
-      get(t, k, receiver) {
-        return read(k, () => Reflect.get(t, k, receiver));
-      },
-      has(t, k) {
-        const v = ownVar(k);
-        return v === ABSENT ? false : v !== undefined || Reflect.has(t, k);
-      },
-      // A write of a variable the process environment does not hold as
-      // its own property walks up to here: inside an invocation it goes to
-      // the invocation's copy, outside it becomes the process's.
-      set(t, k, v, receiver) {
-        const c = invocations.getStore();
-        if (c && typeof k === "string" && receiver === real) {
-          c.env[k] = String(v);
-          c.unset?.delete(k);
-          return true;
-        }
-        return Reflect.set(t, k, v, receiver);
-      },
-    }),
-  );
+  envTrap = new Proxy(realProto ?? Object.prototype, {
+    get(t, k, receiver) {
+      return read(k, () => (typeof k === "string" && moved.has(k) ? moved.get(k) : Reflect.get(t, k, receiver)));
+    },
+    has(t, k) {
+      const v = ownVar(k);
+      return v === ABSENT ? false : v !== undefined || (typeof k === "string" && moved.has(k)) || Reflect.has(t, k);
+    },
+    // A write of a variable the original object does not hold as its own
+    // property walks up to here: inside an invocation it goes to the
+    // invocation's copy, outside it becomes the process's. Bun 1.4.3's
+    // object walks a write back to this prototype for as long as it does
+    // not hold the variable, so the trap never writes into it directly.
+    set(t, k, v, receiver) {
+      if (receiver !== real) return Reflect.set(t, k, v, receiver);
+      const c = invocations.getStore();
+      if (c && typeof k === "string") {
+        c.env[k] = envString(v);
+        c.unset?.delete(k);
+        claimed.add(k);
+        return true;
+      }
+      if (typeof k !== "string") return writeOwn(k, envString(v));
+      writeProcess(k, v);
+      return true;
+    },
+  });
+  Object.setPrototypeOf(real, envTrap);
 }
 
-/** Turns each variable of env that the process environment holds as its
- * own data property into an accessor that answers from the current
- * invocation first (path 3 of installEnvView). */
+/** A value as the environment keeps it: its string, converted as Bun's
+ * object converts it, so a symbol throws a TypeError, as there (String()
+ * would accept one). The conversion can run the caller's code, which can
+ * claim a variable or write the environment, so every write converts
+ * first and decides where the value goes only afterwards. */
+function envString(v: unknown): string {
+  return `${v}`;
+}
+
+/** Writes the process's value of variable k, outside every invocation:
+ * the moved value if an invocation has claimed k, else an own property of
+ * the original object. The value is converted before the choice, since
+ * the conversion may claim k. */
+function writeProcess(k: string, v: unknown) {
+  const value = envString(v);
+  if (claimed.has(k)) moved.set(k, value);
+  else writeOwn(k, value);
+}
+
+/** Writes k on the original object with path 2's prototype swapped out,
+ * so that Bun 1.4.3's object, which walks a write of a key it does not
+ * hold to its prototype, cannot reach the trap again. The value is a
+ * string already, so no code of the caller's runs while the trap is out. */
+function writeOwn(k: string | symbol, value: string): boolean {
+  Object.setPrototypeOf(real, realProto);
+  try {
+    return Reflect.set(real, k, value);
+  } finally {
+    Object.setPrototypeOf(real, envTrap);
+  }
+}
+
+/** Claims each variable of env for the view: each one the original object
+ * holds as its own property moves into the view's store, so that path 2
+ * answers it from the current invocation first (path 3 of
+ * installEnvView). A claimed variable stays claimed. Before the view is
+ * installed it does nothing, since nothing would answer a moved variable. */
 export function shadow(env: Record<string, string>) {
+  if (!envInstalled) return;
   for (const k of Object.keys(env)) {
-    if (shadowed.has(k)) continue;
-    const d = Object.getOwnPropertyDescriptor(real, k);
-    if (d === undefined || !("value" in d) || !d.configurable) continue;
-    let base = d.value;
-    Object.defineProperty(real, k, {
-      get() {
-        return read(k, () => base);
-      },
-      set(v) {
-        const c = invocations.getStore();
-        if (c) {
-          c.env[k] = String(v);
-          c.unset?.delete(k);
-        } else base = String(v);
-      },
-      enumerable: true,
-      configurable: true,
-    });
-    shadowed.add(k);
+    if (claimed.has(k)) continue;
+    claimed.add(k);
+    if (!Object.hasOwn(real, k)) continue;
+    const v = real[k];
+    if (v !== undefined) moved.set(k, v);
+    delete real[k];
   }
 }
 
@@ -769,6 +809,89 @@ export const realTimers = {
 
 let timersInstalled = false;
 
+/** The functions of Bun's networking modules that set a socket's own
+ * timers, by the module file and function name their call sites give,
+ * measured on Bun 1.4.3: node:net's Socket.prototype.setTimeout (a
+ * socket's idle timeout, which the node:http agent and socket.setTimeout
+ * arm), closeSocketHandle and internalConnectMultiple, and node:http
+ * server's socket timeout and connection tracking. None of them calls a
+ * step's function, so a timer whose call site is one of them is the
+ * socket's (calledBySocketModule). */
+const SOCKET_TIMER_SITES = new Map([
+  ["node:net", new Set(["setTimeout", "closeSocketHandle", "internalConnectMultiple"])],
+  ["node:_http_server", new Set(["setTimeout", "setupConnectionsTracking"])],
+]);
+
+/** The prepareStackTrace calledBySocketModule sets while it captures a
+ * frame: it keeps the call sites. */
+const callSites = (_: Error, sites: unknown[]) => sites;
+
+/** Error as the harness found it, and what reads a stack, taken before any
+ * step module loads: a step may replace the global Error, its stack hooks,
+ * captureStackTrace and the methods of a call site. */
+const HarnessError = Error as unknown as Record<string, unknown>;
+const captureStackTrace = (Error as unknown as { captureStackTrace(o: object, fn?: unknown): void }).captureStackTrace;
+const ownDescriptor = Object.getOwnPropertyDescriptor;
+const applyFn = Reflect.apply;
+
+/** Sets one of Error's stack hooks for the length of one capture, only
+ * when it is a writable data property of Error's own: assigning it then
+ * runs no code of the step's (and Bun can leave a hook unread that was
+ * defined over the old one rather than assigned). It returns the value to
+ * put back, or null for a hook the step made an accessor, read-only or
+ * removed, which stays untouched. */
+function swapHook(key: string, value: unknown): { value: unknown } | null {
+  const old = ownDescriptor(HarnessError, key);
+  if (old === undefined || !("value" in old) || !old.writable) return null;
+  HarnessError[key] = value;
+  return { value: old.value };
+}
+
+/** The first call site of the stack above fn, or undefined when the hooks
+ * cannot be swapped or the capture fails. */
+function callerSite(fn: unknown): unknown {
+  const prepare = swapHook("prepareStackTrace", callSites);
+  if (prepare === null) return undefined;
+  const limit = swapHook("stackTraceLimit", 1);
+  try {
+    if (limit === null) return undefined;
+    const at: { stack?: unknown } = {};
+    captureStackTrace(at, fn);
+    const sites = at.stack;
+    return typeof sites === "object" && sites !== null ? (sites as unknown[])[0] : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (limit !== null) HarnessError.stackTraceLimit = limit.value;
+    HarnessError.prepareStackTrace = prepare.value;
+  }
+}
+
+/** A call site's getFileName and getFunctionName, as Bun has them. */
+const siteMethods = ((): { file: () => unknown; name: () => unknown } | undefined => {
+  try {
+    const site = callerSite(undefined) as object | undefined;
+    const proto = site === undefined ? undefined : (Object.getPrototypeOf(site) as { getFileName?: () => unknown; getFunctionName?: () => unknown });
+    if (typeof proto?.getFileName !== "function" || typeof proto.getFunctionName !== "function") return undefined;
+    return { file: proto.getFileName, name: proto.getFunctionName };
+  } catch {
+    return undefined;
+  }
+})();
+
+/** Whether fn was called by one of the functions of Bun's networking
+ * modules that set a socket's timers (SOCKET_TIMER_SITES), told by the
+ * file and function name of the frame that called it. Reading it runs
+ * none of the step's code: Error's hooks are swapped only where swapHook
+ * can, and put back, and where they cannot be, the caller counts as the
+ * step's. */
+function calledBySocketModule(fn: (...args: never[]) => unknown): boolean {
+  const site = callerSite(fn);
+  if (site === undefined || siteMethods === undefined) return false;
+  const names = SOCKET_TIMER_SITES.get(applyFn(siteMethods.file, site, []) as string);
+  return names !== undefined && names.has(applyFn(siteMethods.name, site, []) as string);
+}
+
 /** Installs the timer fence (D9, decisions 2026-10-28), before any step
  * module loads: setTimeout, setInterval and setImmediate, on globalThis
  * and on node:timers, register each handle an invocation creates in its
@@ -780,13 +903,26 @@ let timersInstalled = false;
  *
  * Handles created outside every invocation, in a process scope, or by a
  * step module while it evaluates belong to no invocation: they are never
- * registered or cleared. Promise-based waits (Bun.sleep,
+ * registered or cleared. Nor are those Bun's networking modules set for
+ * a socket (calledBySocketModule), which the fence leaves running (D9).
+ * On Bun 1.4.3, node:net times a socket's idle time with a setTimeout,
+ * which the node:http agent arms on each socket it keeps alive and
+ * socket.setTimeout arms too, waits between connection attempts with
+ * one, and closes a destroyed socket's handle in a setImmediate; a
+ * node:http server times its sockets and tracks its connections with a
+ * setInterval. Clearing them would leave the socket without its
+ * timeouts. They are told by the function that calls the timer function,
+ * not by the module alone: JavaScriptCore drops the frame of a function
+ * that ends by returning a call (a proper tail call), so a step's own
+ * callback that node:net calls directly, such as net.connect's lookup,
+ * shows node:net's lookupAndConnect as the caller of a timer it sets that
+ * way, and that timer stays the step's. Promise-based waits (Bun.sleep,
  * node:timers/promises) do not go through these functions and are not
  * fenced. node:timers is patched before any step module imports it. On
- * Bun 1.3.10 the first named import of a builtin fixes its named bindings
- * for every later importer, so when a host's own module imported it by
- * name before the runtime was made, named imports keep Bun's functions;
- * the default import and require see these. */
+ * Bun 1.4.3, as on 1.3.10, the first named import of a builtin fixes its
+ * named bindings for every later importer, so when a host's own module
+ * imported it by name before the runtime was made, named imports keep
+ * Bun's functions; the default import and require see these. */
 export function installTimers() {
   if (timersInstalled) return;
   timersInstalled = true;
@@ -798,7 +934,8 @@ export function installTimers() {
     if (done) done();
   };
   // Handles the step cleared, which refresh() does not re-arm on Bun
-  // 1.3.10, and the live ones by numeric id, for a clear by id.
+  // 1.4.3 (nor on 1.3.10), and the live ones by numeric id, for a clear by
+  // id.
   const cleared = new WeakSet<object>();
   const byId = new Map<number, object>();
   const remember = (work: InvocationResources, kind: string, h: object, clear: (h: any) => void) => {
@@ -830,7 +967,7 @@ export function installTimers() {
   const wrap = (name: string, real: TimerFn, kind: string, clear: (h: any) => void, once: boolean): TimerFn => {
     const w = function (fn: unknown, ...rest: unknown[]) {
       const work = workOf();
-      if (typeof fn !== "function" || work === undefined) return real(fn, ...rest);
+      if (typeof fn !== "function" || work === undefined || calledBySocketModule(w)) return real(fn, ...rest);
       // A timeout or an immediate fires once: it is unregistered first.
       const cb = once
         ? function (this: unknown, ...a: unknown[]) {
@@ -1142,15 +1279,18 @@ let childrenInstalled = false;
  * and Bun.spawn and Bun.spawnSync (ADR 0004, failure model item 7), before
  * any step module loads: a child started inside an invocation without an
  * explicit environment gets the invocation's view, not the process
- * environment, which Bun would otherwise pass (spawnSync, execSync and
- * Bun.spawn read neither process.env nor its view).
+ * environment, which Bun would otherwise pass: on Bun 1.4.3 Bun.spawn and
+ * Bun.spawnSync pass the environment the process started with, reading
+ * neither process.env nor its view (the node:child_process functions read
+ * process.env at the call; on 1.3.10 the sync ones did not).
  *
- * On Bun 1.3.10 every node:child_process function starts its child through
+ * On Bun 1.4.3 every node:child_process function starts its child through
  * Bun.spawn (the asynchronous ones) or Bun.spawnSync (the sync ones), each
- * once, with detached set only where Bun honours the step's own: spawn and
- * fork. So the Bun functions alone register children and give them
- * groups, and a child is counted once whichever way it started. Bun.$
- * starts its processes by neither, and is not wrapped.
+ * once, with detached set only where Bun honours the step's own: spawn,
+ * fork and the sync forms (1.3.10 dropped it for the sync forms; both drop
+ * it for exec and execFile). So the Bun functions alone register children
+ * and give them groups, and a child is counted once whichever way it
+ * started. Bun.$ starts its processes by neither, and is not wrapped.
  *
  * Each job of Windmill's leads its own process group, which its children
  * join, and the group is killed on a timeout or a cancellation (WR-55).
@@ -1178,7 +1318,9 @@ let childrenInstalled = false;
  * the process ends, a watchdog's kill of a process the call blocks
  * included. What a synchronous child leaves running after it exits stays
  * in that group too, unattributed: it is not reported, and runs until the
- * process ends.
+ * process ends. A synchronous child the step started detached leads a
+ * group of its own, which registers as "detached" if it outlives the
+ * child.
  *
  * A child the step itself starts detached, where Bun honours it, is in a
  * session of its own on Windmill too, outside the job's group: never
@@ -1298,8 +1440,10 @@ let handlersInstalled = false;
  * model, item 1): without them one detached rejection ends the process and
  * every invocation in it. Each error goes to onError, called inside the
  * handler, where current() names the invocation whose context raised it,
- * if any: on Bun 1.3.10 a throw from a timer keeps its context, and an
- * unhandled rejection or a throw from a microtask has none (item 2). For
+ * if any: on Bun 1.4.3 a throw from a timer, or from a node:fs or node:dns
+ * callback, keeps its context (1.3.10 raised the latter as unhandled
+ * rejections, with none), and an unhandled rejection or a throw from a
+ * microtask has none (item 2). For
  * a rejection, onError also gets the promise, whose realm names a native
  * invocation (native.ts). A ProcessExit thrown out of a callback never
  * reaches onError: its call already fixed the outcome or was reported. */
@@ -1353,8 +1497,8 @@ export function installExit(onExit: (c: InvocationContext, status: number) => vo
   } as typeof process.exit;
 }
 
-/** The exit status process.exit(code) gives on Bun 1.3.10, which checks a
- * code before it exits:
+/** The exit status process.exit(code) gives on Bun 1.4.3, as on 1.3.10,
+ * which checks a code before it exits:
  *
  * - no code (undefined or null) is process.exitCode, or 0;
  * - a number must be an integer within ±(2^53 − 1);
@@ -1373,8 +1517,9 @@ export function exitStatus(code: unknown): number {
   if (Number.isSafeInteger(n)) return ((n % 256) + 256) % 256;
   const before = process.exitCode;
   process.exitCode = code as number;
-  // Not reached on Bun 1.3.10, which refuses every such code. Should a
-  // later Bun accept one, the step's exit is not changed by the probe.
+  // Not reached on Bun 1.4.3 or 1.3.10, which refuse every such code.
+  // Should a later Bun accept one, the step's exit is not changed by the
+  // probe.
   if (before !== undefined) process.exitCode = before;
   throw new TypeError(`windmill-lite: process.exit(${String(code)}) was accepted as an exit code`);
 }

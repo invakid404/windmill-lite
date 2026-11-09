@@ -4,6 +4,12 @@ note: >-
   cmd/wltest fails unless every catalogue case of such a finding is a step
   case or listed here.
 deferred:
+  - spec: WR-2/b
+    reason: >-
+      its run succeeds, and the step suite observes no log of a successful
+      run; the same order (top-level writes ahead of the entrypoint's) is
+      checked through an escaped failure's tail
+    expected_in: conformance/steps/bun/wr-2.yaml (WR-2/top-level-log)
   - spec: WR-21/b
     reason: >-
       later: a script that writes result.json itself and exits 1; the
@@ -195,14 +201,14 @@ deferred:
     expected_in: L1
   - spec: WA-16/b
     reason: a bare string is refused by the stock client's own parsing, before any request; a script without the client makes none
-    expected_in: PF3 (internal/platform/facade TestObjectsOnTheClient, on windmill-client@1.767.0)
+    expected_in: PF3 (internal/platform/facade TestObjectsOnTheClient, on windmill-client@1.862.0)
   - spec: WA-16/d
     reason: >-
       an upload on a CE server with no workspace storage answers HTTP 500,
       so the stock client throws "Internal Server Error". With no object
       store configured, the facade's job helpers answer 500 too
       (internal/platform/facade TestObjectRoutes, and
-      TestNoObjectStoreOnTheClient on windmill-client@1.767.0), but every
+      TestNoObjectStoreOnTheClient on windmill-client@1.862.0), but every
       step case runs with an object store, so no step case can have none.
       CE's body was not recorded, and windmill-lite's is its own
     expected_in: internal/platform/facade TestObjectRoutes and TestNoObjectStoreOnTheClient
@@ -307,7 +313,7 @@ deferred:
     reason: >-
       a generated service's ApiError needs the stock client, which the
       step level does not install; its 501 reply is checked on
-      windmill-client@1.767.0's JobService.getJobLogs and getIdToken
+      windmill-client@1.862.0's JobService.getJobLogs and getIdToken
     expected_in: PF1 (internal/platform/facade TestUnsupportedPolicyOnTheClient)
   - spec: WA-11/b
     reason: >-
@@ -328,9 +334,9 @@ deferred:
       read that returns the decrypted bytes. windmill-lite never decrypts
       Windmill ciphertext, by design: its secrets come from the host, the
       local layer holds no workspace key, and a secret held as ciphertext
-      fails the read, the getVariable call and the step's argument with
-      windmill-lite's own cause, the 500 `Internal: secret_unavailable: …`
-      (ADR 0007, Secrets; JE-43), never CE's decryption texts. The create
+      fails the read, the getVariable call and the step's argument as one
+      CE cannot decrypt, with CE's one decryption text since 1.829.0
+      (ADR 0007, Secrets; JE-43; internal/platform's TestSecrets). The create
       itself has no handler (501, as for WA-11/b). The semantics
       reference added the case on 2026-10-29 (SC3), and no recording
       holds it yet; docs/design/README.md requests one from a future
@@ -345,8 +351,8 @@ deferred:
       not base64. The create has no handler (createVariable answers 501,
       as for WA-11/b; the update that is served since F1 answers 501 for
       already_encrypted=true), and windmill-lite's secrets layer decrypts
-      nothing, so the read of such a secret fails with secret_unavailable,
-      never CE's decryption text (ADR 0007, Secrets). The semantics
+      nothing, so the read of such a secret fails with CE's one decryption
+      text, as every secret held as ciphertext does (ADR 0007, Secrets). The semantics
       reference added the case on 2026-10-29 (SC3), and no recording
       holds it yet; docs/design/README.md requests one from a future
       batch E3f.
@@ -363,7 +369,7 @@ deferred:
       not found at name <path>` typed text/plain, without CE's location
       (ADR 0001 D14). setVariable on an existing variable, which asks
       variables/exists, updates and resolves to undefined, is checked on
-      windmill-client@1.767.0 by internal/platform/facade's
+      windmill-client@1.862.0 by internal/platform/facade's
       TestSetVariableOnTheClient
     expected_in: a later milestone that implements createVariable (ADR 0007, Variables); the update half, the WA-11 step case update-answers
   - spec: WA-12/f
@@ -384,6 +390,12 @@ deferred:
       Batch E3f has since recorded it on the oracle:
       conformance/flows/client-api/facade-answers, run answers.
     expected_in: none (outside windmill-lite, which has no instance database)
+  - spec: WA-12/i
+    reason: >-
+      the whole-value reads need the resources and variables that a flow
+      fixture's setup creates on the oracle, beside the step's own
+      argument resolution
+    expected_in: the flow fixture client-api/whole-value (run consumers) and internal/platform/testdata/interpolation.json
   - spec: WA-42/a
     reason: a rendering of each error variant is a unit check of the API's error type, not a step's behaviour
     expected_in: internal/platform/facade TestErrorVariants
@@ -421,3 +433,9 @@ deferred:
   - spec: WR-5/e
     reason: worker argument resolution is the engine's, which a step case does not run
     expected_in: the flow fixture client-api/providers (run missing_resource) and internal/platform/testdata/interpolation.json
+  - spec: WR-5/f
+    reason: worker argument resolution is the engine's, which a step case does not run
+    expected_in: the flow fixture client-api/whole-value (run consumers) and internal/platform/testdata/interpolation.json
+  - spec: WR-5/g
+    reason: worker argument resolution is the engine's, which a step case does not run
+    expected_in: the flow fixture client-api/whole-value (run missing_arg) and internal/platform/testdata/interpolation.json

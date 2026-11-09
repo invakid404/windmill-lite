@@ -16,7 +16,9 @@ import (
 // §6), and its own innermost flow scope (WA-V1); it has its own failure
 // module and its own flow_env, or its caller's when it defines none (CF-1,
 // JE-38). Its steps see its job id and its path (WA-6). A stop inside it
-// ends only the subflow (CF-12, FX-20).
+// ends only the subflow (CF-12, FX-20). Its flow job runs under the flow
+// step's positive timeout, else its flow's own value.timeout, as its
+// wall-clock limit (FX-52).
 
 // inputsOf returns the input transforms of m, a leaf or a flow step.
 func inputsOf(m *ir.Module) []ir.Input {
@@ -35,17 +37,23 @@ func inputsOf(m *ir.Module) []ir.Input {
 // that failed fails the step with it (CF-17): its failure value, a failed
 // container's array, or its failure module's result, a recovered one
 // included, since a subflow that ran its failure module reports a failure
-// to its caller (CF-V1, FX-33); one that aborted at a later transition
+// to its caller (CF-V1, FX-33), marked as recovered when it recovered or
+// failed with a recovered failure; one that aborted at a later transition
 // hands the step its last carried value, while lookups read the stored
 // error (CF-23 route 3). The step's own stop_after_if is evaluated after a
-// success, whatever stop the subflow raised.
-func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, pushed *frame) outcome {
+// success, whatever stop the subflow raised. secs is the step's own
+// positive timeout, or nil, which limits the subflow's flow job (FX-52); a
+// subflow that its own limit ended fails the step, whose job is canceled
+// with the canceled value, which lookups read, while the step carries the
+// timeout error or the subflow's failure module's result.
+func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, pushed *frame, secs *int64) outcome {
 	m := fr.moduleAt(i)
 	c := pushed
 	if c == nil {
 		c = r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
 		r.addChild(fr, i, 0, c)
 	}
+	c.limit = flowLimit(secs, c.def)
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
 	if e.unreported {
@@ -55,6 +63,13 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	// The subflow's completion ends its step's job, which refreshes fr's
 	// ping (JE-2).
 	r.ended(fr, &o)
+	if e.timedOut {
+		r.recordJob(fr, i, e.result)
+		o.rec.Result, o.rec.ResultOrigin = e.result, e.origin
+		o = carryOn(o, e)
+		o.rec.Status, o.rec.Module, o.end = conformance.StepCanceled, conformance.ModuleFailure, endFailed
+		return o
+	}
 	if ended(e.status) {
 		return branchInterrupted(o, true, r.endedStatus(ctx, e.status))
 	}
@@ -62,7 +77,7 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	// value delivered with its completion, which differs after an abort
 	// (CF-23 route 3).
 	r.recordJob(fr, i, e.result)
-	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result, e.origin, e.nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result.WithoutNUL(), e.origin, e.nested
 	o = carryOn(o, e)
 	// The step's job status is the subflow job's own: success when its
 	// failure module recovered, skipped when a clean stop with
@@ -76,7 +91,7 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 		o.rec.Status = conformance.StepSuccess
 	}
 	if e.status == conformance.RunFailure || e.handled {
-		o.rec.Module, o.end = conformance.ModuleFailure, endFailed
+		o.rec.Module, o.end, o.recovered = conformance.ModuleFailure, endFailed, e.recovered
 		return o
 	}
 	o.rec.Module = conformance.ModuleSuccess

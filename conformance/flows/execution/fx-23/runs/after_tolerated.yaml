@@ -6,7 +6,7 @@ expect:
   status: success
   result: 2
   steps:
-    "m:a": {status: failure, args: {msg: x}, result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {msg: x}, result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx23/after_tolerated}}}
     "m:b": {status: success, args: {x: 2}, result: 2}
 delays:
   - {from: "m:a", to: "m:b", at_least_ms: 1000}

@@ -2,8 +2,13 @@
 
 This area covers how one script step runs: from the args map the worker hands it, through the language wrapper, to the JSON value (or error) that comes back. Bun, the default TypeScript runtime, is covered in depth and tagged `core`, together with codebase bundles ([WR-47](#wr-47) to [WR-50](#wr-50)) and the in-worker native runtime that runs `nativets` and `bunnative` steps ([section H](#h-the-native-runtime-nativets-and-bunnative)); Deno, Python, Go and Bash are covered at summary level and tagged `later`. Neighbouring areas take over at the edges: [execution](execution.md) and [control flow](control-flow.md) for what a flow does with a step's result or error, [expressions](expressions.md) for expression evaluation, [client API](client-api.md) for the `wmill` client surface, [OpenFlow](openflow.md) for the flow model and sync-folder loader, and [oracle](oracle.md) for the oracle harness.
 
-**Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
-Source pointers are `path:line @ v1.767.0` relative to the Windmill repository root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+**Pinned version:** Windmill `v1.862.0` (commit `120415af151593716d39140c8a7d7f3bbe9d99cf`),
+re-pinned from `v1.767.0` on 2026-11-06 ([index](README.md#pinned-version)).
+Source pointers are `path:line` relative to the Windmill repository root,
+at `v1.862.0`. A finding whose tag line ends `verified at v1.767.0 only`
+has not been re-checked at `v1.862.0` yet: its pointers are at `v1.767.0`
+unless they say `@ v1.862.0`. Status, scope and confidence tags are
+defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `WR-` script-wrapper findings; `WR-Vn` findings were added during validation; `Q-WR-` open questions; `PD-` proposed design decisions (only in [Design notes](#design-notes-not-windmill-behaviour)).
 
@@ -13,7 +18,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 - **Entrypoint:** the exported function the wrapper calls: `main` by default, or the name given by an entrypoint override (WR-12).
 - **Job directory:** the per-job working directory. The worker writes `args.json` (the inputs) into it, plus an empty `result.json` that the wrapper fills.
 - **Args map:** the job's named inputs, a JSON object.
-- **Oracle:** a real Windmill CE `v1.767.0` instance used to record black-box behaviour ([oracle](oracle.md)). Most expectations in this area are source-derived. Those recorded on the oracle so far are the cases that say so: of WR-3, WR-5, WR-13, WR-16, WR-28, WR-37, WR-47, WR-49 and WR-50, and, since batch E3f, of WR-11, WR-22, WR-29, WR-40 to WR-46, WR-51, WR-52, WR-54, WR-55 and WR-V2 ([Q-WR-20](#q-wr-20), [Q-WR-21](#q-wr-21)).
+- **Oracle:** a real Windmill CE instance used to record black-box behaviour: `v1.862.0` since 2026-11-06, `v1.767.0` before ([oracle](oracle.md)). Most expectations in this area are source-derived. Those recorded on the oracle so far are the cases that say so: of WR-3, WR-5, WR-13, WR-16, WR-28, WR-37, WR-47, WR-49 and WR-50, and, since batch E3f, of WR-11, WR-22, WR-29, WR-40 to WR-46, WR-51, WR-52, WR-54, WR-55 and WR-V2 ([Q-WR-20](#q-wr-20), [Q-WR-21](#q-wr-21)).
 - In error messages, `\n` is the JSON escape for a newline. `…` marks free text that a test should not match exactly.
 
 ## Summary for the design
@@ -32,17 +37,17 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
    No single sort reproduces all of this. What an *expression* sees is a separate question ([expressions](expressions.md)).
 5. **Results are serialised as `JSON.stringify(value ?? null)`, with an `undefined`→`null` replacer and a BigInt→string patch.** So `undefined` fields are kept as `null` ([WR-13](#wr-13), [WR-14](#wr-14), [WR-9](#wr-9)). Exit 0 is only the *initial* success classification. Completion can still fail the job, through `wm_failure`, an empty result or the size limits ([WR-4](#wr-4), [WR-17](#wr-17), [WR-V2](#wr-v2), [WR-15](#wr-15)).
 6. **Error shapes.** There are four:
-   - **Wrapper catch:** `{message, name, stack, step_id?, extra?}` ([WR-18](#wr-18)).
+   - **Wrapper catch:** `{message, name, stack, step_id?, job_id?, flow_path?, extra?}` ([WR-18](#wr-18)).
    - **Escaped failure:** a log-tail `ExecutionErr` with `exit_code`. The exit code Bun produces is pending ([WR-19](#wr-19), [WR-20](#wr-20), [Q-WR-2](#q-wr-2)).
    - **Execution-handler error:** `execution error:\n…` ([WR-37](#wr-37)).
    - **Empty result:** `InternalErr` without `step_id` ([WR-V2](#wr-v2)).
 
    All of them are stored as `{"error": …}`, except values whose top-level `error.name` is `ManualFailure` ([WR-21](#wr-21), [WR-V5](#wr-v5)).
-7. **Timeouts are immediate SIGKILLs**, sent to the job's whole process group. The "job-specific" timeout wording appears only when the requested timeout is strictly below the instance cap ([WR-37](#wr-37)). When the job process exits by itself nothing is killed, and in the reference container, where the worker is PID 1, a descendant left in the group holds the job open until it exits ([WR-55](#wr-55)).
+7. **Timeouts are immediate SIGKILLs**, sent to the job's whole process group. The timeout message names the limit that was hit, and names the step's custom timeout only when it is strictly below the instance cap ([WR-37](#wr-37)). When the job process exits by itself nothing is killed, and in the reference container, where the worker is PID 1, a descendant left in the group holds the job open until it exits ([WR-55](#wr-55)).
 8. **Imports resolve by path to the latest deployed script.** Relative, `/f/` and `/u/` imports go to the latest deployed version, served by the `raw_unpinned` endpoint both at run time and during lock generation ([WR-28](#wr-28), [WR-V9](#wr-v9)). Inline flow scripts use the flow's path as their import base. A module's explicit `path` is dropped when the flow's module lists are deployed, so there it sets the base only for the deploy's dependency job and for raw runs such as previews; the failure and preprocessor slots stay raw and keep it ([WR-29](#wr-29)). Pin removal and the `.ts` rewrite are whole-text replacements: they also reach dynamic-import literals, strings and comments, and they can collide ([WR-V4](#wr-v4), [WR-26](#wr-26), [WR-38](#wr-38)). Their specifier lists come from a TSX parse (which rejects angle-bracket type assertions) and from Bun's `scanImports` (which rejects a hashbang line), and `..` in a relative import is resolved over the whole request URL ([WR-52](#wr-52)). The dynamic-import consequence is settled on the oracle: a dynamic literal is rewritten whenever a static specifier occurs in its text. A dynamic import that nothing rewrites is handled by its specifier: a `.ts` path is fetched from the workspace, a builtin or a package resolves as usual, and an extensionless path fails the deploy's dependency job ([WR-28](#wr-28), [WR-26](#wr-26)).
 9. **Some loader decisions are textual, others use an AST.** Annotation parsing, workflow-as-code detection and import rewriting are textual scans. Signature parsing uses an AST. An equivalent loader must reproduce each one as it is ([WR-39](#wr-39), [WR-31](#wr-31), [WR-32](#wr-32)).
 10. **Pins and environment.**
-    - The v1.767.0 images ship Bun `1.3.10`. That is the image recipe; the running oracle's version must still be recorded ([WR-3](#wr-3)).
+    - The v1.862.0 images ship Bun `1.4.4` (`1.3.10` at v1.767.0). That is the image recipe; the running oracle's version must still be recorded ([WR-3](#wr-3)).
     - Bun jobs see `BASE_URL` (not `BASE_INTERNAL_URL`), `WM_TOKEN` and the `WM_*` reserved variables ([WR-22](#wr-22)), plus `BUN_INSTALL_CACHE_DIR=/tmp/windmill/cache_nomount/bun` and, in the image, no `NODE_PATH`.
     - `npm:` specifiers stay outside core until [Q-WR-8](#q-wr-8) is settled.
     - Details for the later languages are in [WR-33](#wr-33) to [WR-35](#wr-35), [WR-V6](#wr-v6) and [WR-V7](#wr-v7).
@@ -51,18 +56,18 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 11. **Native steps run in an in-worker V8 isolate with their own boundary rules** ([WR-40](#wr-40) to [WR-46](#wr-46)). `nativets` steps, and Bun steps whose header says `//native`, get a fresh isolate per job, no process and no files. Compared with Bun:
     - arguments bind by name with `JSON.parse` and no `Date` hydration ([WR-41](#wr-41));
     - the result is `JSON.stringify(value ?? null)` with **no replacer**, so `undefined` fields are **omitted** and a `BigInt` fails the job ([WR-42](#wr-42));
-    - a thrown `Error` is stored as exactly `{message, stack, name}`, with no `step_id` and no `extra`, and any other thrown value gives three `null`s ([WR-43](#wr-43));
+    - a thrown `Error` is stored as `{message, stack, name}` followed by the step context keys `step_id`, `job_id` and `flow_path`, with no `extra`, and any other thrown value gives three `null`s and the same keys ([WR-43](#wr-43));
     - the timeout text is `Query timeout after (>Ns)` ([WR-44](#wr-44));
     - `process` is a module-level `{env}` object, and the global surface is a fixed list of web APIs ([WR-45](#wr-45));
     - a native job carries the `nativets` tag, which no worker of the reference configuration serves, so on the oracle as configured a native step never starts ([WR-40](#wr-40)); batch E3f recorded the native cases on a worker that adds the tag with `WORKER_TAGS=nativets`.
-12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.0`, `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node (v20.20.2, recorded) and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id depends only on the files under `relative_path` and the entry's settings. `wmill sync push` uses it to decide which scripts to push, but `wmill script push` with generated metadata uploads anyway, and even a deploy the server treats as a no-op rewrites the stored bundle under the same hash. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts, except under `//native` (above). A single-file bundle reaches the job with CRLF line breaks, from the form-data upload ([WR-49](#wr-49)).
+12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.2` (`0.28.0` at v1.767.0, whose bundle did not keep a module's evaluation error), `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node (v24.22.1, recorded; v20.20.2 at v1.767.0) and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id depends only on the files under `relative_path`, the entry's settings and, since CLI 1.818.0, the paths its `extra_digest_paths` lists. `wmill sync push` uses it to decide which scripts to push; `wmill script push` with generated metadata uploaded anyway at v1.767.0, and reports an unchanged script up to date at v1.862.0 (medium); even a deploy the server treats as a no-op rewrites the stored bundle under the same hash. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts, except under `//native` (above). A single-file bundle reaches the job with CRLF line breaks, from the form-data upload ([WR-49](#wr-49)).
 
 ## A. Bun: process model and lifecycle
 
 <a id="wr-1"></a>
 ### WR-1 · One fresh OS process per script job, in a fresh job directory
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Per job:** the worker creates a new directory `<worker_dir>/<job_id>` and spawns one new `bun run` process with that directory as its working directory. The process exits when the job finishes.
@@ -77,7 +82,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-2"></a>
 ### WR-2 · The module is evaluated before args are read, and the entrypoint runs exactly once
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The generated `wrapper.mjs` imports the user module statically. The module's top-level code, and that of everything it imports, therefore runs **before** `args.json` is read.
@@ -99,22 +104,23 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 **Scope:** core · **Confidence:** high (image recipe; the running version oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - At v1.767.0 the official images copy Bun **`1.3.10`** to `/usr/bin/bun`. The `BUN_PATH` env var overrides the path.
+  - At v1.862.0 the official images copy Bun **`1.4.4`** to `/usr/bin/bun` (`1.3.10` at v1.767.0). The `BUN_PATH` env var overrides the path.
   - Other runtimes in the same image:
-    - `//nodejs` scripts run on the image's distribution `nodejs` (`/usr/bin/node`, overridable with `NODE_BIN_PATH`);
-    - Deno is `2.2.1`;
-    - Go is `1.26.0`.
-  - The `windmill-client` package that matches this release is `1.767.0`.
+    - `//nodejs` scripts run on the image's distribution `nodejs`, pinned to `24.22.1` ([WR-50](#wr-50)) (`/usr/bin/node`, overridable with `NODE_BIN_PATH`);
+    - Deno `2.2.1` is only in the full image since Windmill 1.830.0 (the standard image had it at v1.767.0);
+    - Go is `1.27.3` (`1.26.0` at v1.767.0).
+  - The `windmill-client` package that matches this release is `1.862.0`.
   - These are facts about the image recipe. The version a running oracle actually reports has to be recorded separately: the oracle harness records `Bun.version` in its fixture metadata ([oracle](oracle.md)).
-- **Evidence:** `Dockerfile:285` (`oven/bun:1.3.10`), `Dockerfile:283` (`denoland/deno:2.2.1`), `Dockerfile:141` (`GO_VERSION=1.26.0`), `docker/DockerfileSlim:73`; `backend/windmill-worker/src/worker.rs:607-610`; `typescript-client/package.json:4` (all @ v1.767.0).
+- **Evidence:** `Dockerfile:338` (`oven/bun:1.4.4`), `docker/DockerfileSlim:85`, `Dockerfile:4` (`GO_VERSION=1.27.3`), `Dockerfile:157`, `:290-291` (Node `24.22.1`), `docker/DockerfileFull:5` (`denoland/deno:2.2.1`); `backend/windmill-worker/src/worker.rs:644`, `:646` (`BUN_PATH`, `NODE_BIN_PATH`); `typescript-client/package.json:4` (all @ v1.862.0).
 - **Conformance:** [WR-3/a](conformance.md#wr-3)
-- **Design note (not Windmill behaviour):** windmill-lite should pin the same Bun version and report it in its build info.
+- **Design note (not Windmill behaviour):** windmill-lite pins a Bun version and reports it in its build info. It pins `1.4.3`, not the image's `1.4.4`; [ADR 0001](../design/0001-equivalence-contract.md) is where the equivalence contract treats such a difference.
 - **Revision 2026-10-29 (oracle, batch E3e):** the oracle's environment probe returns `Bun.version` = `1.3.10` from a Bun step (fixture `conformance/flows/oracle/probes`, run `env`, oracle run 40798097155), so the running binary matches the image recipe. WR-3/a is `oracle-observed`.
+- **Revision 2026-11-07 (retarget to v1.862.0):** re-checked as a whole. The image copies Bun `1.4.4`, and a Bun step on CE v1.862.0 reports it (fixture `conformance/flows/oracle/probes`, run `bun_version`, the `env` probe's former `bun` field, oracle run 42327335039). Node is `24.22.1`, Deno has left the standard image, Go is `1.27.3`, and the matching `windmill-client` is `1.862.0`. The design note no longer asks for the image's Bun: windmill-lite pins `1.4.3`.
 
 <a id="wr-4"></a>
 ### WR-4 · Process exit status and how the job outcome is first decided
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Before the process starts, the worker writes `args.json` and pre-creates an **empty** `result.json`. "Empty" therefore means the wrapper never reached its write.
@@ -129,7 +135,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-55"></a>
 ### WR-55 · Processes a job leaves behind: its process group, the wait after it exits, and the kill
 
-**Scope:** later · **Confidence:** high (oracle-observed in the reference configuration: a child in the job's group holds the job open and a detached one does not, WR-55/a; a timeout kills the group after `main` returned, WR-55/b; no process serves two ordinary script jobs, WR-55/c); medium (long-lived processes: the CE build's features and the public script wrapper source-traced; the closed-source process host cannot be read) · **Status:** confirmed (the per-job rule and WR-55/c); drafted (long-lived processes beyond WR-55/c)
+**Scope:** later · **Confidence:** high (oracle-observed in the reference configuration: a child in the job's group holds the job open and a detached one does not, WR-55/a; a timeout kills the group after `main` returned, WR-55/b; no process serves two ordinary script jobs, WR-55/c); medium (long-lived processes: the CE build's features and the public script wrapper source-traced; the closed-source process host cannot be read) · **Status:** confirmed (the per-job rule and WR-55/c); drafted (long-lived processes beyond WR-55/c) · verified at v1.767.0 only
 
 - **Rule:** this covers what happens to processes a Bun-family job starts (a `child_process` spawn, a shell command), in the reference configuration: no nsjail and no `unshare` isolation, which are off unless configured.
   - **Each job process leads its own process group.** The worker starts the `bun` or `node` process ([WR-1](#wr-1), [WR-50](#wr-50)) as the leader of a new process group, unless the worker's `DISABLE_PROCESS_GROUP` variable is set. A process the job starts inherits that group unless it creates its own session or group, as a detached spawn does.
@@ -157,7 +163,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-5"></a>
 ### WR-5 · `args.json` is the job's args map after `$var:`/`$res:` resolution, with internal keys removed
 
-**Scope:** core (`$res:`, `$var:`, `$jsonvar:`); later (`$encrypted:`, `$NAME` substitution) · **Confidence:** high; oracle-observed (WR-5/a, WR-5/b, WR-5/c, WR-5/e) · **Status:** confirmed
+**Scope:** core (`$res:`, `$var:`, `$jsonvar:`); later (`$encrypted:`, `$NAME` substitution) · **Confidence:** high; oracle-observed (WR-5/a, WR-5/b, WR-5/c, WR-5/e) · **Status:** confirmed · verified at v1.767.0 only, except WR-5/b's text (re-checked at v1.862.0)
 
 - **Rule:**
   - **What is written:** before spawning the process, the worker writes `args.json` as one JSON object, the job's args map.
@@ -174,21 +180,23 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     |---|---|
     | `"$var:<path>"` | the variable's value, as a JSON string |
     | `"$jsonvar:<path>"` | the variable's value, parsed as JSON |
-    | `"$res:<path>"` | the resource value, fetched in interpolated form, so the API resolves nested `$var:`/`$res:` inside it. The path must have at least 2 `/` segments, as `u/a/pg` does, unless it starts with `CUSTOM_INSTANCE_DB/`. |
+    | `"$res:<path>"` | the resource value, fetched in interpolated form, so the API resolves nested `$var:`/`$res:` inside it. The path must have at least 2 `/` segments, as `u/a/pg` does, unless it starts with `CUSTOM_INSTANCE_DB/`. The answer is substituted as it comes, never walked again, so a marker it still holds (a variable whose value is itself `$var:…`, or an `$encrypted:` value the server returns as stored, [WA-12](client-api.md#wa-12)) reaches the script literally. A resource whose whole value is one reference string answers that reference's value. |
     | `"$encrypted:<ct>"` | decrypted, then parsed as JSON. The key is built from the workspace **and the root job id**. The plaintext is registered for log masking. |
     | any other string starting with `$`, e.g. `"$NAME"` | if `NAME` is a reserved variable ([WR-22](#wr-22)), that variable's value; otherwise unchanged |
 
   - Matching looks at the value only. The declared parameter type plays no part.
   - Resolution happens after the job is pulled and before `args.json` is written. That timing matters for key order ([WR-V8](#wr-v8)).
 - **Evidence:** `backend/windmill-worker/src/common.rs:122-153` (writes `args.json`), `:163-172` (trigger pattern), `:174-210` (`transform_json`), `:265-399` (`transform_json_value`), `:325-337` (encryption context) (all @ v1.767.0). Docs: <https://www.windmill.dev/docs/core_concepts/resources_and_types>.
-- **Conformance:** [WR-5/a–e](conformance.md#wr-5)
+- **Conformance:** [WR-5/a–g](conformance.md#wr-5)
 - **Note:** resolved values come through the platform interface ([client API](client-api.md)). Where `$res:` strings come from in static transforms is covered in [expressions](expressions.md).
 - **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WR-5/a, WR-5/b, WR-5/c and WR-5/e are recorded as stated (fixture `conformance/flows/client-api/providers`, oracle runs 40824738438 and 40826651517), WR-5/b with its suffix (`@common.rs:306:28` at the pin) and WR-5/e with its whole message, ``execution error:\nNot found: Resource <p> not found for `<name>`: Not found: Resource <p> not found``. The substitution of a reserved name inside a qualifying argument (WR-5/d's rule) was recorded with `$WM_ROOT_JOB_ID`, which became the process's effective root, the flow job ([JE-42](expressions.md#je-42)); WR-5/d itself, with `$WM_WORKSPACE`, is not recorded.
+- **Revision 2026-11-06 (retarget to v1.862.0):** WR-5/b was re-recorded on CE v1.862.0 with the same text. The path check is unchanged (fewer than two `/`-separated segments, `CUSTOM_INSTANCE_DB/` excepted) and raises at `backend/windmill-worker/src/common.rs:326 @ v1.862.0`, so the location reads `@common.rs:326:28` (`@common.rs:306:28` at v1.767.0). The rest of the finding is not re-checked.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** Windmill 1.859.0's note "keep a resource whose whole value is a variable reference" changed the resource editor only: before, editing such a resource in the web UI replaced the string with an object. How the worker resolves a `$res:` argument naming it is the same at v1.767.0 and v1.862.0: the server's interpolated answer, substituted without a second walk (`backend/windmill-worker/src/common.rs:322-338 @ v1.862.0`, `:302-318 @ v1.767.0`). The `$res:` row says so, and [WR-5/f](conformance.md#wr-5) and [WR-5/g](conformance.md#wr-5) cover the whole-value shapes and a missing variable behind one (fixture `conformance/flows/client-api/whole-value`, recorded as predicted, oracle run 42605323019).
 
 <a id="wr-6"></a>
 ### WR-6 · How args bind to the entrypoint
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** let *P* be the parsed parameter list of the entrypoint (`main`, or the override name, [WR-12](#wr-12)). The worker gets *P* from the TypeScript signature parser, which parses the module as an AST ([WR-39](#wr-39)). Binding then takes one of three branches.
   1. ***P* is non-empty** (with or without an override): named binding.
@@ -208,7 +216,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-7"></a>
 ### WR-7 · Which declarations count as the entrypoint, and the parser's edge cases
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** the entrypoint is named `main` unless an entrypoint override is set ([WR-12](#wr-12)).
   - **What the parser recognises** (it walks the module's top-level declarations):
@@ -227,7 +235,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-8"></a>
 ### WR-8 · Which parameter annotations are hydrated as `Date`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Hydrated:** the wrapper hydrates a parameter exactly when the parser resolves its annotation to the parser type `Datetime`. That happens for:
@@ -259,7 +267,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-9"></a>
 ### WR-9 · The JSON boundary into a step: args are JSON text parsed with `JSON.parse`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Every Bun step receives its inputs as JSON text and parses it with plain `JSON.parse`, with no reviver.
@@ -278,7 +286,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-10"></a>
 ### WR-10 · Key order at the step-argument boundary, by layer
 
-**Scope:** core · **Confidence:** high (source-traced, including the database decoder; not oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced, including the database decoder; not oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** on the normal SQL worker path, the order in which a Bun step sees object keys depends on the layer.
 
@@ -305,7 +313,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-11"></a>
 ### WR-11 · Script-level `preprocessor` (trigger preprocessing)
 
-**Scope:** later · **Confidence:** high (source-traced); high (oracle-observed: a flag written inside a step's `value` is ignored, by path and pinned, WR-11/b and WR-11/c) · **Status:** confirmed; drafted (which runs mark a job for preprocessing; the module-level flag of WR-11/d)
+**Scope:** later · **Confidence:** high (source-traced); high (oracle-observed: a flag written inside a step's `value` is ignored, by path and pinned, WR-11/b and WR-11/c) · **Status:** confirmed; drafted (which runs mark a job for preprocessing; the module-level flag of WR-11/d) · verified at v1.767.0 only
 
 - **Rule:**
   - **When it runs:** a Bun script's own exported `preprocessor` runs only when both hold:
@@ -332,7 +340,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-12"></a>
 ### WR-12 · Entrypoint override, and the flow `preprocessor_module`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **The override:** the job arg `_ENTRYPOINT_OVERRIDE` selects a named export to call instead of `main`. The parser and the wrapper both use that name.
@@ -349,7 +357,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-51"></a>
 ### WR-51 · Signature-parser details: which declaration counts, `this`, qualified types, aliases and the accepted syntax
 
-**Scope:** core · **Confidence:** high (the declaration walk, parameter naming, type-name lookup, snake case); high (oracle-observed: a decorator fails the pin-removal parse on the run path, WR-51/d); medium (the `this` failure end to end; Bun's message is from the release binary run outside Windmill) · **Status:** drafted
+**Scope:** core · **Confidence:** high (the declaration walk, parameter naming, type-name lookup, snake case); high (oracle-observed: a decorator fails the pin-removal parse on the run path, WR-51/d); medium (the `this` failure end to end; Bun's message is from the release binary run outside Windmill) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** these details complete [WR-7](#wr-7) and [WR-8](#wr-8).
   - **The parse.** The signature parser reads the module as TypeScript without JSX, at the parser's default settings. A fatal syntax error fails the parse, and the job fails before it runs with the [WR-37](#wr-37) shape: `error.message` starts `execution error:\nError: Error while parsing code, it is invalid TypeScript:`. What the parse accepts:
@@ -376,7 +384,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **When it applies:** in the ordinary Bun wrapper, when an entrypoint override is present **and** its parsed parameter list is empty. Only those two conditions select it; there is no check that the job is a workflow-as-code child.
@@ -392,7 +400,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v3"></a>
 ### WR-V3 · Local type aliases and parentheses take part in `Date` hydration
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The wrapper chooses which parameters to hydrate from the parser's **resolved** parameter type.
@@ -406,7 +414,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v8"></a>
 ### WR-V8 · Argument ordering depends on the layer and on post-pull transformations
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:** on the normal SQL worker path:
   - **Top level:** stored job args are read into an outer hash map whose values are raw JSON fragments. That map is serialised again to create `args.json`, so the order of non-integer top-level keys is unspecified, even when the database supplied ordered JSON text.
@@ -424,7 +432,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-13"></a>
 ### WR-13 · The result is `JSON.stringify(value ?? null, replacer)`, written to `result.json`
 
-**Scope:** core · **Confidence:** high (source-traced; the top-level function case is pending [Q-WR-12](#q-wr-12)) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced; the top-level function case is pending [Q-WR-12](#q-wr-12)) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **How it is written:** the awaited return value first goes through `?? null` at the top level, then through `JSON.stringify` with a replacer that maps every `undefined` it sees to `null`. The text is written to `./result.json` in the working directory.
@@ -447,7 +455,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-14"></a>
 ### WR-14 · Object fields holding `undefined` become `null`, not omitted
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - Plain `JSON.stringify` omits such fields; Windmill does not. Because the replacer maps `undefined` to `null`, any object property whose value is `undefined` (or whose `toJSON()` returns `undefined`) is **kept, with value `null`**.
@@ -459,7 +467,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-15"></a>
 ### WR-15 · `result.json` is taken as raw text; size limits
 
-**Scope:** core (raw handoff; empty case in WR-V2); later (size limits) · **Confidence:** high; medium (the check on a flow's own result) · **Status:** confirmed; drafted (the limit's reading and the stored failure, added 2026-10-28)
+**Scope:** core (raw handoff; empty case in WR-V2); later (size limits) · **Confidence:** high; medium (the check on a flow's own result) · **Status:** confirmed; drafted (the limit's reading and the stored failure, added 2026-10-28) · verified at v1.767.0 only
 
 - **Rule:**
   - **Raw handoff:** on exit 0, the worker passes `result.json`'s text on without parsing it. An empty file fails at completion with `InternalErr` ([WR-V2](#wr-v2)).
@@ -478,7 +486,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-16"></a>
 ### WR-16 · Result streaming: async-iterable results and `WM_STREAM: ` log lines
 
-**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Producing the stream:** if the awaited result is async-iterable, the wrapper does three things for each chunk, in order:
@@ -507,7 +515,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-17"></a>
 ### WR-17 · Result markers `wm_failure` and `wm_labels`
 
-**Scope:** later (`wm_failure`); out (`wm_labels`) · **Confidence:** high (retagging); medium (how a flow treats the pre-shaped failure) · **Status:** confirmed
+**Scope:** later (`wm_failure`); out (`wm_labels`) · **Confidence:** high (retagging); medium (how a flow treats the pre-shaped failure) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **`wm_failure`:** after a *successful* run, if the result is a JSON object whose top-level `wm_failure` is a **string**, the run is retagged as failed.
@@ -523,7 +531,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v2"></a>
 ### WR-V2 · An empty successful result fails completion with `InternalErr`
 
-**Scope:** core · **Confidence:** high (oracle-observed: WR-V2/a, a script job and a flow step) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: WR-V2/a, a script job and a flow step) · **Status:** confirmed · verified at v1.767.0 only, except WR-V2/a's location (re-checked at v1.862.0)
 
 - **Rule:**
   - **When it happens:** on the normal SQL completion path, a script exits 0 but leaves `result.json` empty. That happens when the script calls `process.exit(0)` itself, or changes directory before the wrapper writes.
@@ -532,20 +540,22 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
   - **Fields this handler does not add:** `step_id`, `stack`, `exit_code` and the `execution error:` prefix. That holds for a flow step too.
 - **Evidence:** `backend/windmill-queue/src/jobs.rs:950-955`; `backend/windmill-worker/src/result_processor.rs:673-742`, `:1487-1510`, `:1881-1907`, `:1910-1967`; `backend/windmill-common/src/worker.rs:2228-2233`; `backend/windmill-common/src/error.rs:61-62`, `:105-108`, `:233-239` (all @ v1.767.0).
 - **Conformance:** [WR-V2/a](conformance.md#wr-v2)
+- **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-V2/a was recorded as written for a script job and a flow step (fixture `conformance/flows/languages/wr-v2`, oracle run 41000318656): `{"error":{"name":"InternalErr","message":"Internal: Result of job is invalid json (empty) @jobs.rs:956:20"}}`, with no `step_id` in the step.
+- **Revision 2026-11-06 (retarget to v1.862.0):** WR-V2/a was re-recorded on CE v1.862.0 for the script job and the flow step, with the same shape and no `step_id`. The empty-result check is at the start of completion (`backend/windmill-queue/src/jobs.rs:1435-1439 @ v1.862.0`), so the message ends `@jobs.rs:1437:20` (`@jobs.rs:956:20` at v1.767.0). The other pointers are not re-checked.
 
 ## D. Bun: the error path
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-V2/a was recorded as written for a script job and a flow step (fixture `conformance/flows/languages/wr-v2`, oracle run 41000318656): `{"error":{"name":"InternalErr","message":"Internal: Result of job is invalid json (empty) @jobs.rs:956:20"}}`, with no `step_id` in the step.
 
 <a id="wr-18"></a>
 ### WR-18 · The error object the wrapper writes when the entrypoint, the preprocessor or serialisation throws
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only, except the step context keys (re-checked at v1.862.0)
 
 - **Rule:** any exception that escapes the wrapper's main routine is handled as follows. That covers the entrypoint, the preprocessor, Date hydration, the stream loop, and serialising and writing the result.
   - The exception is printed to stderr, so it appears in the logs.
   - An object is built:
     - `message` = `e.message`, `name` = `e.name`, `stack` = `e.stack`;
     - `step_id` = the `WM_FLOW_STEP_ID` env var, added only when it is non-empty;
+    - `job_id` = the `WM_JOB_ID` env var and `flow_path` = the `WM_FLOW_PATH` env var, each added only when it is non-empty (since 1.847.0): the failing job's own id and its parent job's runnable path, as [FX-12](execution.md#fx-12) details;
     - `extra` = every **own** property of `e` (as listed by `Object.getOwnPropertyNames`) except `line`, `name`, `stack`, `column`, `message`, `sourceURL`, `originalLine` and `originalColumn`. It is added only when it has at least one key.
   - The object is serialised with plain `JSON.stringify`: there is no `undefined` replacer, but the BigInt patch still applies. So fields whose value is `undefined` are **omitted**.
   - The text goes to `result.json` and the process exits with code 1. The worker uses that text verbatim as the error value ([WR-4](#wr-4)), then wraps it ([WR-21](#wr-21)).
@@ -553,16 +563,18 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - The `name` of an `Error` subclass is `Error`, unless the class sets `name`.
     - Properties the user attaches (`code`, `cause`, `errors` on `AggregateError`) appear under `extra`.
     - Values inside `extra` serialise by ordinary JSON rules. A nested Error with no enumerable own properties gives `{}`; enumerable own properties survive.
-    - Throwing a **non-Error** value gives odd shapes. A string gives an `extra` of indexed characters plus `length`, and no `message`. A number gives only `step_id`.
+    - Throwing a **non-Error** value gives odd shapes. A string gives an `extra` of indexed characters plus `length`, and no `message`. A number gives only the context keys, `step_id`, `job_id` and `flow_path`.
     - If serialising `extra` throws (a cycle, for example), the handler itself fails, `result.json` stays empty, and [WR-19](#wr-19) applies.
   - Which own properties Bun-native errors carry is [Q-WR-7](#q-wr-7).
 - **Evidence:** `backend/windmill-worker/src/bun_executor.rs:1948-1969`; `backend/tests/bun_jobs.rs:326-367` (a runtime error's `message` contains the thrown text) (all @ v1.767.0).
+- **Evidence for the context keys** (@ v1.862.0): `backend/windmill-worker/src/bun_executor.rs:2848-2875`, `:2922-2949`, with the keys at `:2851-2862` and `:2925-2936`.
 - **Conformance:** [WR-18/a–h](conformance.md#wr-18)
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; re-verified at v1.862.0):** 1.847.0 added `job_id` and `flow_path` after `step_id`, under the same non-empty rule. Both Bun wrappers at v1.862.0 build the object as listed above; the cases now show the two keys. The rest of the rule is unchanged.
 
 <a id="wr-19"></a>
 ### WR-19 · Failures that escape the wrapper's error shaping
 
-**Scope:** core (shape); later (exit-code value) · **Confidence:** high (escape cases and classification); the exit status is unknown until observed · **Status:** confirmed
+**Scope:** core (shape); later (exit-code value) · **Confidence:** high (escape cases and classification); the exit status is unknown until observed · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Which failures escape:** in three situations the wrapper's error handler never produces output, so `result.json` stays empty:
@@ -579,7 +591,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-20"></a>
 ### WR-20 · Log-tail error synthesised on a non-zero exit with an empty `result.json`
 
-**Scope:** core (shape); later (exact tail text); out (agent-worker fallback) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (shape); later (exact tail text); out (agent-worker fallback) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Taking the log tail:** the worker takes the last 600 characters of the job's latest log chunk, then keeps only the text after the last `CODE EXECUTION ---` marker.
@@ -599,7 +611,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-21"></a>
 ### WR-21 · How a failed script's error value is stored and passed on
 
-**Scope:** core (wrapping); later (the `ManualFailure` bypass) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (wrapping); later (the `ManualFailure` bypass) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Pre-shaped failures are checked first.** On the failure path, if the raw error value parses as a JSON object whose top-level `error` is an object with `name` = `ManualFailure`, it is stored and passed on **as-is**, with its sibling fields kept ([WR-V5](#wr-v5)).
@@ -617,14 +629,14 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-37"></a>
 ### WR-37 · Execution-handler failures (`execution error:`) and timeouts
 
-**Scope:** core · **Confidence:** high (oracle-observed: WR-37/a; the signature failure's one location, WR-37/b) · **Status:** confirmed; drafted (which other displays end in a location)
+**Scope:** core · **Confidence:** high (oracle-observed: WR-37/a; the signature failure's one location, WR-37/b) · **Status:** confirmed; drafted (which other displays end in a location) · verified at v1.767.0 only, except the timeout display, which timeout applies and the kill sequence (re-checked at v1.862.0)
 
 - **Rule:**
   - **What this covers:** errors returned by the **execution handler**: arg resolution ([WR-5](#wr-5)), the script's `envs` ([WR-22](#wr-22)), argument validation ([WR-54](#wr-54)), signature parsing ([WR-7](#wr-7)), the pin-removal parse ([WR-52](#wr-52)), timeout, cancellation, and I/O while running the child.
     - Each becomes `{"message":"execution error:\n<error display>","name":"ExecutionErr","step_id":…}`, which is then wrapped as in [WR-21](#wr-21).
     - Errors raised later, at **completion** (an empty or oversize result), are shaped differently ([WR-V2](#wr-v2), [WR-15](#wr-15)).
   - **Error displays:**
-    - **Timeout:** `job process terminated due to timeout after exceeding job-specific duration limit`, or `job process terminated due to timeout after exceeding instance-wide job duration limit`.
+    - **Timeout:** ``job process terminated due to timeout: `<phase>` exceeded <limit>``, with the phase and the limit's name as in [FX-25](execution.md#fx-25). A Bun step's run that outlives a custom timeout of `<n>` seconds reads ``job process terminated due to timeout: `bun run` exceeded the <n>s custom timeout set on the script or flow step`` (1.825.0). At v1.767.0 it read `job process terminated due to timeout after exceeding job-specific duration limit`, or `… after exceeding instance-wide job duration limit`.
     - **Cancellation:** `job process terminated due to cancelled[ by <user>][ (reason: <r>)]`.
     - **Location suffixes.** A display ends in ` @<file>.rs:<line>:<col>` exactly when it is a located layer of [FX-50](execution.md#fx-50): `Error: ` (the `Anyhow` kind), a located `Internal: `, `SqlErr: `, `IoErr: ` and the other wrapped library errors. `Bad request: …` (a malformed `envs` entry), `Problem with arguments: …` ([WR-54](#wr-54)) and the timeout and cancellation texts end in none.
     - **The parse failures are `Anyhow`, one layer, so they end in one suffix.** The parser's text is converted where the Bun executor calls it, so the display reads `Error: <parser text> @bun_executor.rs:<line>:<col>`, the location being that call site (the start of the failing call, last path segment). At the pin:
@@ -634,25 +646,27 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 
       The literal locations move between Windmill versions; [FX-50](execution.md#fx-50)'s masking rule (one `Error: ` prefix, one trailing `<loc>`) applies to them like to any other.
   - **Which timeout applies:**
-    - A requested timeout gets the "job-specific" wording only when it is **strictly less than** the instance maximum (`TIMEOUT`). The default maximum is 604 800 s self-hosted. On the cloud the base default is 900 s, and in a premium cloud workspace the effective maximum is six times the instance maximum.
-    - A request equal to or above the maximum is ignored. The instance maximum applies, the log gets `WARNING: Custom job timeout of <n> seconds was greater than the maximum timeout. …`, and the wording is "instance-wide".
-    - With no request, the instance default or maximum applies.
-  - **Flow-module timeouts** are input transforms. The flow engine evaluates them and passes the result when it pushes the job. A negative value fails with `Timeout value cannot be negative`.
+    - A requested timeout is used, and the message names it as the custom timeout, only when it is **strictly less than** the instance maximum (`TIMEOUT`). The default maximum is 604 800 s self-hosted. On the cloud the base default is 900 s, and in a premium cloud workspace the effective maximum is six times the instance maximum.
+    - A request equal to or above the maximum is ignored. The instance maximum applies, the log gets `WARNING: Custom job timeout of <n> seconds was greater than the instance maximum job duration of <max> seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead`, and the message names the instance maximum.
+    - With no request, the instance default or maximum applies, and the message names it; an instance default of 0 is a zero-second limit, and a negative one falls to the maximum ([FX-24](execution.md#fx-24)). A request of 0 or less is no request (1.768.0).
+  - **Flow-module timeouts** are input transforms. The flow engine evaluates them and passes the result when it pushes the job. A value of 0 or less is unset; at v1.767.0 a negative value failed with `Timeout value cannot be negative`.
   - **Kill sequence:**
     - SIGINT is sent first only if `MAX_WAIT_FOR_SIGINT` > 0, and the default is 0.
     - The Bun run does not ask for SIGTERM (`MAX_WAIT_FOR_SIGTERM` = 5 does not come into play).
     - So on Unix the process is **SIGKILLed immediately** on timeout or cancellation, with no chance to clean up.
   - How cancelling the containing flow behaves is covered in [execution](execution.md).
 - **Evidence:** `backend/windmill-worker/src/result_processor.rs:616-621`; `backend/windmill-worker/src/handle_child.rs:166-197` (kill-reason texts), `:199-216` (timeout and cancel race), `:254-306` (signals), `:334-348`; `backend/windmill-worker/src/worker.rs:664-672` (`MAX_WAIT_FOR_SIGINT`, `MAX_WAIT_FOR_SIGTERM`); `backend/windmill-worker/src/bun_executor.rs:2427-2431` (SIGTERM flag off); `backend/windmill-worker/src/common.rs:1056-1105` (`resolve_job_timeout`; premium multiplier at `:1064-1082`); `backend/windmill-common/src/worker.rs:210-211`, `:295-298`; `backend/windmill-worker/src/worker_flow.rs:4379-4428` (module timeout evaluated and pushed); `backend/windmill-worker/src/result_processor.rs:621-627` (the envelope for every other handler error); `backend/windmill-common/src/error.rs:73` (the `Anyhow` display), `:138-151` (the location: the converting call site, last path segment); `backend/windmill-worker/src/bun_executor.rs:1680` (pin removal on the run path, before the wrapper is written), `:1715-1720` (the entrypoint's signature), `:1726-1731` (the preprocessor's); `backend/parsers/windmill-parser-ts/src/lib.rs:332-336`, `:154-156` (the two parse texts), `:629-634` (`parameter syntax unsupported`) (all @ v1.767.0).
+- **Evidence at v1.862.0** (the timeout display, which timeout applies, the kill sequence): `backend/windmill-worker/src/handle_child.rs:232-260`, `:310-346`, `:379-450`, `:486-493`; `backend/windmill-worker/src/common.rs:1106-1137`, `:1177-1277`; `backend/windmill-worker/src/worker.rs:704-712`; `backend/windmill-worker/src/bun_executor.rs:3409-3434` (the run phase, its timeout, no SIGTERM); `backend/windmill-worker/src/result_processor.rs:671-677`.
 - **Conformance:** [WR-37/a, WR-37/b](conformance.md#wr-37)
 - **Note:** sits in this section because it completes the error path. Deadlines therefore preempt user code rather than asking it to stop. What the kill reaches beyond the job process, and what happens to leftover processes when the job ends on its own, is [WR-55](#wr-55).
 - **Revision 2026-10-29 (SC3, source re-check, chain FU5):** milestone FU5 asked whether the signature-parse error ends in a Rust location. It does: the parse failures are `Anyhow` errors and end in exactly one ` @bun_executor.rs:<line>:<col>`, the call site in the Bun executor. The rule's "internal errors carry a suffix" is replaced by [FX-50](execution.md#fx-50)'s layer list, the parse locations at the pin are given, and the list of handler errors now names `envs`, argument validation and pin removal. New case WR-37/b.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-37/b was recorded as a preview (fixture `conformance/flows/client-api/driven`, run `previews`, oracle run 40994947681): one `Anyhow` layer, the parser's debug print of the rejected pattern after `` parameter syntax unsupported: `...xs`: ``, and exactly one suffix, ` @bun_executor.rs:1715:13`. The pin-removal parse failures of [WR-51](#wr-51) and [WR-52](#wr-52) were recorded in the same run with ` @bun_executor.rs:1680:41`.
+- **Revision 2026-11-07 (retarget to v1.862.0, the timeout parts re-checked):** the timeout display names the process phase and the limit's source (1.825.0), the cap's warning names the worker's `TIMEOUT` variable, and a requested timeout of 0 or less counts as none (1.768.0). The kill sequence is unchanged. Re-recorded on CE v1.862.0: WR-37/a (`conformance/flows/languages/bun-results` run `timeout`, the step stored `canceled`, [FX-25](execution.md#fx-25)). The other displays and their locations are verified at v1.767.0 only.
 
 <a id="wr-v5"></a>
 ### WR-V5 · Pre-shaped failure detection is a structural marker check
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The failure-completion path skips the usual outer wrapping whenever its raw error result parses as an object with `error.name` equal to `ManualFailure`.
@@ -668,7 +682,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-22"></a>
 ### WR-22 · Environment variables a Bun job sees
 
-**Scope:** core (`WM_WORKSPACE`, `WM_TOKEN`, `WM_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`, `WM_FLOW_PATH`, `WM_JOB_PATH`, `BASE_URL`); later (the rest); out (`WM_WORKER_GROUP`) · **Confidence:** high (oracle-observed: the values of `BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, WR-22/b; the split of an `envs` entry and the failure of one without `=`, WR-22/c) · **Status:** confirmed
+**Scope:** core (`WM_WORKSPACE`, `WM_TOKEN`, `WM_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`, `WM_FLOW_PATH`, `WM_JOB_PATH`, `BASE_URL`); later (the rest); out (`WM_WORKER_GROUP`) · **Confidence:** high (oracle-observed: the values of `BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, WR-22/b; the split of an `envs` entry and the failure of one without `=`, WR-22/c) · **Status:** confirmed · verified at v1.767.0 only, except the `WM_ROOT_WORKSPACE` and `WM_END_USER_EMAIL` rows (re-checked at v1.862.0)
 
 - **Rule:**
   - **Assembly order:** the process environment is **cleared**, then filled in this order, later sources overriding earlier ones:
@@ -689,6 +703,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     | Variable | Value |
     |---|---|
     | `WM_WORKSPACE` | the workspace id |
+    | `WM_ROOT_WORKSPACE` | the workspace id of the nearest standing environment: `WM_WORKSPACE` unless the workspace is a fork (new at v1.862.0, [WA-4](client-api.md#wa-4)) |
     | `WM_EMAIL`, `WM_USERNAME`, `WM_PERMISSIONED_AS` | as named |
     | `WM_TOKEN` | job-scoped bearer token |
     | `WM_BASE_URL` | the public URL |
@@ -703,7 +718,8 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     | `WM_SCHEDULED_FOR` | RFC 3339 with seconds and `Z` |
     | `WM_STATE_PATH` | in a flow `<flow_path>/<step_id>_<trigger>`; for a plain script `<script_path>/<trigger>`. `<trigger>` is the username when scheduled and `user` otherwise. |
     | `WM_OBJECT_PATH` | contains a millisecond timestamp, so it is non-deterministic |
-    | `WM_WORKER_GROUP`, `WM_RUNNABLE_ID` (the script hash), `WM_END_USER_EMAIL`, `WM_TESTED_RUNNABLE` | as named |
+    | `WM_END_USER_EMAIL` | the address of the user who started the run, inherited by its steps; `""` for a run a schedule or trigger fired ([WA-4](client-api.md#wa-4)) |
+    | `WM_WORKER_GROUP`, `WM_RUNNABLE_ID` (the script hash), `WM_TESTED_RUNNABLE` | as named |
 
   - Custom workspace env vars whose names collide with the reserved `WM_*` pattern are dropped.
 - **Evidence:** `backend/windmill-worker/src/bun_executor.rs:2383-2402` (assembly order), `:3402-3445` (`get_common_bun_proc_envs`), `:2316-2333`, `:2343-2361`, `:2384-2402` (the same set for nsjail, Node and Bun runs); `backend/windmill-worker/src/worker.rs:244` (`BUN_CACHE_DIR`), `:628` (`NODE_PATH` read from the worker's environment), `:4149-4172` (`build_envs`: split at the first `=`, the `Bad request` refusal at `:4157-4162`, later entries overwrite), `:4868-5126` (the SQL, DuckDB, GraphQL and `nativets` branches, dispatched before it), `:5175` (the entries read before the language dispatch); `backend/windmill-worker/src/result_processor.rs:621-627` (the `execution error:` envelope); `backend/windmill-common/src/error.rs:55` (`Bad request: …`); `backend/windmill-api-scripts/src/scripts.rs:1174-1179` (deploy stores the entries unchecked); `:5176-5180` (`WM_PIPELINE`), `:1024-1048` (proxy envs); `backend/windmill-common/src/worker.rs:413` (`cache_nomount`), `:722-741` (`WINDMILL_DIR`, default `/tmp/windmill`); `Dockerfile` (no `NODE_PATH` or `WINDMILL_DIR` among its `ENV` lines); `backend/windmill-worker/src/common.rs:508-571` (`get_reserved_variables`, `build_envs_map`); `backend/windmill-common/src/variables.rs:281-529` (all @ v1.767.0). Docs: <https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables>.
@@ -712,11 +728,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 - **Revision 2026-10-29 (SC3, source re-check, chain FU5):** milestone FU5 asked how an `envs` entry without `=` is read. Windmill does not ignore it: the job fails before it starts with `Bad request: Invalid env var: <entry>. Must be in the form of KEY=VALUE` inside the execution-handler envelope, except for `nativets` jobs and on the cloud. The rule now also says how an entry is split (at the first `=`, an empty name kept, the later duplicate winning). New case WR-22/c.
 - **Design note (not Windmill behaviour):** whatever `wmill` shim windmill-lite injects ([client API](client-api.md)) must read the same names: `BASE_URL`, `WM_TOKEN` and the `WM_*` variables.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-22/b and WR-22/c were recorded as written (fixtures `conformance/flows/languages/wr-22-envs`, oracle run 40994947681, and `conformance/flows/languages/import-base`, run `cb_env`, oracle run 41000318656): `["/tmp/windmill/cache_nomount/bun","unset"]` for a Bun script and a CJS codebase script on Node; `A=b=c` and `B=` give `["b=c",""]`; a script whose `envs` holds `NOEQ` deploys and its step fails before the script with `execution error:\nBad request: Invalid env var: NOEQ. Must be in the form of KEY=VALUE`. The drafted parts are recorded.
+- **Revision 2026-11-07 (retarget to v1.862.0):** the table gained `WM_ROOT_WORKSPACE`, new at v1.862.0, and states what `WM_END_USER_EMAIL` holds, which a run started through the run API sets since 1.829.0; [WA-4](client-api.md#wa-4) has the rules and their evidence. The rest of the finding is not re-checked.
 
 <a id="wr-23"></a>
 ### WR-23 · Filesystem view
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **The contract:**
@@ -736,7 +753,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-24"></a>
 ### WR-24 · `same_worker` flows share `./shared`
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - When a flow has `same_worker: true`, each step's job directory gets a `shared` entry. It is a symlink to `<worker_dir>/<flow_job_id>/shared`, so files one step writes can be read by the next.
@@ -750,7 +767,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-25"></a>
 ### WR-25 · The lockfile format stored with a deployed Bun script
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Format:** a Bun script's lock (the `.script.lock` content) is the `package.json` text, then a separator line, then the lock.
@@ -767,7 +784,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-26"></a>
 ### WR-26 · Dependency inference and pinned-import removal
 
-**Scope:** core (whole-text pin removal); later (dependency inference); `npm:` specifiers outside core until Q-WR-8 · **Confidence:** high; the relative-path failure observed on the oracle (WR-28/d), not recorded · **Status:** confirmed; drafted (path specifiers in the dependency scan, added 2026-10-29)
+**Scope:** core (whole-text pin removal); later (dependency inference); `npm:` specifiers outside core until Q-WR-8 · **Confidence:** high; the relative-path failure observed on the oracle (WR-28/d), not recorded · **Status:** confirmed; drafted (path specifiers in the dependency scan, added 2026-10-29) · verified at v1.767.0 only
 
 - **Rule:**
   - **Inference.** This runs when there is no lock, i.e. for previews and for lock generation by `wmill`:
@@ -803,7 +820,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-27"></a>
 ### WR-27 · Bundled and unbundled modes share the wrapper rules, not every observable
 
-**Scope:** core · **Confidence:** high; medium (the import plugin and tree shaking: source-traced and probed on the Bun `1.3.10` release binary, not recorded) · **Status:** confirmed; drafted (the import plugin and tree shaking, added 2026-10-30 by SC5)
+**Scope:** core · **Confidence:** high; medium (the import plugin and tree shaking: source-traced and probed on the Bun `1.3.10` release binary, not recorded) · **Status:** confirmed; drafted (the import plugin and tree shaking, added 2026-10-30 by SC5) · verified at v1.767.0 only
 
 - **Rule:**
   - **Mode selection:**
@@ -836,7 +853,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-28"></a>
 ### WR-28 · Which imports are rewritten and fetched from the workspace
 
-**Scope:** core (static `.`, `/f/`, `/u/` imports); later (dynamic-import interaction and other forms) · **Confidence:** high (oracle-observed: WR-28/a, b, c, e; the deploy-time failure of WR-28/d observed, not recorded); high (source rules; the kinds the Bun `1.3.10` scanner reports, observed on the release binary outside Windmill, [WR-52](#wr-52)); the collision fixtures are not oracle-observed ([Q-WR-13](#q-wr-13)); high (source-traced: a dynamic import with no rewrite trigger, by specifier kind; the plugin's claim of a dynamic `.ts` import observed on Bun `1.3.10` outside Windmill) · **Status:** confirmed; drafted (a dynamic import with no rewrite trigger, by specifier kind, revised 2026-10-29)
+**Scope:** core (static `.`, `/f/`, `/u/` imports); later (dynamic-import interaction and other forms) · **Confidence:** high (oracle-observed: WR-28/a, b, c, e; the deploy-time failure of WR-28/d observed, not recorded); high (source rules; the kinds the Bun `1.3.10` scanner reports, observed on the release binary outside Windmill, [WR-52](#wr-52)); the collision fixtures are not oracle-observed ([Q-WR-13](#q-wr-13)); high (source-traced: a dynamic import with no rewrite trigger, by specifier kind; the plugin's claim of a dynamic `.ts` import observed on Bun `1.3.10` outside Windmill) · **Status:** confirmed; drafted (a dynamic import with no rewrite trigger, by specifier kind, revised 2026-10-29) · verified at v1.767.0 only, except rules 2 to 4 and WR-28/e (re-checked at v1.862.0)
 
 - **Rule:**
   1. **Rewrite trigger.** An import triggers a rewrite only when all of these hold:
@@ -844,39 +861,40 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
      - Its specifier starts with `.`, `/u/` or `/f/`.
      - Its specifier does not end in `.ts`.
 
-     Dynamic `import()` calls never trigger a rewrite. The rewrite applies to the entry `main.ts` and to every workspace module that is fetched.
-  2. **What a rewrite touches:** it appends `.ts` to **every occurrence of that specifier text in the whole source**. That includes the same literal inside a dynamic `import()`, other strings and comments ([WR-V4](#wr-v4); collisions are covered in [WR-38](#wr-38)).
+     Dynamic `import()` calls never trigger a rewrite. The rewrite applies to the entry `main.ts`, to every workspace module that is fetched, and to the module files of a multi-file script that sit beside `main.ts`.
+  2. **What a rewrite touches:** it appends `.ts` to **every whole quoted occurrence of that specifier in the whole source**: each `"<spec>"` becomes `"<spec>.ts"`, and each `'<spec>'` becomes `'<spec>.ts'`. That includes the same literal inside a dynamic `import()`, other strings and comments ([WR-V4](#wr-v4)). A longer string that only contains the specifier, and a template literal in backquotes, are left alone. (Up to v1.767.0 every occurrence of the bare text was rewritten, inside longer strings too, which [WR-38](#wr-38) describes.)
   3. **Interception:** the resolver plugin intercepts only specifiers that end in `.ts`. It skips the entry `main.ts`, files prefixed `_wm_`, the wrapper, and any import that comes from `node_modules`. Each intercepted specifier is resolved like this:
-     - **Local file:** if the specifier is relative and a file exists at that path in the job directory (a multi-file script module), that file is used.
+     - **Local file:** if the specifier is relative, the importer is `main.ts` or a module file in the job directory, and a file exists at the specifier resolved against the importer's own folder (a multi-file script module), that file is used. A fetched workspace script never takes this path, so a module file cannot shadow a workspace neighbour of a fetched script.
      - **Otherwise, fetch from the workspace:**
-       - a relative specifier resolves to `<importer_path>/../<spec>`, i.e. against the importer's own path treated as a file;
+       - a relative specifier resolves to `<importer_path>/../<spec>`, i.e. against the importer's own path treated as a file; a module file's path is its path in the job directory, without `.ts`, under the entry script's folder;
        - an absolute specifier resolves to `<spec>` without its leading `/`;
        - dot segments are normalised and `.ts` is ensured.
-     - **Which version:** the **latest deployed** version of the target, from the `raw_unpinned` endpoint. This is not the version that existed when the importer was deployed. A new deploy of an imported script invalidates the importer's bundle cache ([WR-27](#wr-27)).
+     - **Which version:** the **latest deployed** version of the target. This is not the version that existed when the importer was deployed. A run reads it from the `raw_unpinned` endpoint, which removes its `@<version>` import pins; lock generation reads it from `raw`, which keeps them ([WR-V9](#wr-v9)). A new deploy of an imported script invalidates the importer's bundle cache ([WR-27](#wr-27)).
      - **Transitive imports** resolve relative to each imported script's own path.
   4. **Consequences:**
      - An extensionless `/other/x` is neither rewritten nor intercepted. Bun then resolves it as a host filesystem path, which in practice fails the build; where lock generation runs, its dependency scan fails on the specifier first (medium, [WR-26](#wr-26)). `/other/x.ts` *is* fetched, as workspace path `other/x`.
      - A relative non-TypeScript import such as `"./data.json"` is rewritten to `./data.json.ts` and fetched under that name, which in practice fails.
-     - **Dynamic imports.** A dynamic `import()` literal is rewritten only as a side effect of rule 2, when a reported static specifier occurs in its text. An identical static import is sufficient but not necessary: the static specifier can also match a substring inside a *different* dynamic specifier. A static `./helper` rewrites the dynamic literal `./nested/./helper` to `./nested/./helper.ts` with no static import of `./nested/./helper` at all, and the rewritten specifier is then intercepted like any other, by the resolver's filter and exclusions, and fetched against the importer's path (WR-28/e).
+     - **Dynamic imports.** A dynamic `import()` literal is rewritten only as a side effect of rule 2, when it is exactly a reported static specifier, in double or single quotes (WR-28/c). A *different* dynamic specifier that merely contains a static one is left as written: with a static `./helper`, the dynamic `../other/./helper` stays extensionless, so it is a dynamic import with no rewrite trigger, and its deploy fails at lock time (next item, WR-28/e). Up to v1.767.0 the substring was rewritten too, to `../other/./helper.ts`, and fetched against the importer's path.
      - **A dynamic import that no static specifier rewrites** is handled by what its specifier is, the same way at lock generation and at run time. The deploy's dependency job builds the script with the resolver plugin and every other import external, then scans what the output still imports ([WR-26](#wr-26)):
        - *ending in `.ts`* (and not excluded by rule 3): the plugin claims it like a rewritten specifier, dynamic or not, so it is fetched from the workspace and never reaches the scan (WR-28/f);
        - *a builtin* such as `node:path`: the scan skips it, and Bun resolves it at run time (WR-28/g);
        - *a package name* such as `lodash`: the scan adds it to the lock like a static package import (WR-28/g);
-       - *an extensionless path*, relative (`./helper`, `../x`) or absolute (`/f/x/y`): it stays in the output, and the scan reads it as the package `.` or `..` or rejects it as `Unrecognized import`. The dependency job fails, and the script never gets a version a run by path can select (WR-28/d).
+       - *an extensionless path*, relative (`./helper`, `../x`) or absolute (`/f/x/y`): it stays in the output, and the scan reads it as the package `.` or `..` or rejects it as `Unrecognized import`. The dependency job fails, and the script never gets a version a run by path can select (WR-28/d, WR-28/e). On the CE v1.862.0 image, whose `bun install` is 1.4.4, the job's error for `..` is `execution error:`, `Error locking file: Non-zero exit status for bun install: 1`, the job's logs, then `error: invalid dependency name ".."` and `error: ..@latest failed to resolve` (WR-28/e).
 
        Only where lock generation does not run (a script deployed with a lock, a workspace-dependencies `package.json`) does an extensionless path reach the run, where Bun resolves it itself, against the job directory.
 - **Open:** [Q-WR-13](#q-wr-13) (re-scoped: the scanner's behaviour on the pinned Bun is in [WR-52](#wr-52), which also covers how `..` segments of a relative import are resolved; the collision fixtures remain).
-- **Evidence:** `backend/windmill-worker/loader.bun.js:23-47` (filters), `:34-54` (rewrite), `:72-75` (fetched-module rewrite), `:72-86`, `:78-113` (resolve and fetch); `backend/windmill-worker/loader_builder.bun.js:1-8` (the lock build: the plugin, every other import external), `:30-52` (the dependency scan keeps relative specifiers, skips builtins at `:45`); the plugin claiming a dynamic `.ts` import under that build, and the scan's classification of the remaining specifiers, observed on Bun `1.3.10`'s release binary outside Windmill; `backend/windmill-api-scripts/src/scripts.rs:2857-2865` (latest non-archived row); `backend/windmill-dep-map/src/lib.rs:43-67` (`parse_ts_relative_imports`, the same normalisation for dependency tracking); `backend/windmill-worker/src/bun_executor.rs:836-845`; `backend/tests/bun_jobs.rs:687-995` (relative, nested and transitive import tests) (all @ v1.767.0).
+- **Evidence:** `backend/windmill-worker/loader.bun.js:23-47` (filters), `:34-54` (rewrite), `:72-75` (fetched-module rewrite), `:72-86`, `:78-113` (resolve and fetch); `backend/windmill-worker/loader_builder.bun.js:1-8` (the lock build: the plugin, every other import external), `:30-52` (the dependency scan keeps relative specifiers, skips builtins at `:45`); the plugin claiming a dynamic `.ts` import under that build, and the scan's classification of the remaining specifiers, observed on Bun `1.3.10`'s release binary outside Windmill; `backend/windmill-api-scripts/src/scripts.rs:2857-2865` (latest non-archived row); `backend/windmill-dep-map/src/lib.rs:43-67` (`parse_ts_relative_imports`, the same normalisation for dependency tracking); `backend/windmill-worker/src/bun_executor.rs:836-845`; `backend/tests/bun_jobs.rs:687-995` (relative, nested and transitive import tests) (all @ v1.767.0). At v1.862.0: `backend/windmill-worker/loader.bun.js:34-54` (the rewrite of whole quoted specifiers, `:43-48`), `:56-70` (the entry and the module files), `:118-140` (a local file only for a local importer, from its own folder), `:143-151` (a module file's importer path), `:157-166` (the endpoint placeholder, and the temporary-script parameter); `backend/windmill-worker/src/bun_executor.rs:454-463` (`raw` for lock generation), `:1586-1595` (`raw_unpinned` for a run); `backend/windmill-worker/loader_builder.bun.js` is the same file as at v1.767.0 (all @ v1.862.0).
 - **Conformance:** [WR-28/a–g](conformance.md#wr-28)
 - **Revision 2026-10-29 (validation round 1):** the consequence for a dynamic import with no static rewrite trigger said that every such import fails the deploy. That holds only for an extensionless path, which is what WR-28/d imports. A dynamic specifier ending in `.ts` is claimed by the resolver plugin like any other `.ts` specifier (on Bun `1.3.10`, run outside Windmill with a plugin of the same filter, the lock build resolves a dynamic `./helper.ts` through it although every other import is external); a builtin is skipped by the scan; a package name is locked. New cases WR-28/f and WR-28/g (source-derived) tell them apart. WR-28/d is unchanged.
 - **Revision 2026-10-29 (oracle, batch E3e):** WR-28/a, b, c and e were recorded as stated, through scripts created by the API in path order (fixture `conformance/flows/languages/wr-28`, oracle run 40801169516). WR-28/e's dynamic literal was rewritten and fetched, so the dispute ([Q-WR-16](#q-wr-16)) is settled for the validation's correction and the finding is `confirmed`. The losing reading, as drafted, said that a dynamic literal is intercepted only when an identical static import of it triggered the rewrite. WR-28/d could not be recorded: its script, whose only import of `./helper` is dynamic, failed at deploy time, when the dependency job asked `bun install` for a package named `.` (oracle run 40798097155). The drafted consequence, "not intercepted, and Bun resolves it itself", described a run the deployed script never reaches; the rule now says so, with the reason in [WR-26](#wr-26).
 - **Revision 2026-10-28 (validation round 1):** the rewrite trigger said that only a newer, non-pinned Bun had been probed and that Bun `1.3.10`'s treatment of `export … from` was unverified. The pinned scanner call (`loader.bun.js:30-50`) and its output on the `1.3.10` binary are now in [WR-52](#wr-52); only the end-to-end oracle recording remains open ([Q-WR-13](#q-wr-13)). The disputed dynamic-import clause is unchanged.
 - **Design note (not Windmill behaviour):** windmill-lite resolves these imports from the local sync folder.
+- **Revision 2026-11-06 (re-verified at v1.862.0; oracle runs 42243035193 and 42300319428):** the loader rewrites only whole quoted specifiers (rule 2), so WR-28/e's dynamic `../wl_wr28c/./helper`, which holds the static `./helper` as a substring, is no longer rewritten. It stays extensionless, the deploy's dependency job asks `bun install` for a package named `..`, and the job fails: WR-28/e's outcome at v1.862.0 is a deploy that fails at lock time, recorded through the oracle's API by fixture `conformance/flows/languages/wr-28-lock`. A script that cannot be deployed failed the whole API deployment of `conformance/flows/languages/wr-28` (oracle run 42243035193), so WR-28/e left that fixture, whose WR-28/a–c recorded as stated. Also changed at v1.862.0, from the source: module files are rewritten like `main.ts`; a local file is tried only for a local importer, from its own folder; lock generation reads imported scripts from `raw` (rule 3). The cause is Windmill's loader, not the image's Bun 1.4.4.
 
 <a id="wr-29"></a>
 ### WR-29 · The import base for an inline flow script is the flow's path
 
-**Scope:** core · **Confidence:** high (oracle-observed: the default base at top level and in a loop, WR-29/a; the deployed half of the explicit-`path` rule, WR-29/b); high (source-traced: the preview and the dependency job's base, the slots) · **Status:** confirmed (the default base, and the deployed outcome of an explicit `path`); drafted (the explicit `path` where raw values run, revised 2026-10-28)
+**Scope:** core · **Confidence:** high (oracle-observed: the default base at top level and in a loop, WR-29/a; the deployed half of the explicit-`path` rule, WR-29/b); high (source-traced: the preview and the dependency job's base, the slots) · **Status:** confirmed (the default base, and the deployed outcome of an explicit `path`); drafted (the explicit `path` where raw values run, revised 2026-10-28) · verified at v1.767.0 only
 
 - **Rule:**
   - **The import base** is the step's runnable path, with nested-body segments collapsed. Inside `branchone-N`, `branchall-N`, `forloop-N` or `loop-N` bodies, the base is first collapsed to `<flow_path>/flow`.
@@ -899,7 +917,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-30"></a>
 ### WR-30 · Codebase bundles (`wmill.yaml` codebases)
 
-**Scope:** EE (normal remote fetch) · **Confidence:** high (worker side); medium (CLI side) · **Status:** confirmed
+**Scope:** EE (normal remote fetch) · **Confidence:** high (worker side); medium (CLI side) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **The worker does not build these.** A script deployed under a codebase is bundled by the CLI and uploaded at deploy time.
@@ -924,14 +942,20 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-47"></a>
 ### WR-47 · How the pinned CLI bundles a codebase script
 
-**Scope:** core · **Confidence:** high (CLI source-traced; the outcomes of WR-47/a–f oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (CLI source-traced; the outcomes of WR-47/a–g oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - **Bundler and version.** esbuild **`0.28.0`**, pinned exactly in the CLI's manifest and in the dependency list of the published CLI package.
+  - **Bundler and version.** esbuild **`0.28.2`** (`0.28.0` at v1.767.0), pinned exactly in the CLI's manifest and in the dependency list of the published CLI package.
     - The CLI uses the native esbuild binary.
     - If that binary does not start (for example its version disagrees with the host package), the CLI falls back to `esbuild-wasm` at the host package's version. It downloads that package from the npm registry, or takes a configured path or URL, and caches it.
     - The fallback is meant to produce the same output.
-  - **Format.** An absent `format` means **`cjs`**. Only an explicit `format: esm` produces ESM.
+    - Concurrent builds share one esbuild service, which the CLI stops when the last of them ends (since 1.861.0); this changes no output.
+  - **What the version changes.** esbuild `0.28.1` keeps a module's evaluation error. A module whose code throws while it is first loaded throws the same error at every later `require()` or `import()` of it; `0.28.0`'s bundle returned the module's partial exports from the second load on (WR-47/g, recorded). esbuild's release notes for `0.28.1` and `0.28.2` list other code-generation fixes that can change a bundle's text (not recorded):
+    - the renaming of nested `var` declarations;
+    - parentheses around complex `new` targets;
+    - tree shaking of TypeScript import aliases;
+    - top-level `await` in import cycles.
+  - **Format.** An absent `format` means **`cjs`**. Only an explicit `format: esm` produces ESM. The value is not checked: any other string reaches esbuild as given, and gets target `esnext`.
   - **Build options.** The script file is the single entry point, and the output stays in memory:
 
     | Option | Value |
@@ -940,29 +964,35 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     | `platform` | `node` |
     | `packages` | `bundle`: npm packages are inlined |
     | `format` | the entry's `format`, default `cjs` |
-    | `target` | `node20.15.1` for `cjs`, `esnext` for `esm` |
+    | `target` | `node20.15.1` when the format is exactly `cjs`, `esnext` otherwise |
     | `outdir` | `/`; output files are named relative to it |
+    | `write` | `false` |
     | `external`, `inject`, `define`, `banner` | the entry's values, passed through unchanged; absent means esbuild's default |
     | `loader` | the entry's map, which **replaces** the default `{".node": "file"}` entirely |
-    | minification, source maps, code splitting, metafile | not set, so esbuild's defaults (off) apply |
+    | `metafile` | `true` on the deploy path only (`wmill sync push`, `wmill script push`; absent at v1.767.0); it changes no output and only lists the bundle's inputs for the warning below. Not set for `wmill script preview` |
+    | minification, source maps, code splitting | not set, so esbuild's defaults (off) apply |
+    | every other option | not set, so esbuild's defaults apply: the working directory is the CLI's own, which the CLI first moves to the directory of the `wmill.yaml` it finds; the nearest `tsconfig.json` is discovered as esbuild does; legal comments go to the end of the file and non-ASCII characters are escaped, as esbuild does when bundling |
 
   - **What passing through means.**
+    - The values are passed as YAML parsed them, with no copy, normalisation or type check, so esbuild's own validation refuses a wrong type.
     - `inject` is a list of file paths. esbuild resolves them against the CLI's working directory and imports their exports wherever the bundle uses those names as free identifiers. The CLI does nothing else with the list.
     - `define` values are JavaScript expressions written as strings, so a string constant needs its own inner quotes. esbuild substitutes them.
     - `banner` is esbuild's per-output-type map, for example `{js: "…"}`.
-  - **`relative_path` does not limit what is bundled.** esbuild follows imports wherever they lead. `relative_path` only feeds the codebase id ([WR-49](#wr-49)).
-  - **Which CLI paths build this way:** `wmill sync push`, `wmill script push` and `wmill script preview`. The flow-preview reader for local path scripts builds differently, and is `out` for windmill-lite:
+  - **`relative_path` does not limit what is bundled.** esbuild follows imports wherever they lead. `relative_path`, and since 1.818.0 the entry's `extra_digest_paths`, only feed the codebase id ([WR-49](#wr-49)); esbuild never sees `extra_digest_paths`.
+  - **The uncovered-inputs warning** (deploy path; absent at v1.767.0). After the build the CLI takes the metafile's inputs, leaves out esbuild's pseudo-inputs (names in `<…>` or `(…)`, and a namespace prefix of two or more letters before `:`), anything under `node_modules`, the entry itself and anything under `relative_path` or an `extra_digest_paths` entry. If inputs remain, it prints ``<script path> bundles files outside codebase <relative_path>; edits to them won't be detected as changes unless listed in extra_digest_paths: <inputs, comma-separated>``. Asset files are not esbuild inputs and never trigger it. The text is a warning only.
+  - **Which CLI paths build this way:** `wmill sync push`, `wmill script push` and `wmill script preview`. The flow-preview reader for local path scripts (used by `wmill flow preview` and `wmill dev`) builds differently, and is `out` for windmill-lite:
     - with esbuild it always builds ESM with target `esnext`, whatever `format` says, and it refuses entries that have assets or several output files;
     - with a `customBundler` it returns the command's output before either refusal, so an entry with assets is accepted and its assets are simply not delivered.
-- **Evidence:** `cli/package.json:23`; `cli/build-npm.ts:75`; `cli/src/utils/esbuild_loader.ts:26-28`, `:55-79`, `:98-125`; `cli/src/commands/script/script.ts:315-364` (deploy), `:1563-1593` (preview); `cli/src/core/conf.ts:114-131` (the entry's fields); `cli/src/utils/local_path_scripts.ts:31-81` (flow-preview reader; the custom-bundler return at `:35-45` comes before the refusals at `:69-78`) (all @ v1.767.0). esbuild's [API documentation](https://esbuild.github.io/api/) for the meaning of each option.
-- **Conformance:** [WR-47/a–f](conformance.md#wr-47)
-- **Design note (not Windmill behaviour):** a bundler that reproduces these options through esbuild's Go API at `v0.28.0` should produce the same bundle. Whether it does is the parity check of [Q-WR-24](#q-wr-24).
+- **Evidence:** at v1.862.0: `cli/package.json:27`; `cli/build-npm.ts:75`; `cli/src/utils/esbuild_loader.ts:28` (the fallback version), `:55-79`, `:81-136` (native first, the fallback, the shared service); `cli/src/commands/script/script.ts:426-463` (deploy: the options, `metafile` at `:451`, the warning at `:454-463`), `:2007-2021` (preview); `cli/src/utils/codebase.ts:27-41` (the inputs the warning leaves out); `cli/src/core/conf.ts:120-139` (the entry's fields, `extra_digest_paths` at `:122`); `cli/src/utils/local_path_scripts.ts:35-77` (flow-preview reader). At v1.767.0: `cli/package.json:23`; `cli/src/commands/script/script.ts:315-364`, `:1563-1593`; `cli/src/core/conf.ts:114-131`. esbuild's [API documentation](https://esbuild.github.io/api/) for the meaning of each option, and its release notes for `0.28.1` and `0.28.2`.
+- **Conformance:** [WR-47/a–g](conformance.md#wr-47)
+- **Design note (not Windmill behaviour):** a bundler that reproduces these options through esbuild's Go API at `v0.28.2` should produce the same bundle; `metafile` and the log level change no output. Whether it does is the parity check of [Q-WR-24](#q-wr-24).
 - **Revision 2026-10-29 (oracle, batch E3e):** the pinned CLI pushed codebase entries with the default format, `format: esm`, `define`, `inject`, a `loader` map and a `banner`, and CE standalone ran each bundle as WR-47/a to WR-47/f state (fixture `conformance/flows/languages/codebase-cases`, oracle run 40794872025). In the same fixture a relative import between codebase files was bundled in both formats, and the step's environment reached the bundle (`process.env` on Node, `Bun.env` on Bun). The bytes the CLI uploads were not read back from the oracle; the repository's codebase-parity check compares the pinned CLI's upload with an esbuild `0.28.0` build of the same settings, and finds them equal apart from the line breaks of [WR-49](#wr-49)'s single-file upload.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check and oracle):** the pinned CLI `1.862.0` bundles with esbuild `0.28.2`. Its build options are v1.767.0's, plus `metafile` on the deploy path, which feeds the new uncovered-inputs warning and changes no output; the codebase entry gained `extra_digest_paths` (1.818.0), which only the codebase id reads. WR-47/a–f hold at CLI `1.862.0` (their runs were re-recorded on CE v1.862.0), and the new WR-47/g records the version's one behavioural change that a bundle shows (run `cjs_evalerr` of `conformance/flows/languages/codebase-cases`, oracle run 42605323019, `["boom","boom"]`). The parity check's esbuild `0.28.0` build predates the move.
 
 <a id="wr-48"></a>
 ### WR-48 · `customBundler`
 
-**Scope:** later · **Confidence:** high (push path); medium (shell details) · **Status:** confirmed; drafted (what counts as set, added 2026-10-28)
+**Scope:** later · **Confidence:** high (push path); medium (shell details) · **Status:** confirmed; drafted (what counts as set, added 2026-10-28) · verified at v1.767.0 only
 
 - **Rule:**
   - **What counts as set.** The CLI tests the entry's `customBundler` for JavaScript truthiness, with no type check on `wmill.yaml`. An absent key, `null`, `""`, `false` and `0` all mean "not set", and esbuild builds the bundle as in [WR-47](#wr-47). Any truthy value counts. A value that is not a string is turned into text before the script path is appended, so `customBundler: true` runs the shell's `true`, which prints nothing, and the uploaded bundle is empty.
@@ -978,7 +1008,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-49"></a>
 ### WR-49 · What the CLI uploads, the codebase id, and where the server keeps the bundle
 
-**Scope:** core (single file and assets); later (several output files; push, version and replacement decisions; the line breaks of a single-file upload) · **Confidence:** high (CLI and server source-traced; WR-49/a, WR-49/b and the line breaks of WR-49/h oracle-observed); medium (the multi-output naming edge) · **Status:** confirmed
+**Scope:** core (single file and assets); later (several output files; push, version and replacement decisions; the line breaks of a single-file upload) · **Confidence:** high (CLI and server source-traced; WR-49/a, WR-49/b and the line breaks of WR-49/h oracle-observed); medium (the multi-output naming edge; decision 2 and its consequence at v1.862.0) · **Status:** confirmed · verified at v1.767.0 only, except the codebase id and decision 2 (re-checked at v1.862.0)
 
 - **Rule:**
   - **One output and no `assets`:** the upload is the bundle text itself, appended to the multipart form as a **string** field.
@@ -994,11 +1024,16 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - **`assets` are not added in this case.**
     - For an entry whose file name has a second dot (such as `x.bun.ts`), no output has the expected name, so `main.js` is empty (medium, [Q-WR-25](#q-wr-25)).
   - **The id the CLI sends.** The script's `codebase` field is a digest, plus `.esm` when `format` is `esm` and `.tar` when the upload is a tar.
-    - **What the digest covers:** the bytes of every regular file found by walking `relative_path` recursively (relative to the CLI's working directory), visited in name order within each directory, together with the entry's settings as written in `wmill.yaml`. Any change to a setting changes it, and so does a change to the order of its keys, since the settings are serialised as text.
+    - **What the digest covers:** the bytes of every regular file found by walking `relative_path` recursively (relative to the CLI's working directory), visited in name order within each directory (JavaScript's locale-aware comparison, not byte order: `a.ts` comes before `B.ts`), together with the entry's settings as written in `wmill.yaml`. Any change to a setting changes it, and so does a change to the order of its keys, since the settings are serialised as text.
+    - **Extra paths** (since CLI 1.818.0). An entry may list `extra_digest_paths`: paths relative to the CLI's working directory, allowed outside the sync tree, with a bare string counting as one. The digest above is then hashed again together with one hash per extra path, in list order.
+      - Each extra path gives the walk above for a directory, the file's bytes otherwise. An extra path that is itself a symbolic link is followed.
+      - Listing the key, even as `[]`, also changes the settings text and so the id.
+      - A path that does not exist fails the push when the digest is first needed, with ``Codebase extra_digest_paths entry not found: <path> (resolved to <absolute path>)``. That comes after the CLI's preparatory reads (`wmill sync push` downloads the remote workspace to compare with, `wmill script push` reads the deployed script) and before anything is uploaded, so the workspace is unchanged.
+      - esbuild never sees the key ([WR-47](#wr-47)).
     - **What it does not cover:**
       - entry names: renaming a file or directory leaves the digest unchanged as long as the visiting order of contents stays the same, while a rename that reorders files of different contents changes it;
       - symbolic links, to files or directories, and whatever they point at;
-      - anything outside `relative_path`: imported modules, `inject` files and asset `from` files that live elsewhere.
+      - anything outside `relative_path`, unless it lies under an extra path: imported modules, `inject` files and asset `from` files that live elsewhere. Since the deploy build lists its inputs, the CLI warns about the imported and injected ones ([WR-47](#wr-47)).
     - Every file under `relative_path` counts, whether or not the script uses it. The digest is computed once per CLI run and shared by every script of the entry, so editing any file there gives every script of the entry a new id.
   - **From a local change to the bundle that runs: four separate decisions.** None of them compares bundle bytes.
     1. **Whether `wmill sync push` selects the script.**
@@ -1008,7 +1043,9 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
        - *(medium)* A multi-output bundle without assets is stored with a `.tar` suffix that this local id lacks, so such a script is selected on every sync push.
     2. **Whether the CLI sends the request.**
        - `wmill script push`, and the push of a script that sync push selected, both end in the same check. The CLI stops, reporting the script up to date, only if the source `content`, the metadata fields and the id all equal the deployed script's.
-       - Its `priority` comparison reads the deployed value as a boolean but the local value as written. Metadata without a `priority` key (the CLI's generated default) therefore never matches, and the request is sent every time.
+       - At v1.767.0 its `priority` comparison read the deployed value as a boolean but the local value as written. Metadata without a `priority` key (the CLI's generated default) therefore never matched, and the request was sent every time.
+       - Since CLI 1.792.0 ("keep script settings on push and repair the up-to-date check") `priority` is compared loosely, so an absent key equals a deployed `null`. The check also compares the language, `delete_after_secs`, the debounce settings, the labels and the job token scopes, with the timeout and the concurrency settings normalised first.
+       - *(medium, source-traced)* So at v1.862.0 an unchanged script with generated metadata and an unchanged id is reported up to date, and no request is sent.
     3. **Whether the server makes a new version.**
        - The CLI always asks for the server's no-op check. The server reuses the parent's hash, making no new version, only if every field it compares is identical to the parent's: the content, the lock, the metadata, the id, and the optional settings as stored.
        - A few fields default when omitted, so leaving them out still matches: `is_template` is read as `false`, `kind` as `script` and `envs` as an empty list, and an absent `lock` or `codebase` equals an empty one.
@@ -1020,7 +1057,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
   - **Consequences for an unchanged script:**
     - A change the digest sees (under `relative_path`, or in the settings), pushed with `wmill sync push`, selects the script and deploys a new version with a fresh bundle, even when the bundle comes out identical.
     - A change it does not see (an asset or import outside `relative_path`, a rename, a symlink target), pushed with `wmill sync push` from a tree that was otherwise in sync, selects nothing. No request is sent, and the old bundle keeps running.
-    - The same change pushed with `wmill script push` and generated metadata does reach the server, and the next run uses the new bundle, whether or not the hash changed.
+    - The same change pushed with `wmill script push` and generated metadata reached the server at v1.767.0, and the next run used the new bundle, whether or not the hash changed. *(medium)* At v1.862.0 the CLI finds the script up to date and sends nothing (decision 2), so the old bundle keeps running, unless the change lies under an extra path, which changes the id.
   - **What the server keeps.** The push is one multipart request to `create_snapshot`.
     - The script JSON comes first, with its source `content` ([SY-8](openflow.md#sy-8)), then the bundle.
     - The server creates the script version, or reuses the parent's hash on a no-op (decision 3 above), and stores the bundle under `script_bundle/<workspace>/<that hash>`, plus `.esm` and `.tar` copied from the sent id.
@@ -1030,16 +1067,19 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - On CE in standalone mode with no object store, under the standalone bundle directory, `$HOME/.windmill/standalone_bundle/`.
     - In any other CE mode the upload fails with `codebase is an EE feature`, and no script version is created.
 - **Evidence:** `cli/src/commands/script/script.ts:365-418` (tar or text), `:461-463` (id), `:802-834` (multipart upload); `cli/src/utils/codebase.ts:19-45` (digest inputs, memoisation and suffixes); `cli/src/utils/utils.ts:108-121` (the directory walk: file contents in name order, directories recursed, symlinks skipped, names not hashed); sync selection `cli/src/commands/sync/sync.ts:414-460` (the current digest and an empty lock written into local metadata), `:3840-3862` (push compares local with remote, codebase changes not ignored), `:2324-2356`, `:2359-2398` (metadata comparison and codebase-id changes); `backend/windmill-api-scripts/src/scripts.rs:1139-1140` (codebase scripts stored with an empty lock); the CLI's check `cli/src/commands/script/script.ts:130-181` (`wmill script push` reaches the same function), `:515-565` (the up-to-date check; `priority` at `:542`), `:568-584`; `cli/bootstrap/script_bootstrap.ts:17-29` (generated metadata has no `priority` or `ws_error_handler_muted`); `cli/src/commands/script/script.ts:770`, `:817` (the CLI always requests the no-op check); the server `backend/windmill-api-scripts/src/scripts.rs:708-845` (fields compared: `kind`, `envs` and `is_template` with their defaults at `:784-786`, `:792`, `:809`; `lock` and `codebase` with absent read as empty at `:772`, `:813-814`, `:849-851`; the other optional fields literally), `:1565` (`ws_error_handler_muted` stored as `false` when omitted), `:1085-1092` (a no-op returns the parent's hash), `:502-576` (`create_snapshot`; suffixes `:521-541`, the file written under the returned hash `:543-559`); `backend/windmill-object-store/src/lib.rs:983-985` (bundle key), `:991-1020` (standalone directory, EE object store, CE refusal); `backend/windmill-common/src/worker.rs:409` (`ROOT_STANDALONE_BUNDLE_DIR`), `:760-765` (the write replaces the file); `backend/windmill-worker/src/bun_executor.rs:1066-1084`, `:1087-1103`, `:1131-1147` (a worker cache file wins; otherwise the standalone file is copied in for each job); for the line breaks: `cli/src/commands/script/script.ts:803-810` (the bundle text appended as a string field), `backend/windmill-api-scripts/src/scripts.rs:516-518`, `:543-559` (the part read as bytes and stored), `backend/windmill-object-store/src/lib.rs:991-1010` and `backend/windmill-common/src/worker.rs:760-765` (written as received), `backend/windmill-worker/src/bun_executor.rs:1131-1147` (copied as received) (all @ v1.767.0). The HTML standard's [`multipart/form-data` encoding algorithm](https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#multipart-form-data) for the CRLF rewrite of string entries.
-- **Conformance:** [WR-49/a–h](conformance.md#wr-49)
+- **Evidence at v1.862.0:** `cli/src/utils/codebase.ts:8-24` (the extra paths and their hashes, the not-found text), `:56-91` (the digest, its memoisation and suffixes); `cli/src/utils/utils.ts:108-133` (the walk, unchanged); `cli/src/core/conf.ts:122` (`extra_digest_paths`); `cli/src/commands/script/script.ts:660-718` (the up-to-date check, `priority` at `:699`), `:572`, `:628` (the id sent); `cli/src/commands/sync/sync.ts:2977-3021` (decision 1, unchanged); `backend/windmill-api-scripts/src/scripts.rs:566-605` (the suffixes and the stored file, unchanged).
+- **Conformance:** [WR-49/a–j](conformance.md#wr-49)
 - **Revision 2026-10-29 (oracle, batch E3e):** WR-49/a (an asset next to `main.js`) and WR-49/b (a second output file drops the assets, `[true,false]`) were recorded as stated (fixture `conformance/flows/languages/codebase-cases`, oracle run 40794872025). WR-49/c to WR-49/g were not recorded: they test the CLI's and the server's push-and-version decisions, which need a session that pushes, edits the tree and pushes again.
 - **Revision 2026-10-29 (source re-check, chain C2b):** new, the line breaks of a single-file upload: the form-data encoding writes them as CRLF, and the server and worker keep the bytes, so `main.js` has CRLF line breaks. The repository's codebase-parity check sees the CRLF in the pinned CLI's upload; the stored and run bytes are source-traced only. New case WR-49/h.
 - **Revision 2026-10-28 (source re-check):** decision 3 said that an omitted optional field never equals its stored default. That holds for most fields, `ws_error_handler_muted` among them, but `is_template`, `kind` and `envs` default when omitted, and an absent `lock` or `codebase` equals an empty one. The independent check of this finding raised the point; the rule and the evidence now say so, and WR-49/g notes the `is_template` variant.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-49/h was recorded as written (fixture `conformance/flows/languages/import-base`, runs `crlf_single` and `crlf_tar`, pushed with the pinned CLI, oracle run 41000318656): the single-file bundle runs with CRLF line breaks, `[true,true]`, and the tar's `main.js` with LF only, `[false,true]`.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** the codebase id now also covers each `extra_digest_paths` entry (CLI 1.818.0, "include extra paths in codebase digest for monorepo imports"), and the CLI's up-to-date check was repaired in 1.792.0, so decision 2 no longer always sends the request. New cases WR-49/i and WR-49/j; WR-49/f now expects the v1.862.0 outcome, source-derived. The upload formats, the suffixes and the server's storage are re-verified unchanged; decisions 3 and 4 are verified at v1.767.0 only.
+- **Revision 2026-11-09 (retarget validation round 1, finding 2):** a missing extra path was said to fail the push before any request. The CLI raises the error when it first computes the digest (`cli/src/utils/codebase.ts:12-24`, `:65-74 @ v1.862.0`), after its preparatory reads of the remote side (`cli/src/commands/script/script.ts:550-572`, `cli/src/commands/sync/sync.ts:5044-5092 @ v1.862.0`) and before any upload; the extra-paths bullet and WR-49/j say so.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
 
-**Scope:** core (lookup, extraction, runtime selection); later (the Node patch version and its module-format detection, a CJS bundle under `//native`) · **Confidence:** high (oracle-observed: CE standalone runs codebase scripts, Node v20.20.2 for CJS and `//nodejs`, Bun for ESM, an untyped ESM bundle loading on Node); high (source-traced: lookup, extraction, the `//native` branch); high (oracle-observed on a CE worker with `WORKER_TAGS=nativets`, batch E3f: an ESM bundle under `//native` runs in the native runtime, a CJS one fails with `module is not defined`, an ESM bundle with a `createRequire` banner loads, WR-50/c, WR-50/f, WR-50/g); medium (a call through esbuild's `require` helper in that bundle, WR-50/h) · **Status:** confirmed; drafted (a call through the `require` helper, added 2026-10-30 by SC5)
+**Scope:** core (lookup, extraction, runtime selection); later (the Node patch version and its module-format detection, a CJS bundle under `//native`) · **Confidence:** high (oracle-observed: CE standalone runs codebase scripts, Node v24.22.1 for CJS and `//nodejs` (v20.20.2 at v1.767.0), Bun for ESM, an untyped ESM bundle loading on Node); high (source-traced: lookup, extraction, the `//native` branch); high (oracle-observed on a CE worker with `WORKER_TAGS=nativets`, batch E3f: an ESM bundle under `//native` runs in the native runtime, a CJS one fails with `module is not defined`, an ESM bundle with a `createRequire` banner loads, WR-50/c, WR-50/f, WR-50/g); medium (a call through esbuild's `require` helper in that bundle, WR-50/h) · **Status:** confirmed; drafted (a call through the `require` helper, added 2026-10-30 by SC5) · verified at v1.767.0 only, except the Node path and version (re-checked at v1.862.0)
 
 - **Rule:**
   - **Lookup** follows [WR-30](#wr-30). The id is rebuilt from the script row: `<script hash>`, plus `.esm` if the stored `codebase` value contains `.esm`, plus `.tar` if it ends in `.tar`.
@@ -1063,10 +1103,10 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
          - before Node 20.19.0, an ambiguous `.js` file loads as CommonJS, so an ESM bundle fails to load;
          - from Node 20.19.0, module syntax detection is on by default. An ambiguous file that does not parse as CommonJS because of ES module syntax is retried as an ES module, so an ESM bundle loads.
          - A CJS bundle loads as CommonJS either way, and the wrapper reaches its exports through Node's CommonJS interop.
-       - The worker passes Node no flag that changes detection, and the image recipe does not pin the Node 20 patch, so for an ESM bundle forced onto Node by `//nodejs` the outcome without a `type` depends on the installed patch. The pinned v1.767.0 image runs Node **v20.20.2**, which detects module syntax, so there an untyped ESM bundle loads (WR-50/e).
+       - The worker passes Node no flag that changes detection, so for an ESM bundle forced onto Node by `//nodejs` the outcome without a `type` depends on the image's Node. The image runs Node **v24.22.1**, which detects module syntax, so an untyped ESM bundle loads (WR-50/e). (The v1.767.0 image ran v20.20.2, which detects it too.)
        - A `package.json` asset declaring `"type": "module"` makes the ESM interpretation explicit, on every Node version.
     3. **Otherwise (ESM):** `bun run wrapper.mjs`, on Bun `1.3.10` ([WR-3](#wr-3)).
-  - **Node version.** The v1.767.0 image installs Node from NodeSource's `20.x` line when the image is built, so the major version is 20 and the patch is whatever was current then. The source does not pin it; the published image (the digest the oracle pins) runs **v20.20.2**, recorded. The CLI's `node20.15.1` target ([WR-47](#wr-47)) only sets the output's syntax level.
+  - **Node version.** The image recipe pins Node: it installs `24.22.1` from NodeSource's `24.x` line (since Windmill 1.848.3), and the published image (the digest the oracle pins) runs **v24.22.1**, recorded. The v1.767.0 recipe installed NodeSource's `20.x` line without a patch, and its published image ran v20.20.2. The CLI's `node20.15.1` target ([WR-47](#wr-47)) only sets the output's syntax level.
 - **Evidence:** `backend/windmill-common/src/cache.rs:654-682` (id from the hash); `backend/windmill-types/src/scripts.rs:315-319`; `backend/windmill-api-scripts/src/scripts.rs:1181-1190` (a codebase source with `//native` is stored as `bunnative`); `backend/windmill-worker/src/worker.rs:5381-5407` (the codebase is passed to the shared Bun executor); `backend/windmill-worker/src/bun_executor.rs:1442` (annotations from the source), `:1061-1129` (lookup), `:1131-1153` (copy, symlink or unpack), `:1505-1513` (placeholder), `:1574-1578`, `:1650-1652` (CJS → Node), `:1767-1771` (`./main.js`), `:2133-2245` (the native branch, taken before any process starts), `:1704-1707` (no wrapper for a native job without a bundle cache), `:1993-1997` (no build for a codebase), `:2144-2145` (the preamble and `main.js`), `:3448-3463` (the preamble's text), `:2338-2366` (Node, then Bun); `backend/windmill-runtime-nativets/src/lib.rs:735-748` (the parameters parsed from the source text), `:654-668` (the module loaded, not yet evaluated), `:1026-1027` (the import that evaluates it and calls the entrypoint), `:1049-1055`, `:910-937` (a JavaScript exception becomes the three-field error); `backend/windmill-worker/src/global_cache.rs:127-148` (unpack); the `require` helper: `cli/src/commands/script/script.ts:332-350` (the codebase build: `platform: "node"`, the entry's `format` and `banner`), deno_core 0.352.1 `modules/loaders.rs:455-467` (a URL that is not a `file:` URL is refused) and esbuild `0.28.0` run outside Windmill with those options; `backend/windmill-worker/src/worker.rs:609` (`NODE_BIN_PATH`); `backend/windmill-common/src/utils.rs:106-163` (standalone is the default mode); `Dockerfile:248-249` (NodeSource 20.x, patch not pinned) (all @ v1.767.0). Node's [v20.19.0 release notes](https://nodejs.org/en/blog/release/v20.19.0#module-syntax-detection-is-now-enabled-by-default) for module syntax detection becoming the default.
 - **Conformance:** [WR-50/a–h](conformance.md#wr-50)
 - **Note:** the standalone path copies a plain bundle into `main.js` instead of symlinking it, so `__filename` and symlink-sensitive code see a regular file there.
@@ -1074,11 +1114,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 - **Revision 2026-10-29 (source re-check, WR-50/c):** the reason is the job's tag, not the codebase path: the `nativets` tag is served by no worker of the reference configuration ([WR-40](#wr-40)), so the job is never pulled, and a cancel only marks it. The rule's `//native` item now says so. WR-50/c's expectation holds only where a worker serves the tag.
 - **Revision 2026-10-29 (SC3, source re-check, chain FU5):** milestone FU5 asked what CE does with a `//native` codebase script. On the reference configuration the job is never pulled (the revision above). The rule now also says what a worker that serves `nativets` runs: the extracted `main.js` behind the native preamble, with the parameters of the stored source; an ESM bundle runs, a static Node-builtin import fails the module load, and a CJS bundle fails with `ReferenceError: module is not defined` when it is evaluated (new WR-50/f, medium, replacing "fails on its first use of `module`, `exports` or `require`"). Recording either needs a worker that serves the tag ([Q-WR-21](#q-wr-21)).
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** recorded on a CE worker that adds `nativets` with `WORKER_TAGS=nativets` (fixture `conformance/flows/languages/native-codebase`, pushed with the pinned CLI; oracle run 40989292429, and 40990751153 for `esmreq_native`): an ESM codebase script under `//native` runs in the native runtime (`esm_native`, `["undefined","undefined"]`; its control `esm_control` on Bun, `["object","string"]`), and the default CommonJS bundle under `//native` fails with `{"name":"ReferenceError","message":"module is not defined"}` and a stack (`cjs_native`, unchanged in every oracle run since 40989292429), as WR-50/f predicted. The drafted parts of 2026-10-29 are recorded. New: an ESM entry with the common `createRequire` banner loads under `//native`, and its `typeof require` is `"function"` (`esmreq_native`, `["undefined","undefined","function"]`), on which the catalogue made no claim. The fixture's note explains that by a browser-target `bunnative` build inlining `node:module`; that does not apply, since the worker builds nothing for a codebase script (`bun_executor.rs:1993-1997`) and even an inline `bunnative` bundle gets an empty object for `node:module` ([WR-40](#wr-40)). The reason is esbuild's `require` helper (the new sub-bullet): new cases WR-50/g (recorded) and WR-50/h (a call through the helper, source-derived).
+- **Revision 2026-11-06 (retarget to v1.862.0):** the Node path was re-checked. The recipe pins Node `24.22.1` (`Dockerfile:157`, `:290-291 @ v1.862.0`); the worker still runs a CJS codebase bundle, or one marked `//nodejs`, with the binary at `NODE_BIN_PATH`, default `/usr/bin/node` (`backend/windmill-worker/src/worker.rs:646 @ v1.862.0`), as `node --preserve-symlinks wrapper.mjs` (`backend/windmill-worker/src/bun_executor.rs:2578-2579`, `:3338-3342 @ v1.862.0`), after writing the `{}` placeholder `package.json` (`:2426-2430 @ v1.862.0`); the CLI's target is still `node20.15.1` (`cli/src/commands/script/script.ts:448 @ v1.862.0`). CE v1.862.0 recorded WR-50/b as `"v24.22.1"` and WR-50/e as `["undefined","v24.22.1"]`. The rest of the finding (lookup, extraction, the `//native` branch, the Bun path) is not re-checked.
 
 <a id="wr-31"></a>
 ### WR-31 · Leading-comment annotations for TypeScript scripts
 
-**Scope:** core (parsing); later (`nodejs` and `native` runtimes); out (`sandbox`, `npm`) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (parsing); later (`nodejs` and `native` runtimes); out (`sandbox`, `npm`) · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Where annotations are read:** only from the leading block of comment lines.
@@ -1103,7 +1144,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-32"></a>
 ### WR-32 · How the workflow-as-code wrapper is selected
 
-**Scope:** core (detection predicate); out (workflow-as-code execution) · **Confidence:** high (detection); medium (misselection outcome and the alternate wrapper's behaviour) · **Status:** confirmed; drafted (the line rules, revised 2026-10-28)
+**Scope:** core (detection predicate); out (workflow-as-code execution) · **Confidence:** high (detection); medium (misselection outcome and the alternate wrapper's behaviour) · **Status:** confirmed; drafted (the line rules, revised 2026-10-28) · verified at v1.767.0 only
 
 - **Rule:**
   - **What the alternate wrapper does.** Workflow-as-code (WAC v2) scripts wrap their entrypoint in `workflow(async (...) => …)` from `windmill-client`. They run under a separate wrapper that:
@@ -1132,7 +1173,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-38"></a>
 ### WR-38 · Possible `.ts`-rewrite collisions, depending on the scanner's output
 
-**Scope:** later · **Confidence:** high (the conditional source operation; the pinned scanner keeps duplicates, [WR-52](#wr-52)); the collision outcome is not oracle-observed · **Status:** confirmed
+**Scope:** later · **Confidence:** high (the conditional source operation; the pinned scanner keeps duplicates, [WR-52](#wr-52)); the collision outcome is not oracle-observed · **Status:** confirmed · verified at v1.767.0 only, except whether the collisions arise (re-checked at v1.862.0)
 
 - **Rule** (a conditional description of the source operation):
   - **What the loader does:** it processes the scanner's import list in order. For each qualifying entry ([WR-28](#wr-28)), it replaces every occurrence of that specifier text with the text plus `.ts`.
@@ -1145,11 +1186,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 - **Evidence:** `backend/windmill-worker/loader.bun.js:34-54` (per-import whole-text replace, no deduplication) (@ v1.767.0). Bun `1.3.10`'s `scanImports`, run outside Windmill, reports repeated import statements as separate entries in source order ([WR-52](#wr-52)); whether the fixtures below fail on the oracle as predicted is still [Q-WR-13](#q-wr-13).
 - **Conformance:** [WR-38/a, WR-38/b](conformance.md#wr-38)
 - **Design note (not Windmill behaviour):** whether windmill-lite reproduces or deliberately fixes this behaviour is [PD-1](#pd-1) ([Q-WR-17](#q-wr-17)).
+- **Revision 2026-11-06 (v1.862.0):** the collisions no longer arise. The loader replaces only whole quoted occurrences of a specifier ([WR-28](#wr-28) rule 2), so `"./util"` leaves `"./util_db"` alone, and a second pass over a specifier reported twice finds no `"./x"` left to extend (`backend/windmill-worker/loader.bun.js:43-48 @ v1.862.0`). WR-38/a now expects success. The rule above describes v1.767.0.
 
 <a id="wr-39"></a>
 ### WR-39 · Annotation, WAC-detection and import-rewrite scans are textual; signature parsing uses an AST
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Three textual scans** can be influenced by comments or string literals:
@@ -1164,7 +1206,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-52"></a>
 ### WR-52 · What the pin-removal parse and the `.ts`-rewrite scanner see, and where a relative import is fetched
 
-**Scope:** core · **Confidence:** high (the parse settings, the collected forms, the scanner call, the URL); high (oracle-observed: the angle-bracket failure with its control, and the generic arrows, WR-52/a and WR-52/e); medium (the hashbang failure end to end; Bun's scanner output is from the `1.3.10` release binary run outside Windmill) · **Status:** drafted
+**Scope:** core · **Confidence:** high (the parse settings, the collected forms, the scanner call, the URL); high (oracle-observed: the angle-bracket failure with its control, and the generic arrows, WR-52/a and WR-52/e); medium (the hashbang failure end to end; Bun's scanner output is from the `1.3.10` release binary run outside Windmill) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:** these details complete [WR-26](#wr-26), [WR-28](#wr-28) and [WR-39](#wr-39).
   - **Pin removal's specifier list** comes from its own parse of the source: TypeScript **with JSX enabled** (TSX), early errors off. It collects the text between the quotes of:
@@ -1190,7 +1232,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-53"></a>
 ### WR-53 · Bundled mode fixes `process.env.NODE_ENV` as `"development"`
 
-**Scope:** core · **Confidence:** high (the build environment, from source); high (Bun's inlining, observed on the `1.3.10` release binary outside Windmill) · **Status:** drafted
+**Scope:** core · **Confidence:** high (the build environment, from source); high (Bun's inlining, observed on the `1.3.10` release binary outside Windmill) · **Status:** drafted · verified at v1.767.0 only
 
 - **Rule:**
   - Every Bun.build the worker runs (the deploy-time bundle, a bundle rebuilt at run time, lock generation, and the `node` and `browser` targets of `//nodejs` and `//native`) runs in a child process whose environment is cleared and refilled with only the common Bun variables of [WR-22](#wr-22): `PATH`, `HOME`, `TZ`, `FORCE_COLOR`, `DO_NOT_TRACK`, the two Bun cache variables, `BASE_URL`, and optionally `NODE_PATH` and `BUN_INSTALL_MINIMUM_RELEASE_AGE`. No `NODE_ENV`, no script `envs`, no workspace or worker-group variables. The build options set no `define`.
@@ -1202,7 +1244,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-54"></a>
 ### WR-54 · The `schema_validation` line, and what it switches on
 
-**Scope:** later · **Confidence:** high (oracle-observed, batch E3f: the line test, WR-54/a; the signature-built rules, their texts and order for an inline step, WR-54/b–e; an `anyOf` union from a stored schema, WR-54/g; a stored `type` array naming `array` failing the script's deploy-time lock job, WR-54/f); medium (which other jobs validate; that `$var:` and `$res:` strings are checked unresolved; WR-54/f's run after the failed deploy) · **Status:** confirmed (the parts recorded by batch E3f); drafted (the rest)
+**Scope:** later · **Confidence:** high (oracle-observed, batch E3f: the line test, WR-54/a; the signature-built rules, their texts and order for an inline step, WR-54/b–e; an `anyOf` union from a stored schema, WR-54/g; a stored `type` array naming `array` failing the script's deploy-time lock job, WR-54/f); medium (which other jobs validate; that `$var:` and `$res:` strings are checked unresolved; WR-54/f's run after the failed deploy) · **Status:** confirmed (the parts recorded by batch E3f); drafted (the rest) · verified at v1.767.0 only
 
 - **Rule:**
   - **It is not a [WR-31](#wr-31) annotation.** The annotation parser has no `schema_validation` flag; a separate test reads it, with its own rules:
@@ -1245,7 +1287,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v4"></a>
 ### WR-V4 · Import normalisation can change ordinary source string values
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only, except the loader's `.ts` rewrite (re-checked at v1.862.0)
 
 - **Rule:**
   - Pinned-package rewriting first discovers import strings, then replaces each matching string throughout the whole source, including matching text outside import syntax.
@@ -1256,11 +1298,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 - **Evidence:** `backend/parsers/windmill-parser-ts/src/lib.rs:676-695`; `backend/windmill-worker/loader.bun.js:34-54`, `:72-75`; `backend/windmill-worker/src/bun_executor.rs:1690`; `backend/windmill-api-scripts/src/scripts.rs:2922-2926` (all @ v1.767.0).
 - **Conformance:** [WR-V4/a, WR-V4/b](conformance.md#wr-v4)
 - **Note:** this expands [WR-26](#wr-26) and [WR-28](#wr-28); it also reaches dynamic-import literals.
+- **Revision 2026-11-06 (v1.862.0):** the Bun relative loader's `.ts` rewrite is narrower: it replaces only whole double- or single-quoted occurrences of the specifier, so a string that only contains it no longer changes, while a string equal to it still does (WR-V4/b holds) (`backend/windmill-worker/loader.bun.js:43-48 @ v1.862.0`, [WR-28](#wr-28)). The pin-removal half is verified at v1.767.0 only.
 
 <a id="wr-v9"></a>
 ### WR-V9 · Bun lock generation uses the loader's literal `raw_unpinned` endpoint
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only, except the endpoints (re-checked at v1.862.0)
 
 - **Rule:**
   - At this pin, the embedded Bun loader contains literal `scripts/raw_unpinned/p/` URLs.
@@ -1273,11 +1316,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 
 ## G. Other languages (summary level)
 - **Note (2026-10-30, SC5):** the endpoint also has an effect a run can show: `raw_unpinned` serves the helper with its `@<version>` import pins removed (`backend/parsers/windmill-parser-ts/src/lib.rs:672-695`, `backend/windmill-api-scripts/src/scripts.rs:2665-2674`), and lock generation records a package's version only from such a pin (`backend/windmill-worker/loader_builder.bun.js:29-31`, `:41-70`: the version captured from the import path, `latest` without one), so a package the helper pins appears in the importing script's lock as `latest`, where `raw` would keep the pinned version. Batch E3f did not record WR-V9/a, which watches the request itself; the SC5 request in the design README reads the lock instead.
+- **Revision 2026-11-06 (v1.862.0):** reversed. The loader now holds the `RAW_GET_ENDPOINT` placeholder, which lock generation replaces with `raw` and a run with `raw_unpinned` (`backend/windmill-worker/loader.bun.js:161-166`, `backend/windmill-worker/src/bun_executor.rs:454-463`, `:1586-1595`; the two routes `backend/windmill-api-scripts/src/scripts.rs:115-116`, the pin removal only for `raw_unpinned` `:3909-3913`; all @ v1.862.0). So lock generation keeps a fetched helper's `@<version>` pins and records the pinned version, and WR-V9/a now expects a request to `raw`. The rule above describes v1.767.0.
 
 <a id="wr-33"></a>
 ### WR-33 · Deno
 
-**Scope:** later · **Confidence:** high (binding and endpoints); medium (other wrapper details) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (binding and endpoints); medium (other wrapper details) · **Status:** confirmed · verified at v1.767.0 only, except the error object's step context keys (re-checked at v1.862.0)
 
 - **Rule:**
   - **Same as Bun:**
@@ -1287,7 +1331,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - the same async-iterable stream rule;
     - preprocessor support.
   - **Different from Bun:**
-    - **Error object:** `{message, name, stack}` plus `step_id`, **without `extra`**.
+    - **Error object:** `{message, name, stack}` plus `step_id`, `job_id` and `flow_path` when set (the last two after v1.767.0, `backend/windmill-worker/src/deno_executor.rs:430-445` @ v1.862.0; [FX-12](execution.md#fx-12)), **without `extra`**.
     - **No [WR-V1](#wr-v1) fallback:** Deno always binds by name, so an override with an empty parsed list gets **no** arguments.
     - **Imports:** an import map points `/`, `./` and `../` at the API's `raw` endpoint. Both `raw` and `raw_unpinned` serve the latest deployed, non-archived version; only `raw_unpinned` strips package pins. Bun's runtime loader and Bun lock generation both use `raw_unpinned` ([WR-V9](#wr-v9)).
     - **Command:** `deno run --no-check --import-map … --reload=<base>`.
@@ -1297,11 +1341,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - **Environment:** includes `BASE_INTERNAL_URL` and `DENO_AUTH_TOKENS`.
 - **Evidence:** `backend/windmill-worker/src/deno_executor.rs:91`, `:261-381` (wrapper; error object at `:370-378`), `:307-353` (spread), `:446-511` (command), `:563-604` (import map); `backend/windmill-worker/loader.bun.js:109-110`; `backend/windmill-worker/src/bun_executor.rs:409-423`, `:836-845`; `backend/windmill-api-scripts/src/scripts.rs:2651-2674`, `:2857-2865`, `:2922-2926` (all @ v1.767.0).
 - **Conformance:** [WR-33/a](conformance.md#wr-33); see also [WR-V9/a](conformance.md#wr-v9).
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the error keys re-verified at v1.862.0):** the error object now carries `job_id` and `flow_path` after `step_id`, each when its variable is set ([FX-12](execution.md#fx-12); `backend/windmill-worker/src/deno_executor.rs:430-445` @ v1.862.0). The rest of the finding is verified at v1.767.0 only.
 
 <a id="wr-34"></a>
 ### WR-34 · Python
 
-**Scope:** later · **Confidence:** high (the `**kwargs`, hydration and preprocessor rules); medium (the rest of the summary) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (the `**kwargs`, hydration and preprocessor rules); medium (the rest of the summary) · **Status:** confirmed · verified at v1.767.0 only, except the error object's step context keys (re-checked at v1.862.0)
 
 - **Rule:**
   - **Wrapper and import:**
@@ -1327,7 +1372,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
   - **Streams:** any non-container iterable result is streamed as `WM_STREAM: ` lines. A numpy array or a pandas Series takes this path. Chunks must be `str`.
   - **Neither `main` nor the preprocessor is awaited** by the normal wrapper. An async `main`'s coroutine is therefore serialised via `str()`. Runtime-specific coroutine text should be normalised. This does not carry over to the separate workflow-as-code wrapper.
   - **Errors:**
-    - `except BaseException` writes `{message: str(e), name: <class name>, stack: <formatted traceback minus the first frame>, extra?: e.__dict__ when non-empty, step_id?}`, then exits 1.
+    - `except BaseException` writes `{message: str(e), name: <class name>, stack: <formatted traceback minus the first frame>, extra?: e.__dict__ when non-empty, step_id?, job_id?, flow_path?}`, then exits 1. The last two keys came after v1.767.0 (`backend/windmill-worker/src/python_executor.rs:1003-1010`, `:1079-1086` @ v1.862.0; [FX-12](execution.md#fx-12)).
     - So `sys.exit(0)` inside `main` is an error.
   - **Preprocessor** ([WR-V6](#wr-v6)):
     - it runs under the same condition as Bun's ([WR-11](#wr-11)) and is suppressed on the flow preprocessor step;
@@ -1341,11 +1386,12 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
   - **Environment:** includes `BASE_INTERNAL_URL`.
 - **Evidence:** `backend/windmill-worker/src/python_executor.rs:660-688` (module path), `:820-837`, `:937-1002` (wrapper; the transforms come before the handler at `:940-966`), `:966-990` (call, stream, write), `:974-983`, `:1211-1228`, `:1640-1807` (spread and hydration; `:1789-1807`), `:1662-1664`, `:1710-1816`, `:1883`, `:2198-2207`, `:2416` (deps), `:3288-3313` (`res_to_json`); `backend/windmill-worker/loader.py:24-91`; `backend/parsers/windmill-parser-py/src/lib.rs:297`, `:581-623` (all @ v1.767.0).
 - **Conformance:** [WR-34/a–d](conformance.md#wr-34)
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the error keys re-verified at v1.862.0):** the error object now carries `job_id` and `flow_path` after `extra` and `step_id`, each when its variable is set ([FX-12](execution.md#fx-12); `backend/windmill-worker/src/python_executor.rs:995-1013`, `:1071-1089` @ v1.862.0). The rest of the finding is verified at v1.767.0 only.
 
 <a id="wr-35"></a>
 ### WR-35 · Go and Bash
 
-**Scope:** later · **Confidence:** high (Bash); medium (Go) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (Bash); medium (Go) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule (Go):**
   - **Build:** the user file becomes package `inner`. A generated runner decodes `args.json` into a struct with one field per parameter, using the original parameter name as the JSON tag.
@@ -1382,7 +1428,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-36"></a>
 ### WR-36 · Dedicated workers and runner groups (long-lived processes)
 
-**Scope:** EE · **Confidence:** high (source-read; EE, so not observable on CE) · **Status:** confirmed
+**Scope:** EE · **Confidence:** high (source-read; EE, so not observable on CE) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **What they are:** with the proprietary `private` build feature, a script can be pinned to a long-lived process.
@@ -1400,7 +1446,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v6"></a>
 ### WR-V6 · Python preprocessing uses first-signature hydration and an in-memory handoff
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The ordinary Python wrapper uses the same needs-preprocessing condition as Bun, and skips script preprocessing on the flow preprocessor step.
@@ -1416,7 +1462,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
 <a id="wr-v7"></a>
 ### WR-V7 · Go locks contain module metadata and checksums
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Splitting:** a resolved Go lock is split at the literal `//go.sum` followed by a newline. The text before it is written as `go.mod`, the text after it as `go.sum`.
@@ -1433,7 +1479,7 @@ This section answers semantics request 1: the boundary rules of the native runti
 <a id="wr-40"></a>
 ### WR-40 · Which steps run in the native runtime, and how each kind is prepared
 
-**Scope:** core (selection, preparation, the client import); later (`//native` with `//nobundling`); out (builds without `deno_core`, dedicated native workers, worker-group configuration) · **Confidence:** high (oracle-observed on a CE worker with `WORKER_TAGS=nativets`: WR-40/a–i, batch E3f); high (source-traced: the deploy-time build of WR-40/i's failing variants, observed, not recorded); the stuck job on the reference oracle observed, not recorded · **Status:** confirmed (the parts drafted on 2026-10-29 are recorded)
+**Scope:** core (selection, preparation, the client import); later (`//native` with `//nobundling`); out (builds without `deno_core`, dedicated native workers, worker-group configuration) · **Confidence:** high (oracle-observed on a CE worker with `WORKER_TAGS=nativets`: WR-40/a–i, batch E3f); high (source-traced: the deploy-time build of WR-40/i's failing variants, observed, not recorded); the stuck job on the reference oracle observed, not recorded · **Status:** confirmed (the parts drafted on 2026-10-29 are recorded) · verified at v1.767.0 only, except WR-40/c's location and the embedded client's version (re-checked at v1.862.0)
 
 - **Rule:**
   - **Two languages, one runtime.** `nativets` and `bunnative` steps both run inside the worker process, in an embedded V8 isolate, not in a Bun child process. There is no dependency install at run time, no `args.json`, no `result.json` and no wrapper file.
@@ -1455,7 +1501,7 @@ This section answers semantics request 1: the boundary rules of the native runti
     - *(drafted; medium)* **The texts for a file that does not exist.** The loader fails with `Failed to load <url>`, caused by the operating system's error, on the Linux worker `No such file or directory (os error 2)`.
       - A static import reports both, joined by `: `, as the `<cause>` of [WR-43](#wr-43)'s load failure: `Error: failed to load module: Failed to load file:///helper.ts: No such file or directory (os error 2)`, then the location suffix.
       - A dynamic `import()` rejects with a **`TypeError`**: deno_core turns every loader failure of a dynamic import into a `TypeError`, whatever the error's own class. Its message is `Failed to load file:///missing.ts`, a newline, `  Caused by:` (two spaces), a newline, and the cause indented by four spaces. Uncaught, [WR-43](#wr-43) therefore gives `name` `TypeError` and that whole `message`.
-    - The embedded client is a prebuilt bundle of an older TypeScript client. Its generated `OpenAPI.VERSION` is `1.326.0`, not `1.767.0`, so its function surface is older than the [client API](client-api.md) catalogue.
+    - The embedded client is a prebuilt bundle of an older TypeScript client. Its generated `OpenAPI.VERSION` is `1.326.0`, not `1.767.0`, so its function surface is older than the [client API](client-api.md) catalogue. At v1.862.0 it is still `1.326.0`: the bundle differs from v1.767.0's only by one method fewer (`editDeployTo`, `POST /w/{workspace}/workspaces/edit_deploy_to`) and one comment (`backend/windmill-runtime-nativets/src/windmill-client.js:123 @ v1.862.0`).
   - **How `bunnative` code is prepared.**
     - An ordinary `//native` script is always bundled, even without a lock: Bun.build with target **`browser`**, ESM output, and the minification settings, `electron` external and import plugin of [WR-27](#wr-27). Relative and `/f/` imports therefore follow [WR-28](#wr-28), and npm packages from the lock are inlined.
     - **Two exceptions:**
@@ -1483,11 +1529,13 @@ This section answers semantics request 1: the boundary rules of the native runti
 - **Revision 2026-10-29 (SC4 validation round 1, finding 2):** the revision just above said that a Node built-in never fails the build and that the `node:` prefix makes no difference. Both are wrong on Bun `1.3.10`: about thirty built-ins (`child_process`, `worker_threads`, `vm` and others) fail the build when imported without `node:` and become an empty object only with it, and `node:test` fails the build; only `fs` and `fs/promises` are emptied under both spellings. The bullet now gives the four outcomes per module and spelling, with the build error and how it fails the step. New case WR-40/i.
 - **Revision 2026-10-29 (SC4 validation round 2, finding 2):** the fourth outcome said that `node:test` and `node:sqlite` fail "under either spelling". The bare `test` and `sqlite` are package specifiers, not spellings of those built-ins: without a matching package they fail with Bun's `Could not resolve: "test"` (not the built-in message), and a resolvable package of that name is bundled (probed on Bun `1.3.10` with Windmill's build options). The outcome now names only the prefixed imports.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** recorded WR-40/a to WR-40/i (fixture `conformance/flows/languages/wr-40`, oracle runs 40990751153 and 40994947681) in an oracle session whose CE worker adds `nativets` with `WORKER_TAGS=nativets`, which confirms the route the rule gives for serving the tag: the header picks the runtime, every spelling of the client URL reaches it, a missing host file gives WR-40/c's load failure and WR-40/f's `TypeError` texts exactly, the module-level `this` differs by kind, and the `node:buffer` polyfill works inside the runtime. One correction: WR-40/i's two failing variants failed at deploy, not at run time, because lock generation builds the bundle ahead of time with the run's options, so the flow's dependency job failed with `Browser build cannot import Node.js builtin` (oracle run 40989292429). The last paragraph of the built-ins bullet now says so. The parts drafted on 2026-10-29 are recorded.
+- **Revision 2026-11-06 (retarget to v1.862.0):** WR-40/c was re-recorded on CE v1.862.0 (native session) with the same message. A failed module load is converted at `backend/windmill-runtime-nativets/src/lib.rs:962-965 @ v1.862.0`, so the location reads `@lib.rs:964:22` (`@lib.rs:893:22` at v1.767.0). The rest of the finding is not re-checked.
+- **Revision 2026-11-06 (v1.862.0):** the embedded client's version, re-verified: still `1.326.0`, with one method fewer than at v1.767.0 (bullet above). Its module is still loaded as `file:///windmill.ts` behind the preamble (`backend/windmill-runtime-nativets/src/lib.rs:692-705 @ v1.862.0`). The rest of the finding is verified at v1.767.0 only; at v1.862.0 the runtime is built on deno_core 0.412.0, not 0.352.1.
 
 <a id="wr-41"></a>
 ### WR-41 · A fresh isolate per job; how arguments bind
 
-**Scope:** core (fresh state, binding); later (entrypoint overrides and preprocessors) · **Confidence:** high (oracle-observed: state, binding, a `nativets` preprocessor module run through `main`, WR-41/a–d); medium (the other override and preprocessor consequences) · **Status:** confirmed
+**Scope:** core (fresh state, binding); later (entrypoint overrides and preprocessors) · **Confidence:** high (oracle-observed: state, binding, a `nativets` preprocessor module run through `main`, WR-41/a–d); medium (the other override and preprocessor consequences) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Fresh state.** Every native job creates a new isolate and drops it when the job ends. Module state, globals and timers never survive between jobs, as in [WR-1](#wr-1). Work still pending when the entrypoint's promise settles is abandoned: the isolate is dropped right after the result is read.
@@ -1509,7 +1557,7 @@ This section answers semantics request 1: the boundary rules of the native runti
 <a id="wr-42"></a>
 ### WR-42 · The result is `JSON.stringify(value ?? null)` with no replacer
 
-**Scope:** core · **Confidence:** high (oracle-observed: WR-42/a–d, V8's BigInt text included); medium (the completion checks applying unchanged) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: WR-42/a–d, V8's BigInt text included); medium (the completion checks applying unchanged) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - The awaited return value `v` is serialised inside the isolate as `JSON.stringify(v ?? null)`, with **no replacer and no BigInt patch** (compare [WR-13](#wr-13)). The resulting text is taken as the result as is.
@@ -1531,11 +1579,12 @@ This section answers semantics request 1: the boundary rules of the native runti
 <a id="wr-43"></a>
 ### WR-43 · The native error shapes
 
-**Scope:** core (shapes); later (the texts of the rarer failures) · **Confidence:** high (oracle-observed in both kinds: WR-43/a–i, the detached rejection and the texts included); medium (timer throws; the V8 side of a `stack` assigned before it was read) · **Status:** confirmed
+**Scope:** core (shapes); later (the texts of the rarer failures) · **Confidence:** high (oracle-observed in both kinds: WR-43/a–i, the detached rejection and the texts included); medium (timer throws; the V8 side of a `stack` assigned before it was read) · **Status:** confirmed · verified at v1.767.0 only, except WR-43/f's location, the step context keys and WR-43/c's `nativets` source line (re-checked at v1.862.0)
 
 - **Rule:** a failed native job stores `{"error": E}` ([WR-21](#wr-21)). `E` takes one of two forms.
   1. **A JavaScript exception reached the end of the run.** It came from the entrypoint, from evaluating the module, from a failed dynamic `import()` that the script did not catch ([WR-40](#wr-40)), or from serialising the result.
-     - `E` has exactly the keys `message`, `stack` and `name`: `{"message": M, "stack": S, "name": N}`. There is **no `step_id`**, even inside a flow, and **no `extra`**: own properties such as `code` or `cause` are dropped (compare [WR-18](#wr-18)).
+     - `E` has the keys `message`, `stack` and `name`, `{"message": M, "stack": S, "name": N}`, followed by the step context keys of [FX-12](execution.md#fx-12): `step_id`, `job_id` and `flow_path`, each only when its variable is non-empty (since 1.850.0). The worker adds them to the error value after the run, whatever was thrown. There is **no `extra`**: own properties such as `code` or `cause` are dropped (compare [WR-18](#wr-18)).
+     - So inside a flow, `{"message": M, "stack": S, "name": N, "step_id": <module id>, "job_id": <the job's id>, "flow_path": <the parent job's path>}`. Form 2 below gets neither `job_id` nor `flow_path`.
      - **For an `Error` instance** (any object whose prototype chain reaches `Error.prototype`), the `name` and `message` properties, own or inherited, are read **together** as two optional strings:
        - when both are strings (or `String` objects), `N` and `M` are those strings. So `new Error()` gives `M` = `""`, and a subclass that does not set `name` gives `Error`;
        - a property that is `null` or `undefined` gives `null` for that field alone;
@@ -1545,6 +1594,7 @@ This section answers semantics request 1: the boundary rules of the native runti
        - The frame comes from the stack trace V8 formats the first time the error's `stack` is read; deno_core's stack-trace hook stores the frames on the error at that moment. An error whose `stack` was **assigned before it was ever read** is never formatted, so it has no frame and no source-line prefix, and deno_core's fallback location, taken from the exception's message, gave no script line either (observed; the V8 side was not traced). With a non-string value both parts are empty, so `S` is `null` (oracle-observed, WR-43/i).
        - `S` is `null` when both parts are empty.
        - The line comes from the module text as loaded: the transpiled `nativets` code or the `bunnative` bundle, with the environment preamble of [WR-45](#wr-45) in front. A `bunnative` bundle is built with syntax minification ([WR-27](#wr-27), [WR-40](#wr-40)), so the line can differ from the source in more than indentation: on Bun `1.3.10`, `throw new Error("x")` is written `throw Error("x")`, without `new`. A `nativets` line keeps the source's code, minus its types.
+       - **Which line, for `nativets`, at v1.862.0.** The TypeScript transpiler appends to the code an inline source map, which describes the transpiled code alone, without the preamble. Since v1.862.0 (deno_core 0.412.0) the runtime maps each frame through it: the frame's position, which counts the preamble's lines, is looked up as if it were a position in the code alone, and the frame takes the original position of the last mapping at or before it. Windmill then reads the line at that number in the preamble and code together. So for a script shorter than its preamble (73 lines on the oracle, [WR-45](#wr-45)), the number is that of the script's last mapped line, and the line read is a preamble line: for a script whose last line is its third, the preamble's third line, `const BASE_INTERNAL_URL = '<base internal url>';` (WR-43/c). From the preamble's fifth line on, the lines hold the variables in an order that differs between jobs, so such a line cannot be predicted. A `bunnative` bundle carries no source map, so its line is the throwing line, as at v1.767.0.
      - **For any other thrown value** (a string, a number, a plain object even with `message` and `name` fields, `null`, `undefined`), all three fields are `null`.
      - *(medium)* A rejection that nobody handles while the entrypoint is still pending, or an exception thrown from a timer callback, fails the job the same way with that value, even if the entrypoint would have succeeded.
   2. **Any other failure is a worker-side error:** `E` = `{"message": "execution error:\n<detail>", "name": "ExecutionErr", "step_id"?}` ([WR-37](#wr-37)), with these details:
@@ -1560,14 +1610,22 @@ This section answers semantics request 1: the boundary rules of the native runti
 
      A `bunnative` syntax error fails earlier, while bundling, with the [WR-20](#wr-20) error of program `bun build`.
 - **Evidence:** `backend/windmill-worker/src/worker.rs:3557-3560` (the transpile runs before the runtime is called); `backend/windmill-runtime-nativets/src/lib.rs:384-401` (transpile errors), `:876-940` (load failure, exception shaping, the source line), `:1045-1058` (exception versus other failure), `:845-848` (heap), `:752-755` (proxy); `backend/windmill-worker/src/result_processor.rs:621-627` (a raw error value kept as is; other failures as `execution error:`), `:2020-2028`; `backend/windmill-common/src/error.rs:71-74`, `:146-151` (`Error: … @<location>`); `backend/windmill-worker/src/handle_child.rs:733-738` (timeout); deno_core 0.352.1 `error.rs:736-930` (fields read only from `Error` instances; other values give none), `:649-655` and `:763-769` (`name` and `message` decoded together, defaulting to none on failure), `:794-852` (`stack` read first so that the frames are stored; kept only when it is a string; the frames read back, else one frame from the exception's message), `:1604-1614` (the frames stored when V8 formats `stack`), `:975-1000` (the prototype test); serde_v8 0.261.1 `de.rs:197-220` (a string or `String` object is required; `null` and `undefined` give none); `:76-78` (pending resolution), `runtime/jsruntime.rs:1921-1944`, `:2029` (event-loop exceptions and unhandled rejections end the run) (all @ v1.767.0 unless named).
+- **Evidence for the step context keys** (all @ v1.862.0):
+  - `backend/windmill-worker/src/js_eval.rs:110-133`: the keys go into a raw error value that is a JSON object, from `WM_FLOW_STEP_ID`, `WM_JOB_ID` and `WM_FLOW_PATH`, each when non-empty; any other error is left as it is.
+  - Every native run applies it: `backend/windmill-worker/src/bun_executor.rs:3174`, `:3207`, `:3236` (`bunnative`) and `backend/windmill-worker/src/worker.rs:6704` (`nativets`).
+  - A worker-side error is not a raw value, so it keeps `step_id` alone: `backend/windmill-worker/src/result_processor.rs:671-677`.
 - **Conformance:** [WR-43/a–i](conformance.md#wr-43)
+- **Evidence at v1.862.0** (the line for `nativets`): the transpile with the default emit options `backend/windmill-runtime-nativets/src/lib.rs:379-397`, the module text `:961` and the line read at the first frame's number `:984-993`, the first frame's file and line `:1124-1129` (all @ v1.862.0); deno_ast 0.51.0 `src/emit.rs:13-22` (an inline source map by default), `:41-51`; deno_core 0.412.0 `modules/map.rs:925-961` (a module's inline `sourceMappingURL` kept), `source_map.rs:159-212` (decoded on first use), `:214-262` (each frame mapped through it); sourcemap 9.3.2 `src/types.rs:712-724` (the greatest mapping at or before a position). deno_core 0.352.1, at v1.767.0, consulted only extension maps and its loader's maps (`source_map.rs:74-101`), so the inline map was never read.
 - **Revision 2026-10-29 (source re-check, design request 1, chain C3n):** WR-43/c expected the first stack line to contain `throw new Error("x")` for both kinds. The `bunnative` bundle is syntax-minified, and Bun `1.3.10` drops the `new` from a call of the built-in `Error` constructor (checked on the release binary, outside Windmill, with Windmill's build options), so for `bunnative` the line holds `throw Error("x")`. The rule now says that a `bunnative` line is the minified code, and WR-43/c gives one expectation per kind.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** recorded every WR-43 case in both kinds (fixtures `conformance/flows/languages/native`, `wr-43` and `wr-43-stack`; oracle runs 40989292429, 40990751153 and 41020447570). All held as written except WR-43/i: the reference predicted a `stack` of one source line and a newline for an error whose script assigns `stack = 5`, and the oracle recorded `null`. Windmill takes the source line from the first frame deno_core reports (`backend/windmill-runtime-nativets/src/lib.rs:910-933`, `:1049-1055`), and deno_core stores frames only when V8 formats `stack` (deno_core 0.352.1 `error.rs:794-852`, `:1604-1614`); an assignment before any read means the error is never formatted. The rule now says so. Also recorded: the whole texts of a `nativets` syntax error (WR-43/f: the transpiler's diagnostic with the source excerpt, then ` @worker.rs:3560:9`) and of an entrypoint left pending with nothing to run (WR-43/e: at once, not after the step's timeout), and the stack's first two lines (WR-43/c).
+- **Revision 2026-11-06 (retarget to v1.862.0):** WR-43/f was re-recorded on CE v1.862.0 (native session) with the same transpiler message. The transpile step is the call at `backend/windmill-worker/src/worker.rs:4776 @ v1.862.0`, so the location reads `@worker.rs:4776:9` (`@worker.rs:3560:9` at v1.767.0). The rest of the finding is not re-checked.
+- **Revision 2026-11-06 (retarget to Windmill 1.862.0; the keys re-verified at v1.862.0):** form 1 had no `step_id`. Since 1.850.0 every form 1 error gets the step context keys of [FX-12](execution.md#fx-12), recorded on WR-43/a–d, WR-43/g–i, WR-40/f, WR-40/h, WR-42/c, WR-44/b and WR-50/f (oracle run 42299510925). Form 2 has neither new key, as the native timeout of [FX-24/g](conformance.md#fx-24) shows on CE v1.862.0 (oracle run 42243035193). The rest is verified at v1.767.0 only.
+- **Revision 2026-11-06 (v1.862.0; oracle runs 42243035193 and 42300319428):** WR-43/c's `nativets` line changed. CE v1.862.0 gave `const BASE_INTERNAL_URL = 'http://localhost:8000';` where v1.767.0 gave `throw new Error("x");`: the frame's line is now mapped through the transpiler's source map, and the mapped number is read in the preamble and code together (the new sub-bullet of `S`). The `bunnative` line is unchanged. The other rules of the finding are verified at v1.767.0 only.
 
 <a id="wr-44"></a>
 ### WR-44 · Timeout, heap and stack limits
 
-**Scope:** core (timeout); later (heap, stack) · **Confidence:** high (oracle-observed: the timeout text, an overflow's `RangeError` and the heap cap with a waiting script, WR-44/a–c); high (timeout; the ignored stack flag and V8's default, from the pinned V8 source); medium (when the heap check takes effect; that the prebuilt V8 library uses the default build configuration) · **Status:** confirmed
+**Scope:** core (timeout); later (heap, stack) · **Confidence:** high (oracle-observed: the timeout text, an overflow's `RangeError` and the heap cap with a waiting script, WR-44/a–c); high (timeout; the ignored stack flag and V8's default, from the pinned V8 source); medium (when the heap check takes effect; that the prebuilt V8 library uses the default build configuration) · **Status:** confirmed · verified at v1.767.0 only
 
 - **Rule:**
   - **Timeout duration.** The instance maximum comes from the worker's `TIMEOUT` environment variable, 604 800 s (7 days) by default on a self-hosted instance. The duration then depends on whether the job has a timeout of its own (a flow step's `timeout`, [FX-24](execution.md#fx-24)):
@@ -1592,7 +1650,7 @@ This section answers semantics request 1: the boundary rules of the native runti
 <a id="wr-45"></a>
 ### WR-45 · What the native runtime offers: environment, globals and `fetch`
 
-**Scope:** core (environment names, the global surface); later (`fetch` user agent, proxy and certificates) · **Confidence:** high (oracle-observed: environment, reserved names, the redeclaration failure, installed and absent globals, `//proxy`, the user agent, WR-45/a–g); medium (the custom-env consequence) · **Status:** confirmed
+**Scope:** core (environment names, the global surface); later (`fetch` user agent, proxy and certificates) · **Confidence:** high (oracle-observed: environment, reserved names, the redeclaration failure, installed and absent globals, `//proxy`, the user agent, WR-45/a–g); medium (the custom-env consequence) · **Status:** confirmed · verified at v1.767.0 only, except the preamble (re-checked at v1.862.0)
 
 - **Rule:**
   - **Environment.** There is no real process. The worker puts a short preamble in front of the script's module text. It declares a module-scope `const process = { env: … }` and fills `process.env` with:
@@ -1600,12 +1658,14 @@ This section answers semantics request 1: the boundary rules of the native runti
     - the reserved `WM_*` variables of [WR-22](#wr-22), plus the workspace's custom env vars and the worker group's `env_vars`;
     - nothing else: no `PATH`, `HOME` or `TZ`, no script `envs`, no proxy or OTel variables, no `WM_PIPELINE`.
 
-    Values are written as single-quoted string literals with backslash, quote, LF and CR escaped, so each value arrives as the same string.
+    Values are written as single-quoted string literals with backslash, quote, LF and CR escaped, so each value arrives as the same string. At v1.862.0 the name inside `process.env['…']` is escaped the same way.
   - **Module-scope names.** The preamble is part of the script's own module, so its declarations are bindings of that module.
     - Both kinds declare `process`, `BASE_URL` and `BASE_INTERNAL_URL`.
-    - `nativets` also declares every variable above as a `const` of the same name. A `nativets` script can read `WM_WORKSPACE` as a bare identifier; in `bunnative` that is a `ReferenceError`.
+    - `nativets` also declares every variable above as a `const` of the same name. A `nativets` script can read `WM_WORKSPACE` as a bare identifier; in `bunnative` that is a `ReferenceError`. At v1.862.0 only a name that can be a binding gets the `const`: an ASCII identifier (`[A-Za-z_$][A-Za-z0-9_$]*`) that is neither a reserved word of strict mode nor `process`, `BASE_URL` or `BASE_INTERNAL_URL`. Any other name is a `process.env` entry only.
     - A script that declares one of these names at its top level fails to load with a redeclaration `SyntaxError` ([WR-43](#wr-43)).
-    - *(medium)* The same load failure hits every `nativets` script of a workspace that has a custom env var whose name is not a valid JavaScript identifier.
+    - *(medium)* Up to v1.767.0 the same load failure hit every `nativets` script of a workspace that had a custom env var whose name was not a valid JavaScript identifier. At v1.862.0 such a name gets no `const` (above), so the scripts load.
+    - **The preamble's lines** (v1.862.0). In `nativets` it is four fixed lines (the `process` object, `BASE_URL`, `BASE_INTERNAL_URL`, then one line copying both into `process.env`), then the variables in the order of a hash map, which differs between jobs: each takes two lines (its `const` and its `process.env` entry) or, without a `const`, one, with an empty line between consecutive variables. An empty line follows, then the script's code. With `n` variables, all of them `const`s, the code starts on line `3n + 5`. On the oracle a flow step has 23 such variables at v1.862.0, one more than at v1.767.0 (`WM_ROOT_WORKSPACE`, [WR-22](#wr-22)), so the code starts on line 74 instead of 71, and a redeclaration's frame line reads `file:///eval.ts:74:7` (WR-45/c). In `bunnative` the variables take one `process.env` line each, with no empty lines.
+    - *(later)* **`//no_network`** (new at v1.862.0): the header leaves `WM_TOKEN` out of the preamble, in both kinds, and the isolate gets no network access.
     - The embedded `nativets` client gets the same preamble. It reads `BASE_INTERNAL_URL`, then `BASE_URL`, and `WM_TOKEN` from its own `process.env`.
   - **Installed globals.** Each is the implementation from deno_web, deno_url, deno_fetch, deno_crypto or deno_console:
 
@@ -1631,13 +1691,15 @@ This section answers semantics request 1: the boundary rules of the native runti
     - TLS trusts the default web roots, plus any roots named by the worker's `DENO_CERT`, `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS`, and the system store when `DENO_TLS_CA_STORE` lists `system`.
 - **Evidence:** `backend/windmill-worker/src/worker.rs:5108-5120` (the `nativets` preamble with `const` names); `backend/windmill-worker/src/bun_executor.rs:3447-3462` (the `bunnative` preamble), `:2144` (it is used); `backend/windmill-worker/src/common.rs:507-559` (reserved, workspace and worker-group variables); `backend/windmill-runtime-nativets/src/lib.rs:876-890` (the preamble prepended to the client and script modules), `:403-441` (annotations), `:557-582` (user agent, proxy and extensions), `:84-173` (permissions allow everything), `:251-331` (certificates), `:752-755` (proxy on CE); `backend/windmill-runtime-nativets/src/runtime.js:33-122` (installed globals), `:126-146` (`globalThis` as an `EventTarget`); `backend/windmill-runtime-nativets/src/windmill-client.js:9861-9877` (the client's environment reads); deno_core 0.352.1 `01_core.js:833` (`queueMicrotask`), `Cargo.toml:30-33` (ICU data by default) (all @ v1.767.0 unless named).
 - **Conformance:** [WR-45/a–g](conformance.md#wr-45)
+- **Evidence at v1.862.0** (the preamble): the `nativets` preamble `backend/windmill-worker/src/worker.rs:6664-6689` (`WM_TOKEN` left out under `//no_network` `:6666-6669`), the `bunnative` preamble `backend/windmill-worker/src/bun_executor.rs:4591-4614`, the escaping and the names that can be a `const` `backend/windmill-common/src/variables.rs:139-146`, `:148-161`, `:163-219`, `:221-236`, the reserved names, `WM_ROOT_WORKSPACE` among them, `:749` onwards; the preamble in front of the code `backend/windmill-runtime-nativets/src/lib.rs:961`, the isolate's network permission `:131-145`, `:568-577`, `:670` (all @ v1.862.0).
 - **Design note (not Windmill behaviour):** the global list is what a load-time check of native scripts can compare free identifiers against.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-45/a to WR-45/g were recorded (fixtures `conformance/flows/languages/wr-45`, `wr-45-useragent` and `native`; oracle runs 40989292429 and 40990751153), including V8's redeclaration text: `Uncaught SyntaxError: Identifier 'BASE_URL' has already been declared`, then a frame line `    at file:///eval.ts:<line>:<col>` whose line counts the preamble's lines (71 in that run), then ` @lib.rs:893:22`. A fetch of the harness's loopback sink worked from both kinds.
+- **Revision 2026-11-06 (v1.862.0; oracle runs 42243035193 and 42300319428):** the preamble, re-verified. It grew by three lines on the oracle, because a flow step has one more reserved variable, `WM_ROOT_WORKSPACE`, so WR-45/c's frame line is `file:///eval.ts:74:7` (and its suffix ` @lib.rs:964:22`). Names are escaped inside `process.env['…']`, and a name that cannot be a binding gets no `const`, which reverses the medium consequence for custom env var names. New, not yet in a case: `//no_network`. The global surface and `fetch` are verified at v1.767.0 only.
 
 <a id="wr-46"></a>
 ### WR-46 · Native result streaming
 
-**Scope:** later · **Confidence:** high (oracle-observed: WR-46/a, WR-46/b); medium (a stream whose text is not JSON, source-traced, WR-46/c) · **Status:** confirmed; drafted (a stream whose text is not JSON)
+**Scope:** later · **Confidence:** high (oracle-observed: WR-46/a, WR-46/b); medium (a stream whose text is not JSON, source-traced, WR-46/c) · **Status:** confirmed; drafted (a stream whose text is not JSON) · verified at v1.767.0 only
 
 - **Rule:**
   - **Producing the stream.** If the awaited value is async-iterable, each chunk is logged as `WM_STREAM: ` followed by the chunk, with every LF escaped as the two characters `\n`. A chunk must be a string.
@@ -1671,7 +1733,7 @@ These are proposals for windmill-lite's equivalence contract, not facts about Wi
 - **Q-WR-1** · affects [WR-15](#wr-15), [WR-V2](#wr-v2) · answered: see [WR-V2](#wr-v2).
 
 <a id="q-wr-2"></a>
-- **Q-WR-2** · affects [WR-19](#wr-19), [WR-20](#wr-20) · open (oracle; the exact value is `later`) · What exit status and stderr does Bun `1.3.10` produce for `throw null`, for a top-level module throw, and for an unawaited rejection while the entrypoint is pending? Does that rejection end the process before the result write? The `exit_code` `1` expected in WR-19/a is a prediction. *Settled by:* running three synthetic scripts on the v1.767.0 oracle image and recording `exit_code`, `error.message` and success or failure for each.
+- **Q-WR-2** · affects [WR-19](#wr-19), [WR-20](#wr-20) · open (oracle; the exact value is `later`) · What exit status and stderr does Bun `1.3.10` (v1.767.0's image) produce for `throw null`, for a top-level module throw, and for an unawaited rejection while the entrypoint is pending? Does that rejection end the process before the result write? The `exit_code` `1` expected in WR-19/a is a prediction. *Settled by:* running three synthetic scripts on the v1.767.0 oracle image and recording `exit_code`, `error.message` and success or failure for each.
 
 <a id="q-wr-3"></a>
 - **Q-WR-3** · affects [WR-29](#wr-29) · answered: see [WR-29](#wr-29). It is settled from source, including the explicit-path exception. An optional oracle confirmation (flow `f/a/fl` with inline imports of `./x` and `../x`) is tracked in [Q-WR-20](#q-wr-20). *2026-10-30 (SC5):* batch E3f recorded WR-29/a and the deployed half of WR-29/b as the answer predicts ([Q-WR-20](#q-wr-20)).
@@ -1690,10 +1752,10 @@ These are proposals for windmill-lite's equivalence contract, not facts about Wi
 - **Q-WR-6** · affects [WR-37](#wr-37) · answered: see [WR-37](#wr-37). This covers CE and self-hosted timeouts; cancellation of the containing flow belongs to [execution](execution.md).
 
 <a id="q-wr-7"></a>
-- **Q-WR-7** · affects [WR-18](#wr-18) · open, `later` · Which own properties do Bun-native errors carry under Bun `1.3.10`, e.g. a `fetch` failure or a `SystemError` with `code`/`errno`/`syscall`? Do they include own `line`, `column` or `sourceURL`? No universal list of native extras is assumed. *Settled by:* an oracle script that lets `fetch("http://127.0.0.1:1")` fail uncaught, recording `error.extra`.
+- **Q-WR-7** · affects [WR-18](#wr-18) · open, `later` · Which own properties do Bun-native errors carry under Bun `1.3.10` (v1.767.0's image), e.g. a `fetch` failure or a `SystemError` with `code`/`errno`/`syscall`? Do they include own `line`, `column` or `sourceURL`? No universal list of native extras is assumed. *Settled by:* an oracle script that lets `fetch("http://127.0.0.1:1")` fail uncaught, recording `error.extra`.
 
 <a id="q-wr-8"></a>
-- **Q-WR-8** · affects [WR-26](#wr-26) · open · Does Bun `1.3.10` support `npm:`-prefixed specifiers in Bun scripts, through lock generation and the run, or reject them? They stay outside the core boundary until this is settled. *Settled by:* an oracle deploy and run of a script importing `npm:<synthetic or small public package>`, recording whether lock generation and the run succeed.
+- **Q-WR-8** · affects [WR-26](#wr-26) · open · Does Bun `1.3.10` (v1.767.0's image) support `npm:`-prefixed specifiers in Bun scripts, through lock generation and the run, or reject them? They stay outside the core boundary until this is settled. *Settled by:* an oracle deploy and run of a script importing `npm:<synthetic or small public package>`, recording whether lock generation and the run succeed.
 
 <a id="q-wr-9"></a>
 - **Q-WR-9** · affects [WR-16](#wr-16) · answered: see [WR-16](#wr-16). A numeric chunk fails with `TypeError`.
@@ -1705,7 +1767,7 @@ These are proposals for windmill-lite's equivalence contract, not facts about Wi
 - **Q-WR-11** · affects [WR-34](#wr-34) · answered: see [WR-34](#wr-34). The ordinary Python wrapper does not await an async `main`.
 
 <a id="q-wr-12"></a>
-- **Q-WR-12** · affects [WR-13](#wr-13) · open, `later` · What does Bun `1.3.10` do when the result file write receives `undefined`, as with a top-level function or symbol result? Does the job fail, and with which `error.name` and `error.message`, or is something written? *Settled by:* an oracle run of `return () => 1` (WR-13/d).
+- **Q-WR-12** · affects [WR-13](#wr-13) · open, `later` · What does Bun `1.3.10` (v1.767.0's image) do when the result file write receives `undefined`, as with a top-level function or symbol result? Does the job fail, and with which `error.name` and `error.message`, or is something written? *Settled by:* an oracle run of `return () => 1` (WR-13/d).
 
 <a id="q-wr-13"></a>
 - **Q-WR-13** · affects [WR-38](#wr-38), [WR-28](#wr-28) · **Re-scoped 2026-10-28.** The scanner half is answered in [WR-52](#wr-52): the loader calls `scanImports` with the `ts` loader, and on the Bun `1.3.10` release binary that method keeps source order, does not deduplicate, reports `export … from` and `export * from` as `import-statement`, leaves type-only imports out, and throws on a hashbang line. What remains is whether WR-38's fixtures fail on the oracle as predicted. *Settled by:* WR-38/a and WR-38/b on the oracle, plus a variant importing `./x` twice.
@@ -1766,7 +1828,7 @@ These are proposals for windmill-lite's equivalence contract, not facts about Wi
 - **Q-WR-23** · affects [WR-44](#wr-44) · open (oracle, `later`) · What happens when a native script passes the 128 MiB heap cap without ever waiting for a timer or I/O? Does the job fail, succeed, or take the worker down? *Settled by:* an oracle run of a synchronous allocation loop, recording the job outcome and whether the worker survives. *2026-10-30 (SC5, source re-check):* the near-heap-limit callback reports the hit and returns twice the current limit as the new one (`backend/windmill-runtime-nativets/src/lib.rs:607-615`), and the job fails only when the select that races the evaluation against that report runs again (`:845-848`), which needs the evaluation to yield. A loop that never yields is not stopped by the cap: each hit doubles the limit. Whether the job then fails or succeeds depends on whether the evaluation needs another poll after the loop, and what the process does if memory runs out was not traced. Still open (oracle).
 
 <a id="q-wr-24"></a>
-- **Q-WR-24** · affects [WR-47](#wr-47), [WR-50](#wr-50) · **Answered 2026-10-29.** The pinned image runs Node **v20.20.2** (WR-50/b), so an ESM bundle sent to Node by `//nodejs` without a declared type loads as ESM (WR-50/e); CJS bundles run on it (WR-47/a) and ESM bundles on Bun (WR-47/b). Batch E3e recorded these and the other WR-47 outcomes (fixture `conformance/flows/languages/codebase-cases`, oracle run 40794872025). The bytes the CLI uploads were not read back from the oracle; the repository's codebase-parity check compares the pinned CLI's uploads with an esbuild `0.28.0` build of the same settings, equal apart from the CRLF line breaks of a single-file upload ([WR-49](#wr-49)). Original question (open, oracle): which Node `20.x` patch does the v1.767.0 image run, and so does an ESM bundle sent to Node by `//nodejs` load without a `package.json` asset declaring its type (module syntax detection is the default from 20.19.0)? Does windmill-lite's bundle for each WR-47 fixture equal the one the pinned CLI uploads? *Settled by:* WR-50/b and WR-50/e on the oracle, and pushing the WR-47 fixtures with the pinned `wmill` to the CE standalone oracle. Status: closed.
+- **Q-WR-24** · affects [WR-47](#wr-47), [WR-50](#wr-50) · **Answered 2026-10-29.** The v1.767.0 image runs Node **v20.20.2** (WR-50/b), so an ESM bundle sent to Node by `//nodejs` without a declared type loads as ESM (WR-50/e); CJS bundles run on it (WR-47/a) and ESM bundles on Bun (WR-47/b). Batch E3e recorded these and the other WR-47 outcomes (fixture `conformance/flows/languages/codebase-cases`, oracle run 40794872025). The bytes the CLI uploads were not read back from the oracle; the repository's codebase-parity check compares the pinned CLI's uploads with an esbuild `0.28.0` build of the same settings, equal apart from the CRLF line breaks of a single-file upload ([WR-49](#wr-49)). Original question (open, oracle): which Node `20.x` patch does the v1.767.0 image run, and so does an ESM bundle sent to Node by `//nodejs` load without a `package.json` asset declaring its type (module syntax detection is the default from 20.19.0)? Does windmill-lite's bundle for each WR-47 fixture equal the one the pinned CLI uploads? *Settled by:* WR-50/b and WR-50/e on the oracle, and pushing the WR-47 fixtures with the pinned `wmill` to the CE standalone oracle. Status: closed. Update 2026-11-06 (retarget to v1.862.0): the image now pins Node v24.22.1, which also detects module syntax; WR-50/b and WR-50/e were re-recorded with that version.
 
 <a id="q-wr-25"></a>
 - **Q-WR-25** · affects [WR-49](#wr-49) · open (`later`) · Two packaging edges are not settled:

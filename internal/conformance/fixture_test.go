@@ -10,7 +10,8 @@ import (
 const flowsDir = "../../conformance/flows"
 
 // TestLoadFixtures loads every flow fixture of the suite: each must decode
-// strictly, cite spec IDs and have runs.
+// strictly, cite spec IDs and have runs, each with an expect or a
+// recording.
 func TestLoadFixtures(t *testing.T) {
 	dirs, err := FindFixtures(flowsDir)
 	if err != nil {
@@ -49,7 +50,7 @@ func TestSmokeFixture(t *testing.T) {
 	if b.Status != StepFailure || string(b.Args) != `{"n":120,"tag":"hi"}` {
 		t.Fatalf("expected step b: %+v", b)
 	}
-	if got := string(fail.Expect.Result); got != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b"}}` {
+	if got := string(fail.Expect.Result); got != `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b","job_id":"<job:m:b>","flow_path":"f/wl_smoke/two_step"}}` {
 		t.Fatalf("expected result %s", got)
 	}
 }

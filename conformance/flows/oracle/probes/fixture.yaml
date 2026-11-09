@@ -23,13 +23,16 @@ compare:
   # and so do the arguments windmill-lite resolved for it, which only an
   # expect holds (E4b's follow-up).
   unordered: [/steps/m:a0/args/fi_keys, /steps/m:a0/result/fi_keys, /steps/m:a0/resolved_args/fi_keys]
-  # env's values that change between runs or sessions: the workspace,
-  # the object path (a timestamp and the job), the scheduled time and the
-  # runnable id; and those the environment sets, which the harness masks
-  # (OR-29, OR-14): the user the run is permissioned as (WM_EMAIL,
-  # WM_USERNAME, WM_PERMISSIONED_AS) and the instance's URL (WM_BASE_URL),
-  # host configuration on windmill-lite (ADR 0007). The value a step
-  # carries on, which only an expect holds, is masked alike.
+  # env's values that change between runs or sessions: the workspace and
+  # the root workspace, the object path (a timestamp and the job), the
+  # scheduled time and the runnable id; and those the environment sets,
+  # which the harness masks (OR-29, OR-14): the user the run is
+  # permissioned as and was started by (WM_EMAIL, WM_USERNAME,
+  # WM_PERMISSIONED_AS, WM_END_USER_EMAIL) and the instance's URL
+  # (WM_BASE_URL), host configuration on windmill-lite (ADR 0007). The
+  # step returns whether the root workspace and the end user equal the
+  # workspace and the user, which is compared. The value a step carries
+  # on, which only an expect holds, is masked alike.
   mask:
     - /result/env/WM_WORKSPACE
     - /result/env/WM_OBJECT_PATH
@@ -39,6 +42,8 @@ compare:
     - /result/env/WM_USERNAME
     - /result/env/WM_PERMISSIONED_AS
     - /result/env/WM_BASE_URL
+    - /result/env/WM_ROOT_WORKSPACE
+    - /result/env/WM_END_USER_EMAIL
     - /steps/m:a/result/env/WM_WORKSPACE
     - /steps/m:a/result/env/WM_OBJECT_PATH
     - /steps/m:a/result/env/WM_SCHEDULED_FOR
@@ -47,6 +52,8 @@ compare:
     - /steps/m:a/result/env/WM_USERNAME
     - /steps/m:a/result/env/WM_PERMISSIONED_AS
     - /steps/m:a/result/env/WM_BASE_URL
+    - /steps/m:a/result/env/WM_ROOT_WORKSPACE
+    - /steps/m:a/result/env/WM_END_USER_EMAIL
     - /steps/m:a/carried/env/WM_WORKSPACE
     - /steps/m:a/carried/env/WM_OBJECT_PATH
     - /steps/m:a/carried/env/WM_SCHEDULED_FOR
@@ -55,3 +62,5 @@ compare:
     - /steps/m:a/carried/env/WM_USERNAME
     - /steps/m:a/carried/env/WM_PERMISSIONED_AS
     - /steps/m:a/carried/env/WM_BASE_URL
+    - /steps/m:a/carried/env/WM_ROOT_WORKSPACE
+    - /steps/m:a/carried/env/WM_END_USER_EMAIL

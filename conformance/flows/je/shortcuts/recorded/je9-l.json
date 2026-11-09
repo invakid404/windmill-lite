@@ -1,12 +1,7 @@
 {
   "observation": {
-    "status": "failure",
-    "result": {
-      "error": {
-        "name": "ExecutionErr",
-        "message": "Error during isolated evaluation of expression `results.a.length\nresults.a`:\nQuickJS evaluation error: Error: not a function\n    at <anonymous> (eval_script:2:2)\n"
-      }
-    },
+    "status": "success",
+    "result": 3,
     "steps": {
       "m:a": {
         "status": "success",
@@ -24,14 +19,11 @@
         ]
       },
       "m:b": {
-        "status": "failure",
-        "args": {},
-        "result": {
-          "error": {
-            "name": "ExecutionErr",
-            "message": "Error during isolated evaluation of expression `results.a.length\nresults.a`:\nQuickJS evaluation error: Error: not a function\n    at <anonymous> (eval_script:2:2)\n"
-          }
-        }
+        "status": "success",
+        "args": {
+          "x": 3
+        },
+        "result": 3
       },
       "m:m": {
         "status": "success",
@@ -44,19 +36,19 @@
   },
   "provenance": {
     "oracle": {
-      "version": "CE v1.767.0",
-      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
-      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
-      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
-      "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261028122124-26f0815a80f0",
-      "revision": "26f0815a80f02157e8983b953fbcd0ce89af2700",
+      "version": "v0.0.0-20261106215255-41bbbbcb66b0",
+      "revision": "41bbbbcb66b0e91f4279681a7defb1fc553b03eb",
       "go": "go1.27.3"
     },
     "host": {
@@ -64,48 +56,48 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40687124625"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42300319428"
     },
-    "recorded_at": "2026-10-28T12:24:28Z",
+    "recorded_at": "2026-11-06T22:15:23Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:34331"
+      "WL_EFFECT_SINK": "http://host.docker.internal:37515"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 205,
+      "submit_to_complete_ms": 207,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-28T12:24:28.369829Z",
-          "started_at": "2026-10-28T12:24:28.384895Z",
-          "completed_at": "2026-10-28T12:24:28.526165Z",
-          "duration_ms": 141
+          "created_at": "2026-11-06T22:15:23.296049Z",
+          "started_at": "2026-11-06T22:15:23.319728Z",
+          "completed_at": "2026-11-06T22:15:23.477390Z",
+          "duration_ms": 158
         },
         "m:a": {
           "kind": "script",
-          "created_at": "2026-10-28T12:24:28.385814Z",
-          "started_at": "2026-10-28T12:24:28.387312Z",
-          "completed_at": "2026-10-28T12:24:28.402778Z",
-          "duration_ms": 14
+          "created_at": "2026-11-06T22:15:23.321233Z",
+          "started_at": "2026-11-06T22:15:23.323818Z",
+          "completed_at": "2026-11-06T22:15:23.337774Z",
+          "duration_ms": 12
         },
         "m:b": {
           "kind": "script",
-          "created_at": "2026-10-28T12:24:28.475321Z",
-          "started_at": "2026-10-28T12:24:28.522851Z",
-          "completed_at": "2026-10-28T12:24:28.523950Z",
-          "duration_ms": 1
+          "created_at": "2026-11-06T22:15:23.408623Z",
+          "started_at": "2026-11-06T22:15:23.455905Z",
+          "completed_at": "2026-11-06T22:15:23.473110Z",
+          "duration_ms": 14
         },
         "m:m": {
           "kind": "script",
-          "created_at": "2026-10-28T12:24:28.404904Z",
-          "started_at": "2026-10-28T12:24:28.455693Z",
-          "completed_at": "2026-10-28T12:24:28.470983Z",
-          "duration_ms": 13
+          "created_at": "2026-11-06T22:15:23.340043Z",
+          "started_at": "2026-11-06T22:15:23.389331Z",
+          "completed_at": "2026-11-06T22:15:23.403981Z",
+          "duration_ms": 12
         }
       }
     }

@@ -138,7 +138,7 @@ var versionToken = regexp.MustCompile(`(?:^|[^0-9A-Za-z.])v?([0-9]+\.[0-9]+\.[0-
 
 // reportedVersion returns the version the --version output reports: the
 // first version on its first line that has one. The CLI prints "CLI
-// version: 1.767.0" and may add an "outdated, latest is …" notice on a
+// version: 1.862.0" and may add an "outdated, latest is …" notice on a
 // later line, which is not its version. It returns "" when there is none.
 func reportedVersion(out string) string {
 	for _, line := range strings.Split(out, "\n") {

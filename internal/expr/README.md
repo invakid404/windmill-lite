@@ -66,7 +66,23 @@ it depends on a run.
    sorted, the context names, `flow_input`, `flow_env`, `results` and
    `error` that the text holds as substrings, and `previous_result` when it
    holds `error`.
-5. **Rewrites and wrapper.** Every `variable(`, `resource(` and
+5. **Static results reads**
+   ([JE-12](../../docs/semantics/expressions.md#je-12)). `Prefetch` names
+   the steps that the trimmed text reads statically, before the helper
+   rewrite. The reads are not rewritten: the program fetches these steps
+   before the code runs (below).
+   - A static read is `results`, at the text's start or after a character
+     outside `[A-Za-z0-9_$]`, then a dot read or a bracket read.
+   - A dot read is `.` or `?.` and `[A-Za-z0-9_]+`. A bracket read is `[`
+     or `?.[`, one whole string literal in double or single quotes, then
+     `]`; the literal may hold escapes but no raw line break.
+   - Each read is named by a literal: a dot read's identifier in double
+     quotes, or a bracket read's literal as written. The literals are
+     sorted by their bytes, without repeats.
+   - The scan knows no strings, comments or scopes: `"see results.a"`
+     names `a`, `flow_input.results.x` names `x`, and `my_results.x` names
+     nothing. A computed key such as `results[k]` names no step.
+6. **Helper rewrite.** Every `variable(`, `resource(` and
    `flow_user_state(` call is awaited
    ([JE-11](../../docs/semantics/expressions.md#je-11)). The helpers are
    rewritten in that order, each over the text the one before produced:
@@ -83,18 +99,15 @@ it depends on a run.
    `(await variable("é)")`, which does not compile), and where it would
    land inside a character Windmill's evaluator panics: `Compile` then
    gives no `Source` and records the byte offset, in the text that
-   helper's pass rewrites, as `RewritePanic`. Then every match
-   of `results`, an optional `?`, and `.<name>` or `["…"]` on one line is
-   awaited ([JE-12](../../docs/semantics/expressions.md#je-12)). Neither
-   knows words, strings or comments. `Source` is the result in the mode's
-   wrapper, called at once: `(async function() { return <code>; })()` or
+   helper's pass rewrites, as `RewritePanic`. The rewrite knows no words,
+   strings or comments.
+7. **Wrapper.** `Source` is the rewritten code in the mode's wrapper,
+   called at once: `(async function() { return <code>; })()` or
    `(async function() { <code> })()`. The wrapper's opening and closing
-   text sit on the code's first and last lines, so a trailing `//` comment
-   on one line comments the closing text out
-   ([JE-14](../../docs/semantics/expressions.md#je-14)). The wrapper's
-   text is observable in stack frames: the one above puts the code where
-   E3a's recorded stacks place it, at column 28 in expression mode and 21
-   in statement mode.
+   text sit on the code's first and last lines, so a trailing `//`
+   comment on one line comments the closing text out
+   ([JE-14](../../docs/semantics/expressions.md#je-14)). Stack frames
+   show positions in the program around it (below).
 
 [Request 8](../../docs/design/README.md) asked the semantics team about
 the details these stages decided where the reference was silent. The
@@ -182,7 +195,9 @@ declines everything else, before or during the evaluation; the engine then
 runs as it would. It takes:
 
 - member paths of the bound roots, and of `results.<id>` read through a
-  `MemoryResults` lookup (the engine's frame results);
+  `MemoryResults` lookup (the engine's frame results). It reads every
+  step its roots name before it evaluates, in the order of the program's
+  prefetch;
 - template literals, string, number, boolean and null literals,
   `.length`, `!` and unary `-`;
 - the arithmetic and relational operators, `===`, `!==`, `&&`, `||` and
@@ -198,8 +213,12 @@ It declines:
 - an object compared or returned, and one with a `toString` or `valueOf`
   key converted to a primitive;
 - a string or object converted to a number, and a lone surrogate;
-- a lookup that fails, a root that is not bound, and a text that is not
-  UTF-8 or that holds a comment or a line break;
+- a lookup that fails, even of a step the expression would not read:
+  the program keeps the failure's text on its heap, which `jsExpr` does
+  not bound (JE-3);
+- a root that is not bound;
+- a static results read that is not one of its roots (in a string, say);
+- a text that is not UTF-8 or that holds a comment or a line break;
 - any evaluation that might meet a limit. It declines when an upper bound
   of its QuickJS heap passes the cap
   ([JE-3](../../docs/semantics/expressions.md#je-3)), or the text nests
@@ -231,7 +250,8 @@ Otherwise the expression's program runs on the engine with these bindings
 Every host function answers JSON text:
 
 - **The results lookup.** Every id it is asked is a `Results.Lookup`
-  read, in stored text. A failed read rejects with the read's message.
+  read, in stored text: each step the text names, once, before the code
+  runs, and each computed read of another step when it runs. A failed read rejects with the read's message.
   The previous id, when `previous_result` is bound (JE-18 step 1, the
   reading [0001](../../docs/design/0001-equivalence-contract.md) §6
   records for FX-V6), never reaches it: the results prelude answers it
@@ -283,56 +303,75 @@ context:
    whose host function rejects throws `new Error(<the API's text>)` from
    its own frame (JE-20).
 2. **The results prelude**, when the evaluation binds the results lookup.
-   It declares the lexical `results`: a proxy over an empty object, so
+   It declares the lexical `results`, a proxy over an empty object, so
    that `JSON.stringify(results)` is `{}`
-   ([JE-12](../../docs/semantics/expressions.md#je-12)), whose symbol keys
-   give `undefined` and whose string keys give a Promise of the step's
-   value (JE-18). The previous id named by `__wl_previous_id` gives the
-   `previous_result` global itself, the value the context prelude rebuilt
-   (JE-18 step 1); any other key is read through the host lookup and
-   parsed with `JSON.parse` as it is when the read runs, so a `__proto__`
-   key is an own property and a replacement the user's code made gives
-   the read its value (JE-16). A failed read throws the read's text from
-   `__throwOrParse`, called from `__getResult`. The `resource` and
-   `flow_user_state` helpers parse the same way; `variable` answers a
-   string, which Windmill does not parse.
+   ([JE-12](../../docs/semantics/expressions.md#je-12)), and
+   `__loadResults`, the prefetch.
+   - `__loadResults` decodes each literal of `Prefetch` with an indirect
+     `eval`, as the engine reads a string literal, and drops one that does
+     not decode. It resolves every named step at once and keeps each
+     outcome, the value or the error.
+   - A read of a kept step gives its value, or throws its error, at once,
+     whatever its spelling, inside nested functions too. A read of any
+     other string key resolves the step then and gives a Promise. A symbol
+     key gives `undefined` (JE-18).
+   - Resolving the previous id named by `__wl_previous_id` gives the
+     `previous_result` global itself, the value the context prelude
+     rebuilt (JE-18 step 1).
+   - Resolving any other key reads it through the host lookup. The text is
+     parsed with `JSON.parse` as it is when the lookup answers, so a
+     `__proto__` key is an own property (JE-16). A failed read throws the
+     read's text from `__throwOrParse`, called from `__getResult`.
+   - The kept outcomes are null-prototype records and arrays read by
+     index, so nothing the user's code replaces reaches a read.
+   - The `resource` and `flow_user_state` helpers parse the same way;
+     `variable` answers a string, which Windmill does not parse.
 3. **The error prelude**, when the text mentions `error`. It declares the
    lexical `error` with `let`, so the expression may assign it (JE-10),
    derived from `previous_result` by
    [JE-17](../../docs/semantics/expressions.md#je-17)'s decision list,
    whose fallbacks for an entry's tag and text are falsy tests (`||`).
-4. **The program**: `Source`, then `.then((v) => JSON.stringify(v ?? null)
-   ?? "null")` on its last line, so a value `JSON.stringify` gives no text
-   for becomes `null`
-   ([JE-15](../../docs/semantics/expressions.md#je-15)).
+4. **The program**
+   ([JE-13](../../docs/semantics/expressions.md#je-13)): the prefetch,
+   then `.then(() => `, `Source` and `)`, then `.then((v) =>
+   JSON.stringify(v ?? null) ?? "null")`.
+   - The expression's function runs once every named step has settled,
+     and a value `JSON.stringify` gives no text for becomes `null`
+     ([JE-15](../../docs/semantics/expressions.md#je-15)).
+   - The prefetch is `__loadResults(<list>)` at a site with a results
+     context when the text names a step, the list a JSON array of
+     `Prefetch`'s literals written as serde_json writes strings. Anywhere
+     else it is `Promise.resolve()`.
+   - The parts sit on `Source`'s first and last lines with nothing between
+     them. So the code's first line starts at column `n + 40` in
+     expression mode and `n + 33` in statement mode, `n` being the
+     prefetch's length (17 for `Promise.resolve()`).
 
-**One read for a text that cannot tell.** Each read through the lookup
-fetches and parses the result again, so two reads of one step give two
-equal objects, and a write through one does not show through the other
-([JE-18](../../docs/semantics/expressions.md#je-18),
-[JE-16](../../docs/semantics/expressions.md#je-16)). windmill-lite keeps
-that.
+**One kept value per step.** The prefetch keeps each step's outcome, so
+every read of a named step gives the same value: `results.a ===
+results['a']` is `true`, and a write through one read shows through the
+other. A step whose fetch failed fails the evaluation only where it is
+read: `true ? 1 : results.f` gives `1`.
 
-A `pathExpr` text runs no code: no call, no assignment, no comparison of
-two values that could be objects. It reads member paths of one root,
-tests one against `null` or `undefined`, or builds an object literal from
-member paths, so it cannot tell one read from two.
-
-So when such a text reads a step through the lookup more than once, the
-host string `__wl_shared_read` names the step. Every read of it then
-awaits the first read's promise: one fetch and one parse per evaluation.
-`results.r == null ? null : results.r.id` parses `r` once, and
-`results.a === results.a` is still `false`.
+The kept values are parsed before the expression's code runs. So a
+replacement of `JSON.parse` in the code reaches only a computed read of a
+step that no static read names.
 
 The preludes take the intrinsics they call later (`JSON.parse`,
 `Promise.prototype.then`, `Reflect.apply`) before the user's code runs. A
 stack frame in an error message gives a position in these scripts, so
-their layout is observable (JE-21). It reproduces the frames E3a recorded:
-`<anonymous> (eval_script:1:1)` and `<eval> (eval_script:1:<29 + length>)`
-for an unknown name read by a one-line expression, `stringify (native)`
-called from `eval_script:1:64` for a three-character expression,
-`variable (eval_script:7:50)`, and `__throwOrParse (eval_script:5:54)` with
-`__getResult (eval_script:11:59)`.
+their layout is observable (JE-21). It reproduces the frames CE 1.862.0
+records:
+
+- `<anonymous> (eval_script:1:1)` and `<anonymous>
+  (eval_script:1:<58 + length>)` for an unknown name read by a one-line
+  expression with no step to prefetch. The second frame is the arrow
+  function that calls the expression's function.
+- `stringify (native)` called from `eval_script:1:94` for a
+  three-character expression.
+- `variable (eval_script:7:50)`.
+- `__throwOrParse (eval_script:5:54)` with `__getResult
+  (eval_script:11:59)`, the frames a kept error keeps.
 
 Before the scripts run, each bound context value is checked for depth
 ([JE-49](../../docs/semantics/expressions.md#je-49)), in Windmill's order:
@@ -401,9 +440,16 @@ report; a fetched `results` read and the helpers' values are parsed with
 silent, each pinned by a test:
 
 - **The previous step's read** gives the `previous_result` global as it
-  is when the read runs, so a value the expression assigned to it first is
-  what the read gives; the reference says the read returns the global, not
-  when it is read.
+  is when the read resolves: before the code runs for a static read,
+  which the prefetch resolves, and when the read runs for a computed one.
+  The reference says the read returns the global, not when it is read.
+- **One kept value**: the prefetch keeps one value per step, which every
+  read of it gives (above). The reference says the outcome is kept, not
+  whether a read gives the kept object or a copy.
+- **A read right after a bracket read's `]`**, as in
+  `results["a"]results.b` in a comment, is a static read too: the `]` is a
+  character outside `[A-Za-z0-9_$]`. The reference does not say whether
+  the character before `results` may end the previous read.
 - **The scope's order** stands for Windmill's hash maps where JE-49 reports
   the first of several values nested too deeply.
 - **Rust's notation** in a debug form uses Go's Unicode tables to decide
@@ -468,7 +514,7 @@ engine.
 | `recorded` | the E3a case restated: `exprs` and `case` (a file of [conformance/exprs](../../conformance/README.md) and its case's name), or `fixture`, `run`, `at` and `input` (a unit case of a flow fixture) |
 | `site`, `text` | the site and the expression as written; for a restated case, its own |
 | `context` | for a case of its own: `previous_id`, `previous_result`, `flow_input`, `flow_env` and `results` (stored texts by id) |
-| `expect` | any of `trimmed`, `shortcut`, `mode`, `binds`, `code` (the rewritten code inside the wrapper), `rewrite_panic` (the byte offset where JE-11's rewrite panics, for a text with no code), `route` (`engine` or a shortcut's name: `context_name`, `flow_key`, `previous_id`, `results_path`), `text` (a shortcut's exact answer), `bound` (the engine's host strings), `results_lookup`, and `engine`: what the real engine gives, the evaluator's exact `text`, its exact `error` (where `<n>` stands for a number that differs between runs) or an `error_prefix` |
+| `expect` | any of `trimmed`, `shortcut`, `mode`, `binds`, `code` (the rewritten code inside the wrapper), `prefetch` (the literals of `Prefetch`), `rewrite_panic` (the byte offset where JE-11's rewrite panics, for a text with no code), `route` (`engine` or a shortcut's name: `context_name`, `flow_key`, `previous_id`, `results_path`), `text` (a shortcut's exact answer), `bound` (the engine's host strings), `results_lookup`, and `engine`: what the real engine gives, the evaluator's exact `text`, its exact `error` (where `<n>` stands for a number that differs between runs) or an `error_prefix` |
 
 A restated case's scope is rebuilt from the recorded case's context. A
 context-free case is at module 0: its previous id is `""`, and
@@ -562,13 +608,14 @@ context-free case's recorded argument as its stored form.
   QuickJS's for the same scope.
 - `TestJSExprKeepsReadOrder` runs sequences of expressions with `jsExpr`
   on and off, over a lookup that reads memory (answered inline) and one
-  that does not (on goroutines). It compares every read, helper call and
-  outcome of the four. `TestBindInlinesMemoryLookups` checks that only a
+  that does not (on goroutines). It compares the four's helper calls and
+  outcomes, in order, and each expression's reads, the steps its text
+  names, as a set, since the prefetch resolves them at once. `TestBindInlinesMemoryLookups` checks that only a
   memory lookup is marked `Inline`, through the read memo too.
 - `TestInlineLookupsLetHelpersSettle` races a helper call against an
-  endless loop of results lookups through the pipeline: the helper's answer
-  wins within a second, with memory lookups (inline) and with goroutine
-  ones.
+  endless loop of results lookups, computed reads that no prefetch
+  answers, through the pipeline: the helper's answer wins within a second,
+  with memory lookups (inline) and with goroutine ones.
 - `TestMemberPathPipeline` runs with `jsExpr` on and off.
   `WL_TEST_QUICKJS_ONLY=1` runs the whole package with it off, as one CI
   part does, so that every case passes on QuickJS alone too.
@@ -579,8 +626,10 @@ context-free case's recorded argument as its stored form.
   generated values: each operator against `null` and `undefined`, alone
   or choosing between paths, and literals with repeated, integer-like and
   quoted keys. Each is read through `pathExpr` and on the real engine.
-- `TestParsePathExpr` checks what the grammar takes and refuses, and
-  `TestSharedRead` the shared read of a step's result.
+- `TestParsePathExpr` checks what the grammar takes and refuses.
+- `TestKeptReads` checks the prefetch's kept outcomes on the real engine:
+  one lookup per named step, one value per step, a kept error thrown only
+  by the reads of its step, and the previous step read from memory.
 - `TestMemberPathPipeline` checks that a member path over a bound value
   or the previous result does not reach an engine that says it is exact,
   that one needing the results lookup does, and that any other engine
@@ -624,12 +673,16 @@ failing.
   deviation and say what windmill-lite gives: the transcendental `Math`
   cases of JE-1 (review item cl R3-2), each value the oracle's or one unit
   in the last place from it, every difference logged (D16; ADR 0001 gives
-  what each C library measured), and JE-48/a (D17). JE-2/a is not run: the oracle
-  canceled its run before the evaluator's text surfaced; `TestJE2OnEngine`
-  runs the same expression with a short limit. Nor is JE-11/e's unit case
+  what each C library measured), and JE-48/a (D17). JE-2/a is not run: its
+  three attempts take about 70 s; `TestJE2OnEngine` runs the same
+  expression with a short limit. Nor is JE-11/e's unit case
   (batch E3f): the panic report names a task number that differs between
   runs, so its recording masks the message; pipeline case JE-11/e holds the
   evaluator's text.
+- `TestRecordedFramesOnEngine` holds the evaluator's text to CE 1.862.0's
+  recording for flow runs whose expression error the flow suite does not
+  require: `execution/fx-49` run `throws` (a helper's await before the
+  throw) and `oracle/key-order` run `retry_keys`.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
   runs with `WL_EXPR_BUDGET=gate` (asserts the bounds, on the benchmark
   machine) or `=report` (prints the table, as CI does on its runners and

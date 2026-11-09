@@ -214,6 +214,69 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	}
 }
 
+// The flow outcomes of run-and-wait runs match their expects on
+// windmill-lite in fresh and in warm mode. Of execution/fx-36-http:
+// FX-12/a's error with its own property under extra (run extra) and
+// FX-36/b's plain error (run failed), each with the step context keys of
+// FX-12, and FX-36/h's array of five, an ordinary successful result that
+// no step turns into anything else (run array). Of
+// execution/fx-37-branches, every run: FX-37/b to FX-37/e's flows with an
+// early_return step inside a branch, which complete with their last
+// step's result whatever the early answer was. The flow suite leaves every
+// run-and-wait run unsupported, since its response is the HTTP adapter's
+// (milestone F7b); here each run is submitted as an ordinary run and
+// checked without its response (flowChecker.runWaitOutcome). The fixtures'
+// other runs are logged.
+func TestRunWaitOutcomes(t *testing.T) {
+	bun := bunOrSkip(t)
+	root := repo(t)
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	required := map[string][]string{
+		filepath.Join(flowsDir, "execution", "fx-36-http"):     {"extra", "failed", "array"},
+		filepath.Join(flowsDir, "execution", "fx-37-branches"): {"script_in_branch", "loop_in_branch", "untaken_branch", "empty_loop"},
+	}
+	dirs := slices.Sorted(maps.Keys(required))
+	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {
+		t.Run(mode, func(t *testing.T) {
+			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js, runWaitOutcome: true}
+			seen := map[string]bool{}
+			for _, fr := range fc.runFixtures(context.Background(), dirs) {
+				if fr.err != nil {
+					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
+				}
+				name := filepath.Base(fr.dir)
+				for _, r := range fr.runs {
+					seen[fr.dir+"/"+r.run] = true
+					var what string
+					switch {
+					case r.unsupported != "":
+						what = "is unsupported: " + r.unsupported
+					case len(r.problems) > 0:
+						what = "failed:\n  " + strings.Join(r.problems, "\n  ") + "\nharness diagnostics:\n" + r.diag
+					}
+					switch {
+					case !slices.Contains(required[fr.dir], r.run):
+						t.Logf("run %s/%s (not checked here): %s", name, r.run, cmp(strings.SplitN(what, "\n", 2)[0], "passed"))
+					case what != "":
+						t.Errorf("run %s/%s %s", name, r.run, what)
+					}
+				}
+			}
+			for _, dir := range dirs {
+				for _, run := range required[dir] {
+					if !seen[dir+"/"+run] {
+						t.Errorf("the fixture %s has no run %s", filepath.Base(dir), run)
+					}
+				}
+			}
+		})
+	}
+}
+
 // Milestone N5's gate (ADR 0012): the control-flow/subflow-retry runs, a
 // retry on a flow step recorded on the oracle, and a retry on a while loop
 // and a branchone, match their recordings on windmill-lite in fresh and in
@@ -317,9 +380,9 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"runs/e_unsupported.yaml":            "target: f/t/later\nexpect: {status: success, result: 1}\n",
 		"runs/g_same_job_path.yaml":          "target: f/t/same\nexpect:\n  status: success\n  result: [2, f/t/same/a]\n  steps:\n    \"m:a\": {status: success, args: {}, result: [1, f/t/same/a]}\n    \"m:b\": {status: success, args: {}, result: [2, f/t/same/a]}\n",
 		"runs/h_build_problem.yaml":          "target: f/t/broken\nexpect: {status: success, result: 1}\n",
-		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}}\n    \"m:b\": {status: not_run}\n",
+		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a, job_id: \"<job:m:a>\", flow_path: f/t/two}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a, job_id: \"<job:m:a>\", flow_path: f/t/two}}}\n    \"m:b\": {status: not_run}\n",
 		// The recording says b ran; the engine's run stops at a.
-		"recorded/c_wrong_recording.json": `{"observation":{"status":"failure","result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}},"steps":{"m:a":{"status":"failure","args":{},"result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}}},"m:b":{"status":"success","args":{},"result":2}}},"provenance":{}}`,
+		"recorded/c_wrong_recording.json": `{"observation":{"status":"failure","result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a","job_id":"<job:m:a>","flow_path":"f/t/two"}},"steps":{"m:a":{"status":"failure","args":{},"result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a","job_id":"<job:m:a>","flow_path":"f/t/two"}}},"m:b":{"status":"success","args":{},"result":2}}},"provenance":{}}`,
 	})
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), filepath.Dir(dir)}, &stdout, &stderr)
@@ -441,6 +504,40 @@ func TestObserveTrace(t *testing.T) {
 	}
 	if !slices.Equal(generated, []string{"/steps/m:a/result", "/steps/m:a/carried", "/result"}) || string(got.Result) != "null" {
 		t.Fatalf("generated %v, result %s", generated, got.Result)
+	}
+}
+
+// A job that an error object names and no record does, such as one of a
+// flow a step ran through the facade, gets an unwalked job's placeholder,
+// numbered in sorted member order and replaced wherever its id occurs,
+// while the step's own job keeps its site's (OR-14 item 1).
+func TestObserveTraceUnwalkedJobs(t *testing.T) {
+	// spec: OR-14/c
+	const (
+		runID = "11111111-1111-4111-8111-111111111111"
+		jobA  = "22222222-2222-4222-8222-222222222222"
+		first = "99999999-9999-4999-8999-999999999999"
+		later = "88888888-8888-4888-8888-888888888888"
+	)
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	a := conformance.SitePath{}.Child(conformance.Module("a"))
+	errorOf := func(job string) string { return `{"error":{"name":"Error","job_id":"` + job + `"}}` }
+	result := v(`{"z":` + errorOf(later) + `,"m":` + errorOf(first) + `,"own":` + errorOf(jobA) + `,"note":"` + later + `"}`)
+	tr := &engine.Trace{RunID: runID, Status: conformance.RunSuccess, Result: result, ResultOrigin: engine.OriginUser, Steps: []engine.StepRecord{
+		{Site: a, Status: conformance.StepSuccess, Module: conformance.ModuleSuccess, Ran: true, Job: jobA,
+			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: result, Carried: result, ResultOrigin: engine.OriginUser},
+	}}
+	got, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"z":` + errorOf("<job:?2>") + `,"m":` + errorOf("<job:?1>") + `,"own":` + errorOf("<job:m:a>") + `,"note":"<job:?2>"}`
+	var expect conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"success","result":`+want+`,"steps":{"m:a":{"status":"success","args":{},"result":`+want+`}}}`), &expect); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := conformance.Compare(got, expect, conformance.CompareOptions{}); err != nil || len(d) != 0 {
+		t.Fatalf("differences %v %v", d, err)
 	}
 }
 
@@ -1075,6 +1172,54 @@ func TestCompactJSON(t *testing.T) {
 // assets of every script that built, so an unrelated flow whose codebase
 // script reads its asset still runs and passes. A script whose asset
 // collides with one an earlier script took fails its own flow.
+// TestAsOracleBase: the runtime's platform origin in an observation reads
+// as the oracle's base URL in every value, the stack line of WR-43/c's
+// nativets run included, and nowhere a further digit of a port follows it.
+func TestAsOracleBase(t *testing.T) {
+	const origin = "http://127.0.0.1:4000"
+	site, err := conformance.ParseSitePath("m:a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `["const BASE_INTERNAL_URL = 'http://127.0.0.1:4000';","Error: x"]`
+	o := conformance.Observation{
+		Status: conformance.RunSuccess,
+		Result: json.RawMessage(line),
+		Steps: map[conformance.SitePath]conformance.StepObservation{site: {
+			Status:       conformance.StepSuccess,
+			Args:         json.RawMessage(`{"u":"http://127.0.0.1:4000/api","v":"http://127.0.0.1:40001"}`),
+			ResolvedArgs: json.RawMessage(`{"u":"http://127.0.0.1:4000"}`),
+			Result:       json.RawMessage(line),
+		}},
+		Effects:  []json.RawMessage{json.RawMessage(`{"base":"http://127.0.0.1:4000"}`)},
+		Response: &conformance.Response{Status: 200, Body: "at http://127.0.0.1:4000."},
+	}
+	got := asOracleBase(o, origin)
+	want := `["const BASE_INTERNAL_URL = 'http://localhost:8000';","Error: x"]`
+	if string(got.Result) != want || string(got.Steps[site].Result) != want {
+		t.Errorf("result %s, step result %s, want %s", got.Result, got.Steps[site].Result, want)
+	}
+	if a := string(got.Steps[site].Args); a != `{"u":"http://localhost:8000/api","v":"http://127.0.0.1:40001"}` {
+		t.Errorf("args %s", a)
+	}
+	if a := string(got.Steps[site].ResolvedArgs); a != `{"u":"http://localhost:8000"}` {
+		t.Errorf("resolved args %s", a)
+	}
+	if e := string(got.Effects[0]); e != `{"base":"http://localhost:8000"}` {
+		t.Errorf("effect %s", e)
+	}
+	if b := got.Response.Body; b != "at http://localhost:8000." {
+		t.Errorf("response body %q", b)
+	}
+	if got.Steps[site].Carried != nil {
+		t.Errorf("carried %s, want absent as before", got.Steps[site].Carried)
+	}
+	// The observation it was given is unchanged.
+	if string(o.Result) != line || string(o.Effects[0]) != `{"base":"http://127.0.0.1:4000"}` || o.Response.Body != "at http://127.0.0.1:4000." {
+		t.Errorf("the given observation changed: %s, %s, %q", o.Result, o.Effects[0], o.Response.Body)
+	}
+}
+
 func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "flows", "c2b", "isolation")

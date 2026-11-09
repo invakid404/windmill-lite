@@ -5,18 +5,18 @@ target: f/wl_fx30/tolerated_middle
 expect:
   status: success
   result:
-    p: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
-    r: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    p: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}
+    r: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}
   steps:
     "m:a":
       status: failure
       args: {}
-      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}
     "m:b":
       status: success
       args:
-        p: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
-        r: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+        p: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}
+        r: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}
       result:
-        p: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
-        r: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+        p: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}
+        r: {error: {message: x, name: Error, stack: "<stack>", step_id: a, job_id: "<job:m:a>", flow_path: f/wl_fx30/tolerated_middle}}

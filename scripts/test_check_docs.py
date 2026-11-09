@@ -167,7 +167,7 @@ class SentenceTest(unittest.TestCase):
         self.assertEqual(len(checker.sentences(checker.prose("Run it. `memoria check` fails."))), 2)
 
     def test_abbreviations_do_not_end_a_sentence(self) -> None:
-        body = "Use a pinned version (e.g. Bun 1.3.10), i.e. One that CI installs."
+        body = "Use a pinned version (e.g. Bun 1.4.3), i.e. One that CI installs."
         self.assertEqual(len(checker.sentences(body)), 1)
 
     def test_a_sentence_can_start_in_lower_case(self) -> None:
@@ -176,7 +176,7 @@ class SentenceTest(unittest.TestCase):
         self.assertEqual(rules("doc.md", text), ["paragraph-length"])
 
     def test_version_numbers_do_not_end_a_sentence(self) -> None:
-        self.assertEqual(len(checker.sentences("Windmill v1.767.0 ships Bun 1.3.10 today.")), 1)
+        self.assertEqual(len(checker.sentences("Windmill v1.862.0 ships Bun 1.4.4 today.")), 1)
 
     def test_links_count_their_text_only(self) -> None:
         body = checker.prose("Read [the long guide](https://example.com/a/b/c) and <https://example.com>.")
@@ -199,7 +199,7 @@ class WorkCodeTest(unittest.TestCase):
         self.assertEqual(checker.work_codes("Keep review rounds out of the tree."), [])
 
     def test_identifiers_that_documents_define_are_not_work_codes(self) -> None:
-        text = "WR-2, OR-30, FX-40, Q-WA-4, deviation D9, hook H3, V8, ADR 0006, S3, E2E, be664ca1, 1.3.10, C0, F7-seq"
+        text = "WR-2, OR-30, FX-40, Q-WA-4, deviation D9, hook H3, V8, ADR 0006, S3, E2E, be664ca1, 1.4.3, C0, F7-seq"
         self.assertEqual(checker.work_codes(text), [])
 
     def test_one_finding_for_each_block(self) -> None:

@@ -36,9 +36,10 @@ read Windmill's AGPL or proprietary source
 ### Bun
 
 The JavaScript runtime on which Windmill runs ordinary TypeScript scripts.
-windmill-lite pins Bun 1.3.10, the version that the
-[pinned version](#pinned-version) of Windmill ships
-([WR-3](semantics/languages.md#wr-3)).
+windmill-lite pins Bun 1.4.3. The image of the
+[pinned version](#pinned-version) of Windmill ships Bun 1.4.4
+([WR-3](semantics/languages.md#wr-3)), and deviation D23 of
+[ADR 0001](design/0001-equivalence-contract.md) names the difference.
 
 ### bundle
 
@@ -176,9 +177,11 @@ behaviour that windmill-lite must match
 
 ### pinned version
 
-Windmill v1.767.0: the release that the
+Windmill v1.862.0: the release that the
 [semantics reference](#semantics-reference) describes and the
 [oracle](#oracle) runs ([docs/semantics](semantics/README.md#pinned-version)).
+A finding not yet re-checked at it ends its tag line with
+`verified at v1.767.0 only`, after the previous pin.
 
 ### program
 

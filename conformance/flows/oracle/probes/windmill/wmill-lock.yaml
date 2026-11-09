@@ -15,6 +15,8 @@ locks:
   f/wl_probe/branchone.flow+big.ts: 574ee37c272c66cb6594b538aaa20c737d4ea19449e5f1223dda39dd3f42f9a8
   f/wl_probe/branchone.flow+def.ts: 5ad6efb63bcdfa3d88c354849b0034c394a413d5f1f7d414ec509fdba9a9d03d
   f/wl_probe/branchone.flow+pos.ts: ea659aec3d4cf857d2b5aa3abeb79da817d5eea49d1f8ab96a704c972b7ce61c
+  f/wl_probe/bun_version.flow+__flow_hash: 6bd02672eb9128d711b1f6c579657845d198c4bdbcff74f6ea2d9800266b7151
+  f/wl_probe/bun_version.flow+a.ts: a95751e2d62116a69237c9e9019ee2011a06ba36efac76910c83a876b870798d
   f/wl_probe/composite.flow+__flow_hash: 6a04e6a1c9e70ae779b2f939c5bb2bb22f4e66aa6fcc021ef6f99f1956c1c021
   f/wl_probe/composite.flow+a.ts: be972275c684bde32c3f1586dfced08bf84ba9c2b7054cc7ce3f06e72bf53ae4
   f/wl_probe/dau_child.flow+__flow_hash: 7b9e5705b554b5a4a969bb2f1a28b58c800de6d0547f5d730f30b335add1f22f
@@ -25,8 +27,8 @@ locks:
   f/wl_probe/effects.flow+__flow_hash: 353a765f5ff7f7bd21a4a5bc27f27308fee8acb92371129c0a546af2bedcb87d
   f/wl_probe/effects.flow+a.ts: 01151d731b8346a8fbe5adcd8d3cf7ba9c85ffbd480162cdd8b2f5e247c27935
   f/wl_probe/effects.flow+b.ts: f234fc8e9c6dd63c8bc71e0bda85f78bd4a978a81a419d0544db5040da9cf942
-  f/wl_probe/env.flow+__flow_hash: 7961323d0858b107a8d172e589bba07c422bb3c11e0920a1d61e1bc3f338ff7c
-  f/wl_probe/env.flow+a.ts: 49591423891796e143964f53bdcb96c6e1000fbaeafc47e06746582fdb15bde1
+  f/wl_probe/env.flow+__flow_hash: 98ac72b82aa49bf7d6493c5fa02f32aa9056c26d19da88f8c85a03df26cf5d82
+  f/wl_probe/env.flow+a.ts: 4eba6e0ad14609bd3a022d102c77f8199a56f4057290bcc875fe167e8b8003e4
   f/wl_probe/fail_handler.flow+__flow_hash: 05d68a7b4b486725e416aa4ed0e658e85742ef3060cd743c8f9160b452674a0e
   f/wl_probe/fail_handler.flow+a.ts: 24d62f38ab2474e87c5c7bac381d19405c69d06997e3dea1d8eb40ec963c25f6
   f/wl_probe/fail_handler.flow+b.ts: d27dfafc64ea05121760a8a0c7ba9a65ba7112188f0add40ebe383dd2e15633a

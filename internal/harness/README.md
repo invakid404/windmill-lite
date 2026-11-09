@@ -242,7 +242,7 @@ what the steps' synchronous child calls started, which gets no group of
 its own.
 
 **The handshake.** The harness's `hello` must match `Kind`, `Runtime`
-(`PinnedBun`, 1.3.10, for Bun), `Bundle` and the protocol version, and its
+(`PinnedBun`, 1.4.3, for Bun), `Bundle` and the protocol version, and its
 `pid` must be the process `Spawn` started, and a process spawned in `fresh`
 mode must offer the `fresh` capability. Otherwise the welcome carries a
 `reject` (`proto_mismatch`, `harness_mismatch`, `runtime_mismatch`,
@@ -562,19 +562,18 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 
 - `frames_test.go` runs the codec cases of `conformance/protocol/frames.json`
   and, with `-args -update`, rewrites their payloads from Go's encoder.
-- `qwa4_test.go` is W1's Q-WA-4 env-view test
+  Without `-update` it fails unless the file is exactly what `-update`
+  writes, so `-update` changes only what the encoder changes.
+- `qwa4_test.go` is the Q-WA-4 env-view test
   ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4),
-  [WA-31](../../docs/semantics/client-api.md#wa-31)): the stock
-  `windmill-client@1.767.0`, by namespace and default import, in steps that
-  are not bundled, bundled by `Bun.build` with Windmill's settings, and
-  bundled with the define rewrite, plus an unbundled dependency that reads
-  `Bun.env`. Sixteen concurrent invocations per variant must each read their
-  own variables through `process.env`, `Bun.env`, `import.meta.env`, a copy
-  of `process.env`, a variable they write, a process variable half of them
-  delete, the dependency and the client's call, whose platform frame must
-  be attributed to them; in a process without the variables and in one that
-  has them. It needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules`
-  holds that client.
+  [WA-31](../../docs/semantics/client-api.md#wa-31)). Its steps use the
+  stock `windmill-client@1.862.0` unbundled, bundled with Windmill's
+  settings or bundled with the define rewrite, plus an unbundled dependency
+  that reads `Bun.env`. Sixteen invocations per variant at once, warm and
+  fresh, with and without the variables in the process, must each read
+  their own through every channel, and a warm one's client call must be
+  attributed to it. It needs `WL_WINDMILL_CLIENT`, a directory whose
+  `node_modules` holds that client.
 - `host_test.go` plays a host on a socketpair: the handshake's parent check,
   a host gone before its hello, runs and their invocations, `run_cancel`, a
   lost host (also with a gap between the end of the runs' contexts and the
@@ -599,7 +598,7 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   `Pool.Plugin` in `TestPoolHostCall`).
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
-  the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture
+  the C1 exit gate: protocol golden tests on Bun 1.4.3. The fixture
   bundle's scripts take named parameters, each with the `.meta.json`
   signature the build helper would record; C3a added the transcripts of
   an intercepted `process.exit` (`exit-caught`, `exit-zero`,
@@ -725,7 +724,7 @@ The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and
 `WL_REQUIRE_BUN` is set, as CI sets it.
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
+WL_BUN=/path/to/bun-1.4.3/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
 ```
 
 ## Benchmarks
@@ -796,6 +795,6 @@ other two need the pinned Bun in `WL_BUN`, and fail without it rather
 than skip. They run only with `-bench`:
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun go test ./internal/harness -run '^$' \
+WL_BUN=/path/to/bun-1.4.3/bun go test ./internal/harness -run '^$' \
   -bench 'GoInvocation|ArgsFile|HarnessCodec|Transport' -benchtime 1s -count 3
 ```

@@ -451,8 +451,8 @@ func TestEngineSleep(t *testing.T) {
 }
 
 // FX-23, FX-38: a cancellation cuts a pending sleep short; the queued job
-// fails without running, with the Canceled error, a failed and not a
-// canceled job (as recorded), and the run ends canceled.
+// completes without running, with the Canceled error, stored canceled (as
+// CE 1.862.0 records it), and the run ends canceled.
 func TestEngineSleepCanceled(t *testing.T) {
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", `"sleep":`+static("30")), mod("b", "value", inputs("v", static("2")), ""))}, &scripts{})
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -468,11 +468,29 @@ func TestEngineSleepCanceled(t *testing.T) {
 	const canceled = `{"error":{"message":"Job canceled: r by u","name":"Canceled","reason":"r","canceler":"u"}}`
 	wantStatus(t, tr, conformance.RunCanceled, canceled)
 	b := step(t, tr, "b")
-	if b.Status != conformance.StepFailure || !b.Ran || b.Module != conformance.ModuleFailure {
+	if b.Status != conformance.StepCanceled || !b.Ran || b.Module != conformance.ModuleFailure {
 		t.Fatalf("b %+v", b)
 	}
 	sameJSON(t, "b's result", b.Result, canceled)
 	sameJSON(t, "b's arguments", b.RecordedArgs, `{"v":2}`)
+}
+
+// timeoutNotI32 is the chaining error of a timeout that evaluates to the
+// string "5", which is not an i32 (JE-29; FX-15/b's trigger at v1.862.0).
+const timeoutNotI32 = `Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"`
+
+// internalError is a chaining error's failure of the flow at a later
+// transition, an InternalError with msg (FX-15 context 1).
+func internalError(msg string) string {
+	b, _ := json.Marshal(map[string]map[string]string{"error": {"message": msg, "name": "InternalError"}})
+	return string(b)
+}
+
+// anyhowError is a chaining error's failure at the root's first pickup,
+// an Anyhow with msg (FX-15 context 2).
+func anyhowError(msg string) string {
+	b, _ := json.Marshal(map[string]map[string]string{"error": {"message": "Error: " + msg, "name": "Anyhow"}})
+	return string(b)
 }
 
 // FX-24, JE-29, FX-15: every module evaluates its own timeout when its job
@@ -480,33 +498,30 @@ func TestEngineSleepCanceled(t *testing.T) {
 // sees results, and its value must be an i32. A failure is a chaining
 // error: an Anyhow failure of the module at the root's first pickup, which
 // a retry re-evaluates at a later transition, and otherwise the flow's
-// InternalError. A step's leaf job is timed with the evaluated value.
+// InternalError. A value of 0 or less is unset (1.768.0). A step's leaf job
+// is timed with the evaluated value.
 func TestEngineTimeoutValues(t *testing.T) {
 	timeout := func(t string) string { return `"timeout":` + t }
-	internal := func(msg string) string {
-		b, _ := json.Marshal(map[string]map[string]string{"error": {"message": msg, "name": "InternalError"}})
-		return string(b)
-	}
+	internal := internalError
+	str := js(`"5"`)
 	for _, c := range []struct {
 		name, flow, result string
 		calls              []string
 	}{
 		{"a float", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(js("1.5")))),
 			internal("Error parsing result as i32: invalid type: floating point `1.5`, expected i32 at line 1 column 3. Value was: 1.5"), []string{"m:x"}},
-		{"negative static", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(static("-1")))),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
-		{"an identity job's", flowOf(mod("x", "value", "", ""), `{"id":"a","value":{"type":"identity"},`+timeout(js("-1"))+`}`),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
-		{"a skipped module's", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(static("-1"))+`,"skip_if":{"expr":"true"}`)),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
-		{"after a failed transform", flowOf(mod("x", "value", "", ""), mod("a", "value", inputs("v", js("null.x")), timeout(static("-1")))),
-			internal("Timeout value cannot be negative"), []string{"m:x"}},
+		{"an identity job's", flowOf(mod("x", "value", "", ""), `{"id":"a","value":{"type":"identity"},`+timeout(str)+`}`),
+			internal(timeoutNotI32), []string{"m:x"}},
+		{"a skipped module's", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(str)+`,"skip_if":{"expr":"true"}`)),
+			internal(timeoutNotI32), []string{"m:x"}},
+		{"after a failed transform", flowOf(mod("x", "value", "", ""), mod("a", "value", inputs("v", js("null.x")), timeout(str))),
+			internal(timeoutNotI32), []string{"m:x"}},
 		{"a failed evaluation", flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(js("nope")))),
 			"", []string{"m:x"}},
-		{"at the root", flowOf(mod("a", "value", "", timeout(js("-1")))),
-			`{"error":{"message":"Error: Timeout value cannot be negative","name":"Anyhow"}}`, nil},
-		{"retried from the root", flowOf(mod("a", "value", "", timeout(js("-1"))+","+retryOnce)),
-			internal("Timeout value cannot be negative"), nil},
+		{"at the root", flowOf(mod("a", "value", "", timeout(str))),
+			anyhowError(timeoutNotI32), nil},
+		{"retried from the root", flowOf(mod("a", "value", "", timeout(str)+","+retryOnce)),
+			internal(timeoutNotI32), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := &scripts{}
@@ -522,38 +537,77 @@ func TestEngineTimeoutValues(t *testing.T) {
 	}
 	// The retried root failure: the first attempt failed with no job, and
 	// the retry, a later transition, fails the flow at once.
-	tr = runReq(t, mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", timeout(js("-1"))+","+retryOnce))}, &scripts{}), RunRequest{})
+	tr = runReq(t, mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", timeout(str)+","+retryOnce))}, &scripts{}), RunRequest{})
 	if r0 := record(t, tr, attemptSite("a", 0)); r0.Ran || r0.Status != conformance.StepFailure {
 		t.Fatalf("the failed pickup %+v", r0)
 	}
+	// A value of 0 or less, static or evaluated, at the root or later, on
+	// a step or an identity job, is no error: the module runs as if it
+	// had no timeout.
+	for name, flow := range map[string]string{
+		"static zero":        flowOf(mod("a", "value", "", timeout(static("0")))),
+		"static negative":    flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(static("-1")))),
+		"evaluated zero":     flowOf(mod("x", "value", "", ""), mod("a", "value", "", timeout(js("0")))),
+		"evaluated negative": flowOf(mod("a", "value", "", timeout(js("-2147483648")))),
+		"identity negative":  flowOf(mod("x", "value", "", ""), `{"id":"a","value":{"type":"identity"},`+timeout(js("-1"))+`}`),
+	} {
+		s := &scripts{}
+		tr := runReq(t, mustOpen(t, map[string]string{"f/t/main": flow}, s), RunRequest{})
+		if tr.Status != conformance.RunSuccess || step(t, tr, "a").Status != conformance.StepSuccess {
+			t.Errorf("%s: status %s, result %s", name, tr.Status, tr.Result)
+		}
+	}
 
 	// The evaluated timeout times the leaf: results.a, read from the
-	// intercepted a, is 0, which leaves b no time (job-specific).
+	// intercepted a, is 1, below the instance maximum, so b's custom
+	// timeout ends it after 1 s; its job is canceled, and the step fails.
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", ""), mod("b", "value", "", timeout(js("results.a"))))}, waits{})
-	tr = runReq(t, e, RunRequest{Hooks: StaticIntercepts{Results: map[string]jsonval.Value{"a": jsonval.FromProducer([]byte("0"))}}})
-	wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"b"}}`)
+	e.cap = time.Hour
+	tr = runReq(t, e, RunRequest{Hooks: StaticIntercepts{Results: map[string]jsonval.Value{"a": jsonval.FromProducer([]byte("1"))}}})
+	wantStatus(t, tr, conformance.RunFailure, "{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step\",\"name\":\"ExecutionErr\",\"step_id\":\"b\"}}")
+	if b := step(t, tr, "b"); b.Status != conformance.StepCanceled || b.Module != conformance.ModuleFailure {
+		t.Fatalf("b %+v", b)
+	}
 }
 
 // JE-2: the time a transition spends evaluating counts against the
 // transition timeout, past which the run is canceled by "monitor", as
 // Windmill's monitor of flows that hang between steps cancels them. A job
-// starts a new transition; a negative timeout disables the monitor.
+// starts a new transition; a negative timeout disables the monitor. The
+// monitor cancels only a flow that has started or runs on the same worker:
+// a flow whose first module has not started, a child flow's included, is
+// put back in the queue, which does not stop its transition, so the run
+// goes on.
 func TestEngineTransitionMonitor(t *testing.T) {
 	// Each busy evaluation takes 400 ms against a budget of 600 ms: one
 	// fits a transition with room to spare under load, two do not.
 	const busy = "(() => { const t = Date.now(); while (Date.now() - t < 400) {} return 1 })()"
+	sameWorker := func(f string) string { return strings.TrimSuffix(f, "}") + `,"same_worker":true}` }
+	first := mod("a", "value", inputs("v", static("1")), "")
 	for _, c := range []struct {
-		name, flow string
-		limit      time.Duration
-		status     conformance.RunStatus
+		name, flow, child string
+		limit             time.Duration
+		status            conformance.RunStatus
+		// hung is the module whose start the monitor cut short, and root
+		// says that its flow is the root's.
+		hung string
+		root bool
 	}{
-		{"a runaway transform", flowOf(mod("a", "value", inputs("v", js("(() => { while (true) {} })()")), "")), 600 * time.Millisecond, conformance.RunCanceled},
-		{"one transition at a time", flowOf(mod("a", "value", inputs("v", js(busy)), ""), mod("b", "value", inputs("v", js(busy)), "")), 600 * time.Millisecond, conformance.RunSuccess},
-		{"two evaluations in one transition", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunCanceled},
-		{"disabled", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), -1, conformance.RunSuccess},
+		{"a runaway transform", flowOf(first, mod("b", "value", inputs("v", js("(() => { while (true) {} })()")), "")), "", 600 * time.Millisecond, conformance.RunCanceled, "m:b", true},
+		{"one transition at a time", flowOf(first, mod("b", "value", inputs("v", js(busy)), ""), mod("c", "value", inputs("v", js(busy)), "")), "", 600 * time.Millisecond, conformance.RunSuccess, "", false},
+		{"two evaluations in one transition", flowOf(first, mod("b", "value", inputs("v", js(busy), "w", js(busy)), "")), "", 600 * time.Millisecond, conformance.RunCanceled, "m:b", true},
+		{"disabled", flowOf(first, mod("b", "value", inputs("v", js(busy), "w", js(busy)), "")), "", -1, conformance.RunSuccess, "", false},
+		{"before the flow starts", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), "", 600 * time.Millisecond, conformance.RunSuccess, "", false},
+		{"same_worker before the flow starts", sameWorker(flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), ""))), "", 600 * time.Millisecond, conformance.RunCanceled, "m:a", true},
+		{"before a subflow starts", flowOf(first, subflowOf("s", "f/t/child", "", "")), flowOf(mod("c", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunSuccess, "", false},
+		{"after a subflow starts", flowOf(first, subflowOf("s", "f/t/child", "", "")), flowOf(first, mod("c", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunCanceled, "m:s/m:c", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &scripts{})
+			flows := map[string]string{"f/t/main": c.flow}
+			if c.child != "" {
+				flows["f/t/child"] = c.child
+			}
+			e := mustOpen(t, flows, &scripts{})
 			e.transition = max(c.limit, 0)
 			start := time.Now()
 			tr := runReq(t, e, RunRequest{})
@@ -570,11 +624,15 @@ func TestEngineTransitionMonitor(t *testing.T) {
 			if err := json.Unmarshal(tr.Result.Producer(), &res); err != nil {
 				t.Fatal(err)
 			}
-			if res.Error.Name != "Canceled" || res.Error.Canceler != "monitor" || !strings.HasPrefix(res.Error.Reason, "Flow "+tr.RunID+" was cancelled because it was hanging in between 2 steps. Last ping: ") {
+			flow := "Flow "
+			if c.root {
+				flow += tr.RunID + " "
+			}
+			if res.Error.Name != "Canceled" || res.Error.Canceler != "monitor" || !strings.HasPrefix(res.Error.Reason, flow) || !strings.Contains(res.Error.Reason, " was cancelled because it was hanging in between 2 steps. Last ping: ") {
 				t.Fatalf("result %s", tr.Result)
 			}
-			if a := step(t, tr, "a"); a.Status != conformance.StepNotRun {
-				t.Fatalf("a %+v", a)
+			if h := at(t, tr, c.hung); h.Status != conformance.StepNotRun {
+				t.Fatalf("%s %+v", c.hung, h)
 			}
 		})
 	}

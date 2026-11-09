@@ -138,7 +138,9 @@ func TestSubflowScopes(t *testing.T) {
 // with its result, and the caller's continue_on_error and failure module
 // apply, the caller's failure module running even when the subflow's ran;
 // a subflow whose failure module recovered is a successful job but a
-// failed step. A stop inside a subflow ends only the subflow: a clean one
+// failed step, marked as recovered: the root flow that it ends succeeds
+// with its result (FX-33/h), and a caller's failure module decides as it
+// would anyway. A stop inside a subflow ends only the subflow: a clean one
 // lets the caller go on, the step's job skipped with skip_if_stopped, and
 // an error stop fails the step.
 func TestSubflowOutcomes(t *testing.T) {
@@ -160,7 +162,8 @@ func TestSubflowOutcomes(t *testing.T) {
 		{"failure", flowOf(mod("a", "fail", "", "")), flowOf(subflowOf("s", "f/t/child", "", ""), after), conformance.RunFailure, `{"error":{"message":"boom","name":"Error","step_id":"a"}}`, conformance.StepFailure, conformance.ModuleFailure},
 		{"tolerated", flowOf(mod("a", "fail", "", "")), flowOf(subflowOf("s", "f/t/child", "", `"continue_on_error":true`), after), conformance.RunSuccess, `{"p":{"error":{"message":"boom","name":"Error","step_id":"a"}}}`, conformance.StepFailure, conformance.ModuleFailure},
 		{"both handlers", handled(`"child"`), withFailure(handler("echo", inputs("p", js("previous_result")), ""), subflowOf("s", "f/t/child", "", "")), conformance.RunFailure, `{"p":"child"}`, conformance.StepFailure, conformance.ModuleFailure},
-		{"recovered", handled(`{"recover":true}`), flowOf(subflowOf("s", "f/t/child", "", ""), after), conformance.RunFailure, `{"recover":true}`, conformance.StepSuccess, conformance.ModuleFailure},
+		{"recovered", handled(`{"recover":true}`), flowOf(subflowOf("s", "f/t/child", "", ""), after), conformance.RunSuccess, `{"recover":true}`, conformance.StepSuccess, conformance.ModuleFailure},
+		{"recovered, caller's handler", handled(`{"recover":true}`), withFailure(handler("echo", inputs("p", js("previous_result")), ""), subflowOf("s", "f/t/child", "", "")), conformance.RunFailure, `{"p":{"recover":true}}`, conformance.StepSuccess, conformance.ModuleFailure},
 		{"clean stop", stopping(""), flowOf(subflowOf("s", "f/t/child", "", ""), after), conformance.RunSuccess, `{"p":1}`, conformance.StepSuccess, conformance.ModuleSuccess},
 		{"skipped stop", skipping, flowOf(subflowOf("s", "f/t/child", "", ""), after), conformance.RunSuccess, `{"p":1}`, conformance.StepSkipped, conformance.ModuleSuccess},
 		{"error stop", stopping(`"error_message":"halt",`), flowOf(subflowOf("s", "f/t/child", "", `"continue_on_error":true`), after), conformance.RunSuccess, `{"p":{"error":{"name":"EarlyStopError","message":"halt"}}}`, conformance.StepFailure, conformance.ModuleFailure},

@@ -109,17 +109,19 @@ function resolvesToBuiltin(spec: string): boolean {
 // name that node:module's builtinModules lists on the Bun that runs the
 // build, alone or after node:, kept only when the runtime's resolver
 // resolves it to a built-in module (resolvesToBuiltin). The build requires
-// that Bun to be the pinned Bun 1.3.10 unless its caller allows another.
+// that Bun to be the pinned Bun 1.4.3 unless its caller allows another.
 //
-//   - Bun 1.3.10 lists Node's modules without the node: prefix, subpaths
-//     such as fs/promises among them, and its own: bun, bun:ffi, bun:jsc,
-//     bun:sqlite, bun:test and bun:wrap, and ws and undici, which it
-//     implements itself whatever node_modules holds.
+//   - Bun 1.4.3 lists Node's modules without the node: prefix, subpaths
+//     such as fs/promises among them, except node:sqlite, which it lists
+//     with the prefix, and its own: bun, bun:ffi, bun:jsc, bun:sqlite and
+//     bun:test, and ws and undici, which it implements itself whatever
+//     node_modules holds. Bun 1.3.10 listed bun:wrap too, and had no
+//     node:sqlite.
 //   - Every listed name resolves alone. After node:, Node's names resolve
 //     and Bun's own do not: node:bun, node:bun:sqlite, node:ws and
-//     node:undici name no built-in module.
+//     node:undici name no built-in module, nor does node:node:sqlite.
 //   - A name the list leaves out names none, alone or after node:,
-//     although Bun loads node:test.
+//     although Bun loads node:test, node:quic and bun:wrap.
 //
 // The Go build asks for these specifiers with the kept op, so both builds
 // accept the same spellings.

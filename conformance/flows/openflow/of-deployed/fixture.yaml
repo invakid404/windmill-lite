@@ -4,7 +4,8 @@
 # true
 # (OF-7/a-d), the hasX fixture (OF-18/a, OF-18/b), the storage examples
 # (OF-3/a), the deploy shapes OF-6/a and OF-8/a, the same_worker pair
-# (OF-16/c, OF-16/d) and early_return (OF-V3/a, OF-V3/b). Every run's
+# (OF-16/c, OF-16/d), early_return (OF-V3/a, OF-V3/b), and a retry's and a
+# branchone's settings through deployment (OF-11/d, OF-6/b). Every run's
 # deployment evidence (the submitted value and the value flows/get answers
 # after the dependency job) is in its recording; the batch manifest checks
 # the deploy shapes there. The previews are openflow/of-drivers'. The runs
@@ -12,17 +13,19 @@
 #
 # Each run's expect is the reference's source-derived prediction, written
 # before the oracle ran it. Synthetic, written for this repository from
-# docs/semantics/conformance.md (OF-3, OF-6, OF-7, OF-8, OF-16, OF-18,
+# docs/semantics/conformance.md (OF-3, OF-6, OF-7, OF-8, OF-11, OF-16, OF-18,
 # OF-V3). Deployed with oracle.deploy api.
 id: openflow/of-deployed
 spec:
   - OF-3/a
   - OF-6/a
+  - OF-6/b
   - OF-7/a
   - OF-7/b
   - OF-7/c
   - OF-7/d
   - OF-8/a
+  - OF-11/d
   - OF-16/c
   - OF-16/d
   - OF-18/a

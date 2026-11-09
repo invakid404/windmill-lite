@@ -196,7 +196,7 @@ These rules adapt principles of ASD-STE100 Simplified Technical English
   preposition or a verb: "the timeout of each retry of a step", not "the
   step retry timeout value".
 - **Quantities and versions.** Give a quantity with its unit, such as 30 s
-  or 1 MiB, and a version exactly, such as Bun 1.3.10. Do not write "fast",
+  or 1 MiB, and a version exactly, such as Bun 1.4.3. Do not write "fast",
   "small", "recent" or "many" when you can give the number. Take each number
   from the code, a test or a linked measurement, or leave it out.
 - **No marketing language.** Do not use superlatives, and do not describe
@@ -337,7 +337,8 @@ A guide explains one task or one standard, such as
 
 ### Structure
 
-This paragraph is from the quick start of the root [README](../README.md):
+This paragraph was in the quick start of the root [README](../README.md)
+when windmill-lite pinned Bun 1.3.10:
 
 > The harness, build, skeleton and host-mode tests also need Bun 1.3.10, the
 > version Windmill v1.767.0 ships; without it they skip. Point `WL_BUN` at
@@ -349,15 +350,15 @@ This paragraph is from the quick start of the root [README](../README.md):
 It puts a procedure and reference data in one block, and it names tests by
 internal labels. Rewritten to this standard:
 
-> Some tests need Bun 1.3.10, the Bun of Windmill v1.767.0, and the
+> Some tests need Bun 1.4.3, the Bun that windmill-lite pins, and the
 > unmodified Windmill client library. When a variable below is not set, each
 > test that needs it skips. With `WL_REQUIRE_BUN` set, as in CI, the test
 > fails instead.
 >
 > | Variable | Value | Tests that need it |
 > |---|---|---|
-> | `WL_BUN` | The path of a Bun 1.3.10 executable | Tests in `internal/harness`, `internal/bundle`, `internal/engine`, `internal/platform` and `cmd/windmill-lite` |
-> | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.767.0` | The test that concurrent invocations each see their own `WM_*` environment variables on Bun 1.3.10 ([Q-WA-4](semantics/client-api.md#q-wa-4)), and the test that the [platform facade](../internal/platform/facade/README.md) attributes each call to the step that made it |
+> | `WL_BUN` | The path of a Bun 1.4.3 executable | Tests in `internal/harness`, `internal/bundle`, `internal/engine`, `internal/platform` and `cmd/windmill-lite` |
+> | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | The test that concurrent invocations each see their own `WM_*` environment variables on Bun 1.4.3 ([Q-WA-4](semantics/client-api.md#q-wa-4)), and the test that the [platform facade](../internal/platform/facade/README.md) attributes each call to the step that made it |
 >
 > To run these tests:
 >

@@ -1,0 +1,12 @@
+# WR-5/g: the whole value of rx names a variable that does not exist, so
+# resolving the static $res: argument fails the step before its script runs,
+# with the server's not-found text wrapped by the worker.
+spec: [WR-5/g]
+target: f/wl_wv/missing_arg
+expect:
+  status: failure
+  result:
+    error:
+      name: ExecutionErr
+      message: "execution error:\nNot found: Resource f/wl_wv/rx not found for `x`: Not found: Variable f/wl_wv/missing not found"
+      step_id: a

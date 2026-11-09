@@ -19,7 +19,7 @@ import (
 // it, which windmill-lite's harness does not.
 var laterBunVariables = map[string]bool{
 	// The reserved variables.
-	"WM_WORKSPACE": true, "WM_EMAIL": true, "WM_USERNAME": true, "WM_PERMISSIONED_AS": true,
+	"WM_WORKSPACE": true, "WM_ROOT_WORKSPACE": true, "WM_EMAIL": true, "WM_USERNAME": true, "WM_PERMISSIONED_AS": true,
 	"WM_TOKEN": true, "WM_BASE_URL": true, "WM_JOB_ID": true, "WM_JOB_PATH": true,
 	"WM_FLOW_JOB_ID": true, "WM_ROOT_FLOW_JOB_ID": true, "WM_ROOT_JOB_ID": true, "WM_FLOW_PATH": true,
 	"WM_FLOW_STEP_ID": true, "WM_SCHEDULE_PATH": true, "WM_SCHEDULED_FOR": true, "WM_STATE_PATH": true,

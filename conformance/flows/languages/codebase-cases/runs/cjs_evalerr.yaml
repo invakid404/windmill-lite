@@ -1,0 +1,11 @@
+# WR-47/g: the pinned CLI's esbuild 0.28.2 keeps a module's evaluation
+# error, so both requires of the throwing module fail with it; with esbuild
+# 0.28.0 the second require returned the module's empty exports. The
+# outcome comes from the bundle, not from the runtime that runs it.
+spec: [WR-47/g]
+target: f/wl_cbx/cjs_evalerr
+expect:
+  status: success
+  result: [boom, boom]
+  steps:
+    "m:s": {status: success, args: {}, result: [boom, boom]}

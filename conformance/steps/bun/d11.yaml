@@ -84,7 +84,7 @@ cases:
     variant: exit-status
     provenance: policy
     title: the exit status is the code modulo 256, read as Bun reads it, a numeric string included
-    note: Observed on Bun 1.3.10 (process.exit(258) exits 2, "-1" exits 255, 256 exits 0).
+    note: Observed on Bun 1.3.10 and again on Bun 1.4.3 (process.exit(258) exits 2, "-1" exits 255, 256 exits 0).
     script: |
       export function main(code: unknown) { process.exit(code as number); }
     runs:
@@ -118,9 +118,9 @@ cases:
     provenance: policy
     title: a code Bun refuses makes process.exit throw Bun's own error, which the wrapper catches
     note: >-
-      On Bun 1.3.10, process.exit(1.5) throws a RangeError before it exits;
-      its code, ERR_OUT_OF_RANGE, is not an own property, so it is not in
-      extra.
+      On Bun 1.4.3, as on 1.3.10, process.exit(1.5) throws a RangeError
+      before it exits; its code, ERR_OUT_OF_RANGE, is not an own property,
+      so it is not in extra.
     script: |
       export function main() { process.exit(1.5); }
     runs:
@@ -135,14 +135,18 @@ cases:
     variant: refused-codes
     provenance: policy
     title: codes beyond the safe integers, the empty string and non-numbers are refused with Bun's own error, which the wrapper catches
-    note: Observed on Bun 1.3.10 (c3a review 1, finding 3). The error's code is not an own property, so there is no extra.
+    note: >-
+      Observed on Bun 1.3.10 (c3a review 1, finding 3), and again on Bun
+      1.4.3, which words the range text with && and digit separators where
+      1.3.10 wrote "and" and plain digits; the code is refused alike. The
+      error's code is not an own property, so there is no extra.
     script: |
       export function main(code: unknown) { process.exit(code as number); }
     runs:
       - args: '{"code":9007199254740992}'
         claims:
           - {at: /result/error/name, equals: RangeError}
-          - {at: /result/error/message, contains: ["must be >= -9007199254740991 and <= 9007199254740991. Received 9007199254740992"]}
+          - {at: /result/error/message, contains: ["must be >= -9007199254740991 && <= 9007199254740991. Received 9_007_199_254_740_992"]}
       - args: '{"code":-9007199254740992}'
         claims:
           - {at: /result/error/name, equals: RangeError}
@@ -197,6 +201,63 @@ cases:
             settled: completed
           fresh:
             expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 5, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 5}}}
+            settled: process_exited
+  - spec: D11
+    variant: top-level-after-await
+    provenance: policy
+    title: process.exit after a top-level await, while the module still evaluates, fails every invocation of the script with that exit too
+    deviation: D11
+    script: |
+      await Bun.sleep(5);
+      process.exit(6);
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 6, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 6}}}
+            late: [{kind: error, final: true}]
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 6, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 6}}}
+            settled: process_exited
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 6, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 6}}}
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 6, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 6}}}
+            settled: process_exited
+  - spec: D11
+    variant: top-level-caught
+    provenance: policy
+    title: a top-level catch that swallows the sentinel fixes the loading invocation's outcome but lets the module load, so a later warm invocation runs
+    note: >-
+      The exit fixes the first run's outcome at the call; the module then
+      finishes evaluating and the entrypoint's return is late. In warm mode
+      the module stays loaded, so the second run calls it; in fresh mode
+      each process exits at the call.
+    deviation: D11
+    script: |
+      try { process.exit(4); } catch {}
+      export function main() { return "ran"; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 4, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 4}}}
+            late: [{kind: result, final: true, body: '"ran"'}]
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 4, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 4}}}
+            settled: process_exited
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: ran}
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 4, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 4}}}
             settled: process_exited
   - spec: D11
     variant: exit-from-timer

@@ -50,11 +50,11 @@ func TestCanonicalize(t *testing.T) {
 
 func TestManifestDeviations(t *testing.T) {
 	if got, want := manifestDeviations([]string{"D12", "D5"}, engine.ModuleStateWarm, false),
-		[]string{"D1", "D2", "D3", "D5", "D8", "D9", "D10", "D11", "D12", "D14", "D16", "D17", "D22"}; !slices.Equal(got, want) {
+		[]string{"D1", "D2", "D3", "D5", "D8", "D9", "D10", "D11", "D12", "D14", "D16", "D17", "D22", "D23"}; !slices.Equal(got, want) {
 		t.Errorf("warm: %q, want %q", got, want)
 	}
 	if got, want := manifestDeviations([]string{"D7"}, engine.ModuleStateFresh, false),
-		[]string{"D3", "D7", "D8", "D14", "D16", "D17", "D22"}; !slices.Equal(got, want) {
+		[]string{"D3", "D7", "D8", "D14", "D16", "D17", "D22", "D23"}; !slices.Equal(got, want) {
 		t.Errorf("fresh: %q, want %q", got, want)
 	}
 	// A runtime that overrides the bundle's mode swaps the mode's
@@ -106,7 +106,7 @@ func testManifest() *Manifest {
 	return &Manifest{
 		Format:          FormatVersion,
 		Engine:          Engine{Version: "v0.0.0-test", ExpressionStackBytes: 1 << 20},
-		Bundlers:        Bundlers{Bun: "1.3.10"},
+		Bundlers:        Bundlers{Bun: "1.4.3"},
 		ModuleState:     engine.ModuleStateWarm,
 		Deviations:      []string{"D3"},
 		Contract:        ir.Contract{Roots: []ir.Root{{Flow: "f/a/flow"}}},

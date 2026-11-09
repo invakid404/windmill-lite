@@ -26,10 +26,12 @@ var bindable = append(slices.Clone(contextNames), "WM_SCHEDULED_FOR", "flow_inpu
 //   - Shortcut: the shortcuts of JE-6 to JE-9 that the trimmed text allows.
 //   - Mode: statement mode or expression mode (JE-13).
 //   - Binds: the names the trimmed text mentions (JE-10, JE-17).
-//   - Source: the trimmed text after the rewrites of JE-11 and JE-12, in
-//     the wrapper the mode selects (JE-13, JE-14); or, when JE-11's
-//     rewrite would close a call inside a character, where Windmill's
-//     evaluator panics, no Source and that byte offset as RewritePanic.
+//   - Prefetch: the steps the trimmed text's static results reads name,
+//     which the program fetches before the code runs (JE-12).
+//   - Source: the trimmed text after the rewrite of JE-11, in the wrapper
+//     the mode selects (JE-13, JE-14); or, when JE-11's rewrite would
+//     close a call inside a character, where Windmill's evaluator panics,
+//     no Source and that byte offset as RewritePanic.
 func Compile(site SiteKind, text string) *Expr {
 	t := text
 	if site.Predicate() {
@@ -47,8 +49,9 @@ func Compile(site SiteKind, text string) *Expr {
 			PreviousID:  previousID(t),
 			ResultsPath: resultsPath(t),
 		},
-		Mode:  mode(t),
-		Binds: binds(t),
+		Mode:     mode(t),
+		Binds:    binds(t),
+		Prefetch: prefetchList(t),
 	}
 	if slices.Contains(contextNames, t) {
 		e.Shortcut.ContextName = t
@@ -58,7 +61,7 @@ func Compile(site SiteKind, text string) *Expr {
 		e.RewritePanic = at
 		return e
 	}
-	e.Source = wrap(e.Mode, rewriteResults(code))
+	e.Source = wrap(e.Mode, code)
 	return e
 }
 
@@ -273,23 +276,131 @@ func rewriteCall(t, call string) (code string, panicAt int) {
 	return b.String(), 0
 }
 
-// resultsRead is JE-12's pattern: results, an optional ?, then a dot and
-// [A-Za-z0-9_]+, or ["…"] with double quotes, matched lazily on one line.
-var resultsRead = regexp.MustCompile(`results\??(?:\.[A-Za-z0-9_]+|\[".*?"\])`)
+// staticRead is one static results read that JE-12's scan finds: its span
+// in the text, and the literal that names its step.
+type staticRead struct {
+	start, end int
+	// literal is a dot read's identifier in double quotes, or a bracket
+	// read's string literal as written.
+	literal string
+}
 
-// rewriteResults applies JE-12: every match becomes (await <match>), with
-// no word boundary and inside strings and comments too.
-func rewriteResults(t string) string {
-	return resultsRead.ReplaceAllString(t, "(await ${0})")
+// staticReads returns the static results reads of t, in order (JE-12):
+// results, at the start of t or after a character that is not
+// [A-Za-z0-9_$], then either a dot read, . or ?. and one or more
+// [A-Za-z0-9_], or a bracket read, [ or ?.[, a whole string literal in
+// double or single quotes, and ]. The literal may hold backslash escapes,
+// but no raw line feed or carriage return and no unescaped quote of its
+// own kind. The scan knows nothing of strings, comments or scopes. A read
+// ends where its match ends, and the scan goes on from there.
+func staticReads(t string) []staticRead {
+	var out []staticRead
+	for i := 0; ; {
+		j := strings.Index(t[i:], "results")
+		if j < 0 {
+			return out
+		}
+		start := i + j
+		i = start + 1
+		if start > 0 && (isIdentByte(t[start-1]) || t[start-1] == '$') {
+			continue
+		}
+		tail := start + len("results")
+		if n, literal := dotRead(t[tail:]); n > 0 {
+			out = append(out, staticRead{start, tail + n, literal})
+			i = tail + n
+		} else if n, literal := bracketRead(t[tail:]); n > 0 {
+			out = append(out, staticRead{start, tail + n, literal})
+			i = tail + n
+		}
+	}
+}
+
+// isIdentByte reports whether c is one of [A-Za-z0-9_].
+func isIdentByte(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+// dotRead reads . or ?. and one or more [A-Za-z0-9_] at the start of s,
+// and returns its length and the identifier in double quotes, or 0.
+func dotRead(s string) (int, string) {
+	n := 0
+	switch {
+	case strings.HasPrefix(s, "."):
+		n = 1
+	case strings.HasPrefix(s, "?."):
+		n = 2
+	default:
+		return 0, ""
+	}
+	m := n
+	for m < len(s) && isIdentByte(s[m]) {
+		m++
+	}
+	if m == n {
+		return 0, ""
+	}
+	return m, `"` + s[n:m] + `"`
+}
+
+// bracketRead reads [ or ?.[, a string literal and ] at the start of s,
+// and returns its length and the literal as written, or 0.
+func bracketRead(s string) (int, string) {
+	n := 0
+	switch {
+	case strings.HasPrefix(s, "["):
+		n = 1
+	case strings.HasPrefix(s, "?.["):
+		n = 3
+	default:
+		return 0, ""
+	}
+	if n == len(s) || s[n] != '"' && s[n] != '\'' {
+		return 0, ""
+	}
+	quote := s[n]
+	for m := n + 1; m < len(s); m++ {
+		switch s[m] {
+		case quote:
+			if m+1 < len(s) && s[m+1] == ']' {
+				return m + 2, s[n : m+1]
+			}
+			return 0, ""
+		case '\n', '\r':
+			return 0, ""
+		case '\\':
+			// An escape takes the next character whole, unless it is a
+			// line break.
+			if m+1 == len(s) || s[m+1] == '\n' || s[m+1] == '\r' {
+				return 0, ""
+			}
+			_, size := utf8.DecodeRuneInString(s[m+1:])
+			m += size
+		}
+	}
+	return 0, ""
+}
+
+// prefetchList returns the literals of t's static reads, sorted by their
+// bytes, without repeats: the steps the program fetches before the code
+// runs, at a site with a results context (JE-12).
+func prefetchList(t string) []string {
+	var out []string
+	for _, r := range staticReads(t) {
+		out = append(out, r.literal)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // The wrapper of each mode (JE-13): an async function, called at once,
 // whose opening and closing text sit on the first and last line of the
 // code, so that a trailing // comment on the last line comments the
 // closing text out and the source does not compile (JE-14). Its text is
-// observable: the engine's stack frames give positions in it (JE-21), and
-// the opening text puts the code at column 21 in statement mode and 28 in
-// expression mode, the positions E3a's recorded stacks show.
+// observable: the engine's stack frames give positions in the program
+// around it (JE-21, program.go), where the opening text puts the code 20
+// columns after the function's start in statement mode and 27 in
+// expression mode.
 const (
 	wrapOpen           = "(async function() { "
 	wrapReturn         = "return "

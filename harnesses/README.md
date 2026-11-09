@@ -27,7 +27,7 @@ A host needs three more things:
 
 | Requirement | Why |
 |---|---|
-| [Bun](../docs/glossary.md#bun) 1.3.10 | The steps run on the host's Bun, and the engine refuses a host on any other Bun with `runtime_mismatch`. 1.3.10 is the Bun of Windmill v1.767.0's images. |
+| [Bun](../docs/glossary.md#bun) 1.4.3 | The steps run on the host's Bun, and the engine refuses a host on any other Bun with `runtime_mismatch`. |
 | The windmill-lite engine of the package's version | The SDK carries the package's version, and an engine of another release refuses it with `version_mismatch` (a development build of the engine, which has no release version, accepts any SDK). |
 | A [bundle](../docs/glossary.md#bundle) that this engine built | The engine opens only a bundle that its own version built. |
 
@@ -51,7 +51,7 @@ of the release's tag:
 1. Check out the tag, such as `v0.1.0`.
 2. Install the helper's dependencies:
    `(cd harnesses/bun/build && bun install --frozen-lockfile)`.
-3. Build the bundle with that checkout's helper, and with Bun 1.3.10 as
+3. Build the bundle with that checkout's helper, and with Bun 1.4.3 as
    `bun` on the `PATH` or in `WL_BUN`:
    `WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts windmill-lite build <folder> -o <bundle>`.
 
@@ -85,7 +85,7 @@ scope belongs to no invocation, and the fence keeps it.
 
 The test entry `windmill-lite/bun/testing` lets a host's tests check what
 the fence does to that code, without an engine or a bundle. It runs on Bun
-1.3.10 and on Node 22 or newer, so on Node test runners such as vitest
+1.4.3 and on Node 22 or newer, so on Node test runners such as vitest
 too.
 
 | Function | What it does |
@@ -112,7 +112,7 @@ views, and so changes what `invoke` does:
   connected host, that output reaches the process's streams.
 
 Call `install()` in the test runner's setup file, before a test imports
-the host's code. On Bun 1.3.10 the first named import of `node:timers`
+the host's code. On Bun 1.4.3 the first named import of `node:timers`
 fixes its named bindings for every later importer
 ([the timer fence](bun/README.md#the-per-invocation-context)).
 
@@ -152,25 +152,27 @@ The package ships JavaScript and type declarations (`.d.ts`), so a host's
 test type-checks imports of `windmill-lite/bun` and of
 `windmill-lite/bun/testing` with:
 
-- TypeScript 5.9.3 and the `tsconfig.json` that `bun init` of Bun 1.3.10
-  writes;
-- TypeScript 5.9.3 and 6.0.3 with `NodeNext` module resolution, and with
-  `skipLibCheck` off, so that `tsc` checks the declarations too.
+- TypeScript 7.0.2 and the `tsconfig.json` that `bun init` of Bun 1.4.3
+  writes, and `bun check`, the type check that the `typecheck` script of
+  `bun init` runs, with the same `tsconfig.json`;
+- TypeScript 7.0.2, 6.0.3 and 5.9.3 with `NodeNext` module resolution,
+  and with `skipLibCheck` off, so that `tsc` checks the declarations too.
 
 The SDK's declarations use Bun's type declarations, `@types/bun`, which
-`bun init` installs. TypeScript 6 loads an `@types` package only when
-`types` names it, so a TypeScript 6 project sets `"types": ["bun"]`.
+`bun init` installs. TypeScript 6 and 7 and `bun check` load an `@types`
+package only when `types` names it, so such a project sets
+`"types": ["bun"]`, as `bun init` of Bun 1.4.3 does.
 
 The test entry's declarations import nothing, so a project without
 `@types/bun` can import it. The packaging test checks an import of
 `windmill-lite/bun/testing` with Node's type declarations only, with
-TypeScript 5.9.3 and 6.0.3, `NodeNext` and `skipLibCheck` off.
+TypeScript 7.0.2, 6.0.3 and 5.9.3, `NodeNext` and `skipLibCheck` off.
 
 ## What the package holds
 
 | File | What it is |
 |---|---|
-| `dist/bun/host/index.js` | `windmill-lite/bun`: the Bun host SDK and the harness runtime, bundled by Bun 1.3.10 into an ES module that imports `dist/bun/runtime/context.js`. Its harness version is `v` + the package's version. |
+| `dist/bun/host/index.js` | `windmill-lite/bun`: the Bun host SDK and the harness runtime, bundled by Bun 1.4.3 into an ES module that imports `dist/bun/runtime/context.js`. Its harness version is `v` + the package's version. |
 | `dist/bun/host/testing.js` | `windmill-lite/bun/testing`: the test entry, an ES module that imports `dist/bun/runtime/context.js` and Node's built-in modules only |
 | `dist/bun/runtime/context.js` | The runtime module that both entries import: the invocation context, the timer fence and the process scope. A process that loads both entries has one copy of them. |
 | `dist/bun/host/index.d.ts`, `dist/bun/runtime/*.d.ts` | The type declarations of the SDK, and of the runtime modules whose types its declarations import: `context`, `frame`, `plugin`, `runtime` and `version` |
@@ -187,7 +189,7 @@ becomes another subpath of this package.
 
 1. Install the build's dependencies, TypeScript and `@types/bun`:
    `(cd harnesses && bun install --frozen-lockfile)`.
-2. Point `WL_BUN` at a Bun 1.3.10 executable. The build refuses any other
+2. Point `WL_BUN` at a Bun 1.4.3 executable. The build refuses any other
    Bun, because Bun's bundler transpiles the runtime.
 3. Run `npm pack` in `harnesses/`.
 
@@ -218,12 +220,13 @@ at the first check that fails:
    `package.json` has the fields that npm and provenance need and no
    dependencies, and its `LICENSE` is the repository's.
 3. `bun add` installs the tarball into a copy of `npm/test/project/`, an
-   empty project with the `tsconfig.json` of `bun init`.
+   empty project with the `tsconfig.json` of `bun init` and the
+   TypeScript versions of [Types](#types).
 4. `tsc` type-checks `npm/test/project/smoke.ts`, which imports both
    entries, and `npm/test/project/testing.ts`, which imports the test
    entry, in the setups of [Types](#types).
 5. `testing.ts` checks the test entry's functions against the packed
-   runtime, on Bun 1.3.10. Then it runs as the JavaScript that `tsc` emits
+   runtime, on Bun 1.4.3. Then it runs as the JavaScript that `tsc` emits
    from it on Node, which must be Node 22 or newer.
 6. The engine of the checkout, stamped with the package's version as a
    release stamps it, builds a bundle of the synthetic folder
@@ -246,7 +249,7 @@ To run it, install the dependencies of the package and of the
 ```sh
 (cd harnesses && bun install --frozen-lockfile)
 (cd harnesses/bun/build && bun install --frozen-lockfile)
-WL_BUN=/path/to/bun-1.3.10/bun harnesses/npm/test/check.sh
+WL_BUN=/path/to/bun-1.4.3/bun harnesses/npm/test/check.sh
 ```
 
 It also needs Node 22 or newer as `node` on the `PATH`, `npm`, `python3`,

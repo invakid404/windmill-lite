@@ -5,7 +5,7 @@
 covers `harnesses/bun/build`. The Go build in
 [internal/bundle](../../../internal/bundle/README.md), behind
 `windmill-lite build` (F4), runs it; nothing else does. It runs on the
-pinned Bun 1.3.10 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
+pinned Bun 1.4.3 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
 refuses another unless the caller allows it. Codebase scripts are not
 bundled here: esbuild bundles them in Go (C2b), and the helper only parses
 their sources (`parse`, below). Milestone C3n added the native form of
@@ -30,7 +30,7 @@ The helper has two dependencies, pinned with their own in `bun.lock`:
 `@babel/parser` (MIT), which parses TypeScript for the signature parse and
 JavaScript for the native form, and `windmill-client@1.326.0` (Apache-2.0),
 the package the native runtime's embedded client is built from. Its
-version is the one Windmill embeds
+version is the one Windmill embeds, at v1.862.0 as at v1.767.0
 ([WR-40](../../../docs/semantics/languages.md#wr-40)); Renovate holds it
 there.
 `node_modules/` is not committed.
@@ -76,7 +76,7 @@ Shared code adds two more requests, `kept` and `namespaces` (below,
 | `signature.ts` | The AST parse: signatures, `Date` marking, import specifiers, live bindings |
 | `annotations.ts` | Leading-comment annotations and the bundler target they select |
 | `wac.ts` | Workflow-as-code detection |
-| `native.ts` | The native form of a module, the nativets transpile, the `//useragent` and `//proxy` header, the embedded client |
+| `native.ts` | The native form of a module, the nativets transpile and its line map, the `//useragent` and `//proxy` header, the embedded client |
 | `text.ts` | Rust's line and whitespace rules, for the textual scans |
 | `shared.ts` | Shared code: the support module, dependency references and closure entry, the closure id, the runtime's built-in modules, the parse for kept `import()` |
 | `loadorder.ts` | What orders host-provided modules: the parse of where each `import()` sits (`lazyImports`), and the import graph of a bundle (`bundleImports`) |
@@ -109,7 +109,7 @@ For each script the build:
      reads a hashbang line, where `scanImports` throws) reports, starting
      with `.`, `/u/` or `/f/` and not ending in `.ts`, gets `.ts` appended to
      every occurrence of its text, in the scanner's order and without
-     deduplication. Bun 1.3.10's scanner lists `export … from` as a static
+     deduplication. Bun 1.4.3's scanner lists `export … from` as a static
      import, keeps source order, does not deduplicate and omits type-only
      imports. Overlapping and repeated specifiers therefore collide as on
      Windmill ([WR-38](../../../docs/semantics/languages.md#wr-38)), which the
@@ -173,18 +173,23 @@ so the paths a bundle's comments name are the same on every machine:
 The plugin's resolve filter matches only the specifiers it resolves:
 relative and absolute ones, the env support module, listed packages, and
 `windmill-lite:late/<key>`, by which a late shim imports its CommonJS
-module.
-Bun 1.3.10 drops a module that a package marked `sideEffects: false`
+module. The reason was measured on Bun 1.3.10, which drops a module that a
+package marked `sideEffects: false`
 re-exports (`export { x } from "./x.js"`) whenever a resolve filter
 matches the import of that package, even when the callback resolves
 nothing. The bundle then references a binding that it never defines.
 
-Windmill's import plugin matches every specifier that ends in `.ts`. So a
-bare import such as `leaf.ts` or `pkg/index.ts` from a package loses the
-re-exported module on Windmill, and the step fails with a
-`ReferenceError`. windmill-lite's filter leaves such an import to Bun, so
+Bun 1.4.3 keeps that module
+([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)),
+and the filter is unchanged.
+
+At `v1.767.0` Windmill's import plugin matches every specifier that ends
+in `.ts`. So a bare import such as `leaf.ts` or `pkg/index.ts` from a
+package loses the re-exported module on Windmill, and the step fails with
+a `ReferenceError`. windmill-lite's filter leaves such an import to Bun, so
 the module stays and the step runs (deviation D19,
-[WR-27](../../../docs/semantics/languages.md#wr-27)).
+[WR-27](../../../docs/semantics/languages.md#wr-27)). Windmill `v1.862.0`,
+whose image runs Bun 1.4.4, is not checked yet.
 
 ### Shared code
 
@@ -250,7 +255,7 @@ A module the runtime has built in is neither an external module nor a kept
 ([ADR 0013](../../../docs/design/0013-shared-module-code.md), decision item
 5). `builtinModule` decides it from `BUILTIN_SPECIFIERS`: each name that
 `node:module`'s `builtinModules` lists on the helper's Bun, alone or after
-`node:`, that `Bun.resolveSync` resolves to a built-in module. Bun 1.3.10
+`node:`, that `Bun.resolveSync` resolves to a built-in module. Bun
 resolves its own modules only bare: `node:ws` and `node:bun:sqlite`, for
 example, are external modules, while `node:fs/promises` is built in. An
 `import()` counts only with a literal specifier.
@@ -273,6 +278,8 @@ listings across builds in one process. On a file system with coarse
 timestamps, a file written in the same tick as an earlier read of its
 directory can be missing from that listing, so a relative import of it can
 fail to resolve.
+
+Bun 1.4.3 has not been measured for this.
 
 ### Native scripts
 
@@ -313,6 +320,25 @@ with the native boundary (deviation D5;
   run of `//` lines, which a blank line ends
   ([WR-45](../../../docs/semantics/languages.md#wr-45)). The signatures
   come from the source, as for any script.
+- **The line map** of a nativets script (`line_map` in its `native`
+  part) is what a source map of its transpile would give a line. The
+  harness reads the source line in front of an error's stack in it, as the
+  native runtime does through its transpiler's map
+  ([WR-43](../../../docs/semantics/languages.md#wr-43)).
+  - *How.* `Bun.Transpiler` writes no map, so `lineMap` derives one. The
+    source's nodes, less what the transpile leaves out, are aligned with
+    the JavaScript's by Myers' difference algorithm. Each node the two
+    share maps where it starts and at its last character to the source's
+    line there.
+  - *Left out* are types, declarations of types alone, ambient and
+    abstract members, type-only imports and exports, enums and namespaces
+    (which the transpile rewrites), and the wrappers of an expression.
+  - *Its form.* Triples (line, column, source line) in the JavaScript's
+    order, the first of each run with one source line: a lookup gives the
+    source line of the last mapping at or before a position, which that
+    keeps. It is empty when either text does not parse, or when they
+    differ in more than 1024 places, since the alignment's memory grows
+    with their square.
 - **A `//native` codebase script** (WR-50) is bundled by esbuild in Go; the
   `native` op takes that bundle (a file under the work directory) and
   writes its native form, with the source's header annotations. The native
@@ -324,6 +350,10 @@ with the native boundary (deviation D5;
   1.326.0) for the browser target as CommonJS, and writes it in its native
   form to `scripts/native/windmill.js`, with `windmill.meta.json`; its
   namespace is its exports object's own names.
+  - *One method fewer.* Windmill 1.862.0's bundle of that version lacks
+    `WorkspaceService.editDeployTo`, so the build takes that method, with
+    its comment, out of the package's generated services module. It fails
+    unless it finds the method exactly once.
 
 ### The parse
 

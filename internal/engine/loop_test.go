@@ -207,8 +207,8 @@ func TestLoopCollapsedFailures(t *testing.T) {
 	}{
 		// waits honours the step's timeout, which loopSteps's scripts do
 		// not see.
-		{"loop timeout", flowOf(loopOf("l", body(mod("b", "echo", "", "")), fields, `"timeout":{"type":"static","value":0}`)),
-			`{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"l"}}`},
+		{"loop timeout", flowOf(loopOf("l", body(mod("b", "echo", "", "")), fields, `"timeout":{"type":"static","value":1}`)),
+			"{\"error\":{\"message\":\"execution error:\\njob process terminated due to timeout: `bun run` exceeded the 1s custom timeout set on the script or flow step\",\"name\":\"ExecutionErr\",\"step_id\":\"l\"}}"},
 		{"body error", flowOf(loopOf("l", body(mod("b", "fail", "", "")), fields, "")),
 			`{"error":{"message":"boom","name":"Error","step_id":"l"}}`},
 		{"transform error", flowOf(loopOf("l", body(mod("b", "echo", inputs("x", js("iter.value")), "")), fields, "")), ""},
@@ -226,9 +226,14 @@ func TestLoopCollapsedFailures(t *testing.T) {
 				t.Fatalf("the loop %+v, the flow's result %s", l, tr.Result)
 			}
 			noRecord(t, tr, "m:l/i:1/m:b")
-			got := at(t, tr, "m:l/i:0/m:b").Result
+			b := at(t, tr, "m:l/i:0/m:b")
+			got := b.Result
 			if c.entry != "" {
 				sameJSON(t, "the failed iteration", got, c.entry)
+				// The timed-out body job is canceled (FX-25).
+				if c.name == "loop timeout" && b.Status != conformance.StepCanceled {
+					t.Fatalf("the timed-out body job %+v", b)
+				}
 				return
 			}
 			var v struct {

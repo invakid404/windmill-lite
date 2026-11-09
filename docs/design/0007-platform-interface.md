@@ -48,7 +48,7 @@ them, per runtime or per run ([0008](0008-host-hooks.md)).
 |---|---|---|---|
 | `Resources` | `resources/get_value_interpolated`, `get_value`, `exists`, `create`, `update_value` | the bundle's resource files plus host overrides | core (read), later (write) |
 | `Variables` | `variables/get_value`, `exists`, `create`, `update` | the bundle's variable files; secrets through `Secrets` | core (read), later (write) |
-| `Secrets` | used by the two above | plain-secret folders work; ciphertext without a host resolver fails with `secret_unavailable` | core |
+| `Secrets` | used by the two above | plain-secret folders work; ciphertext without a host resolver fails as a value Windmill cannot decrypt | core |
 | `State` | the resource routes at the state path, type `state` | in memory, per bundle runtime | later |
 | `FlowUserState` | `jobs_u/get_root_job_id`, `jobs/flow/user_states/{root}/{key}` | a map per effective root, discarded when the root run ends; `null` for a missing key | core |
 | `ObjectStore` | `job_helpers/download_s3_file`, `upload_s3_file`, `delete_s3_file` | a local directory keyed by (storage, key) | core (explicit keys), later (the rest) |
@@ -89,6 +89,18 @@ recognise its own markers inside values (for example a `$secret:` prefix)
 and replace them. windmill-lite defines no marker syntax of its own and never
 decrypts Windmill ciphertext; it hands that to the resolver
 ([JE-43](../semantics/expressions.md#je-43), [SY-11](../semantics/openflow.md#sy-11)).
+
+**Values windmill-lite seals.** A flow step stores a value computed from a
+secret `flow_env` entry as an `$encrypted:` value under its root job's key,
+which only that root's jobs decrypt
+([JE-38](../semantics/expressions.md#je-38)). windmill-lite holds no
+workspace key, so it seals such a value with a key of its own: a random key
+per process, from which each root job's key is derived.
+
+- Worker argument resolution opens a value sealed for the job's root in the
+  same process, and hands every other `$encrypted:` value to `Secrets`.
+- Nothing outside the engine's process opens a sealed value, so a
+  host-provided site gets the value in clear ([0008](0008-host-hooks.md)).
 
 ### Serving
 
@@ -179,10 +191,12 @@ and [WA-4](../semantics/client-api.md#wa-4):
   them (milestone FU7): `WM_SCHEDULED_FOR` is the job's launch, after any
   sleep or retry delay, since every job is scheduled to start at once;
   `WM_OBJECT_PATH` follows WA-4's formula for a manually started job;
-  `WM_SCHEDULE_PATH`, `WM_END_USER_EMAIL`, `WM_TESTED_RUNNABLE` and
-  `WM_RUNNABLE_ID` are empty, since no schedule, app or CI test starts a
-  job and windmill-lite keeps no script hashes
-  ([WA-V10](../semantics/client-api.md#wa-v10)).
+  `WM_ROOT_WORKSPACE` is the workspace, since windmill-lite has no forks,
+  and `WM_END_USER_EMAIL` the run's user's address, `WM_EMAIL`, as for a
+  run its user started through the run API (retarget to Windmill 1.862.0);
+  `WM_SCHEDULE_PATH`, `WM_TESTED_RUNNABLE` and `WM_RUNNABLE_ID` are empty,
+  since no schedule or CI test starts a job and windmill-lite keeps no
+  script hashes ([WA-V10](../semantics/client-api.md#wa-v10)).
 
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation
@@ -325,9 +339,16 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **Secrets** are never in a bundle; a host passes them, as plaintext in
     a store of its own or through `Secrets`. `LocalSecrets` reveals a
     secret held as plaintext and fails ciphertext under the workspace key,
-    and an `$encrypted:` value, with `secret_unavailable`, which a read
-    answers as the 500 `Internal: secret_unavailable: …` and argument
-    resolution quotes as its cause.
+    and an `$encrypted:` value, with `secret_unavailable`. The services
+    answer that as Windmill answers a value it cannot decrypt, since
+    Windmill 1.829.0 with one text whatever the cause (retarget to Windmill
+    1.862.0): a read answers the 500 `Internal: Error decrypting variable
+    <p>: Internal: Could not decrypt value. The value may have been
+    encrypted with a different key.`, which argument resolution quotes as
+    its cause, and an `$encrypted:` argument fails with `Internal: Could
+    not decrypt value. …`, without Windmill's locations (D14). Before,
+    Windmill's texts named the cause, which windmill-lite could not know,
+    and the services answered `Internal: secret_unavailable: …` instead.
   - **The host secret layer** runs on each resource value once its
     interpolation is done, a nested one's included, and on each secret's
     plaintext; a raw read is not passed through it.
@@ -577,16 +598,20 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     meets this.
   - **Not reproduced.**
     - windmill-lite never decrypts Windmill ciphertext (Secrets, above):
-      a secret held as ciphertext and an `$encrypted:` value fail with
-      `secret_unavailable`, never with CE's decryption texts
+      a secret held as ciphertext and an `$encrypted:` value that a host
+      does not supply fail with CE's one decryption text
       ([WA-11](../semantics/client-api.md#wa-11)/c,
-      [JE-42](../semantics/expressions.md#je-42)/j). `createVariable`
+      [JE-42](../semantics/expressions.md#je-42)/j), even where Windmill,
+      holding the workspace key, would decrypt them. `createVariable`
       still has no handler, so no secret is created with
       `already_encrypted=true`, and WA-11/d's shape check waits for the
       milestone that serves it.
     - windmill-lite has no instance database and no instance super
-      admins, so a `CUSTOM_INSTANCE_DB/` resource path (WA-12/h) is looked
-      up as any other path.
+      admins. Since Windmill refuses a job's token on a
+      `CUSTOM_INSTANCE_DB/` path of the interpolated read (WA-12/h,
+      retarget to Windmill 1.862.0), and every caller windmill-lite serves
+      is a job, such a read answers that 401 before anything else; the
+      raw read, and a nested `$res:`, look the path up as any other.
 
 - **The job reads** ([WA-19](../semantics/client-api.md#wa-19)). `GET
   /w/{ws}/jobs_u/get/{id}` and `jobs_u/get_args/{id}` answer for every job

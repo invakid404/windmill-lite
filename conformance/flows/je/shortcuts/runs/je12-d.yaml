@@ -1,13 +1,15 @@
+# JE-12/d: results.a inside a non-async callback. Since CE v1.862.0 the
+# read is prefetched before the expression runs, so it no longer breaks the
+# callback: the step gets [3].
 spec: [JE-12/d]
 target: f/wl_je_shortcuts/je12_d
 claims:
   - at: /status
-    equals: failure
+    equals: success
   - at: /steps/m:b/status
-    equals: failure
-  - at: /steps/m:b/result/error/message
-    prefix: "Error during isolated evaluation of expression `[1].map(i => results.a.v)`:\n"
-    contains: ["QuickJS evaluation error:"]
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: [3]
 unit:
   - spec: JE-12/d
     site: m:b
@@ -19,6 +21,4 @@ unit:
       results:
         a: "{\"v\": 3}"
     expect:
-      error:
-        prefix: "Error during isolated evaluation of expression `[1].map(i => results.a.v)`:\n"
-        contains: ["QuickJS evaluation error:"]
+      text: "[3]"

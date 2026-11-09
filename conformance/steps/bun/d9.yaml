@@ -38,6 +38,59 @@ cases:
               - {at: /result/error/exit_code, equals: 1}
             settled: process_exited
   - spec: D9
+    variant: attributed-io-callback
+    provenance: policy
+    title: an error thrown from a node:fs or node:dns callback fails its own invocation as escaped with exit code 1, as a timer's does, and the call's return is late
+    note: >-
+      Bun 1.4.3 raises such a throw as an uncaught exception in the context
+      that started the call, as it does a timer's; Bun 1.3.10 raised it as
+      an unhandled rejection with no context, which failed nothing in warm
+      mode. In fresh mode, as on Windmill, the error ends the process with
+      code 1.
+    deviation: D9
+    script: |
+      import { stat } from "node:fs";
+      import { lookup } from "node:dns";
+      export async function main(kind: string) {
+        if (kind === "fs") stat("/", () => { throw new Error("from an fs callback"); });
+        else lookup("localhost", () => { throw new Error("from a dns callback"); });
+        await Bun.sleep(300);
+        return "done";
+      }
+    runs:
+      - args: '{"kind":"fs"}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+              - {at: /result/error/message, contains: [from an fs callback]}
+              - {at: /result/error/exit_code, equals: 1}
+              - {at: /result/error/step_id, equals: a}
+            late: [{kind: result, final: true, body: '"done"'}]
+            settled: completed
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/exit_code, equals: 1}
+            settled: process_exited
+      - args: '{"kind":"dns"}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/message, contains: [from a dns callback]}
+              - {at: /result/error/exit_code, equals: 1}
+            late: [{kind: result, final: true, body: '"done"'}]
+            settled: completed
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/exit_code, equals: 1}
+            settled: process_exited
+  - spec: D9
     variant: unattributed
     provenance: policy
     title: a detached rejection fails nothing in warm mode and reaches the invocation in flight as a warning
@@ -300,6 +353,101 @@ cases:
         by_mode:
           warm: {expect: {status: success, result: true}}
           fresh: {expect: {status: success, result: false}}
+  - spec: D9
+    variant: module-evaluation-context
+    provenance: policy
+    title: a timer a step module starts while it evaluates runs in the context of the invocation that loaded it, so it reads that invocation's environment
+    note: >-
+      The timer is the module's, not the invocation's (D1), but its callback
+      keeps the context the module evaluated in (ADR 0004, loading). In warm
+      mode the second run's module is the first run's, whose timer read the
+      first run's job.
+    deviation: D9
+    script: |
+      globalThis.wlTimerJob = undefined;
+      setTimeout(() => { globalThis.wlTimerJob = process.env.WM_JOB_ID; }, 0);
+      export async function main() {
+        for (let i = 0; i < 100 && globalThis.wlTimerJob === undefined; i++) await Bun.sleep(5);
+        return globalThis.wlTimerJob === process.env.WM_JOB_ID;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: false}}
+          fresh: {expect: {status: success, result: true}}
+  - spec: D9
+    variant: module-evaluation-error
+    provenance: policy
+    title: an error from a timer a step module started while it evaluated fails the invocation that loaded it as escaped while it runs, and the call's return is late
+    note: >-
+      The timer's context names the loading invocation (ADR 0004, loading),
+      so its error is attributed as one from the invocation's own timer is
+      (D9/attributed). In warm mode the second run's module is the first
+      run's, which starts no timer again.
+    deviation: D9
+    script: |
+      setTimeout(() => { throw new Error("from a load timer"); }, 10);
+      export async function main() {
+        await Bun.sleep(200);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/message, contains: [from a load timer]}
+              - {at: /result/error/exit_code, equals: 1}
+            late: [{kind: result, final: true, body: '"done"'}]
+            settled: completed
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/exit_code, equals: 1}
+            settled: process_exited
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: done}}
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/exit_code, equals: 1}
+  - spec: D9
+    variant: module-evaluation-late-error
+    provenance: policy
+    title: an error from a timer a step module started while it evaluated is late on the invocation that loaded it once that has settled, and never reaches another invocation in flight
+    note: >-
+      The timer fires while the second run waits. Its context still names
+      the first run, which has settled, so the error is that run's late
+      error (ADR 0004, loading) and the second run gets no warning, as it
+      would for an error no context owns. In fresh mode the first run's
+      process ends before the timer fires, and in the second run's process
+      the module is new: its timer's error ends that process.
+    deviation: D9
+    script: |
+      setTimeout(() => { throw new Error("from a load timer"); }, 150);
+      export async function main(wait: boolean) {
+        if (wait) await Bun.sleep(600);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: done}
+            late: [{kind: error}]
+          fresh: {expect: {status: success, result: done}}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: done}}
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/exit_code, equals: 1}
   - spec: D9
     variant: work-after-settlement
     provenance: policy
