@@ -2380,11 +2380,16 @@ func (r *run) predicate(ctx context.Context, fr *frame, x *expr.Expr, site confo
 // 0005 step 2). A static value is copied verbatim (JE-40), an ai input
 // left out.
 //
+// A transform whose text contains flow_env stores what JE-38 says: an
+// exact read's entry unresolved, or a value read from a secret entry
+// sealed (envStore).
+//
 // held are the evaluated values, by member, for storeMembers: a static
 // value has none.
 func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site conformance.SitePath, prev jsonval.Value, prevID string) (args jsonval.Value, held []jsonval.Value, err error) {
 	var ms []member
 	var scope *expr.Scope
+	var env *envStore
 	for _, k := range fr.rng.Perm(len(ins)) {
 		in := ins[k]
 		switch in.Transform.Type {
@@ -2392,12 +2397,27 @@ func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site c
 			ms = append(ms, member{in.Name, orNull(in.Transform.Value)})
 			held = append(held, jsonval.Value{})
 		case ir.Javascript:
+			x := in.Transform.Expr
+			readsEnv := strings.Contains(x.Text, "flow_env")
+			if readsEnv && env == nil {
+				env = r.envStore(fr, fr.moduleAt(i))
+			}
+			if readsEnv {
+				if v, ok := env.kept(ctx, x); ok {
+					ms = append(ms, member{in.Name, v.Producer()})
+					held = append(held, v)
+					continue
+				}
+			}
 			if scope == nil {
 				scope = r.transformScope(fr, i, prev, prevID)
 			}
-			v, err := r.evaluate(ctx, fr, in.Transform.Expr, site, scope)
+			v, err := r.evaluate(ctx, fr, x, site, scope)
+			if err == nil && readsEnv {
+				v, err = env.stored(ctx, x, v)
+			}
 			if err != nil {
-				return jsonval.Value{}, nil, &transformFailure{text: in.Transform.Expr.Text, err: err}
+				return jsonval.Value{}, nil, &transformFailure{text: x.Text, err: err}
 			}
 			ms = append(ms, member{in.Name, v.Producer()})
 			held = append(held, v)

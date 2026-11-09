@@ -32,6 +32,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | `json.go` | JSON values as Windmill's backend JSON library parses and writes them ([FX-42](../../docs/semantics/execution.md#fx-42) rules 2 and 9), `JSONString`, and `Reprint` and `FormatDouble`, which the engine writes a loop's result and serde's error texts with |
 | `errors.go` | `Error`: the variants of the API's error type, their statuses and displays (WA-42) |
 | `data.go` | `LoadData`: a bundle's `data/` as a `Store` |
+| `rootseal.go` | `SealForRoot`: windmill-lite's own `$encrypted:` values, which the walker opens; `SecretVariable` and `SecretEntry`, which tell a secret `flow_env` entry |
 
 ## Job identity
 
@@ -187,6 +188,25 @@ starts.
   without Windmill's locations (D14). A host secret service's own error is
   its own. Decrypted text that is not JSON fails with `Internal: Failed to
   decrypt '$encrypted:' value: <message>`, in the JSON library's words.
+- **Values windmill-lite seals.** A flow step stores a value computed
+  from a secret `flow_env` entry as an `$encrypted:` value under its root
+  job's key ([JE-38](../../docs/semantics/expressions.md#je-38)).
+  windmill-lite has no workspace key, so `SealForRoot` seals such a value
+  with a key of its own:
+  - one random key per process, and a key for each root job derived from
+    it (HKDF-SHA256);
+  - AES-256-GCM with a random nonce, so the value differs every time;
+  - written as `$encrypted:` and standard padded base64.
+- **Opening one.** Contract (c) opens such a value for a job whose
+  `WM_ROOT_JOB_ID` is the root it was sealed for, in the same process, and
+  substitutes the plaintext parsed as JSON. It hands every other
+  `$encrypted:` value to `Secrets`, a value sealed for another root
+  included, so with `LocalSecrets` that fails as a value Windmill cannot
+  decrypt.
+- **Secret entries.** `SecretEntry` reports whether a `flow_env` entry is
+  secret: a literal `$encrypted:` string, or a `$var:` or `$jsonvar:`
+  reference to a variable stored as secret (`SecretVariable`). A `$res:`
+  reference, a missing variable and any other value are not.
 - **`CUSTOM_INSTANCE_DB/`.** An interpolated read whose own path starts
   with `CUSTOM_INSTANCE_DB/` answers 401 `Not authorized:
   CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`
@@ -493,6 +513,11 @@ One walker implements resolution for the three contracts of
   - `TestUpdateVariable`: the updates, a chain's included, the refusal of
     a secrecy change without a value, and the update's not-found text;
   - `TestWithProviders`: the per-run providers and what they share.
+- `rootseal_test.go` checks the sealed values: opaque standard base64
+  that differs every time, opened for their own root only, a tampered one
+  refused, and the host's `Secrets` still asked for any other value
+  (`TestSealForRoot`). `TestSecretEntry` checks which `flow_env` entries
+  are secret, and that a failed variable lookup is an error.
 - `json_test.go` checks the double notation, parse and write, and the
   parse errors with their positions. Among them:
   - the reference's examples of an input that ends early: `[` and `[1,2`

@@ -78,6 +78,17 @@ and fails the run closed. The site keeps its own envelope, so the flow's
 transforms, `skip_if`, `stop_after_if`, retries and `continue_on_error`
 apply around the provided value exactly as around a real module.
 
+The provider gets the site's stored arguments, as its target's step would
+store them, with one exception. That step would seal a value computed from a
+secret `flow_env` entry under the run's root job
+([JE-38](../semantics/expressions.md#je-38)), and the provided site stores
+it in clear, since a sealed value opens only inside the engine's process
+([0007](0007-platform-interface.md)).
+
+An interception (H1) at a real step gets the step's stored arguments,
+sealed values included, since the step runs with them when the hook
+declines.
+
 ### Where hooks run
 
 - **Go callbacks**, for hosts that embed the Go library

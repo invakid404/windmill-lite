@@ -404,10 +404,11 @@ func APIEnv(env map[string]string) map[string]string {
 // 2): a string that starts with a marker becomes the variable (a string),
 // the variable parsed as JSON, the resource's interpolated value (a read
 // of contract (b) with apiEnv, the job's APIEnv), or the decrypted
-// $encrypted: value; a string $<NAME> becomes env[NAME], the job's
-// reserved variables, when env has it; and nothing a substitution produced
-// is walked again. The members keep their order. flow_env is resolved the
-// same way (JE-38).
+// $encrypted: value (opened by windmill-lite when SealForRoot sealed it
+// for env's WM_ROOT_JOB_ID, else by the host's Secrets); a string $<NAME>
+// becomes env[NAME], the job's reserved variables, when env has it; and
+// nothing a substitution produced is walked again. The members keep their
+// order. flow_env is resolved the same way (JE-38).
 //
 // The error is an *Error, which fails the job before its script runs:
 // “Variable <p> not found for `<name>`: <cause>“, “Resource <p> not
@@ -519,7 +520,14 @@ func (w *workerWalk) walk(name string, n *node, depth int) (*node, *Error) {
 			}
 			return r, nil
 		case strings.HasPrefix(s, "$encrypted:"):
-			plain, err := w.s.secrets().Decrypt(w.ctx, s[len("$encrypted:"):])
+			// A value windmill-lite sealed for the job's root (JE-38) is
+			// its own to open; any other is the host's.
+			blob := s[len("$encrypted:"):]
+			plain, own := openForRoot(w.env["WM_ROOT_JOB_ID"], blob)
+			var err error
+			if !own {
+				plain, err = w.s.secrets().Decrypt(w.ctx, blob)
+			}
 			if err != nil {
 				var pe *Error
 				switch {

@@ -196,6 +196,12 @@ mandatory provider cannot decline: declining latches the run with
 `ErrProviderDeclined` (`provider_declined`), and the run fails closed. The
 site's record has `Ran` set, no job, and `provided` among its hooks.
 
+**Sealed arguments.** A step stores an argument computed from a secret
+`flow_env` entry sealed, as an `$encrypted:` value that only the engine
+opens ([JE-38](../docs/semantics/expressions.md#je-38)). An interceptor's or
+a rewriter's `Call` therefore holds it sealed. A provided site stores it in
+clear, since its provider runs outside the engine.
+
 **Per-run providers** (H13). `RunOptions.Platform` gives a run its own
 resources and variables, over the runtime's at the same paths, and its
 own resolver (`Resolve`, the host secret layer of ADR 0007), which a host

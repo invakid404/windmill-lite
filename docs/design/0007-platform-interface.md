@@ -90,6 +90,18 @@ and replace them. windmill-lite defines no marker syntax of its own and never
 decrypts Windmill ciphertext; it hands that to the resolver
 ([JE-43](../semantics/expressions.md#je-43), [SY-11](../semantics/openflow.md#sy-11)).
 
+**Values windmill-lite seals.** A flow step stores a value computed from a
+secret `flow_env` entry as an `$encrypted:` value under its root job's key,
+which only that root's jobs decrypt
+([JE-38](../semantics/expressions.md#je-38)). windmill-lite holds no
+workspace key, so it seals such a value with a key of its own: a random key
+per process, from which each root job's key is derived.
+
+- Worker argument resolution opens a value sealed for the job's root in the
+  same process, and hands every other `$encrypted:` value to `Secrets`.
+- Nothing outside the engine's process opens a sealed value, so a
+  host-provided site gets the value in clear ([0008](0008-host-hooks.md)).
+
 ### Serving
 
 - The Go router holds the routes above, written from the Apache
