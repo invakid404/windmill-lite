@@ -137,16 +137,18 @@ const LATE_SPECIFIER = "windmill-lite:late/";
 // Which specifiers the plugin's onResolve callback sees: relative and
 // absolute ones, the env support module, listed packages and the late
 // shims' CommonJS modules (LATE_SPECIFIER), the only ones it resolves.
-// Bun 1.3.10 drops a module that a package marked sideEffects:false
-// re-exports (`export { x } from "./x.js"`) when an
-// onResolve filter matches the import of that package, even one whose
-// callback resolves nothing, so the bundle references a binding it never
-// defines (Bun 1.4.3 keeps the module); every other package import is left
-// to Bun without the callback.
+// The reason was measured on Bun 1.3.10, which drops a module that a
+// package marked sideEffects:false re-exports (`export { x } from
+// "./x.js"`) when an onResolve filter matches the import of that package,
+// even one whose callback resolves nothing, so the bundle references a
+// binding it never defines. Bun 1.4.3 keeps the module, and the filter is
+// unchanged: every other package import is left to Bun without the
+// callback.
 // That includes a bare specifier ending in `.ts` (a package named
 // `leaf.ts`, or a deep `pkg/index.ts`), which Windmill's own import plugin
-// matches, so there Windmill's bundle loses the module and the step fails
-// with a ReferenceError while windmill-lite's keeps it (deviation D19,
+// matches at v1.767.0, so there Windmill's bundle loses the module and the
+// step fails with a ReferenceError (v1.862.0, whose image runs Bun 1.4.4,
+// is not checked yet) while windmill-lite's keeps it (deviation D19,
 // {@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/languages.md#wr-27 | WR-27}).
 function resolveFilter(packages: Iterable<string>): RegExp {
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");

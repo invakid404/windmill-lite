@@ -173,21 +173,23 @@ so the paths a bundle's comments name are the same on every machine:
 The plugin's resolve filter matches only the specifiers it resolves:
 relative and absolute ones, the env support module, listed packages, and
 `windmill-lite:late/<key>`, by which a late shim imports its CommonJS
-module.
-Bun 1.3.10 drops a module that a package marked `sideEffects: false`
+module. The reason was measured on Bun 1.3.10, which drops a module that a
+package marked `sideEffects: false`
 re-exports (`export { x } from "./x.js"`) whenever a resolve filter
 matches the import of that package, even when the callback resolves
 nothing. The bundle then references a binding that it never defines.
 
 Bun 1.4.3 keeps that module
-([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
+([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)),
+and the filter is unchanged.
 
-Windmill's import plugin matches every specifier that ends in `.ts`. So a
-bare import such as `leaf.ts` or `pkg/index.ts` from a package loses the
-re-exported module on Windmill, and the step fails with a
-`ReferenceError`. windmill-lite's filter leaves such an import to Bun, so
+At `v1.767.0` Windmill's import plugin matches every specifier that ends
+in `.ts`. So a bare import such as `leaf.ts` or `pkg/index.ts` from a
+package loses the re-exported module on Windmill, and the step fails with
+a `ReferenceError`. windmill-lite's filter leaves such an import to Bun, so
 the module stays and the step runs (deviation D19,
-[WR-27](../../../docs/semantics/languages.md#wr-27)).
+[WR-27](../../../docs/semantics/languages.md#wr-27)). Windmill `v1.862.0`,
+whose image runs Bun 1.4.4, is not checked yet.
 
 ### Shared code
 
