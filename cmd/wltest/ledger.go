@@ -31,7 +31,7 @@ const (
 )
 
 // milestoneID is the form of a milestone's id, the prefix of its pull
-// request's title: a letter, a number and an optional lower-case letter.
+// request's title: W or X, a number and an optional lower-case letter.
 var milestoneID = regexp.MustCompile(`^[WX][0-9]+[a-z]?$`)
 
 const ledgerUsage = `usage: wltest ledger [--repo DIR]

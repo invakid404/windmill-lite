@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -12,15 +13,21 @@ import (
 // marker in any test source, so a literal one here would be a real marker,
 // which fails the guard.
 
-// gitTree writes files into a new Git repository and returns its root. The
-// files stay untracked: the guard reads untracked files that no ignore rule
-// excludes, as it reads tracked ones.
-func gitTree(t *testing.T, files map[string]string) string {
+// gitTree writes files into a new Git repository and returns its root. With
+// tracked the files are staged, as a checkout's are in the index; without
+// it they stay untracked. The guard reads both, leaving out what an ignore
+// rule excludes.
+func gitTree(t *testing.T, files map[string]string, tracked bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	writeTree(t, dir, files)
 	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if tracked {
+		if out, err := exec.Command("git", "-C", dir, "add", "-A").CombinedOutput(); err != nil {
+			t.Fatalf("git add: %v: %s", err, out)
+		}
 	}
 	return dir
 }
@@ -92,33 +99,42 @@ func TestLedgerGuard(t *testing.T) {
 			errOut: []string{"x/x_test.go:2: ", `milestone "w4c" is not a milestone id`},
 		},
 		{
+			name:   "a malformed marker in a bun test",
+			files:  map[string]string{"harnesses/bun/test/x.test.ts": "test.skip('" + markerPrefix + " w4c r', () => {});\n"},
+			code:   1,
+			out:    []string{"markers: 0"},
+			errOut: []string{"harnesses/bun/test/x.test.ts:1: ", `milestone "w4c" is not a milestone id`},
+		},
+		{
 			name:  "an ignored file",
 			files: map[string]string{".gitignore": "/out/\n", "out/x_test.go": "// " + m("W4c", "r") + "\n"},
 			out:   []string{"markers: 0"},
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := gitTree(t, tc.files)
-			var stdout, stderr bytes.Buffer
-			code := run(context.Background(), []string{"ledger", "--repo", dir}, &stdout, &stderr)
-			if code != tc.code {
-				t.Errorf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.code, stdout.String(), stderr.String())
-			}
-			for _, want := range tc.out {
-				if !strings.Contains(stdout.String(), want) {
-					t.Errorf("stdout lacks %q:\n%s", want, stdout.String())
+		for _, tracked := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/tracked=%v", tc.name, tracked), func(t *testing.T) {
+				dir := gitTree(t, tc.files, tracked)
+				var stdout, stderr bytes.Buffer
+				code := run(context.Background(), []string{"ledger", "--repo", dir}, &stdout, &stderr)
+				if code != tc.code {
+					t.Errorf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.code, stdout.String(), stderr.String())
 				}
-			}
-			if tc.code == 1 {
-				for _, want := range tc.errOut {
-					if !strings.Contains(stderr.String(), want) {
-						t.Errorf("stderr lacks %q:\n%s", want, stderr.String())
+				for _, want := range tc.out {
+					if !strings.Contains(stdout.String(), want) {
+						t.Errorf("stdout lacks %q:\n%s", want, stdout.String())
 					}
 				}
-			} else if stderr.Len() > 0 {
-				t.Errorf("stderr %q", stderr.String())
-			}
-		})
+				if tc.code == 1 {
+					for _, want := range tc.errOut {
+						if !strings.Contains(stderr.String(), want) {
+							t.Errorf("stderr lacks %q:\n%s", want, stderr.String())
+						}
+					}
+				} else if stderr.Len() > 0 {
+					t.Errorf("stderr %q", stderr.String())
+				}
+			})
+		}
 	}
 
 	var stdout, stderr bytes.Buffer

@@ -792,9 +792,10 @@ of Windmill 1.862.0's image).
   `--out`, refused before Docker is asked anything. The sessions behind
   `record` are tested in [internal/oracle](../../internal/oracle/README.md#tests).
 - The guard's tests need no Bun ([The ledger guard](#the-ledger-guard)):
-  - `TestLedgerGuard` runs the guard on generated Git trees. It fails on a
-    ledger file, with an entry or empty, on a marker in a Go test, a bun
-    test or a data file, and on a malformed marker in a test file.
+  - `TestLedgerGuard` runs the guard on generated Git trees, with the files
+    staged and untracked. It fails on a ledger file, with an entry or
+    empty, on a marker in a Go test, a bun test or a data file, and on a
+    malformed marker in a Go or bun test file.
   - In the same trees, prose about the marker form and ignored files are
     not markers, and a tree without them passes.
   - `TestParseMarker` checks the marker form.
