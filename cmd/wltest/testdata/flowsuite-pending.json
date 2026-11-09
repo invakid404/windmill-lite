@@ -7,10 +7,5 @@
     }
   },
   "step_suite": {},
-  "oracle": {
-    "conformance/flows/je/je-38-env-refs/chain": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request's fix round; its recording comes from the pull request's own oracle run"
-    }
-  }
+  "oracle": {}
 }

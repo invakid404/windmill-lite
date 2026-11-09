@@ -5460,7 +5460,7 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
 - **JE-38/i** · oracle-observed · a kept reference is resolved at the leaf, terminally
   - **Given:** a variable `u/test/c` that is not secret, holding the text `$var:u/test/v`; a flow with `flow_env: {"C":"$var:u/test/c"}` and a Bun step `b` with `x = flow_env.C` and ``y = `${flow_env.C}` ``
   - **Expect:** O2 `{"x":"$var:u/test/c","y":"$var:u/test/v"}`: the exact read keeps the entry, and the computed one stores the env's resolved value, which still holds a reference. O4 `{"x":"$var:u/test/v","y":"plain"}`: the leaf resolves `x` once, without walking `u/test/c`'s value again, and resolves `y`'s reference. Before 1.855.0 `x` was stored and received as `y` is.
-  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `chain`, oracle run (pending).
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `chain`, oracle run 42617890793.
 
 <a id="je-39"></a>
 ### JE-39 · Names that do not exist
