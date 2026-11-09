@@ -50,6 +50,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; wl (F1) |
 | `provided.go` | `ProvideFunc`, `ErrProviderDeclined`: a mandatory host-provided site's launch ([ADR 0008](../../docs/design/0008-host-hooks.md), below) | wl (F2a) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
+| `flowenv.go` | `envStore`, `readsByName`: what a step's input transforms store when their text reads `flow_env` ([JE-38](../../docs/semantics/expressions.md#je-38), below) | `run.go`, at each module's arguments |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `cache.go` | The `cache_ttl` result cache (below): the key, S3 object arguments, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
 | `readback.go` | `readFailed`, `hang`: a container whose children's results the backend cannot read back, and the end of a flow left waiting (below) | `loop.go`, `branch.go`, `run.go` |
@@ -1045,6 +1046,29 @@ so every read is a not-found. A host gives the facade the same services.
   top-level flow job's. A failure leaves the map as stored, with the
   warning `flow_env_unresolved` in the trace, and is not cached; a success
   becomes the frame's cached map.
+- **What input transforms store from `flow_env`** (`flowenv.go`,
+  [JE-38](../../docs/semantics/expressions.md#je-38)). A transform whose
+  text contains `flow_env` stores the following, at a step, a failure
+  module or a collapsed loop body:
+  - **An exact read** of a key the env defines (`flow_env.K` or
+    `flow_env["K"]`) stores the entry as written in the env, so a
+    reference stays unresolved, and the leaf resolves it. Into a subflow
+    called by path (a `flow` module), only a secret entry is kept so.
+  - **Any other text** stores its value from the resolved env. When the
+    text reads a secret entry by name, the value is sealed under the
+    run's root job (`platform.SealForRoot`), and the leaf, or a subflow's
+    step, opens it. A read by name is `flow_env.K` or `flow_env?.K` with
+    no letter, digit, `_` or `$` around it, or `flow_env["K"]` in any of
+    the three quotes; a computed key or a use of the whole object is not
+    one.
+  - **A secret entry** is a literal `$encrypted:` string, or a `$var:` or
+    `$jsonvar:` reference to a secret variable. The engine looks the
+    entries up once per module start. An entry whose lookup fails counts
+    as secret, so a failure never stores a secret in clear.
+  - **At a host-provided site** nothing is sealed: its provider runs
+    outside the engine and could not open the value, so it gets the value
+    in clear. An interception (H1) at a real step gets the stored
+    arguments, sealed values included.
 - **`variable(path)` and `resource(path)`** answer at every site, which
   all have an authenticated client: the variable's value (a secret's
   plaintext), and the resource read as the stock client reads it, without
@@ -1454,6 +1478,14 @@ resolved per transition and its unresolved fallback with its warnings,
 the helpers and a helper's failure, and an engine with no platform.
 `waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
 below.
+
+`flowenv_test.go` checks what input transforms store from `flow_env`,
+with the sealed values unmasked: exact reads in both spellings, computed
+reads sealed or in clear, a `$res:` entry, a chained reference, a
+computed key and the whole object (`TestFlowEnvStoredArguments`). It also
+covers a subflow's input, a collapsed body, the failure module, a
+host-provided site, a failed secrecy lookup, and the texts that read an
+entry by name (`TestReadsByName`).
 
 `readback_test.go` covers unreadable child results:
 

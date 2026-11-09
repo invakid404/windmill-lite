@@ -121,8 +121,9 @@ type settledHook struct {
 func (h settledHook) OnRunSettled(*Trace) { close(h.settled) }
 
 // JE-38/a and /b: flow_env's values are resolved for every transition, and
-// expressions see them resolved; a failed resolution leaves the map as
-// written, with a warning.
+// expressions see them resolved, while an exact read stores the entry as
+// written, which the script job resolves (Windmill 1.855.0); a failed
+// resolution leaves the map as written, with a warning.
 func TestEngineFlowEnv(t *testing.T) {
 	s := &scripts{}
 	flow := func(env, b string) string {
@@ -138,7 +139,8 @@ func TestEngineFlowEnv(t *testing.T) {
 	tr := runIt(t, e, `{}`, nil)
 	wantStatus(t, tr, conformance.RunSuccess, `"s3cr3t"`)
 	sameJSON(t, "a", tr.Steps[0].RecordedArgs, `{"v":"v"}`)
-	sameJSON(t, "b", tr.Steps[1].RecordedArgs, `{"v":"s3cr3t"}`)
+	sameJSON(t, "b", tr.Steps[1].RecordedArgs, `{"v":"$var:u/t/v"}`)
+	sameJSON(t, "b's O3", tr.Steps[1].ResolvedArgs, `{"v":"s3cr3t"}`)
 	if len(tr.Warnings) != 0 {
 		t.Fatalf("warnings %v", tr.Warnings)
 	}

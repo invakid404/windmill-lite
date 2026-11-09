@@ -40,7 +40,9 @@ type RunHandle = engine.Run
 
 // Call is what an interception, an argument rewrite or a provider gets:
 // the run, the site and the site's arguments, a JSON object in their
-// stored form (ADR 0005).
+// stored form (ADR 0005). An argument computed from a secret flow_env entry
+// is stored sealed, an $encrypted: value that only the engine opens (JE-38),
+// except at a host-provided site, whose provider gets it in clear.
 type Call struct {
 	Run  RunHandle
 	Site Site
