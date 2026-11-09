@@ -144,18 +144,14 @@ jobs:
         if: matrix.checks
         run: go vet ./...
 
-      - name: Check the retarget ledger
-        # The retarget ledger (cmd/wltest/testdata/flowsuite-pending.json)
-        # and the markers in test code list what a pull request into the
-        # retarget branch rt/retarget knowingly leaves failing, each with
-        # the milestone that clears it (cmd/wltest/README.md, "The retarget
-        # ledger"). This step prints them and checks their form. For a pull
-        # request into main, or a push to it, it fails while the ledger
-        # file or any marker exists, so neither reaches main.
+      - name: Check that no retarget ledger remains
+        # A retarget ledger (cmd/wltest/testdata/flowsuite-pending.json)
+        # and its markers in test code would let tests fail or skip
+        # unnoticed (cmd/wltest/README.md, "The ledger guard"). This step
+        # fails while the ledger file or any marker exists, and prints
+        # each marker it finds.
         if: matrix.checks
-        env:
-          BASE: ${{ github.base_ref || github.ref_name }}
-        run: go run ./cmd/wltest ledger --base "$BASE"
+        run: go run ./cmd/wltest ledger
 
       - name: Test
         # WL_REQUIRE_BUN turns a missing Bun or client into a failure

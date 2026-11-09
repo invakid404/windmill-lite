@@ -20,8 +20,7 @@ import (
 // requires each capture's run to reproduce its committed recording. It also
 // checks the job kinds the walker met against OR-28: a leaf of kind script,
 // flowscript, identity or preview has no flow_status, and a flow, flownode
-// or flowpreview job has one. A capture whose run has no recording, which
-// the retarget ledger lists as pending, is skipped with its marker.
+// or flowpreview job has one.
 func TestReplayRecordedCaptures(t *testing.T) {
 	// spec: OR-28/a, OR-11/a, OR-12/a, OR-20/a, OR-20/b, FX-19/d, CF-3/a, CF-12/b, CF-12/e, CF-12/f, CF-13/a, CF-14/c, CF-15/f, FX-40/b, FX-40/d, OR-V9/a, OR-V9/b, OR-V9/c, OR-V9/d, OR-11/b, OR-12/b, OR-16/a, OR-21/a, OR-25/a, OR-26/a, OR-V2/a, OR-V2/d, OR-10/b, FX-37/a, FX-49/a, CF-6/b
 	paths, err := filepath.Glob("testdata/captures/*.json")
@@ -31,7 +30,6 @@ func TestReplayRecordedCaptures(t *testing.T) {
 	if len(paths) == 0 {
 		t.Fatal("no captures in testdata/captures")
 	}
-	pending := pendingRecordings(t)
 	for _, p := range paths {
 		t.Run(filepath.Base(p), func(t *testing.T) {
 			data, err := os.ReadFile(p)
@@ -53,9 +51,6 @@ func TestReplayRecordedCaptures(t *testing.T) {
 				if f.Runs[i].Name == rc.Run {
 					run = &f.Runs[i]
 				}
-			}
-			if e, ok := pending[rc.Fixture+"/"+rc.Run]; ok && run != nil && run.Recorded == nil {
-				t.Skip(e.Marker())
 			}
 			if run == nil || run.Recorded == nil {
 				t.Fatalf("fixture %s has no recorded run %s", rc.Fixture, rc.Run)

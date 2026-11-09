@@ -11,8 +11,7 @@ const flowsDir = "../../conformance/flows"
 
 // TestLoadFixtures loads every flow fixture of the suite: each must decode
 // strictly, cite spec IDs and have runs, each with an expect or a
-// recording. On the retarget branch, a run whose recording the ledger
-// lists as pending may have neither if it has claims.
+// recording.
 func TestLoadFixtures(t *testing.T) {
 	dirs, err := FindFixtures(flowsDir)
 	if err != nil {
@@ -21,29 +20,15 @@ func TestLoadFixtures(t *testing.T) {
 	if len(dirs) == 0 {
 		t.Fatal("no flow fixtures under conformance/flows")
 	}
-	root := filepath.Join(flowsDir, "..", "..")
-	ledger, err := LoadLedger(filepath.Join(root, filepath.FromSlash(LedgerPath)))
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, d := range dirs {
 		f, err := LoadFixture(d)
 		if err != nil {
 			t.Fatal(err)
 		}
-		rel, err := filepath.Rel(root, d)
-		if err != nil {
-			t.Fatal(err)
-		}
 		for _, r := range f.Runs {
-			if r.Expect != nil || r.Recorded != nil {
-				continue
+			if r.Expect == nil && r.Recorded == nil {
+				t.Errorf("%s run %s has neither expect nor a recording", d, r.Name)
 			}
-			if e, ok := ledger.Oracle[filepath.ToSlash(rel)+"/"+r.Name]; ok && len(r.Claims) > 0 {
-				t.Logf("%s run %s has neither expect nor a recording, pending in the retarget ledger (%s)", d, r.Name, e.Marker())
-				continue
-			}
-			t.Errorf("%s run %s has neither expect nor a recording", d, r.Name)
 		}
 	}
 }

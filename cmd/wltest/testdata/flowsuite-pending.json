@@ -1,6 +1,0 @@
-{
-  "about": "The retarget ledger (cmd/wltest/README.md, \"The retarget ledger\"): what a pull request into the retarget branch rt/retarget knowingly leaves failing while windmill-lite moves to Windmill 1.862.0 and Bun 1.4.3, each entry with the retarget milestone that clears it and a one-line reason. flow_suite lists required runs of TestFlowSuite that may fail or be unsupported in the modes an entry names (every mode when it names none); step_suite lists step cases of TestStepSuite the same way; oracle lists runs whose recording is pending, which wltest record --check --pending may report new, changed, expect_mismatch, failed or unstable, and which the recording tests of internal/oracle accept without a recording. Items are named from the repository root: <fixture directory>/<run>, <expression file>/<case> or <step file>/<case>. A pull request removes the entries it clears and adds entries only for the failures it knowingly causes. This file exists only on rt/retarget: wltest ledger --base main fails while it exists, so the pull request that merges the branch into main deletes it.",
-  "flow_suite": {},
-  "step_suite": {},
-  "oracle": {}
-}

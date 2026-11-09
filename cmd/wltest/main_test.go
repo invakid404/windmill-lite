@@ -59,7 +59,7 @@ func TestPrintRuns(t *testing.T) {
 		{Fixture: "conformance/flows/x", Run: "a", Outcome: oracle.OutcomeNew, Wrote: "o/conformance/flows/x/recorded/a.json"},
 		{Fixture: "conformance/flows/x", Run: "b", Outcome: oracle.OutcomeExpectMismatch, Observation: "m/conformance/flows/x/recorded/b.json", Differences: []string{"/result: 2 != 1"}},
 		{Fixture: "conformance/flows/x", Run: "c", Outcome: oracle.OutcomeFailed, Error: "oracle: boom", Differences: []string{"/status: \"failure\" != \"success\""}},
-	}, false, nil)
+	}, false)
 	want := `new        conformance/flows/x a -> o/conformance/flows/x/recorded/a.json
 expect_mismatch conformance/flows/x b
   observation: m/conformance/flows/x/recorded/b.json
@@ -72,10 +72,10 @@ failed     conformance/flows/x c
 		t.Fatalf("failed %v, output:\n%s", failed, out.String())
 	}
 	out.Reset()
-	if printRuns(&out, []oracle.RunReport{{Fixture: "f", Run: "a", Outcome: oracle.OutcomeNew}}, false, nil) {
+	if printRuns(&out, []oracle.RunReport{{Fixture: "f", Run: "a", Outcome: oracle.OutcomeNew}}, false) {
 		t.Fatal("a new recording outside check mode fails the session")
 	}
-	if !printRuns(&out, []oracle.RunReport{{Fixture: "f", Run: "a", Outcome: oracle.OutcomeNew}}, true, nil) {
+	if !printRuns(&out, []oracle.RunReport{{Fixture: "f", Run: "a", Outcome: oracle.OutcomeNew}}, true) {
 		t.Fatal("a new recording in check mode passes the session")
 	}
 }

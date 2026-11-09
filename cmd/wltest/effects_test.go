@@ -31,15 +31,9 @@ const stubDir = "../../conformance/flows/stub"
 // call resolved, its attempt, the job, flow, root flow and root ids the
 // step saw, and the arguments it received. They run in fresh mode, one
 // harness process per invocation as on Windmill, and in warm mode.
-// TestFlowSuite requires the same runs against their expects, in warm. On
-// the retarget branch, a fixture with a run whose recording the ledger
-// lists as pending is checked against its expects only, and a run that
-// the ledger's flow_suite lists is judged by its entry, against its expect
-// and its recording alike, as in TestFlowSuite (judgeSuite).
+// TestFlowSuite requires the same runs against their expects, in warm.
 func TestStubCasesMatchTheOracle(t *testing.T) {
 	bun := bunOrSkip(t)
-	ledger := retargetLedger(t)
-	pending, suite := ledger.Oracle, ledger.FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -65,19 +59,8 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 					t.Errorf("%s: not a stub fixture with effects", dir)
 					continue
 				}
-				rel, err := filepath.Rel(repo(t), mustAbs(t, dir))
-				if err != nil {
-					t.Fatal(err)
-				}
-				recorded, held := true, false
+				recorded := true
 				for i, r := range f.Runs {
-					if e, ok := pending[filepath.ToSlash(rel)+"/"+r.Name]; ok && r.Recorded == nil {
-						if against == "recording" {
-							t.Logf("%s/%s: no recording, pending in the retarget ledger (%s)", dir, r.Name, e.Marker())
-						}
-						held = true
-						continue
-					}
 					if r.Recorded == nil || len(r.Recorded.Observation.Effects) == 0 {
 						t.Errorf("%s/%s: no recording with effects", dir, r.Name)
 						recorded = false
@@ -86,29 +69,18 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 						f.Runs[i].Expect = nil
 					}
 				}
-				if !recorded || held && against == "recording" {
+				if !recorded {
 					continue
 				}
 				for _, res := range fc.runFixture(context.Background(), f) {
-					var what string
 					switch {
 					case res.unsupported != "":
-						what = "unsupported: " + res.unsupported
+						t.Errorf("%s/%s against its %s, %s: unsupported: %s", dir, res.run, against, mode, res.unsupported)
 					case len(res.problems) > 0:
-						what = "\n  " + strings.Join(res.problems, "\n  ") + "\n" + res.diag
+						t.Errorf("%s/%s against its %s, %s:\n  %s\n%s", dir, res.run, against, mode, strings.Join(res.problems, "\n  "), res.diag)
 					}
-					e, listed := suite[filepath.ToSlash(rel)+"/"+res.run]
-					switch judgeSuite(what != "", e, listed, mode) {
-					case verdictFail:
-						t.Errorf("%s/%s against its %s, %s: %s", dir, res.run, against, mode, what)
-					case verdictPending:
-						t.Logf("%s/%s against its %s, %s, pending in the retarget ledger (%s): %s", dir, res.run, against, mode, e.Marker(), what)
-					case verdictStale:
-						t.Errorf("%s/%s against its %s passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", dir, res.run, against, mode, conformance.LedgerPath, e.Marker())
-					default:
-						if against == "expect" && mode == conformance.ModeWarm {
-							runs++
-						}
+					if against == "expect" && mode == conformance.ModeWarm {
+						runs++
 					}
 				}
 			}
