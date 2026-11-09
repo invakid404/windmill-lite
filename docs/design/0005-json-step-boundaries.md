@@ -337,6 +337,25 @@ trace.
 | whole run, two steps, 32 MiB: engine / host / paired sample, MiB | 497.3 / 464.9 / 887 | 494.2 / 483.2 / 951.6 |
 | whole run, eight steps, 16 MiB: engine / host / paired sample, MiB | 612 / 297 / 875 | 604.6 / 295.1 / 870.4 |
 
+The peaks of the last three rows were measured again on Bun 1.4.3, against
+Bun 1.3.10 in the same job:
+
+- Each test process ran in a container limited to 1,536 MiB without swap
+  (the workflow's `memory_limit`).
+- Each figure is the median of 5 rounds.
+- The amd64 job ran on an AMD EPYC 9V45 and the arm64 job on a
+  Neoverse-N2
+  ([run](https://github.com/invakid404/windmill-lite/actions/runs/42606138796)).
+
+| Whole run: engine / host / paired sample, MiB | amd64, Bun 1.3.10 | amd64, Bun 1.4.3 | arm64, Bun 1.3.10 | arm64, Bun 1.4.3 |
+|---|---|---|---|---|
+| two steps, 16 MiB | 276.1 / 290.9 / 555.9 | 272.3 / 238.3 / 512.7 | 276.5 / 273.1 / 532.7 | 270.0 / 231.2 / 499.0 |
+| two steps, 32 MiB | 508.0 / 482.4 / 945.6 | 508.8 / 358.7 / 827.2 | 494.0 / 468.1 / 966.1 | 505.7 / 334.1 / 768.1 |
+| eight steps, 16 MiB | 623.3 / 363.8 / 940.6 | 614.5 / 298.0 / 851.7 | 620.1 / 284.3 / 882.3 | 616.5 / 240.7 / 822.2 |
+
+On Bun 1.4.3 the host's peak is 15 to 29 % lower. The engine's moves by
+at most 2.4 %, which `benchstat` does not find significant.
+
 A long-lived engine keeps about 2 KiB per finished run on every
 topology (`BenchmarkRetainedHeap`,
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md#benchmarks)).

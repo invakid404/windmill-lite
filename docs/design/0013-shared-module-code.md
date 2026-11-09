@@ -178,6 +178,74 @@ that was swapping.
   live heaps, so collections are the likely cause; G1's benchmarks in host
   mode measure it properly (F8b).
 
+**On Linux, with Bun 1.3.10 and 1.4.3.** The two tests ran again in the
+workflow `Benchmarks`, group `memory`
+([cmd/windmill-lite](../../cmd/windmill-lite/README.md#comparing-builds-on-githubs-runners)):
+
+- **Machines:** GitHub's hosted runners, linux/amd64 (Intel Xeon Platinum
+  8370C) and linux/arm64 (Neoverse-N2), 4 vCPUs and 16 GiB each. Their
+  Ubuntu 24.04 mounts cgroup v2 only.
+- **The container:** each test process ran in a container of its own,
+  limited to 1,536 MiB without swap.
+- **Two builds in each job:** the tests on Bun 1.3.10 and on Bun 1.4.3,
+  five rounds each, alternating. Each figure is the median of five, with
+  the range where it decides a gate.
+- **The peak** is the host's own high-water mark (`VmHWM`).
+  `getrusage`'s peak keeps the peak of what a process was before its
+  `execve`. Here that is the Go test process that built the bundles:
+  616 to 682 MiB at connect, for a host of 38.5 MiB.
+- **Runs:** [the figures below](https://github.com/invakid404/windmill-lite/actions/runs/42608859496),
+  [without the container](https://github.com/invakid404/windmill-lite/actions/runs/42610252449),
+  [per script](https://github.com/invakid404/windmill-lite/actions/runs/42610187494)
+  and [heap sizes](https://github.com/invakid404/windmill-lite/actions/runs/42608942071).
+
+| MiB | amd64, Bun 1.3.10 | amd64, Bun 1.4.3 | arm64, Bun 1.3.10 | arm64, Bun 1.4.3 |
+|---|---|---|---|---|
+| S, per-script: per further module | 6.11 | 6.56 | 6.07 | 6.70 |
+| S, shared-code: per further module | 0.15 | 0.13 | 0.17 | 0.35 |
+| C, shared-instance: peak after 1,000 runs | 171.8 | 152.7 | 168.3 | 179.5 |
+| C, shared-code: at connect | 59.6 | 38.4 | 52.3 | 35.9 |
+| C, shared-code: 34 modules loaded | 426.1 | 549.7 | 424.3 | 460.3 |
+| C, shared-code: per further module | 9.06 (9.03–9.11) | 13.17 (10.13–13.56) | 9.17 (9.09–9.27) | 10.62 (9.62–12.70) |
+| C, shared-code: after 1,000 runs | 504.8 | 570.2 | 483.7 | 479.5 |
+| C, shared-code: peak after eight concurrent runs | 433.8 | 559.5 | 433.1 | 469.5 |
+| C, shared-code: peak after 1,000 runs | 506.7 (504.0–510.6) | 712.8 (618.2–723.8) | 484.4 (483.7–486.5) | 585.3 (540.0–630.0) |
+| C, per-script: per further module | 47.31 | 42.10 | 45.36 | 41.15 |
+| C, per-script: peak after 1,000 runs | 1,928 | 1,700 | 1,850 | 1,693 |
+
+C's per-script layout ran in a job of its own, three rounds per build in
+a container limited to 4,096 MiB, its amd64 job on an AMD EPYC 7763.
+
+- **The gate on Bun 1.4.3.** C stays within 16 MiB per further module
+  and S within 1.5 MiB. C's peak exceeds 650 MiB on linux/amd64, in three
+  rounds of five, and stays within it on linux/arm64. On Bun 1.3.10 both
+  gates hold on both architectures.
+- **Where Bun 1.4.3's peak comes from.** Its soak raises the peak by
+  153 MiB on amd64 over the peak after eight concurrent runs, where Bun
+  1.3.10's soak adds 73 MiB. Each further module also keeps 1.4 to
+  4.1 MiB more after collections. From round to round, the 34 modules settle at
+  about 450 to 480 MiB or at 550 to 560 MiB on amd64.
+- **What Bun 1.4.3 saves.** Its host starts 16 to 21 MiB smaller. Per
+  script, C costs 4 to 5 MiB less per further module, and peaks 157 to
+  228 MiB lower.
+- **The container.** Both Bun versions read its limit:
+  `process.constrainedMemory()` gives 1,610,612,736 B in it and the
+  runner's 16 GiB outside. The container's own peak (`memory.peak`, page
+  cache included) reached the limit in C's runs, with no OOM kill.
+- **Without the container,** in a run of its own, C's peak was 513.9 and
+  731.7 MiB on amd64, and 462.6 and 532.0 MiB on arm64, on Bun 1.3.10 and
+  1.4.3.
+- **Heap sizing.** Bun 1.4.4 reads a cgroup v2 limit also on hosts that
+  mount a cgroup v1 hierarchy, where Bun 1.4.3 takes the host's memory as
+  its limit. Without the container, Bun 1.4.3 took the runner's 16 GiB in
+  the same way. Its peaks there overlapped those in the container: 643 to
+  779 MiB against 618 to 724 on amd64, and 495 to 584 against 540 to 630
+  on arm64.
+- **JavaScriptCore's RAM size.** Forced to 16 GiB rather than 1.5 GiB in
+  the container (`BUN_JSC_forceRAMSize`), it raised C's peak on arm64, to
+  662.2 MiB against 574.1. On amd64, 697.7 against 673.7 MiB is within
+  the spread.
+
 ## Options considered
 
 Each figure says how it was measured: **host** is host mode in the compiled
@@ -651,6 +719,11 @@ instance of every module it imports, as on Windmill.
   further module. C holds 439 to 450 MiB with its 34 modules loaded and 453
   to 462 MiB with eight concurrent runs. It peaks at 492 to 497 MiB after
   1,000 runs, at 9.9 to 10.3 MiB per further module.
+- **Measured on Linux** in a container limited to 1,536 MiB
+  ([Measurements](#measurements)). With Bun 1.3.10, C peaks at 506.7 MiB
+  on amd64 and 484.4 MiB on arm64. With Bun 1.4.3 it peaks at 712.8 MiB
+  on amd64, above the target, and 585.3 MiB on arm64, at 13.2 and 10.6 MiB
+  per further module.
 - **C with its lazily imported built-in modules,** as described above, in
   one run: 451 MiB with its 34 modules loaded, 464 MiB with eight
   concurrent runs, a 502 MiB peak after 1,000 runs, and 10.3 MiB per
@@ -694,7 +767,8 @@ instance of every module it imports, as on Windmill.
 - **Two tests in the repository.** `TestModuleMemory` runs S in the three
   layouts wherever the host-mode tests run. `TestModuleMemoryClosure` runs
   C behind `WL_MEMORY_PROBE`, since it needs the network once and about
-  2 GiB. Both run the real shared layout.
+  2 GiB. Both run the real shared layout, and the workflow `Benchmarks`
+  runs both on Linux, in a container with a memory limit.
 
 ## Conformance cases
 
