@@ -255,7 +255,7 @@ import { connect } from "windmill-lite/bun";
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.862.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
 | [docs/memoria.md](docs/memoria.md) | How the documentation gate works and the per-session review flow. |
-| [RELEASING.md](RELEASING.md) | How a release works, the owner's one-time steps for the first npm publish and its trusted publisher, and the steps of each later release. |
+| [RELEASING.md](RELEASING.md) | How a release works, the owner's one-time steps for the first npm publish and its trusted publisher, and the steps of each later release, release candidates on the npm dist-tag `next` included. |
 | [AGENTS.md](AGENTS.md) | Contributor rules: the clean-room rule, synthetic fixtures, Go as the primary language, pull requests. |
 
 ## Contributing
