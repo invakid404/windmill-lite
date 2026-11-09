@@ -36,7 +36,7 @@ import (
 // encoding writes as CRLF, so the upload must equal the reproduction with
 // each LF written as CRLF; a tar travels as bytes and must equal it as it
 // is. The CLI runs only where WL_WMILL_CLI names it, the command line that
-// starts it ("npx --yes windmill-cli@1.767.0" in CI): it is used as a
+// starts it ("npx --yes windmill-cli@1.862.0" in CI): it is used as a
 // tool, as the oracle uses it (OR-8), never a dependency, and nothing of
 // it is read. Without WL_WMILL_CLI the check skips, and the documented
 // fallback, TestCLIOptionsFollowWR47, stands in.
@@ -195,10 +195,6 @@ func TestCLIParity(t *testing.T) {
 	defer cancel()
 	version, err := cli.Version(ctx)
 	if err != nil {
-		var r *oracle.Refusal
-		if errors.As(err, &r) && r.Code == "cli_version_mismatch" {
-			t.Skip("retarget-pending: W7a the parity workflow still runs windmill-cli 1.767.0, which the oracle's CLI pin 1.862.0 refuses, until it moves to 1.862.0 with esbuild 0.28.2")
-		}
 		t.Fatalf("the CLI: %v (%s)", err, version)
 	}
 	t.Logf("CLI: %s", version)
@@ -376,8 +372,13 @@ func TestCLIOptionsFollowWR47(t *testing.T) {
 				!slices.Equal(o.EntryPoints, []string{"f/cb/x.ts"}) || o.AbsWorkingDir != root {
 				t.Errorf("%+v", o)
 			}
-			if o.MinifySyntax || o.MinifyWhitespace || o.MinifyIdentifiers || o.Sourcemap != api.SourceMapNone || o.Splitting || o.Metafile {
-				t.Errorf("minification, source maps, splitting or the metafile are set: %+v", o)
+			// The deploy path's metafile (absent at CLI 1.767.0) only lists
+			// the bundle's inputs, for the CLI's uncovered-inputs warning.
+			if !o.Metafile {
+				t.Errorf("the metafile is not set: %+v", o)
+			}
+			if o.MinifySyntax || o.MinifyWhitespace || o.MinifyIdentifiers || o.Sourcemap != api.SourceMapNone || o.Splitting {
+				t.Errorf("minification, source maps or splitting are set: %+v", o)
 			}
 			if o.External != nil || o.Inject != nil || o.Define != nil || o.Banner != nil {
 				t.Errorf("absent settings must leave esbuild's defaults: %+v", o)

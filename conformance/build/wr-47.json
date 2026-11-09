@@ -1,7 +1,7 @@
 {
   "finding": "WR-47",
   "scope": "core",
-  "note": "How the pinned CLI bundles a codebase script, reproduced through esbuild's Go API at 0.28.0 (bundle.BuildCodebase, milestone C2b). Each case is a whole sync folder with one codebases entry, built by bundle.Build; cases that run call the built module on the pinned Bun. Which runtime a CommonJS bundle runs on is deviation D13, whose cases (Node against the Bun harness) are in steps/bun/d13.yaml.",
+  "note": "How the pinned CLI bundles a codebase script, reproduced through esbuild's Go API at 0.28.2 (bundle.BuildCodebase, milestones C2b and W7a). Each case is a whole sync folder with one codebases entry, built by bundle.Build; cases that run call the built module on the pinned Bun. Which runtime a CommonJS bundle runs on is deviation D13, whose cases (Node against the Bun harness) are in steps/bun/d13.yaml.",
   "cases": [
     {
       "spec": "WR-47/a",
@@ -153,6 +153,38 @@
             {
               "entry": "f/cb/banner",
               "result": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47/g",
+      "provenance": "oracle-observed",
+      "title": "the pinned esbuild keeps a module's evaluation error",
+      "note": "esbuild 0.28.1 and later throw a module's evaluation error again at every later require() of it; 0.28.0's bundle returned the module's empty exports from the second require on, so this case gives [\"boom\",\"ok\"] with it. The outcome comes from the bundle, not from the runtime, so the Bun harness, which runs the CommonJS bundle (D13), gives the oracle's result.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/boom.cjs": "throw new Error(\"boom\");\n",
+          "f/cb/evalerr.ts": "export function main() {\n  const seen: string[] = [];\n  for (let i = 0; i < 2; i++) {\n    try {\n      require(\"./boom.cjs\");\n      seen.push(\"ok\");\n    } catch (e: any) {\n      seen.push(e.message);\n    }\n  }\n  return seen;\n}\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/evalerr": {
+            "format": "cjs"
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/evalerr",
+              "result": [
+                "boom",
+                "boom"
+              ]
             }
           ]
         }

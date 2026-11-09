@@ -153,7 +153,7 @@ func TestBuildOutsideHostModuleSources(t *testing.T) {
 	}
 }
 
-// loaderFor picks a file's loader as esbuild 0.28.0 does (WR-47): the
+// loaderFor picks a file's loader as esbuild 0.28.2 does (WR-47): the
 // longest suffix of its name that starts at a dot, over esbuild's own
 // loaders with the entry's loader map on top (milestone F3h, review round
 // 2). The D12 codebase-outside-compound cases check the same picks
