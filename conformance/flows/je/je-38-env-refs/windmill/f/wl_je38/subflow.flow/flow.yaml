@@ -1,0 +1,19 @@
+summary: "JE-38/g flow_env reads into a subflow"
+value:
+  modules:
+    - id: c
+      value:
+        type: flow
+        path: f/wl_je38/child
+        input_transforms:
+          x: {type: javascript, expr: flow_env.V}
+          "y": {type: javascript, expr: flow_env.S}
+          w: {type: javascript, expr: "flow_env.S + \"!\""}
+  flow_env:
+    V: "$var:f/wl_je38/v"
+    S: "$var:f/wl_je38/s"
+    K: lit
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

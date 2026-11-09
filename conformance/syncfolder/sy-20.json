@@ -1,0 +1,105 @@
+{
+  "finding": "SY-20",
+  "cases": [
+    {
+      "spec": "SY-20/a",
+      "provenance": "source-derived",
+      "title": "two scripts read one shared lock",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ndedupeLockfiles: true\n",
+          "dependencies/package.json": "{\"dependencies\": {}}\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline locks/package.json.lock'\n",
+          "f/a/y.script.yaml": "lock: '!inline locks/package.json.lock'\n",
+          "locks/package.json.lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                "/lock_file": "locks/package.json.lock"
+              }
+            },
+            "f/a/y": {
+              "at": {
+                "/lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                "/lock_file": "locks/package.json.lock"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-20/b",
+      "provenance": "source-derived",
+      "title": "the reference resolves without the key",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "dependencies/package.json": "{\"dependencies\": {}}\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline locks/package.json.lock'\n",
+          "f/a/y.script.yaml": "lock: '!inline locks/package.json.lock'\n",
+          "locks/package.json.lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                "/lock_file": "locks/package.json.lock"
+              }
+            },
+            "f/a/y": {
+              "at": {
+                "/lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                "/lock_file": "locks/package.json.lock"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-20/c",
+      "provenance": "source-derived",
+      "title": "a private lock beside a shared reference is not read",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ndedupeLockfiles: true\n",
+          "dependencies/package.json": "{\"dependencies\": {}}\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline locks/package.json.lock'\n",
+          "f/a/y.script.yaml": "lock: '!inline locks/package.json.lock'\n",
+          "locks/package.json.lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+          "f/a/x.script.lock": "OLD"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "//workspace-dependencies-mode: manual\n//workspace-dependencies: default:h1\n{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                "/lock_file": "locks/package.json.lock"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    }
+  ]
+}

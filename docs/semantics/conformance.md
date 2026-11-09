@@ -56,15 +56,15 @@ behaviour each. Paths such as `f/demo/...` are invented.
 
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
-| [OpenFlow model and the sync folder](#openflow) | 150 | 129 | 20 | 1 | 0 | 20 | 0 | 0 |
+| [OpenFlow model and the sync folder](#openflow) | 156 | 131 | 24 | 1 | 0 | 22 | 0 | 0 |
 | [Flow execution](#execution) | 180 | 121 | 58 | 1 | 0 | 167 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
-| [Expressions](#expressions) | 197 | 130 | 65 | 0 | 2 | 183 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 212 | 129 | 83 | 0 | 0 | 93 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 120 | 69 | 46 | 5 | 0 | 44 | 0 | 6 |
+| [Expressions](#expressions) | 202 | 131 | 69 | 0 | 2 | 188 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 217 | 132 | 85 | 0 | 0 | 96 | 0 | 0 |
+| [The wmill client API and the platform interface](#client-api) | 121 | 70 | 46 | 5 | 0 | 45 | 0 | 6 |
 | [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1075 | 743 | 314 | 9 | 9 | 689 | 0 | 7 |
+| **Total** | 1092 | 750 | 324 | 9 | 9 | 700 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -224,6 +224,10 @@ Findings: [openflow.md](openflow.md).
     (key order not significant). For-loop defaults: see OF-3/a.
   - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `ba_shape`, oracle run 42299716256 (CE v1.862.0): `flows/get` after the dependency job returned exactly the value above (deployment evidence, checked by the batch manifest), and the flow then returned `1`.
   - **Correction 2026-11-06 (CE v1.862.0):** the branch's `skip_failure` was `true` at v1.767.0 (oracle run 41000318656); since 1.852.0 an absent branch flag is stored `false` ([OF-6](openflow.md#of-6)).
+- **OF-6/b** · oracle-observed · deployed `branchone` branch shape
+  - **Given:** a module value `{type: branchone, branches: [{summary: pick, expr: "true", modules: [x]}], default: []}`, where `x` returns `3`, deployed.
+  - **Expect:** after deploy the branch holds `"summary":"pick"`, `"expr":"true"`, `"skip_failure":false` and `"parallel":true` (`skip_failure` was `true` at v1.767.0); the flow returns `3`.
+  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `branchone_shape`, oracle run (pending) (deployment evidence, checked by the batch manifest).
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -340,6 +344,10 @@ preview for the raw case ([Q-OF-1](openflow.md#q-of-1)).
 - **OF-11/c** · source-derived · out-of-range seconds
   - **Given:** `retry: {exponential: {attempts: 1, seconds: 70000}}`
   - **Expect:** reject.
+- **OF-11/d** · oracle-observed · deployment keeps the retry settings and leaves an unset `random_factor` out
+  - **Given:** a flow whose step `b` returns `"ok"` with `retry: {exponential: {attempts: 1, multiplier: 2, seconds: 1}}`, then a step `a` that throws `stop` with `retry: {constant: {attempts: 2, seconds: 0}, exponential: {attempts: 1, multiplier: 1, seconds: 1, random_factor: null}, retry_if: {expr: "error.message !== 'stop'"}}`, deployed.
+  - **Expect:** after deploy `b`'s retry is `{"exponential":{"attempts":1,"multiplier":2,"seconds":1}}` and `a`'s is `{"constant":{"attempts":2,"seconds":0},"exponential":{"attempts":1,"multiplier":1,"seconds":1},"retry_if":{"expr":"error.message !== 'stop'"}}`, with no `random_factor` in either (v1.767.0 wrote `"random_factor": null` in both). The run fails with `a`'s error, which `retry_if` keeps from being retried.
+  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `retry_shape`, oracle run (pending) (deployment evidence, checked by the batch manifest).
 
 <a id="of-13"></a>
 ### OF-13 · Languages
@@ -1022,6 +1030,26 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `Lock file a.inline_script.lock not found, treating as empty` (the
     missing-file text, not the decoder's message).
   - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's standard error and the deployed lock. Requested in the design README (SC5).
+
+<a id="sy-20"></a>
+### SY-20 · Shared lock files (`dedupeLockfiles`)
+
+**Scope:** later · **Finding:** [SY-20](openflow.md#sy-20)
+
+*Setup for SY-20/a–d:* `wmill.yaml` = `defaultTs: bun` and `dedupeLockfiles: true`; `dependencies/package.json`; Bun scripts `f/a/x` and `f/a/y`, each `.script.yaml` holding `lock: '!inline locks/package.json.lock'`; `locks/package.json.lock` holding a lock text `L`.
+
+- **SY-20/a** · source-derived · two scripts read one shared lock
+  - **Given:** the setup.
+  - **Expect:** both scripts load with lock `L`, read from `locks/package.json.lock`; the tree checks.
+- **SY-20/b** · source-derived · the reference resolves without the switch
+  - **Given:** the setup without `dedupeLockfiles`.
+  - **Expect:** as SY-20/a: the reference is read when the script is loaded, whatever the switch.
+- **SY-20/c** · source-derived · a private lock beside a shared reference is not read
+  - **Given:** the setup plus `f/a/x.script.lock` holding `OLD`.
+  - **Expect:** `f/a/x` loads with lock `L`.
+- **SY-20/d** · source-derived · under the switch a refused shared lock fails the tree
+  - **Given:** the setup, with `locks/package.json.lock` encoded as UTF-16 LE (a byte order mark `FF FE`).
+  - **Expect:** checking the tree fails with `File locks/package.json.lock is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.` ([SY-19](openflow.md#sy-19)); without the switch each script loads with an empty lock and [SY-5](openflow.md#sy-5)'s warning instead.
 
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content
@@ -5090,6 +5118,10 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** a variable `u/test/v` = `"s"`; resources `u/test/r` = `{"p": "$var:u/test/v", "job": "$WM_JOB_ID"}`, `u/test/alias` = the string `"$res:u/test/r"` and `u/test/n` = `42`; a Bun step `b` returning its arguments, with the transforms `x = resource("u/test/r")`, `y = resource("u/test/alias")` and `z = resource("u/test/n")`, and the static `w = "$res:u/test/r"`.
   - **Expect:** at O3, seen in `b`'s result: `x` and `y` are both `{"p": "s", "job": "$WM_JOB_ID"}` (the placeholder stays literal, and the leaf step's resolution leaves an argument without a marker alone), `z` is `42`, and `w` is `{"p": "s", "job": "<b's job id>"}` (contract (c) sends the job id). Mask the job id.
   - **Recorded:** [`flows/je/je-20-providers`](../../conformance/flows/je/je-20-providers) run `d`, oracle run 40990751153: `x` and `y` `{"p": "s", "job": "$WM_JOB_ID"}`, `z` `42`, and `w` `{"p": "s", "job": "<job:m:b>"}`.
+- **JE-20/e** · oracle-observed · a resource whose whole value is one reference
+  - **Given:** a variable `u/test/v` = `"s"` and a variable `u/test/m` whose value is the text `$var:u/test/v`; resources `u/test/rv` = the string `"$var:u/test/v"` and `u/test/rm` = the string `"$var:u/test/m"`; a Bun step `a` returning its arguments, with `ev = resource("u/test/rv")` and `em = resource("u/test/rm")`.
+  - **Expect:** O2 `ev` = `"s"`, `em` = `"$var:u/test/v"` (the server does not walk a variable's value again); O4 `ev` = `"s"`, `em` = `"s"`, since the leaf step resolves the marker the recorded argument holds.
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run (pending).
 
 <a id="je-21"></a>
 ### JE-21 · The evaluator's own error text
@@ -5388,16 +5420,16 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
 
 **Scope:** later · **Finding:** [JE-38](expressions.md#je-38)
 
-*Setup for JE-38/a–c:* a flow with `flow_env: {"K":"v","S":"$var:u/test/v"}`.
+*Setup for JE-38/a–c:* a flow with `flow_env: {"K":"v","S":"$var:u/test/v"}`, and a variable `u/test/v` = `"s3cr3t"`; each step is a Bun script returning its argument `x`.
 
 - **JE-38/a** · oracle-observed · a plain value
   - **Given:** `x = flow_env.K`
-  - **Expect:** `"v"`
-  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run 40687124625.
-- **JE-38/b** · oracle-observed · env values are resolved
+  - **Expect:** O2 and O4 `"v"`
+  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run (pending).
+- **JE-38/b** · oracle-observed · an exact read keeps the reference, which the script job resolves
   - **Given:** `x = flow_env.S`
-  - **Expect:** the value of variable `u/test/v`.
-  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run 40687124625.
+  - **Expect:** O2 `"$var:u/test/v"`; O4 `"s3cr3t"`, the variable's value.
+  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run (pending). At v1.767.0 O2 was the resolved value too (oracle run 40687124625).
 - **JE-38/c** · oracle-observed · loop bodies inherit the env
   - **Given:** inside a loop body, `x = flow_env.K`
   - **Expect:** `"v"`
@@ -5406,6 +5438,25 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
   - **Given:** a subflow called by path, with no `flow_env`, called from a flow with `flow_env: {"K":"parent"}`; a transform in the subflow `x = flow_env.K`
   - **Expect:** `"parent"`
   - **Recorded:** [`flows/je/scopes`](../../conformance/flows/je/scopes) run `je38-d`, oracle run 40687124625.
+
+*Setup for JE-38/e–h:* a flow with `flow_env: {"V":"$var:u/test/v","S":"$var:u/test/s","K":"lit"}`, a variable `u/test/v` = `"plain"` that is not secret and a secret variable `u/test/s` = `"hidden"`; each script returns its arguments as an object. An `$encrypted:` argument changes from run to run, so a fixture masks it.
+
+- **JE-38/e** · oracle-observed · exact reads store the entries as written, secret or not, in both spellings
+  - **Given:** a Bun step `b` with `x = flow_env.V`, `y = flow_env["S"]`, `z = flow_env.K`
+  - **Expect:** O2 `{"x":"$var:u/test/v","y":"$var:u/test/s","z":"lit"}`; O4 `{"x":"plain","y":"hidden","z":"lit"}`.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `exact`, oracle run (pending).
+- **JE-38/f** · oracle-observed · a computed value is stored resolved, or encrypted when it reads a secret entry
+  - **Given:** a Bun step `b` with `x = flow_env.V + "!"`, `w = flow_env.S + "!"`, ``z = `${flow_env.K}!` ``
+  - **Expect:** O2 `x` = `"plain!"`, `w` a string starting `$encrypted:`, `z` = `"lit!"`; O4 `{"x":"plain!","w":"hidden!","z":"lit!"}`.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `computed`, oracle run (pending), with `w`'s argument masked.
+- **JE-38/g** · oracle-observed · into a subflow called by path, only a secret entry keeps its reference
+  - **Given:** a `flow` module `c` calling a flow with no `flow_env`, with `x = flow_env.V`, `y = flow_env.S`, `w = flow_env.S + "!"`; the subflow's Bun step `e` takes `x = flow_input.x`, `y = flow_input.y`, `w = flow_input.w`
+  - **Expect:** the subflow's input (O2 of `c`) `x` = `"plain"`, `y` = `"$var:u/test/s"`, `w` a string starting `$encrypted:`; `e`'s O2 the same; `e`'s O4 `{"x":"plain","y":"hidden","w":"hidden!"}`, which is also the flow's result.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `subflow`, oracle run (pending), with `w`'s arguments masked.
+- **JE-38/h** · oracle-observed · a `$res:` entry is not secret, even when its resource wraps a secret variable
+  - **Given:** a resource `u/test/rs` whose whole value is `"$var:u/test/s"`; a flow with `flow_env: {"R":"$res:u/test/rs"}` and a Bun step `b` with `x = flow_env.R`, `y = flow_env.R + "!"`
+  - **Expect:** O2 `{"x":"$res:u/test/rs","y":"hidden!"}`: the exact read keeps the reference and the computed value is stored in clear; O4 `{"x":"hidden","y":"hidden!"}`.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `alias`, oracle run (pending).
 
 <a id="je-39"></a>
 ### JE-39 · Names that do not exist
@@ -5796,6 +5847,14 @@ Findings: [languages.md](languages.md).
   - **Given:** args `{"a":"$res:u/a/missing"}`, no such resource.
   - **Expect:** ``{"error":{"message":"execution error:\nNot found: Resource u/a/missing not found for `a`: …","name":"ExecutionErr","step_id":…}}``. Match on the message prefix.
   - **Recorded:** [`flows/client-api/providers`](../../conformance/flows/client-api/providers) run `missing_resource`, oracle run 40824738438: the whole message is ``execution error:\nNot found: Resource f/wl_pf2_prov/missing not found for `x`: Not found: Resource f/wl_pf2_prov/missing not found``, `ExecutionErr`, `step_id` `a`; the job failed before the script ran.
+- **WR-5/f** · oracle-observed · `$res:` arguments naming resources whose whole value is one reference
+  - **Given:** variables `u/a/v` = `"s"`, `u/a/sec` = `"sec-value"` (secret), `u/a/j` = the text `{"a": 1}` and `u/a/m` = the text `$var:u/a/v`; resources whose whole value is one string: `rv` = `"$var:u/a/v"`, `rs` = `"$var:u/a/sec"`, `rj` = `"$jsonvar:u/a/j"`, `ra` = `"$res:u/a/rv"`, `rm` = `"$var:u/a/m"`, `re` = `"$encrypted:abcd"`; a Bun step with the static arguments `sv`, `ss`, `sj`, `sa`, `sm`, `se` = `"$res:u/a/<r>"` for each.
+  - **Expect:** the script receives `sv` = `"s"`, `ss` = `"sec-value"`, `sj` = `{"a":1}`, `sa` = `"s"`, `sm` = `"$var:u/a/v"` and `se` = `"$encrypted:abcd"`: the server's answer is substituted without a second walk. The recorded arguments keep the `$res:` strings.
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run (pending).
+- **WR-5/g** · oracle-observed · a missing variable behind a whole-value `$var:`
+  - **Given:** a resource `u/a/rx` whose whole value is `"$var:u/a/missing"`, no such variable; a Bun step `a` with the static argument `x = "$res:u/a/rx"`.
+  - **Expect:** the step fails before its script runs: ``{"error":{"name":"ExecutionErr","message":"execution error:\nNot found: Resource u/a/rx not found for `x`: Not found: Variable u/a/missing not found","step_id":"a"}}``.
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `missing_arg`, oracle run (pending).
 
 <a id="wr-6"></a>
 ### WR-6 · How args bind to the entrypoint
@@ -6639,6 +6698,10 @@ Each case's outcome was recorded on the CE oracle. The bundles' bytes were not r
   - **Given:** the entry adds `banner: {js: "globalThis.__banner = 1;"}`; `f/cb/banner.ts`: `export function main() { return (globalThis as any).__banner; }`.
   - **Expect:** `1`.
   - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `banner`, oracle run 40794872025.
+- **WR-47/g** · oracle-observed · the pinned esbuild keeps a module's evaluation error
+  - **Given:** in the CommonJS entry, `f/cb/boom.cjs` holds `throw new Error("boom");`, and `f/cb/evalerr.ts` requires `./boom.cjs` twice, each time in a `try` that pushes `"ok"`, or the error's message when it throws, and returns the list.
+  - **Expect:** `["boom","boom"]` with CLI `1.862.0` (esbuild `0.28.2`); a bundle of esbuild `0.28.0`, CLI `1.767.0`'s, gives `["boom","ok"]`. The outcome comes from the bundle, so it does not depend on the runtime.
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `cjs_evalerr`, oracle run (pending).
 
 <a id="wr-48"></a>
 ### WR-48 · `customBundler`
@@ -6694,9 +6757,10 @@ These cases test when a push deploys and which bytes then run, not how the bundl
 - **WR-49/e** · source-derived · later · a change outside `relative_path` is not selected, so the old asset keeps running
   - **Given:** the setup, with two changes made before step 1. The entry adds `assets: [{from: "shared/a.txt", to: "a.txt"}]`, where `shared/a.txt` lies outside `f/cb` and contains `one`. `f/cb/runtime.ts` returns `readFileSync("a.txt", "utf8")` (from `node:fs`). After step 3, run the script, then change `shared/a.txt` to `two` and push.
   - **Expect:** the first run returns `"one"`. The push selects nothing for `f/cb/runtime`, its `hash` is unchanged, and a run after it still returns `"one"`.
-- **WR-49/f** · source-derived · later · a direct script push uploads anyway
+- **WR-49/f** · source-derived · later · a direct script push finds the script up to date (medium)
   - **Given:** the state at the end of WR-49/e. `f/cb/runtime.script.yaml` has no `priority` key, as the CLI generates it. Run `wmill script push f/cb/runtime.ts`.
-  - **Expect:** the CLI does not report the script up to date; it uploads the bundle, and a run after it returns `"two"`. Whether `hash` changes depends on the server's no-op check, so this case does not assert it.
+  - **Expect:** the CLI reports `Script f/cb/runtime is up to date` and sends nothing, so a run after it still returns `"one"`.
+  - **Correction 2026-11-09 (retarget to v1.862.0, source re-check):** with CLI `1.767.0` the push did not find the script up to date, because of its `priority` comparison: it uploaded the bundle, and a run after it returned `"two"`. CLI `1.792.0` repaired the comparison ([WR-49](languages.md#wr-49) decision 2).
 - **WR-49/g** · source-derived · later · a no-op snapshot keeps the hash but replaces the bytes (medium: building a body the server accepts as a no-op)
   - **Given:** a fresh CE standalone oracle. `f/cb/v.ts` is `export function main() { return "v1"; }`, pushed with `wmill sync push`; record its `hash` `H`. Then a direct `POST /api/w/<ws>/scripts/create_snapshot?skip_if_noop=true` multipart request:
     - field `script` first: a script body whose every field the server's no-op check compares equals the deployed script, copied from `GET /api/w/<ws>/scripts/get/h/<H>`. That covers the content, the lock, the metadata, `codebase` and the optional settings, and the body sets `parent_hash` to `H`;
@@ -6712,6 +6776,12 @@ These cases test when a push deploys and which bytes then run, not how the bundl
     ```
   - **Expect:** `[true,true]` for the single-file script, whose bundle the form-data encoding sent with CRLF line breaks and which the server and worker kept byte for byte ([WR-49](languages.md#wr-49)); `[false,true]` for the tar.
   - **Recorded:** [`flows/languages/import-base`](../../conformance/flows/languages/import-base) runs `crlf_single` and `crlf_tar` (pushed with the pinned CLI), oracle run 41000318656.
+- **WR-49/i** · source-derived · later · an extra path makes a change outside `relative_path` visible
+  - **Given:** WR-49/e's setup, with the entry adding `extra_digest_paths: ["shared"]`; after the first run, `shared/a.txt` changes to `two`, and the tree is pushed with `wmill sync push`.
+  - **Expect:** the push selects `f/cb/runtime`, its `hash` and `codebase` change, and a run after it returns `"two"`. Adding `extra_digest_paths: []` instead, with no file change, also changes `codebase`, since the settings text changed.
+- **WR-49/j** · source-derived · later · a missing extra path fails the push before any request
+  - **Given:** the WR-47/a fixture whose entry lists `extra_digest_paths: ["nope"]`, no such path; `wmill sync push`.
+  - **Expect:** the CLI exits with an error whose message is ``Codebase extra_digest_paths entry not found: nope (resolved to <absolute path>)``, and the workspace is unchanged.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
@@ -7416,6 +7486,10 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     42327335039: the admin's step got the 401 above for the interpolated
     read (the request `getResource` makes; the stock client's wrapping text
     was not run), and the raw read the same 404.
+- **WA-12/i** · oracle-observed · a whole value that is one reference string
+  - **Given:** WR-5/f's variables and resources, read from a step with its own token: `GET …/resources/get_value_interpolated/<r>` for `rv`, `rj`, `rm`, `re` and `rx` (whose whole value is `"$var:u/a/missing"`), and `GET …/resources/get_value/<r>` for `rv` and `rx`.
+  - **Expect:** the interpolated reads answer HTTP 200 `"s"`, `{"a":1}`, `"$var:u/a/v"` and `"$encrypted:abcd"`, and HTTP 404 `Not found: Variable u/a/missing not found` (compare by prefix) for `rx`; the raw reads answer HTTP 200 with the stored strings `"$var:u/a/v"` and `"$var:u/a/missing"`.
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run (pending).
 
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
@@ -8400,12 +8474,14 @@ Findings: [oracle.md](oracle.md).
   - **Expect:** the image's Bun: `"1.4.4"` on CE v1.862.0 (`"1.3.10"` on
     v1.767.0).
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155 (`1.3.10`); run `bun_version` on CE v1.862.0, oracle run 42327335039 (`1.4.4`).
-- **OR-2/b** · source-derived · Harness self-test: a Bun version mismatch is a
-  provenance failure.
+- **OR-2/b** · source-derived · Harness self-test: windmill-lite's Bun is
+  checked against windmill-lite's pin, not the image's.
   - **Given:** a windmill-lite run whose Bun harness reports a version other than
-    `1.3.10`.
-  - **Expect:** the provenance check fails and reports the mismatch; no other
-    semantic difference is allowed to pass because of it.
+    the pinned `1.4.3`; and, separately, the oracle image's Bun `1.4.4`.
+  - **Expect:** the first is reported as a nonconformant runtime, with the
+    version it found; the second is recorded in provenance and is the named
+    deviation D23, not a failure. Neither lets another semantic difference
+    pass.
 
 <a id="or-4"></a>
 ### OR-4 · Minimal topology: Postgres plus one `windmill` container in standalone mode

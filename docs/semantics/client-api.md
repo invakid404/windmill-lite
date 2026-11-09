@@ -1073,6 +1073,18 @@ interface); `WA-Vn` findings were added during validation.
       the located 404 form ([WA-42](#wa-42)).
     - **Terminal substitutions:** the value substituted for `$var:`, and the
       parsed value substituted for `$jsonvar:`, are never interpolated again.
+    - **A whole value that is one string** is walked like any other node,
+      at depth 0. A resource stored as `"$var:<p>"` therefore reads as the
+      variable's value, `"$jsonvar:<p>"` as the parsed JSON and `"$res:<p>"`
+      as the other resource's value, while a whole value that is any other
+      `$…` string, `$encrypted:…` included, is returned as stored. The raw
+      read (`get_value`) returns the stored string. Windmill 1.859.0's "keep a
+      resource whose whole value is a variable reference" changed only the
+      web editor, which used to replace such a string with an object on save;
+      reads are the same at v1.767.0 and v1.862.0 (re-checked at v1.862.0:
+      `backend/windmill-store/src/resources.rs:1009-1177 @ v1.862.0`, the
+      walk from depth 0, `:997-1017` the three markers, `:1176` any other
+      string; `:670` the raw read).
     - `$WM_*` strings (e.g. `$WM_TOKEN`, `$WM_JOB_ID`) are resolved from the
       reserved variables of the job given in the `job_id` query parameter,
       using that job's **stored** fields ([WA-V3](#wa-v3)), **only when
@@ -1167,7 +1179,7 @@ interface); `WA-Vn` findings were added during validation.
   super-admin text); `backend/windmill-worker/src/common.rs:322-338
   @ v1.862.0` and `backend/windmill-worker/src/worker.rs:4167-4183`
   (a step's `$res:` argument is read with the job's token).
-- **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h](conformance.md#wa-12)
+- **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h, WA-12/i](conformance.md#wa-12)
 - **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
   answers 501 for a `job_id` naming an unknown job and reads
   `CUSTOM_INSTANCE_DB/` paths as plain resources, the reference being

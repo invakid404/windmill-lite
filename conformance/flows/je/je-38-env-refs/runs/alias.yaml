@@ -1,0 +1,14 @@
+# JE-38/h: a $res: entry is never secret, even when the resource's whole
+# value is a secret variable's reference: the exact read x stores the
+# reference, which the script job resolves, and the computed y is stored in
+# clear (compare JE-38/f's w).
+spec: [JE-38/h]
+target: f/wl_je38/alias
+expect:
+  status: success
+  result: {x: hidden, "y": hidden!}
+  steps:
+    "m:b":
+      status: success
+      args: {x: "$res:f/wl_je38/rs", "y": hidden!}
+      result: {x: hidden, "y": hidden!}

@@ -390,6 +390,12 @@ deferred:
       Batch E3f has since recorded it on the oracle:
       conformance/flows/client-api/facade-answers, run answers.
     expected_in: none (outside windmill-lite, which has no instance database)
+  - spec: WA-12/i
+    reason: >-
+      the whole-value reads need the resources and variables that a flow
+      fixture's setup creates on the oracle, beside the step's own
+      argument resolution
+    expected_in: the flow fixture client-api/whole-value (run consumers) and internal/platform/testdata/interpolation.json
   - spec: WA-42/a
     reason: a rendering of each error variant is a unit check of the API's error type, not a step's behaviour
     expected_in: internal/platform/facade TestErrorVariants
@@ -427,3 +433,9 @@ deferred:
   - spec: WR-5/e
     reason: worker argument resolution is the engine's, which a step case does not run
     expected_in: the flow fixture client-api/providers (run missing_resource) and internal/platform/testdata/interpolation.json
+  - spec: WR-5/f
+    reason: worker argument resolution is the engine's, which a step case does not run
+    expected_in: the flow fixture client-api/whole-value (run consumers) and internal/platform/testdata/interpolation.json
+  - spec: WR-5/g
+    reason: worker argument resolution is the engine's, which a step case does not run
+    expected_in: the flow fixture client-api/whole-value (run missing_arg) and internal/platform/testdata/interpolation.json

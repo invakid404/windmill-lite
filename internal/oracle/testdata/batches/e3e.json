@@ -146,6 +146,16 @@
       "reason": "source-derived; no E3e run records it: a single-file upload's CRLF line breaks come from the CLI's form-data encoding, and the server and the worker keep them byte for byte; windmill-lite uploads nothing and builds each bundle from the folder it loads, with LF line breaks (ADR 0002, C2b's parity check), so no milestone of ADR 0012 reproduces them; a later one would belong to L1"
     },
     {
+      "case": "WR-49/i",
+      "milestone": "none",
+      "reason": "the deploy pipeline's selection with an extra digest path, as for WR-49/c; the harness's layout copier does not carry extra_digest_paths either"
+    },
+    {
+      "case": "WR-49/j",
+      "milestone": "none",
+      "reason": "a push the CLI refuses before any request, whose output the harness does not keep (a fixture error, OR-9); windmill-lite computes no codebase id"
+    },
+    {
       "case": "FX-36/i",
       "milestone": "F7b",
       "reason": "source-derived; no E3e run records it: the arrays of other lengths, the string status code and the alias given twice, which decode to no metadata, are FX-36's HTTP part, which F7b, the HTTP adapter, implements"

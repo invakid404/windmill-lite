@@ -1,0 +1,27 @@
+# WR-5/f, JE-20/e, WA-12/i: a whole value that is one $var:, $jsonvar: or
+# $res: string reads as the variable's value, the parsed JSON or the other
+# resource's value; the server substitutes a variable's value without
+# walking it again, and so does the worker with the server's answer, so rm
+# reaches the script as the inner reference and re as the literal
+# $encrypted: string. resource() output is the step's recorded argument, so
+# the leaf step resolves em's inner reference (JE-41). The raw route returns
+# the stored string; a missing variable is a 404.
+spec: [WR-5/f, JE-20/e, WA-12/i]
+target: f/wl_wv/consumers
+expect:
+  status: success
+  result:
+    args: {sv: s, ss: sec-value, sj: {a: 1}, sa: s, sm: "$var:f/wl_wv/v", se: "$encrypted:abcd", ev: s, em: s}
+    interp:
+      rv: {status: 200, type: application/json, value: s}
+      rj: {status: 200, type: application/json, value: {a: 1}}
+      rm: {status: 200, type: application/json, value: "$var:f/wl_wv/v"}
+      re: {status: 200, type: application/json, value: "$encrypted:abcd"}
+    raw:
+      rv: {status: 200, type: application/json, value: "$var:f/wl_wv/v"}
+      rx: {status: 200, type: application/json, value: "$var:f/wl_wv/missing"}
+    missing: {status: 404, type: text/plain, starts: true}
+  steps:
+    "m:a":
+      status: success
+      args: {sv: "$res:f/wl_wv/rv", ss: "$res:f/wl_wv/rs", sj: "$res:f/wl_wv/rj", sa: "$res:f/wl_wv/ra", sm: "$res:f/wl_wv/rm", se: "$res:f/wl_wv/re", ev: s, em: "$var:f/wl_wv/v"}

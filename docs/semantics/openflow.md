@@ -457,7 +457,7 @@ the effective decoder decides acceptance (OF-1).
   |---|---|---|
   | `forloopflow` | `iterator` (InputTransform), `modules` | `skip_failures: true` (`null` also selects `true`), `parallel: false`, `parallelism`: none (bare u16 or restricted object, [OF-V2](#of-v2)), `squash`: none |
   | `whileloopflow` | `modules` | `skip_failures: false`, `squash`: none; `parallel`/`parallelism` are not part of the typed value ([OF-8](#of-8)) |
-  | `branchone` | `branches`, `default` | branch `expr: ""`, branch `summary`: none |
+  | `branchone` | `branches`, `default` | branch `expr: ""`, branch `summary`: none; the typed `Branch` also writes `skip_failure: false` (`true` at v1.767.0) and `parallel: true`, which nothing reads for a `branchone` |
   | `branchall` | `branches` | `parallel: true` (module level); per branch `skip_failure: false` (`true` at v1.767.0) and `parallel: true` (per-branch `parallel` is not in the schema and is not used by name in execution) |
 
   - `null` is not always the same as omission: branch `skip_failure` and
@@ -470,10 +470,11 @@ the effective decoder decides acceptance (OF-1).
   At v1.862.0: `backend/windmill-types/src/flows.rs:923-937 @ v1.862.0`
   (`Branch`, whose absent `skip_failure` is `false`), `:1250-1269 @ v1.862.0`
   (the loops' defaults, unchanged).
-- **Conformance:** [OF-6/a](conformance.md#of-6); the for-loop defaults are
+- **Conformance:** [OF-6/a–b](conformance.md#of-6); the for-loop defaults are
   covered by [OF-3/a](conformance.md#of-3).
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** the deployed `branchall` shape of [OF-6/a](conformance.md#of-6) is recorded exactly: `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":true}],"parallel":true}` for a submitted `{type: branchall, branches: [{modules: []}]}` (fixture `conformance/flows/openflow/of-deployed`, run `ba_shape`, oracle run 41000318656). The rule is unchanged.
 - **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):** the typed `Branch` now defaults an absent `skip_failure` to `false`, the value the worker reads for an absent flag, so a round trip through it no longer turns the flag `true` (1.852.0, "keep retry and branch settings intact when a flow is reserialized"). Re-recorded on CE v1.862.0 ([OF-6/a](conformance.md#of-6), run `ba_shape`, oracle run 42299716256): `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":false}],"parallel":true}`. The loop defaults are re-verified unchanged; the rest of the table is verified at v1.767.0 only.
+- **Revision 2026-11-09 (retarget to v1.862.0, oracle):** a deployed `branchone` goes through the same typed `Branch`, so its branches gain `skip_failure: false` and `parallel: true`. Nothing reads either for a `branchone`, so only the stored shape shows it. The `branchone` row says so, and [OF-6/b](conformance.md#of-6) records it on CE v1.862.0 (run `branchone_shape` of `conformance/flows/openflow/of-deployed`).
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -620,7 +621,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-11"></a>
 ### OF-11 · Retry fields and ranges
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (the deploy write-back: oracle-observed) · **Status:** confirmed · verified at v1.767.0 only, except the deploy write-back (re-checked at v1.862.0)
 
 - **Rule:**
   - `retry` is
@@ -636,10 +637,32 @@ the effective decoder decides acceptance (OF-1).
     ([OF-2](#of-2)).
   - Delay arithmetic is specified in [FX-26](execution.md#fx-26) (exponential
     delay `multiplier * seconds^(n+1)` over the overall previous-attempt count,
-    with ± jitter).
+    with ± jitter). A `null` and an absent `random_factor` both mean no jitter.
+  - **Deploy write-back.** The dependency job rebuilds a deployed flow through
+    the typed value ([OF-3](#of-3)), so the stored retry is re-serialised.
+    `constant` and `exponential` are left out when they equal their defaults,
+    and `retry_if` when it is absent. Since Windmill 1.852.0 ("keep retry and
+    branch settings intact when a flow is reserialized") an unset
+    `random_factor` is left out too, a submitted `null` included.
+    - Before, an `exponential` that differed from its default was written
+      back with `"random_factor": null`. `wmill lint` then refused it, since
+      the schema's `random_factor` is a non-null integer ([OF-19](#of-19)).
+    - Every other retry setting survives unchanged in both versions, so the
+      write-back never changes how a step retries.
 - **Evidence:** `backend/windmill-types/src/flows.rs:199-207, 428-510`,
   `:478-482` (saturating maximum); `openflow.openapi.yaml:129-163, 250-258`.
-- **Conformance:** [OF-11/a–c](conformance.md#of-11)
+  At v1.862.0: `backend/windmill-types/src/flows.rs:474-483` (the retry's
+  omissions), `:539-552` (`random_factor` left out when unset), `:486-512`
+  (no jitter for either form), tests `:1708-1722`; the v1.767.0 write-back
+  `flows.rs:499-510 @ v1.767.0`; the dependency job's rebuild
+  `backend/windmill-worker/src/worker_lockfiles.rs:1217`, `:1282-1298 @ v1.862.0`.
+- **Conformance:** [OF-11/a–d](conformance.md#of-11)
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check and oracle):**
+  the write-back half of 1.852.0's note is the retry's `random_factor`, now
+  left out when unset; the branch half is [OF-6](#of-6)'s. Recorded on CE
+  v1.862.0 by [OF-11/d](conformance.md#of-11) (run `retry_shape` of
+  `conformance/flows/openflow/of-deployed`). The rest of the finding is
+  verified at v1.767.0 only.
 
 <a id="of-12"></a>
 ### OF-12 · `delete_after_use` is accepted but not persisted
@@ -1266,7 +1289,8 @@ differ, the CLI's on-disk form is what a loader sees.
   - `P.<ext>`, the source (extension per [SY-3](#sy-3));
   - `P.script.yaml`, the metadata (`P.script.json` when the tree was pulled in
     JSON mode);
-  - `P.script.lock`, the lock, present only when the lock is non-empty.
+  - `P.script.lock`, the lock, present only when the lock is non-empty and
+    the script does not read a shared lock file ([SY-20](#sy-20)).
   - If more than one source file matches `P.<any known ext>`, the CLI errors.
   - A multi-file script uses the folder layout `P__mod/` containing
     `script.<ext>`, `script.yaml`, `script.lock`, and extra modules directly
@@ -1278,6 +1302,9 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/commands/script/script.ts:632-695, 838-876`;
   `cli/src/utils/resource_folders.ts:505`.
 - **Conformance:** [SY-2/a](conformance.md#sy-2)
+- **Revision 2026-11-09 (retarget to v1.862.0):** a script that reads a
+  shared lock file under `locks/` has no `P.script.lock` ([SY-20](#sy-20),
+  CLI 1.793.0). The rest of the finding is verified at v1.767.0 only.
 
 <a id="sy-3"></a>
 ### SY-3 · Script language comes from the file extension
@@ -1390,7 +1417,9 @@ differ, the CLI's on-disk form is what a loader sees.
 - **Rule:** In `.script.yaml`, `lock` is one of:
   - the string `!inline <p>.script.lock`, a path **relative to the sync root**
     (not to the script's directory), when the lock is non-empty and the script
-    is not a codebase script;
+    is not a codebase script; or, under `dedupeLockfiles` (CLI 1.793.0), the
+    string `!inline locks/<file>.lock`, a lock file that several scripts
+    share ([SY-20](#sy-20));
   - `''` when the lock is empty;
   - absent when there is no lock or the script is a codebase script.
   - On push the referenced file is read; **a missing file counts as an empty
@@ -1446,6 +1475,12 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/utils/metadata.ts:1071-1084`) is therefore never printed. The
   published package is built for Node (`cli/build-npm.ts:30-38`, `:47-50`).
   New case SY-5/d.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** the CLI
+  can now write a second form, a shared `!inline locks/<file>.lock`
+  reference ([SY-20](#sy-20)); the resolution steps are unchanged, so it
+  resolves like any root-relative reference
+  (`cli/src/utils/metadata.ts:1034-1048 @ v1.862.0`). The rest of the
+  finding is verified at v1.767.0 only.
 
 <a id="sy-6"></a>
 ### SY-6 · Flow folders and what a pulled `flow.yaml` contains
@@ -1806,7 +1841,8 @@ differ, the CLI's on-disk form is what a loader sees.
     `skipApps`, `skipFolders`, `skipWorkspaceDependencies`;
     `includeSchedules`, `includeTriggers`, `includeUsers`, `includeGroups`,
     `includeSettings`, `includeKey`.
-  - Layout: `nonDottedPaths` (absent means `false`), `json`.
+  - Layout: `nonDottedPaths` (absent means `false`), `json`, and since CLI
+    1.793.0 `dedupeLockfiles` (absent means off; [SY-20](#sy-20)).
   - Behaviour: `syncBehavior` (only `v1` exists), `parallel`, `locksRequired`,
     `lint`, `plainSecrets`, `message`, `promotion`, `skipBranchValidation`.
   - `codebases[]` ([SY-8](#sy-8)).
@@ -2139,6 +2175,72 @@ differ, the CLI's on-disk form is what a loader sees.
   (`cli/windmill-utils-internal/src/inline-scripts/replacer.ts:46-53`). A
   refused script lock reference prints the reference reader's warning
   around the decoder's message ([SY-5](#sy-5)). New case SY-19/e.
+
+<a id="sy-20"></a>
+### SY-20 · Shared lock files (`dedupeLockfiles`)
+
+**Scope:** later · **Confidence:** high (CLI source-traced); not recorded · **Status:** drafted
+
+- **Rule:** Since CLI 1.793.0 ("deduplicate identical script lockfiles"), a
+  tree may hold lock files that several scripts share.
+  - **The switch.** `dedupeLockfiles` in `wmill.yaml`, off when absent. No
+    command-line flag sets it, and the CLI tests it for truthiness only, so
+    the string `"false"` turns it on. A workspace's `overrides` can set it,
+    but only for that workspace's `sync pull` and `sync push`.
+  - **The layout it writes.** The scripts that resolve against one top-level
+    workspace dependency file `dependencies/[<name>.]<file>` (a
+    `package.json`, `requirements.in`, `composer.json` or `go.mod`) read one
+    lock file, `locks/[<name>.]<file>.lock` at the sync root, through the
+    ordinary root-relative reference `lock: '!inline locks/<…>.lock'`
+    ([SY-5](#sy-5)). Such a script has no `P.script.lock` ([SY-2](#sy-2)).
+    The reference may be folded onto two lines by the YAML writer; a YAML
+    reader joins it again with one space. No other reference syntax exists.
+  - **Who shares.** Scripts are grouped by the dependency file they use, not
+    by their lock text. Only `bun`, `python3`, `php` and `go` scripts can
+    share. A script never joins when its header holds a lock-affecting
+    annotation (for Bun `npm`, `nodejs`, `native`, `nobundling` or `sandbox`;
+    for Python the `py3xx` selectors and a few others), when it names its
+    dependencies in `extra_` mode or inline, or when it names more than one
+    dependency file. Flows, apps, module files of the `__mod` layout and
+    codebase scripts are never deduplicated. Within a group the lock texts
+    are compared byte for byte; the most common one becomes the shared file,
+    and a member whose lock differs keeps its own `P.script.lock`.
+  - **Which commands write it.** `wmill generate-metadata` converts the tree
+    after generating; `sync pull` and `sync push` collapse the server's
+    per-script locks into the shared form before comparing, so a pull writes
+    it directly. A shared file lives as long as its dependency file.
+  - **The server never sees `locks/`.** A push reads each script's lock
+    through its reference and sends the text, so every deployed script still
+    holds its own lock. With the switch off the CLI ignores `locks/` in its
+    walk, but a reference into it is still read when the script is pushed.
+  - **Under the switch** a file directly under `locks/` whose name is a
+    dependency file's name plus `.lock` is part of the CLI's walk. The
+    include and exclude filters do not apply to it, and it has no server
+    item of its own. A refused encoding there ([SY-19](#sy-19)) therefore
+    fails the whole push. With the switch off the file is only a reference,
+    which reads as empty with the warning of [SY-5](#sy-5). Other files under
+    `locks/` are not Windmill's.
+  - **`wmill-lock.yaml`** ([SY-14](#sy-14)) keeps its format. A script's hash
+    covers its metadata text, so converting a tree changes the hashes; a
+    change of the shared file's text alone changes none.
+- **Evidence:** at v1.862.0: `cli/src/core/conf.ts:116` (the key),
+  `:31-35`, `:372-421` (overrides; no default); `cli/src/commands/sync/sync.ts:2785-2812`
+  (pull and push collapse the remote locks), `:2790`, `:3236` (the
+  truthiness test), `:3112-3131`, `:3167-3184`, `:3233-3241`, `:3268-3273`
+  (the walk, with and without the switch, outside the filters),
+  `:5121-5199`, `:5994-5997` (push sends the text per script);
+  `cli/src/utils/lock_dedup.ts:92-132`, `:228-231`, `:279-315`, `:335-383`,
+  `:435-507` (who joins, the folded reference, the content choice, the
+  rewrites, the lifetime); `cli/src/utils/script_common.ts:47-58`,
+  `:75-158`, `:182-279` (the annotations and the name rule);
+  `cli/src/commands/generate-metadata/generate-metadata.ts:420-458`;
+  `cli/src/utils/metadata.ts:380-391`, `:722-741`, `:1034-1048` (joining
+  an existing shared file; the reference read on push).
+- **Conformance:** [SY-20/a–d](conformance.md#sy-20)
+- **Design note (not Windmill behaviour):** windmill-lite's loader already
+  reads a shared reference as SY-5 resolves any root-relative reference, so
+  SY-20/a–c need no change; SY-20/d, the walk of `locks/` under the switch,
+  is a loader policy not yet decided.
 
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content

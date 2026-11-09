@@ -1,0 +1,23 @@
+# JE-38/e-h: what a step's input transforms store from flow_env since
+# Windmill 1.855.0. An exact read stores the entry as written (a $var:
+# reference stays a reference, which the script job resolves); a computed
+# value is stored resolved, or encrypted under the root job's key when the
+# text reads a secret entry by name; into a subflow called by path only a
+# secret entry keeps its reference; a $res: entry is never secret, even
+# when its resource wraps a secret variable. Each script returns what it
+# received, so its result shows the resolved values (O4) beside the
+# recorded arguments (O2). An encrypted argument changes with every run, so it is masked; the
+# results show it decrypted. The variables are created after the push
+# (OR-31) with the resource, u/test/ of the catalogue becoming f/wl_je38/.
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md#je-38. Deployed with oracle.deploy api.
+id: je/je-38-env-refs
+spec: [JE-38/e, JE-38/f, JE-38/g, JE-38/h]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare:
+  mask: [/steps/m:b/args/w, /steps/m:c/args/w, /steps/m:c~1m:e/args/w]

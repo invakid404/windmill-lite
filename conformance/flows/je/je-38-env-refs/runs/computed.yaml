@@ -1,0 +1,15 @@
+# JE-38/f: a computed value is evaluated with the resolved env. x reads a
+# variable that is not secret and is stored in clear; w reads the secret
+# entry S by name and is stored as $encrypted: ciphertext under the root
+# job's key (masked: it changes with every run); z reads a literal. b
+# receives w decrypted.
+spec: [JE-38/f]
+target: f/wl_je38/computed
+expect:
+  status: success
+  result: {x: plain!, w: hidden!, z: lit!}
+  steps:
+    "m:b":
+      status: success
+      args: {x: plain!, w: "<masked>", z: lit!}
+      result: {x: plain!, w: hidden!, z: lit!}

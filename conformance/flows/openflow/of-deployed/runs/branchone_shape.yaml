@@ -1,0 +1,7 @@
+# OF-6/b: a deployed branchone's branch gains skip_failure false and
+# parallel true, which nothing reads for a branchone, and keeps its summary
+# and expr (checked in the batch manifest); the branch is taken and the flow
+# returns x's 3.
+spec: [OF-6/b]
+target: f/wl_of/branchone_shape
+expect: {status: success, result: 3}

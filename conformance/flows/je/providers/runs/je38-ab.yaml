@@ -1,3 +1,6 @@
+# JE-38/a, b: an exact flow_env read stores the env's entry as written, so
+# b's recorded argument is the $var: reference (Windmill 1.855.0), which the
+# script job resolves: b receives and returns the variable's value.
 spec: [JE-38/a, JE-38/b]
 target: f/wl_je_providers/je38_ab
 claims:
@@ -5,5 +8,9 @@ claims:
     equals: success
   - at: /steps/m:a/args/x
     equals: v
+  - at: /steps/m:a/result
+    equals: v
   - at: /steps/m:b/args/x
+    equals: "$var:f/wl_je_providers/v"
+  - at: /steps/m:b/result
     equals: s3cr3t
