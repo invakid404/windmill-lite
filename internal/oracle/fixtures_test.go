@@ -172,7 +172,7 @@ func TestFlowFixtureTreesResolve(t *testing.T) {
 // iterations' scripts, not their child flows: CF-7/a, the same loop with
 // parallelism 2, records child flows that start before the previous one
 // completed, so the predicate holds for b because of parallelism and
-// fails for a. A run pending in the retarget ledger skips the test.
+// fails for a.
 func TestRecordedParallelismReleaseOrder(t *testing.T) {
 	// spec: CF-7/b, CF-7/a
 	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, "control-flow", "cf-7"))
@@ -187,11 +187,6 @@ func TestRecordedParallelismReleaseOrder(t *testing.T) {
 		for i := range f.Runs {
 			if f.Runs[i].Name == name {
 				run = &f.Runs[i]
-			}
-		}
-		if run != nil && run.Recorded == nil {
-			if e, ok := pendingRecordings(t)["conformance/flows/control-flow/cf-7/"+name]; ok {
-				t.Skip(e.Marker())
 			}
 		}
 		if run == nil || run.Recorded == nil {
@@ -244,8 +239,7 @@ func TestRecordedParallelismReleaseOrder(t *testing.T) {
 // absent and come back filled after the dependency job (CF-6 rule 2), and
 // generate-metadata writes the same defaults into flow.yaml; a pull writes
 // them back too (CF-6/b, SY-6/c); FX-40/d's body is pinned to the hash the
-// deployment assigned its script. Each run is a subtest, which a run
-// pending in the retarget ledger skips.
+// deployment assigned its script. Each run is a subtest.
 func TestRecordedDeploymentEvidence(t *testing.T) {
 	// spec: CF-6/a, CF-6/b, SY-6/c, CF-15/a, CF-15/b, FX-40/d
 	const absent = "(absent)"
@@ -328,8 +322,7 @@ func TestRecordedDeploymentEvidence(t *testing.T) {
 }
 
 // recordedDeployment returns the deployment evidence in a committed run's
-// provenance. A run without a recording, which the retarget ledger lists
-// as pending, skips the test with its marker.
+// provenance.
 func recordedDeployment(t *testing.T, fixture, run string) FlowDeployment {
 	t.Helper()
 	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, filepath.FromSlash(fixture)))
@@ -344,9 +337,6 @@ func recordedDeployment(t *testing.T, fixture, run string) FlowDeployment {
 			continue
 		}
 		if r.Recorded == nil {
-			if e, ok := pendingRecordings(t)["conformance/flows/"+fixture+"/"+run]; ok {
-				t.Skip(e.Marker())
-			}
 			t.Fatalf("%s run %s has no recording", fixture, run)
 		}
 		var p Provenance
@@ -399,8 +389,7 @@ func jsonAt(t *testing.T, doc json.RawMessage, pointer, absent string) string {
 }
 
 // recordedRun returns a committed run of a fixture under conformance/flows
-// and its provenance. A run without a recording, which the retarget ledger
-// lists as pending, skips the test with its marker.
+// and its provenance.
 func recordedRun(t *testing.T, fixture, run string) (conformance.Run, Provenance) {
 	t.Helper()
 	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, filepath.FromSlash(fixture)))
@@ -412,9 +401,6 @@ func recordedRun(t *testing.T, fixture, run string) (conformance.Run, Provenance
 			continue
 		}
 		if r.Recorded == nil {
-			if e, ok := pendingRecordings(t)["conformance/flows/"+fixture+"/"+run]; ok {
-				t.Skip(e.Marker())
-			}
 			t.Fatalf("%s run %s has no recording", fixture, run)
 		}
 		var p Provenance

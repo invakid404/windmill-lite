@@ -61,10 +61,7 @@ func repo(t *testing.T) string {
 // the real Bun harness on the pinned Bun, each script built by the Bun
 // build helper or, for a codebase script, by esbuild. With WL_NODE it is
 // also milestone C2b's D13 gate: each CommonJS codebase bundle runs on
-// Node too, as on Windmill, and shows its node check there. On the
-// retarget branch, a case that the retarget ledger lists may fail in the
-// modes its entry covers, and fails the test when it passes in one
-// (judgeSuite).
+// Node too, as on Windmill, and shows its node check there.
 func TestStepSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	node := nodeOrSkip(t)
@@ -88,28 +85,15 @@ func TestStepSuite(t *testing.T) {
 		loaded = append(loaded, f)
 		n += len(f.Cases)
 	}
-	pending := retargetLedger(t).StepSuite
-	root := repo(t)
 	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh} {
 		t.Run(mode, func(t *testing.T) {
-			sc := &stepChecker{bun: bun, node: node, repo: root, mode: mode}
+			sc := &stepChecker{bun: bun, node: node, repo: repo(t), mode: mode}
 			for _, f := range loaded {
 				t.Run(f.Finding, func(t *testing.T) {
 					t.Parallel()
-					rel, err := filepath.Rel(root, mustAbs(t, f.Path))
-					if err != nil {
-						t.Fatal(err)
-					}
 					for _, r := range sc.runFile(context.Background(), f) {
-						key := filepath.ToSlash(rel) + "/" + r.name
-						e, listed := pending[key]
-						switch judgeSuite(len(r.problems) > 0, e, listed, mode) {
-						case verdictFail:
+						if len(r.problems) > 0 {
 							t.Errorf("%s:\n  %s\nharness diagnostics:\n%s", r.name, strings.Join(r.problems, "\n  "), r.diag)
-						case verdictPending:
-							t.Logf("%s, pending in the retarget ledger (%s):\n  %s", r.name, e.Marker(), strings.Join(r.problems, "\n  "))
-						case verdictStale:
-							t.Errorf("%s passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", key, mode, conformance.LedgerPath, e.Marker())
 						}
 					}
 				})

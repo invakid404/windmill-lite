@@ -93,14 +93,10 @@ func requiredRuns(t *testing.T) map[string]string {
 // conformance/flows, and every expression file under conformance/exprs as
 // its generated one-step flow fixture, also runs: each must load, and its
 // runs are reported as passing, failing or unsupported, with the reason.
-// On the retarget branch, a required run that the retarget ledger lists
-// may fail in the modes its entry covers, and fails the test when it
-// passes in one (judgeSuite).
 func TestFlowSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	req := requiredRuns(t)
 	root := repo(t)
-	pending := retargetLedger(t).FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -115,8 +111,14 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
 	}
 	dirs = append(dirs, exprs...)
-	for _, c := range flowSuiteModes {
-		mode, name := c.mode, c.name()
+	for _, c := range []struct {
+		mode   string
+		shared bool
+	}{{conformance.ModeWarm, false}, {conformance.ModeFresh, false}, {ModeHost, false}, {conformance.ModeWarm, true}, {ModeHost, true}} {
+		mode, name := c.mode, c.mode
+		if c.shared {
+			name += "-shared-code"
+		}
 		t.Run(name, func(t *testing.T) {
 			fc := &flowChecker{bun: bun, repo: root, mode: mode, sharedCode: c.shared, js: js}
 			type outcome struct {
@@ -153,34 +155,20 @@ func TestFlowSuite(t *testing.T) {
 					extra = append(extra, key)
 				}
 			}
-			held := 0
 			for _, key := range slices.Sorted(maps.Keys(req)) {
 				o := got[key]
-				if !o.seen {
-					t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
-					continue
-				}
-				var what string
 				switch {
+				case !o.seen:
+					t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
 				case o.res.unsupported != "":
-					what = "is unsupported: " + o.res.unsupported
+					t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
 				case len(o.res.problems) > 0:
-					what = "failed:\n  " + strings.Join(o.res.problems, "\n  ") + "\nharness diagnostics:\n" + o.res.diag
-				}
-				e, listed := pending[key]
-				switch judgeSuite(what != "", e, listed, name) {
-				case verdictFail:
-					t.Errorf("required run %s (%s) %s", key, req[key], what)
-				case verdictPending:
-					held++
-					t.Logf("required run %s (%s), pending in the retarget ledger (%s), %s", key, req[key], e.Marker(), what)
-				case verdictStale:
-					t.Errorf("required run %s (%s) passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", key, req[key], name, conformance.LedgerPath, e.Marker())
+					t.Errorf("required run %s (%s) failed:\n  %s\nharness diagnostics:\n%s", key, req[key], strings.Join(o.res.problems, "\n  "), o.res.diag)
 				}
 			}
 			slices.Sort(extra)
-			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above or pending (%d)",
-				name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req), held)
+			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
+				name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
 			if len(extra) > 0 {
 				t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
 			}
@@ -188,45 +176,13 @@ func TestFlowSuite(t *testing.T) {
 	}
 }
 
-// flowSuiteMode is one of TestFlowSuite's modes: a mode of wltest check,
-// with bundles built with shared code or without.
-type flowSuiteMode struct {
-	mode   string
-	shared bool
-}
-
-// name is the mode's subtest name, which a ledger entry's modes use.
-func (m flowSuiteMode) name() string {
-	if m.shared {
-		return m.mode + "-shared-code"
-	}
-	return m.mode
-}
-
-// flowSuiteModes are TestFlowSuite's modes, in the order it runs them.
-var flowSuiteModes = []flowSuiteMode{{conformance.ModeWarm, false}, {conformance.ModeFresh, false}, {ModeHost, false}, {conformance.ModeWarm, true}, {ModeHost, true}}
-
-// retargetLedger reads the retarget ledger (conformance.LedgerPath): none
-// on main, where nothing is pending.
-func retargetLedger(t *testing.T) *conformance.Ledger {
-	t.Helper()
-	l, err := conformance.LoadLedger(filepath.Join(repo(t), filepath.FromSlash(conformance.LedgerPath)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return l
-}
-
 // Milestone N4's gate (ADR 0012): the E3d FX-40 cases, the fixture
 // conformance/flows/execution/fx-40, pass on windmill-lite in fresh and in
 // warm mode, since the result cache lives in the engine, not in a harness
 // process (FX-40, D4). Every run of the fixture runs and passes in both.
-// On the retarget branch, the ledger's flow_suite entries apply as in
-// TestFlowSuite (judgeSuite).
 func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	bun := bunOrSkip(t)
 	root := repo(t)
-	pending := retargetLedger(t).FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -241,27 +197,13 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 				if fr.err != nil {
 					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
 				}
-				rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
-				if err != nil {
-					t.Fatal(err)
-				}
 				for _, r := range fr.runs {
 					n++
-					var what string
 					switch {
 					case r.unsupported != "":
-						what = "is unsupported: " + r.unsupported
+						t.Errorf("run %s is unsupported: %s", r.run, r.unsupported)
 					case len(r.problems) > 0:
-						what = "failed:\n  " + strings.Join(r.problems, "\n  ") + "\nharness diagnostics:\n" + r.diag
-					}
-					e, listed := pending[filepath.ToSlash(rel)+"/"+r.run]
-					switch judgeSuite(what != "", e, listed, mode) {
-					case verdictFail:
-						t.Errorf("run %s %s", r.run, what)
-					case verdictPending:
-						t.Logf("run %s, pending in the retarget ledger (%s), %s", r.run, e.Marker(), what)
-					case verdictStale:
-						t.Errorf("run %s passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", r.run, mode, conformance.LedgerPath, e.Marker())
+						t.Errorf("run %s failed:\n  %s\nharness diagnostics:\n%s", r.run, strings.Join(r.problems, "\n  "), r.diag)
 					}
 				}
 			}
@@ -338,13 +280,10 @@ func TestRunWaitOutcomes(t *testing.T) {
 // Milestone N5's gate (ADR 0012): the control-flow/subflow-retry runs, a
 // retry on a flow step recorded on the oracle, and a retry on a while loop
 // and a branchone, match their recordings on windmill-lite in fresh and in
-// warm mode. Every run of the fixture runs and passes in both. On the
-// retarget branch, the ledger's flow_suite entries apply as in
-// TestFlowSuite (judgeSuite).
+// warm mode. Every run of the fixture runs and passes in both.
 func TestSubflowRetryFixturesFreshAndWarm(t *testing.T) {
 	bun := bunOrSkip(t)
 	root := repo(t)
-	pending := retargetLedger(t).FlowSuite
 	js, err := quickjs.New(quickjs.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -359,27 +298,13 @@ func TestSubflowRetryFixturesFreshAndWarm(t *testing.T) {
 				if fr.err != nil {
 					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
 				}
-				rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
-				if err != nil {
-					t.Fatal(err)
-				}
 				for _, r := range fr.runs {
 					n++
-					var what string
 					switch {
 					case r.unsupported != "":
-						what = "is unsupported: " + r.unsupported
+						t.Errorf("run %s is unsupported: %s", r.run, r.unsupported)
 					case len(r.problems) > 0:
-						what = "failed:\n  " + strings.Join(r.problems, "\n  ") + "\nharness diagnostics:\n" + r.diag
-					}
-					e, listed := pending[filepath.ToSlash(rel)+"/"+r.run]
-					switch judgeSuite(what != "", e, listed, mode) {
-					case verdictFail:
-						t.Errorf("run %s %s", r.run, what)
-					case verdictPending:
-						t.Logf("run %s, pending in the retarget ledger (%s), %s", r.run, e.Marker(), what)
-					case verdictStale:
-						t.Errorf("run %s passes in mode %s, which its entry in %s covers (%s): remove the mode or the entry", r.run, mode, conformance.LedgerPath, e.Marker())
+						t.Errorf("run %s failed:\n  %s\nharness diagnostics:\n%s", r.run, strings.Join(r.problems, "\n  "), r.diag)
 					}
 				}
 			}

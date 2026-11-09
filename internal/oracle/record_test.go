@@ -1313,3 +1313,108 @@ func TestSessionKillsAHungCLIAndTearsDown(t *testing.T) {
 		t.Fatalf("calls %q", rig.docker.calls)
 	}
 }
+
+// TestLocalFailureOnSessions: a run that does not match its expect saves
+// its observation in the side directory, and a run that fails on the
+// oracle fails without local_failure; a run whose observation, recording
+// or raw capture the session cannot place or write fails with
+// local_failure set, since the failure is the session's own. Each fails
+// the session.
+func TestLocalFailureOnSessions(t *testing.T) {
+	ctx := context.Background()
+	blocked := func(t *testing.T) string {
+		p := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		// setup adjusts the rig and the session, and returns the runs it
+		// checks.
+		setup   func(t *testing.T, rig *sessionRig, s *Session) []string
+		outcome string
+		local   bool
+		saved   bool // the run's observation is in the side directory
+	}{
+		{
+			name: "a mismatch saves its observation",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				rig.oracle.tag = "ho"
+				s.MismatchDir = t.TempDir()
+				return []string{"ok", "fail"}
+			},
+			outcome: OutcomeExpectMismatch, saved: true,
+		},
+		{
+			name: "a failure on the oracle",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				rig.oracle.hang = true
+				s.Repeat = 1
+				s.RunTimeout, s.minRunTimeout = 50*time.Millisecond, time.Millisecond
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed,
+		},
+		{
+			name: "an observation that cannot be written",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				rig.oracle.tag = "ho"
+				s.MismatchDir = blocked(t)
+				return []string{"ok", "fail"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+		{
+			name: "a recording that cannot be written",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				s.OutDir = blocked(t)
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+		{
+			name: "a recording that --out cannot place",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				s.OutDir, s.RepoRoot = t.TempDir(), t.TempDir()
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+		{
+			name: "a raw capture that cannot be written",
+			setup: func(t *testing.T, rig *sessionRig, s *Session) []string {
+				s.RawDir = blocked(t)
+				return []string{"ok", "fail", "effects"}
+			},
+			outcome: OutcomeFailed, local: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := newRig(t)
+			s := rig.session(20 * GiB)
+			s.Check, s.RepoRoot = true, filepath.Dir(rig.fixture)
+			names := tc.setup(t, rig, s)
+			rep, err := s.Run(ctx, []*conformance.Fixture{rig.load(t)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := outcomes(rep)
+			for _, name := range names {
+				r := got[name]
+				if r.Outcome != tc.outcome || r.LocalFailure != tc.local {
+					t.Errorf("%s: %+v, want outcome %s and local_failure %v", name, r, tc.outcome, tc.local)
+				}
+				if !r.Failed(true) {
+					t.Errorf("%s: a %s run does not fail the session", name, r.Outcome)
+				}
+				if tc.saved {
+					if _, err := os.Stat(r.Observation); r.Observation == "" || err != nil {
+						t.Errorf("%s: observation %q not saved: %v", name, r.Observation, err)
+					}
+				}
+			}
+		})
+	}
+}

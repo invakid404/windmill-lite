@@ -28,7 +28,6 @@ fixtures on windmill-lite.
 | `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
 | `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred`, `CompareStep` and `CompareStepNode` (see [Step cases](#step-cases)) |
 | `claims.go` | `Claim`, `CheckClaims`, `Delay`, `ValueAt`, `SameJSON`: partial assertions about an observation |
-| `ledger.go` | `Ledger`, `LedgerEntry`, `LoadLedger`, `ParseLedger`, `ParseMarker`: the retarget ledger's file and marker forms, which exist only on the retarget branch ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)) |
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |

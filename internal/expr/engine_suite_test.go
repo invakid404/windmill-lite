@@ -46,24 +46,13 @@ var engineDeviations = map[string]struct{ deviation, text string }{
 	"JE-48/a": {"D17", "null"},
 }
 
-// enginePending are the E3a cases, by key, whose error text as CE 1.862.0
-// records it, or whose outcome as the reference now gives it, the
-// evaluator does not give yet, each with its retarget marker
-// (cmd/wltest/README.md, "The retarget ledger"). On the retarget
-// branch such a case still runs: a failure skips it with the marker, and a
-// pass fails it, since the marker then hides nothing.
-var enginePending = map[string]string{}
-
 // TestE3aOnEngine is the exit gate of B2b: each E3a case gives the value,
 // the text or the error its recording expects, and each error that the
-// oracle recorded holds the evaluator's text exactly. On the retarget
-// branch, a case whose recording is pending in the ledger is held to its
-// expectation, and an error it gives skips with the entry's marker, since
-// the text to compare is not recorded yet; enginePending's cases may fail.
+// oracle recorded holds the evaluator's text exactly.
 func TestE3aOnEngine(t *testing.T) {
 	e3a := loadE3a(t)
 	p := NewPipeline(realEngine(t, DefaultLimits(), 0))
-	var ran, exact, held, unrecorded, skipped int
+	var ran, exact, skipped int
 	deviations := map[string][]string{}
 	for _, k := range slices.Sorted(maps.Keys(e3a)) {
 		c := e3a[k]
@@ -71,18 +60,6 @@ func TestE3aOnEngine(t *testing.T) {
 			if why, ok := engineSkipped[c.spec]; ok {
 				skipped++
 				t.Skip(why)
-			}
-			marker, listed := enginePending[k]
-			// fail reports a failure of the case, or holds it when the
-			// case is listed in enginePending.
-			fail := func(format string, args ...any) {
-				t.Helper()
-				if listed {
-					t.Logf(format, args...)
-					held++
-					t.Skip(marker)
-				}
-				t.Errorf(format, args...)
 			}
 			ran++
 			e := Compile(c.site, c.text)
@@ -99,34 +76,27 @@ func TestE3aOnEngine(t *testing.T) {
 				return
 			}
 			if err := engineCheck(c, out, ee, deviations); err != nil {
-				fail("%s %q: %v", c.spec, c.text, err)
+				t.Errorf("%s %q: %v", c.spec, c.text, err)
 			}
-			if ee != nil && c.pending != "" {
-				unrecorded++
-				t.Skip(c.pending)
-			}
-			if ee != nil && !holdsText(c.recorded, ee.Message) {
-				fail("%s %q: no recorded message holds the evaluator's text %q; recorded %q", c.spec, c.text, ee.Message, c.recorded)
+			if ee == nil {
 				return
 			}
-			if listed {
-				t.Errorf("%s passes, but enginePending lists it (%s): remove its entry", k, marker)
+			if !holdsText(c.recorded, ee.Message) {
+				t.Errorf("%s %q: no recorded message holds the evaluator's text %q; recorded %q", c.spec, c.text, ee.Message, c.recorded)
+				return
 			}
-			if ee != nil {
-				exact++
-			}
+			exact++
 		})
 	}
 	// The suite cannot pass empty: E3a recorded over a hundred expressions,
-	// and over ten of them fail with an engine text, matched or, on the
-	// retarget branch, held by enginePending.
-	if ran < 100 || exact+held < 10 {
-		t.Errorf("%d cases ran, %d recorded texts matched and %d were held; the suite has gone empty", ran, exact, held)
+	// and over ten of them fail with an engine text.
+	if ran < 100 || exact < 10 {
+		t.Errorf("%d cases ran and %d recorded texts matched; the suite has gone empty", ran, exact)
 	}
 	for k, d := range deviations {
 		t.Logf("%s: the %s engine gives %s", k, testCLibrary, strings.Join(d, ", "))
 	}
-	t.Logf("%d E3a expressions on the engine, %d skipped; %d recorded error texts matched byte for byte, %d held by enginePending, %d not recorded yet", ran, skipped, exact, held, unrecorded)
+	t.Logf("%d E3a expressions on the engine, %d skipped; %d recorded error texts matched byte for byte", ran, skipped, exact)
 }
 
 // holdsText reports whether one of the recorded messages holds the

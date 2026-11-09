@@ -7,34 +7,41 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/invakid404/windmill-lite/internal/conformance"
-	"github.com/invakid404/windmill-lite/internal/oracle"
 )
 
-// The retarget ledger (conformance.LedgerPath) and the markers exist only
-// on the retarget branch, rt/retarget. This file holds the guard that
-// keeps them there, `wltest ledger`, and the decisions the ledger's
-// readers share. The pull request that merges the branch into main deletes
-// the ledger file, every marker and their readers; the guard runs on that
-// pull request, and so is the last part to go.
+// A branch that moves windmill-lite to a new Windmill or Bun version may
+// list the failures its pull requests knowingly leave in a retarget ledger:
+// the ledger file and markers in test code. No test reads the ledger file,
+// and a marker skips a test without anything failing. This file holds the
+// guard that keeps both out of every tree CI checks, `wltest ledger`
+// (cmd/wltest/README.md, "The ledger guard").
+const (
+	// ledgerPath is the ledger file's path from the repository root.
+	ledgerPath = "cmd/wltest/testdata/flowsuite-pending.json"
+	// markerPrefix starts a marker, the skip message of a Go test or the
+	// name of a skipped bun test: markerPrefix, a space, a milestone id, a
+	// space and the reason.
+	markerPrefix = "retarget-pending:"
+)
 
-const ledgerUsage = `usage: wltest ledger [--base BRANCH] [--repo DIR]
+// milestoneID is the form of a milestone's id, the prefix of its pull
+// request's title: W or X, a number and an optional lower-case letter.
+var milestoneID = regexp.MustCompile(`^[WX][0-9]+[a-z]?$`)
+
+const ledgerUsage = `usage: wltest ledger [--repo DIR]
 `
 
-// ledger validates and prints the retarget ledger and every marker in the
-// repository's files, and with --base main refuses both.
+// ledger fails while the ledger file exists or any marker remains in the
+// repository's files, and prints each marker it finds.
 func ledger(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ledger", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	base := fs.String("base", "", "the branch the change goes into; main refuses the ledger file and every marker")
 	repoDir := fs.String("repo", ".", "the repository's root directory")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -54,15 +61,13 @@ func ledger(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "wltest: %s:%d: %v\n", m.file, m.line, m.err)
 		failed = true
 	}
-	if *base == "main" {
-		if scan.exists {
-			fmt.Fprintf(stderr, "wltest: %s exists: a change into main deletes the retarget ledger\n", conformance.LedgerPath)
-			failed = true
-		}
-		if len(scan.markers) > 0 {
-			fmt.Fprintf(stderr, "wltest: %d retarget markers remain: a change into main removes every one\n", len(scan.markers))
-			failed = true
-		}
+	if scan.exists {
+		fmt.Fprintf(stderr, "wltest: %s exists: delete the retarget ledger\n", ledgerPath)
+		failed = true
+	}
+	if len(scan.markers) > 0 {
+		fmt.Fprintf(stderr, "wltest: %d retarget markers remain: remove every one\n", len(scan.markers))
+		failed = true
 	}
 	if failed {
 		return 1
@@ -70,8 +75,8 @@ func ledger(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// marker is a marker found in a file, or an occurrence of
-// conformance.MarkerPrefix in a test source that is not one.
+// marker is a marker found in a file, or an occurrence of markerPrefix in
+// a test source that is not one.
 type marker struct {
 	file              string // from the repository root, slash-separated
 	line              int
@@ -82,25 +87,20 @@ type marker struct {
 // ledgerScan is what `wltest ledger` found.
 type ledgerScan struct {
 	exists    bool // the ledger file exists
-	ledger    *conformance.Ledger
 	markers   []marker
 	malformed []marker
 }
 
-// scanLedger reads the ledger file and searches every file Git tracks or
-// would track (untracked files that no ignore rule excludes) for markers.
-// A marker anywhere counts. An occurrence of the prefix that is not a
-// marker is malformed in a test source, a Go test or a bun test file,
-// where it would skip a test without the guard seeing it, and elsewhere is
-// prose, such as documentation of the form.
+// scanLedger checks for the ledger file and searches every file Git tracks
+// or would track (untracked files that no ignore rule excludes) for
+// markers. A marker anywhere counts. An occurrence of the prefix that is
+// not a marker is malformed in a test source, a Go test or a bun test
+// file, where it could skip a test, and elsewhere is prose, such as
+// documentation of the form.
 func scanLedger(repo string) (*ledgerScan, error) {
-	p := filepath.Join(repo, filepath.FromSlash(conformance.LedgerPath))
-	_, err := os.Stat(p)
+	_, err := os.Stat(filepath.Join(repo, filepath.FromSlash(ledgerPath)))
 	scan := &ledgerScan{exists: err == nil}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	if scan.ledger, err = conformance.LoadLedger(p); err != nil {
 		return nil, err
 	}
 	out, err := exec.Command("git", "-C", repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
@@ -153,19 +153,19 @@ func findMarkers(name string, data []byte) []marker {
 	var found []marker
 	for i, line := range strings.Split(string(data), "\n") {
 		for at := 0; ; {
-			k := strings.Index(line[at:], conformance.MarkerPrefix)
+			k := strings.Index(line[at:], markerPrefix)
 			if k < 0 {
 				break
 			}
 			k += at
-			at = k + len(conformance.MarkerPrefix)
+			at = k + len(markerPrefix)
 			text := line[k:]
 			if k > 0 && strings.ContainsRune("\"'`", rune(line[k-1])) {
 				text = untilQuote(text, line[k-1])
 			}
 			text = strings.TrimRight(text, " \t\r")
 			m := marker{file: name, line: i + 1}
-			m.milestone, m.reason, m.err = conformance.ParseMarker(text)
+			m.milestone, m.reason, m.err = parseMarker(text)
 			if m.err == nil || testSource.MatchString(name) {
 				found = append(found, m)
 			}
@@ -187,77 +187,35 @@ func untilQuote(s string, q byte) string {
 	return s
 }
 
-// print lists the ledger's entries and the markers, then a count per
-// milestone.
-func (s *ledgerScan) print(w io.Writer) {
-	perMilestone := map[string]int{}
-	if !s.exists {
-		fmt.Fprintf(w, "retarget ledger %s: absent\n", conformance.LedgerPath)
-	} else {
-		l := s.ledger
-		fmt.Fprintf(w, "retarget ledger %s: %d flow-suite runs, %d step cases, %d oracle runs\n", conformance.LedgerPath, len(l.FlowSuite), len(l.StepSuite), len(l.Oracle))
-		for _, sec := range []struct {
-			name    string
-			entries map[string]conformance.LedgerEntry
-		}{{"flow_suite", l.FlowSuite}, {"step_suite", l.StepSuite}, {"oracle", l.Oracle}} {
-			for _, item := range slices.Sorted(maps.Keys(sec.entries)) {
-				e := sec.entries[item]
-				modes := ""
-				if len(e.Modes) > 0 {
-					modes = " (" + strings.Join(e.Modes, ", ") + ")"
-				}
-				fmt.Fprintf(w, "  %s %s%s: %s\n", sec.name, item, modes, e.Marker())
-				perMilestone[e.Milestone]++
-			}
-		}
+// parseMarker reads a marker: markerPrefix, one space, a milestone id of
+// milestoneID's form, one space and a reason, which runs to the end of s
+// and is one non-empty line without surrounding space.
+func parseMarker(s string) (milestone, reason string, err error) {
+	rest, ok := strings.CutPrefix(s, markerPrefix+" ")
+	if !ok {
+		return "", "", fmt.Errorf("%q does not start with %q and a space", s, markerPrefix)
 	}
+	milestone, reason, _ = strings.Cut(rest, " ")
+	switch {
+	case !milestoneID.MatchString(milestone):
+		return "", "", fmt.Errorf("%q: milestone %q is not a milestone id such as W4c or X1", s, milestone)
+	case reason == "":
+		return "", "", fmt.Errorf("%q: no reason", s)
+	case strings.TrimSpace(reason) != reason || strings.ContainsAny(reason, "\r\n"):
+		return "", "", fmt.Errorf("%q: reason %q is not one line without surrounding space", s, reason)
+	}
+	return milestone, reason, nil
+}
+
+// print says whether the ledger file exists and lists the markers.
+func (s *ledgerScan) print(w io.Writer) {
+	state := "absent"
+	if s.exists {
+		state = "present"
+	}
+	fmt.Fprintf(w, "retarget ledger %s: %s\n", ledgerPath, state)
 	fmt.Fprintf(w, "markers: %d\n", len(s.markers))
 	for _, m := range s.markers {
-		fmt.Fprintf(w, "  %s:%d: %s\n", m.file, m.line, conformance.LedgerEntry{Milestone: m.milestone, Reason: m.reason}.Marker())
-		perMilestone[m.milestone]++
+		fmt.Fprintf(w, "  %s:%d: %s %s %s\n", m.file, m.line, markerPrefix, m.milestone, m.reason)
 	}
-	if len(perMilestone) > 0 {
-		var counts []string
-		for _, m := range slices.Sorted(maps.Keys(perMilestone)) {
-			counts = append(counts, fmt.Sprintf("%s %d", m, perMilestone[m]))
-		}
-		fmt.Fprintf(w, "pending by milestone: %s\n", strings.Join(counts, ", "))
-	}
-}
-
-// recordVerdict reports whether run r fails a record session, and a note
-// to print below its line when the ledger's oracle section lists it
-// (oracle.RunReport.PendingVerdict).
-func recordVerdict(r oracle.RunReport, check bool, pending map[string]conformance.LedgerEntry) (fails bool, note string) {
-	e, listed := pending[r.Fixture+"/"+r.Run]
-	if !listed {
-		return r.Failed(check), ""
-	}
-	return r.PendingVerdict(check, e)
-}
-
-// A suite verdict is how a run of the flow suite or a step case went in one
-// mode, given its ledger entry.
-type suiteVerdict int
-
-const (
-	verdictPass    suiteVerdict = iota // passed, and no entry covers the mode
-	verdictFail                        // failed, and no entry covers the mode: an error
-	verdictPending                     // failed in a mode its entry covers: logged with the marker
-	verdictStale                       // passed in a mode its entry covers: an error, since the entry hides nothing
-)
-
-// judgeSuite decides a suite verdict; listed reports whether the ledger
-// has an entry e for the run or case.
-func judgeSuite(failed bool, e conformance.LedgerEntry, listed bool, mode string) suiteVerdict {
-	covered := listed && e.Covers(mode)
-	switch {
-	case failed && covered:
-		return verdictPending
-	case failed:
-		return verdictFail
-	case covered:
-		return verdictStale
-	}
-	return verdictPass
 }

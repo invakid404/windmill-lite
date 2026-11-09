@@ -149,10 +149,6 @@ type e3aCase struct {
 	// recorded are the error messages the oracle recorded where the case's
 	// evaluation can fail: its step's, then its run's.
 	recorded []string
-	// pending is the marker of the case's run when the retarget ledger
-	// lists its recording as pending (cmd/wltest/README.md, "The retarget
-	// ledger"): the run has no recording, so recorded is empty.
-	pending string
 }
 
 func storedText(t testing.TB, producer string) string {
@@ -261,23 +257,6 @@ func loadE3a(t testing.TB) map[string]*e3aCase {
 		}
 		out[c.key] = c
 	}
-	root := filepath.Dir(conformanceRoot)
-	ledger, err := conformance.LoadLedger(filepath.Join(root, filepath.FromSlash(conformance.LedgerPath)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// pendingRun is the marker of a run whose recording the ledger lists as
-	// pending, named from the repository root, or "".
-	pendingRun := func(dir, run string) string {
-		rel, err := filepath.Rel(root, dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if e, ok := ledger.Oracle[filepath.ToSlash(rel)+"/"+run]; ok {
-			return e.Marker()
-		}
-		return ""
-	}
 	files, err := conformance.FindExprFiles(filepath.Join(conformanceRoot, conformance.ExprDirName))
 	if err != nil {
 		t.Fatal(err)
@@ -300,11 +279,6 @@ func loadE3a(t testing.TB) map[string]*e3aCase {
 			if env := f.Env(c); env != "" {
 				ctx.FlowEnv = &env
 			}
-			pending := pendingRun(path, c.Name())
-			var recorded []string
-			if pending == "" {
-				recorded = exprsRecorded(t, path, c)
-			}
 			add(&e3aCase{
 				key:        recordedRef{Exprs: stem, Case: c.Name()}.key(),
 				spec:       c.Spec,
@@ -314,8 +288,7 @@ func loadE3a(t testing.TB) map[string]*e3aCase {
 				scope:      func(t testing.TB) *Scope { return siteScope(t, site, *c.Expr, ctx) },
 				check:      exprsCheck(t, c.Expect),
 				exprs:      c,
-				recorded:   recorded,
-				pending:    pending,
+				recorded:   exprsRecorded(t, path, c),
 			})
 		}
 	}
@@ -329,10 +302,6 @@ func loadE3a(t testing.TB) map[string]*e3aCase {
 			t.Fatal(err)
 		}
 		for _, r := range fx.Runs {
-			var pending string
-			if r.Recorded == nil && len(r.Unit) > 0 {
-				pending = pendingRun(d, r.Name)
-			}
 			for i := range r.Unit {
 				u := &r.Unit[i]
 				site := unitSite(u.Input)
@@ -356,7 +325,6 @@ func loadE3a(t testing.TB) map[string]*e3aCase {
 					check:      unitCheck(u.Expect),
 					unit:       u,
 					recorded:   recordedMessages(r.Recorded, u.Site),
-					pending:    pending,
 				})
 			}
 		}
