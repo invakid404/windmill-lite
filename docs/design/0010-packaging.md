@@ -165,8 +165,8 @@ the host was a compiled Bun executable.
      which the bundle loads only through an `import()` inside a function,
      still orders the listed modules it imports statically. It reads them
      while it is initialised, and both bundlers initialise a module once, so
-     a read before their registration would leave its exports undefined for
-     every later import of it.
+     a read before their registration would fail its initialisation, and
+     with it every later import of it.
    - **A cycle of load-time imports** fails the build with
      `host_module_cycle`, which names the cycle by module ID.
    - **Where the build cannot tell,** it counts an import as a load-time
@@ -203,11 +203,11 @@ the host was a compiled Bun executable.
      exports.
    - **A late shim, not the plain one:** both bundlers run a module's
      initialisation once, so a plain shim that failed can never yield the
-     registered values. On esbuild, every later import of it gets its
-     exports undefined, or, for a module without exports, seems to succeed
-     although the module has not loaded. Bun 1.4.3 throws the first
-     failure again on every later import (1.3.10 behaved as esbuild does),
-     so the module never loads, even once it is registered.
+     registered values. esbuild 0.28.2 and Bun 1.4.3 both throw the first
+     failure again on every later `import()` or `require()`, so the module
+     never loads, even once it is registered. Earlier, on esbuild 0.28.0
+     and Bun 1.3.10, a later import got undefined exports, or seemed to
+     succeed for a module without exports.
    - Rejected: counting every import. It refuses a cycle that closes only
      through an `import()` in a function, such as a hook that loads a
      module lazily. A host then leaves those modules unlisted, and every

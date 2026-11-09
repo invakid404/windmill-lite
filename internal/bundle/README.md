@@ -70,7 +70,7 @@ supplies secrets (PF2).
 |---|---|
 | `format` | `FormatVersion`, 1 |
 | `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
-| `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
+| `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.2) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `no_args_file_reader` | set when no script of the bundle can read `args.json`, the job's arguments ([WR-5](../../docs/semantics/languages.md#wr-5)). Host mode leaves the file out only for such a bundle, when its host opts in ([ADR 0004](../../docs/design/0004-harness-protocol.md), host mode item 7). The search (`argsfile.go`) reads each script's module after the build's own leading sections. A script is no reader only when its module holds no way to a file, a process or code made at run time, and calls no host-provided module, shared closure, codebase or native code |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
@@ -213,21 +213,25 @@ selects ([SY-8](../../docs/semantics/openflow.md#sy-8)); Windmill's CLI
 bundles it with esbuild at deploy time
 ([WR-30](../../docs/semantics/languages.md#wr-30)). `BuildCodebase(ctx,
 CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
-`go.mod` at the CLI's version, 0.28.0 (`EsbuildVersion`,
+`go.mod` at the CLI's version, 0.28.2 (`EsbuildVersion`,
 [WR-47](../../docs/semantics/languages.md#wr-47)):
 
 - **The CLI's build.** `ParseCodebaseSettings` reads the entry
   (`format`, `external`, `inject`, `define`, `loader`, `banner`, `assets`;
   `relative_path`, `includes` and `excludes` do not shape the bundle).
-  `CLIOptions` is WR-47's table: the script file as the single entry point,
-  resolved from the sync root (the CLI's working directory, which `inject`
-  paths and asset sources are relative to too), `bundle`, platform `node`,
-  packages inlined, format `cjs` (absent `format`; engine `node20.15.1`) or
-  `esm` (target `esnext`), output in memory under `/`, the entry's
-  `external`, `inject`, `define` and `banner` unchanged, its `loader` map in
-  place of the default `{".node": "file"}`, and no minification, source map,
-  splitting or metafile. `CLIBundle` runs it as it is: the CLI parity check
-  compares it with what the CLI uploads.
+  `CLIOptions` is WR-47's table, listed below. `CLIBundle` runs it as it
+  is: the CLI parity check compares it with what the CLI uploads.
+  - The script file is the single entry point, resolved from the sync
+    root. That is the CLI's working directory, which `inject` paths and
+    asset sources are relative to too.
+  - `bundle`, platform `node`, packages inlined, and output in memory
+    under `/`.
+  - Format `cjs` for an absent `format`, with engine `node20.15.1`, or
+    `esm` with target `esnext`.
+  - The entry's `external`, `inject`, `define` and `banner` unchanged, and
+    its `loader` map in place of the default `{".node": "file"}`.
+  - The metafile on, as on the CLI's deploy path, where it changes no
+    output. No minification, source map or splitting.
 - **windmill-lite's transforms**, from the same single implementation as
   the Bun build ([ADR 0010](../../docs/design/0010-packaging.md)): the env
   rewrite (below) for the entry's format, with the define table's keys
@@ -496,7 +500,7 @@ The build has these steps:
 1. The helper's `parse` op reads each source for
    `host_module_live_binding` (`export let` or `export var`), with the
    syntax of the loader esbuild bundles it with. `loaderFor` picks it as
-   esbuild 0.28.0 does: the longest suffix of the name that starts at a
+   esbuild 0.28.2 does: the longest suffix of the name that starts at a
    dot, over esbuild's own loaders with the entry's `loader` map on top.
    - TSX and JSX parse; another loader's file is not read.
    - A file with no loader (no suffix has one, or its loader is `default`)
@@ -583,9 +587,10 @@ of the bundle holds one alone.
   namespace. A module that waits for another's load effects keeps the
   namespace its `import()` gives.
 - Both bundlers initialise a module once, so a plain shim that failed can
-  never yield the registered values. On esbuild every later import gets
-  its exports undefined, or seems to succeed for a module without
-  exports; Bun 1.4.3 throws the first failure again on every later import.
+  never yield the registered values: esbuild 0.28.2 and Bun 1.4.3 both
+  throw the first failure again on every later import. esbuild 0.28.0
+  gave every later import its exports undefined, or seemed to succeed for
+  a module without exports.
 
 ## BuildBun
 
@@ -827,11 +832,6 @@ WL_BUN=/path/to/bun-1.4.3/bun go test -race ./internal/bundle
   builds and reads its asset, and one whose asset collides, and checks that
   only the one that built has its metadata and asset, and runs; and that
   assets that cannot form one tree write nothing.
-- On the retarget branch, CI's `parity.yml` still runs
-  `windmill-cli@1.767.0` while the oracle pins 1.862.0. `TestCLIParity`
-  then skips with its retarget marker when the CLI is refused for its
-  version (`cli_version_mismatch`), and fails on any other error
-  ([cmd/wltest](../../cmd/wltest/README.md#the-retarget-ledger)).
 - `TestBuildIsReproducible`, `TestMetaFile`, `TestBuildLocks`,
   `TestBuildRefusesAnotherBun`, `TestBuildIgnoresNodeEnv`,
   `TestBuildRefusesAncestorPackages`, `TestHelperRefusesPathsOutsideTheFolder`,

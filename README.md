@@ -293,7 +293,7 @@ declarations, with and without the DOM library
 newest `@types/node` and once with the oldest a host is expected to use;
 it is not a required check either.
 The [codebase parity workflow](.github/workflows/parity.yml) runs the
-pinned `windmill-cli@1.767.0`, unmodified, as a tool: it pushes synthetic
+pinned `windmill-cli@1.862.0`, unmodified, as a tool: it pushes synthetic
 codebase scripts to a recording HTTP stub, and the bundles it uploads must
 equal windmill-lite's esbuild reproduction of them; it is not a required
 check, and its fallback, the settings comparison, runs in the Go jobs.

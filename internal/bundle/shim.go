@@ -84,10 +84,10 @@ const lateSpecifier = "windmill-lite:late/"
 // the module is registered, while the earlier modules load.
 //
 // A bundler initialises a module once, so a plain shim that threw there can
-// never yield the registered values later: on esbuild, every later import
-// gets the shim's exports undefined, and a module without exports seems
-// imported although it has not loaded; Bun 1.4.3 throws the first failure
-// again on every later import. The late shim reads the registry each time
+// never yield the registered values later: esbuild 0.28.2 and Bun 1.4.3
+// both throw the first failure again on every later import (esbuild 0.28.0
+// gave every later import the shim's exports undefined). The late shim
+// reads the registry each time
 // one of its values is read instead. A read before the module is
 // registered throws LateShimMessage, every time; a read after it gets the
 // registered value.
