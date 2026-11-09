@@ -11,4 +11,5 @@ expect:
     "m:b":
       status: success
       args: {x: "$res:f/wl_je38/rs", "y": hidden!}
+      resolved_args: {x: hidden, "y": hidden!}
       result: {x: hidden, "y": hidden!}

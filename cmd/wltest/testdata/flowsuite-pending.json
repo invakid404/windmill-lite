@@ -7,46 +7,5 @@
     }
   },
   "step_suite": {},
-  "oracle": {
-    "conformance/flows/client-api/whole-value/consumers": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/client-api/whole-value/missing_arg": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/je/je-38-env-refs/alias": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/je/je-38-env-refs/computed": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/je/je-38-env-refs/exact": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/je/je-38-env-refs/subflow": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/je/providers/je38-ab": {
-      "milestone": "W5h",
-      "reason": "the run's claims now hold CE 1.862.0's argument, the $var: reference; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/languages/codebase-cases/cjs_evalerr": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/openflow/of-deployed/branchone_shape": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    },
-    "conformance/flows/openflow/of-deployed/retry_shape": {
-      "milestone": "W5h",
-      "reason": "a new run of this pull request; its recording comes from the pull request's own oracle run"
-    }
-  }
+  "oracle": {}
 }

@@ -227,7 +227,7 @@ Findings: [openflow.md](openflow.md).
 - **OF-6/b** · oracle-observed · deployed `branchone` branch shape
   - **Given:** a module value `{type: branchone, branches: [{summary: pick, expr: "true", modules: [x]}], default: []}`, where `x` returns `3`, deployed.
   - **Expect:** after deploy the branch holds `"summary":"pick"`, `"expr":"true"`, `"skip_failure":false` and `"parallel":true` (`skip_failure` was `true` at v1.767.0); the flow returns `3`.
-  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `branchone_shape`, oracle run (pending) (deployment evidence, checked by the batch manifest).
+  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `branchone_shape`, oracle run 42605323019 (deployment evidence, checked by the batch manifest).
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -347,7 +347,7 @@ preview for the raw case ([Q-OF-1](openflow.md#q-of-1)).
 - **OF-11/d** · oracle-observed · deployment keeps the retry settings and leaves an unset `random_factor` out
   - **Given:** a flow whose step `b` returns `"ok"` with `retry: {exponential: {attempts: 1, multiplier: 2, seconds: 1}}`, then a step `a` that throws `stop` with `retry: {constant: {attempts: 2, seconds: 0}, exponential: {attempts: 1, multiplier: 1, seconds: 1, random_factor: null}, retry_if: {expr: "error.message !== 'stop'"}}`, deployed.
   - **Expect:** after deploy `b`'s retry is `{"exponential":{"attempts":1,"multiplier":2,"seconds":1}}` and `a`'s is `{"constant":{"attempts":2,"seconds":0},"exponential":{"attempts":1,"multiplier":1,"seconds":1},"retry_if":{"expr":"error.message !== 'stop'"}}`, with no `random_factor` in either (v1.767.0 wrote `"random_factor": null` in both). The run fails with `a`'s error, which `retry_if` keeps from being retried.
-  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `retry_shape`, oracle run (pending) (deployment evidence, checked by the batch manifest).
+  - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `retry_shape`, oracle run 42605323019 (deployment evidence, checked by the batch manifest).
 
 <a id="of-13"></a>
 ### OF-13 · Languages
@@ -5121,7 +5121,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **JE-20/e** · oracle-observed · a resource whose whole value is one reference
   - **Given:** a variable `u/test/v` = `"s"` and a variable `u/test/m` whose value is the text `$var:u/test/v`; resources `u/test/rv` = the string `"$var:u/test/v"` and `u/test/rm` = the string `"$var:u/test/m"`; a Bun step `a` returning its arguments, with `ev = resource("u/test/rv")` and `em = resource("u/test/rm")`.
   - **Expect:** O2 `ev` = `"s"`, `em` = `"$var:u/test/v"` (the server does not walk a variable's value again); O4 `ev` = `"s"`, `em` = `"s"`, since the leaf step resolves the marker the recorded argument holds.
-  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run (pending).
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run 42605323019.
 
 <a id="je-21"></a>
 ### JE-21 · The evaluator's own error text
@@ -5425,11 +5425,11 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
 - **JE-38/a** · oracle-observed · a plain value
   - **Given:** `x = flow_env.K`
   - **Expect:** O2 and O4 `"v"`
-  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run (pending).
+  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run 42605323019.
 - **JE-38/b** · oracle-observed · an exact read keeps the reference, which the script job resolves
   - **Given:** `x = flow_env.S`
   - **Expect:** O2 `"$var:u/test/v"`; O4 `"s3cr3t"`, the variable's value.
-  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run (pending). At v1.767.0 O2 was the resolved value too (oracle run 40687124625).
+  - **Recorded:** [`flows/je/providers`](../../conformance/flows/je/providers) run `je38-ab`, oracle run 42605323019. At v1.767.0 O2 was the resolved value too (oracle run 40687124625).
 - **JE-38/c** · oracle-observed · loop bodies inherit the env
   - **Given:** inside a loop body, `x = flow_env.K`
   - **Expect:** `"v"`
@@ -5444,19 +5444,19 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
 - **JE-38/e** · oracle-observed · exact reads store the entries as written, secret or not, in both spellings
   - **Given:** a Bun step `b` with `x = flow_env.V`, `y = flow_env["S"]`, `z = flow_env.K`
   - **Expect:** O2 `{"x":"$var:u/test/v","y":"$var:u/test/s","z":"lit"}`; O4 `{"x":"plain","y":"hidden","z":"lit"}`.
-  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `exact`, oracle run (pending).
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `exact`, oracle run 42605323019.
 - **JE-38/f** · oracle-observed · a computed value is stored resolved, or encrypted when it reads a secret entry
   - **Given:** a Bun step `b` with `x = flow_env.V + "!"`, `w = flow_env.S + "!"`, ``z = `${flow_env.K}!` ``
   - **Expect:** O2 `x` = `"plain!"`, `w` a string starting `$encrypted:`, `z` = `"lit!"`; O4 `{"x":"plain!","w":"hidden!","z":"lit!"}`.
-  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `computed`, oracle run (pending), with `w`'s argument masked.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `computed`, oracle run 42605323019, with `w`'s argument masked; the run's raw captures hold it as `$encrypted:` followed by base64.
 - **JE-38/g** · oracle-observed · into a subflow called by path, only a secret entry keeps its reference
   - **Given:** a `flow` module `c` calling a flow with no `flow_env`, with `x = flow_env.V`, `y = flow_env.S`, `w = flow_env.S + "!"`; the subflow's Bun step `e` takes `x = flow_input.x`, `y = flow_input.y`, `w = flow_input.w`
   - **Expect:** the subflow's input (O2 of `c`) `x` = `"plain"`, `y` = `"$var:u/test/s"`, `w` a string starting `$encrypted:`; `e`'s O2 the same; `e`'s O4 `{"x":"plain","y":"hidden","w":"hidden!"}`, which is also the flow's result.
-  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `subflow`, oracle run (pending), with `w`'s arguments masked.
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `subflow`, oracle run 42605323019, with `w`'s arguments masked.
 - **JE-38/h** · oracle-observed · a `$res:` entry is not secret, even when its resource wraps a secret variable
   - **Given:** a resource `u/test/rs` whose whole value is `"$var:u/test/s"`; a flow with `flow_env: {"R":"$res:u/test/rs"}` and a Bun step `b` with `x = flow_env.R`, `y = flow_env.R + "!"`
   - **Expect:** O2 `{"x":"$res:u/test/rs","y":"hidden!"}`: the exact read keeps the reference and the computed value is stored in clear; O4 `{"x":"hidden","y":"hidden!"}`.
-  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `alias`, oracle run (pending).
+  - **Recorded:** [`flows/je/je-38-env-refs`](../../conformance/flows/je/je-38-env-refs) run `alias`, oracle run 42605323019.
 
 <a id="je-39"></a>
 ### JE-39 · Names that do not exist
@@ -5850,11 +5850,11 @@ Findings: [languages.md](languages.md).
 - **WR-5/f** · oracle-observed · `$res:` arguments naming resources whose whole value is one reference
   - **Given:** variables `u/a/v` = `"s"`, `u/a/sec` = `"sec-value"` (secret), `u/a/j` = the text `{"a": 1}` and `u/a/m` = the text `$var:u/a/v`; resources whose whole value is one string: `rv` = `"$var:u/a/v"`, `rs` = `"$var:u/a/sec"`, `rj` = `"$jsonvar:u/a/j"`, `ra` = `"$res:u/a/rv"`, `rm` = `"$var:u/a/m"`, `re` = `"$encrypted:abcd"`; a Bun step with the static arguments `sv`, `ss`, `sj`, `sa`, `sm`, `se` = `"$res:u/a/<r>"` for each.
   - **Expect:** the script receives `sv` = `"s"`, `ss` = `"sec-value"`, `sj` = `{"a":1}`, `sa` = `"s"`, `sm` = `"$var:u/a/v"` and `se` = `"$encrypted:abcd"`: the server's answer is substituted without a second walk. The recorded arguments keep the `$res:` strings.
-  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run (pending).
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run 42605323019.
 - **WR-5/g** · oracle-observed · a missing variable behind a whole-value `$var:`
   - **Given:** a resource `u/a/rx` whose whole value is `"$var:u/a/missing"`, no such variable; a Bun step `a` with the static argument `x = "$res:u/a/rx"`.
   - **Expect:** the step fails before its script runs: ``{"error":{"name":"ExecutionErr","message":"execution error:\nNot found: Resource u/a/rx not found for `x`: Not found: Variable u/a/missing not found","step_id":"a"}}``.
-  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `missing_arg`, oracle run (pending).
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `missing_arg`, oracle run 42605323019.
 
 <a id="wr-6"></a>
 ### WR-6 · How args bind to the entrypoint
@@ -6701,7 +6701,7 @@ Each case's outcome was recorded on the CE oracle. The bundles' bytes were not r
 - **WR-47/g** · oracle-observed · the pinned esbuild keeps a module's evaluation error
   - **Given:** in the CommonJS entry, `f/cb/boom.cjs` holds `throw new Error("boom");`, and `f/cb/evalerr.ts` requires `./boom.cjs` twice, each time in a `try` that pushes `"ok"`, or the error's message when it throws, and returns the list.
   - **Expect:** `["boom","boom"]` with CLI `1.862.0` (esbuild `0.28.2`); a bundle of esbuild `0.28.0`, CLI `1.767.0`'s, gives `["boom","ok"]`. The outcome comes from the bundle, so it does not depend on the runtime.
-  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `cjs_evalerr`, oracle run (pending).
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `cjs_evalerr`, oracle run 42605323019.
 
 <a id="wr-48"></a>
 ### WR-48 · `customBundler`
@@ -7489,7 +7489,7 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
 - **WA-12/i** · oracle-observed · a whole value that is one reference string
   - **Given:** WR-5/f's variables and resources, read from a step with its own token: `GET …/resources/get_value_interpolated/<r>` for `rv`, `rj`, `rm`, `re` and `rx` (whose whole value is `"$var:u/a/missing"`), and `GET …/resources/get_value/<r>` for `rv` and `rx`.
   - **Expect:** the interpolated reads answer HTTP 200 `"s"`, `{"a":1}`, `"$var:u/a/v"` and `"$encrypted:abcd"`, and HTTP 404 `Not found: Variable u/a/missing not found` (compare by prefix) for `rx`; the raw reads answer HTTP 200 with the stored strings `"$var:u/a/v"` and `"$var:u/a/missing"`.
-  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run (pending).
+  - **Recorded:** [`flows/client-api/whole-value`](../../conformance/flows/client-api/whole-value) run `consumers`, oracle run 42605323019.
 
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path

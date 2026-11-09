@@ -17,4 +17,5 @@ expect:
     "m:c/m:e":
       status: success
       args: {x: plain, "y": "$var:f/wl_je38/s", w: "<masked>"}
+      resolved_args: {x: plain, "y": hidden, w: hidden!}
       result: {x: plain, "y": hidden, w: hidden!}

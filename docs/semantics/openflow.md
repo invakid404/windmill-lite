@@ -474,7 +474,7 @@ the effective decoder decides acceptance (OF-1).
   covered by [OF-3/a](conformance.md#of-3).
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** the deployed `branchall` shape of [OF-6/a](conformance.md#of-6) is recorded exactly: `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":true}],"parallel":true}` for a submitted `{type: branchall, branches: [{modules: []}]}` (fixture `conformance/flows/openflow/of-deployed`, run `ba_shape`, oracle run 41000318656). The rule is unchanged.
 - **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):** the typed `Branch` now defaults an absent `skip_failure` to `false`, the value the worker reads for an absent flag, so a round trip through it no longer turns the flag `true` (1.852.0, "keep retry and branch settings intact when a flow is reserialized"). Re-recorded on CE v1.862.0 ([OF-6/a](conformance.md#of-6), run `ba_shape`, oracle run 42299716256): `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":false}],"parallel":true}`. The loop defaults are re-verified unchanged; the rest of the table is verified at v1.767.0 only.
-- **Revision 2026-11-09 (retarget to v1.862.0, oracle):** a deployed `branchone` goes through the same typed `Branch`, so its branches gain `skip_failure: false` and `parallel: true`. Nothing reads either for a `branchone`, so only the stored shape shows it. The `branchone` row says so, and [OF-6/b](conformance.md#of-6) records it on CE v1.862.0 (run `branchone_shape` of `conformance/flows/openflow/of-deployed`).
+- **Revision 2026-11-09 (retarget to v1.862.0, oracle):** a deployed `branchone` goes through the same typed `Branch`, so its branches gain `skip_failure: false` and `parallel: true`. Nothing reads either for a `branchone`, so only the stored shape shows it. The `branchone` row says so, and [OF-6/b](conformance.md#of-6) records it on CE v1.862.0 (run `branchone_shape` of `conformance/flows/openflow/of-deployed`, oracle run 42605323019).
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -661,7 +661,7 @@ the effective decoder decides acceptance (OF-1).
   the write-back half of 1.852.0's note is the retry's `random_factor`, now
   left out when unset; the branch half is [OF-6](#of-6)'s. Recorded on CE
   v1.862.0 by [OF-11/d](conformance.md#of-11) (run `retry_shape` of
-  `conformance/flows/openflow/of-deployed`). The rest of the finding is
+  `conformance/flows/openflow/of-deployed`, oracle run 42605323019). The rest of the finding is
   verified at v1.767.0 only.
 
 <a id="of-12"></a>

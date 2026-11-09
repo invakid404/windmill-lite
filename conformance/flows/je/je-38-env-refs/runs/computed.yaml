@@ -12,4 +12,5 @@ expect:
     "m:b":
       status: success
       args: {x: plain!, w: "<masked>", z: lit!}
+      resolved_args: {x: plain!, w: hidden!, z: lit!}
       result: {x: plain!, w: hidden!, z: lit!}

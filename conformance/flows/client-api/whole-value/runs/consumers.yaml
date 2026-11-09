@@ -25,3 +25,4 @@ expect:
     "m:a":
       status: success
       args: {sv: "$res:f/wl_wv/rv", ss: "$res:f/wl_wv/rs", sj: "$res:f/wl_wv/rj", sa: "$res:f/wl_wv/ra", sm: "$res:f/wl_wv/rm", se: "$res:f/wl_wv/re", ev: s, em: "$var:f/wl_wv/v"}
+      resolved_args: {sv: s, ss: sec-value, sj: {a: 1}, sa: s, sm: "$var:f/wl_wv/v", se: "$encrypted:abcd", ev: s, em: s}
