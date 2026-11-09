@@ -408,6 +408,10 @@ func TestModuleMemoryClosure(t *testing.T) {
 			perModule := (loaded.mib() - one.mib()) / (steps - 1)
 			t.Logf("%s: %.1f MiB at connect, %.1f after one module, %.1f after %d (%.2f MiB per further module; first run %.0f ms), %.1f after eight concurrent runs, %.1f after 1,000 runs, 125 rounds of eight (%.0f ms); peak %.1f MiB",
 				layout, connect.mib(), one.mib(), loaded.mib(), steps, perModule, first.MS, eight.mib(), after.mib(), soak.MS, mib(after.Peak))
+			// The peak so far at each reading shows which phase set it, and
+			// the JavaScript heap how much of the resident set it holds.
+			t.Logf("%s: peak %.1f MiB after one module, %.1f after %d, %.1f after eight concurrent runs, %.1f after 1,000 runs; JavaScript heap %.1f, %.1f, %.1f and %.1f MiB",
+				layout, mib(one.Peak), mib(loaded.Peak), steps, mib(eight.Peak), mib(after.Peak), mib(one.Heap), mib(loaded.Heap), mib(eight.Heap), mib(after.Heap))
 			if loaded.Modules != steps {
 				t.Fatalf("modules loaded: %d; want %d", loaded.Modules, steps)
 			}
