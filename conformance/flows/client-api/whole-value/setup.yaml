@@ -1,0 +1,14 @@
+resource_types: [{name: wl_wv_obj, schema: {type: object}}]
+variables:
+  - {path: f/wl_wv/v, value: s}
+  - {path: f/wl_wv/sec, value: sec-value, is_secret: true}
+  - {path: f/wl_wv/j, value: "{\"a\": 1}"}
+  - {path: f/wl_wv/m, value: "$var:f/wl_wv/v"}
+resources:
+  - {path: f/wl_wv/rv, resource_type: wl_wv_obj, value: "$var:f/wl_wv/v"}
+  - {path: f/wl_wv/rs, resource_type: wl_wv_obj, value: "$var:f/wl_wv/sec"}
+  - {path: f/wl_wv/rj, resource_type: wl_wv_obj, value: "$jsonvar:f/wl_wv/j"}
+  - {path: f/wl_wv/ra, resource_type: wl_wv_obj, value: "$res:f/wl_wv/rv"}
+  - {path: f/wl_wv/rm, resource_type: wl_wv_obj, value: "$var:f/wl_wv/m"}
+  - {path: f/wl_wv/rx, resource_type: wl_wv_obj, value: "$var:f/wl_wv/missing"}
+  - {path: f/wl_wv/re, resource_type: wl_wv_obj, value: "$encrypted:abcd"}

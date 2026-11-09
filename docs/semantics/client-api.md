@@ -1073,6 +1073,20 @@ interface); `WA-Vn` findings were added during validation.
       the located 404 form ([WA-42](#wa-42)).
     - **Terminal substitutions:** the value substituted for `$var:`, and the
       parsed value substituted for `$jsonvar:`, are never interpolated again.
+    - **A whole value that is one string** is walked like any other node,
+      at depth 0. A resource stored as `"$var:<p>"` therefore reads as the
+      variable's value, `"$jsonvar:<p>"` as the parsed JSON and `"$res:<p>"`
+      as the other resource's value. A whole value that is a `$WM_*` string
+      follows the next bullet: it is resolved from the job named by
+      `job_id`, and left as stored without one. Any other `$…` string,
+      `$encrypted:…` included, is returned as stored. The raw read
+      (`get_value`) returns the stored string. Windmill 1.859.0's "keep a
+      resource whose whole value is a variable reference" changed only the
+      web editor, which used to replace such a string with an object on save;
+      reads are the same at v1.767.0 and v1.862.0 (re-checked at v1.862.0:
+      `backend/windmill-store/src/resources.rs:1009-1177 @ v1.862.0`, the
+      walk from depth 0, `:997-1017` the three markers, `:1056-1137` the
+      `$WM_*` names, `:1176` any other string; `:670` the raw read).
     - `$WM_*` strings (e.g. `$WM_TOKEN`, `$WM_JOB_ID`) are resolved from the
       reserved variables of the job given in the `job_id` query parameter,
       using that job's **stored** fields ([WA-V3](#wa-v3)), **only when
@@ -1167,7 +1181,7 @@ interface); `WA-Vn` findings were added during validation.
   super-admin text); `backend/windmill-worker/src/common.rs:322-338
   @ v1.862.0` and `backend/windmill-worker/src/worker.rs:4167-4183`
   (a step's `$res:` argument is read with the job's token).
-- **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h](conformance.md#wa-12)
+- **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h, WA-12/i](conformance.md#wa-12)
 - **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
   answers 501 for a `job_id` naming an unknown job and reads
   `CUSTOM_INSTANCE_DB/` paths as plain resources, the reference being
@@ -1210,6 +1224,14 @@ interface); `WA-Vn` findings were added during validation.
   answered 404. The job lookup of an unusable `job_id` is unchanged but for
   its location, ` (resources.rs:1088)` ([WA-12/g](conformance.md#wa-12)).
   The rest of the finding is not re-checked.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check and
+  oracle):** a resource whose whole value is one reference string is
+  walked from depth 0 like any node; the new bullet says so and
+  [WA-12/i](conformance.md#wa-12) records it (fixture
+  `conformance/flows/client-api/whole-value`, oracle run 42605323019).
+  Validation round 1 (finding 3) added the `$WM_*` exception to that
+  bullet's catch-all: such a whole value is resolved from the job that
+  `job_id` names, as the `$WM_*` bullet says.
 
 <a id="wa-v3"></a>
 ### WA-V3 · Shared interpolation needs separate resource and argument contexts

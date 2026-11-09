@@ -1,0 +1,21 @@
+summary: "OF-6/b: deployed branchone shape"
+value:
+  modules:
+    - id: bo
+      value:
+        type: branchone
+        branches:
+          - summary: pick
+            expr: "true"
+            modules:
+              - id: x
+                value:
+                  type: rawscript
+                  content: "!inline x.ts"
+                  language: bun
+                  input_transforms: {}
+        default: []
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

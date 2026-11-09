@@ -1,0 +1,20 @@
+summary: "JE-38/f computed flow_env reads"
+value:
+  modules:
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: "flow_env.V + \"!\""}
+          w: {type: javascript, expr: "flow_env.S + \"!\""}
+          z: {type: javascript, expr: "`${flow_env.K}!`"}
+  flow_env:
+    V: "$var:f/wl_je38/v"
+    S: "$var:f/wl_je38/s"
+    K: lit
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

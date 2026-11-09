@@ -60,7 +60,7 @@ defined in the [index](README.md#legend).
     - the timeout text is `Query timeout after (>Ns)` ([WR-44](#wr-44));
     - `process` is a module-level `{env}` object, and the global surface is a fixed list of web APIs ([WR-45](#wr-45));
     - a native job carries the `nativets` tag, which no worker of the reference configuration serves, so on the oracle as configured a native step never starts ([WR-40](#wr-40)); batch E3f recorded the native cases on a worker that adds the tag with `WORKER_TAGS=nativets`.
-12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.0`, `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node (v24.22.1, recorded; v20.20.2 at v1.767.0) and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id depends only on the files under `relative_path` and the entry's settings. `wmill sync push` uses it to decide which scripts to push, but `wmill script push` with generated metadata uploads anyway, and even a deploy the server treats as a no-op rewrites the stored bundle under the same hash. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts, except under `//native` (above). A single-file bundle reaches the job with CRLF line breaks, from the form-data upload ([WR-49](#wr-49)).
+12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.2` (`0.28.0` at v1.767.0, whose bundle did not keep a module's evaluation error), `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node (v24.22.1, recorded; v20.20.2 at v1.767.0) and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id depends only on the files under `relative_path`, the entry's settings and, since CLI 1.818.0, the paths its `extra_digest_paths` lists. `wmill sync push` uses it to decide which scripts to push; `wmill script push` with generated metadata uploaded anyway at v1.767.0, and reports an unchanged script up to date at v1.862.0 (medium); even a deploy the server treats as a no-op rewrites the stored bundle under the same hash. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts, except under `//native` (above). A single-file bundle reaches the job with CRLF line breaks, from the form-data upload ([WR-49](#wr-49)).
 
 ## A. Bun: process model and lifecycle
 
@@ -180,17 +180,18 @@ defined in the [index](README.md#legend).
     |---|---|
     | `"$var:<path>"` | the variable's value, as a JSON string |
     | `"$jsonvar:<path>"` | the variable's value, parsed as JSON |
-    | `"$res:<path>"` | the resource value, fetched in interpolated form, so the API resolves nested `$var:`/`$res:` inside it. The path must have at least 2 `/` segments, as `u/a/pg` does, unless it starts with `CUSTOM_INSTANCE_DB/`. |
+    | `"$res:<path>"` | the resource value, fetched in interpolated form, so the API resolves nested `$var:`/`$res:` inside it. The path must have at least 2 `/` segments, as `u/a/pg` does, unless it starts with `CUSTOM_INSTANCE_DB/`. The answer is substituted as it comes, never walked again, so a marker it still holds (a variable whose value is itself `$var:…`, or an `$encrypted:` value the server returns as stored, [WA-12](client-api.md#wa-12)) reaches the script literally. A resource whose whole value is one reference string answers that reference's value. |
     | `"$encrypted:<ct>"` | decrypted, then parsed as JSON. The key is built from the workspace **and the root job id**. The plaintext is registered for log masking. |
     | any other string starting with `$`, e.g. `"$NAME"` | if `NAME` is a reserved variable ([WR-22](#wr-22)), that variable's value; otherwise unchanged |
 
   - Matching looks at the value only. The declared parameter type plays no part.
   - Resolution happens after the job is pulled and before `args.json` is written. That timing matters for key order ([WR-V8](#wr-v8)).
 - **Evidence:** `backend/windmill-worker/src/common.rs:122-153` (writes `args.json`), `:163-172` (trigger pattern), `:174-210` (`transform_json`), `:265-399` (`transform_json_value`), `:325-337` (encryption context) (all @ v1.767.0). Docs: <https://www.windmill.dev/docs/core_concepts/resources_and_types>.
-- **Conformance:** [WR-5/a–e](conformance.md#wr-5)
+- **Conformance:** [WR-5/a–g](conformance.md#wr-5)
 - **Note:** resolved values come through the platform interface ([client API](client-api.md)). Where `$res:` strings come from in static transforms is covered in [expressions](expressions.md).
 - **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WR-5/a, WR-5/b, WR-5/c and WR-5/e are recorded as stated (fixture `conformance/flows/client-api/providers`, oracle runs 40824738438 and 40826651517), WR-5/b with its suffix (`@common.rs:306:28` at the pin) and WR-5/e with its whole message, ``execution error:\nNot found: Resource <p> not found for `<name>`: Not found: Resource <p> not found``. The substitution of a reserved name inside a qualifying argument (WR-5/d's rule) was recorded with `$WM_ROOT_JOB_ID`, which became the process's effective root, the flow job ([JE-42](expressions.md#je-42)); WR-5/d itself, with `$WM_WORKSPACE`, is not recorded.
 - **Revision 2026-11-06 (retarget to v1.862.0):** WR-5/b was re-recorded on CE v1.862.0 with the same text. The path check is unchanged (fewer than two `/`-separated segments, `CUSTOM_INSTANCE_DB/` excepted) and raises at `backend/windmill-worker/src/common.rs:326 @ v1.862.0`, so the location reads `@common.rs:326:28` (`@common.rs:306:28` at v1.767.0). The rest of the finding is not re-checked.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** Windmill 1.859.0's note "keep a resource whose whole value is a variable reference" changed the resource editor only: before, editing such a resource in the web UI replaced the string with an object. How the worker resolves a `$res:` argument naming it is the same at v1.767.0 and v1.862.0: the server's interpolated answer, substituted without a second walk (`backend/windmill-worker/src/common.rs:322-338 @ v1.862.0`, `:302-318 @ v1.767.0`). The `$res:` row says so, and [WR-5/f](conformance.md#wr-5) and [WR-5/g](conformance.md#wr-5) cover the whole-value shapes and a missing variable behind one (fixture `conformance/flows/client-api/whole-value`, recorded as predicted, oracle run 42605323019).
 
 <a id="wr-6"></a>
 ### WR-6 · How args bind to the entrypoint
@@ -941,14 +942,20 @@ defined in the [index](README.md#legend).
 <a id="wr-47"></a>
 ### WR-47 · How the pinned CLI bundles a codebase script
 
-**Scope:** core · **Confidence:** high (CLI source-traced; the outcomes of WR-47/a–f oracle-observed) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core · **Confidence:** high (CLI source-traced; the outcomes of WR-47/a–g oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - **Bundler and version.** esbuild **`0.28.0`**, pinned exactly in the CLI's manifest and in the dependency list of the published CLI package.
+  - **Bundler and version.** esbuild **`0.28.2`** (`0.28.0` at v1.767.0), pinned exactly in the CLI's manifest and in the dependency list of the published CLI package.
     - The CLI uses the native esbuild binary.
     - If that binary does not start (for example its version disagrees with the host package), the CLI falls back to `esbuild-wasm` at the host package's version. It downloads that package from the npm registry, or takes a configured path or URL, and caches it.
     - The fallback is meant to produce the same output.
-  - **Format.** An absent `format` means **`cjs`**. Only an explicit `format: esm` produces ESM.
+    - Concurrent builds share one esbuild service, which the CLI stops when the last of them ends (since 1.861.0); this changes no output.
+  - **What the version changes.** esbuild `0.28.1` keeps a module's evaluation error. A module whose code throws while it is first loaded throws the same error at every later `require()` or `import()` of it; `0.28.0`'s bundle returned the module's partial exports from the second load on (WR-47/g, recorded). esbuild's release notes for `0.28.1` and `0.28.2` list other code-generation fixes that can change a bundle's text (not recorded):
+    - the renaming of nested `var` declarations;
+    - parentheses around complex `new` targets;
+    - tree shaking of TypeScript import aliases;
+    - top-level `await` in import cycles.
+  - **Format.** An absent `format` means **`cjs`**. Only an explicit `format: esm` produces ESM. The value is not checked: any other string reaches esbuild as given, and gets target `esnext`.
   - **Build options.** The script file is the single entry point, and the output stays in memory:
 
     | Option | Value |
@@ -957,24 +964,30 @@ defined in the [index](README.md#legend).
     | `platform` | `node` |
     | `packages` | `bundle`: npm packages are inlined |
     | `format` | the entry's `format`, default `cjs` |
-    | `target` | `node20.15.1` for `cjs`, `esnext` for `esm` |
+    | `target` | `node20.15.1` when the format is exactly `cjs`, `esnext` otherwise |
     | `outdir` | `/`; output files are named relative to it |
+    | `write` | `false` |
     | `external`, `inject`, `define`, `banner` | the entry's values, passed through unchanged; absent means esbuild's default |
     | `loader` | the entry's map, which **replaces** the default `{".node": "file"}` entirely |
-    | minification, source maps, code splitting, metafile | not set, so esbuild's defaults (off) apply |
+    | `metafile` | `true` on the deploy path only (`wmill sync push`, `wmill script push`; absent at v1.767.0); it changes no output and only lists the bundle's inputs for the warning below. Not set for `wmill script preview` |
+    | minification, source maps, code splitting | not set, so esbuild's defaults (off) apply |
+    | every other option | not set, so esbuild's defaults apply: the working directory is the CLI's own, which the CLI first moves to the directory of the `wmill.yaml` it finds; the nearest `tsconfig.json` is discovered as esbuild does; legal comments go to the end of the file and non-ASCII characters are escaped, as esbuild does when bundling |
 
   - **What passing through means.**
+    - The values are passed as YAML parsed them, with no copy, normalisation or type check, so esbuild's own validation refuses a wrong type.
     - `inject` is a list of file paths. esbuild resolves them against the CLI's working directory and imports their exports wherever the bundle uses those names as free identifiers. The CLI does nothing else with the list.
     - `define` values are JavaScript expressions written as strings, so a string constant needs its own inner quotes. esbuild substitutes them.
     - `banner` is esbuild's per-output-type map, for example `{js: "…"}`.
-  - **`relative_path` does not limit what is bundled.** esbuild follows imports wherever they lead. `relative_path` only feeds the codebase id ([WR-49](#wr-49)).
-  - **Which CLI paths build this way:** `wmill sync push`, `wmill script push` and `wmill script preview`. The flow-preview reader for local path scripts builds differently, and is `out` for windmill-lite:
+  - **`relative_path` does not limit what is bundled.** esbuild follows imports wherever they lead. `relative_path`, and since 1.818.0 the entry's `extra_digest_paths`, only feed the codebase id ([WR-49](#wr-49)); esbuild never sees `extra_digest_paths`.
+  - **The uncovered-inputs warning** (deploy path; absent at v1.767.0). After the build the CLI takes the metafile's inputs, leaves out esbuild's pseudo-inputs (names in `<…>` or `(…)`, and a namespace prefix of two or more letters before `:`), anything under `node_modules`, the entry itself and anything under `relative_path` or an `extra_digest_paths` entry. If inputs remain, it prints ``<script path> bundles files outside codebase <relative_path>; edits to them won't be detected as changes unless listed in extra_digest_paths: <inputs, comma-separated>``. Asset files are not esbuild inputs and never trigger it. The text is a warning only.
+  - **Which CLI paths build this way:** `wmill sync push`, `wmill script push` and `wmill script preview`. The flow-preview reader for local path scripts (used by `wmill flow preview` and `wmill dev`) builds differently, and is `out` for windmill-lite:
     - with esbuild it always builds ESM with target `esnext`, whatever `format` says, and it refuses entries that have assets or several output files;
     - with a `customBundler` it returns the command's output before either refusal, so an entry with assets is accepted and its assets are simply not delivered.
-- **Evidence:** `cli/package.json:23`; `cli/build-npm.ts:75`; `cli/src/utils/esbuild_loader.ts:26-28`, `:55-79`, `:98-125`; `cli/src/commands/script/script.ts:315-364` (deploy), `:1563-1593` (preview); `cli/src/core/conf.ts:114-131` (the entry's fields); `cli/src/utils/local_path_scripts.ts:31-81` (flow-preview reader; the custom-bundler return at `:35-45` comes before the refusals at `:69-78`) (all @ v1.767.0). esbuild's [API documentation](https://esbuild.github.io/api/) for the meaning of each option.
-- **Conformance:** [WR-47/a–f](conformance.md#wr-47)
-- **Design note (not Windmill behaviour):** a bundler that reproduces these options through esbuild's Go API at `v0.28.0` should produce the same bundle. Whether it does is the parity check of [Q-WR-24](#q-wr-24).
+- **Evidence:** at v1.862.0: `cli/package.json:27`; `cli/build-npm.ts:75`; `cli/src/utils/esbuild_loader.ts:28` (the fallback version), `:55-79`, `:81-136` (native first, the fallback, the shared service); `cli/src/commands/script/script.ts:426-463` (deploy: the options, `metafile` at `:451`, the warning at `:454-463`), `:2007-2021` (preview); `cli/src/utils/codebase.ts:27-41` (the inputs the warning leaves out); `cli/src/core/conf.ts:120-139` (the entry's fields, `extra_digest_paths` at `:122`); `cli/src/utils/local_path_scripts.ts:35-77` (flow-preview reader). At v1.767.0: `cli/package.json:23`; `cli/src/commands/script/script.ts:315-364`, `:1563-1593`; `cli/src/core/conf.ts:114-131`. esbuild's [API documentation](https://esbuild.github.io/api/) for the meaning of each option, and its release notes for `0.28.1` and `0.28.2`.
+- **Conformance:** [WR-47/a–g](conformance.md#wr-47)
+- **Design note (not Windmill behaviour):** a bundler that reproduces these options through esbuild's Go API at `v0.28.2` should produce the same bundle; `metafile` and the log level change no output. Whether it does is the parity check of [Q-WR-24](#q-wr-24).
 - **Revision 2026-10-29 (oracle, batch E3e):** the pinned CLI pushed codebase entries with the default format, `format: esm`, `define`, `inject`, a `loader` map and a `banner`, and CE standalone ran each bundle as WR-47/a to WR-47/f state (fixture `conformance/flows/languages/codebase-cases`, oracle run 40794872025). In the same fixture a relative import between codebase files was bundled in both formats, and the step's environment reached the bundle (`process.env` on Node, `Bun.env` on Bun). The bytes the CLI uploads were not read back from the oracle; the repository's codebase-parity check compares the pinned CLI's upload with an esbuild `0.28.0` build of the same settings, and finds them equal apart from the line breaks of [WR-49](#wr-49)'s single-file upload.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check and oracle):** the pinned CLI `1.862.0` bundles with esbuild `0.28.2`. Its build options are v1.767.0's, plus `metafile` on the deploy path, which feeds the new uncovered-inputs warning and changes no output; the codebase entry gained `extra_digest_paths` (1.818.0), which only the codebase id reads. WR-47/a–f hold at CLI `1.862.0` (their runs were re-recorded on CE v1.862.0), and the new WR-47/g records the version's one behavioural change that a bundle shows (run `cjs_evalerr` of `conformance/flows/languages/codebase-cases`, oracle run 42605323019, `["boom","boom"]`). The parity check's esbuild `0.28.0` build predates the move.
 
 <a id="wr-48"></a>
 ### WR-48 · `customBundler`
@@ -995,7 +1008,7 @@ defined in the [index](README.md#legend).
 <a id="wr-49"></a>
 ### WR-49 · What the CLI uploads, the codebase id, and where the server keeps the bundle
 
-**Scope:** core (single file and assets); later (several output files; push, version and replacement decisions; the line breaks of a single-file upload) · **Confidence:** high (CLI and server source-traced; WR-49/a, WR-49/b and the line breaks of WR-49/h oracle-observed); medium (the multi-output naming edge) · **Status:** confirmed · verified at v1.767.0 only
+**Scope:** core (single file and assets); later (several output files; push, version and replacement decisions; the line breaks of a single-file upload) · **Confidence:** high (CLI and server source-traced; WR-49/a, WR-49/b and the line breaks of WR-49/h oracle-observed); medium (the multi-output naming edge; decision 2 and its consequence at v1.862.0) · **Status:** confirmed · verified at v1.767.0 only, except the codebase id and decision 2 (re-checked at v1.862.0)
 
 - **Rule:**
   - **One output and no `assets`:** the upload is the bundle text itself, appended to the multipart form as a **string** field.
@@ -1011,11 +1024,16 @@ defined in the [index](README.md#legend).
     - **`assets` are not added in this case.**
     - For an entry whose file name has a second dot (such as `x.bun.ts`), no output has the expected name, so `main.js` is empty (medium, [Q-WR-25](#q-wr-25)).
   - **The id the CLI sends.** The script's `codebase` field is a digest, plus `.esm` when `format` is `esm` and `.tar` when the upload is a tar.
-    - **What the digest covers:** the bytes of every regular file found by walking `relative_path` recursively (relative to the CLI's working directory), visited in name order within each directory, together with the entry's settings as written in `wmill.yaml`. Any change to a setting changes it, and so does a change to the order of its keys, since the settings are serialised as text.
+    - **What the digest covers:** the bytes of every regular file found by walking `relative_path` recursively (relative to the CLI's working directory), visited in name order within each directory (JavaScript's locale-aware comparison, not byte order: `a.ts` comes before `B.ts`), together with the entry's settings as written in `wmill.yaml`. Any change to a setting changes it, and so does a change to the order of its keys, since the settings are serialised as text.
+    - **Extra paths** (since CLI 1.818.0). An entry may list `extra_digest_paths`: paths relative to the CLI's working directory, allowed outside the sync tree, with a bare string counting as one. The digest above is then hashed again together with one hash per extra path, in list order.
+      - Each extra path gives the walk above for a directory, the file's bytes otherwise. An extra path that is itself a symbolic link is followed.
+      - Listing the key, even as `[]`, also changes the settings text and so the id.
+      - A path that does not exist fails the push when the digest is first needed, with ``Codebase extra_digest_paths entry not found: <path> (resolved to <absolute path>)``. That comes after the CLI's preparatory reads (`wmill sync push` downloads the remote workspace to compare with, `wmill script push` reads the deployed script) and before anything is uploaded, so the workspace is unchanged.
+      - esbuild never sees the key ([WR-47](#wr-47)).
     - **What it does not cover:**
       - entry names: renaming a file or directory leaves the digest unchanged as long as the visiting order of contents stays the same, while a rename that reorders files of different contents changes it;
       - symbolic links, to files or directories, and whatever they point at;
-      - anything outside `relative_path`: imported modules, `inject` files and asset `from` files that live elsewhere.
+      - anything outside `relative_path`, unless it lies under an extra path: imported modules, `inject` files and asset `from` files that live elsewhere. Since the deploy build lists its inputs, the CLI warns about the imported and injected ones ([WR-47](#wr-47)).
     - Every file under `relative_path` counts, whether or not the script uses it. The digest is computed once per CLI run and shared by every script of the entry, so editing any file there gives every script of the entry a new id.
   - **From a local change to the bundle that runs: four separate decisions.** None of them compares bundle bytes.
     1. **Whether `wmill sync push` selects the script.**
@@ -1025,7 +1043,9 @@ defined in the [index](README.md#legend).
        - *(medium)* A multi-output bundle without assets is stored with a `.tar` suffix that this local id lacks, so such a script is selected on every sync push.
     2. **Whether the CLI sends the request.**
        - `wmill script push`, and the push of a script that sync push selected, both end in the same check. The CLI stops, reporting the script up to date, only if the source `content`, the metadata fields and the id all equal the deployed script's.
-       - Its `priority` comparison reads the deployed value as a boolean but the local value as written. Metadata without a `priority` key (the CLI's generated default) therefore never matches, and the request is sent every time.
+       - At v1.767.0 its `priority` comparison read the deployed value as a boolean but the local value as written. Metadata without a `priority` key (the CLI's generated default) therefore never matched, and the request was sent every time.
+       - Since CLI 1.792.0 ("keep script settings on push and repair the up-to-date check") `priority` is compared loosely, so an absent key equals a deployed `null`. The check also compares the language, `delete_after_secs`, the debounce settings, the labels and the job token scopes, with the timeout and the concurrency settings normalised first.
+       - *(medium, source-traced)* So at v1.862.0 an unchanged script with generated metadata and an unchanged id is reported up to date, and no request is sent.
     3. **Whether the server makes a new version.**
        - The CLI always asks for the server's no-op check. The server reuses the parent's hash, making no new version, only if every field it compares is identical to the parent's: the content, the lock, the metadata, the id, and the optional settings as stored.
        - A few fields default when omitted, so leaving them out still matches: `is_template` is read as `false`, `kind` as `script` and `envs` as an empty list, and an absent `lock` or `codebase` equals an empty one.
@@ -1037,7 +1057,7 @@ defined in the [index](README.md#legend).
   - **Consequences for an unchanged script:**
     - A change the digest sees (under `relative_path`, or in the settings), pushed with `wmill sync push`, selects the script and deploys a new version with a fresh bundle, even when the bundle comes out identical.
     - A change it does not see (an asset or import outside `relative_path`, a rename, a symlink target), pushed with `wmill sync push` from a tree that was otherwise in sync, selects nothing. No request is sent, and the old bundle keeps running.
-    - The same change pushed with `wmill script push` and generated metadata does reach the server, and the next run uses the new bundle, whether or not the hash changed.
+    - The same change pushed with `wmill script push` and generated metadata reached the server at v1.767.0, and the next run used the new bundle, whether or not the hash changed. *(medium)* At v1.862.0 the CLI finds the script up to date and sends nothing (decision 2), so the old bundle keeps running, unless the change lies under an extra path, which changes the id.
   - **What the server keeps.** The push is one multipart request to `create_snapshot`.
     - The script JSON comes first, with its source `content` ([SY-8](openflow.md#sy-8)), then the bundle.
     - The server creates the script version, or reuses the parent's hash on a no-op (decision 3 above), and stores the bundle under `script_bundle/<workspace>/<that hash>`, plus `.esm` and `.tar` copied from the sent id.
@@ -1047,11 +1067,14 @@ defined in the [index](README.md#legend).
     - On CE in standalone mode with no object store, under the standalone bundle directory, `$HOME/.windmill/standalone_bundle/`.
     - In any other CE mode the upload fails with `codebase is an EE feature`, and no script version is created.
 - **Evidence:** `cli/src/commands/script/script.ts:365-418` (tar or text), `:461-463` (id), `:802-834` (multipart upload); `cli/src/utils/codebase.ts:19-45` (digest inputs, memoisation and suffixes); `cli/src/utils/utils.ts:108-121` (the directory walk: file contents in name order, directories recursed, symlinks skipped, names not hashed); sync selection `cli/src/commands/sync/sync.ts:414-460` (the current digest and an empty lock written into local metadata), `:3840-3862` (push compares local with remote, codebase changes not ignored), `:2324-2356`, `:2359-2398` (metadata comparison and codebase-id changes); `backend/windmill-api-scripts/src/scripts.rs:1139-1140` (codebase scripts stored with an empty lock); the CLI's check `cli/src/commands/script/script.ts:130-181` (`wmill script push` reaches the same function), `:515-565` (the up-to-date check; `priority` at `:542`), `:568-584`; `cli/bootstrap/script_bootstrap.ts:17-29` (generated metadata has no `priority` or `ws_error_handler_muted`); `cli/src/commands/script/script.ts:770`, `:817` (the CLI always requests the no-op check); the server `backend/windmill-api-scripts/src/scripts.rs:708-845` (fields compared: `kind`, `envs` and `is_template` with their defaults at `:784-786`, `:792`, `:809`; `lock` and `codebase` with absent read as empty at `:772`, `:813-814`, `:849-851`; the other optional fields literally), `:1565` (`ws_error_handler_muted` stored as `false` when omitted), `:1085-1092` (a no-op returns the parent's hash), `:502-576` (`create_snapshot`; suffixes `:521-541`, the file written under the returned hash `:543-559`); `backend/windmill-object-store/src/lib.rs:983-985` (bundle key), `:991-1020` (standalone directory, EE object store, CE refusal); `backend/windmill-common/src/worker.rs:409` (`ROOT_STANDALONE_BUNDLE_DIR`), `:760-765` (the write replaces the file); `backend/windmill-worker/src/bun_executor.rs:1066-1084`, `:1087-1103`, `:1131-1147` (a worker cache file wins; otherwise the standalone file is copied in for each job); for the line breaks: `cli/src/commands/script/script.ts:803-810` (the bundle text appended as a string field), `backend/windmill-api-scripts/src/scripts.rs:516-518`, `:543-559` (the part read as bytes and stored), `backend/windmill-object-store/src/lib.rs:991-1010` and `backend/windmill-common/src/worker.rs:760-765` (written as received), `backend/windmill-worker/src/bun_executor.rs:1131-1147` (copied as received) (all @ v1.767.0). The HTML standard's [`multipart/form-data` encoding algorithm](https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#multipart-form-data) for the CRLF rewrite of string entries.
-- **Conformance:** [WR-49/a–h](conformance.md#wr-49)
+- **Evidence at v1.862.0:** `cli/src/utils/codebase.ts:8-24` (the extra paths and their hashes, the not-found text), `:56-91` (the digest, its memoisation and suffixes); `cli/src/utils/utils.ts:108-133` (the walk, unchanged); `cli/src/core/conf.ts:122` (`extra_digest_paths`); `cli/src/commands/script/script.ts:660-718` (the up-to-date check, `priority` at `:699`), `:572`, `:628` (the id sent); `cli/src/commands/sync/sync.ts:2977-3021` (decision 1, unchanged); `backend/windmill-api-scripts/src/scripts.rs:566-605` (the suffixes and the stored file, unchanged).
+- **Conformance:** [WR-49/a–j](conformance.md#wr-49)
 - **Revision 2026-10-29 (oracle, batch E3e):** WR-49/a (an asset next to `main.js`) and WR-49/b (a second output file drops the assets, `[true,false]`) were recorded as stated (fixture `conformance/flows/languages/codebase-cases`, oracle run 40794872025). WR-49/c to WR-49/g were not recorded: they test the CLI's and the server's push-and-version decisions, which need a session that pushes, edits the tree and pushes again.
 - **Revision 2026-10-29 (source re-check, chain C2b):** new, the line breaks of a single-file upload: the form-data encoding writes them as CRLF, and the server and worker keep the bytes, so `main.js` has CRLF line breaks. The repository's codebase-parity check sees the CRLF in the pinned CLI's upload; the stored and run bytes are source-traced only. New case WR-49/h.
 - **Revision 2026-10-28 (source re-check):** decision 3 said that an omitted optional field never equals its stored default. That holds for most fields, `ws_error_handler_muted` among them, but `is_template`, `kind` and `envs` default when omitted, and an absent `lock` or `codebase` equals an empty one. The independent check of this finding raised the point; the rule and the evidence now say so, and WR-49/g notes the `is_template` variant.
 - **Revision 2026-10-30 (SC5, oracle batch E3f):** WR-49/h was recorded as written (fixture `conformance/flows/languages/import-base`, runs `crlf_single` and `crlf_tar`, pushed with the pinned CLI, oracle run 41000318656): the single-file bundle runs with CRLF line breaks, `[true,true]`, and the tar's `main.js` with LF only, `[false,true]`.
+- **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** the codebase id now also covers each `extra_digest_paths` entry (CLI 1.818.0, "include extra paths in codebase digest for monorepo imports"), and the CLI's up-to-date check was repaired in 1.792.0, so decision 2 no longer always sends the request. New cases WR-49/i and WR-49/j; WR-49/f now expects the v1.862.0 outcome, source-derived. The upload formats, the suffixes and the server's storage are re-verified unchanged; decisions 3 and 4 are verified at v1.767.0 only.
+- **Revision 2026-11-09 (retarget validation round 1, finding 2):** a missing extra path was said to fail the push before any request. The CLI raises the error when it first computes the digest (`cli/src/utils/codebase.ts:12-24`, `:65-74 @ v1.862.0`), after its preparatory reads of the remote side (`cli/src/commands/script/script.ts:550-572`, `cli/src/commands/sync/sync.ts:5044-5092 @ v1.862.0`) and before any upload; the extra-paths bullet and WR-49/j say so.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime

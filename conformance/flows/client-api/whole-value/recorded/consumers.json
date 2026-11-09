@@ -1,0 +1,327 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "raw": {
+        "rv": {
+          "type": "application/json",
+          "value": "$var:f/wl_wv/v",
+          "status": 200
+        },
+        "rx": {
+          "type": "application/json",
+          "value": "$var:f/wl_wv/missing",
+          "status": 200
+        }
+      },
+      "args": {
+        "em": "s",
+        "ev": "s",
+        "sa": "s",
+        "se": "$encrypted:abcd",
+        "sj": {
+          "a": 1
+        },
+        "sm": "$var:f/wl_wv/v",
+        "ss": "sec-value",
+        "sv": "s"
+      },
+      "interp": {
+        "re": {
+          "type": "application/json",
+          "value": "$encrypted:abcd",
+          "status": 200
+        },
+        "rj": {
+          "type": "application/json",
+          "value": {
+            "a": 1
+          },
+          "status": 200
+        },
+        "rm": {
+          "type": "application/json",
+          "value": "$var:f/wl_wv/v",
+          "status": 200
+        },
+        "rv": {
+          "type": "application/json",
+          "value": "s",
+          "status": 200
+        }
+      },
+      "missing": {
+        "type": "text/plain",
+        "starts": true,
+        "status": 404
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {
+          "em": "$var:f/wl_wv/v",
+          "ev": "s",
+          "sa": "$res:f/wl_wv/ra",
+          "se": "$res:f/wl_wv/re",
+          "sj": "$res:f/wl_wv/rj",
+          "sm": "$res:f/wl_wv/rm",
+          "ss": "$res:f/wl_wv/rs",
+          "sv": "$res:f/wl_wv/rv"
+        },
+        "result": {
+          "raw": {
+            "rv": {
+              "type": "application/json",
+              "value": "$var:f/wl_wv/v",
+              "status": 200
+            },
+            "rx": {
+              "type": "application/json",
+              "value": "$var:f/wl_wv/missing",
+              "status": 200
+            }
+          },
+          "args": {
+            "em": "s",
+            "ev": "s",
+            "sa": "s",
+            "se": "$encrypted:abcd",
+            "sj": {
+              "a": 1
+            },
+            "sm": "$var:f/wl_wv/v",
+            "ss": "sec-value",
+            "sv": "s"
+          },
+          "interp": {
+            "re": {
+              "type": "application/json",
+              "value": "$encrypted:abcd",
+              "status": 200
+            },
+            "rj": {
+              "type": "application/json",
+              "value": {
+                "a": 1
+              },
+              "status": 200
+            },
+            "rm": {
+              "type": "application/json",
+              "value": "$var:f/wl_wv/v",
+              "status": 200
+            },
+            "rv": {
+              "type": "application/json",
+              "value": "s",
+              "status": 200
+            }
+          },
+          "missing": {
+            "type": "text/plain",
+            "starts": true,
+            "status": 404
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:8d22f8ae044001b57cfbfa1b740dcef21378917fa2afc8c2ce2dad5bee33bff1",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.864.1 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261109105916-8f26e1361aa3",
+      "revision": "8f26e1361aa3fced9222c6b65808ca84fae0b2fc",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/42605323019"
+    },
+    "recorded_at": "2026-11-09T11:02:56Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:43081"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-09T11:02:56.312938Z",
+          "started_at": "2026-11-09T11:02:56.321553Z",
+          "completed_at": "2026-11-09T11:02:56.364576Z",
+          "duration_ms": 43
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-11-09T11:02:56.327082Z",
+          "started_at": "2026-11-09T11:02:56.329270Z",
+          "completed_at": "2026-11-09T11:02:56.362345Z",
+          "duration_ms": 31
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "// Returns its arguments as the worker resolved them, and the interpolated\n// and raw reads of resources whose whole value is one reference, made with\n// fetch at BASE_URL and its own token, as the stock client's getResource.\nexport async function main(sv: any, ss: any, sj: any, sa: any, sm: any, se: any, ev: any, em: any) {\n  const e = process.env;\n  const get = async (path: string) => {\n    const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, {\n      headers: { Authorization: `Bearer ${e.WM_TOKEN}` },\n    });\n    const type = (res.headers.get(\"content-type\") ?? \"\").split(\";\")[0];\n    return { status: res.status, type, text: await res.text() };\n  };\n  const json = async (path: string) => {\n    const r = await get(path);\n    return { status: r.status, type: r.type, value: JSON.parse(r.text) };\n  };\n  const interp = (r: string) => json(`resources/get_value_interpolated/f/wl_wv/${r}`);\n  const missing = await get(\"resources/get_value_interpolated/f/wl_wv/rx\");\n  return {\n    args: { sv, ss, sj, sa, sm, se, ev, em },\n    interp: { rv: await interp(\"rv\"), rj: await interp(\"rj\"), rm: await interp(\"rm\"), re: await interp(\"re\") },\n    raw: { rv: await json(\"resources/get_value/f/wl_wv/rv\"), rx: await json(\"resources/get_value/f/wl_wv/rx\") },\n    // Windmill may end this body in a Rust location (D14).\n    missing: { status: missing.status, type: missing.type, starts: missing.text.startsWith(\"Not found: Variable f/wl_wv/missing not found\") },\n  };\n}\n",
+              "input_transforms": {
+                "em": {
+                  "expr": "resource(\"f/wl_wv/rm\")",
+                  "type": "javascript"
+                },
+                "ev": {
+                  "expr": "resource(\"f/wl_wv/rv\")",
+                  "type": "javascript"
+                },
+                "sa": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/ra"
+                },
+                "se": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/re"
+                },
+                "sj": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rj"
+                },
+                "sm": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rm"
+                },
+                "ss": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rs"
+                },
+                "sv": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rv"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// Returns its arguments as the worker resolved them, and the interpolated\n// and raw reads of resources whose whole value is one reference, made with\n// fetch at BASE_URL and its own token, as the stock client's getResource.\nexport async function main(sv: any, ss: any, sj: any, sa: any, sm: any, se: any, ev: any, em: any) {\n  const e = process.env;\n  const get = async (path: string) => {\n    const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, {\n      headers: { Authorization: `Bearer ${e.WM_TOKEN}` },\n    });\n    const type = (res.headers.get(\"content-type\") ?? \"\").split(\";\")[0];\n    return { status: res.status, type, text: await res.text() };\n  };\n  const json = async (path: string) => {\n    const r = await get(path);\n    return { status: r.status, type: r.type, value: JSON.parse(r.text) };\n  };\n  const interp = (r: string) => json(`resources/get_value_interpolated/f/wl_wv/${r}`);\n  const missing = await get(\"resources/get_value_interpolated/f/wl_wv/rx\");\n  return {\n    args: { sv, ss, sj, sa, sm, se, ev, em },\n    interp: { rv: await interp(\"rv\"), rj: await interp(\"rj\"), rm: await interp(\"rm\"), re: await interp(\"re\") },\n    raw: { rv: await json(\"resources/get_value/f/wl_wv/rv\"), rx: await json(\"resources/get_value/f/wl_wv/rx\") },\n    // Windmill may end this body in a Rust location (D14).\n    missing: { status: missing.status, type: missing.type, starts: missing.text.startsWith(\"Not found: Variable f/wl_wv/missing not found\") },\n  };\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "em": {
+                  "expr": "resource(\"f/wl_wv/rm\")",
+                  "type": "javascript"
+                },
+                "ev": {
+                  "expr": "resource(\"f/wl_wv/rv\")",
+                  "type": "javascript"
+                },
+                "sa": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/ra"
+                },
+                "se": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/re"
+                },
+                "sj": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rj"
+                },
+                "sm": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rm"
+                },
+                "ss": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rs"
+                },
+                "sv": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rv"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {
+                "em": {
+                  "type": "javascript",
+                  "expr": "resource(\"f/wl_wv/rm\")"
+                },
+                "ev": {
+                  "type": "javascript",
+                  "expr": "resource(\"f/wl_wv/rv\")"
+                },
+                "sa": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/ra"
+                },
+                "se": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/re"
+                },
+                "sj": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rj"
+                },
+                "sm": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rm"
+                },
+                "ss": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rs"
+                },
+                "sv": {
+                  "type": "static",
+                  "value": "$res:f/wl_wv/rv"
+                }
+              },
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

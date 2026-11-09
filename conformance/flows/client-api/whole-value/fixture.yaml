@@ -1,0 +1,23 @@
+# Resources whose whole value is one reference string (Windmill 1.859.0,
+# "keep a resource whose whole value is a variable reference", which changed
+# the resource editor only; reads resolve such a value the same way at
+# v1.767.0 and v1.862.0). Step a of consumers receives static $res:
+# arguments the worker resolved, a $var:, a secret $var:, a $jsonvar:, a
+# $res: alias, a $var: of a variable whose value is itself a $var:, and an
+# $encrypted: value (WR-5/f); two resource() reads, whose output the leaf
+# step resolves again (JE-20/e); and it reads the interpolated and raw
+# routes with fetch at BASE_URL and its own token (WA-12/i). missing_arg's
+# static $res: names a resource whose variable does not exist (WR-5/g). The
+# variables and resources are created after the push (OR-31).
+#
+# Each run's expect is the reference's source-derived prediction, written
+# before the oracle ran it. Synthetic, written for this repository from
+# docs/semantics/conformance.md (WR-5, JE-20, WA-12). Deployed with
+# oracle.deploy api.
+id: client-api/whole-value
+spec: [WR-5/f, WR-5/g, JE-20/e, WA-12/i]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+compare: {mode: subset}

@@ -25,6 +25,11 @@
       "spec": "PA-3/a",
       "reason": "a schema clean-up for typed client generation, not the loader",
       "expected_in": "F7c and F7d (windmill-lite gen)"
+    },
+    {
+      "spec": "SY-20/d",
+      "reason": "later: under dedupeLockfiles the CLI walks the shared lock files, so a refused encoding fails the whole push; windmill-lite's loader reads a shared lock only through a script's reference, as SY-5 resolves it, and the walk of locks/ is a loader policy not yet decided",
+      "expected_in": "a later loader milestone (L1)"
     }
   ]
 }

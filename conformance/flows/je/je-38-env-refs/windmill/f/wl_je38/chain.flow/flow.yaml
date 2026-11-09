@@ -1,0 +1,17 @@
+summary: "JE-38/i a chained reference"
+value:
+  modules:
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: flow_env.C}
+          "y": {type: javascript, expr: "`${flow_env.C}`"}
+  flow_env:
+    C: "$var:f/wl_je38/c"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

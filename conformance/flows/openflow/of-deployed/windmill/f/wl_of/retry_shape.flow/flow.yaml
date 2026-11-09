@@ -1,0 +1,25 @@
+summary: "OF-11/d: retry settings through deployment"
+value:
+  modules:
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms: {}
+      retry:
+        exponential: {attempts: 1, multiplier: 2, seconds: 1}
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+      retry:
+        constant: {attempts: 2, seconds: 0}
+        exponential: {attempts: 1, multiplier: 1, seconds: 1, random_factor: null}
+        retry_if: {expr: "error.message !== 'stop'"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

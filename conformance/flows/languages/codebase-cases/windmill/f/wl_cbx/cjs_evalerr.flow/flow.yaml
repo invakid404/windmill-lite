@@ -1,0 +1,12 @@
+summary: 'WR-47/g: f/wl_cbx/cjs/evalerr'
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_cbx/cjs/evalerr
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
