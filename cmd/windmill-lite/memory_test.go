@@ -45,10 +45,14 @@ var memLayouts = []string{"per-script", "shared-instance", "shared-code"}
 
 // memSample is what the host reports at a point of a run.
 type memSample struct {
-	RSS     int64 `json:"rss"`
-	Peak    int64 `json:"peak"`
-	Heap    int64 `json:"heap"`
-	Modules int   `json:"modules"`
+	RSS  int64 `json:"rss"`
+	Peak int64 `json:"peak"`
+	// RusagePeak is getrusage's peak, which on Linux keeps the peak of
+	// the host's parent before the host's execve; Peak is the host's own
+	// there.
+	RusagePeak int64 `json:"rusagePeak"`
+	Heap       int64 `json:"heap"`
+	Modules    int   `json:"modules"`
 }
 
 func (m memSample) mib() float64 { return float64(m.RSS) / (1 << 20) }
@@ -185,8 +189,10 @@ func (h memHarness) sample() memSample {
 	h.t.Helper()
 	var m memSample
 	h.s.getJSON(h.t, "/rss", &m)
-	if m.Peak+1<<20 < m.RSS {
-		h.t.Fatalf("the host reports a peak of %d B, below its resident set of %d B", m.Peak, m.RSS)
+	for _, p := range []int64{m.Peak, m.RusagePeak} {
+		if p+1<<20 < m.RSS {
+			h.t.Fatalf("the host reports a peak of %d B, below its resident set of %d B", p, m.RSS)
+		}
 	}
 	return m
 }
@@ -416,8 +422,8 @@ func TestModuleMemoryClosure(t *testing.T) {
 			t.Logf("%s: %.1f MiB at connect, %.1f after one module, %.1f after %d (%.2f MiB per further module; first run %.0f ms), %.1f after eight concurrent runs, %.1f after 1,000 runs, 125 rounds of eight (%.0f ms); peak %.1f MiB",
 				layout, connect.mib(), one.mib(), loaded.mib(), steps, perModule, first.MS, eight.mib(), after.mib(), soak.MS, mib(after.Peak))
 			// The peak so far at each reading shows which phase set it.
-			t.Logf("%s: peak %.1f MiB at connect, %.1f after one module, %.1f after %d, %.1f after eight concurrent runs, %.1f after 1,000 runs",
-				layout, mib(connect.Peak), mib(one.Peak), mib(loaded.Peak), steps, mib(eight.Peak), mib(after.Peak))
+			t.Logf("%s: peak %.1f MiB at connect, %.1f after one module, %.1f after %d, %.1f after eight concurrent runs, %.1f after 1,000 runs; getrusage's peak %.1f MiB at connect and %.1f after 1,000 runs",
+				layout, mib(connect.Peak), mib(one.Peak), mib(loaded.Peak), steps, mib(eight.Peak), mib(after.Peak), mib(connect.RusagePeak), mib(after.RusagePeak))
 			if loaded.Modules != steps {
 				t.Fatalf("modules loaded: %d; want %d", loaded.Modules, steps)
 			}

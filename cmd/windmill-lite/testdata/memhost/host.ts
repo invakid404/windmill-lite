@@ -16,6 +16,7 @@
 // imports this one.
 
 import { heapStats } from "bun:jsc";
+import { readFileSync } from "node:fs";
 import { connect } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
@@ -32,14 +33,25 @@ const host = await connect({
 });
 
 // The resident set after a full collection, the peak resident set so far,
-// and the script modules loaded. Bun 1.4.3 reports the peak in kilobytes
-// on every platform, as Node does; Bun 1.3.10 reported bytes on macOS.
+// and the script modules loaded. On Linux the peak is the process's own
+// high-water mark (VmHWM): getrusage's maxRSS, also reported, keeps the
+// peak of what the process was before its execve, which for a child that
+// Go's os/exec starts is its parent's. Bun 1.4.3 reports maxRSS in
+// kilobytes on every platform, as Node does; Bun 1.3.10 reported bytes on
+// macOS.
 function memory() {
   for (let i = 0; i < 3; i++) Bun.gc(true);
-  const peak = process.resourceUsage().maxRSS;
+  const rusagePeak = process.resourceUsage().maxRSS * 1024;
+  let peak = rusagePeak;
+  if (process.platform === "linux") {
+    const hwm = /^VmHWM:\s*(\d+) kB$/m.exec(readFileSync("/proc/self/status", "utf8"));
+    if (!hwm) throw new Error("no VmHWM in /proc/self/status");
+    peak = Number(hwm[1]) * 1024;
+  }
   return {
     rss: process.memoryUsage().rss,
-    peak: peak * 1024,
+    peak,
+    rusagePeak,
     heap: heapStats().heapSize,
     modules: host.health().modules,
   };

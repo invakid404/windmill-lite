@@ -300,17 +300,20 @@ jobs:
               for f in "${fields[@]:1}"; do envs+=("$f"); done
               for c in "${cmds[@]}"; do
                 kind=${c%% *} pattern=${c#* }
+                # A test run is bounded, so that a hung test fails its
+                # command, with every goroutine's stack, instead of holding
+                # the job until its timeout.
                 if [ "$kind" = run ]; then
-                  args=(-test.run "$pattern" -test.v)
+                  args=(-test.run "$pattern" -test.v -test.timeout 30m)
                 else
-                  args=(-test.run '^$' -test.bench "$pattern" -test.benchtime "$kind")
+                  args=(-test.run '^$' -test.bench "$pattern" -test.benchtime "$kind" -test.timeout 0)
                 fi
                 echo "round $r: $name ${envs[*]}, $pattern, $(date -u +%T), load $(cut -d' ' -f1-3 /proc/loadavg)"
                 # A command that fails or skips a test fails the step once
                 # every round has run.
                 if ! inside "$RUNNER_TEMP/src/$name/cmd/windmill-lite" \
                     env "PATH=${bun%/*}:$PATH" "WL_BUN=$bun" WL_REQUIRE_BUN=1 "${genv[@]}" "${envs[@]}" \
-                    "$RUNNER_TEMP/bin/$name.test" "${args[@]}" -test.count 1 -test.timeout 0 > "$RUNNER_TEMP/cmd.txt"; then
+                    "$RUNNER_TEMP/bin/$name.test" "${args[@]}" -test.count 1 > "$RUNNER_TEMP/cmd.txt"; then
                   echo "::error::round $r: $name, $pattern failed"
                   failed=1
                 fi
