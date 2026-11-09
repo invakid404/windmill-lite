@@ -1,0 +1,21 @@
+# JE-38/g: into a subflow called by path, an exact read keeps the reference
+# only for a secret entry: the subflow's input holds V's value resolved and
+# S as its reference, and the computed w encrypted (masked). The subflow
+# defines no flow_env; its step e passes its input on with exact flow_input
+# reads, and its job resolves the reference and decrypts w, since it shares
+# the root job.
+spec: [JE-38/g]
+target: f/wl_je38/subflow
+expect:
+  status: success
+  result: {x: plain, "y": hidden, w: hidden!}
+  steps:
+    "m:c":
+      status: success
+      args: {x: plain, "y": "$var:f/wl_je38/s", w: "<masked>"}
+      result: {x: plain, "y": hidden, w: hidden!}
+    "m:c/m:e":
+      status: success
+      args: {x: plain, "y": "$var:f/wl_je38/s", w: "<masked>"}
+      resolved_args: {x: plain, "y": hidden, w: hidden!}
+      result: {x: plain, "y": hidden, w: hidden!}

@@ -1,0 +1,21 @@
+summary: "WR-5/f, JE-20/e, WA-12/i: whole-value resources"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms:
+          sv: {type: static, value: "$res:f/wl_wv/rv"}
+          ss: {type: static, value: "$res:f/wl_wv/rs"}
+          sj: {type: static, value: "$res:f/wl_wv/rj"}
+          sa: {type: static, value: "$res:f/wl_wv/ra"}
+          sm: {type: static, value: "$res:f/wl_wv/rm"}
+          se: {type: static, value: "$res:f/wl_wv/re"}
+          ev: {type: javascript, expr: "resource(\"f/wl_wv/rv\")"}
+          em: {type: javascript, expr: "resource(\"f/wl_wv/rm\")"}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

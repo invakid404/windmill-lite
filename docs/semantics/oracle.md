@@ -236,12 +236,15 @@ validation. Open questions are `Q-OR-n`.
       first recording session, oracle run 40649910412). Each figure holds
       only for its architecture.
   - **Harness:**
-    - never use the in-image CLI; use `windmill-cli@1.767.0` from npm
-      ([OR-8](#or-8));
-    - windmill-lite's Bun harness uses Bun 1.3.10 for differential runs, or
-      the different version is recorded in provenance. A Bun version different
-      from the oracle's fails the provenance check; it never silently lets
-      other semantic differences pass.
+    - never use the in-image CLI; use the pinned `windmill-cli` from npm,
+      `1.862.0` since the retarget (`1.767.0` before), [OR-8](#or-8);
+    - two Bun versions are checked, each against its own pin. The oracle's
+      is the image's (`1.4.4` at v1.862.0), recorded in every recording's
+      provenance. windmill-lite's harness runs the Bun windmill-lite pins
+      (`1.4.3`), and a harness that reports another version is a
+      nonconformant runtime, reported as such. The gap between the two pins
+      is a named deviation of windmill-lite (D23 in design record 0001),
+      never a reason to let another semantic difference pass.
 - **Evidence:** `Dockerfile:283,285,288` (Deno 2.2.1, Bun 1.3.10, unpinned
   CLI); `Dockerfile:141` (Go 1.26.0); `docker/DockerfileSlim:26-110` (slim
   contents) and `:73,77` (slim Bun and CLI); `docker/DockerfileFull:1-40`;
@@ -260,8 +263,12 @@ validation. Open questions are `Q-OR-n`.
   reports `1.4.4`, recorded by the probe `bun_version`, which the `env`
   probe's `bun` field became ([OR-2/a](conformance.md#or-2), oracle run
   42327335039; [OR-29](#or-29)). The title no longer names a version.
-  The other images' contents, the sizes, the harness bullets and
-  [OR-2/b](conformance.md#or-2) are not re-checked.
+  The other images' contents and the sizes are not re-checked.
+- **Revision 2026-11-09 (retarget to v1.862.0):** the harness bullets and
+  [OR-2/b](conformance.md#or-2) still said that windmill-lite's Bun must be
+  the oracle's `1.3.10`. windmill-lite now pins Bun `1.4.3` while the
+  image runs `1.4.4`, so each Bun is checked against its own pin and the
+  difference is a named deviation; the CLI bullet names the `1.862.0` pin.
 
 <a id="or-3"></a>
 ### OR-3 · Licence of the CE image, and its use as a public CI oracle

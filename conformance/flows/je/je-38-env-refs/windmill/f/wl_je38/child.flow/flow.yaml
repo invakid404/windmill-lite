@@ -1,0 +1,16 @@
+summary: "JE-38/g the subflow, with no flow_env of its own"
+value:
+  modules:
+    - id: e
+      value:
+        type: rawscript
+        content: "!inline e.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: flow_input.x}
+          "y": {type: javascript, expr: flow_input.y}
+          w: {type: javascript, expr: flow_input.w}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

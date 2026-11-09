@@ -1,0 +1,17 @@
+# JE-38/i: c's value is the text $var:f/wl_je38/v. The exact read x keeps
+# the entry, $var:f/wl_je38/c, which the script job resolves once: b
+# receives c's value, the inner reference, not walked again. The computed y
+# is evaluated with the resolved env, so it stores c's value, which still
+# holds a reference, and the script job resolves that: b receives v's value.
+# Before Windmill 1.855.0 x was stored and received as y is.
+spec: [JE-38/i]
+target: f/wl_je38/chain
+expect:
+  status: success
+  result: {x: "$var:f/wl_je38/v", "y": plain}
+  steps:
+    "m:b":
+      status: success
+      args: {x: "$var:f/wl_je38/c", "y": "$var:f/wl_je38/v"}
+      resolved_args: {x: "$var:f/wl_je38/v", "y": plain}
+      result: {x: "$var:f/wl_je38/v", "y": plain}

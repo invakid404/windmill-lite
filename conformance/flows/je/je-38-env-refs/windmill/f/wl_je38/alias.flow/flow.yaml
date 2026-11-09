@@ -1,0 +1,17 @@
+summary: "JE-38/h a $res: flow_env entry"
+value:
+  modules:
+    - id: b
+      value:
+        type: rawscript
+        content: "!inline b.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: flow_env.R}
+          "y": {type: javascript, expr: "flow_env.R + \"!\""}
+  flow_env:
+    R: "$res:f/wl_je38/rs"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
