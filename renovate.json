@@ -107,7 +107,7 @@
         ".github/workflows/oracle.yml",
         ".github/workflows/parity.yml"
       ],
-      "matchPackageNames": [
+      "matchDepNames": [
         "node"
       ],
       "allowedVersions": "<23"
@@ -127,7 +127,7 @@
       "matchFileNames": [
         ".github/workflows/ci.yml"
       ],
-      "matchPackageNames": [
+      "matchDepNames": [
         "node"
       ],
       "matchCurrentVersion": "/^24\\./",
@@ -138,7 +138,7 @@
       "matchFileNames": [
         ".github/workflows/ci.yml"
       ],
-      "matchPackageNames": [
+      "matchDepNames": [
         "node"
       ],
       "matchCurrentVersion": "/^22\\./",
