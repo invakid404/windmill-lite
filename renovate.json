@@ -69,11 +69,30 @@
       "allowedVersions": "<25"
     },
     {
-      "description": "The jsonb test image follows the oracle's PostgreSQL major; only digest and patch updates within 16.",
-      "matchPackageNames": [
+      "description": "The postgres:16-alpine image of CI's jsonb (PostgreSQL) job moves only together with the oracle pin (internal/oracle/pins.go), because the canonicaliser is checked against the oracle's own PostgreSQL (ADR 0005, Q-JE-9); Renovate never updates it.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchFileNames": [
+        ".github/workflows/ci.yml"
+      ],
+      "matchDepNames": [
         "postgres"
       ],
-      "allowedVersions": "<17"
+      "enabled": false
+    },
+    {
+      "description": "go.yaml.in/yaml/v3 takes patch and minor updates only: v4 changes what windmill-lite parses (SY-9's refusals, plain-scalar resolution), so a move to it is a semantics decision.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "go.yaml.in/yaml/v3"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     },
     {
       "description": "The Windmill oracle image is the semantics pin (v1.862.0); it is never bumped by Renovate.",
