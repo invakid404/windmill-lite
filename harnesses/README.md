@@ -23,6 +23,10 @@ run in the host's own process
 bun add windmill-lite
 ```
 
+This installs the version that npm's dist-tag `latest` names. A
+[release candidate](../RELEASING.md#release-a-release-candidate), such as
+`0.2.0-rc.1`, is on the dist-tag `next`: `bun add windmill-lite@next`.
+
 A host needs three more things:
 
 | Requirement | Why |
