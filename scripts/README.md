@@ -3,8 +3,8 @@
 **Current state:** the documentation check runs in CI and reports warnings
 only. The [release helper](#release-helper) serves the release workflow and
 the npm package's packaging test. The
-[Renovate auto-ack](#renovate-auto-ack) scripts are installed, awaiting
-activation. This README covers the scripts in this directory, and none of
+[Renovate auto-ack](#renovate-auto-ack) scripts serve the auto-ack workflow,
+which is active. This README covers the scripts in this directory, and none of
 them is part of windmill-lite itself.
 
 ## Documentation check
@@ -69,10 +69,10 @@ stamps the same `v<version>` into the Bun host SDK.
 Renovate, the bot that updates this repository's dependencies, opens pull
 requests that can change files in a README's scope. These scripts serve the
 [auto-ack workflow](../.github/workflows/memoria-auto-ack.yml), which
-acknowledges such README reviews automatically. It stops at its first step
-until the owner provisions its
-`MEMORIA_AUTO_ACK_TOKEN` secret ([docs/memoria.md](../docs/memoria.md#renovate-bumps)).
-Until then, Renovate pull requests are acknowledged by hand.
+acknowledges such README reviews automatically and pushes with the
+`MEMORIA_AUTO_ACK_TOKEN` repository secret. A Renovate pull request with any
+other change still needs a manual ack
+([docs/memoria.md](../docs/memoria.md#renovate-bumps)).
 
 | Script | What it does |
 |---|---|
