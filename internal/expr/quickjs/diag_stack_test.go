@@ -16,9 +16,9 @@ import (
 )
 
 var diagShapes = []struct{ name, src string }{
-	{"je48-arrow", `(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(K); })()`},
+	{"je48-arrow", `String((() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(K); })())`},
 	{"selfcheck-named", `String((function f(n) { return n === 0 ? 0 : 1 + f(n - 1); })(K))`},
-	{"je48a-two-arg", `(((g, n) => g(g, n))((g, n) => n === 0 ? 0 : 1 + g(g, n - 1), K))`},
+	{"je48a-two-arg", `String(((g, n) => g(g, n))((g, n) => n === 0 ? 0 : 1 + g(g, n - 1), K))`},
 	{"tracker", `(() => { let d = 0; const f = n => { d = n; return n === 0 ? 0 : 1 + f(n - 1); }; return String(f(K)); })()`},
 }
 

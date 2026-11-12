@@ -1,6 +1,7 @@
 # TEMPORARY diagnostic workflow (removed before review): measures the C
 # stack that one JavaScript call takes in the QuickJS-ng engine on
-# ubuntu-24.04 and ubuntu-26.04, and what the system compiler adds.
+# ubuntu-24.04 and ubuntu-26.04, and which compiler pass makes the
+# difference.
 name: Diag stack
 
 on:
@@ -17,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, ubuntu-26.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,96 +29,97 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: System
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+
+      - name: Optimizer flags that -O2 adds to -O1
         run: |
-          set -x
-          grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release
-          uname -srm
-          echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"
-          ulimit -s
-          ulimit -a
-          ldd --version | head -1
-          nproc
-          ls /usr/bin | grep -E '^(gcc|clang|cc|c\+\+)(-[0-9]+)?$' | tr '\n' ' '; echo
-          readlink -f "$(command -v gcc)" "$(command -v cc)"
-          go version
-          go env CC CXX CGO_ENABLED CGO_CFLAGS CGO_CPPFLAGS CGO_LDFLAGS GOAMD64
+          for cc in gcc-13 gcc-14 gcc-15; do
+            command -v "$cc" > /dev/null || continue
+            "$cc" -Q -O1 --help=optimizers > "$RUNNER_TEMP/$cc-O1.txt"
+            "$cc" -Q -O2 --help=optimizers > "$RUNNER_TEMP/$cc-O2.txt"
+            diff "$RUNNER_TEMP/$cc-O1.txt" "$RUNNER_TEMP/$cc-O2.txt" | awk '/^>/ && $3=="[enabled]" {print $2}' > "$RUNNER_TEMP/$cc-o2only.txt"
+            echo "$cc: $(wc -l < "$RUNNER_TEMP/$cc-o2only.txt") flags: $(tr '\n' ' ' < "$RUNNER_TEMP/$cc-o2only.txt")"
+            diff "$RUNNER_TEMP/$cc-O1.txt" "$RUNNER_TEMP/$cc-O2.txt" | grep -E '^>.*=' | head -40 || true
+          done
+          # gcc-13 vs gcc-14 at -O2 (enabled flags and params that differ)
+          if command -v gcc-13 > /dev/null && command -v gcc-14 > /dev/null; then
+            echo "=== gcc-13 vs gcc-14, -O2 optimizers"
+            diff "$RUNNER_TEMP/gcc-13-O2.txt" "$RUNNER_TEMP/gcc-14-O2.txt" || true
+            echo "=== gcc-13 vs gcc-14, -O2 params"
+            diff <(gcc-13 -Q -O2 --help=params) <(gcc-14 -Q -O2 --help=params) || true
+          fi
 
-      - name: Compiler
-        run: |
-          set -x
-          gcc --version | head -1
-          gcc -v 2>&1 | grep -E '^gcc version'
-          gcc -v 2>&1 | grep -E '^Configured with' | tr ' ' '\n' | grep -E 'enable-default|cet|ssp|pie|stack|hard|multiarch|with-arch|with-tune'
-          gcc -Q -O2 --help=common | grep -E 'stack-protector|stack-clash|auto-var-init|cf-protection|omit-frame-pointer|zero-call-used|hardened|shrink-wrap|stack-reuse|ipa-ra|-fPIE|-fpie |-fPIC|-fpic |zero-init-padding|ipa-icf|inline-functions |-fipa-cp '
-          gcc -Q -O2 --help=target | grep -E 'march|mtune|shstk|cet|indirect-branch|function-return|-mabi'
-          gcc -O2 -dM -E -x c /dev/null | grep -E 'FORTIFY|SSP|__PIE__|__pie__|__GNUC__ |__VERSION__|STDC_VERSION|CET|SHSTK'
-          echo 'int main(void){return 0;}' > "$RUNNER_TEMP/t.c"
-          gcc -### -O2 -c "$RUNNER_TEMP/t.c" -o "$RUNNER_TEMP/t.o" 2>&1 | grep cc1
-          ls /usr/lib/gcc/x86_64-linux-gnu/ || true
-          cat "$(gcc -print-file-name=specs 2>/dev/null)" 2>/dev/null | head -5 || true
-          clang --version | head -1 || true
-
-      - name: How cgo compiles the engine
-        run: go build -n -a ./internal/expr/quickjs 2>&1 | grep -E 'qjs_quickjs\.c' | head -3
-
-      - name: Static frame of JS_CallInternal (-fstack-usage)
+      - name: Frame of JS_CallInternal with each O2 pass turned off
         working-directory: internal/expr/quickjs
         run: |
           base="-O2 -DNDEBUG -D_GNU_SOURCE -funsigned-char -Wno-unused-parameter -Wno-sign-compare -Imimalloc/include -fPIC -m64 -pthread -fmessage-length=0 -g -w"
           out="$RUNNER_TEMP/su"; mkdir -p "$out"
-          variants=(
-            "gcc|default|"
-            "gcc|no-stack-protector|-fno-stack-protector"
-            "gcc|no-stack-clash|-fno-stack-clash-protection"
-            "gcc|no-cf-protection|-fcf-protection=none"
-            "gcc|auto-var-init-uninit|-ftrivial-auto-var-init=uninitialized"
-            "gcc|auto-var-init-zero|-ftrivial-auto-var-init=zero"
-            "gcc|no-fortify|-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
-            "gcc|omit-frame-pointer|-fomit-frame-pointer"
-            "gcc|no-omit-frame-pointer|-fno-omit-frame-pointer"
-            "gcc|std-gnu17|-std=gnu17"
-            "gcc|no-shrink-wrap|-fno-shrink-wrap"
-            "gcc|hardening-off|-fno-stack-protector -fno-stack-clash-protection -fcf-protection=none -ftrivial-auto-var-init=uninitialized -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
-            "gcc|O1|-O1"
-            "gcc|O3|-O3"
-            "gcc|Os|-Os"
-          )
-          for v in gcc-12 gcc-13 gcc-14 gcc-15 gcc-16 clang; do
-            if command -v "$v" > /dev/null; then variants+=("$v|default|"); fi
+          ccs=(gcc-14)
+          if command -v gcc-15 > /dev/null; then ccs+=(gcc-15); fi
+          variants=()
+          for cc in "${ccs[@]}"; do
+            variants+=("$cc|default|")
+            while read -r f; do
+              variants+=("$cc|no${f#-f}|-fno-${f#-f}")
+            done < "$RUNNER_TEMP/$cc-o2only.txt"
+            for extra in "-fconserve-stack" "-fno-inline" "-fno-early-inlining" "-fno-tree-vectorize" "-march=x86-64" \
+                         "--param=large-stack-frame-growth=100" "--param=large-stack-frame=256" \
+                         "-fno-inline-functions -fno-inline-small-functions" "-fno-stack-protector"; do
+              variants+=("$cc|${extra//[ =]/_}|$extra")
+            done
           done
           run() {
             IFS='|' read -r cc name flags <<< "$1"
             o="$out/$cc-$name"
             # shellcheck disable=SC2086
             if "$cc" $base $flags -fstack-usage -c qjs_quickjs.c -o "$o.o" 2> "$o.err"; then
-              printf '%-8s %-24s %s\n' "$cc" "$name" "$(grep -E ':(JS_CallInternal|js_call_c_function|js_call_bound_function)([.][a-z0-9.]+)?\s' "$o.su" | awk '{print $1"="$2"("$3")"}' | sed 's/.*://' | tr '\n' ' ')"
+              size=$(grep -E ':JS_CallInternal([.][a-z0-9.]+)?\s' "$o.su" | awk '{print $2}' | head -1)
+              printf '%-7s %-5s %-60s\n' "$cc" "$size" "$name"
+              printf '%s\t%s\t%s\n' "$cc" "$size" "$flags" >> "$out/frames.tsv"
             else
-              printf '%-8s %-24s FAILED: %s\n' "$cc" "$name" "$(head -c 300 "$o.err")"
+              printf '%-7s FAIL  %-60s %s\n' "$cc" "$name" "$(head -c 200 "$o.err" | tr '\n' ' ')"
             fi
+            rm -f "$o.o"
           }
           export -f run; export base out
-          printf '%s\n' "${variants[@]}" | xargs -P "$(nproc)" -I{} bash -c 'run "$@"' _ {} | sort
+          printf '%s\n' "${variants[@]}" | xargs -P "$(nproc)" -I{} bash -c 'run "$@"' _ {} | sort -k1,1 -k2,2n | tee "$RUNNER_TEMP/frames.txt"
 
-      - name: Depth reached, as built by cgo
+      - name: Depth and stack per call, as cgo builds the engine
         working-directory: internal/expr/quickjs
         env:
           WL_DIAG_STACK: "1"
         run: |
-          variants=(
-            "gcc|default|-O2 -g"
-            "gcc|no-stack-protector|-O2 -g -fno-stack-protector"
-            "gcc|no-stack-clash|-O2 -g -fno-stack-clash-protection"
-            "gcc|hardening-off|-O2 -g -fno-stack-protector -fno-stack-clash-protection -fcf-protection=none -ftrivial-auto-var-init=uninitialized -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
-          )
-          for v in gcc-13 gcc-14 gcc-15 gcc-16 clang; do
+          variants=("gcc|default|-O2 -g" "clang|default|-O2 -g")
+          for v in gcc-13 gcc-14 gcc-15; do
             if command -v "$v" > /dev/null; then variants+=("$v|default|-O2 -g"); fi
           done
+          # The flags that bring gcc-14's or gcc-15's frame under 1 000 bytes.
+          while IFS=$'\t' read -r cc size flags; do
+            if [ -n "$flags" ] && [ "$size" -lt 1000 ] 2>/dev/null; then variants+=("$cc|x|-O2 -g $flags"); fi
+          done < "$RUNNER_TEMP/su/frames.tsv"
+          : > "$RUNNER_TEMP/depth.txt"
           for v in "${variants[@]}"; do
             IFS='|' read -r cc name flags <<< "$v"
             rm -f "$RUNNER_TEMP/q.test"
-            CC="$cc" CGO_CFLAGS="$flags" go test -c -o "$RUNNER_TEMP/q.test" . > "$RUNNER_TEMP/build.log" 2>&1 || { echo "$cc $name: build failed"; tail -20 "$RUNNER_TEMP/build.log"; continue; }
-            WL_DIAG_LABEL="$cc/$name" "$RUNNER_TEMP/q.test" -test.run '^(TestDiagStack|TestOverflowDepthAtTheDefaultStack|TestLargeStackLimitStaysInsideTheThread)$' -test.v -test.count=1 2>&1 | tee -a "$RUNNER_TEMP/depth.txt" | grep -E 'DIAG|overflows|--- |got' || true
+            if ! CC="$cc" CGO_CFLAGS="$flags" go test -c -o "$RUNNER_TEMP/q.test" . > "$RUNNER_TEMP/build.log" 2>&1; then
+              echo "$cc [$flags]: build failed"; grep -v warning "$RUNNER_TEMP/build.log" | tail -5; continue
+            fi
+            WL_DIAG_LABEL="$cc[$flags]" "$RUNNER_TEMP/q.test" -test.run '^TestDiagStack$' -test.v -test.count=1 > "$RUNNER_TEMP/run.log" 2>&1 || true
+            grep DIAG "$RUNNER_TEMP/run.log" | tee -a "$RUNNER_TEMP/depth.txt" || { echo "$cc [$flags]: no result"; tail -20 "$RUNNER_TEMP/run.log"; }
           done
-          echo "=== summary ==="
-          grep DIAG "$RUNNER_TEMP/depth.txt"
+
+      - name: Static engine (zig cc, musl) on this image
+        env:
+          CGO_ENABLED: "1"
+          CC: zig cc -target x86_64-linux-musl
+          WL_DIAG_STACK: "1"
+        run: |
+          ldflags="-linkmode=external -extldflags=-static"
+          go build -o "$RUNNER_TEMP/windmill-lite" -ldflags "$ldflags" ./cmd/windmill-lite
+          go test -c -o "$RUNNER_TEMP/quickjs-static.test" -ldflags "$ldflags" ./internal/expr/quickjs
+          file "$RUNNER_TEMP/windmill-lite"
+          "$RUNNER_TEMP/windmill-lite" selfcheck || echo "selfcheck exit status $?"
+          cd internal/expr/quickjs
+          WL_DIAG_LABEL="zig-static" "$RUNNER_TEMP/quickjs-static.test" -test.run '^(TestDiagStack|TestOverflowDepthAtTheDefaultStack|TestLargeStackLimitStaysInsideTheThread)$' -test.v -test.count=1 | grep -E 'DIAG|overflows|--- |got|_test.go' || true
