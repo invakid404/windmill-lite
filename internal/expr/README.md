@@ -500,8 +500,8 @@ scales to its build's frames
   it is interrupted, deviation D8) and a stack of 1 MiB, QuickJS-ng's
   built-in default, which Windmill's embedding never changes
   ([JE-48](../../docs/semantics/expressions.md#je-48)). The native engine
-  scales the stack to the C stack of one call in its build, so that the
-  same recursion depth fits on every build
+  scales the stack to the C stack of one call in its build, so that a
+  simple recursion fits about the same depth on every build
   ([internal/expr/quickjs](quickjs/README.md#stack-limit)).
 
 ## Tests and cases

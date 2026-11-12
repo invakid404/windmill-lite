@@ -31,7 +31,7 @@ What the package does not do:
 
 | Name | What it does |
 |---|---|
-| `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
+| `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. The first call of a process also measures the C stack that one JavaScript call takes ([Stack limit](#stack-limit)). |
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache), `LeakCheck` (free each runtime block by block and count what QuickJS-ng leaked, below). |
 | `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode, with strict mode forced, as Windmill's evaluator compiles every script ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the input's preludes, then the bytecode, on a fresh runtime and context, and returns the completion string or an error. |
@@ -138,7 +138,7 @@ What the package does not do:
 | Limit | Default | What happens |
 |---|---|---|
 | heap | 128 MiB (`Limits.MemoryMB`) | Allocation fails past the cap. QuickJS-ng then throws an `InternalError` with the text `out of memory`, or a bare `null` or `undefined`, and the exception keeps that kind ([JE-3](../../../docs/semantics/expressions.md#je-3)). The cap also covers the engine's host-call bookkeeping: one record per outstanding call, reused once the call settles, and the argument copies of calls not yet handed to Go, which are freed as Go copies them. Reading the completion value or the exception back gets 16 MiB of headroom above the cap. |
-| stack | 1 MiB (`Limits.StackBytes`), scaled to the build | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). The engine scales it so that 1 365 calls of a simple recursion fit on every build ([Stack limit](#stack-limit)). Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. |
+| stack | 1 MiB (`Limits.StackBytes`), scaled to the build | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). The engine scales it so that about 1 365 calls of a simple recursion fit on every build ([Stack limit](#stack-limit)). Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. |
 | attempt | 20 s (`Limits.Attempt`) | The attempt is interrupted through QuickJS-ng's interrupt handler, which the engine polls in loops, calls and regular-expression matching. The interrupt cannot be caught. A built-in that runs long without reaching the handler (`"x".repeat(n)` on a large `n`, for one), or a long readback, still ends the attempt: whatever the program got to, `Eval` returns `expr.ErrAttemptTimeout` once the limit has passed, and the slot prepares a new runtime. Windmill leaves a timed-out evaluation running; interrupting it is deviation D8 of [0001](../../../docs/design/0001-equivalence-contract.md). A Promise that never settles also ends here ([JE-2](../../../docs/semantics/expressions.md#je-2)). |
 | context | the caller's `ctx` | When `ctx` ends during an evaluation, the program is interrupted the same way and `Eval` returns `context.Cause(ctx)`, again whatever the program got to. |
 
@@ -146,10 +146,10 @@ What the package does not do:
 
 Each evaluation gets `Limits.StackBytes` scaled to the C stack that one
 JavaScript call takes in the engine's build. A recursion such as
-`f = n => n === 0 ? 0 : 1 + f(n - 1)` then fits `StackBytes` ÷ 768 B
-calls on every build: about 1 365 at the default 1 MiB. That is a third more
-than a recursion of depth 1 000, which the engine must fit and Windmill
-does not ([D17](../../../docs/design/0001-equivalence-contract.md)).
+`f = n => n === 0 ? 0 : 1 + f(n - 1)` then fits about `StackBytes` ÷
+768 B calls on every build: about 1 365 at the default 1 MiB. That is a
+third more than a recursion of depth 1 000, which the engine must fit and
+Windmill does not ([D17](../../../docs/design/0001-equivalence-contract.md)).
 `Limits()` and the bundle manifest keep the configured size.
 
 The scaling exists because the C stack of one call depends on the compiler.
@@ -292,7 +292,7 @@ configuration with each C library's allocator, not the allocators alone.
     overflow depth for each platform, and check that:
     - the default limit fits at least 1 351 calls, 99 % of 1 365;
     - evaluations take the stack per call that the probe measured, within
-      2 %;
+      6 bytes, less than the 16 bytes that one more local takes;
     - a 6 MiB limit, scaled, still ends in a `RangeError` inside the slot's
       thread.
   - JE-48/a's `depth-1000` case: a recursion of depth 1 000, which
