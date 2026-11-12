@@ -209,11 +209,11 @@ jobs:
           bun-version: 1.4.3
 
       - name: Set up Node
-        # npm trusted publishing needs npm 11.5.1 or newer; Node 24.22.2
+        # npm trusted publishing needs npm 11.5.1 or newer; Node 24.22.3
         # ships npm 11.19.1. The publish job uses the same Node.
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.22.2
+          node-version: 24.22.3
 
       - name: Install the build helper's dependencies
         working-directory: harnesses/bun/build
@@ -369,7 +369,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.22.2
+          node-version: 24.22.3
 
       - name: Check npm
         # Trusted publishing needs npm 11.5.1 or newer.
