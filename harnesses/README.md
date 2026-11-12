@@ -261,7 +261,7 @@ and `go` with a C compiler. With `WL_TARBALL` it checks that tarball
 instead of packing one, and with `WL_ENGINE` it uses that engine binary
 instead of building one. The
 [release workflow](../.github/workflows/release.yml) passes both, and runs
-it on Node 24.22.1. CI's Go jobs on Ubuntu and macOS run it on Node
+it on Node 24.22.3. CI's Go jobs on Ubuntu and macOS run it on Node
 22.23.5, as the step `Test the npm package`.
 
 ## Versions and releases
