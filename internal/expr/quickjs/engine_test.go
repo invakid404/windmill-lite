@@ -702,7 +702,9 @@ func TestOverflowDepthAtTheDefaultStack(t *testing.T) {
 	// about 1 MiB / 768 B = 1 365 calls of this function fit whichever
 	// compiler built it (D17); the frames between the limit's top and the
 	// recursion cost a few of them. The depth cannot exceed what the scaled
-	// limit holds at the measured cost.
+	// limit holds at the measured cost. The test also logs how deep
+	// JSON.parse, JSON.stringify and source text nest under the same limit,
+	// which their own frames set.
 	e := newEngine(t, Options{Slots: 1})
 	got := mustRun(t, e, `(() => { let d = 0; const f = n => { d = n; return n === 0 ? 0 : 1 + f(n - 1); }; const g = n => { try { f(n); return -1; } catch (e) { return e.name === "RangeError" ? n - d : -2; } }; return String(g(1000000)); })()`, expr.Input{})
 	var depth int
@@ -711,7 +713,8 @@ func TestOverflowDepthAtTheDefaultStack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%s/%s: %d bytes of C stack per call, stack limit %d bytes, overflow at recursion depth %d", runtime.GOOS, runtime.GOARCH, perCall, e.StackLimit(), depth)
+	parse, stringify, source := nestingDepths(t, e)
+	t.Logf("%s/%s: %d bytes of C stack per call, stack limit %d bytes, overflow at recursion depth %d; deepest nesting: JSON.parse %d, JSON.stringify %d, source %d", runtime.GOOS, runtime.GOARCH, perCall, e.StackLimit(), depth, parse, stringify, source)
 	if least := (1 << 20) / referenceCallStack * 99 / 100; depth < least {
 		t.Errorf("overflow depth %d, want at least %d", depth, least)
 	}

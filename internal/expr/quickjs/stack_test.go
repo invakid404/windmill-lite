@@ -55,15 +55,36 @@ func TestStackLimitTooLarge(t *testing.T) {
 	}
 }
 
+func TestPlausibleCallStack(t *testing.T) {
+	for _, tc := range []struct {
+		perCall int
+		ok      bool
+	}{
+		{minCallStack - 1, false},
+		{minCallStack, true},
+		{1728, true},
+		{maxCallStack, true},
+		{maxCallStack + 1, false},
+	} {
+		got, err := plausibleCallStack(tc.perCall)
+		switch {
+		case tc.ok && (err != nil || got != tc.perCall):
+			t.Errorf("plausibleCallStack(%d) = %d, %v", tc.perCall, got, err)
+		case !tc.ok && (err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%d bytes", tc.perCall))):
+			t.Errorf("plausibleCallStack(%d): %v, want an error naming the bytes", tc.perCall, err)
+		}
+	}
+}
+
 func TestCallStackBytes(t *testing.T) {
 	perCall, err := CallStackBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("%s/%s: %d bytes of C stack per call", runtime.GOOS, runtime.GOARCH, perCall)
-	// The probe runs once per process; the builds CI measures take 700 to
-	// 1 800 bytes. Anything outside these bounds is a broken probe.
-	if perCall < 128 || perCall > 64<<10 {
+	// The probe runs once per process, and New refuses a cost outside
+	// these bounds.
+	if perCall < minCallStack || perCall > maxCallStack {
 		t.Fatalf("%d bytes per call", perCall)
 	}
 	if again, _ := CallStackBytes(); again != perCall {
@@ -88,18 +109,14 @@ func TestCallStackBytes(t *testing.T) {
 // [JE-48/a]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/conformance.md#je-48
 func je48Depth(t *testing.T, e *Engine) int {
 	t.Helper()
-	fits := func(k int) bool {
-		src := strings.ReplaceAll(`String((() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(K); })())`, "K", fmt.Sprint(k))
-		out, err := e.Eval(context.Background(), compile(t, e, src), expr.Input{})
-		switch {
-		case err == nil && string(out) == fmt.Sprint(k):
-			return true
-		case err != nil && strings.Contains(err.Error(), "RangeError: Maximum call stack size exceeded"):
-			return false
-		}
-		t.Fatalf("depth %d: %s, %v", k, out, err)
-		return false
-	}
+	return deepestFit(func(k int) bool {
+		return evalFits(t, e, `String((() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(K); })())`, k)
+	})
+}
+
+// deepestFit is the largest k for which fits(k) holds, given that fits(1)
+// holds and that fits holds for every k below one that it holds for.
+func deepestFit(fits func(k int) bool) int {
 	lo, hi := 0, 1
 	for fits(hi) {
 		lo, hi = hi, 2*hi
@@ -112,6 +129,56 @@ func je48Depth(t *testing.T, e *Engine) int {
 		}
 	}
 	return lo
+}
+
+// evalFits evaluates src with K replaced by k, and reports whether it ran
+// without overflowing the stack limit. It fails the test on any other
+// error.
+func evalFits(t *testing.T, e *Engine, src string, k int) bool {
+	t.Helper()
+	p, err := e.Compile(strings.ReplaceAll(src, "K", fmt.Sprint(k)))
+	if err == nil {
+		_, err = e.Eval(context.Background(), p, expr.Input{})
+	}
+	switch {
+	case err == nil:
+		return true
+	case strings.Contains(err.Error(), "RangeError: Maximum call stack size exceeded"):
+		return false
+	}
+	t.Fatalf("depth %d: %v", k, err)
+	return false
+}
+
+// nestingDepths are the deepest nesting that JSON.parse, JSON.stringify and
+// the parser of source text take on e. These checks get the scaled stack
+// limit too, but their own frames set their depth, so it can differ
+// between builds.
+func nestingDepths(t *testing.T, e *Engine) (parse, stringify, source int) {
+	t.Helper()
+	parse = deepestFit(func(k int) bool {
+		return evalFits(t, e, `String(JSON.parse("[".repeat(K) + "]".repeat(K)).length)`, k)
+	})
+	stringify = deepestFit(func(k int) bool {
+		return evalFits(t, e, `(() => { let v = []; for (let i = 1; i < K; i++) v = [v]; return String(JSON.stringify(v).length); })()`, k)
+	})
+	source = deepestFit(func(k int) bool { return compileFits(t, e, k) })
+	return parse, stringify, source
+}
+
+// compileFits reports whether source text of k nested parentheses compiles
+// on e without overflowing the stack limit.
+func compileFits(t *testing.T, e *Engine, k int) bool {
+	t.Helper()
+	_, err := e.Compile(strings.Repeat("(", k) + "1" + strings.Repeat(")", k))
+	switch {
+	case err == nil:
+		return true
+	case strings.Contains(err.Error(), "RangeError: Maximum call stack size exceeded"):
+		return false
+	}
+	t.Fatalf("source nested %d deep: %v", k, err)
+	return false
 }
 
 func TestProbeMatchesEvaluations(t *testing.T) {

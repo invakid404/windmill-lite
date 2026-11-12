@@ -42,6 +42,16 @@ const (
 	probeThread    = probeHighLimit + threadStackSlack
 )
 
+// minCallStack and maxCallStack bound the stack per call that the engine
+// accepts from the probe. The builds measured take 736 to 1 728 bytes; the
+// bounds leave room for builds with larger frames, such as sanitizer
+// builds, and refuse a broken measurement before it scales the default
+// limit past 21 MiB (1 MiB × 16 KiB / 768 B) and every slot thread with it.
+const (
+	minCallStack = 64
+	maxCallStack = 16 << 10
+)
+
 // callStack holds the stack per call once it has been measured: it is a
 // property of the build, the same for every Engine.
 var callStack struct {
@@ -53,8 +63,9 @@ var callStack struct {
 // recursive JavaScript function takes in this build of the engine: the
 // slope of the depth that fits between a 256 KiB and a 4 MiB limit. The
 // process measures it once, when it starts its first Engine. If the
-// measurement fails, CallStackBytes returns the error, New fails with it,
-// and the next call measures again.
+// measurement fails, or gives less than 64 bytes or more than 16 KiB,
+// CallStackBytes returns an error, New fails with it, and the next call
+// measures again.
 func CallStackBytes() (int, error) {
 	callStack.mu.Lock()
 	defer callStack.mu.Unlock()
@@ -80,7 +91,16 @@ func measureCallStack() (int, error) {
 	if low <= 0 || high <= low {
 		return 0, fmt.Errorf("expr/quickjs: cannot measure the stack per call: depths %d and %d under %d and %d bytes", low, high, probeLowLimit, probeHighLimit)
 	}
-	return int(math.Round(float64(probeHighLimit-probeLowLimit) / float64(high-low))), nil
+	return plausibleCallStack(int(math.Round(float64(probeHighLimit-probeLowLimit) / float64(high-low))))
+}
+
+// plausibleCallStack returns perCall, or an error naming it when it lies
+// outside minCallStack to maxCallStack.
+func plausibleCallStack(perCall int) (int, error) {
+	if perCall < minCallStack || perCall > maxCallStack {
+		return 0, fmt.Errorf("expr/quickjs: implausible stack per call: %d bytes, outside %d to %d", perCall, minCallStack, maxCallStack)
+	}
+	return perCall, nil
 }
 
 // probeDepth is the depth that the probe's recursion reaches under a stack

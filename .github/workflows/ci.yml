@@ -515,6 +515,12 @@ jobs:
           go test -race -count=1 ./internal/expr/...
           WL_TEST_QUICKJS_ONLY=1 go test -race -count=1 ./internal/expr
 
+      - name: Print the stack measurements
+        # The stack per call that the engine measured, the scaled limit, and
+        # the depths that a simple recursion, JSON.parse, JSON.stringify and
+        # nested source text reach under it with this image's compiler.
+        run: go test -count=1 -v -run '^(TestCallStackBytes|TestOverflowDepthAtTheDefaultStack|TestProbeMatchesEvaluations)$' ./internal/expr/quickjs
+
       - name: Test selfcheck
         run: go test -count=1 -run '^TestSelfcheck$' ./cmd/windmill-lite
 
