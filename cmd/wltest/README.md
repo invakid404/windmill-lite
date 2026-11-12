@@ -574,19 +574,24 @@ container as the failure module, which names
 
 An expression-case file of `conformance/exprs`
 ([ADR 0003](../../docs/design/0003-semantics-placement.md), the expression
-level) runs end to end as the generated one-step flow fixture that `record`
-lifts it into (`conformance.LiftExprFile`), in a temporary directory: one
-flow per case, whose module `b` runs a sink script with the case's
-expression as its input `x` (or as its `skip_if`), compared with the case's
-recording and claims. `check` takes such a file explicitly, and finds them
-in the directories it is given, as `record` does. The unit-level checks of
-the same cases are `go test ./internal/expr`'s (milestones B2a and B2b).
-Cases that differ by a named deviation fail here as they do there, and
-the flow suite does not require them: the transcendental `Math` cases of
-JE-1, whose last digit depends on the C library (D16: the Linux runner's
-glibc and macOS each differ from Windmill's image on some of them), and
-JE-48/a, whose recursion of depth 1 000 fits the engine's stack limit
-(D17).
+level) runs end to end as a generated flow fixture, in a temporary
+directory. `record` lifts the file into that fixture
+(`conformance.LiftExprFile`): one flow per case, whose module `b` runs a
+sink script with the case's expression as its input `x`, or as its
+`skip_if`. The run is compared with the case's recording and claims.
+
+`check` takes such a file explicitly, and finds them in the directories it
+is given, as `record` does. `go test ./internal/expr` checks the same cases
+at unit level.
+
+Cases that differ by a named deviation fail here as they do there, and the
+flow suite does not require them:
+
+- the transcendental `Math` cases of JE-1, whose last digit depends on the
+  C library (D16): the Linux runner's glibc and macOS each differ from
+  Windmill's image on some of them;
+- JE-48/a, whose recursion of depth 1 000 fits the engine's stack limit
+  (D17).
 
 ### Tests
 

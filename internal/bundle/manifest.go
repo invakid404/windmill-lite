@@ -86,7 +86,8 @@ type Engine struct {
 	// limit, which is observable as the depth at which recursion overflows
 	// ([ADR 0003], [JE-48]). The engine scales it to the C stack of a call
 	// in its build, so that a simple recursion fits about the same depth on
-	// every build.
+	// every build whose call takes 768 bytes or more, which is every build
+	// measured.
 	//
 	// [ADR 0003]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0003-semantics-placement.md
 	// [JE-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-48

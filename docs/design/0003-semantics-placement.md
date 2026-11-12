@@ -250,26 +250,37 @@ harness, which is (a) with its duplication.
      - **Scaled to the build.** The limit counts C stack, and the C stack
        of one JavaScript call depends on the compiler. On `linux/amd64` a
        simple recursion takes 784 bytes per call with GCC 13 and 1 728 with
-       GCC 15, whose inliner doubles the interpreter's frame. The engine
-       measures that cost when a process starts its first engine, and gives
-       QuickJS-ng the configured size times the cost over 768 bytes, never
-       less than the configured size.
+       GCC 15, whose inliner doubles the interpreter's frame
+       ([measurements](README.md#measurements-behind-the-decisions)). The engine measures that cost when a
+       process starts its first engine, and gives QuickJS-ng the configured
+       size times the cost over 768 bytes, never less than the configured
+       size.
      - **The depth that results.** A simple recursion fits about 1 365
-       calls in 1 MiB on every build. That is a third more than the depth
-       of 1 000 that windmill-lite fits and Windmill does not
+       calls in 1 MiB on every build whose call takes 768 bytes or more,
+       which is every build measured; a build with cheaper calls keeps
+       1 MiB and fits more. That is a third more than the depth of 1 000
+       that windmill-lite fits and Windmill does not
        ([D17](0001-equivalence-contract.md)).
      - **Threads.** Evaluations run on threads that the engine creates with
        stacks well above the scaled limit (at least 8 MiB, and 4 MiB above
        the limit). A thread that the Go runtime creates gets the C library's
        default stack, which is 128 KiB on musl and would end before the
        engine's limit.
-     - **Alternatives.** An unscaled 1 MiB, the earlier decision, let the
-       depth follow the compiler: 604 calls with GCC 15, so a depth of
-       1 000 overflowed on `ubuntu-26.04`, and 1 006 to 1 054 with clang.
-       Flags that keep the frame small cost speed or cannot be set: cgo
-       refuses GCC's `-fno-inline-small-functions` in a package's flags, and
-       clang's `-fno-inline-functions` made a benchmark of five programs
-       2.2 to 2.6 times slower (CI run 43135571202).
+     - **Alternatives: the depth.** An unscaled 1 MiB, the earlier
+       decision, let the depth follow the compiler: 604 calls with GCC 15,
+       so a depth of 1 000 overflowed on `ubuntu-26.04`, and 1 006 to 1 054
+       with clang. Calibrating to the oracle's recorded bracket, where 600
+       fits and 1 000 overflows, would risk overflowing where Windmill
+       fits, because Windmill's exact limit is unknown
+       ([Q-JE-16](../semantics/expressions.md#q-je-16)).
+     - **Alternatives: compiler flags.** Turning off GCC's inlining of small
+       functions keeps the frame small, but cgo refuses
+       `-fno-inline-small-functions` in a package's flags. A
+       `#pragma GCC optimize` in `qjs_quickjs.c` needs no flag, yet made
+       five programs 2 to 8 % slower; GCC documents its optimize attribute
+       for debugging only, and it leaves clang builds less than 6 % above
+       1 000 calls. clang's `-fno-inline-functions` made them 2.2 to 2.6 times
+       slower ([measurements](README.md#measurements-behind-the-decisions)).
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against
@@ -522,6 +533,12 @@ error, with the database route (a step in between) as its control.
   claim a per-run figure before that gate.
 - Every build needs a C toolchain (`zig cc` for Linux releases); builds
   with `CGO_ENABLED=0` are not supported in the first edition.
+- A simple recursion fits about the same depth on every build, but the
+  stack checks of the parser, `JSON.parse` and `JSON.stringify` get the
+  scaled limit and have frames of their own. Their depth can differ
+  between builds by up to the ratio of the builds' scale factors: 2.2
+  between GCC 13 and GCC 15 on `linux/amd64`, where `JSON.parse` nests
+  13 339 and 29 426 levels ([measurements](README.md#measurements-behind-the-decisions)).
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.

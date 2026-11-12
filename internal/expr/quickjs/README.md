@@ -138,7 +138,7 @@ What the package does not do:
 | Limit | Default | What happens |
 |---|---|---|
 | heap | 128 MiB (`Limits.MemoryMB`) | Allocation fails past the cap. QuickJS-ng then throws an `InternalError` with the text `out of memory`, or a bare `null` or `undefined`, and the exception keeps that kind ([JE-3](../../../docs/semantics/expressions.md#je-3)). The cap also covers the engine's host-call bookkeeping: one record per outstanding call, reused once the call settles, and the argument copies of calls not yet handed to Go, which are freed as Go copies them. Reading the completion value or the exception back gets 16 MiB of headroom above the cap. |
-| stack | 1 MiB (`Limits.StackBytes`), scaled to the build | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). The engine scales it so that about 1 365 calls of a simple recursion fit on every build ([Stack limit](#stack-limit)). Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. |
+| stack | 1 MiB (`Limits.StackBytes`), scaled to the build | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). The engine scales it so that about 1 365 calls of a simple recursion fit on every build measured ([Stack limit](#stack-limit)). Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. |
 | attempt | 20 s (`Limits.Attempt`) | The attempt is interrupted through QuickJS-ng's interrupt handler, which the engine polls in loops, calls and regular-expression matching. The interrupt cannot be caught. A built-in that runs long without reaching the handler (`"x".repeat(n)` on a large `n`, for one), or a long readback, still ends the attempt: whatever the program got to, `Eval` returns `expr.ErrAttemptTimeout` once the limit has passed, and the slot prepares a new runtime. Windmill leaves a timed-out evaluation running; interrupting it is deviation D8 of [0001](../../../docs/design/0001-equivalence-contract.md). A Promise that never settles also ends here ([JE-2](../../../docs/semantics/expressions.md#je-2)). |
 | context | the caller's `ctx` | When `ctx` ends during an evaluation, the program is interrupted the same way and `Eval` returns `context.Cause(ctx)`, again whatever the program got to. |
 
@@ -147,24 +147,22 @@ What the package does not do:
 Each evaluation gets `Limits.StackBytes` scaled to the C stack that one
 JavaScript call takes in the engine's build. A recursion such as
 `f = n => n === 0 ? 0 : 1 + f(n - 1)` then fits about `StackBytes` ÷
-768 B calls on every build: about 1 365 at the default 1 MiB. That is a
-third more than a recursion of depth 1 000, which the engine must fit and
+768 B calls on every build measured: about 1 365 at the default 1 MiB.
+That is a third more than the depth of 1 000 that the engine must fit and
 Windmill does not ([D17](../../../docs/design/0001-equivalence-contract.md)).
-`Limits()` and the bundle manifest keep the configured size.
+
+That holds for every build whose call takes 768 B or more. A build with
+cheaper calls keeps the configured size, and fits more. `Limits()` and the
+bundle manifest keep the configured size.
 
 The scaling exists because the C stack of one call depends on the compiler.
 GCC 14 and 15 inline more small functions into the interpreter's
-`JS_CallInternal` than GCC 13 does, which doubles its frame. Measured on
-GitHub's Linux runners (CI run 43132472348) and on an Apple M4, that
-recursion takes:
-
-| Build | C stack per call | Calls that fit an unscaled 1 MiB |
-|---|---|---|
-| GCC 13.3, `linux/amd64` (`ubuntu-24.04`'s `gcc`) | 784 B | 1 335 |
-| GCC 15.2, `linux/amd64` (`ubuntu-26.04`'s `gcc`) | 1 728 B | 604 |
-| clang 18 and 21, `linux/amd64` | 1 024 to 1 040 B | 1 006 to 1 021 |
-| `zig cc` 0.15.2, static musl, `linux/amd64` (the release engine) | 1 008 B | 1 038 |
-| Apple clang 21, `darwin/arm64` | 992 B | 1 054 |
+`JS_CallInternal` than GCC 13 does, which doubles its frame. On
+`linux/amd64`, the recursion above takes 784 B per call with GCC 13 and
+1 728 B with GCC 15, and clang builds take 1 008 to 1 040 B
+([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
+The `Expression engine` CI job prints the cost and the depths below on
+every run.
 
 The engine measures and applies the cost in these steps:
 
@@ -178,11 +176,20 @@ The engine measures and applies the cost in these steps:
    `StackBytes` unscaled.
 
 The limit is measured from where each call enters the engine: the top
-level, each round of the job loop, each settlement. Every check of the
-limit gets the scaled bytes, also those in the parser, in `JSON.parse` and
-in `JSON.stringify`. Their depths, and those of functions with more locals
-or arguments, still vary a little with the build, because only the
-interpreter's frame sets the scale.
+level, each round of the job loop, each settlement.
+
+Every check of the limit gets the scaled bytes, also those in the parser,
+in `JSON.parse` and in `JSON.stringify`. Those checks have frames of their
+own, so their depth can differ between two builds by up to the ratio of
+the builds' scale factors: 2.2 between GCC 13 and GCC 15 on `linux/amd64`.
+There, at the default limit, both builds fit 1 362 calls of the recursion
+above, but
+`JSON.parse` nests 13 339 levels with GCC 13 and 29 426 with GCC 15
+([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
+
+A function with more locals or arguments than the recursion above takes
+the same extra stack per call on every build, so its depth varies a
+little with the build too.
 
 A slot thread's own stack is at least 8 MiB and at least 4 MiB more than
 the scaled limit, in whole MiB, so a deep recursion meets the engine's

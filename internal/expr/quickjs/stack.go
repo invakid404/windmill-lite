@@ -21,9 +21,11 @@ import (
 // engine measures it when the process starts its first Engine
 // ([CallStackBytes]) and scales the configured limit by it over this value,
 // so that the recursion it measures fits about StackBytes / 768 calls on
-// every build: about 1 365 at the default 1 MiB, a third more than the
+// every build whose call takes 768 bytes or more, which is every build
+// measured: about 1 365 at the default 1 MiB, a third more than the
 // recursion of depth 1 000 that the engine fits where Windmill's overflows
-// ([D17]). A function with more locals or arguments takes the same extra
+// ([D17]). A build whose calls take less keeps the configured limit and
+// fits more. A function with more locals or arguments takes the same extra
 // stack on every build, so its depth still varies a little with the build.
 // Windmill's own embedding applies QuickJS-ng's 1 MiB unscaled ([JE-48]).
 //
