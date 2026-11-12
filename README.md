@@ -345,7 +345,8 @@ On each image the job runs `internal/expr/...`, `internal/expr` again in
 QuickJS-only mode, and the selfcheck test, and prints the measured stack
 per call and nesting depths. It also runs `windmill-lite selfcheck` from
 the engine that the image's compiler builds and from the static Linux
-engine; it is not a required check.
+engine. Branch protection requires both of its checks,
+`Expression engine (ubuntu-24.04)` and `Expression engine (ubuntu-26.04)`.
 
 Two more parts of the Go jobs check the expression engine both ways:
 

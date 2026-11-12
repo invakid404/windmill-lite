@@ -124,7 +124,8 @@ The semantics team writes and validates the semantics reference
 
 1. Branch from `main`.
 2. Open a pull request. `main` accepts changes only through pull requests.
-3. Make the required checks pass: `Go (ubuntu-latest)`, `Go (macos-latest)`
+3. Make the required checks pass: `Go (ubuntu-latest)`, `Go (macos-latest)`,
+   `Expression engine (ubuntu-24.04)`, `Expression engine (ubuntu-26.04)`
    and the Memoria gate, `memoria`.
 
 Pull requests are squash-merged. Force pushes to `main` and the deletion of

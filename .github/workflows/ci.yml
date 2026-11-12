@@ -15,11 +15,14 @@ permissions:
 
 jobs:
   go:
-    # Branch protection requires the status checks "Go (ubuntu-latest)" and
-    # "Go (macos-latest)". On Linux this job is the check. On macOS the tests
-    # run in parts on parallel runners, and the job go-macos below reports
-    # the check from their results. Renaming a job or a matrix entry needs
-    # the same change in the protection settings or in go-macos.
+    # Branch protection requires five status checks: "Go (ubuntu-latest)" and
+    # "Go (macos-latest)" from this job, "Expression engine (ubuntu-24.04)"
+    # and "Expression engine (ubuntu-26.04)" from the job expr-images below,
+    # and "memoria" from the Memoria workflow. On Linux this job is the check
+    # "Go (ubuntu-latest)". On macOS the tests run in parts on parallel
+    # runners, and the job go-macos below reports "Go (macos-latest)" from
+    # their results. Renaming a job or a matrix entry needs the same change
+    # in the protection settings or in go-macos.
     #
     # cmd/wltest's flow suite (TestFlowSuite) runs every flow fixture in
     # five modes, each a subtest: warm, fresh and host, and warm and host
@@ -484,7 +487,10 @@ jobs:
     # StackLimit). On each image this job runs the expression packages, in
     # QuickJS-only mode too, and the selfcheck test, prints what the engine
     # measured, and starts the static Linux engine, which zig cc builds the
-    # same way on every image. Branch protection does not require this job.
+    # same way on every image. Branch protection requires both of its
+    # checks, "Expression engine (ubuntu-24.04)" and
+    # "Expression engine (ubuntu-26.04)", so a change to the images in its
+    # matrix needs the same change in the protection settings.
     name: Expression engine (${{ matrix.os }})
     strategy:
       fail-fast: false
