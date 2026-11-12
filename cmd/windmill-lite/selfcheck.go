@@ -14,10 +14,10 @@ import (
 // selfcheckProbes are programs whose results do not depend on the
 // platform's C library: they exercise the engine's parser, bytecode,
 // regular expressions, JSON, host strings and a recursion deep enough to
-// need the slot threads' own stacks: about 1 KiB of C stack per call, so
-// 800 calls fit under the engine's 1 MiB limit (JE-48 brackets the
-// overflow above depth 1 000) but not in a thread with the C library's
-// default stack, 128 KiB on musl (ADR 0003).
+// need the slot threads' own stacks. The engine's stack limit fits 1 365
+// calls of that function on every build (quickjs.CallStackBytes), and 800
+// of them take more than 500 KiB of C stack, which a thread with the C
+// library's default stack, 128 KiB on musl, does not have (ADR 0003).
 var selfcheckProbes = []struct {
 	name, source, want string
 	input              []expr.HostString
@@ -77,7 +77,8 @@ func runSelfcheck(args []string, stdout, stderr io.Writer) int {
 	if failed > 0 {
 		return 1
 	}
-	fmt.Fprintf(stdout, "windmill-lite %s (%s/%s): expression engine ok, %d probes in %v\n",
-		resolveVersion(), runtime.GOOS, runtime.GOARCH, len(selfcheckProbes), time.Since(start).Round(time.Millisecond))
+	perCall, _ := quickjs.CallStackBytes() // New has measured it
+	fmt.Fprintf(stdout, "windmill-lite %s (%s/%s): expression engine ok, %d probes in %v; %d bytes of C stack per call, stack limit %d bytes\n",
+		resolveVersion(), runtime.GOOS, runtime.GOARCH, len(selfcheckProbes), time.Since(start).Round(time.Millisecond), perCall, e.StackLimit())
 	return 0
 }
