@@ -277,10 +277,11 @@ harness, which is (a) with its duplication.
        functions keeps the frame small, but cgo refuses
        `-fno-inline-small-functions` in a package's flags. A
        `#pragma GCC optimize` in `qjs_quickjs.c` needs no flag, yet made
-       five programs 2 to 8 % slower; GCC documents its optimize attribute
-       for debugging only, and it leaves clang builds less than 6 % above
-       1 000 calls. clang's `-fno-inline-functions` made them 2.2 to 2.6 times
-       slower ([measurements](README.md#measurements-behind-the-decisions)).
+       the total time of five programs 2 to 8 % longer; GCC documents its
+       optimize attribute for debugging only, and it leaves clang builds
+       less than 6 % above 1 000 calls. clang's `-fno-inline-functions`
+       made that total 2.2 to 2.6 times longer
+       ([measurements](README.md#measurements-behind-the-decisions)).
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against
@@ -533,12 +534,13 @@ error, with the database route (a step in between) as its control.
   claim a per-run figure before that gate.
 - Every build needs a C toolchain (`zig cc` for Linux releases); builds
   with `CGO_ENABLED=0` are not supported in the first edition.
-- A simple recursion fits about the same depth on every build, but the
-  stack checks of the parser, `JSON.parse` and `JSON.stringify` get the
-  scaled limit and have frames of their own. Their depth can differ
-  between builds by up to the ratio of the builds' scale factors: 2.2
-  between GCC 13 and GCC 15 on `linux/amd64`, where `JSON.parse` nests
-  13 339 and 29 426 levels ([measurements](README.md#measurements-behind-the-decisions)).
+- A simple recursion fits the same depth on every build measured: 1 362
+  calls at the default limit on `linux/amd64`. The stack checks of the
+  parser, `JSON.parse` and `JSON.stringify` get the scaled limit too, but
+  their own frames also differ by compiler. Their depth differs between
+  builds: `JSON.parse` nests 8 578 levels with `zig cc`, 13 339 with
+  GCC 13 and 29 426 with GCC 15
+  ([measurements](README.md#measurements-behind-the-decisions)).
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.

@@ -168,7 +168,9 @@ The engine measures and applies the cost in these steps:
 
 1. When a process starts its first engine, `CallStackBytes` runs the
    recursion on a runtime of its own, on a thread with an 8 MiB stack,
-   until it overflows a 256 KiB limit, then a 4 MiB limit.
+   until it overflows a 256 KiB limit, then a 4 MiB limit. A cost under
+   64 B or over 16 KiB per call is refused as a broken measurement, and
+   `New` fails with an error that names the bytes.
 2. It divides the 3.75 MiB between the two limits by the difference
    between the two depths. The frames above the recursion cancel out.
 3. Every engine gives QuickJS-ng `StackBytes` × cost ÷ 768 B, rounded up
@@ -180,12 +182,11 @@ level, each round of the job loop, each settlement.
 
 Every check of the limit gets the scaled bytes, also those in the parser,
 in `JSON.parse` and in `JSON.stringify`. Those checks have frames of their
-own, so their depth can differ between two builds by up to the ratio of
-the builds' scale factors: 2.2 between GCC 13 and GCC 15 on `linux/amd64`.
-There, at the default limit, both builds fit 1 362 calls of the recursion
-above, but
-`JSON.parse` nests 13 339 levels with GCC 13 and 29 426 with GCC 15
-([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
+own, which also differ by compiler, so their depth differs between builds.
+
+At the default limit on `linux/amd64`, every build measured fits 1 362
+calls of the recursion above. `JSON.parse` nests 8 578 levels with `zig
+cc`, 13 339 with GCC 13 and 29 426 with GCC 15 ([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
 
 A function with more locals or arguments than the recursion above takes
 the same extra stack per call on every build, so its depth varies a
@@ -301,7 +302,13 @@ configuration with each C library's allocator, not the allocators alone.
     - evaluations take the stack per call that the probe measured, within
       6 bytes, less than the 16 bytes that one more local takes;
     - a 6 MiB limit, scaled, still ends in a `RangeError` inside the slot's
-      thread.
+      thread;
+    - a measured cost under 64 B or over 16 KiB is refused
+      (`TestPlausibleCallStack`).
+
+    `TestOverflowDepthAtTheDefaultStack` also logs how deep `JSON.parse`,
+    `JSON.stringify` and parenthesised source text nest at the default
+    limit.
   - JE-48/a's `depth-1000` case: a recursion of depth 1 000, which
     overflows on Windmill, fits this engine. That difference is deviation
     D17 of [0001](../../../docs/design/0001-equivalence-contract.md).
