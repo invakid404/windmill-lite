@@ -296,6 +296,10 @@ same on 1.4.3:
 | `process.exit(code)` on Bun 1.4.3 | The same codes exit with the same statuses, and the same are refused with the same error names and codes, as on 1.3.10. Only the range text changed: `It must be >= -9007199254740991 && <= 9007199254740991. Received 9_007_199_254_740_992`, where 1.3.10 wrote `and` and plain digits | 0004 |
 | `Bun.build` with a plugin whose resolve filter matches the import of a package marked `sideEffects: false` that re-exports `export { x } from "./x.js"`, its callback resolving nothing, Bun 1.4.3 against 1.3.10. Also the tree of [WR-27](../semantics/languages.md#wr-27)/c: a transitive bare import of a package named `leaf.ts`, under a filter for every specifier that ends in `.ts` | Bun 1.4.3 keeps the re-exported module in both, and the bundle returns its value. Bun 1.3.10 drops it, and reading the binding throws a `ReferenceError` (`v is not defined` in WR-27/c's tree) | 0001, 0010 |
 | `vm.SourceTextModule` with a top-level `await`, linked and evaluated in a new `node:vm` context, Bun 1.4.3 against 1.3.10 | Bun 1.4.3 evaluates it, and the process goes on. Bun 1.3.10 ends the process with exit status 133 | 0010 |
+| The C stack of one JavaScript call of a simple recursion, by compiler, and the calls that fit an unscaled 1 MiB: `linux/amd64` on GitHub's runners, and Apple clang on the Apple M4 | GCC 13.3: 784 B, 1 335 calls; GCC 14: 1 632 B, 640; GCC 15.2: 1 728 B, 604. clang 18 and 21: 1 024 to 1 040 B, 1 006 to 1 021; `zig cc` 0.15.2, static musl: 1 008 B, 1 038; Apple clang 21, `darwin/arm64`: 992 B, 1 054 (CI runs 43131238909 and 43132472348). The `Expression engine` CI job prints the current cost on every run | 0003 |
+| What grows the frame of the interpreter's `JS_CallInternal` with GCC 14 and 15, `linux/amd64` (`-fstack-usage`, each pass that `-O2` adds to `-O1` turned off alone) | `-finline-small-functions`: 1 584 to 1 680 B with it, 688 to 704 B without, where GCC 12 and 13 give 736 B. Every other pass, the hardening flags, `-march` and `-std` move it by 112 B at most | 0003 |
+| The total time of five programs (a recursion, a loop, JSON, arrays and strings) with the inlining of small functions turned off, `linux/amd64` | GCC's `-fno-inline-small-functions` for the whole package: 4 to 5 % longer with GCC 15, 13 to 14 % with GCC 13. The same as a `#pragma GCC optimize` in `qjs_quickjs.c` only: 2 to 5 % and 8 %, and per program from 21 % faster to 19 % slower. clang's `-fno-inline-functions`: 2.2 to 2.6 times longer (CI runs 43135571202 and 43148947865) | 0003 |
+| How deep a recursion and nesting fit under the scaled default stack limit, by build: a recursion's calls, then the levels of `JSON.parse`, `JSON.stringify` and parenthesised source text | GCC 13.3, `linux/amd64` (limit 1 070 422 B): 1 362, 13 339, 4 170, 995. GCC 15.2, `linux/amd64` (2 359 296 B): 1 362, 29 426, 7 355, 1 937. `zig cc`, static `linux/amd64` (1 376 256 B): 1 362, 8 578, 5 046, 1 129; static `linux/arm64` (1 310 720 B): 1 362, 10 211, 5 836, 984 (CI run 43148947834) | 0003 |
 
 ## Unsettled findings
 
@@ -331,19 +335,20 @@ FX-49, WR-16, WR-28, OR-15 and OR-V9 are confirmed from E3e.
 ## Requests to the semantics team
 
 Questions reach the semantics team as requests for the reference to cover a
-behaviour ([AGENTS.md](../../AGENTS.md)). The design depended on these, and
-all are answered: 1 to 3 by the semantics requests S1 to S3 (pull
-request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1, pull
-request #36), 10 and 11 (FU3's readings and the fold-in of batch E3e),
-and request 1's last question, by its revision of 2026-10-29 (SC2, pull
-request #55); 12 and 13 (FU6's questions) by its revision SC4 of the same
-day, 12 for the ordinary execution path only, and batch E3f's recordings
-confirmed both answers (revision SC5, 2026-10-30). Each item names the findings
-that answer it. Where an answer
-differs from a reading a milestone took, that milestone's code follows the
-answer in a follow-up; the sync-folder loader and the import base already
-do (FU4), and `internal/expr`, the engine, the comparison rule and the Bun
-harness follow SC2's answers (FU6).
+behaviour ([AGENTS.md](../../AGENTS.md)). Each item names the findings that
+answer it. Request 14 is open, and the reference answered the others:
+
+- 1 to 3 through the semantics team's requests S1 to S3;
+- 4 to 9 in its revision of 2026-10-28;
+- 10 and 11, and request 1's last question, in its revision of
+  2026-10-29;
+- 12 and 13 in a second revision of 2026-10-29, 12 for the ordinary
+  execution path only. The oracle's recordings of 2026-10-30 confirmed both
+  answers.
+
+Where an answer differs from a reading that the code had taken, the code
+follows the answer: the sync-folder loader, the import base,
+`internal/expr`, the engine, the comparison rule and the Bun harness.
 
 1. **Native boundary rules** for `bunnative` and `nativets` steps: how a
    result is serialised (in particular object properties holding
@@ -386,15 +391,13 @@ harness follow SC2's answers (FU6).
 3. **The expression engine's stack limit**: which maximum stack size
    Windmill's QuickJS-ng embedding uses, since stack-overflow depth is
    observable. **Answered** by [JE-48](../semantics/expressions.md#je-48):
-   QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
-   records in the manifest ([0003](0003-semantics-placement.md)).
-   Recording batch E3a found the reference's bracket wrong on the oracle: a
-   recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
-   fit than the reference implies; request 7 asks why. JE-48 now keeps the
-   recorded depths and gives the reason, the engine's C build; how many
-   frames fit depends on that build (deviation D17 of
-   [0001](0001-equivalence-contract.md),
-   [Q-JE-16](../semantics/expressions.md#q-je-16)).
+   QuickJS-ng's built-in 1 MiB, which windmill-lite configures, scales to
+   its build's frames and records in the manifest
+   ([0003](0003-semantics-placement.md)). On the oracle a recursion of
+   depth 1 000 overflows (JE-48/a): the depth follows a compiler that
+   Windmill's image does not fix
+   ([Q-JE-16](../semantics/expressions.md#q-je-16)). windmill-lite fits it,
+   deviation D17 of [0001](0001-equivalence-contract.md).
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
@@ -909,6 +912,14 @@ harness follow SC2's answers (FU6).
     ([internal/engine](../../internal/engine/README.md), "Unreadable child
     results"). It cancels a waiting flow at once rather than after 60 s,
     which is deviation D20 of [0001](0001-equivalence-contract.md).
+14. **The depths in JE-48's design note.** The note says that
+    windmill-lite's engine overflows the recursion of depth 1 000 only at
+    1 037 to 1 089 frames. Now that the engine scales its stack limit to
+    its build's frames ([0003](0003-semantics-placement.md)), about 1 362
+    such calls fit on every build measured; an unscaled build with GCC 15
+    fitted 604. The request, **open**: replace the note's numbers with a
+    link to deviation D17 of [0001](0001-equivalence-contract.md), or drop
+    them.
 
 ## Recording requests for batch E3f
 

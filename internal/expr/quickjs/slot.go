@@ -22,23 +22,31 @@ import (
 )
 
 // minThreadStack is the least stack a slot thread gets, and threadStackSlack
-// the least it gets beyond the engine's stack limit. The engine measures its
-// limit from where each call enters it (JE-48); a thread stack well above
-// that limit makes the engine's RangeError, never a thread overflow, what a
-// deep recursion meets. Threads that the Go runtime creates have the C
-// library's default stack, which musl sets at 128 KiB, so slots make their
-// own.
+// the least it gets beyond the engine's stack limit (Engine.StackLimit). The
+// engine measures its limit from where each call enters it, as Windmill's
+// embedding does ([JE-48]); a thread stack well above that limit makes the
+// engine's RangeError, never a thread overflow, what a deep recursion
+// meets. Threads that the Go runtime creates have the C library's default
+// stack, which musl sets at 128 KiB, so slots make their own. A thread's
+// stack is a whole number of threadStackUnit, because macOS takes only
+// multiples of its page size.
+//
+// [JE-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-48
 const (
 	minThreadStack   = 8 << 20
 	threadStackSlack = 4 << 20
+	threadStackUnit  = 1 << 20
 )
 
 // maxCallsInFlight bounds the host calls one evaluation runs at once; the
 // rest wait, queued in the engine, for a running one to settle.
 const maxCallsInFlight = 64
 
-func threadStack(l expr.Limits) int {
-	return max(minThreadStack, l.StackBytes+threadStackSlack)
+// threadStack is the stack of a slot thread whose evaluations have a stack
+// limit of limit bytes.
+func threadStack(limit int) int {
+	n := max(minThreadStack, limit+threadStackSlack)
+	return (n + threadStackUnit - 1) / threadStackUnit * threadStackUnit
 }
 
 // slot is one evaluation slot: a C thread running loop, and the C state of
@@ -65,7 +73,7 @@ func (e *Engine) startSlot() error {
 	}
 	h := cgo.NewHandle(s)
 	e.wg.Add(1)
-	if rc := C.wl_spawn(C.uintptr_t(h), C.size_t(threadStack(e.limits))); rc != 0 {
+	if rc := C.wl_spawn(C.uintptr_t(h), C.size_t(threadStack(e.stackLimit))); rc != 0 {
 		e.wg.Done()
 		h.Delete()
 		C.wl_slot_free(s.c)
@@ -92,7 +100,7 @@ var errPrepare = errors.New("expr/quickjs: cannot create a runtime")
 func (s *slot) loop() {
 	first := true
 	for {
-		if C.wl_prepare(s.c, C.size_t(s.e.limits.MemoryMB)<<20, C.size_t(s.e.limits.StackBytes)) != C.WL_OK {
+		if C.wl_prepare(s.c, C.size_t(s.e.limits.MemoryMB)<<20, C.size_t(s.e.stackLimit)) != C.WL_OK {
 			if first {
 				s.ready <- errPrepare
 				return

@@ -686,41 +686,54 @@ func TestOptions(t *testing.T) {
 	if _, err := New(Options{Limits: expr.Limits{MemoryMB: -1, Attempt: time.Second, StackBytes: 1}}); err == nil {
 		t.Error("invalid limits accepted")
 	}
-	if got := threadStack(expr.DefaultLimits()); got != 8<<20 {
-		t.Errorf("thread stack %d for the default limits", got)
+	perCall, err := CallStackBytes()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := threadStack(expr.Limits{StackBytes: 16 << 20}); got != 20<<20 {
-		t.Errorf("thread stack %d for a 16 MiB limit", got)
+	if got, want := e.StackLimit(), stackLimit(1<<20, perCall); got != want || got < 1<<20 {
+		t.Errorf("default stack limit %d, want %d for %d bytes per call", got, want, perCall)
 	}
 }
 
 func TestOverflowDepthAtTheDefaultStack(t *testing.T) {
 	// JE-48 records depth 600 fitting on the oracle and depth 1 000 000
-	// overflowing, and depth 1 000 overflowing there too. Where this engine
-	// overflows depends on the compiler and the CPU, so it is logged for
-	// each platform; it is above 1 000 on every platform measured (D17).
+	// overflowing, and depth 1 000 overflowing there too. This engine scales
+	// its 1 MiB limit to the stack that one call takes in its build, so that
+	// about 1 MiB / 768 B = 1 365 calls of this function fit whichever
+	// compiler built it (D17); the frames between the limit's top and the
+	// recursion cost a few of them. The depth cannot exceed what the scaled
+	// limit holds at the measured cost. The test also logs how deep
+	// JSON.parse, JSON.stringify and source text nest under the same limit,
+	// which their own frames set.
 	e := newEngine(t, Options{Slots: 1})
 	got := mustRun(t, e, `(() => { let d = 0; const f = n => { d = n; return n === 0 ? 0 : 1 + f(n - 1); }; const g = n => { try { f(n); return -1; } catch (e) { return e.name === "RangeError" ? n - d : -2; } }; return String(g(1000000)); })()`, expr.Input{})
 	var depth int
 	fmt.Sscan(got, &depth)
-	t.Logf("%s/%s: a 1 MiB stack overflows at recursion depth %d", runtime.GOOS, runtime.GOARCH, depth)
-	if depth <= 600 || depth >= 1000000 {
-		t.Fatalf("overflow depth %s is outside JE-48's bracket", got)
+	perCall, err := CallStackBytes()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if depth <= 1000 {
-		t.Logf("depth 1 000 overflows here, as on the oracle: D17 does not apply to this build")
+	parse, stringify, source := nestingDepths(t, e)
+	t.Logf("%s/%s: %d bytes of C stack per call, stack limit %d bytes, overflow at recursion depth %d; deepest nesting: JSON.parse %d, JSON.stringify %d, source %d", runtime.GOOS, runtime.GOARCH, perCall, e.StackLimit(), depth, parse, stringify, source)
+	if least := (1 << 20) / referenceCallStack * 99 / 100; depth < least {
+		t.Errorf("overflow depth %d, want at least %d", depth, least)
+	}
+	if most := e.StackLimit()/perCall + 1; depth > most {
+		t.Errorf("overflow depth %d is more than the stack limit holds at %d bytes per call (%d)", depth, perCall, most)
 	}
 }
 
 func TestLargeStackLimitStaysInsideTheThread(t *testing.T) {
 	// A slot thread always has room beyond the engine's limit, so a deep
-	// recursion meets the engine's RangeError, never the end of the thread.
+	// recursion meets the engine's RangeError, never the end of the thread,
+	// also when the limit is scaled up to large frames.
 	l := expr.DefaultLimits()
 	l.StackBytes = 6 << 20
 	e := newEngine(t, Options{Limits: l, Slots: 1})
-	got := mustRun(t, e, `(() => { let d = 0; const f = n => { d = n; return 1 + f(n + 1); }; try { f(0); } catch (e) { return e.name + ":" + (d > 4000); } })()`, expr.Input{})
+	least := l.StackBytes / referenceCallStack * 99 / 100
+	got := mustRun(t, e, fmt.Sprintf(`(() => { let d = 0; const f = n => { d = n; return 1 + f(n + 1); }; try { f(0); } catch (e) { return e.name + ":" + (d >= %d); } })()`, least), expr.Input{})
 	if got != "RangeError:true" {
-		t.Fatalf("got %s", got)
+		t.Fatalf("got %s, want a RangeError past depth %d", got, least)
 	}
 }
 
