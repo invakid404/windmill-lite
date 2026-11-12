@@ -246,9 +246,17 @@ type Limits struct {
 	// reaches it is interrupted (D8).
 	Attempt time.Duration
 	// StackBytes is the engine's maximum stack size, measured from where
-	// each call enters the engine (JE-48). It is observable as
+	// each call enters the engine ([JE-48]). It is observable as
 	// stack-overflow depth, so it is pinned and recorded in the bundle
-	// manifest (ADR 0003).
+	// manifest ([ADR 0003]). The native engine scales it to the C stack
+	// that one call takes in its build, so that a simple recursion fits
+	// about StackBytes / 768 calls on every build whose call takes 768
+	// bytes or more, which is every build measured; a build with cheaper
+	// calls keeps StackBytes and fits more (the StackLimit of
+	// internal/expr/quickjs).
+	//
+	// [JE-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-48
+	// [ADR 0003]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0003-semantics-placement.md
 	StackBytes int
 }
 

@@ -460,9 +460,11 @@ silent, each pinned by a test:
 
 Two named deviations of
 [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 come from the
-engine's build, not from this program: D16, the last digit of a
-transcendental `Math` function on a C library other than the glibc of
-Windmill's image, and D17, the recursion depth that fits the 1 MiB stack.
+engine, not from this program. D16 is the last digit of a transcendental
+`Math` function on a C library other than the glibc of Windmill's image.
+D17 is the recursion depth that fits the stack limit, which the engine
+scales to its build's frames
+([internal/expr/quickjs](quickjs/README.md#stack-limit)).
 
 ## The engine boundary
 
@@ -497,7 +499,10 @@ Windmill's image, and D17, the recursion depth that fits the 1 MiB stack.
   ([JE-2](../../docs/semantics/expressions.md#je-2); an attempt that reaches
   it is interrupted, deviation D8) and a stack of 1 MiB, QuickJS-ng's
   built-in default, which Windmill's embedding never changes
-  ([JE-48](../../docs/semantics/expressions.md#je-48)).
+  ([JE-48](../../docs/semantics/expressions.md#je-48)). The native engine
+  scales the stack to the C stack of one call in its build. A simple
+  recursion then fits about the same depth on every build measured
+  ([internal/expr/quickjs](quickjs/README.md#stack-limit)).
 
 ## Tests and cases
 

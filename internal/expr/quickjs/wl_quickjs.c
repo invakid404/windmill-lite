@@ -289,6 +289,80 @@ int wl_spawn(uintptr_t handle, size_t stack_bytes)
 	return err;
 }
 
+// The probe's recursion has the shape of JE-48/a's
+// (n => n === 0 ? 0 : 1 + f(n - 1)) and records in d the argument of the
+// deepest call that started. Started at 1e9, it overflows long before n
+// reaches 0, so 1e9 - d counts the calls that fit, less the first.
+static const char wl_probe_source[] =
+	"(() => {"
+	" let d = 0;"
+	" const f = n => { d = n; return n === 0 ? 0 : 1 + f(n - 1); };"
+	" try { f(1e9); } catch (e) { if (!(e instanceof RangeError)) throw e; }"
+	" return 1e9 - d;"
+	"})()";
+
+typedef struct wl_probe {
+	size_t limit;
+	int64_t depth;
+	int status;
+} wl_probe;
+
+static void *wl_probe_main(void *arg)
+{
+	wl_probe *p = arg;
+	JSRuntime *rt;
+	JSContext *ctx;
+	JSValue v;
+
+	p->status = WL_NO_MEMORY;
+	rt = JS_NewRuntime();
+	if (rt == NULL)
+		return NULL;
+	ctx = JS_NewContext(rt);
+	if (ctx == NULL) {
+		JS_FreeRuntime(rt);
+		return NULL;
+	}
+	JS_SetMaxStackSize(rt, p->limit);
+	JS_UpdateStackTop(rt);
+	v = JS_Eval(ctx, wl_probe_source, sizeof(wl_probe_source) - 1, "probe",
+	            JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
+	if (JS_IsException(v) || JS_ToInt64(ctx, &p->depth, v) != 0) {
+		JS_FreeValue(ctx, JS_GetException(ctx));
+		p->status = WL_EXCEPTION;
+	} else {
+		p->status = WL_OK;
+	}
+	JS_FreeValue(ctx, v);
+	JS_FreeContext(ctx);
+	JS_FreeRuntime(rt);
+	return NULL;
+}
+
+int wl_probe_depth(size_t thread_bytes, size_t limit, int64_t *depth, int *status)
+{
+	pthread_attr_t attr;
+	pthread_t t;
+	wl_probe p = {.limit = limit, .depth = 0, .status = WL_NO_MEMORY};
+	int err;
+
+	err = pthread_attr_init(&attr);
+	if (err != 0)
+		return err;
+	err = pthread_attr_setstacksize(&attr, thread_bytes);
+	if (err == 0)
+		err = pthread_create(&t, &attr, wl_probe_main, &p);
+	pthread_attr_destroy(&attr);
+	if (err != 0)
+		return err;
+	err = pthread_join(t, NULL);
+	if (err != 0)
+		return err;
+	*depth = p.depth;
+	*status = p.status;
+	return 0;
+}
+
 wl_slot *wl_slot_new(void)
 {
 	wl_slot *s = calloc(1, sizeof(*s));

@@ -69,7 +69,7 @@ supplies secrets (PF2).
 | Field | Holds |
 |---|---|
 | `format` | `FormatVersion`, 1 |
-| `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
+| `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's configured stack limit, 1 MiB, which is observable. The engine scales it to the C stack of a call in its build ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
 | `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.2) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `no_args_file_reader` | set when no script of the bundle can read `args.json`, the job's arguments ([WR-5](../../docs/semantics/languages.md#wr-5)). Host mode leaves the file out only for such a bundle, when its host opts in ([ADR 0004](../../docs/design/0004-harness-protocol.md), host mode item 7). The search (`argsfile.go`) reads each script's module after the build's own leading sections. A script is no reader only when its module holds no way to a file, a process or code made at run time, and calls no host-provided module, shared closure, codebase or native code |
