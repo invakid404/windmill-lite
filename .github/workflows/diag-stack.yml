@@ -1,0 +1,53 @@
+# TEMPORARY diagnostic workflow (removed before review): the interpreter's
+# speed with GCC's small-function inlining turned off by a pragma in
+# qjs_quickjs.c, the alternative fix that ADR 0003 weighs.
+name: Diag stack
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    name: Diag pragma (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Interpreter speed with and without the pragma
+        working-directory: internal/expr/quickjs
+        env:
+          WL_DIAG_PERF: "1"
+        run: |
+          gcc --version | head -n 1
+          for round in 1 2; do
+            for v in default pragma flag; do
+              git checkout -- qjs_quickjs.c
+              flags="-O2 -g"
+              case "$v" in
+                pragma)
+                  printf '%s\n' '#if defined(__GNUC__) && !defined(__clang__)' '#pragma GCC optimize("no-inline-small-functions")' '#endif' | cat - qjs_quickjs.c > "$RUNNER_TEMP/q.c"
+                  cp "$RUNNER_TEMP/q.c" qjs_quickjs.c
+                  head -n 4 qjs_quickjs.c;;
+                flag) flags="-O2 -g -fno-inline-small-functions";;
+              esac
+              CGO_CFLAGS="$flags" go test -c -o "$RUNNER_TEMP/q.test" . > "$RUNNER_TEMP/build.log" 2>&1 || { echo "$v: build failed"; tail -5 "$RUNNER_TEMP/build.log"; continue; }
+              WL_DIAG_LABEL="r$round:$v" "$RUNNER_TEMP/q.test" -test.run '^(TestDiagPerf|TestCallStackBytes)$' -test.v -test.count=1 2>&1 | grep -E 'PERF|bytes of C stack per call' | sed -E 's/^ *[a-z_]+_test.go:[0-9]+: //'
+            done
+          done
+          git checkout -- qjs_quickjs.c
+          head -4 qjs_quickjs.c
