@@ -335,6 +335,16 @@ On macOS, the Go tests run as three parallel jobs, split by complementary
 suite's warm and fresh modes, and its host modes. The required check
 `Go (macos-latest)` passes only when all three pass.
 
+The `Expression engine` job runs on `ubuntu-24.04` and `ubuntu-26.04` by
+name, so that a move of `ubuntu-latest` cannot drop either image. Their C
+compilers give one JavaScript call different C stack, to which the engine
+scales its stack limit
+([internal/expr/quickjs](internal/expr/quickjs/README.md#stack-limit)). On
+each image it runs `internal/expr/...`, also in QuickJS-only mode, and the
+selfcheck test, and runs `windmill-lite selfcheck` from the engine that the
+image's compiler builds and from the static Linux engine. It is not a
+required check.
+
 Two more parts of the Go jobs check the expression engine both ways:
 
 - `Go (ubuntu-latest, QuickJS only)` runs `internal/expr` and `cmd/wltest`

@@ -241,15 +241,35 @@ harness, which is (a) with its duplication.
    - **CI.** Both CI runners build the C, including under `-race`.
    - **Exit checks.** B1a checks that the Linux binaries are static, and F4
      that they start on an empty base.
-   - **Stack.** QuickJS-ng's maximum stack size is pinned to its built-in
-     default of 1 MiB and recorded in the manifest, because stack-overflow
-     depth is observable. Semantics request 3 (README) is answered by
+   - **Stack.** The configured stack size is QuickJS-ng's built-in default
+     of 1 MiB, recorded in the manifest, because stack-overflow depth is
+     observable. Semantics request 3 (README) is answered by
      [JE-48](../semantics/expressions.md#je-48): Windmill's embedding never
      sets a stack size, so it runs on that default, measured from where each
-     call enters the engine. Evaluations run on threads that the engine
-     creates with stacks well above the limit (at least 8 MiB), because a
-     thread the Go runtime creates gets the C library's default stack, which
-     is 128 KiB on musl and would end before the engine's limit.
+     call enters the engine.
+     - **Scaled to the build.** The limit counts C stack, and the C stack
+       of one JavaScript call depends on the compiler. On `linux/amd64` a
+       simple recursion takes 784 bytes per call with GCC 13 and 1 728 with
+       GCC 15, whose inliner doubles the interpreter's frame. The engine
+       measures that cost when a process starts its first engine, and gives
+       QuickJS-ng the configured size times the cost over 768 bytes, never
+       less than the configured size.
+     - **The depth that results.** A simple recursion fits about 1 365
+       calls in 1 MiB on every build. That is a third more than the depth
+       of 1 000 that windmill-lite fits and Windmill does not
+       ([D17](0001-equivalence-contract.md)).
+     - **Threads.** Evaluations run on threads that the engine creates with
+       stacks well above the scaled limit (at least 8 MiB, and 4 MiB above
+       the limit). A thread that the Go runtime creates gets the C library's
+       default stack, which is 128 KiB on musl and would end before the
+       engine's limit.
+     - **Alternatives.** An unscaled 1 MiB, the earlier decision, let the
+       depth follow the compiler: 604 calls with GCC 15, so a depth of
+       1 000 overflowed on `ubuntu-26.04`, and 1 006 to 1 054 with clang.
+       Flags that keep the frame small cost speed or cannot be set: cgo
+       refuses GCC's `-fno-inline-small-functions` in a package's flags, and
+       clang's `-fno-inline-functions` made a benchmark of five programs
+       2.2 to 2.6 times slower (CI run 43135571202).
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against

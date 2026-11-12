@@ -585,7 +585,8 @@ Cases that differ by a named deviation fail here as they do there, and
 the flow suite does not require them: the transcendental `Math` cases of
 JE-1, whose last digit depends on the C library (D16: the Linux runner's
 glibc and macOS each differ from Windmill's image on some of them), and
-JE-48/a, which does not overflow the 1 MiB stack (D17).
+JE-48/a, whose recursion of depth 1 000 fits the engine's stack limit
+(D17).
 
 ### Tests
 

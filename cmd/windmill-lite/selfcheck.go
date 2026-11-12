@@ -14,10 +14,12 @@ import (
 // selfcheckProbes are programs whose results do not depend on the
 // platform's C library: they exercise the engine's parser, bytecode,
 // regular expressions, JSON, host strings and a recursion deep enough to
-// need the slot threads' own stacks. The engine's stack limit fits 1 365
-// calls of that function on every build (quickjs.CallStackBytes), and 800
-// of them take more than 500 KiB of C stack, which a thread with the C
-// library's default stack, 128 KiB on musl, does not have (ADR 0003).
+// need the slot threads' own stacks. The engine scales its stack limit so
+// that about 1 365 calls of an arrow function fit on every build
+// (quickjs.CallStackBytes); this named function takes one more slot per
+// call, and about 1 340 of its calls fit. 800 of them take over 500 KiB of
+// C stack on every build measured, which a thread with the C library's
+// default stack, 128 KiB on musl, does not have (ADR 0003).
 var selfcheckProbes = []struct {
 	name, source, want string
 	input              []expr.HostString

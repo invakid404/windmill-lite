@@ -90,7 +90,8 @@ type reply struct {
 // runtime, so no evaluation ever waits for a slot to be created. The first
 // New of a process also measures the stack that one JavaScript call takes
 // in this build (CallStackBytes), from which every Engine sizes its stack
-// limit (StackLimit).
+// limit (StackLimit); New fails if the measurement fails, or if the scaled
+// limit is too large for a thread's stack.
 func New(opts Options) (*Engine, error) {
 	limits := opts.Limits
 	if limits == (expr.Limits{}) {
@@ -103,6 +104,10 @@ func New(opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	stack := stackLimit(limits.StackBytes, perCall)
+	if stack > maxStackLimit {
+		return nil, fmt.Errorf("expr/quickjs: stack limit of %d bytes is too large for a thread", stack)
+	}
 	n := opts.Slots
 	switch {
 	case n == 0:
@@ -112,7 +117,7 @@ func New(opts Options) (*Engine, error) {
 	}
 	e := &Engine{
 		limits:     limits,
-		stackLimit: stackLimit(limits.StackBytes, perCall),
+		stackLimit: stack,
 		slots:      n,
 		jobs:       make(chan *job),
 		closing:    make(chan struct{}),

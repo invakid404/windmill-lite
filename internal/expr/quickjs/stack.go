@@ -20,9 +20,11 @@ import (
 // 1 728 with GCC 15, whose inliner doubles the interpreter's frame. The
 // engine measures it when the process starts its first Engine
 // ([CallStackBytes]) and scales the configured limit by it over this value,
-// so that the configured StackBytes fits StackBytes / 768 such calls on
-// every build: 1 365 at the default 1 MiB, a third more than the recursion
-// of depth 1 000 that the engine fits where Windmill's overflows ([D17]).
+// so that the recursion it measures fits about StackBytes / 768 calls on
+// every build: about 1 365 at the default 1 MiB, a third more than the
+// recursion of depth 1 000 that the engine fits where Windmill's overflows
+// ([D17]). A function with more locals or arguments takes the same extra
+// stack on every build, so its depth still varies a little with the build.
 // Windmill's own embedding applies QuickJS-ng's 1 MiB unscaled ([JE-48]).
 //
 // [D17]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0001-equivalence-contract.md#5-named-deviations
@@ -31,23 +33,40 @@ const referenceCallStack = 768
 
 // The probe measures the stack per call from the depth that fits under
 // two limits, so that the frames between the limit's top and the first call
-// cancel out. Its thread has the stack of a slot with the default limit.
+// cancel out. The 3.75 MiB between them hold over 2 000 calls on every
+// build measured, so the slope is within 1 byte of the cost. The probe's
+// thread holds threadStackSlack beyond the higher limit.
 const (
 	probeLowLimit  = 256 << 10
-	probeHighLimit = 1 << 20
-	probeThread    = minThreadStack
+	probeHighLimit = 4 << 20
+	probeThread    = probeHighLimit + threadStackSlack
 )
 
-// callStack measures the stack per call once per process: it is a property
-// of the build, the same for every Engine.
-var callStack = sync.OnceValues(measureCallStack)
+// callStack holds the stack per call once it has been measured: it is a
+// property of the build, the same for every Engine.
+var callStack struct {
+	mu    sync.Mutex
+	bytes int
+}
 
 // CallStackBytes is the C stack, in bytes, that one call of a simple
-// recursive JavaScript function takes in this build of the engine, as the
-// process measured it when it started its first Engine: the slope of the
-// depth that fits between a 256 KiB and a 1 MiB limit. It returns an error
-// if the measurement failed, and New then fails with it.
-func CallStackBytes() (int, error) { return callStack() }
+// recursive JavaScript function takes in this build of the engine: the
+// slope of the depth that fits between a 256 KiB and a 4 MiB limit. The
+// process measures it once, when it starts its first Engine. If the
+// measurement fails, CallStackBytes returns the error, New fails with it,
+// and the next call measures again.
+func CallStackBytes() (int, error) {
+	callStack.mu.Lock()
+	defer callStack.mu.Unlock()
+	if callStack.bytes == 0 {
+		n, err := measureCallStack()
+		if err != nil {
+			return 0, err
+		}
+		callStack.bytes = n
+	}
+	return callStack.bytes, nil
+}
 
 func measureCallStack() (int, error) {
 	low, err := probeDepth(probeLowLimit)
@@ -70,7 +89,7 @@ func probeDepth(limit int) (int64, error) {
 	var depth C.int64_t
 	var status C.int
 	if rc := C.wl_probe_depth(C.size_t(probeThread), C.size_t(limit), &depth, &status); rc != 0 {
-		return 0, fmt.Errorf("expr/quickjs: cannot start the stack probe's thread: %w", syscall.Errno(rc))
+		return 0, fmt.Errorf("expr/quickjs: cannot run the stack probe's thread: %w", syscall.Errno(rc))
 	}
 	switch status {
 	case C.WL_OK:
@@ -95,6 +114,10 @@ func stackLimit(stackBytes, perCall int) int {
 	}
 	return (stackBytes*perCall + referenceCallStack - 1) / referenceCallStack
 }
+
+// maxStackLimit is the largest stack limit whose slot thread
+// (threadStack) has a size that an int can hold.
+const maxStackLimit = math.MaxInt - threadStackSlack - threadStackUnit
 
 // StackLimit is the stack limit, in bytes, that the Engine gives each
 // evaluation: Limits().StackBytes scaled to this build's frames

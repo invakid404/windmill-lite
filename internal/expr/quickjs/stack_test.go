@@ -42,6 +42,19 @@ func TestThreadStack(t *testing.T) {
 	}
 }
 
+func TestStackLimitTooLarge(t *testing.T) {
+	l := expr.DefaultLimits()
+	l.StackBytes = math.MaxInt - 1
+	e, err := New(Options{Limits: l, Slots: 1})
+	if err == nil {
+		e.Close()
+		t.Fatal("a stack limit that no thread can hold was accepted")
+	}
+	if !strings.Contains(err.Error(), "too large for a thread") {
+		t.Fatalf("New: %v", err)
+	}
+}
+
 func TestCallStackBytes(t *testing.T) {
 	perCall, err := CallStackBytes()
 	if err != nil {
@@ -69,8 +82,10 @@ func TestCallStackBytes(t *testing.T) {
 	}
 }
 
-// je48Depth is the largest k for which JE-48/a's recursion of depth k,
-// the expression of its depth-1000 case, fits on e.
+// je48Depth is the largest k for which the recursion of depth k fits on e,
+// in the expression of the depth-1000 case of [JE-48/a].
+//
+// [JE-48/a]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/conformance.md#je-48
 func je48Depth(t *testing.T, e *Engine) int {
 	t.Helper()
 	fits := func(k int) bool {
@@ -104,22 +119,25 @@ func TestProbeMatchesEvaluations(t *testing.T) {
 	// evaluation's calls must cost the same: the depth that JE-48/a's
 	// expression reaches grows by one call per perCall bytes of scaled
 	// limit, and at the default limit it fits StackBytes / 768 calls, less
-	// the few that the frames above the recursion take.
+	// the few that the frames above the recursion take. Between the 256 KiB
+	// and 2 MiB limits, rounding moves the slope by at most 2 bytes, and the
+	// probe's own measurement by 1; a slot of 16 bytes more or less per
+	// call, as another function shape would take, moves it by 16.
 	perCall, err := CallStackBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits := []int{256 << 10, 1 << 20}
-	var depth, scaled [2]int
+	limits := []int{256 << 10, 1 << 20, 2 << 20}
+	var depth, scaled [3]int
 	for i, stackBytes := range limits {
 		l := expr.DefaultLimits()
 		l.StackBytes = stackBytes
 		e := newEngine(t, Options{Limits: l, Slots: 1, CacheEntries: -1})
 		depth[i], scaled[i] = je48Depth(t, e), e.StackLimit()
 	}
-	slope := float64(scaled[1]-scaled[0]) / float64(depth[1]-depth[0])
-	t.Logf("%s/%s: the probe measured %d bytes per call, evaluations %.1f; depth %d at 256 KiB and %d at 1 MiB", runtime.GOOS, runtime.GOARCH, perCall, slope, depth[0], depth[1])
-	if math.Abs(slope-float64(perCall)) > 0.02*float64(perCall) {
+	slope := float64(scaled[2]-scaled[0]) / float64(depth[2]-depth[0])
+	t.Logf("%s/%s: the probe measured %d bytes per call, evaluations %.1f; depth %d at 256 KiB, %d at 1 MiB and %d at 2 MiB", runtime.GOOS, runtime.GOARCH, perCall, slope, depth[0], depth[1], depth[2])
+	if math.Abs(slope-float64(perCall)) > 6 {
 		t.Errorf("evaluations take %.1f bytes per call, the probe measured %d", slope, perCall)
 	}
 	if least := limits[1] / referenceCallStack * 99 / 100; depth[1] < least {

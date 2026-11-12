@@ -386,8 +386,9 @@ harness follow SC2's answers (FU6).
 3. **The expression engine's stack limit**: which maximum stack size
    Windmill's QuickJS-ng embedding uses, since stack-overflow depth is
    observable. **Answered** by [JE-48](../semantics/expressions.md#je-48):
-   QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
-   records in the manifest ([0003](0003-semantics-placement.md)).
+   QuickJS-ng's built-in default of 1 MiB, which windmill-lite configures,
+   scales to the C stack of a call in its own build, and records in the
+   manifest ([0003](0003-semantics-placement.md)).
    Recording batch E3a found the reference's bracket wrong on the oracle: a
    recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
    fit than the reference implies; request 7 asks why. JE-48 now keeps the

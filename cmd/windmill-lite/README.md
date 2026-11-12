@@ -117,12 +117,21 @@ windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
 
 `windmill-lite selfcheck` starts the expression engine (QuickJS-ng, through
 [internal/expr/quickjs](../../internal/expr/quickjs/README.md)) and
-evaluates three probes whose results do not depend on the C library: the
+evaluates three probes. Their results do not depend on the C library: the
 language core, a bound host string, and a recursion 800 calls deep, which
-needs the engine's own thread stacks. It prints one line and exits with
-status 0, or names the failing probe and exits with status 1. CI runs it
-from the static Linux binary in an image built `FROM scratch`
-([ADR 0010](../../docs/design/0010-packaging.md), drift guard 5).
+needs the engine's own thread stacks.
+
+It prints one line and exits with status 0, or names the failing probe and
+exits with status 1. The line also gives the C stack that one JavaScript
+call takes in this build, and the stack limit that the engine scaled from
+it ([internal/expr/quickjs](../../internal/expr/quickjs/README.md#stack-limit)).
+
+CI runs it in two places:
+
+- from the static Linux binary, in an image built `FROM scratch`
+  ([ADR 0010](../../docs/design/0010-packaging.md), drift guard 5);
+- on `ubuntu-24.04` and `ubuntu-26.04`, from the engine that each image's C
+  compiler builds and from the static Linux binary.
 
 ### host
 

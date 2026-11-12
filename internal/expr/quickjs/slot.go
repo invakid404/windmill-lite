@@ -23,12 +23,15 @@ import (
 
 // minThreadStack is the least stack a slot thread gets, and threadStackSlack
 // the least it gets beyond the engine's stack limit (Engine.StackLimit). The
-// engine measures its limit from where each call enters it (JE-48); a
-// thread stack well above that limit makes the engine's RangeError, never a
-// thread overflow, what a deep recursion meets. Threads that the Go runtime
-// creates have the C library's default stack, which musl sets at 128 KiB,
-// so slots make their own. A thread's stack is a whole number of
-// threadStackUnit, because macOS takes only multiples of its page size.
+// engine measures its limit from where each call enters it, as Windmill's
+// embedding does ([JE-48]); a thread stack well above that limit makes the
+// engine's RangeError, never a thread overflow, what a deep recursion
+// meets. Threads that the Go runtime creates have the C library's default
+// stack, which musl sets at 128 KiB, so slots make their own. A thread's
+// stack is a whole number of threadStackUnit, because macOS takes only
+// multiples of its page size.
+//
+// [JE-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-48
 const (
 	minThreadStack   = 8 << 20
 	threadStackSlack = 4 << 20
