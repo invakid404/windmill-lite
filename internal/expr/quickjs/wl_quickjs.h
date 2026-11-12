@@ -76,6 +76,14 @@ typedef struct wl_slot wl_slot;
 // the Go function wlSlotMain(handle). It returns 0 or an errno value.
 int wl_spawn(uintptr_t handle, size_t stack_bytes);
 
+// wl_probe_depth runs a recursion of one simple JavaScript function on a
+// fresh runtime with a stack limit of limit bytes, on a thread of its own
+// with a stack of thread_bytes, until the recursion overflows. It stores the
+// number of calls that fit, less one, in *depth, and WL_OK, WL_EXCEPTION or
+// WL_NO_MEMORY in *status. It returns 0 or the errno value of creating or
+// joining the thread.
+int wl_probe_depth(size_t thread_bytes, size_t limit, int64_t *depth, int *status);
+
 wl_slot *wl_slot_new(void);
 // wl_set_destroy chooses how the slot's next runtimes are freed: 1, from a
 // mimalloc heap of their own that release destroys whole (the default

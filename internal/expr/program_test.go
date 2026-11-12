@@ -468,11 +468,15 @@ func TestJE49OnEngine(t *testing.T) {
 	}
 }
 
-// TestJE48OnEngine shows deviation D17 of ADR 0001: the stack limit is
-// Windmill's 1 MiB, and recursions of depth 600 fit on both engines, but
-// this engine's frames also fit the recursion of depth 1 000 that
-// overflows on the oracle (JE-48/a, recorded by E3a). Far deeper recursion
-// overflows on both, and the depth this engine reaches is logged.
+// TestJE48OnEngine shows a named deviation ([D17]): both engines start
+// from Windmill's 1 MiB stack, and recursions of depth 600 fit on both,
+// but this engine scales its limit to its build's frames, so that it also
+// fits the recursion of depth 1 000 that overflows on the oracle
+// ([JE-48/a], recorded on the oracle). Far deeper recursion overflows on
+// both, and the depth this engine reaches is logged.
+//
+// [D17]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0001-equivalence-contract.md#5-named-deviations
+// [JE-48/a]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/conformance.md#je-48
 func TestJE48OnEngine(t *testing.T) {
 	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
 	shape := func(n string) string {

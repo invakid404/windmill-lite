@@ -48,15 +48,18 @@ var errNilCall = errors.New("expr/quickjs: host function has no Call")
 // Engine is the native QuickJS-ng engine with its pool of slots. It is safe
 // for concurrent use. Close it to stop its threads.
 type Engine struct {
-	limits    expr.Limits
-	slots     int
-	jobs      chan *job
-	closing   chan struct{}
-	closeOnce sync.Once
-	wg        sync.WaitGroup
-	cache     *compileCache
-	stats     counters
-	leakCheck bool
+	limits expr.Limits
+	// stackLimit is limits.StackBytes scaled to this build's frames
+	// (StackLimit).
+	stackLimit int
+	slots      int
+	jobs       chan *job
+	closing    chan struct{}
+	closeOnce  sync.Once
+	wg         sync.WaitGroup
+	cache      *compileCache
+	stats      counters
+	leakCheck  bool
 }
 
 var _ expr.Engine = (*Engine)(nil)
@@ -84,7 +87,11 @@ type reply struct {
 }
 
 // New starts an Engine. It returns once every slot has prepared its first
-// runtime, so no evaluation ever waits for a slot to be created.
+// runtime, so no evaluation ever waits for a slot to be created. The first
+// New of a process also measures the stack that one JavaScript call takes
+// in this build (CallStackBytes), from which every Engine sizes its stack
+// limit (StackLimit); New fails if the measurement fails, or if the scaled
+// limit is too large for a thread's stack.
 func New(opts Options) (*Engine, error) {
 	limits := opts.Limits
 	if limits == (expr.Limits{}) {
@@ -92,6 +99,14 @@ func New(opts Options) (*Engine, error) {
 	}
 	if err := limits.Validate(); err != nil {
 		return nil, err
+	}
+	perCall, err := CallStackBytes()
+	if err != nil {
+		return nil, err
+	}
+	stack := stackLimit(limits.StackBytes, perCall)
+	if stack > maxStackLimit {
+		return nil, fmt.Errorf("expr/quickjs: stack limit of %d bytes is too large for a thread", stack)
 	}
 	n := opts.Slots
 	switch {
@@ -101,11 +116,12 @@ func New(opts Options) (*Engine, error) {
 		return nil, fmt.Errorf("expr/quickjs: slot count %d is negative", n)
 	}
 	e := &Engine{
-		limits:    limits,
-		slots:     n,
-		jobs:      make(chan *job),
-		closing:   make(chan struct{}),
-		leakCheck: opts.LeakCheck,
+		limits:     limits,
+		stackLimit: stack,
+		slots:      n,
+		jobs:       make(chan *job),
+		closing:    make(chan struct{}),
+		leakCheck:  opts.LeakCheck,
 	}
 	switch entries := opts.CacheEntries; {
 	case entries == 0:
@@ -122,7 +138,9 @@ func New(opts Options) (*Engine, error) {
 	return e, nil
 }
 
-// Limits returns the per-evaluation limits the Engine applies.
+// Limits returns the per-evaluation limits the Engine applies. The stack
+// limit that QuickJS-ng gets is StackBytes scaled to this build's frames
+// (StackLimit).
 func (e *Engine) Limits() expr.Limits { return e.limits }
 
 // ExactMemberPaths says that the engine evaluates a member path over JSON
