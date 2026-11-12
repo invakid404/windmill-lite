@@ -241,15 +241,47 @@ harness, which is (a) with its duplication.
    - **CI.** Both CI runners build the C, including under `-race`.
    - **Exit checks.** B1a checks that the Linux binaries are static, and F4
      that they start on an empty base.
-   - **Stack.** QuickJS-ng's maximum stack size is pinned to its built-in
-     default of 1 MiB and recorded in the manifest, because stack-overflow
-     depth is observable. Semantics request 3 (README) is answered by
+   - **Stack.** The configured stack size is QuickJS-ng's built-in default
+     of 1 MiB, recorded in the manifest, because stack-overflow depth is
+     observable. Semantics request 3 (README) is answered by
      [JE-48](../semantics/expressions.md#je-48): Windmill's embedding never
      sets a stack size, so it runs on that default, measured from where each
-     call enters the engine. Evaluations run on threads that the engine
-     creates with stacks well above the limit (at least 8 MiB), because a
-     thread the Go runtime creates gets the C library's default stack, which
-     is 128 KiB on musl and would end before the engine's limit.
+     call enters the engine.
+     - **Scaled to the build.** The limit counts C stack, and the C stack
+       of one JavaScript call depends on the compiler. On `linux/amd64` a
+       simple recursion takes 784 bytes per call with GCC 13 and 1 728 with
+       GCC 15, whose inliner doubles the interpreter's frame
+       ([measurements](README.md#measurements-behind-the-decisions)). The engine measures that cost when a
+       process starts its first engine, and gives QuickJS-ng the configured
+       size times the cost over 768 bytes, never less than the configured
+       size.
+     - **The depth that results.** A simple recursion fits about 1 365
+       calls in 1 MiB on every build whose call takes 768 bytes or more,
+       which is every build measured; a build with cheaper calls keeps
+       1 MiB and fits more. That is a third more than the depth of 1 000
+       that windmill-lite fits and Windmill does not
+       ([D17](0001-equivalence-contract.md)).
+     - **Threads.** Evaluations run on threads that the engine creates with
+       stacks well above the scaled limit (at least 8 MiB, and 4 MiB above
+       the limit). A thread that the Go runtime creates gets the C library's
+       default stack, which is 128 KiB on musl and would end before the
+       engine's limit.
+     - **Alternatives: the depth.** An unscaled 1 MiB, the earlier
+       decision, let the depth follow the compiler: 604 calls with GCC 15,
+       so a depth of 1 000 overflowed on `ubuntu-26.04`, and 1 006 to 1 054
+       with clang. Calibrating to the oracle's recorded bracket, where 600
+       fits and 1 000 overflows, would risk overflowing where Windmill
+       fits, because Windmill's exact limit is unknown
+       ([Q-JE-16](../semantics/expressions.md#q-je-16)).
+     - **Alternatives: compiler flags.** Turning off GCC's inlining of small
+       functions keeps the frame small, but cgo refuses
+       `-fno-inline-small-functions` in a package's flags. A
+       `#pragma GCC optimize` in `qjs_quickjs.c` needs no flag, yet made
+       the total time of five programs 2 to 8 % longer; GCC documents its
+       optimize attribute for debugging only, and it leaves clang builds
+       less than 6 % above 1 000 calls. clang's `-fno-inline-functions`
+       made that total 2.2 to 2.6 times longer
+       ([measurements](README.md#measurements-behind-the-decisions)).
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against
@@ -502,6 +534,13 @@ error, with the database route (a step in between) as its control.
   claim a per-run figure before that gate.
 - Every build needs a C toolchain (`zig cc` for Linux releases); builds
   with `CGO_ENABLED=0` are not supported in the first edition.
+- A simple recursion fits the same depth on every build measured: 1 362
+  calls at the default limit on `linux/amd64`. The stack checks of the
+  parser, `JSON.parse` and `JSON.stringify` get the scaled limit too, but
+  their own frames also differ by compiler. Their depth differs between
+  builds: `JSON.parse` nests 8 578 levels with `zig cc`, 13 339 with
+  GCC 13 and 29 426 with GCC 15
+  ([measurements](README.md#measurements-behind-the-decisions)).
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.

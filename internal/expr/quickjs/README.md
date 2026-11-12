@@ -31,12 +31,13 @@ What the package does not do:
 
 | Name | What it does |
 |---|---|
-| `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
+| `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. The first call of a process also measures the C stack that one JavaScript call takes ([Stack limit](#stack-limit)). |
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache), `LeakCheck` (free each runtime block by block and count what QuickJS-ng leaked, below). |
 | `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode, with strict mode forced, as Windmill's evaluator compiles every script ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the input's preludes, then the bytecode, on a fresh runtime and context, and returns the completion string or an error. |
 | `(*Engine).ExactMemberPaths()` | Says that the engine evaluates a member path over JSON values as package `expr`'s own answer does, so the pipeline answers those paths without it. |
 | `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and, in leak check only, heap blocks that QuickJS-ng leaked and the engine freed (`LeakedBlocks`; 0 in the default mode). |
+| `(*Engine).StackLimit()`, `CallStackBytes()` | The stack limit in bytes that each evaluation gets, `Limits().StackBytes` scaled to the build, and the C stack in bytes that one JavaScript call takes in this build ([Stack limit](#stack-limit)). |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
 | `CLibrary()` | The C library the engine was built against: `glibc`, `musl` (the static Linux engine), `apple` or `other`. QuickJS-ng's transcendental `Math` functions call its libm, so their last digit can differ from the glibc of Windmill's image (deviation D16 of [0001](../../../docs/design/0001-equivalence-contract.md)). |
 
@@ -137,9 +138,64 @@ What the package does not do:
 | Limit | Default | What happens |
 |---|---|---|
 | heap | 128 MiB (`Limits.MemoryMB`) | Allocation fails past the cap. QuickJS-ng then throws an `InternalError` with the text `out of memory`, or a bare `null` or `undefined`, and the exception keeps that kind ([JE-3](../../../docs/semantics/expressions.md#je-3)). The cap also covers the engine's host-call bookkeeping: one record per outstanding call, reused once the call settles, and the argument copies of calls not yet handed to Go, which are freed as Go copies them. Reading the completion value or the exception back gets 16 MiB of headroom above the cap. |
-| stack | 1 MiB (`Limits.StackBytes`) | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). It is measured from where each call enters the engine: the top level, each round of the job loop, each settlement. Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. A slot thread's own stack is at least 8 MiB and at least 4 MiB more than this limit, so a deep recursion meets the engine's error, never the end of the thread. Threads that the Go runtime creates would have the C library's default stack, which is 128 KiB on musl. |
+| stack | 1 MiB (`Limits.StackBytes`), scaled to the build | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). The engine scales it so that about 1 365 calls of a simple recursion fit on every build measured ([Stack limit](#stack-limit)). Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. |
 | attempt | 20 s (`Limits.Attempt`) | The attempt is interrupted through QuickJS-ng's interrupt handler, which the engine polls in loops, calls and regular-expression matching. The interrupt cannot be caught. A built-in that runs long without reaching the handler (`"x".repeat(n)` on a large `n`, for one), or a long readback, still ends the attempt: whatever the program got to, `Eval` returns `expr.ErrAttemptTimeout` once the limit has passed, and the slot prepares a new runtime. Windmill leaves a timed-out evaluation running; interrupting it is deviation D8 of [0001](../../../docs/design/0001-equivalence-contract.md). A Promise that never settles also ends here ([JE-2](../../../docs/semantics/expressions.md#je-2)). |
 | context | the caller's `ctx` | When `ctx` ends during an evaluation, the program is interrupted the same way and `Eval` returns `context.Cause(ctx)`, again whatever the program got to. |
+
+### Stack limit
+
+Each evaluation gets `Limits.StackBytes` scaled to the C stack that one
+JavaScript call takes in the engine's build. A recursion such as
+`f = n => n === 0 ? 0 : 1 + f(n - 1)` then fits about `StackBytes` ÷
+768 B calls on every build measured: about 1 365 at the default 1 MiB.
+That is a third more than the depth of 1 000 that the engine must fit and
+Windmill does not ([D17](../../../docs/design/0001-equivalence-contract.md)).
+
+That holds for every build whose call takes 768 B or more. A build with
+cheaper calls keeps the configured size, and fits more. `Limits()` and the
+bundle manifest keep the configured size.
+
+The scaling exists because the C stack of one call depends on the compiler.
+GCC 14 and 15 inline more small functions into the interpreter's
+`JS_CallInternal` than GCC 13 does, which doubles its frame. On
+`linux/amd64`, the recursion above takes 784 B per call with GCC 13 and
+1 728 B with GCC 15, and clang builds take 1 008 to 1 040 B
+([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
+The `Expression engine` CI job prints the cost and the depths below on
+every run.
+
+The engine measures and applies the cost in these steps:
+
+1. When a process starts its first engine, `CallStackBytes` runs the
+   recursion on a runtime of its own, on a thread with an 8 MiB stack,
+   until it overflows a 256 KiB limit, then a 4 MiB limit. A cost under
+   64 B or over 16 KiB per call is refused as a broken measurement, and
+   `New` fails with an error that names the bytes.
+2. It divides the 3.75 MiB between the two limits by the difference
+   between the two depths. The frames above the recursion cancel out.
+3. Every engine gives QuickJS-ng `StackBytes` × cost ÷ 768 B, rounded up
+   (`StackLimit`). A build whose calls take less than 768 B keeps
+   `StackBytes` unscaled.
+
+The limit is measured from where each call enters the engine: the top
+level, each round of the job loop, each settlement.
+
+Every check of the limit gets the scaled bytes, also those in the parser,
+in `JSON.parse` and in `JSON.stringify`. Those checks have frames of their
+own, which also differ by compiler, so their depth differs between builds.
+
+At the default limit on `linux/amd64`, every build measured fits 1 362
+calls of the recursion above. `JSON.parse` nests 8 578 levels with `zig
+cc`, 13 339 with GCC 13 and 29 426 with GCC 15 ([measurements](../../../docs/design/README.md#measurements-behind-the-decisions)).
+
+A function with more locals or arguments than the recursion above takes
+the same extra stack per call on every build, so its depth varies a
+little with the build too.
+
+A slot thread's own stack is at least 8 MiB and at least 4 MiB more than
+the scaled limit, in whole MiB, so a deep recursion meets the engine's
+error, never the end of the thread. Threads that the Go runtime creates
+would have the C library's default stack, which is 128 KiB on musl.
 
 ## Vendored source and licence
 
@@ -240,12 +296,22 @@ configuration with each C library's allocator, not the allocators alone.
     through `attemptReturned`);
   - `Close`, the arrival order of waiting callers, and concurrent use
     under `-race`;
-  - the overflow depth at the default stack. The tests log it for each
-    platform and check that it lies between 600 (fits) and 1 000 000
-    (overflows), the bracket JE-48 records on Windmill, where depth 1 000
-    overflows too. That this engine fits depth 1 000 (JE-48/a's
-    `depth-1000` case) is deviation D17 of
-    [0001](../../../docs/design/0001-equivalence-contract.md).
+  - the stack limit. The tests log the measured stack per call and the
+    overflow depth for each platform, and check that:
+    - the default limit fits at least 1 351 calls, 99 % of 1 365;
+    - evaluations take the stack per call that the probe measured, within
+      6 bytes, less than the 16 bytes that one more local takes;
+    - a 6 MiB limit, scaled, still ends in a `RangeError` inside the slot's
+      thread;
+    - a measured cost under 64 B or over 16 KiB is refused
+      (`TestPlausibleCallStack`).
+
+    `TestOverflowDepthAtTheDefaultStack` also logs how deep `JSON.parse`,
+    `JSON.stringify` and parenthesised source text nest at the default
+    limit.
+  - JE-48/a's `depth-1000` case: a recursion of depth 1 000, which
+    overflows on Windmill, fits this engine. That difference is deviation
+    D17 of [0001](../../../docs/design/0001-equivalence-contract.md).
 - An engine started through the tests' shared helper must end with no
   leaked heap block. The engine counts leaked blocks only in leak check
   (`WL_QJS_LEAK_CHECK=1`), which one CI step sets for this package and

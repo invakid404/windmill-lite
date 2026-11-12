@@ -474,6 +474,69 @@ jobs:
             "$RUNNER_TEMP/${build##*:}.test" -test.run '^TestPoolUnderLoad$' -test.count=1 | { grep -v '^\(PASS\|ok\)' || true; } | tee -a "$GITHUB_STEP_SUMMARY"
           done
 
+  expr-images:
+    # The expression engine built and run on each Ubuntu image by name, so
+    # that a move of ubuntu-latest cannot drop an image unnoticed. Each
+    # image's system C compiler builds the engine's C code differently: the
+    # stack that one JavaScript call takes is 784 bytes with GCC 13
+    # (ubuntu-24.04) and 1 728 bytes with GCC 15 (ubuntu-26.04), and the
+    # engine scales its stack limit to it (internal/expr/quickjs,
+    # StackLimit). On each image this job runs the expression packages, in
+    # QuickJS-only mode too, and the selfcheck test, prints what the engine
+    # measured, and starts the static Linux engine, which zig cc builds the
+    # same way on every image. Branch protection does not require this job.
+    name: Expression engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+
+      - name: Test the expression packages
+        run: |
+          gcc --version | head -n 1
+          go test -race -count=1 ./internal/expr/...
+          WL_TEST_QUICKJS_ONLY=1 go test -race -count=1 ./internal/expr
+
+      - name: Print the stack measurements
+        # The stack per call that the engine measured, the scaled limit, and
+        # the depths that a simple recursion, JSON.parse, JSON.stringify and
+        # nested source text reach under it with this image's compiler.
+        run: go test -count=1 -v -run '^(TestCallStackBytes|TestOverflowDepthAtTheDefaultStack|TestProbeMatchesEvaluations)$' ./internal/expr/quickjs
+
+      - name: Test selfcheck
+        run: go test -count=1 -run '^TestSelfcheck$' ./cmd/windmill-lite
+
+      - name: Start the engine built with the image's compiler
+        run: |
+          go build -o "$RUNNER_TEMP/windmill-lite" ./cmd/windmill-lite
+          "$RUNNER_TEMP/windmill-lite" selfcheck
+
+      - name: Start the static Linux engine
+        env:
+          CGO_ENABLED: "1"
+          CC: zig cc -target x86_64-linux-musl
+        run: |
+          go build -o "$RUNNER_TEMP/windmill-lite-static" -ldflags "-linkmode=external -extldflags=-static" ./cmd/windmill-lite
+          "$RUNNER_TEMP/windmill-lite-static" selfcheck
+
   jsonb:
     # ADR 0005 checks the jsonb canonicaliser (internal/jsonval) against
     # PostgreSQL itself: every canonicaliser input of its tests is cast to

@@ -82,9 +82,15 @@ type Engine struct {
 	// Version is the engine's exact version. A runtime opens a bundle only
 	// if it is its own (ADR 0010).
 	Version string `json:"version"`
-	// ExpressionStackBytes is the expression engine's stack limit, which is
-	// observable as the depth at which recursion overflows (ADR 0003,
-	// JE-48).
+	// ExpressionStackBytes is the expression engine's configured stack
+	// limit, which is observable as the depth at which recursion overflows
+	// ([ADR 0003], [JE-48]). The engine scales it to the C stack of a call
+	// in its build, so that a simple recursion fits about the same depth on
+	// every build whose call takes 768 bytes or more, which is every build
+	// measured.
+	//
+	// [ADR 0003]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0003-semantics-placement.md
+	// [JE-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/expressions.md#je-48
 	ExpressionStackBytes int `json:"expression_stack_bytes"`
 }
 
@@ -196,8 +202,8 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 func manifestDeviations(prog []string, mode engine.ModuleState, shared bool) []string {
 	// Every bundle: windmill-lite job ids (D3), the interrupted expression
 	// attempt (D8), no Rust location suffix in generated messages (D14), the
-	// expression engine's build: Math's digits from its libm (D16) and the
-	// recursion depth its frames fit (D17), the job reads: a job of a run
+	// expression engine: Math's digits from its build's libm (D16) and the
+	// recursion depth its stack limit fits (D17), the job reads: a job of a run
 	// that has ended is not read (D22), and the pinned Bun, which is not the
 	// reference image's (D23).
 	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17", "D22", "D23"), mode, shared)
