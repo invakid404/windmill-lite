@@ -321,6 +321,14 @@ The realm cannot keep:
 - JavaScriptCore's texts where they differ from V8's: a redeclared name, a
   cyclic result, a missing export, the cause of a load failure, the text
   and frames of a stack. The BigInt and stack-overflow messages are V8's;
+- JavaScriptCore's text for any other error the engine itself raises,
+  such as reading a property of `null`
+  (`null is not an object (evaluating 'x.y')`, V8's
+  `Cannot read properties of null (reading 'y')`) or converting an object
+  that has no primitive value (`No default value`, V8's
+  `Cannot convert object to primitive value`). This is the exception that
+  D13 names D-a: a comparison that meets such a message normalises it or
+  lists it, and none compares it across the two engines;
 - the source line in front of a nativets stack, where the transpilers lay
   out code differently. The harness reads it as Windmill 1.862.0 does
   ([WR-43](../semantics/languages.md#wr-43)), but:
