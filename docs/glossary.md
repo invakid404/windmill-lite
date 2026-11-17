@@ -1,31 +1,37 @@
 # Glossary
 
-These are the terms that windmill-lite's documentation uses for its own
-concepts and for those of [Windmill](#windmill). When you write about one of these concepts,
-use its term in the meaning given here, and do not use the words on its
-**Not** line for it. The [writing standard](writing.md#words) gives the
-reason.
-
-Ordinary uses of the same words, qualified so that they cannot be confused,
-are fine: a CI job, the repository root, a Go module. The
+These are the terms of windmill-lite's documentation, for its own concepts
+and for those of [Windmill](#windmill). Use each term only in the meaning
+given here, and do not use the words on its **Not** line for it
+([writing standard](writing.md#words)). Ordinary uses of the same words,
+qualified so that they cannot be confused, are fine: a CI job, the
+repository root, a Go module. The
 [writing standard](writing.md#assumed-knowledge) lists the general
-technical knowledge that the documentation assumes.
+knowledge that the documentation assumes.
 
 ## Terms
 
 ### ack
 
-Memoria's record that a person or agent reviewed a README against the files
-in its scope. `memoria ack` writes it to `memoria.lock`
-([Memoria](#memoria), [docs/memoria.md](memoria.md#the-per-session-flow)).
+[Memoria](#memoria)'s record that a person or agent reviewed a README
+against the files in its scope. `memoria ack` writes it to `memoria.lock`
+([docs/memoria.md](memoria.md#the-per-session-flow)).
 
 ### ADR
 
 An architecture decision record: a numbered file in `docs/design/` that
-records one decision, its context, the alternatives and the consequences
-([docs/design](design/README.md)).
+records one decision, with its context, the alternatives and the
+consequences ([docs/design](design/README.md)).
 
 **Not:** design record.
+
+### build helper
+
+The Bun program that `windmill-lite build` runs to bundle a sync folder's
+Bun scripts and to read their signatures: `harnesses/bun/build/main.ts`
+([harnesses/bun/build](../harnesses/bun/build/README.md)). Neither a
+GitHub Release nor the npm package ships it, so a build takes it from a
+checkout of the engine's version.
 
 ### build team
 
@@ -36,18 +42,27 @@ read Windmill's AGPL or proprietary source
 ### Bun
 
 The JavaScript runtime on which Windmill runs ordinary TypeScript scripts.
-windmill-lite pins Bun 1.4.3. The image of the
-[pinned version](#pinned-version) of Windmill ships Bun 1.4.4
-([WR-3](semantics/languages.md#wr-3)), and deviation D23 of
-[ADR 0001](design/0001-equivalence-contract.md) names the difference.
+windmill-lite pins Bun 1.4.3 for its builds, harnesses and hosts. The image
+of Windmill's [pinned version](#pinned-version) ships Bun 1.4.4, a
+difference that the
+[equivalence contract](design/0001-equivalence-contract.md#5-named-deviations)
+names.
+
+### Bun host SDK
+
+The TypeScript library with which a Bun program becomes a [host](#host):
+the entry `windmill-lite/bun` of the npm package `windmill-lite`
+([harnesses](../harnesses/README.md)). Its `connect()` starts the engine as
+a child process, in [host mode](#host-mode). Its version is the version of
+the engine that it works with.
 
 ### bundle
 
 What `windmill-lite build` writes from a [sync folder](#sync-folder) and a
 [host contract](#host-contract): the compiled [program](#program), the
 bundled [scripts](#script), the sync folder's data, and a manifest that
-records the hash of every file. A `.wlb` file is its archive form
-([ADR 0010](design/0010-packaging.md)).
+records the hash of every file. A bundle is a directory, or the same tree
+as one `.wlb` archive ([packaging ADR](design/0010-packaging.md#the-bundle)).
 
 ### conformance case
 
@@ -60,18 +75,27 @@ hold several cases, and one case several runs
 
 ### deviation
 
-A deliberate difference from Windmill's behaviour, listed with its reason
-and its conformance case in
-[ADR 0001](design/0001-equivalence-contract.md#5-named-deviations).
+A deliberate difference from Windmill's behaviour, which the
+[equivalence contract](design/0001-equivalence-contract.md#5-named-deviations)
+lists with its reason and its conformance case. A bundle's manifest and a
+run's [trace](#trace) list the deviations in effect.
 
 ### engine
 
 The Go interpreter of [flows](#flow), in
 [internal/engine](../internal/engine/README.md). It runs the flows of a
-compiled [program](#program), and sends each
-[step](#step)'s [script](#script) to a [harness](#harness).
+compiled [program](#program), and sends each [step](#step)'s
+[script](#script) to a [harness](#harness). The `windmill-lite` command
+contains it, so the `windmill-lite` binaries of a release are also called
+the engine.
 
 **Not:** runtime.
+
+### expression
+
+A JavaScript expression in a [flow](#flow), such as a step's input
+transform, which the [engine](#engine) evaluates
+([internal/expr](../internal/expr/README.md)).
 
 ### finding
 
@@ -89,62 +113,100 @@ Never copy a fixture from a real Windmill workspace
 
 ### flow
 
-A Windmill workflow: [steps](#step) in sequence, with loops, branches, and an
-optional failure module, a step that runs when a failed step is neither
-retried nor allowed to continue ([FX-2](semantics/execution.md#fx-2)). Its
-format is OpenFlow, whose schema windmill-lite vendors
+A Windmill workflow: [steps](#step) in sequence, with loops and branches.
+It can have a failure module: a step that runs when a failed step is
+neither retried nor allowed to continue. Its format is OpenFlow, whose
+schema windmill-lite vendors
 ([internal/openflow](../internal/openflow/README.md)).
 
 **Not:** workflow.
 
-### expression
-
-A JavaScript expression in a [flow](#flow), such as a step's input
-transform, which the [engine](#engine) evaluates
-([internal/expr](../internal/expr/README.md)).
-
 ### `fresh`
 
-The mode that runs each [invocation](#invocation) in a harness process of
-its own, as Windmill runs each ordinary Bun [job](#job) in a new process
-([WR-1](semantics/languages.md#wr-1), [ADR 0006](design/0006-module-state.md#decision)).
+The [module state](#module-state) that runs each
+[invocation](#invocation) in a harness process of its own, as Windmill runs
+each ordinary Bun [job](#job) in a new process
+([module state ADR](design/0006-module-state.md#decision)).
 
 ### harness
 
 The process that runs step [scripts](#script) for the [engine](#engine),
 such as the Bun harness in [harnesses/bun](../harnesses/bun/README.md). The
 engine and the harness talk over the harness protocol
-([ADR 0004](design/0004-harness-protocol.md)).
+([harness protocol ADR](design/0004-harness-protocol.md)). In
+[host mode](#host-mode), the host's own process is the harness.
 
 **Not:** worker.
+
+### harness runtime
+
+The TypeScript code that a Bun harness runs: the directory
+`harnesses/bun/runtime` ([harnesses/bun](../harnesses/bun/README.md)). A
+bundle's manifest records the digest of the harness runtime that the
+bundle was built for, and the engine starts harness processes for the
+bundle only from that runtime. The [Bun host SDK](#bun-host-sdk) includes it.
+
+### hook
+
+A callback with which a [host](#host) observes or changes a [run](#run):
+for example, it answers for a step, rewrites a step's arguments, observes
+each step, halts the run, or [latches](#latch) an error on it
+([host hooks ADR](design/0008-host-hooks.md#the-hooks)). Some hooks apply
+only at the call sites that their [selectors](#selector) name; others
+observe every step, or the run as a whole. A Go host gives hooks as Go
+callbacks ([wl](../wl/README.md#hooks)), and a [host plugin](#host-plugin)
+gives them in TypeScript.
 
 ### host
 
 A program that embeds windmill-lite and runs the flows of a
-[bundle](#bundle), through the [`wl`](#wl) package or through the host
-software development kit (SDK), a TypeScript library for Bun hosts ([ADR 0009](design/0009-host-adapters.md)).
+[bundle](#bundle): a Go program through the [`wl`](#wl) package, or a Bun
+program through the [Bun host SDK](#bun-host-sdk)
+([host adapters ADR](design/0009-host-adapters.md)).
 
 **Not:** embedder.
 
 ### host contract
 
-The second input of the build, next to the [sync folder](#sync-folder). It
-lists the [roots](#root), the [provided sites](#provided-site), and the
-host-provided modules, of which the host and every script share one
-instance ([ADR 0002](design/0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites)).
+The second input of the build, next to the [sync folder](#sync-folder): a
+YAML or JSON file that lists the [roots](#root), the
+[provided sites](#provided-site) and the
+[host-provided modules](#host-provided-module)
+([IR and loader ADR](design/0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites)).
+Without a host contract, every flow and script of the folder is a root.
 
 ### host mode
 
 The mode in which a Bun [host](#host) runs the [steps](#step) in its own
 process, and starts `windmill-lite host` as its engine
-([ADR 0009](design/0009-host-adapters.md)).
+([harnesses/bun](../harnesses/bun/README.md#host-mode-and-the-host-sdk)).
+The host submits its runs to the engine, and the engine sends the host
+each step to run.
+
+### host plugin
+
+TypeScript [hooks](#hook) and [providers](#provider) that a Bun harness
+runs for the engine, which calls them over the harness protocol
+([harnesses/bun](../harnesses/bun/README.md#host-plugins)). In host mode,
+the plugin is the `plugin` option of the host's `connect()`. Otherwise,
+`wl`'s `Options.Plugin` names its module, which every `warm` harness
+process loads.
+
+### host-provided module
+
+A module, listed in the [host contract](#host-contract), of which the
+[host](#host) and every [script](#script) in a process share one instance.
+A step can read a scope that the host entered, such as an
+`AsyncLocalStorage` store, only through such a module. The build resolves
+each import of it to a [shim](#shim)
+([packaging ADR](design/0010-packaging.md#host-provided-modules)).
 
 ### invocation
 
 One call of one [step](#step)'s [script](#script) in a [harness](#harness)
 process, from its arguments to its outcome. A [run](#run) of a flow has an
 invocation each time that it runs a script step
-([ADR 0004](design/0004-harness-protocol.md)).
+([harness protocol ADR](design/0004-harness-protocol.md)).
 
 **Not:** execution, job.
 
@@ -152,7 +214,16 @@ invocation each time that it runs a script step
 
 Windmill's unit of queued work: Windmill runs each step as a job.
 windmill-lite has no job queue, but it gives each step the job identity that
-scripts read, such as `WM_JOB_ID` ([internal/platform](../internal/platform/README.md)).
+scripts read, such as `WM_JOB_ID`
+([internal/platform](../internal/platform/README.md)).
+
+### latch
+
+To latch an error on a [run](#run) is to stop the run with it: the run
+starts nothing more, and ends with status `latched` and the first error
+latched ([host hooks ADR](design/0008-host-hooks.md#the-hooks)). A
+[hook](#hook), a [provider](#provider), a step or the engine can latch an
+error. The error never becomes a step's result.
 
 ### late shim
 
@@ -161,19 +232,27 @@ values is read, and each time an `import()` resolves to it. A host-provided
 module's bundled copy imports another module through it when it imports
 that module only lazily and registers first. An import or a read before
 the other module registers fails, and one after it works
-([ADR 0010](design/0010-packaging.md#host-provided-modules)).
+([packaging ADR](design/0010-packaging.md#host-provided-modules)).
 
 ### Memoria
 
 The tool that ties each README to the files in its scope, and fails CI while
 a README has a change that nobody reviewed ([docs/memoria.md](memoria.md)).
 
+### module state
+
+Whether the values that a script's top-level code creates survive between
+its [invocations](#invocation): [`warm`](#warm), the default, or
+[`fresh`](#fresh) ([module state ADR](design/0006-module-state.md)). The
+build records it in the bundle, and a host can override it when it opens
+the bundle.
+
 ### oracle
 
 An unmodified image of Windmill Community Edition at the
 [pinned version](#pinned-version), which public CI runs to record the
 behaviour that windmill-lite must match
-([ADR 0011](design/0011-differential-testing.md)).
+([differential testing ADR](design/0011-differential-testing.md)).
 
 ### pinned version
 
@@ -182,6 +261,25 @@ Windmill v1.862.0: the release that the
 [oracle](#oracle) runs ([docs/semantics](semantics/README.md#pinned-version)).
 A finding not yet re-checked at it ends its tag line with
 `verified at v1.767.0 only`, after the previous pin.
+
+### platform facade
+
+The Go router that answers the platform calls of a step's stock
+`windmill-client`: resources, variables, job reads and the other routes
+that windmill-lite supports
+([internal/platform/facade](../internal/platform/facade/README.md)). Every
+other route of Windmill's API answers 501.
+
+### process scope
+
+A runner for the caller's async context without its
+[invocation](#invocation): work started through it belongs to no
+invocation, so the [settle-time fence](#settle-time-fence) never clears it
+([harnesses/bun](../harnesses/bun/README.md#the-per-invocation-context)).
+A pooled client or a [host-provided module](#host-provided-module) captures
+it when it loads, with
+`globalThis[Symbol.for("windmill-lite.processScope")].capture()`, and runs
+its factories through it.
 
 ### program
 
@@ -193,9 +291,17 @@ The output of the compiler, which turns a [sync folder](#sync-folder) and a
 
 A `script`, `flow` or `rawscript` [step](#step) that the
 [host contract](#host-contract) names. The [host](#host) replaces its target
-with a static value, or with a provider: code that it registers at run time
-to answer for the step
-([ADR 0002](design/0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites)).
+with a static value, or with a [provider](#provider) that answers for the
+step at run time
+([IR and loader ADR](design/0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites)).
+
+### provider
+
+Host code that answers for a [provided site](#provided-site) at run time,
+in place of the job that the site's target would have run
+([host hooks ADR](design/0008-host-hooks.md#mandatory-host-provided-call-sites)).
+The host contract names each provider. A Go host registers it in `wl`'s
+`Options.Providers`, and a [host plugin](#host-plugin) in its `providers`.
 
 ### recording
 
@@ -207,7 +313,7 @@ recorded it ([internal/oracle](../internal/oracle/README.md)).
 
 A flow or script that the [host contract](#host-contract) lists: one that
 the host runs, or one that a step dispatches by path
-([ADR 0002](design/0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites)).
+([IR and loader ADR](design/0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites)).
 
 **Not:** entrypoint.
 
@@ -215,7 +321,7 @@ the host runs, or one that a step dispatches by path
 
 The work of running a flow or a [root](#root) script once, from its
 arguments to its result. `wl`'s `Run` returns its status, its result, and
-its trace, the record of what its steps did ([wl](../wl/README.md)).
+for a flow its [trace](#trace) ([wl](../wl/README.md)).
 
 **Not:** job.
 
@@ -224,6 +330,15 @@ its trace, the record of what its steps did ([wl](../wl/README.md)).
 Code in one file that windmill-lite runs: a script by path in the
 [sync folder](#sync-folder), or an inline script in a [flow](#flow)
 ([internal/syncfolder](../internal/syncfolder/README.md)).
+
+### selector
+
+A rule that names call sites: a module of a flow by its id, or every call
+of a script by its path
+([host hooks ADR](design/0008-host-hooks.md#selectors)). [Hooks](#hook)
+and the [host contract](#host-contract) use selectors. A module selector
+needs an occurrence when its id is repeated in one module list; otherwise
+it is refused as `ambiguous_selector`.
 
 ### semantics reference
 
@@ -245,19 +360,29 @@ source at the pinned version ([AGENTS.md](../AGENTS.md#semantics-team)).
 
 An [invocation](#invocation) settles when no code of its entrypoint call can
 run any more: the call ended, its process ended, or it never started. In
-[`warm`](#warm) and [host mode](#host-mode), the settle-time fence then
-clears its timers, aborts its `fetch` requests, and drops its later logs and
-platform calls, but sockets that the script opened and CPU work run on
-([D9](design/0001-equivalence-contract.md#5-named-deviations),
-[ADR 0004](design/0004-harness-protocol.md)).
+[`warm`](#warm) and [host mode](#host-mode), the
+[settle-time fence](#settle-time-fence) then acts on the work that the
+invocation left behind.
+
+### settle-time fence
+
+What the harness does to an [invocation](#invocation)'s remaining work when
+the invocation [settles](#settle) in a shared process: it clears the
+invocation's timers, aborts its `fetch` requests, and drops its later logs
+and platform calls
+([harnesses/bun](../harnesses/bun/README.md#the-per-invocation-context)).
+Sockets that the script opened and CPU work run on, a difference from
+Windmill that the
+[equivalence contract](design/0001-equivalence-contract.md#5-named-deviations)
+names.
 
 ### shim
 
-The module that each bundler resolves imports of a host-provided module
-to. It takes every export of the module, by name, from the process-wide
-registry that the [host](#host) or the [harness](#harness) fills, so every
-script shares one instance
-([ADR 0010](design/0010-packaging.md#host-provided-modules)).
+The module that each bundler resolves imports of a
+[host-provided module](#host-provided-module) to. It takes every export of
+the module, by name, from the process-wide registry that the [host](#host)
+or the [harness](#harness) fills, so every script shares one instance
+([packaging ADR](design/0010-packaging.md#host-provided-modules)).
 
 ### step
 
@@ -271,17 +396,25 @@ except in Windmill's own names such as "failure module"
 ### sync folder
 
 The folder that `wmill sync`, the sync command of Windmill's command-line
-tool, writes, with scripts, flows, resources and variables. It is the first input of the build
-([internal/syncfolder](../internal/syncfolder/README.md)).
+tool, writes, with scripts, flows, resources and variables. It is the first
+input of the build ([internal/syncfolder](../internal/syncfolder/README.md)).
+
+### trace
+
+The record of what the steps of a flow [run](#run) did: for each call site,
+its status, its arguments, its result and its timings, and the platform
+calls that the steps made ([wl](../wl/README.md#run)). `wl`'s `Run`
+returns it, and the run-end [hooks](#hook) get it.
 
 ### `warm`
 
-The default mode, in which one harness process runs many
-[invocations](#invocation), and the values that a script's top-level code
-creates survive between its invocations. Native steps, `nativets` and
-`//native` scripts, are the exception: each of their invocations runs in a
-realm of its own, as Windmill gives each native job a new isolate
-([WR-41](semantics/languages.md#wr-41), [ADR 0006](design/0006-module-state.md#decision)).
+The default [module state](#module-state), in which one harness process
+runs many [invocations](#invocation), and the values that a script's
+top-level code creates survive between its invocations
+([module state ADR](design/0006-module-state.md#decision)). Native steps,
+`nativets` and `//native` scripts, are the exception: each of their
+invocations runs in a realm of its own, as Windmill gives each native job a
+new isolate.
 
 ### Windmill
 
@@ -293,7 +426,8 @@ Edition (EE) shows is not ([AGENTS.md](../AGENTS.md#both-teams)).
 ### `wl`
 
 The public Go package that opens a [bundle](#bundle) and runs its flows and
-root scripts ([wl](../wl/README.md)).
+root scripts: `github.com/invakid404/windmill-lite/wl`
+([wl](../wl/README.md)).
 
 ## Finding prefixes
 
