@@ -255,6 +255,7 @@ ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
 1. It checks `workdir`: a directory that this process can write
    (`workdir_not_writable`), and already this process's working directory,
    once both are resolved without symbolic links (`workdir_mismatch`).
+   Then it checks the fields of the `collect` option (`options`).
 2. It reads the bundle's manifest (`bundle`).
 3. It registers the host's instances of the bundle's
    [host-provided modules](../../docs/glossary.md#host-provided-module)
@@ -297,6 +298,7 @@ sees them.
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
+| `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Not in version 0.2.0. |
 | `onEngineExit` | `(status: { code: number \| null; signal: string \| null }) => void` | Exit with code 1 | Called when the connection to the engine ends other than by `close()` |
 | `diag` | `(line: string) => void` | Write to stderr | Receives each diagnostic line |
 
@@ -380,6 +382,13 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `runs` | Runs submitted and not yet done |
 | `draining` | Whether `drain()` was called |
 | `recycle` | The recycle trigger that tripped, or `null` |
+| `collections` | The collections of the [collect trigger](#collect-garbage), in the fields below. Each duration is in ms. |
+| `collections.count` | The collections that ran. One that threw is not counted. |
+| `collections.lastMs` | How long the last one took, or `null` before the first |
+| `collections.totalMs` | How long they all took |
+| `collections.due` | How many times a collection became due: `count`, plus the collections that threw, plus 1 while `dueNow` is `true` |
+| `collections.deferredMs`, `collections.maxDeferredMs` | The total and the longest wait from due to the start of a collection, failed ones included. Both stay 0 under `"heartbeat"`. |
+| `collections.dueNow` | Whether a collection is due and has not started |
 
 ### Recycle a host
 
@@ -398,6 +407,73 @@ The runtime checks the triggers at every heartbeat. `health()` reports the
 first that trips, and `onRecycle` hears it once. The host decides what to
 do, usually `drain()` and exit, so that its supervisor starts a new
 process. The SDK never drains on its own.
+
+### Collect garbage
+
+The `collect` option makes the SDK run a full garbage collection,
+`Bun.gc(true)`, once the resident set reaches a soft mark. It is for a
+long-lived host whose resident set grows far above its live memory between
+the collections that Bun makes on its own. It is off by default.
+
+| Field | Default | What it sets |
+|---|---|---|
+| `rss` | Required | The mark, in bytes. A collection becomes due at a heartbeat whose resident set is at least `rss`. |
+| `cooldown` | 3000 | How long, in ms, no collection becomes due after one ends or fails: three heartbeats at the engine's default interval of 1 s |
+| `policy` | `"idle"` | When a due collection runs ([the policies](#the-policies-of-collect)) |
+| `quiet` | 100 | How long, in ms, the host must stay idle before `"idle"` collects |
+
+Set the mark above what a full collection leaves of the resident set.
+Otherwise the trigger collects at the end of every cooldown. A due
+collection stays due until it runs, even when the resident set falls
+below the mark. `health().collections` counts the collections, their
+durations and their waits ([Health](#health)).
+
+#### The policies of collect
+
+| Policy | When a due collection runs | What it costs |
+|---|---|---|
+| `"idle"`, the default | Once no run is open and no invocation is running (`health().runs` and `in_flight` are 0), and the host has stayed so for `quiet` ms | A collection never stops a run that is open. It waits as long as the host stays busy. |
+| `"heartbeat"` | At the heartbeat that found it due, even while runs are open | It collects sooner, so the resident set stays lower, but each collection stops the steps that are running. |
+
+In one measured workload, with a mark of 640 MiB and a cooldown of 5 s,
+the peak resident set was about 137 MiB lower than without the trigger
+with `"heartbeat"`, and about 100 MiB lower with `"idle"`. `"heartbeat"`
+added latency: the 95th percentile was about 9 % higher in one of two
+runs. `"idle"` did not, so it is the default.
+
+Under `"idle"`, the SDK checks whether the host is idle:
+
+- at each heartbeat;
+- when the run count drops to 0. The caller of the run whose end left the
+  host idle has its outcome before any collection starts;
+- with a collection due, once the quiet period has passed.
+
+A step that runs on after its run has ended keeps the host busy. The quiet
+period then starts at the first heartbeat that finds the step ended. The
+quiet period itself is for a host that runs several flows one after
+another for one request: it keeps the collection out of the moment
+between two of them, when no run is open.
+
+#### Limits of collect
+
+- **The collection is synchronous.** It stops the event loop, and every
+  invocation in the process, while it runs. A stop longer than
+  `watchdog.killAfter` ms makes the engine kill the host.
+- **No maximum wait under `"idle"`.** A host that never goes idle never
+  collects. While a collection waits, the SDK does nothing to the host's
+  memory.
+- **What idle cannot see.** The SDK sees only its own runs and
+  invocations. Work that the host does outside a run counts as idle, such
+  as its own request handlers. A request that reaches the host while a
+  collection runs waits for it.
+- **A failed collection.** A collection that throws is not counted. The
+  SDK writes a diagnostic line, the collection is no longer due, and the
+  cooldown starts as after a collection.
+
+Set `recycle` with `collect`: [recycle](#recycle-a-host) stays the bound on
+memory. A collection frees only what is unreachable, so it never frees a
+loaded module, and under `"idle"` a host that is never idle never
+collects. A collection never trips or resets a recycle trigger.
 
 ### When the engine exits
 
@@ -523,6 +599,7 @@ error that has no `code`:
 |---|---|---|---|
 | `workdir_not_writable` | `connect`, or the engine | `workdir` is not a directory that this process can write. | Pass a writable directory. |
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
+| `options` | `connect` | The `collect` option has an `rss` that is not a positive number, a `cooldown` or a `quiet` that is negative or not finite, or a `policy` other than `"idle"` and `"heartbeat"`. | Fix the option. The message gives the value. |
 | `bundle` | `connect` | The bundle's `manifest.json` does not read. | Pass the bundle directory, as an absolute path. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
 | `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
@@ -580,7 +657,7 @@ This part is for contributors who change the runtime or the SDK.
 | `runtime/version.ts` | The harness version and `versionsPair` |
 | `host/index.ts` | The Bun host SDK: `connect`, `checkWorkdir`, `HostError`, `HOST_MODULES` and the types |
 | `host/testing.ts` | The test entry |
-| `test/*.test.ts`, `test/caseplugin.ts`, `test/typecheck/` | The tests ([Tests](#tests)) and the type check ([Type check](#type-check)) |
+| `test/*.test.ts`, `test/caseplugin.ts`, `test/heartbeatengine.ts`, `test/typecheck/` | The tests ([Tests](#tests)) and the type check ([Type check](#type-check)). `test/heartbeatengine.ts` stands in for the engine in the collect trigger's tests. It welcomes the host with a heartbeat of `WL_TEST_HEARTBEAT_MS` ms, and answers each run at once, once a file exists, or after it has sent an invocation of a step. |
 
 The runtime and the SDK have no dependencies and no `package.json`. The
 build helper has one, for its TypeScript parser, and the type check has
@@ -974,6 +1051,25 @@ The registry:
 - **Health.** `hostHealth` adds the age of the oldest abandoned invocation
   and the script modules loaded to what the pings carry, and `onHeartbeat`
   hears it at every heartbeat.
+- **The heartbeat observer.** `connect` installs `onHeartbeat` only when
+  `recycle` or `collect` is set, so a heartbeat without a trigger costs
+  only its ping. The runtime calls it outside every invocation, after the
+  heartbeat's ping has gone to the socket. It checks the recycle triggers
+  first, then the collect trigger (`maybeCollect`), so a collection
+  changes neither the ping nor the recycle triggers.
+- **A collection** (`collectNow`) is one `Bun.gc(true)`. The cooldown
+  starts at its end, or at its failure, so a collection that keeps failing
+  writes one diagnostic line per cooldown, not one per heartbeat.
+- **The idle check** (`checkIdle`). Idle starts (`idleSince`) when a check
+  first finds no run open and no invocation running, and ends at a
+  submitted run or at a check that finds an invocation running. With a
+  collection due, the check arms a timer for the rest of the quiet period.
+  At the run count's zero it only arms the timer: the caller's
+  continuation runs before any timer.
+- **The quiet timer** runs outside every invocation (`invocations.exit`),
+  on `realTimers`, so the fence leaves it alone. It is `unref`'d, so it
+  keeps no process alive, and `close()` clears it. A check after
+  `close()`, or while a run is open, does nothing.
 - **The socket.** `connect` starts the engine with one end of a socket
   pair as its file descriptor 3: Node's extra `"pipe"` standard I/O, which
   Bun 1.4.3 makes a socket. The socket's backpressure reaches the
@@ -1290,6 +1386,7 @@ cd harnesses/bun && bun test
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
 | `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts |
+| `test/host.test.ts`, the collect trigger | The collect trigger, on hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, and with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, for steps that outlive them and for the quiet period, and `close()` with the quiet timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |
 | `test/build.test.ts` | The build helper's scans and parse |
