@@ -448,8 +448,9 @@ Under `"idle"`, the SDK checks whether the host is idle:
   host idle has its outcome before any collection starts;
 - with a collection due, once the quiet period has passed.
 
-A step that runs on after its run has ended keeps the host busy. The quiet
-period then starts at the first heartbeat that finds the step ended. The
+A step whose invocation is still running after its run has ended keeps
+the host busy. The quiet period then starts at the first heartbeat that
+finds the step ended. The
 quiet period itself is for a host that runs several flows one after
 another for one request. It keeps the collection out of the moment
 between two of them, when no run is open, if that moment is shorter than
@@ -471,9 +472,10 @@ the quiet period.
   collection runs waits for it.
 - **Invocations that no caller waits for.** An invocation that a timeout
   abandoned, or whose outcome was fixed early, counts as idle, though its
-  code may still run. No caller waits for it, so a collection then delays
-  no caller. Counting it would let one step that never settles stop every
-  collection.
+  code may still run. The engine already has its outcome, and a
+  collection starts only once no run is open, so it holds back no outcome
+  that a caller waits for. Counting such an invocation would let one step
+  that never settles stop every collection.
 - **A failed collection.** A collection that throws is not counted. The
   SDK writes a diagnostic line, the collection is no longer due, and the
   cooldown starts as after a collection.
@@ -608,7 +610,7 @@ error that has no `code`:
 |---|---|---|---|
 | `workdir_not_writable` | `connect`, or the engine | `workdir` is not a directory that this process can write. | Pass a writable directory. |
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
-| `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The check compares values and does not test their type, so pass numbers, as the type says. | Fix the option. The message names the rule that failed. |
+| `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The `rss` check compares values and does not test the type, so a numeric string such as `"1"` passes it; pass a number, as the type says. `cooldown` and `quiet` must be finite numbers, so a string is refused. | Fix the option. The message names the rule that failed. |
 | `bundle` | `connect` | The bundle's `manifest.json` does not read. | Pass the bundle directory, as an absolute path. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
 | `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
