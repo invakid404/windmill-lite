@@ -542,6 +542,26 @@ supervisor of the host-mode tests. It builds generated sync folders with
   `WL_MEMORY_VERDICT=median`, it fails on neither, and the caller judges
   the median of several runs, as the `Benchmarks` workflow does.
 
+`WL_MEMHOST_COLLECT` sets the memory host's
+[collect trigger](../../harnesses/bun/README.md#collect-garbage). Unset
+or empty, the host has no trigger. `<mark>` and `<cooldown>` are decimal
+digits:
+
+| Value | The trigger |
+|---|---|
+| `<mark>` | A mark of `<mark>` bytes, with the SDK's default cooldown and policy |
+| `<mark>,<cooldown>` | A cooldown of `<cooldown>` ms as well |
+| `<mark>,<cooldown>,<policy>` | A policy as well: `heartbeat` or `idle`. Without one, the SDK's default, `idle`, applies. |
+
+- Any other value, or a mark of 0, stops the host before it starts the
+  engine. The value holds no `:`, so a build of the `Benchmarks` workflow
+  can set it
+  ([Comparing builds on GitHub's runners](../../docs/benchmarks.md#comparing-builds-on-githubs-runners)).
+- `/rss` also gives the trigger's collections so far (`collections`, 0
+  without the trigger) and how long they took in all, in ms (`collectMs`).
+- `TestModuleMemoryClosure` logs them for each layout on a line of its
+  own: `<layout>: collections of the collect trigger <n> at connect, …`.
+
 The host reads its own peak: `VmHWM` from `/proc/self/status` on Linux,
 and `getrusage`'s peak on macOS. On Linux, `getrusage`'s peak keeps the
 peak of the process before its `execve`, the Go test process. A peak below
