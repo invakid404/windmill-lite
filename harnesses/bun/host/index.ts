@@ -106,15 +106,18 @@ export type ConnectOptions = {
    * invocation in this process, while it runs. policy says when a due
    * collection runs:
    *
-   * - "heartbeat", the default: at that heartbeat.
-   * - "idle": once no run is open and no invocation is running
-   *   (health().runs and in_flight are 0), and the host has stayed so for
-   *   quiet milliseconds (default 100). The SDK checks at each heartbeat,
-   *   when the run count drops to 0, and, with a collection due, once the
-   *   quiet period has passed. A due collection waits as long as the host
-   *   stays busy; the recycle triggers stay the bound on memory. The SDK
-   *   sees only its own runs and invocations: the host's other work
-   *   counts as idle.
+   * - "idle", the default: once no run is open and no invocation is
+   *   running (health().runs and in_flight are 0), and the host has stayed
+   *   so for quiet milliseconds (default 100). The SDK checks at each
+   *   heartbeat, when the run count drops to 0, and, with a collection
+   *   due, once the quiet period has passed. A due collection waits as
+   *   long as the host stays busy; the recycle triggers stay the bound on
+   *   memory. The SDK sees only its own runs and invocations: the host's
+   *   other work counts as idle. It is the default because its
+   *   collections never stop a run that is open.
+   * - "heartbeat": at that heartbeat, while runs may be open. It collects
+   *   sooner, so the resident set stays lower, but each collection stops
+   *   the invocations that are running.
    *
    * health().collections reports what the collections cost and how long
    * they waited. A collection never trips or resets a recycle trigger. */
@@ -202,15 +205,22 @@ export type Health = HostHealth & {
    *   plus 1 while dueNow is true.
    * - deferredMs and maxDeferredMs: the total and the longest wait from
    *   due to the start of a collection, failed ones included; 0 under the
-   *   "heartbeat" policy.
+   *   "heartbeat" policy, which never waits. The default policy, "idle",
+   *   waits for the host to be idle.
    * - dueNow: whether a collection is due and has not started. */
   collections: { count: number; lastMs: number | null; totalMs: number; due: number; deferredMs: number; maxDeferredMs: number; dueNow: boolean };
 };
 
 /** When the collect trigger runs a due collection (connect's
  * collect.policy): "heartbeat" at the heartbeat that found it due, "idle"
- * once the host has no run open and no invocation running. */
+ * once the host has no run open and no invocation running. The default is
+ * "idle" (DEFAULT_COLLECT_POLICY), whose collections never stop a run that
+ * is open. */
 export type CollectPolicy = "heartbeat" | "idle";
+
+/** The collect trigger's policy when connect's collect option gives none:
+ * "idle", so that a collection never stops a run that is open. */
+export const DEFAULT_COLLECT_POLICY: CollectPolicy = "idle";
 
 /** The collect trigger's cooldown when connect's collect option gives
  * none, in milliseconds: three heartbeats at the engine's default
@@ -317,7 +327,8 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   if (collect !== undefined && !(quiet >= 0 && Number.isFinite(quiet))) {
     throw new HostError("options", `collect's quiet period is 0 ms or more; got ${String(collect.quiet)}`);
   }
-  const whenIdle = collect?.policy === "idle";
+  // Without collect, false: a host with no trigger takes no idle check.
+  const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
   // diagnostic into the step's log.
   const diag = o.diag ?? ((line: string) => realStderr(line + "\n"));

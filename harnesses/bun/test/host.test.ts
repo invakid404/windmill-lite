@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkWorkdir, type ConnectOptions, connect, DEFAULT_COLLECT_QUIET_MS, type Host, HostError } from "../host/index.ts";
+import { checkWorkdir, type ConnectOptions, connect, DEFAULT_COLLECT_POLICY, DEFAULT_COLLECT_QUIET_MS, type Host, HostError } from "../host/index.ts";
 import { HARNESS_VERSION, versionsPair } from "../runtime/version.ts";
 
 test("importing the SDK publishes the process scope, before any connect, for the host's own modules to capture", () => {
@@ -281,7 +281,7 @@ describe("the collect trigger", () => {
   }, 20_000);
 
   test("makes no collection while the resident set is below the mark", async () => {
-    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: Number.MAX_SAFE_INTEGER } });
+    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: Number.MAX_SAFE_INTEGER, policy: "heartbeat" } });
     await until("ten heartbeats", () => beats >= 10);
     expect(gcCalls).toEqual([]);
     expect(host.health().collections).toEqual(none);
@@ -290,7 +290,7 @@ describe("the collect trigger", () => {
 
   test("at the mark, makes one full collection, then none within the cooldown, and reports its duration", async () => {
     gcStandIn = () => Bun.sleepSync(20);
-    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown: 60_000 } });
+    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown: 60_000, policy: "heartbeat" } });
     await until("ten heartbeats after the first collection", () => gcCalls.length > 0 && beats >= gcCalls[0].beat + 10);
     expect(gcCalls.map((c) => c.arg)).toEqual([true]);
     const { count, lastMs, totalMs } = host.health().collections;
@@ -301,7 +301,7 @@ describe("the collect trigger", () => {
   }, 20_000);
 
   test("works without any recycle trigger", async () => {
-    const { host } = await heartbeatHost({ collect: { rss: 1, cooldown: 60_000 } });
+    const { host } = await heartbeatHost({ collect: { rss: 1, cooldown: 60_000, policy: "heartbeat" } });
     await until("a collection", () => gcCalls.length > 0);
     expect(host.health().collections.count).toBe(1);
     expect(host.health().recycle).toBeNull();
@@ -310,7 +310,7 @@ describe("the collect trigger", () => {
 
   test("collects again once the cooldown has passed, never within it", async () => {
     const cooldown = 100;
-    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown } });
+    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown, policy: "heartbeat" } });
     await until("three collections", () => gcCalls.length >= 3);
     for (let i = 1; i < gcCalls.length; i++) {
       expect(gcCalls[i].at - gcCalls[i - 1].at).toBeGreaterThanOrEqual(cooldown);
@@ -326,7 +326,7 @@ describe("the collect trigger", () => {
     const { host } = await heartbeatHost({
       recycle: { rss: 1, samples: 3, retired: beatCounter },
       onRecycle: (r) => reasons.push(r),
-      collect: { rss: 1, cooldown: 0 },
+      collect: { rss: 1, cooldown: 0, policy: "heartbeat" },
     });
     await until("five heartbeats", () => beats >= 5);
     expect(reasons).toEqual(["rss"]);
@@ -338,7 +338,7 @@ describe("the collect trigger", () => {
   }, 20_000);
 
   test("a collection never trips a recycle trigger", async () => {
-    const { host } = await heartbeatHost({ recycle: { rss: Number.MAX_SAFE_INTEGER, modules: 0, retired: beatCounter }, collect: { rss: 1, cooldown: 0 } });
+    const { host } = await heartbeatHost({ recycle: { rss: Number.MAX_SAFE_INTEGER, modules: 0, retired: beatCounter }, collect: { rss: 1, cooldown: 0, policy: "heartbeat" } });
     await until("five collections", () => gcCalls.length >= 5);
     expect(host.health().recycle).toBeNull();
     await host.close();
@@ -352,7 +352,7 @@ describe("the collect trigger", () => {
         throw new Error("collection refused");
       }
     };
-    const { host, diags } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown: 50 } });
+    const { host, diags } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown: 50, policy: "heartbeat" } });
     await until("a second collection", () => gcCalls.length >= 2);
     const beatsThen = beats;
     await until("more heartbeats", () => beats >= beatsThen + 3);
@@ -685,18 +685,45 @@ describe("the collect trigger", () => {
     await host.close();
   }, 20_000);
 
-  test("the heartbeat policy, given or by default, collects at the heartbeat while a run is open, and waits for nothing", async () => {
-    for (const policy of [undefined, "heartbeat"] as const) {
-      gcCalls = [];
-      const { host, dir } = await heartbeatHost({ collect: { rss: 1, cooldown: 60_000, policy } });
-      const run = heldRun(host, dir, String(policy));
-      await until("a collection", () => gcCalls.length > 0);
-      expect(host.health().runs).toBe(1);
-      expect(host.health().collections).toMatchObject({ count: 1, due: 1, deferredMs: 0, maxDeferredMs: 0, dueNow: false });
-      run.release();
-      await run.done;
-      await host.close();
-    }
+  test("the heartbeat policy, given, collects at the heartbeat while a run is open, and waits for nothing", async () => {
+    const { host, dir } = await heartbeatHost({ collect: { rss: 1, cooldown: 60_000, policy: "heartbeat" } });
+    const run = heldRun(host, dir, "heartbeat");
+    await until("a collection", () => gcCalls.length > 0);
+    expect(host.health().runs).toBe(1);
+    expect(host.health().collections).toMatchObject({ count: 1, due: 1, deferredMs: 0, maxDeferredMs: 0, dueNow: false });
+    run.release();
+    await run.done;
+    await host.close();
+  }, 20_000);
+
+  test("the default policy is idle", () => {
+    // The literal, not read from the SDK.
+    expect(DEFAULT_COLLECT_POLICY).toBe("idle");
+  });
+
+  test("with no policy given, a collection due while a run is open waits for the run's end and the quiet period, as under the idle policy", async () => {
+    // policy and quiet left out: the defaults, idle and 100 ms.
+    const quiet = 100;
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown: 60_000 } });
+    const run = heldRun(host, dir, "a");
+    // Due, whatever the policy: the heartbeat policy would collect here.
+    await until("the collection due", () => host.health().collections.due > 0);
+    const dueSeen = performance.now();
+    const beatsThen = beats;
+    await until("ten more heartbeats", () => beats >= beatsThen + 10);
+    expect(gcCalls).toEqual([]);
+    expect(host.health().runs).toBe(1);
+    expect(host.health().collections.dueNow).toBe(true);
+    const released = performance.now();
+    run.release();
+    await run.done;
+    await until("the collection", () => gcCalls.length > 0);
+    expect(gcCalls[0].at - released).toBeGreaterThanOrEqual(quiet - early);
+    expect(gcCalls.map((c) => c.arg)).toEqual([true]);
+    const c = host.health().collections;
+    expect(c).toMatchObject({ count: 1, due: 1, dueNow: false });
+    expect(c.deferredMs).toBeGreaterThanOrEqual(released - dueSeen + quiet - early);
+    await host.close();
   }, 20_000);
 
   test("the idle policy: a collection that throws is reported, is no longer due, and the trigger goes on after the cooldown", async () => {
