@@ -1,19 +1,18 @@
 # windmill-lite
 
-windmill-lite runs the [flows](docs/glossary.md#flow) and
-[scripts](docs/glossary.md#script) of a [Windmill](docs/glossary.md#windmill)
-folder with Windmill's behaviour, but without a Windmill server: no job
-queue, no [job](docs/glossary.md#job) for each [step](docs/glossary.md#step),
-and no workers that pick jobs up. A Go or [Bun](docs/glossary.md#bun)
-program embeds it, or the `windmill-lite` command runs a flow once.
+windmill-lite runs the flows and scripts of a Windmill folder with
+Windmill's behaviour, but without a Windmill server: no job queue, no job
+for each step, and no workers that pick jobs up. A Go or Bun program embeds
+it, or the `windmill-lite` command runs a flow once.
 
-**Current state:** windmill-lite runs flows whose script steps are
-TypeScript for Bun, and [root](docs/glossary.md#root) scripts in
-TypeScript, with Windmill's loops, branches, subflows, retries, timeouts,
-failure handling, [expressions](docs/glossary.md#expression), resources
-and variables. It
-does not run steps in other languages yet, and it has no network server;
-its go-plugin, gRPC and HTTP adapters are planned.
+**Current state:** windmill-lite runs [flows](docs/glossary.md#flow) whose
+[script](docs/glossary.md#script) [steps](docs/glossary.md#step) are
+TypeScript for [Bun](docs/glossary.md#bun), and
+[root](docs/glossary.md#root) scripts in TypeScript, with
+[Windmill](docs/glossary.md#windmill)'s loops, branches, subflows, retries,
+timeouts, failure handling, [expressions](docs/glossary.md#expression),
+resources and variables. It does not run steps in other languages yet, and
+it has no network server; its go-plugin, gRPC and HTTP adapters are planned.
 
 ## Who it is for
 
@@ -31,15 +30,13 @@ Do not use it when you need:
 - steps in Python, Deno, Go or Bash. Only Bun steps run: a step in another
   language fails the build with `unsupported_language`
   ([internal/ir](internal/ir/README.md#harness-classes));
-- Windmill's server features: the UI, job rows and logs as a record,
+- Windmill's server features: the UI, [job](docs/glossary.md#job) rows
+  and logs as a record,
   schedules, triggers and apps. The build skips schedules, triggers and
   apps, and windmill-lite does not provide the others;
 - durable suspend and approvals, workflow-as-code scripts or `aiagent`
-  steps. windmill-lite rejects such a flow when it loads the folder. The
-  exception is a suspend inside a target that the flow reaches only through
-  [provided sites](docs/glossary.md#provided-site). At a provided site, the
-  [host](docs/glossary.md#host) answers for the step, so the build does not
-  follow that call into its target;
+  steps. windmill-lite does not support them, and rejects such a flow when
+  it loads the folder;
 - queues, worker tags, priorities or concurrency limits. windmill-lite
   reads them and ignores them;
 - behaviour that only Windmill's Enterprise Edition shows.
@@ -174,7 +171,7 @@ platform, change it in each step.
 
 To build a bundle with a released engine, you also need the build helper
 from a checkout of the release's tag
-([harnesses/README.md](harnesses/README.md#install)). The same README
+([harnesses/README.md](harnesses/README.md#build-a-bundle)). The same README
 shows a host that runs a flow ([Run a flow from a host](harnesses/README.md#run-a-flow-from-a-host)), and the
 [Bun harness README](harnesses/bun/README.md#host-mode-and-the-host-sdk)
 describes `connect()` and its options.
