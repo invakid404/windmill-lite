@@ -17,7 +17,7 @@ import { accessSync, constants, realpathSync, statSync, writeSync } from "node:f
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join, resolve } from "node:path";
-import { exitProcess, realStderr } from "../runtime/context.ts";
+import { exitProcess, invocations, realStderr, realTimers } from "../runtime/context.ts";
 import type { Plugin, Selector } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
 
@@ -101,11 +101,23 @@ export type ConnectOptions = {
    * resident set grows between the collections that Bun makes on its own.
    * At a heartbeat whose resident set is at least rss bytes, when no
    * collection of this trigger ended in the last cooldown milliseconds
-   * (default 3000), the SDK runs one full collection, Bun.gc(true). The
+   * (default 3000), a full collection, Bun.gc(true), is due. The
    * collection is synchronous: it stops the event loop, and every
-   * invocation in this process, while it runs. health().collections
-   * reports what it cost. It never trips or resets a recycle trigger. */
-  collect?: { rss: number; cooldown?: number };
+   * invocation in this process, while it runs. policy says when a due
+   * collection runs:
+   *
+   * - "heartbeat", the default: at that heartbeat.
+   * - "idle": once no run has been open for quiet milliseconds (default
+   *   100; health().runs is 0), and no invocation is running (in_flight
+   *   is 0). The SDK checks at each heartbeat, and, with a collection
+   *   due, quiet milliseconds after the run count drops to 0. A due
+   *   collection waits as long as the host stays busy; the recycle
+   *   triggers stay the bound on memory. The SDK sees only its own runs
+   *   and invocations: the host's other work counts as idle.
+   *
+   * health().collections reports what the collections cost and how long
+   * they waited. A collection never trips or resets a recycle trigger. */
+  collect?: { rss: number; cooldown?: number; policy?: CollectPolicy; quiet?: number };
   /** Called when the connection to the engine ends other than by close().
    * The default writes a line to stderr and exits with code 1, so that the
    * host's supervisor restarts it: without its engine a host can run
@@ -178,16 +190,38 @@ export type Health = HostHealth & {
   draining: boolean;
   /** The recycle trigger that tripped, or null. */
   recycle: string | null;
-  /** The full collections the collect trigger made: how many, how long
-   * the last one took (null before the first), and how long they took in
-   * all, in milliseconds. A collection that threw is not counted. */
-  collections: { count: number; lastMs: number | null; totalMs: number };
+  /** The full collections of the collect trigger, durations in
+   * milliseconds:
+   *
+   * - count: how many ran; a collection that threw is not counted.
+   * - lastMs: how long the last one took, null before the first.
+   * - totalMs: how long they took in all.
+   * - due: how many times a collection became due. Each one due starts
+   *   one collection, so due exceeds count by the collections that threw,
+   *   plus 1 while dueNow is true.
+   * - deferredMs and maxDeferredMs: the total and the longest wait from
+   *   due to the start of a collection, failed ones included; 0 under the
+   *   "heartbeat" policy.
+   * - dueNow: whether a collection is due and has not started. */
+  collections: { count: number; lastMs: number | null; totalMs: number; due: number; deferredMs: number; maxDeferredMs: number; dueNow: boolean };
 };
+
+/** When the collect trigger runs a due collection (connect's
+ * collect.policy): "heartbeat" at the heartbeat that found it due, "idle"
+ * once the host has no run open and no invocation running. */
+export type CollectPolicy = "heartbeat" | "idle";
 
 /** The collect trigger's cooldown when connect's collect option gives
  * none, in milliseconds: three heartbeats at the engine's default
  * interval of 1 s. */
 export const DEFAULT_COLLECT_COOLDOWN_MS = 3000;
+
+/** How long the host must stay idle before the "idle" policy collects,
+ * when connect's collect option gives no quiet, in milliseconds. A host
+ * that runs several flows one after another for one request has no run
+ * open for a moment between them; the quiet period keeps the collection
+ * out of that gap. */
+export const DEFAULT_COLLECT_QUIET_MS = 100;
 
 export type Host = {
   /** Runs the flow (or script) at path with args, inside the caller's
@@ -271,10 +305,18 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const workdir = checkWorkdir(o.workdir);
   const collect = o.collect;
   const cooldown = collect?.cooldown ?? DEFAULT_COLLECT_COOLDOWN_MS;
+  const quiet = collect?.quiet ?? DEFAULT_COLLECT_QUIET_MS;
   // A mark that is not a number would never trip, silently.
   if (collect !== undefined && !(collect.rss > 0 && cooldown >= 0 && Number.isFinite(cooldown))) {
     throw new HostError("options", `collect needs rss, a positive number of bytes, and a cooldown of 0 ms or more; got ${JSON.stringify(collect)}`);
   }
+  if (collect !== undefined && collect.policy !== undefined && collect.policy !== "heartbeat" && collect.policy !== "idle") {
+    throw new HostError("options", `collect's policy is "heartbeat" or "idle"; got ${JSON.stringify(collect.policy)}`);
+  }
+  if (collect !== undefined && !(quiet >= 0 && Number.isFinite(quiet))) {
+    throw new HostError("options", `collect's quiet period is 0 ms or more; got ${String(collect.quiet)}`);
+  }
+  const whenIdle = collect?.policy === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
   // diagnostic into the step's log.
   const diag = o.diag ?? ((line: string) => realStderr(line + "\n"));
@@ -385,15 +427,29 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       if (n > triggers.retired.max) trip("retired", `${n} pooled entries retired and not released, more than ${triggers.retired.max}`);
     }
   };
-  const collections: Health["collections"] = { count: 0, lastMs: null, totalMs: 0 };
+  const collections: Omit<Health["collections"], "dueNow"> = { count: 0, lastMs: null, totalMs: 0, due: 0, deferredMs: 0, maxDeferredMs: 0 };
   // When the last collection ended, or failed.
   let collectedAt = -Infinity;
-  // The heartbeat observer calls this after the heartbeat's ping has gone
-  // to the socket, and after the recycle triggers have read the same
-  // health, so a collection changes neither.
-  const maybeCollect = (rss: number) => {
-    if (!collect || rss < collect.rss || performance.now() - collectedAt < cooldown) return;
+  // The "idle" policy's state: when the due collection became due, when
+  // the run count last dropped to 0 (null while a run is open), and the
+  // timer that checks again once the quiet period has passed, armed only
+  // while no run has been submitted since.
+  let dueAt: number | null = null;
+  let idleSince: number | null = performance.now();
+  let quietTimer: ReturnType<typeof setTimeout> | undefined;
+  const disarm = () => {
+    if (quietTimer === undefined) return;
+    realTimers.clearTimeout(quietTimer);
+    quietTimer = undefined;
+  };
+  const collectNow = () => {
     const start = performance.now();
+    if (dueAt !== null) {
+      const waited = start - dueAt;
+      collections.deferredMs += waited;
+      collections.maxDeferredMs = Math.max(collections.maxDeferredMs, waited);
+      dueAt = null;
+    }
     try {
       Bun.gc(true);
     } catch (e) {
@@ -408,6 +464,48 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     collections.count++;
     collections.lastMs = ms;
     collections.totalMs += ms;
+  };
+  // The heartbeat observer calls this after the heartbeat's ping has gone
+  // to the socket, and after the recycle triggers have read the same
+  // health, so a collection changes neither.
+  const maybeCollect = (h: HostHealth) => {
+    if (!collect) return;
+    if (!whenIdle) {
+      if (h.rss < collect.rss || performance.now() - collectedAt < cooldown) return;
+      collections.due++;
+      collectNow();
+      return;
+    }
+    const now = performance.now();
+    // A collection stays due until it runs, whatever the resident set
+    // reads in the meantime.
+    if (dueAt === null && h.rss >= collect.rss && now - collectedAt >= cooldown) {
+      dueAt = now;
+      collections.due++;
+    }
+    if (dueAt !== null && idleSince !== null && now - idleSince >= quiet && h.in_flight === 0) collectNow();
+  };
+  // The "idle" policy, when the run count drops to 0. The run's caller has
+  // not had its outcome yet: its continuation runs before any timer, so
+  // the collection never runs inside that settlement. The timer is outside
+  // every invocation, unfenced, and keeps no process alive; a run
+  // submitted before it fires cancels it. close() ends the runs still
+  // open, which arms nothing.
+  const onIdle = () => {
+    idleSince = performance.now();
+    if (dueAt === null || closing) return;
+    disarm();
+    quietTimer = invocations.exit(() =>
+      realTimers.setTimeout(() => {
+        quietTimer = undefined;
+        try {
+          if (dueAt !== null && runtime.hostHealth().in_flight === 0) collectNow();
+        } catch (e) {
+          diag(`windmill-lite: the collect trigger's idle check failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }, quiet),
+    );
+    quietTimer.unref();
   };
   const exited = new Promise<{ code: number | null; signal: string | null }>((resolve) =>
     child.on("exit", (code, signal) => resolve({ code, signal })),
@@ -446,7 +544,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             try {
               checkRecycle(h);
             } finally {
-              maybeCollect(h.rss);
+              maybeCollect(h);
             }
           }
         : undefined,
@@ -508,6 +606,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       }
       const { id, done } = submitted;
       inflight++;
+      if (whenIdle) {
+        idleSince = null;
+        disarm();
+      }
       const cancel = () => runtime.cancelRun(id);
       if (opts.signal?.aborted) cancel();
       else opts.signal?.addEventListener("abort", cancel, { once: true });
@@ -530,9 +632,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
           inflight--;
           opts.signal?.removeEventListener("abort", cancel);
           if (inflight === 0) for (const cb of idle.splice(0)) cb();
+          if (inflight === 0 && whenIdle) onIdle();
         });
     },
-    health: () => ({ ...runtime.hostHealth(), runs: inflight, draining, recycle, collections: { ...collections } }),
+    health: () => ({ ...runtime.hostHealth(), runs: inflight, draining, recycle, collections: { ...collections, dueNow: dueAt !== null } }),
     drain(timeoutMs) {
       draining = true;
       // The engine refuses the runs that reach it from now on, and says
@@ -557,6 +660,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     },
     async close() {
       closing = true;
+      disarm();
       sock.end();
       await exited;
     },

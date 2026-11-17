@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkWorkdir, type ConnectOptions, connect, HostError } from "../host/index.ts";
+import { checkWorkdir, type ConnectOptions, connect, DEFAULT_COLLECT_QUIET_MS, type Host, HostError } from "../host/index.ts";
 import { HARNESS_VERSION, versionsPair } from "../runtime/version.ts";
 
 test("importing the SDK publishes the process scope, before any connect, for the host's own modules to capture", () => {
@@ -186,9 +186,10 @@ test("a run frame carries the run's write-capable selectors and halts", async ()
 });
 
 // The collect trigger, on hosts connected to test/heartbeatengine.ts, which
-// welcomes them with a heartbeat of 10 ms and runs nothing. Each test
-// replaces Bun.gc with a stand-in that records its calls, and counts the
-// host's heartbeats with a retired-entry count that never trips.
+// welcomes them with a heartbeat of 10 ms and answers their runs when the
+// test says. Each test replaces Bun.gc with a stand-in that records its
+// calls, and counts the host's heartbeats with a retired-entry count that
+// never trips.
 describe("the collect trigger", () => {
   const realGc = Bun.gc;
   let gcCalls: { at: number; beat: number; arg: unknown }[] = [];
@@ -204,18 +205,22 @@ describe("the collect trigger", () => {
       return 0;
     }) as typeof Bun.gc;
   });
-  afterEach(() => {
+  // Every host a test connected, closed after it even when it failed, so
+  // that its heartbeats reach no later test.
+  const hosts: Host[] = [];
+  afterEach(async () => {
+    for (const host of hosts.splice(0)) await host.close();
     Bun.gc = realGc;
   });
 
   const beatCounter = { max: Number.MAX_SAFE_INTEGER, count: () => ++beats };
-  async function heartbeatHost(opts: Partial<ConnectOptions>) {
+  async function heartbeatHost(opts: Partial<ConnectOptions>, heartbeatMs = 10) {
     const dir = tempDir("wl-host-collect-");
     writeFileSync(join(dir, "manifest.json"), "{}");
     const diags: string[] = [];
     const back = process.cwd();
     process.chdir(dir);
-    process.env.WL_TEST_HEARTBEAT_MS = "10";
+    process.env.WL_TEST_HEARTBEAT_MS = String(heartbeatMs);
     try {
       const host = await connect({
         engine: process.execPath,
@@ -225,7 +230,8 @@ describe("the collect trigger", () => {
         diag: (line) => diags.push(line),
         ...opts,
       });
-      return { host, diags };
+      hosts.push(host);
+      return { host, diags, dir };
     } finally {
       delete process.env.WL_TEST_HEARTBEAT_MS;
       process.chdir(back);
@@ -237,7 +243,7 @@ describe("the collect trigger", () => {
       if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     }
   }
-  const none = { count: 0, lastMs: null, totalMs: 0 };
+  const none = { count: 0, lastMs: null, totalMs: 0, due: 0, deferredMs: 0, maxDeferredMs: 0, dueNow: false };
 
   test("is off by default: heartbeats make no collection", async () => {
     const { host } = await heartbeatHost({ recycle: { retired: beatCounter } });
@@ -355,6 +361,311 @@ describe("the collect trigger", () => {
 
   test("connect refuses a mark that is not a positive number of bytes", async () => {
     for (const collect of [{ rss: Number.NaN }, { rss: 0 }, { rss: 1, cooldown: -1 }] as ConnectOptions["collect"][]) {
+      const dir = tempDir("wl-host-collect-");
+      const back = process.cwd();
+      process.chdir(dir);
+      try {
+        expect(await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir, collect }))).toBe("options");
+      } finally {
+        process.chdir(back);
+      }
+    }
+  }, 20_000);
+
+  // The "idle" policy. The stand-in engine answers a held run once the
+  // test has made the run's file, so the test decides when the host has a
+  // run open.
+  const whenIdle = (o: Partial<NonNullable<ConnectOptions["collect"]>> = {}) => ({ rss: 1, cooldown: 60_000, policy: "idle" as const, ...o });
+  function heldRun(host: Host, dir: string, name: string) {
+    const file = join(dir, `held-${name}`);
+    const done = host.run("f/held", { hold: file });
+    // A test that fails before the release leaves the run open; closing
+    // its host then ends it with an error that belongs to no later test.
+    done.catch(() => {});
+    return { done, release: () => writeFileSync(file, "") };
+  }
+  // A timer can fire up to about 1 ms before its delay has passed on the
+  // clock that performance.now() reads.
+  const early = 5;
+
+  test("the idle policy: a collection due while a run is open waits for the run's end and the quiet period, then runs once", async () => {
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle() });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    const dueSeen = performance.now();
+    const beatsThen = beats;
+    await until("ten more heartbeats", () => beats >= beatsThen + 10);
+    expect(gcCalls).toEqual([]);
+    expect(host.health().runs).toBe(1);
+    const released = performance.now();
+    run.release();
+    await run.done;
+    await until("the collection", () => gcCalls.length > 0);
+    expect(gcCalls[0].at - released).toBeGreaterThanOrEqual(DEFAULT_COLLECT_QUIET_MS - early);
+    const beatsAfter = beats;
+    await until("ten more heartbeats", () => beats >= beatsAfter + 10);
+    expect(gcCalls.map((c) => c.arg)).toEqual([true]);
+    const c = host.health().collections;
+    expect(c).toMatchObject({ count: 1, due: 1, dueNow: false });
+    expect(c.maxDeferredMs).toBe(c.deferredMs);
+    expect(c.deferredMs).toBeGreaterThanOrEqual(released - dueSeen + DEFAULT_COLLECT_QUIET_MS - early);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: the caller of the run that left the host idle has its outcome before the collection starts", async () => {
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet: 0 }) });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    run.release();
+    await run.done;
+    const atOutcome = gcCalls.length;
+    await until("the collection", () => gcCalls.length > 0);
+    expect(atOutcome).toBe(0);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: a run submitted in the quiet period keeps the collection due until that run has ended", async () => {
+    const quiet = 200;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }) });
+    const a = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    a.release();
+    await a.done;
+    const b = heldRun(host, dir, "b");
+    // Past the quiet period that a's end started.
+    await Bun.sleep(quiet + 100);
+    expect(gcCalls).toEqual([]);
+    expect(host.health().collections.dueNow).toBe(true);
+    const released = performance.now();
+    b.release();
+    await b.done;
+    await until("the collection", () => gcCalls.length > 0);
+    expect(gcCalls[0].at - released).toBeGreaterThanOrEqual(quiet - early);
+    expect(host.health().collections).toMatchObject({ count: 1, due: 1, dueNow: false });
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: a run that ends in the quiet period starts the quiet period again", async () => {
+    const quiet = 200;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }) });
+    const a = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    a.release();
+    await a.done;
+    const b = heldRun(host, dir, "b");
+    await Bun.sleep(quiet / 2);
+    const released = performance.now();
+    b.release();
+    await b.done;
+    await until("the collection", () => gcCalls.length > 0);
+    expect(gcCalls[0].at - released).toBeGreaterThanOrEqual(quiet - early);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: once the quiet period after the run's end has passed, the collection runs between heartbeats", async () => {
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle({ quiet: 50 }) }, 500);
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    const beatAtRelease = beats;
+    run.release();
+    await run.done;
+    await until("the collection", () => gcCalls.length > 0);
+    // No heartbeat came between the run's end and the collection.
+    expect(gcCalls[0].beat).toBe(beatAtRelease);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: the collection runs outside every invocation, even for a run submitted inside one", async () => {
+    const { invocations } = await import("../runtime/context.ts");
+    const stores: unknown[] = [];
+    gcStandIn = () => stores.push(invocations.getStore());
+    // Heartbeats 500 ms apart: the check after the run's end collects.
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet: 0 }) }, 500);
+    const run = invocations.run({ id: "an invocation" } as never, () => heldRun(host, dir, "a"));
+    await until("the collection due", () => host.health().collections.dueNow);
+    run.release();
+    await run.done;
+    await until("the collection", () => gcCalls.length > 0);
+    expect(stores).toEqual([undefined]);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: at a heartbeat, once the host has been idle for the quiet period, the collection runs there", async () => {
+    const quiet = 300;
+    const before = performance.now();
+    const { host } = await heartbeatHost({ collect: whenIdle({ quiet }) });
+    await until("the collection", () => gcCalls.length > 0);
+    // No run was ever open: the host has been idle since connect.
+    expect(gcCalls[0].at - before).toBeGreaterThanOrEqual(quiet);
+    const c = host.health().collections;
+    expect(c).toMatchObject({ count: 1, due: 1, dueNow: false });
+    expect(c.maxDeferredMs).toBeGreaterThan(0);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: a step still running after its run's outcome keeps the collection due", async () => {
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle() });
+    const held = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    const release = join(dir, "step-release");
+    mkdirSync(join(dir, "scripts", "bun", "u"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "bun", "u", "hold.meta.json"), JSON.stringify({ signatures: { main: { params: [] } } }));
+    writeFileSync(
+      join(dir, "scripts", "bun", "u", "hold.mjs"),
+      `import { existsSync } from "node:fs";\nexport async function main() {\n  while (!existsSync(${JSON.stringify(release)})) await new Promise((r) => setTimeout(r, 2));\n  return 1;\n}\n`,
+    );
+    // The stand-in engine sends the step's invoke, then the run's outcome.
+    await host.run("f/step", { invoke: "u/hold" });
+    // The held run's end leaves no run open, with the step running.
+    held.release();
+    await held.done;
+    expect(host.health()).toMatchObject({ runs: 0, in_flight: 1 });
+    const beatsThen = beats;
+    await until("twenty more heartbeats", () => beats >= beatsThen + 20);
+    expect(gcCalls).toEqual([]);
+    expect(host.health().collections.dueNow).toBe(true);
+    writeFileSync(release, "");
+    await until("the collection", () => gcCalls.length > 0);
+    expect(host.health()).toMatchObject({ runs: 0, in_flight: 0 });
+    expect(host.health().collections).toMatchObject({ count: 1, due: 1, dueNow: false });
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: below the mark, no collection becomes due", async () => {
+    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle({ rss: Number.MAX_SAFE_INTEGER, quiet: 0 }) });
+    await until("ten heartbeats", () => beats >= 10);
+    expect(gcCalls).toEqual([]);
+    expect(host.health().collections).toEqual(none);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: the cooldown runs from the end of a deferred collection", async () => {
+    const cooldown = 300;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ cooldown }) });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    run.release();
+    await run.done;
+    await until("two collections", () => gcCalls.length >= 2);
+    expect(gcCalls[1].at - gcCalls[0].at).toBeGreaterThanOrEqual(cooldown);
+    expect(host.health().collections).toMatchObject({ count: 2, due: 2 });
+    await host.close();
+  }, 20_000);
+
+  test("the heartbeat policy, given or by default, collects at the heartbeat while a run is open, and waits for nothing", async () => {
+    for (const policy of [undefined, "heartbeat"] as const) {
+      gcCalls = [];
+      const { host, dir } = await heartbeatHost({ collect: { rss: 1, cooldown: 60_000, policy } });
+      const run = heldRun(host, dir, String(policy));
+      await until("a collection", () => gcCalls.length > 0);
+      expect(host.health().runs).toBe(1);
+      expect(host.health().collections).toMatchObject({ count: 1, due: 1, deferredMs: 0, maxDeferredMs: 0, dueNow: false });
+      run.release();
+      await run.done;
+      await host.close();
+    }
+  }, 20_000);
+
+  test("the idle policy: a collection that throws is reported, is no longer due, and the trigger goes on after the cooldown", async () => {
+    let failed = false;
+    gcStandIn = () => {
+      if (!failed) {
+        failed = true;
+        throw new Error("collection refused");
+      }
+    };
+    const cooldown = 50;
+    const { host, dir, diags } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle({ cooldown }) });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    run.release();
+    await run.done;
+    await until("a second collection", () => gcCalls.length >= 2);
+    const beatsThen = beats;
+    await until("more heartbeats", () => beats >= beatsThen + 3);
+    expect(diags.filter((l) => l.includes("collect trigger"))).toEqual(["windmill-lite: the collect trigger's collection failed: collection refused"]);
+    expect(gcCalls[1].at - gcCalls[0].at).toBeGreaterThanOrEqual(cooldown);
+    const c = host.health().collections;
+    expect(c.count).toBe(gcCalls.length - 1);
+    expect(c.due).toBe(gcCalls.length + (c.dueNow ? 1 : 0));
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: close() cancels a pending check, and no collection follows", async () => {
+    const quiet = 300;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }) });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    run.release();
+    await run.done;
+    await host.close();
+    await Bun.sleep(quiet + 200);
+    expect(gcCalls).toEqual([]);
+  }, 20_000);
+
+  test("the idle policy: close() with a run open ends the run, and no collection follows", async () => {
+    const quiet = 50;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }) });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    await host.close();
+    expect(await code(run.done)).toContain("the engine connection ended");
+    await Bun.sleep(quiet + 200);
+    expect(gcCalls).toEqual([]);
+  }, 20_000);
+
+  // In a process of its own: once the engine is gone, only the idle
+  // policy's pending check is left, with a quiet period of 60 s.
+  test("the idle policy: a pending check keeps no process alive", async () => {
+    const dir = tempDir("wl-host-collect-");
+    writeFileSync(join(dir, "manifest.json"), "{}");
+    const script = join(dir, "host.ts");
+    writeFileSync(
+      script,
+      [
+        `import { writeFileSync } from "node:fs";`,
+        `import { connect } from ${JSON.stringify(join(import.meta.dir, "..", "host", "index.ts"))};`,
+        `Bun.gc = () => (console.log("collected"), 0);`,
+        `const dir = process.cwd();`,
+        `const host = await connect({ engine: process.execPath, engineArgs: [${JSON.stringify(join(import.meta.dir, "heartbeatengine.ts"))}], bundle: dir, workdir: dir, collect: { rss: 1, cooldown: 60_000, policy: "idle", quiet: 60_000 }, onEngineExit: () => console.log("engine exited") });`,
+        `const run = host.run("f/held", { hold: dir + "/held" });`,
+        `while (!host.health().collections.dueNow) await Bun.sleep(5);`,
+        `writeFileSync(dir + "/held", "");`,
+        `await run;`,
+        `process.kill(host.enginePid, "SIGKILL");`,
+        `console.log("armed");`,
+      ].join("\n"),
+    );
+    const child = Bun.spawn([process.execPath, script], { cwd: dir, env: { ...process.env, WL_TEST_HEARTBEAT_MS: "10" }, stdout: "pipe", stderr: "inherit" });
+    const timer = setTimeout(() => child.kill(), 10_000);
+    const code = await child.exited;
+    clearTimeout(timer);
+    expect(code).toBe(0);
+    expect((await new Response(child.stdout).text()).trim().split("\n")).toEqual(["armed", "engine exited"]);
+  }, 20_000);
+
+  test("the idle policy leaves the recycle triggers as they are, and a collection never trips one", async () => {
+    const reasons: string[] = [];
+    const { host } = await heartbeatHost({
+      recycle: { rss: 1, samples: 3, retired: beatCounter },
+      onRecycle: (r) => reasons.push(r),
+      collect: whenIdle({ cooldown: 0, quiet: 0 }),
+    });
+    await until("five heartbeats", () => beats >= 5);
+    expect(reasons).toEqual(["rss"]);
+    const after = gcCalls.length;
+    await until("a collection after the trip", () => gcCalls.length > after);
+    expect(reasons).toEqual(["rss"]);
+    await host.close();
+    const second = await heartbeatHost({ recycle: { rss: Number.MAX_SAFE_INTEGER, modules: 0, retired: beatCounter }, collect: whenIdle({ cooldown: 0, quiet: 0 }) });
+    gcCalls = [];
+    await until("five collections", () => gcCalls.length >= 5);
+    expect(second.host.health().recycle).toBeNull();
+    await second.host.close();
+  }, 20_000);
+
+  test("connect refuses an unknown policy and a quiet period that is not 0 ms or more", async () => {
+    for (const collect of [{ rss: 1, policy: "never" }, { rss: 1, policy: "idle", quiet: -1 }, { rss: 1, policy: "idle", quiet: Number.NaN }, { rss: 1, quiet: Number.POSITIVE_INFINITY }] as ConnectOptions["collect"][]) {
       const dir = tempDir("wl-host-collect-");
       const back = process.cwd();
       process.chdir(dir);
