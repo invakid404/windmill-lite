@@ -97,6 +97,15 @@ export type ConnectOptions = {
    * host mode item 5). count is asked at every heartbeat. */
   recycle?: { rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } };
   onRecycle?: (reason: string) => void;
+  /** The collect trigger, off by default: a soft mark for a host whose
+   * resident set grows between the collections that Bun makes on its own.
+   * At a heartbeat whose resident set is at least rss bytes, when no
+   * collection of this trigger ended in the last cooldown milliseconds
+   * (default 3000), the SDK runs one full collection, Bun.gc(true). The
+   * collection is synchronous: it stops the event loop, and every
+   * invocation in this process, while it runs. health().collections
+   * reports what it cost. It never trips or resets a recycle trigger. */
+  collect?: { rss: number; cooldown?: number };
   /** Called when the connection to the engine ends other than by close().
    * The default writes a line to stderr and exits with code 1, so that the
    * host's supervisor restarts it: without its engine a host can run
@@ -169,7 +178,16 @@ export type Health = HostHealth & {
   draining: boolean;
   /** The recycle trigger that tripped, or null. */
   recycle: string | null;
+  /** The full collections the collect trigger made: how many, how long
+   * the last one took (null before the first), and how long they took in
+   * all, in milliseconds. A collection that threw is not counted. */
+  collections: { count: number; lastMs: number | null; totalMs: number };
 };
+
+/** The collect trigger's cooldown when connect's collect option gives
+ * none, in milliseconds: three heartbeats at the engine's default
+ * interval of 1 s. */
+export const DEFAULT_COLLECT_COOLDOWN_MS = 3000;
 
 export type Host = {
   /** Runs the flow (or script) at path with args, inside the caller's
@@ -180,8 +198,9 @@ export type Host = {
   run(path: string, args?: Record<string, unknown>, opts?: RunOptions): Promise<RunResult>;
   /** In-flight and abandoned invocations, the age of the oldest abandoned
    * one, process-level errors no invocation owned, event-loop lag, RSS,
-   * the script modules loaded, the runs in flight and the recycle trigger
-   * that tripped (ADR 0004 host mode item 2). */
+   * the script modules loaded, the runs in flight, the recycle trigger
+   * that tripped (ADR 0004 host mode item 2) and the collect trigger's
+   * collections. */
   health(): Health;
   /** Refuses new runs (HostError "draining", here and in the engine),
    * and waits up to timeoutMs for the runs in flight, until the engine
@@ -250,6 +269,12 @@ function register(modules: Record<string, object> | undefined, listed: string[],
 
 export async function connect(o: ConnectOptions): Promise<Host> {
   const workdir = checkWorkdir(o.workdir);
+  const collect = o.collect;
+  const cooldown = collect?.cooldown ?? DEFAULT_COLLECT_COOLDOWN_MS;
+  // A mark that is not a number would never trip, silently.
+  if (collect !== undefined && !(collect.rss > 0 && cooldown >= 0 && Number.isFinite(cooldown))) {
+    throw new HostError("options", `collect needs rss, a positive number of bytes, and a cooldown of 0 ms or more; got ${JSON.stringify(collect)}`);
+  }
   // The host's stderr as Bun has it: a step's context must never take a
   // diagnostic into the step's log.
   const diag = o.diag ?? ((line: string) => realStderr(line + "\n"));
@@ -342,6 +367,48 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     o.onRecycle?.(reason);
   };
   const triggers = o.recycle;
+  const checkRecycle = (h: HostHealth) => {
+    if (!triggers) return;
+    if (triggers.rss !== undefined) {
+      rssSamples = h.rss >= triggers.rss ? rssSamples + 1 : 0;
+      if (rssSamples >= (triggers.samples ?? 2)) trip("rss", `${h.rss} bytes resident on ${rssSamples} heartbeats, the trigger is ${triggers.rss}`);
+    }
+    if (triggers.modules !== undefined && h.modules > triggers.modules) trip("modules", `${h.modules} script modules loaded, more than ${triggers.modules}`);
+    if (triggers.retired !== undefined) {
+      let n: number;
+      try {
+        n = triggers.retired.count();
+      } catch (e) {
+        diag(`windmill-lite: the retired-entry count failed: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      if (n > triggers.retired.max) trip("retired", `${n} pooled entries retired and not released, more than ${triggers.retired.max}`);
+    }
+  };
+  const collections: Health["collections"] = { count: 0, lastMs: null, totalMs: 0 };
+  // When the last collection ended, or failed.
+  let collectedAt = -Infinity;
+  // The heartbeat observer calls this after the heartbeat's ping has gone
+  // to the socket, and after the recycle triggers have read the same
+  // health, so a collection changes neither.
+  const maybeCollect = (rss: number) => {
+    if (!collect || rss < collect.rss || performance.now() - collectedAt < cooldown) return;
+    const start = performance.now();
+    try {
+      Bun.gc(true);
+    } catch (e) {
+      // The cooldown starts anyway: a collection that keeps failing
+      // writes one line per cooldown, not one per heartbeat.
+      collectedAt = performance.now();
+      diag(`windmill-lite: the collect trigger's collection failed: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    collectedAt = performance.now();
+    const ms = collectedAt - start;
+    collections.count++;
+    collections.lastMs = ms;
+    collections.totalMs += ms;
+  };
   const exited = new Promise<{ code: number | null; signal: string | null }>((resolve) =>
     child.on("exit", (code, signal) => resolve({ code, signal })),
   );
@@ -371,25 +438,18 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     onReject: (code, message) => {
       refused = new HostError(code, message);
     },
-    onHeartbeat: triggers
-      ? (h) => {
-          if (triggers.rss !== undefined) {
-            rssSamples = h.rss >= triggers.rss ? rssSamples + 1 : 0;
-            if (rssSamples >= (triggers.samples ?? 2)) trip("rss", `${h.rss} bytes resident on ${rssSamples} heartbeats, the trigger is ${triggers.rss}`);
-          }
-          if (triggers.modules !== undefined && h.modules > triggers.modules) trip("modules", `${h.modules} script modules loaded, more than ${triggers.modules}`);
-          if (triggers.retired !== undefined) {
-            let n: number;
+    // Installed only when a trigger is set: without one, a heartbeat costs
+    // the host nothing more than its ping.
+    onHeartbeat:
+      triggers || collect
+        ? (h) => {
             try {
-              n = triggers.retired.count();
-            } catch (e) {
-              diag(`windmill-lite: the retired-entry count failed: ${e instanceof Error ? e.message : String(e)}`);
-              return;
+              checkRecycle(h);
+            } finally {
+              maybeCollect(h.rss);
             }
-            if (n > triggers.retired.max) trip("retired", `${n} pooled entries retired and not released, more than ${triggers.retired.max}`);
           }
-        }
-      : undefined,
+        : undefined,
     exit: (code) => {
       if (!welcomed) {
         settle.reject(refused ?? new HostError("rejected", `the engine refused this host (harness exit code ${code}); see its stderr`));
@@ -472,7 +532,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
           if (inflight === 0) for (const cb of idle.splice(0)) cb();
         });
     },
-    health: () => ({ ...runtime.hostHealth(), runs: inflight, draining, recycle }),
+    health: () => ({ ...runtime.hostHealth(), runs: inflight, draining, recycle, collections: { ...collections } }),
     drain(timeoutMs) {
       draining = true;
       // The engine refuses the runs that reach it from now on, and says

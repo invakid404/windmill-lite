@@ -543,7 +543,8 @@ It returns a `Host`:
 - `health()` reports invocations in flight and abandoned, the age of the
   oldest abandoned one, unattributed errors, lag, RSS, the script modules
   loaded (`modules`), the runs in flight, whether it drains, and the
-  recycle trigger that tripped (`recycle`, or null).
+  recycle trigger that tripped (`recycle`, or null). It also reports the
+  collect trigger's collections (`collections`, below).
 - `drain(timeoutMs)` refuses new runs (`draining`), here and in the engine,
   to which it sends `drain` behind every run submitted before it, whole
   (the send queue's `sendAfter`), and waits up to the timeout for the
@@ -610,6 +611,33 @@ every invocation (its `onHeartbeat`); the first that trips is reported by
 `health()` and, once, to `onRecycle`. The host decides what to do, usually
 to drain and exit so that its supervisor starts a new generation; the SDK
 never drains on its own.
+
+The connect option `collect`, off by default, asks Bun for a full garbage
+collection at a soft mark on the resident set. It is for a host whose
+resident set grows well above its live memory between the collections
+that Bun makes on its own. `collect: { rss, cooldown }` takes the mark in
+bytes and the cooldown in milliseconds (default 3000, three heartbeats at
+the engine's default interval of 1 s).
+
+- **When it collects:** at a heartbeat whose resident set is at least
+  `rss` bytes, when no collection of the trigger ended in the last
+  `cooldown` milliseconds. It runs `Bun.gc(true)` once.
+- **Where:** in the runtime's heartbeat observer, outside every
+  invocation, after the heartbeat's ping has gone to the socket and after
+  the recycle triggers have read the same heartbeat. It never trips or
+  resets a recycle trigger, and both can be set.
+- **What it costs:** the collection is synchronous, so it stops the event
+  loop, and every invocation in the process, while it runs. A stop longer
+  than `watchdog.killAfter` ends the host.
+- **What the host sees:** `health().collections` gives `count`, `lastMs`
+  (the last collection's duration, null before the first) and `totalMs`.
+  A collection that throws is not counted: the SDK writes a diagnostic
+  line, and the cooldown starts as after a collection.
+
+The mark is the host's choice: above what a full collection leaves of its
+resident set, or the trigger collects at the end of every cooldown. A
+`collect` without a positive `rss`, or with a negative `cooldown`, makes
+`connect` reject with a `HostError` `options`.
 
 When the connection to the engine ends other than by `close()`, the SDK
 exits the host with code 1 unless `onEngineExit` is given: without its engine a host runs nothing, and
@@ -1145,6 +1173,23 @@ runs host mode end to end in a host compiled with `bun build --compile`.
 
 `test/host.test.ts` also checks that a run frame carries the run's
 write-capable selectors and halts as the host gave them.
+
+`test/host.test.ts` checks the collect trigger on hosts that
+`test/heartbeatengine.ts` welcomes with a heartbeat of 10 ms, with a
+stand-in for `Bun.gc` that records its calls:
+
+- off by default, and below the mark, heartbeats make no collection;
+- set alone, without a recycle trigger, it collects;
+- at the mark, one collection, none within the cooldown, and another
+  once it has passed, with the count and durations in `health()`;
+- the recycle triggers trip as they would without it, and a collection
+  never trips one;
+- a collection that throws writes one diagnostic line, and the heartbeat
+  and the trigger go on;
+- `connect` refuses a mark that is not a positive number of bytes.
+
+It also checks that the runtime's heartbeat observer runs after the
+heartbeat's ping has gone to the transport.
 
 `test/load.test.ts` checks [how a module loads](#the-per-invocation-context):
 the caller's context at the top level of an ES module, its static imports
