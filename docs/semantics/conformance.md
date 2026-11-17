@@ -7618,7 +7618,7 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     ([D14](../design/0001-equivalence-contract.md#5-named-deviations)).
 - **WA-13/i** · oracle-observed · the stored form, and interpolation on read
   - **Given:** a create whose value, as sent, is
-    `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"A",-0,1E-2],"x":null},"":true}`,
+    `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"\u0041",-0,1E-2],"x":null},"":true}`,
     then an `update_value` with the same text; a state
     `{"v":"$var:f/wl_state/v","r":"$res:f/wl_state/r","o":{"v":"$var:f/wl_state/v","l":["$var:f/wl_state/v"]},"plain":"x $var:f/wl_state/v"}`,
     with the variable `f/wl_state/v` = `hello` and the resource
@@ -7699,10 +7699,10 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     `?update_if_exists=true` at a taken and at a free path. `GET
     …/resources/get/<p>` at a path with no resource, and after an
     `update_value` of a `state` entry and of a `wl_writes_obj` entry.
-  - **Expect:** every write succeeds with the texts of WA-13/d to WA-13/f,
-    whatever the type: HTTP 201 `resource <path> created`, HTTP 200
+  - **Expect:** every write listed succeeds with the texts of WA-13/d to
+    WA-13/f: HTTP 201 `resource <path> created`, HTTP 200
     `value of resource <path> updated`, HTTP 200 `resource <path> deleted`.
-    A type that does not exist is accepted. With `update_if_exists`, a
+    A type that does not exist is accepted by create. With `update_if_exists`, a
     create at a taken path answers 201 `resource <path> created` and
     replaces the value.
   - **Expect, `get`:** a path with no resource answers HTTP 404
@@ -7733,7 +7733,7 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Expect:** every create answers HTTP 201 `text/plain; charset=utf-8`
     `resource f/wl_state/size created` and reads back whole; the update
     answers HTTP 200 `value of resource f/wl_state/size updated` and reads
-    back whole. No size up to 32 MiB is refused.
+    back whole. None of these sizes is refused.
   - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
     run `size`, on CE v1.862.0. Once, with other work loading the same
     machine, the 32 MiB create answered HTTP 400

@@ -1301,8 +1301,10 @@ interface); `WA-Vn` findings were added during validation.
     `get_value` or `get` (the Python client's probe), answers 404
     `text/plain` `Not found: Resource <p> not found`, which `getState`
     turns into `undefined` ([WA-13/c](conformance.md#wa-13),
-    [WA-13/n](conformance.md#wa-13)). A read answers the value as compact
-    JSON in jsonb's key order.
+    [WA-13/n](conformance.md#wa-13)). `get_value_interpolated` and
+    `get_value` answer an entry's value as compact JSON in jsonb's key
+    order; `get` answers an object that holds the type and the value among
+    other fields.
   - **Create** answers 201 `text/plain; charset=utf-8`
     `resource <p> created`. A path that a resource holds, of type `state`
     or another, answers 400 `text/plain`
@@ -1329,9 +1331,10 @@ interface); `WA-Vn` findings were added during validation.
     a lone surrogate, answers 400 `text/plain` with the database's error
     after `SqlErr: error returned from database: `. A refused create leaves
     no entry, and a refused update leaves the old value
-    ([WA-13/h](conformance.md#wa-13)). A value `{"s":"<n bytes>"}` with
-    `n` from 1 MiB to 32 MiB was accepted by create and by `update_value`
-    and read back whole ([WA-13/p](conformance.md#wa-13)).
+    ([WA-13/h](conformance.md#wa-13)). A value `{"s":"<n bytes>"}` was
+    accepted by create at `n` = 1, 2, 4, 8, 16 and 32 MiB, and by
+    `update_value` at 32 MiB, and read back whole each time
+    ([WA-13/p](conformance.md#wa-13)).
   - **The stored form** respells numbers, and create and `update_value`
     spell them differently: `-0` and `1e3` read back as `0` and `1000`
     after a create, and as `0.0` and `1000.0` after an update
@@ -1345,9 +1348,10 @@ interface); `WA-Vn` findings were added during validation.
     exist, under another user's `u/`, under `g/`, at a nested path, and
     with `-`, `_`, digits, capitals or `ü` in a segment. Other characters
     and other callers are not recorded ([WA-13/j](conformance.md#wa-13)).
-  - **Types.** A create with any `resource_type`, one the workspace lacks
-    included, succeeds, and update and delete work on any type
-    ([WA-13/n](conformance.md#wa-13)).
+  - **Types.** A create succeeded with `resource_type` `state`, with a
+    type the workspace declares, and with one it lacks. `update_value` and
+    delete succeeded on entries of `state` and of the declared type
+    ([WA-13/n](conformance.md#wa-13)). Other types are not recorded.
   - **Across runs.** The default state path names no run, so a later run
     of the same flow step reads what an earlier run wrote there
     ([WA-13/g](conformance.md#wa-13)).
