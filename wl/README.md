@@ -458,7 +458,7 @@ that started it. At Go's default, 100, the engine collects when its heap
 reaches twice what is live; at 400, five times.
 
 `GOGC=400` against the default, measured on the embedder shapes in host
-mode ([cmd/windmill-lite](../cmd/windmill-lite/README.md#the-embedder-shapes)),
+mode ([docs/benchmarks.md](../docs/benchmarks.md#the-embedder-shapes)),
 as the range over the twelve workloads of each workload's median change
 over paired rounds. Linux ran
 [one job per architecture](https://github.com/invakid404/windmill-lite/actions/runs/41756851459)

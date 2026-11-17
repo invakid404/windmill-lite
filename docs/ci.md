@@ -212,7 +212,7 @@ platforms, `npm package`, `Release assets`, `GitHub Release` and
 The benchmark workflow compares builds of the engine on GitHub's hosted
 runners, linux/amd64 and linux/arm64. It runs only when started by hand,
 and gates nothing
-([comparing builds](../cmd/windmill-lite/README.md#comparing-builds-on-githubs-runners)).
+([comparing builds](benchmarks.md#comparing-builds-on-githubs-runners)).
 
 ## Read a failure
 
