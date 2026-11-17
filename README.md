@@ -175,7 +175,7 @@ platform, change it in each step.
 To build a bundle with a released engine, you also need the build helper
 from a checkout of the release's tag
 ([harnesses/README.md](harnesses/README.md#install)). The same README
-shows a host that runs a flow ([Use](harnesses/README.md#use)), and the
+shows a host that runs a flow ([Run a flow from a host](harnesses/README.md#run-a-flow-from-a-host)), and the
 [Bun harness README](harnesses/bun/README.md#host-mode-and-the-host-sdk)
 describes `connect()` and its options.
 
