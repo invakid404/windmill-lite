@@ -1,710 +1,603 @@
 # cmd/windmill-lite
 
-**Current state:** milestones F4, F1 and F3a of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
-covers the `windmill-lite` command in this directory and its `testdata/`.
-The command prints its version, builds a bundle from a Windmill sync
-folder, verifies a bundle, runs a bundle's flow or script through the
-[wl](../../wl/README.md) library (F1), checks that its expression engine
-starts, and serves host mode on a built bundle through `wl` (F3a). The commands that serve a bundle (`serve`), pack it
-(`pack`, `image`) or generate clients (`gen`) do not exist yet.
+**Current state:** the `windmill-lite` command builds, verifies and runs
+[bundles](../../docs/glossary.md#bundle), checks that its expression engine
+starts, serves [host mode](../../docs/glossary.md#host-mode) for a host,
+and prints its version. The planned subcommands that serve a bundle over
+the network (`serve`), pack it (`pack`, `image`) or generate clients
+(`gen`) do not exist yet. This README covers the command in this directory
+and its `testdata/`.
 
-`build -shared-code` builds the bundle with the shared code of
-[ADR 0013](../../docs/design/0013-shared-module-code.md).
+The command is the [engine](../../docs/glossary.md#engine): each release
+ships it as one binary per platform. The first part of this README is the
+command reference. [Work on the command](#work-on-the-command) is for
+contributors: the files, the tests and the benchmarks.
 
 ## Usage
 
-```sh
-go run ./cmd/windmill-lite            # windmill-lite (devel)
-go run ./cmd/windmill-lite version    # same; --version, -version and -v also work
+```text
 windmill-lite build <folder> -o <bundle> [flags]
 windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
-windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [-cpuprofile <file>] [flags]
+windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
 windmill-lite selfcheck
-windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [-cpuprofile <file>] [flags]
+windmill-lite host --bundle <dir> --workdir <dir> [flags]
+windmill-lite version
 ```
 
-Flags may come before or after the positional argument. A usage error exits
-with status 2; any other failure with status 1.
+### Get the command
 
-### build
+- **A release's engine:** download it for your platform and check it
+  against the release's sums
+  ([Get the engine](../../harnesses/README.md#get-the-engine)). Its
+  version is the release's, such as `v0.2.0`.
+- **From a checkout:** run `go run ./cmd/windmill-lite <subcommand>`, or
+  build a binary with `go build -o windmill-lite ./cmd/windmill-lite`. You
+  need Go 1.27.3 or later and a C compiler, because the expression engine
+  is C code that cgo compiles.
 
-`windmill-lite build <folder> -o <bundle>` builds the bundle of
-[ADR 0010](../../docs/design/0010-packaging.md) with
-[internal/bundle](../../internal/bundle/README.md): it reads the sync folder
-from the root above `<folder>` (the directory of `wmill.yaml`), compiles it,
-bundles its Bun scripts on the pinned Bun 1.4.3, and writes the bundle. It
-prints the bundle digest on standard output, and warnings on standard
-error.
+An engine opens only the bundles that the same engine version built
+([version](#version)). So build and run a bundle with one engine.
 
-| Flag | Meaning |
+### Rules for every subcommand
+
+- Flags may come before or after the positional argument.
+- A flag takes one dash or two: `-bundle` and `--bundle` are the same
+  flag.
+- `-h` after `build`, `verify`, `run` or `host` lists that subcommand's
+  flags and their defaults, and exits with status 2. `selfcheck` and
+  `version` take no flags: an argument is a usage error.
+- A usage error prints the usage line on standard error and exits with
+  status 2. Usage errors are an unknown subcommand, a missing or extra
+  argument, an unknown flag, and a missing required flag.
+
+| Exit status | Meaning |
 |---|---|
-| `-o` | the bundle to write: a directory that must not exist or be empty, or a file ending in `.wlb` that must not exist, written as an archive |
-| `-contract` | the host contract file (YAML or JSON); without one every flow and script of the folder is a root |
-| `-bun` | the Bun executable; `$WL_BUN`, or `bun` on the `PATH` |
-| `-helper` | the Bun build helper, `harnesses/bun/build/main.ts` with its dependencies installed; `$WL_BUILD_HELPER`. It is required |
-| `-harness-runtime` | the Bun harness runtime directory whose digest the manifest records; `$WL_HARNESS_RUNTIME`, or `runtime/` beside the helper's directory |
-| `-bun-mismatch` | build on another Bun and mark the bundle `nonconformant_runtime` |
-| `-module-state` | `warm` (default) or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
-| `-shared-code` | build with shared code ([ADR 0013](../../docs/design/0013-shared-module-code.md)). Warm and host-mode processes then compile each build group's dependency modules once and give each step module its own instance of them; the differences are deviation [D18](../../docs/design/0001-equivalence-contract.md#5-named-deviations). Fresh runs and CLI parity keep the per-script bundles |
-| `-strict` | refuse absent for-loop `skip_failures` and branchall `skip_failure` instead of defaulting them |
-| `-work` | a scratch directory for dependency installs; a temporary one by default |
-| `-verbose` | copy the build helper's output to standard error |
+| 0 | The subcommand did its work. |
+| 1 | The subcommand failed: an input, a file or the bundle did not work. Each subcommand's section says when. |
+| 2 | A usage error. |
 
-From a checkout, with the helper's dependencies installed
-(`bun install --frozen-lockfile` in `harnesses/bun/build`):
+Three environment variables give the defaults of flags:
+
+| Variable | Flag | Subcommands | Value |
+|---|---|---|---|
+| `WL_BUN` | `-bun` | `build`, `run` | The [Bun](../../docs/glossary.md#bun) 1.4.3 executable. Without it, the command runs `bun` from the `PATH`. |
+| `WL_BUILD_HELPER` | `-helper` | `build` | The [build helper](../../docs/glossary.md#build-helper), `harnesses/bun/build/main.ts` of a checkout |
+| `WL_HARNESS_RUNTIME` | `-harness-runtime` | `build`, `run` | The directory of the [harness runtime](../../docs/glossary.md#harness-runtime), `harnesses/bun/runtime` of a checkout |
+
+## build
+
+```text
+windmill-lite build <folder> -o <bundle> [flags]
+```
+
+`build` compiles a [sync folder](../../docs/glossary.md#sync-folder) and an
+optional [host contract](../../docs/glossary.md#host-contract) into a
+bundle. It reads the folder from its root: the nearest directory at or
+above `<folder>` that holds `wmill.yaml`. It bundles each Bun
+[script](../../docs/glossary.md#script) with the build helper on Bun 1.4.3,
+and writes the bundle with a manifest of its files' digests.
+
+It prints the bundle's digest on standard output, and each warning on
+standard error. The [packaging ADR](../../docs/design/0010-packaging.md)
+gives the bundle's format, and
+[internal/bundle](../../internal/bundle/README.md) describes the build.
+
+| Flag | Value | Default | Meaning |
+|---|---|---|---|
+| `-o` | A path | None: required | The bundle to write. A path that ends in `.wlb` is an archive file, which must not exist. Any other path is a directory, which must not exist or must be empty. |
+| `-contract` | A file | None | The host contract, in YAML or JSON. Without one, every [flow](../../docs/glossary.md#flow) and script of the folder is a [root](../../docs/glossary.md#root). |
+| `-helper` | A file | `$WL_BUILD_HELPER` | The build helper, with its dependencies installed. Required. |
+| `-bun` | An executable | `$WL_BUN`, else `bun` | The Bun that bundles the scripts: Bun 1.4.3 |
+| `-harness-runtime` | A directory | `$WL_HARNESS_RUNTIME`, else `runtime/` beside the helper's directory | The harness runtime that the bundle is built for. The manifest records its digest. |
+| `-module-state` | `warm` or `fresh` | `warm` | The bundle's [module state](../../docs/glossary.md#module-state), which `run` uses unless its own flag overrides it |
+| `-shared-code` | None | Off | Builds with shared code ([shared module code ADR](../../docs/design/0013-shared-module-code.md)). A `warm` or host-mode process then compiles the dependency modules of each build group once, and gives each step module its own instance of them. The bundle keeps each script's own bundle too, which `fresh` runs. |
+| `-strict` | None | Off | Refuses a for-loop without `skip_failures` and a `branchall` without `skip_failure`, in place of their default values |
+| `-bun-mismatch` | None | Off | Builds on a Bun other than 1.4.3, and marks the bundle `nonconformant_runtime` |
+| `-work` | A directory | A temporary directory | The scratch directory for dependency installs |
+| `-verbose` | None | Off | Copies the build helper's output to standard error |
+
+| Exit status | When |
+|---|---|
+| 0 | The bundle is written, and its digest is on standard output. |
+| 1 | The build failed: the contract does not read, the folder does not compile, a script does not bundle, or the `.wlb` file exists. |
+| 2 | A usage error, or no build helper is set. |
+
+This example builds the synthetic build [fixture](../../docs/glossary.md#fixture)
+of `internal/bundle`, from the root of a checkout:
+
+1. Install the build helper's dependencies:
+   `(cd harnesses/bun/build && bun install --frozen-lockfile)`.
+2. Point `WL_BUILD_HELPER` at the helper:
+   `export WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts`.
+3. Build the bundle into a file that does not exist yet:
+
+   ```sh
+   windmill-lite build internal/bundle/testdata/fixture/windmill \
+     -contract internal/bundle/testdata/fixture/contract.yaml -o /tmp/fixture.wlb
+   ```
+
+The command prints the digest, such as `sha256:f2ebb0f7…`. Each engine
+version gives its own digest, because the manifest records the version.
+
+## verify
+
+```text
+windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
+```
+
+`verify` recomputes the digest of every file of a bundle directory or a
+`.wlb` archive. It checks them against the bundle's own manifest, or
+against a release manifest. The bundle must hold exactly the files that
+the manifest lists.
+
+It prints the bundle's digest when everything matches. Otherwise it lists
+each difference on standard error. A bundle that another engine version
+built still verifies, with a note that this engine would not open it.
+
+| Flag | Value | Default | Meaning |
+|---|---|---|---|
+| `-manifest` | A file | None | A release manifest. The bundle's files must match it, and the bundle's own manifest must have the same digest. |
+| `-digest` | A digest | None | The digest that the bundle must have |
+
+| Exit status | When |
+|---|---|
+| 0 | Every digest matches. The bundle's digest is on standard output. |
+| 1 | A file, the manifest or the digest differs, or the bundle or the release manifest does not read. |
+| 2 | A usage error |
+
+With the bundle of the `build` example:
 
 ```sh
-WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts \
-  windmill-lite build internal/bundle/testdata/fixture/windmill \
-  -contract internal/bundle/testdata/fixture/contract.yaml -o /tmp/fixture.wlb
+windmill-lite verify /tmp/fixture.wlb
 ```
 
-The manifest records the engine's version (below). An engine without one
-records `(devel)` and says so on standard error.
+It prints the same digest as `build`. With `-digest sha256:0000`, it exits
+with status 1 and prints:
 
-### verify
+```text
+windmill-lite verify: /tmp/fixture.wlb does not match:
+  bundle digest sha256:f2ebb0f7…, want sha256:0000
+```
 
-`windmill-lite verify <bundle>` recomputes the digest of every file of a
-bundle directory or `.wlb` archive and checks them against the bundle's own
-manifest, or against a release manifest given with `-manifest`, whose bytes
-the bundle's manifest must then equal. `-digest` pins the bundle digest. It
-prints the bundle digest and exits with status 0 when everything matches;
-otherwise it lists every difference and exits with status 1. A bundle that
-a different engine version built still verifies, with a note that this
-engine would not open it.
+## run
 
-### run
+```text
+windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
+```
 
-`windmill-lite run <path> --bundle <bundle>` is the command-line adapter of
-[ADR 0009](../../docs/design/0009-host-adapters.md): it opens the bundle
-with `wl.Open`, runs the flow (or, with `-kind script`, the root script)
-at `<path>` with `Runtime.Run`, and prints the outcome as JSON on standard
-output: `id`, `status`, `result` (the final result in its stored form),
-`may_have_mutated`, `warnings`, and with `-trace` a summary of the trace
-(`module_state`, each step's site, attempt, job, status and result, and
-each platform call's site, job, route and status), which is for debugging,
-not the trace's wire form. It exits with status 0 when the run succeeded or
-was skipped, and 1 when it failed or was canceled, or could not start;
-SIGINT and SIGTERM cancel the run.
+`run` opens a bundle with the [wl](../../wl/README.md) package, runs the
+flow at `<path>` once, and prints the outcome as JSON on standard output.
+With `-kind script`, `<path>` names a root script instead. The
+[steps](../../docs/glossary.md#step) run in Bun
+[harness](../../docs/glossary.md#harness) processes that the command
+starts. SIGINT and SIGTERM cancel the run.
 
-| Flag | Meaning |
+| Flag | Value | Default | Meaning |
+|---|---|---|---|
+| `--bundle` | A directory or a `.wlb` file | None: required | The bundle. An archive is extracted into a directory of its own under the data directory, and removed afterwards. |
+| `--args` | A JSON object, or `@` and a file that holds one | `{}` | The run's arguments |
+| `-kind` | `flow` or `script` | `flow` | What `<path>` names: a flow, or a root script |
+| `-id` | A UUID | A new UUID | The [job](../../docs/glossary.md#job) id of the run |
+| `-bun` | An executable | `$WL_BUN`, else `bun` | The Bun that runs the steps: Bun 1.4.3 |
+| `-harness-runtime` | A directory | `$WL_HARNESS_RUNTIME` | The harness runtime that the bundle was built for. Its digest must be the one in the manifest. Required for a bundle with steps. |
+| `-module-state` | `warm` or `fresh` | The bundle's | Runs the steps [`warm`](../../docs/glossary.md#warm) or [`fresh`](../../docs/glossary.md#fresh) |
+| `-data` | A directory | A temporary directory, removed afterwards | The data directory that the run writes into |
+| `-digest` | A digest | None | The digest that the bundle must have |
+| `-variables` | A file | None | The host's variables, keyed by path (below). Secrets go here: a bundle never holds a secret's value. |
+| `-resources` | A file | None | The host's resources, keyed by path (below) |
+| `-trace` | None | Off | Adds a summary of the [trace](../../docs/glossary.md#trace) to the outcome |
+| `-quickjs-only` | None | Off | Turns the Go evaluator of [expressions](../../docs/glossary.md#expression) off: every expression that the shortcuts and member paths do not answer runs in QuickJS-ng |
+| `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
+
+The outcome's fields:
+
+| Field | Meaning |
 |---|---|
-| `--bundle` | the bundle: a directory, or a `.wlb` archive, which is extracted into a directory of its own under the data directory and removed afterwards. It is required |
-| `--args` | the arguments: a JSON object, or `@file` holding one; `{}` by default |
-| `-kind` | `flow` (default) or `script` |
-| `-id` | the run's job id; a new UUID by default |
-| `-bun` | the Bun executable, which must be Bun 1.4.3; `$WL_BUN`, or `bun` on the `PATH` |
-| `-harness-runtime` | the Bun harness runtime directory the bundle was built for, whose digest must be the manifest's; `$WL_HARNESS_RUNTIME`. A bundle with steps needs it |
-| `-module-state` | `warm` or `fresh`; the bundle's by default |
-| `-data` | the data directory the runtime writes into; a temporary one, removed afterwards, by default |
-| `-digest` | the bundle digest the bundle must have |
-| `-variables` | a JSON file of the host's variables, keyed by path, as in a bundle's `data/variables.json` (`value`, `is_secret`, `encrypted`); secrets go here, since a bundle never holds one |
-| `-resources` | a JSON file of the host's resources, keyed by path, as in a bundle's `data/resources.json` (`resource_type`, `value`) |
-| `-trace` | print the trace summary with the outcome |
-| `-cpuprofile` | write a CPU profile of the engine to this file until the run ends ([Profiling](#profiling)) |
-| `-quickjs-only` | evaluate every expression that the shortcuts and member paths do not answer on QuickJS-ng, without the pipeline's Go evaluator (`wl.Options.QuickJSOnly`, [ADR 0003](../../docs/design/0003-semantics-placement.md)) |
+| `id` | The run's job id |
+| `status` | The run's status, such as `success`, `failure`, `canceled` or `skipped` ([wl](../../wl/README.md#result)) |
+| `result` | The run's final result, in its stored form |
+| `may_have_mutated` | Whether the run may have made a write ([wl](../../wl/README.md#result)) |
+| `warnings` | Each warning's `code` and `message`, or `[]` |
+| `trace` | With `-trace` only: the module state, each step's `site`, `job`, `status`, `module` and `result`, and each platform call's `site`, `job`, `method`, `path`, `route` and `status`. It is a summary for debugging, not the trace's wire form. |
 
-The engine version (below) must be the one that built the bundle. With the
-fixture built as above:
+| Exit status | When |
+|---|---|
+| 0 | The run's status is `success` or `skipped`. |
+| 1 | The run has another status, and the outcome is on standard output. Or the run did not start: standard output is empty, and standard error gives the reason. |
+| 2 | A usage error |
+
+### Variables and resources files
+
+A variables file maps each path to the variable's `value`, `is_secret` and
+`encrypted`. `encrypted` is `true` when `value` is Windmill's ciphertext.
+A resources file maps each path to the resource's `resource_type` and
+`value`. These are the forms of a bundle's `data/variables.json` and
+`data/resources.json`.
+
+```json
+{
+  "f/app/token": { "value": "a-secret-value", "is_secret": true, "encrypted": false }
+}
+```
+
+```json
+{
+  "f/app/settings": { "resource_type": "c_settings", "value": { "greeting": "hi", "retries": 1 } }
+}
+```
+
+### Why a run does not start
+
+- Another engine version built the bundle. The error names both versions.
+- A file of the bundle does not match the manifest, or the bundle's digest
+  is not the one that `-digest` gives.
+- The bundle has steps, and `-harness-runtime` is not set, or names a
+  runtime with another digest than the bundle's.
+- `--args`, `-variables` or `-resources` does not read as JSON, or `<path>`
+  names no flow or root script of the bundle.
+
+With the bundle of the `build` example, from the root of the same
+checkout:
 
 ```sh
 windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
   --args '{"name": "lite"}' -harness-runtime harnesses/bun/runtime
 ```
 
-### selfcheck
+It prints the outcome, with `"status": "success"`, and exits with status 0.
 
-`windmill-lite selfcheck` starts the expression engine (QuickJS-ng, through
-[internal/expr/quickjs](../../internal/expr/quickjs/README.md)) and
-evaluates three probes. Their results do not depend on the C library: the
-language core, a bound host string, and a recursion 800 calls deep, which
-needs the engine's own thread stacks.
+## selfcheck
 
-It prints one line and exits with status 0, or names the failing probe and
-exits with status 1. The line also gives the C stack that one JavaScript
-call takes in this build, and the stack limit that the engine scaled from
-it ([internal/expr/quickjs](../../internal/expr/quickjs/README.md#stack-limit)).
+```text
+windmill-lite selfcheck
+```
 
-CI runs it in two places:
+`selfcheck` starts the expression engine, QuickJS-ng
+([internal/expr/quickjs](../../internal/expr/quickjs/README.md)), and
+evaluates three probes. Their results do not depend on the C library:
 
-- from the static Linux binary, in an image built `FROM scratch`
-  ([ADR 0010](../../docs/design/0010-packaging.md), drift guard 5);
-- on `ubuntu-24.04` and `ubuntu-26.04`, from the engine that each image's C
-  compiler builds and from the static Linux binary.
+- the language core: arithmetic, strings, a regular expression, JSON and a
+  sort;
+- a string that the engine passes in from Go;
+- a recursion 800 calls deep, which needs the engine's own thread stacks.
 
-### host
+`selfcheck` takes no flags and no arguments.
 
-`windmill-lite host --bundle <dir> --workdir <dir>` is the engine side of
-host mode ([ADR 0004](../../docs/design/0004-harness-protocol.md),
-[ADR 0009](../../docs/design/0009-host-adapters.md)). It is not run by
-hand: a host such as the Bun host SDK
-([harnesses/bun](../../harnesses/bun/README.md)) starts it as its child,
-with its socket as file descriptor 3 and, as file descriptor 4, the
-channel on which the host announces its steps' child process groups
-(`child` frames, WR-55), which the engine reads on its own
-(`harness.HostChildren`, taken before the socket, so that a host that
-passes no file descriptor 4 still works). It opens the bundle directory,
-which the host loads too, with `wl.Open` in host mode
-(`wl.Options.Host`): the handshake checks that the host greeting it is
-its parent process and that `--workdir`, the directory the host passed,
-is a directory it can write and the working directory the host's hello
-names (else it refuses the host with `workdir_not_writable` or
-`workdir_mismatch`), and a bundle that does not open, or files that do
-not read, refuse the host with `engine_refused` and the reason. It then
-serves the host's runs, whose steps run in the host, until the host's
-connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
-[internal/harness](../../internal/harness/README.md)), and exits 0.
+| Flag | Value | Default | Meaning |
+|---|---|---|---|
+| None | — | — | `selfcheck` has no flags. |
 
-| Flag | Meaning |
+It prints one line, which also gives the C stack that one JavaScript call
+takes in this build, and the stack limit that the engine scaled from it
+([stack limit](../../internal/expr/quickjs/README.md#stack-limit)).
+CI runs it from the static Linux engine in an empty image
+([docs/ci.md](../../docs/ci.md#the-static-linux-engine)).
+
+| Exit status | When |
 |---|---|
-| `--bundle` | the bundle directory; required |
-| `--workdir` | the working directory the host passed; required |
-| `--kill-after` | the watchdog's threshold of silence from the host (default 30 s; `0` disables it) |
-| `-data` | the data directory the runtime writes into; a temporary one, removed afterwards, by default |
-| `-digest` | the bundle digest the bundle must have |
-| `-variables`, `-resources` | the host's variables and resources, as for `run` |
-| `-plugin-timeout` | how long a `host_call` to the host's plugin waits for its reply (default 1m; F2c) |
-| `-read-cache` | give each run a read cache, deviation D21 of [ADR 0001](../../docs/design/0001-equivalence-contract.md#5-named-deviations): each resource and variable is read once per run (`wl.Options.ReadCache`, the host SDK's `readCache`) |
-| `-skip-args-file` | the host states that its own code never reads `args.json`: for a bundle none of whose scripts can read it (`no_args_file_reader`), write none ([ADR 0004](../../docs/design/0004-harness-protocol.md) host mode item 7; `wl.Host.SkipArgsFile`, the host SDK's `skipArgsFile`) |
-| `-cpuprofile` | write a CPU profile of the engine to this file until the host's connection ends ([Profiling](#profiling)) |
-| `-quickjs-only` | as for `run`: no Go evaluator of expressions (`wl.Options.QuickJSOnly`); a Bun host passes it among the SDK's `engineFlags` |
+| 0 | Every probe gave its expected result. |
+| 1 | The engine did not start, or a probe failed. Standard error names the probe. |
+| 2 | An argument was given. |
 
-### Profiling
+The `v0.2.0` engine for macOS arm64 prints:
+
+```text
+windmill-lite v0.2.0 (darwin/arm64): expression engine ok, 3 probes in 2ms; 960 bytes of C stack per call, stack limit 1310720 bytes
+```
+
+## host
+
+```text
+windmill-lite host --bundle <dir> --workdir <dir> [flags]
+```
+
+Do not run `host` by hand: a host SDK starts it. It is the engine side of
+host mode. The [Bun host SDK](../../docs/glossary.md#bun-host-sdk)'s
+`connect()` starts it as a child process
+([harnesses/bun](../../harnesses/bun/README.md#host-mode-and-the-host-sdk)).
+
+`host` opens a bundle directory, which the host loads too, and completes
+the handshake with the [host](../../docs/glossary.md#host) that started it.
+Then it serves the host's runs, whose steps run in the host's process. It
+stops when the host's connection ends, or on SIGTERM or SIGINT, which
+cancel the runs in flight.
+
+The host that starts it passes:
+
+- its socket, as file descriptor 3;
+- optionally, as file descriptor 4, the channel on which it announces the
+  process groups of its steps' child processes. A host that passes none
+  announces them on its socket;
+- its own working directory, as `--workdir`.
+
+| Flag | Value | Default | Meaning |
+|---|---|---|---|
+| `--bundle` | A directory | None: required | The bundle directory. Host mode does not open a `.wlb` archive. |
+| `--workdir` | A directory | None: required | The host's working directory. It must be writable, and it must be the directory that the host's hello names. |
+| `--kill-after` | A duration, such as `30s` | `30s` | The watchdog's limit of silence from the host. After it, the engine kills the host. `0` turns the watchdog off. |
+| `-data` | A directory | A temporary directory, removed afterwards | The data directory that the runtime writes into |
+| `-digest` | A digest | None | The digest that the bundle must have |
+| `-variables`, `-resources` | A file | None | The host's variables and resources, as for [`run`](#variables-and-resources-files) |
+| `-plugin-timeout` | A duration | `1m` | How long a call to the host's [host plugin](../../docs/glossary.md#host-plugin) waits for its reply |
+| `-read-cache` | None | Off | Each run keeps the answer of its first read of a resource or a variable, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates is read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads each time, so this is a named [deviation](../../docs/glossary.md#deviation) of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
+| `-skip-args-file` | None | Off | The host states that its own code never reads `args.json`. Then, for a bundle none of whose scripts can read it, the engine writes no `args.json` for a step. |
+| `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
+| `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
+
+The engine refuses the host in the handshake, with one of these codes:
+
+| Code | When |
+|---|---|
+| `workdir_not_writable` | `--workdir` is not a directory that the engine can write. |
+| `workdir_mismatch` | `--workdir` is not the directory that the host's hello names. |
+| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. The message gives the reason. |
+
+The other codes of the handshake, such as `version_mismatch`, are the
+host SDK's errors
+([harnesses/bun](../../harnesses/bun/README.md#errors-and-refusals)). The
+[harness protocol ADR](../../docs/design/0004-harness-protocol.md#host-mode)
+and [internal/harness](../../internal/harness/README.md#host-mode)
+describe the handshake and the frames.
+
+| Exit status | When |
+|---|---|
+| 0 | The host's connection ended, or a signal stopped the engine. |
+| 1 | The socket is not usable, or the engine refused the host. |
+| 2 | A usage error, or a negative `--kill-after` |
+
+The example of [Profiling](#profiling) passes a flag to `host` through
+the Bun host SDK.
+
+## version
+
+```text
+windmill-lite version
+```
+
+`version` prints `windmill-lite` and the engine's version. `windmill-lite`
+with no argument, `-version`, `--version` and `-v` do the same. These are
+whole commands, not flags: `version` takes no flags and no arguments.
+
+| Flag | Value | Default | Meaning |
+|---|---|---|---|
+| None | — | — | `version` has no flags. |
+
+| Exit status | When |
+|---|---|
+| 0 | The version is printed on standard output. |
+| 2 | An argument follows, such as `windmill-lite version extra`. The command prints the usage of every subcommand. |
+
+```sh
+windmill-lite version
+```
+
+The `v0.2.0` engine prints `windmill-lite v0.2.0`.
+
+The version is the first of these that the binary has:
+
+1. the value linked in with `-ldflags "-X main.version=<version>"`, as a
+   release's engine has;
+2. the module version from the binary's build information: the version
+   of `go install github.com/invakid404/windmill-lite/cmd/windmill-lite@<version>`,
+   or the pseudo-version that `go build` stamps from the checkout's commit,
+   with `+dirty` when the tree has changes;
+3. `(devel)`, for `go run` and test binaries.
+
+`build` records this version in the bundle's manifest, and `run` and
+`host` open only a bundle with their own version. An engine whose version
+is `(devel)` records `(devel)`, and `build` warns about it on standard
+error.
+
+## Profiling
 
 `-cpuprofile <file>` on `run` and `host` writes a CPU profile of the
-engine process in Go's pprof format, which `go tool pprof` reads. It
-covers the engine only: the Bun harness or the host is another process.
-`run` writes the profile when the run ends. `host` writes it when the
-host's connection ends or the engine gets SIGTERM or SIGINT.
+engine process in Go's pprof format. It covers the engine only: the Bun
+harness or the host is another process.
 
-A Bun host passes the flag through the SDK's `engineFlags`:
+- `run` writes the profile when the run ends.
+- `host` writes it when the host's connection ends, or when the engine
+  gets SIGTERM or SIGINT.
+- A profile file that cannot be created fails the command before it opens
+  the bundle. `host` then refuses the host with `engine_refused`.
+
+A Bun host passes the flag in `connect()`'s `engineFlags`. This fragment
+shows the option only:
 
 ```ts
 await connect({ engine, bundle, workdir, engineFlags: ["-cpuprofile", "/tmp/engine.pprof"] });
 ```
 
+Read the profile with Go's pprof tool:
+
 ```sh
 go tool pprof -top /tmp/engine.pprof
 ```
 
-A profile file that cannot be created fails the command before it opens
-the bundle; `host` then refuses the host with the reason.
+## Work on the command
 
-## Version
+This part is for contributors who change the command, its tests or its
+benchmarks.
 
-The printed version, which `build` records as the engine version and `run`
-requires of a bundle, is, in order of preference:
+### Files
 
-1. the value linked in with `-ldflags "-X main.version=<version>"`;
-2. the module version from the binary's build information: the version of
-   `go install github.com/invakid404/windmill-lite/cmd/windmill-lite@<version>`,
-   or the pseudo-version `go build` stamps from the checkout's commit, with
-   `+dirty` when the tree has changes;
-3. `(devel)`, for `go run` and test binaries.
+| File | What it holds |
+|---|---|
+| `main.go` | The subcommand switch, the version, the flag parser that takes flags after the positional argument, and `-cpuprofile` |
+| `build.go` | `build` and `verify`, through [internal/bundle](../../internal/bundle/README.md) |
+| `runcmd.go` | `run`, through [wl](../../wl/README.md), and the outcome's JSON form |
+| `selfcheck.go` | `selfcheck` and its three probes |
+| `host.go` | `host`, through `wl` in host mode |
+| `*_test.go` | The tests and the benchmarks ([Tests](#tests), [Benchmarks](#benchmarks)) |
+| `testdata/` | The synthetic sync folders and the Bun hosts of the tests ([Test data](#test-data)) |
 
 ## Tests
 
-`main_test.go` covers the version output, the link-time override, the usage
-errors, `selfcheck`, and `build` and `verify` end to end: the fixture of
-internal/bundle built as a directory and as an archive gives one digest,
-which `verify` confirms against the release manifest, and a changed file
-fails verification. The build test needs the pinned Bun in `WL_BUN` and
-skips without it, unless `WL_REQUIRE_BUN` is set, as CI sets it.
+Most tests need Bun 1.4.3 in `WL_BUN` and the build helper's
+dependencies. Without `WL_BUN` they skip, unless `WL_REQUIRE_BUN` is set,
+as in CI. [Run the tests locally](../../docs/ci.md#run-the-tests-locally)
+gives the setup.
 
-`runcmd_test.go` covers `run`: its usage errors, and arguments, a bundle
-or a CPU profile file that do not open, which exit with status 1 and print
-nothing on standard output.
+| File | What it checks |
+|---|---|
+| `main_test.go` | The version output, the link-time version, the usage errors and `selfcheck`. `build` and `verify` end to end: the fixture of `internal/bundle`, built as a directory and as an archive, gives one digest. `verify` confirms it against the release manifest, a changed file fails verification, and `build` does not overwrite an archive. |
+| `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
+| `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
+| `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
+| `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
+| `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
+| `bench_test.go`, `bench_large_test.go`, `bench_embed_test.go`, `benchfresh_test.go` | The benchmarks, and the tests that keep them working ([Benchmarks](#benchmarks)) |
 
-With the pinned Bun, `runcmd_test.go` builds a synthetic folder as an
-archive whose flow reads a host's secret through argument resolution, and
-runs it in `warm` and `fresh` mode. A successful run exits 0 with its
-result, trace summary and CPU profile; a failing one exits 1 with its
-error; a run without the bundle's harness runtime does not start.
+### Test data
 
-`host_test.go` runs host mode end to end: the host-mode half of W1's exit
-gate, the host-mode gate of milestone C2b, F3a's exit gate, F3h's
-host-mode case, and F3b's host-mode cases (the never-settling-step,
-watchdog, `watchdog/finite-cpu` and resource-release tests and the H11
-policy case, on a compiled host under a supervisor that only restarts it
-on exit; the flow-suite half of F3b's gate is `cmd/wltest`'s).
+| Directory | What it is |
+|---|---|
+| `testdata/hostfolder/` | A synthetic sync folder and its host contract (`contract.yaml`). The tests build it once with `bundle.Build`. |
+| `testdata/hostlib/` | `tenant.ts`, a host-provided module outside the sync folder. It is the `relative_path` of a codebases entry, whose script `f/hostout/read.ts` imports it. |
+| `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`. |
+| `testdata/haltfolder/`, `testdata/halthost/` | A two-step flow `f/repro/prefix`, and a Bun host that `bun run` starts, for `TestHostRunHalts` |
+| `testdata/memhost/` | A Bun host for the memory tests: it answers its resident set and peak (`/rss`) and the outcome of runs that it submits (`/run`) |
+| `testdata/memory/` | `closure.package.json` and `closure.bun.lock`, which pin the packages of `TestModuleMemoryClosure`'s closure |
+| `testdata/benchhost/` | `host.ts`, the benchmarks' warm host; `inproc.ts`, the in-process side of `BenchmarkEmbedder`; `threadcpu_darwin.c`, which reads CPU time by thread on macOS |
 
-`testdata/hostfolder/` is a synthetic sync folder with its host contract
-(`contract.yaml`), which the test builds once with `bundle.Build`. Its
-host-provided modules are:
+The [host-provided modules](../../docs/glossary.md#host-provided-module)
+of `testdata/hostfolder/` are:
 
 - `f/host/scopes.ts`, which holds the tenant scope;
 - `f/host/pool.ts`, a pool of leases that the host releases at a run's
   `onSettled`;
-- `../hostlib/tenant.ts`, outside the sync root: `testdata/hostlib/` is
-  the `relative_path` of a codebases entry whose script
-  `f/hostout/read.ts` imports the module from there;
-- `f/host/lazy/a.ts` and `f/host/lazy/b.ts`: `a.ts` imports `b.ts` while it
-  loads, and `b.ts` imports `a.ts` back only from a function.
+- `../hostlib/tenant.ts`, outside the sync root;
+- `f/host/lazy/a.ts` and `f/host/lazy/b.ts`: `a.ts` imports `b.ts` while
+  it loads, and `b.ts` imports `a.ts` back only from a function.
 
-`testdata/host/host.ts` is a Bun host that embeds the SDK, registers its
-instances of these modules, connects the engine on the bundle, and serves
-its callers over HTTP on a Unix socket. It submits each run inside the
-caller's tenant scope, in `scopes.ts` and in `tenant.ts`. With
-`WL_SKIP_ARGS_FILE=1` it connects with `skipArgsFile`.
+### Host-mode tests
 
-The test compiles the host with `bun build --compile`, and its engine is
-the test binary itself (`TestMain` runs the command when `WL_TEST_ENGINE`
-is set). A supervisor that only restarts the host when it exits runs it.
-The tests:
+How these tests run:
+
+1. The test compiles `testdata/host/host.ts` with `bun build --compile`.
+2. The host's engine is the test binary itself: `TestMain` runs the
+   command when `WL_TEST_ENGINE` is `1`.
+3. A supervisor runs the host, and restarts it only when it exits.
 
 | Test | What it shows |
 |---|---|
-| `TestHostScopesThroughAHostProvidedModule` | 16 concurrent runs, each in its own tenant scope, read their scope through the host-provided module, by the shim the build generated, 16 of 16 (H11); a separately bundled copy of the module reads nothing |
-| `TestHostScopesThroughACodebaseScript` | C2b's gate: `f/hostcb/cb_scope.ts`, the CommonJS codebase script of the folder, its import of `f/host/scopes.ts` resolved to the module's generated shim, reads the host's scope in 16 of 16 concurrent runs on Bun's CommonJS loader (D12, D13), and reads `Bun.env` through the env rewrite |
-| `TestHostScopesThroughAnOutsideModule` | F3h's host-mode case: `f/hostout/read.ts`, a codebase script, reads the host's scope through `../hostlib/tenant.ts`, a host-provided module outside the sync folder, in 16 of 16 concurrent runs |
-| `TestHostCodebaseAsset` | F3a's gate: the codebase script `f/hostcb/cb_asset.ts` reads its asset, which the SDK extracted into the host's working directory, by a relative path and beside its module, and reads the `args.json` the engine wrote there |
-| `TestHostWorkdirRefusedBySDK` | F3a's gate: the SDK refuses to connect with `workdir_mismatch` for another directory than the host's own, and `workdir_not_writable` for a read-only one |
-| `TestHostWorkdirRefusedByEngine` | F3a's gate, from the engine's side: the test plays the host, starts `windmill-lite host` with a socketpair as file descriptor 3 (and none as 4) and greets it; the engine welcomes a host in its own working directory, refuses one whose hello names another (`workdir_mismatch`) or a read-only one (`workdir_not_writable`), and refuses with `engine_refused` when the bundle does not open; a host whose plugin declaration has a malformed selector is refused with `plugin_mismatch`, and one with a usable declaration welcomed (F2c) |
-| `TestHostDrain` | `drain` refuses a new run (`draining`), waits for the run in flight, which completes, and the host lives on |
-| `TestHostDrainAfterALargeOutcome` | a drain that starts while a run with a 3 MiB outcome is in flight (`f/host/big`) ends only after that run's caller has its whole outcome |
-| `TestHostRunSettled` | a step that its timeout abandons runs on: the run's outcome comes at about 1 s and its `onSettled` at about 1.5 s, in the run's own tenant scope; a run that abandons nothing settles with its outcome |
-| `TestHostScriptRun` | a root script runs as a script job; a run of no target is refused |
-| `TestHostLazyImportCycle` | two host-provided modules whose cycle closes only through an `import()` inside a function build, and the root script `f/host/lazy_cycle.ts` reads both through their shims: it gets `["ab", "ab"]` from the host's instances, and each module loaded once in the process |
-| `TestHostFacade` | a step reads a variable of the bundle through the job API at the `BASE_URL` its invocation carries |
-| `TestHostRecycleModules` | the modules recycle trigger trips once a second module loads, in `health()` and `onRecycle` |
-| `TestHostRecycleRetired` | F3b: the retired-entry recycle trigger trips once the host's count of pooled entries retired and not released passes its maximum, in `health()` and `onRecycle`; the host lives on |
-| `TestHostPluginCases` | The cases of `conformance/plugins/hooks.yaml` in host mode, answered over `host_call` by the host's case plugin (from `WL_PLUGIN_CASES`). Each run carries its own hooks and budgets in its run frame (`caseRunBody`) and gives its case's `expect`; a case's later runs share the connection, and every hook runs in the run's tenant scope (H11). The plugin's report file (`WL_PLUGIN_REPORT`) shows every run settling after its hooks. A step that waits for `wl.signal()` alone settles once the frame's deadline aborts it. |
-| `TestHostSurvivesADetachedRejection` | one detached rejection does not end the host; it is counted in health |
-| `TestHostNeverSettlingStep` | ADR 0004's never-settling-step test: after one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation; the host is never restarted |
-| `TestHostChildUnderBackpressure` | a step backs up the host's socket, starts a child and blocks the event loop; its timeout still kills the child, announced on the child channel (WR-55) |
-| `TestHostWatchdog` | ADR 0004's watchdog test: a step that spins forever, with a second run active; the engine kills the host within `killAfter` plus one second, naming both runs, the second run's caller sees the exit, and a run on the restarted host succeeds |
-| `TestHostWatchdogFiniteCPU` | F3b: case `watchdog/finite-cpu` in host mode: a step computes synchronously for 2 s with `killAfter` 1 s and a step timeout of 10 s; the engine kills the host after about 1 s, a second run's caller sees the exit, and a run on the restarted host succeeds; with the watchdog off the step completes on the first generation |
-| `TestHostResourceRelease` | F3b: ADR 0004's resource-release test: a step holds a lease of the host's pool (the host-provided module `f/host/pool.ts`) and uses it after its timeout abandons it; the host releases the run's leases at its `onSettled`, which comes only after the step's last use |
-| `TestHostVersionPairing` | F3b: the SDK–engine version pairing (ADR 0009): a host whose SDK is stamped with another release (`bun run --define WL_RELEASE`) is refused with `version_mismatch` by the engine (stamped as `-X main.version` would, `WL_TEST_ENGINE_VERSION`), the SDK refuses a welcome from an engine of another release that does not check (`fakeEngine`), and the engine's own release is welcomed and runs |
-| `TestHostStaticIntercept` | H1's static form through the run frame |
-| `TestHostStepLatency` | reports the per-step latency of host mode |
-| `TestHostReadCacheOption` | the SDK's `readCache` reaches the engine: the run lists deviation D21, and without the option it does not |
-| `TestReadCacheHostCalls` | on the plugin host, D21's cache makes one call of the plugin's hook per (run, path), and every step sees the first read's value; without it each read is a call, as on Windmill. A value holding `$WM_JOB_ID` resolves for each step's own job either way |
-| `TestHostArgsFileSharedReader` | with the default, a step reading `args.json` while the eight-step chain runs reads the latest invocation's arguments, the chain's |
-| `TestHostArgsFileHookReader` | with the default, a host plugin's `onRunEnd` reading `args.json` after a run reads the run's last invocation's arguments |
-| `TestHostSkipArgsFile` | the file is left out only for a bundle with no reader (`f/bench/plain`'s) whose host opted in; with the option off, or for the benchmarks' bundle, which has readers, it is written |
-| `TestHostSkipArgsFileOption` | the host SDK's `skipArgsFile` reaches the engine: the test host on the plain bundle writes no `args.json` with it, and writes it without |
-| `TestHostArgsFileReaders` | steps that read `args.json` through a host-provided module (`f/host/argsfile.ts`) or by a file name they build read their own arguments back in host mode |
-| `TestPluginTraceDetailHost` | the plugin host's `onRunEnd` gets the trace it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, its id and status for `none` |
-| `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole CPU profile of the engine once the host exits, and none before |
+| `TestHostScopesThroughAHostProvidedModule` | 16 concurrent runs, each in its own tenant scope, read their scope through the host-provided module, through the shim that the build generated: 16 of 16. A separately bundled copy of the module reads nothing. |
+| `TestHostScopesThroughACodebaseScript` | `f/hostcb/cb_scope.ts`, a CommonJS codebase script, imports `f/host/scopes.ts`, which resolves to the module's generated shim. It reads the host's scope in 16 of 16 concurrent runs on Bun's CommonJS loader, and reads `Bun.env` through the env rewrite. |
+| `TestHostScopesThroughAnOutsideModule` | `f/hostout/read.ts`, a codebase script, reads the host's scope through `../hostlib/tenant.ts`, a host-provided module outside the sync folder, in 16 of 16 concurrent runs. |
+| `TestHostCodebaseAsset` | The codebase script `f/hostcb/cb_asset.ts` reads its asset, which the SDK extracted into the host's working directory, by a relative path and beside its module. It also reads the `args.json` that the engine wrote there. |
+| `TestHostWorkdirRefusedBySDK` | The SDK refuses to connect with `workdir_mismatch` for a directory other than the host's own, and with `workdir_not_writable` for a read-only one. |
+| `TestHostWorkdirRefusedByEngine` | The test plays the host: it starts `windmill-lite host` with a socket pair as file descriptor 3, and none as 4. The engine welcomes a host in its own working directory, and refuses `workdir_mismatch`, `workdir_not_writable`, and `engine_refused` for a bundle that does not open. A plugin declaration with a malformed selector gets `plugin_mismatch`, and a usable one is welcomed. |
+| `TestHostDrain` | `drain` refuses a new run (`draining`), and waits for the run in flight, which completes. The host lives on. |
+| `TestHostDrainAfterALargeOutcome` | A drain that starts while a run with a 3 MiB outcome is in flight (`f/host/big`) ends only after that run's caller has its whole outcome. |
+| `TestHostRunSettled` | A step that its timeout abandons runs on: the run's outcome comes at about 1 s, and its `onSettled` at about 1.5 s, in the run's own tenant scope. A run that abandons nothing settles with its outcome. |
+| `TestHostScriptRun` | A root script runs as a script job. A run of no target is refused. |
+| `TestHostLazyImportCycle` | Two host-provided modules, whose cycle closes only through an `import()` inside a function, build. The root script `f/host/lazy_cycle.ts` reads both through their shims, gets `["ab", "ab"]` from the host's instances, and each module loads once in the process. |
+| `TestHostFacade` | A step reads a variable of the bundle through the job API, at the `BASE_URL` that its invocation carries. |
+| `TestHostRecycleModules` | The modules recycle trigger trips once a second module loads, in `health()` and `onRecycle`. |
+| `TestHostRecycleRetired` | The retired-entry recycle trigger trips once the host's count of pooled entries that retired and were not released passes its maximum, in `health()` and `onRecycle`. The host lives on. |
+| `TestHostPluginCases` | The cases of `conformance/plugins/hooks.yaml` in host mode, answered over `host_call` by the host's case plugin (`WL_PLUGIN_CASES`). Each run carries its own hooks and budgets in its run frame, and every hook runs in the run's tenant scope. The plugin's report file (`WL_PLUGIN_REPORT`) shows every run settling after its hooks. |
+| `TestHostSurvivesADetachedRejection` | One detached promise rejection does not end the host. Health counts it. |
+| `TestHostNeverSettlingStep` | After one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation. The host is never restarted. |
+| `TestHostChildUnderBackpressure` | A step fills the host's socket, starts a child process and blocks the event loop. Its timeout still kills the child, which the host announced on the child channel. |
+| `TestHostWatchdog` | A step spins forever, with a second run active. The engine kills the host within `killAfter` plus 1 s and names both runs. The second run's caller sees the exit, and a run on the restarted host succeeds. |
+| `TestHostWatchdogFiniteCPU` | A step computes for 2 s, with `killAfter` 1 s and a step timeout of 10 s. The engine kills the host after about 1 s, and a run on the restarted host succeeds. With the watchdog off, the step completes. |
+| `TestHostResourceRelease` | A step holds a lease of `f/host/pool.ts`, and uses it after its timeout abandons it. The host releases the run's leases at its `onSettled`, which comes only after the step's last use. |
+| `TestHostVersionPairing` | An SDK stamped with another release (`bun run --define WL_RELEASE`) is refused with `version_mismatch` by an engine stamped through `WL_TEST_ENGINE_VERSION`. The SDK refuses a welcome from an engine of another release that does not check. The engine's own release is welcomed and runs. |
+| `TestHostStaticIntercept` | The static form of the intercept hook, through the run frame |
+| `TestHostStepLatency` | Reports the latency of each step in host mode |
+| `TestHostReadCacheOption` | The SDK's `readCache` reaches the engine: the run lists the read-cache deviation, and without the option it does not. |
+| `TestReadCacheHostCalls` | On the plugin host, the read cache makes one call of the plugin's hook for each run and path, and every step sees the first read's value. Without it, each read is a call, as on Windmill. A value that holds `$WM_JOB_ID` resolves for each step's own job either way. |
+| `TestHostArgsFileSharedReader`, `TestHostArgsFileHookReader` | By default, a step that reads `args.json` while the eight-step chain runs reads the chain's latest arguments, and a plugin's `onRunEnd` reads the run's last invocation's arguments. |
+| `TestHostSkipArgsFile`, `TestHostSkipArgsFileOption` | The engine leaves `args.json` out only for a bundle with no reader whose host opted in. The SDK's `skipArgsFile` reaches the engine. |
+| `TestHostArgsFileReaders` | Steps that read `args.json` through a host-provided module, or by a file name that they build, read their own arguments back. |
+| `TestPluginTraceDetailHost` | The plugin's `onRunEnd` gets the trace detail that it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, and its id and status for `none`. |
+| `TestHostCPUProfile` | `-cpuprofile`, passed among the SDK's engine flags, writes a whole profile of the engine once the host exits, and none before. |
+| `TestHostRunHalts` | On one connection, the halt host runs `f/repro/prefix` with `haltAfter` its first module, then without. The first run ends `halted` after one module, and the second succeeds after two. A malformed halt is refused, and the next run succeeds. |
 
-They need the pinned Bun in `WL_BUN` too, and the build helper's
-dependencies.
+### Memory tests
 
-`TestHostRunHalts` runs a second Bun host, `testdata/halthost/host.ts`,
-with `bun run`, on a bundle of `testdata/haltfolder`. On one connection,
-the host runs the two-step flow `f/repro/prefix` with `haltAfter` its
-first module, then without, and counts the modules that end in each run
-with its plugin's `onModuleEnd`. The first run ends `halted` after one
-module, and the second succeeds after two. Runs with a malformed halt, or
-with a halt option that is not a list, are refused, and the next run
-succeeds.
+`memory_test.go` runs `testdata/memhost/host.ts`, compiled, under the
+supervisor of the host-mode tests. It builds generated sync folders with
+`bundle.Build`, each in three layouts:
 
-`memory_test.go` measures what warm step modules cost a host process: the
-evidence of milestone F8a's record,
-[ADR 0013](../../docs/design/0013-shared-module-code.md).
-`testdata/memhost/host.ts` is a Bun host that embeds the SDK, registers the
-host-provided modules `WL_HOST_MODULES` names, connects the engine, and
-answers over HTTP on a Unix socket with its resident set after a full
-garbage collection and its peak (`/rss`), and with the outcome of runs it
-submits, concurrently and repeatedly (`/run`). The tests compile it with
-`bun build --compile` and run it under `host_test.go`'s supervisor, on
-bundles that `bundle.Build` builds from sync folders the tests generate,
-each in three layouts:
-
-- **per-script**: each step's bundle inlines its own copy of the shared
-  module, as the build does today;
-- **shared-instance**: the shared module is host-provided (D12), so the
-  host's one instance serves every step;
-- **shared-code**: ADR 0013's decision as the build makes it
-  (`Config.SharedCode`): one closure per build group,
-  compiled once per process, and an instance of it per step module. A
-  build that leaves any script on its per-script bundle
-  (`shared_code_fallback`) fails the test.
+| Layout | What runs |
+|---|---|
+| per-script | Each step's bundle inlines its own copy of the shared module. |
+| shared-instance | The shared module is host-provided, so the host's one instance serves every step. |
+| shared-code | The build's shared code (`Config.SharedCode`): one closure for each build group, compiled once for each process, and an instance of it for each step module. A build that leaves a script on its own bundle (`shared_code_fallback`) fails the test. |
 
 | Test | What it shows |
 |---|---|
-| `TestModuleMemory` | ADR 0013's public synthetic reproduction: six Bun scripts that each import one generated module of 40,000 distinct strings, a one-step flow and a six-step flow. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Each step counts its calls in the module's state: per script and with shared code every step counts its own, as on Windmill, and with one shared instance they all count on one |
-| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set: the closure shaped like an embedder's, described below. It reports the resident set and the peak so far at connect, with one module, with all 34, with eight concurrent runs and after a soak of 1,000 runs. With shared code, the soak's peak must stay within 768 MiB, half of a container limited to 1,536 MiB |
+| `TestModuleMemory` | The public synthetic reproduction of the [shared module code ADR](../../docs/design/0013-shared-module-code.md): six scripts that each import one generated module of 40,000 distinct strings. Per script, each further module costs at least 3 MiB; with one shared instance or with shared code, at most 1.5 MiB. Per script and with shared code, each step counts its own calls in the module's state, as on Windmill. |
+| `TestModuleMemoryClosure` | Only with `WL_MEMORY_PROBE` set. The resident set and the peak at connect, with one module, with all 34, with eight concurrent runs, and after a soak of 1,000 runs. With shared code, at most 16 MiB for each further module, and a peak of at most 768 MiB after the soak (`closurePeakBudget`), half of a container limited to 1,536 MiB. |
 
-The closure has 34 CommonJS codebase scripts of about 6.9 MB each, which
-import one module outside the sync folder. That module imports mongoose,
-`windmill-client`, js-yaml, Babel's parser and types, and a generated
-package shaped like an API client.
-`testdata/memory/closure.package.json` and `closure.bun.lock` pin the
-packages, which the test installs, so it needs the network once.
+- `TestModuleMemoryClosure`'s closure has 34 CommonJS codebase scripts of
+  about 6.9 MB each. They import one module outside the sync folder, which
+  imports mongoose, `windmill-client`, js-yaml, Babel's parser and types,
+  and a generated package shaped like an API client.
+- The test installs those packages, so it needs the network once. Its
+  shared module and the generated package load `node:` built-in modules by
+  `import()`, as published packages do.
+- It logs each budget on a line of its own:
+  `Budget <name>: <value> MiB, at most <limit> MiB`. With
+  `WL_MEMORY_VERDICT=median`, it fails on neither, and the caller judges
+  the median of several runs, as the `Benchmarks` workflow does.
 
-In `TestModuleMemoryClosure`, the shared module imports `node:async_hooks`
-by `import()`, and the generated package imports `node:fs/promises` by
-`import()`, as published packages do. Both are modules the runtime has
-built in, so every script keeps its shared layout.
+The host reads its own peak: `VmHWM` from `/proc/self/status` on Linux,
+and `getrusage`'s peak on macOS. On Linux, `getrusage`'s peak keeps the
+peak of the process before its `execve`, the Go test process. A peak below
+the resident set fails the test.
 
-With shared code, both tests assert the memory gate of [ADR 0013](../../docs/design/0013-shared-module-code.md).
-`TestModuleMemory` allows at most 1.5 MiB per further module.
-`TestModuleMemoryClosure` allows at most 16 MiB per further module, and a
-peak of at most 768 MiB after its soak (`closurePeakBudget`). The peak
-budget was 650 MiB on Bun 1.3.10; Bun 1.4.3 keeps more memory per module
-([ADR 0013](../../docs/design/0013-shared-module-code.md#decision)).
+### Native realm tests
 
-`TestModuleMemoryClosure` logs each of its two budgets on a line of its
-own: `Budget <name>: <value> MiB, at most <limit> MiB`. With
-`WL_MEMORY_VERDICT=median`, it fails on neither, and the caller judges
-each budget on the median of several runs, as the workflow `Benchmarks`
-does. `TestModuleMemory` always judges its own run.
+`realm_test.go` checks what native invocations leave in a long-lived Bun
+process: in the host in host mode, and in the `warm` harness otherwise.
+Its synthetic flows each run ten native steps that return their argument:
 
-`WL_MEMHOST_COLLECT`, unset by default, sets the host SDK's collect
-trigger in the memory host
-([harnesses/bun](../../harnesses/bun/README.md)): `<mark>` or
-`<mark>,<cooldown>`, in bytes and milliseconds. `/rss` then also reports
-the trigger's collections and how long they took in all.
-`TestModuleMemoryClosure` logs them for each layout on a line of its own:
-`<layout>: collections of the collect trigger <n> at connect, …`. A build
-of the workflow `Benchmarks` sets it as `name=<ref>:WL_MEMHOST_COLLECT=<mark>,<cooldown>`.
+- `f/native/steps`: `bunnative` and `nativets` steps in turn, one of them
+  a `nativets` step that imports the embedded client;
+- `f/native/varying`: the same, with a `nativets` step that returns its
+  argument through a direct `eval` in place of the `bunnative` one.
 
-The host's peak is its own high-water mark:
-
-- On Linux it reads `VmHWM` from `/proc/self/status`. `getrusage`'s peak,
-  which the host also reports, keeps the peak of what the process was
-  before its `execve`: here the Go test process that built the bundles.
-- On macOS it reads `getrusage`'s peak, which Bun 1.4.3 reports in
-  kilobytes.
-- Each reading fails the test when a peak is below the resident set,
-  which a wrong unit would cause.
-
-`realm_test.go` checks what native-boundary invocations leave behind in a
-long-lived Bun process. Its synthetic folder's flows each run ten native
-steps that return their argument:
-
-- `f/native/steps`: bunnative and nativets steps in turn, one of them a
-  nativets step that imports the embedded client;
-- `f/native/varying`: the same, with a nativets step that returns its
-  argument through a direct `eval` in place of the bunnative one.
-
-Its Bun step `f/native/probe` reads, after a full collection
-(`Bun.gc(true)`), the process's count of JavaScriptCore `Script` objects
-(`heapStats().objectTypeCounts.Script`, from `bun:jsc`), its JavaScript
-heap and its resident set. It runs where the native steps run: in the
-host in host mode, in the warm harness in subprocess mode, the
-benchmarks' topologies (below).
+The probe step `f/native/probe` reads, after a full collection, the
+process's count of JavaScriptCore `Script` objects, its JavaScript heap and
+its resident set.
 
 | Test | What it shows |
 |---|---|
-| `TestNativeInvocationsKeepNoScript` | In host and subprocess mode, after runs that load and compile every module, 200 and then 400 native invocations leave fewer than 5 more `Script` objects. It runs `f/native/steps` with fixed names, and `f/native/varying` with a new variable in every invocation from the environment hook ([H12](../../docs/design/0008-host-hooks.md)), whose 16 runs after the first may keep at most 16 more, the `eval` step's variants. A harness that compiles a script per invocation fails it on a Bun that keeps compiled scripts ([harnesses/bun](../../harnesses/bun/README.md#the-native-boundary-mode)) |
-| `TestNativeVariableNames` | In host and subprocess mode, through the environment hook ([H12](../../docs/design/0008-host-hooks.md)): variables named `process`, `while`, `WL-DASHED` and one that is not plain ASCII get no `const` ([WR-45](../../docs/semantics/languages.md#wr-45)), so `f/native/steps` returns its input. A variable named `arguments` gets one, and with a name of its own per invocation each of 20 runs of `f/native/varying` fails at its step that spells `eval` with `Cannot declare a variable named arguments in strict mode.`, on the 16 compiled variants and past them. Without it the run returns its input |
+| `TestNativeInvocationsKeepNoScript` | After runs that load every module, 200 and then 400 native invocations leave fewer than 5 more `Script` objects. `f/native/varying` gets a new variable in each invocation from the environment hook ([host hooks ADR](../../docs/design/0008-host-hooks.md)); its 16 runs after the first may keep at most 16 more. |
+| `TestNativeVariableNames` | A variable whose name is not a usable identifier, such as `process`, `while`, `WL-DASHED` or a name that is not plain ASCII, gets no `const` ([WR-45](../../docs/semantics/languages.md#wr-45)), so the run returns its input. A variable named `arguments` gets one, so each of 20 runs fails at the step that uses `eval`, with `Cannot declare a variable named arguments in strict mode.` |
+
+CI runs the native realm tests by name, so that a skip fails the job
+([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 ## Benchmarks
 
-`bench_test.go` holds the end-to-end benchmarks of the step boundary.
-Each runs synthetic flows with the engine in the benchmark's own process,
-so that it reads every run's trace and the engine's CPU time. The
-recorded baseline, with its machine, command and load, is in
-[ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
+Most benchmarks measure the step boundary end to end: synthetic flows run
+with the engine in the benchmark's own process, so that the benchmark
+reads each run's trace and the engine's CPU time. `BenchmarkArgsFileOps`
+measures file writes alone.
+[docs/benchmarks.md](../../docs/benchmarks.md) describes each benchmark,
+the topologies, the stages and metrics, and how to compare builds. The
+recorded baseline is in the
+[JSON at step boundaries ADR](../../docs/design/0005-json-step-boundaries.md#baseline).
 
-The benchmarks run on these topologies:
+| Benchmark | File | What it measures |
+|---|---|---|
+| `BenchmarkStepBoundary` | `bench_test.go` | An eight-step chain, with payloads from 26 B to 4 MiB |
+| `BenchmarkHostShapes` | `bench_test.go` | Flows shaped like a host-mode embedder's, 50 to 600 steps |
+| `BenchmarkRetainedHeap` | `bench_test.go` | What each finished run leaves reachable in the engine's heap |
+| `BenchmarkPassThrough` | `bench_large_test.go` | A large value passed on unchanged through steps and subflows |
+| `BenchmarkExpressions` | `bench_large_test.go` | Expressions on a large value |
+| `BenchmarkRunPeaks` | `bench_large_test.go` | The peak memory of the engine and the host over one run, on Linux |
+| `BenchmarkEmbedder` | `bench_embed_test.go` | Twelve workloads on windmill-lite against the same steps in one Bun process |
+| `BenchmarkArgsFileOps` | `bench_embed_test.go` | The CPU of writing a step's `args.json` |
+| `BenchmarkNativeRealm` | `realm_test.go` | What each native invocation leaves in a long-lived process |
 
-- **host**: `testdata/benchhost/host.ts`, compiled with `bun build
-  --compile`, is a warm Bun host that embeds the SDK and does nothing else.
-  The SDK starts its engine as its child, which is the test binary as an
-  engine proxy: it hands the host's socket and child channel to the
-  benchmark. The runtime is the one `host` opens, with the watchdog off.
-- **subprocess**: the warm Bun harness that the engine spawns, one process,
-  as `run` uses it.
-- **host-plugin**: the same host with a plugin
-  (`WL_BENCH_PLUGIN=1`), as a host that keeps its resources elsewhere
-  runs. Its `resource` and `variable` hooks answer synthetic resources,
-  those under `f/bench/slow/` after 1 ms, and count their calls by run and
-  path; its `onRunEnd` hook takes every run's trace. `WL_BENCH_TRACE`
-  makes the hook declare a `summary` or `none` instead.
-- **host-plain**: the same host on the plain shape's bundle, which has no
-  reader of `args.json`, opted in to leaving it out
-  (`wl.Host.SkipArgsFile`) unless `WL_BENCH_ARGS_FILE=1`.
-- **host-emb**: the same host with a plugin whose `resource` hook reads
-  the embedder shapes' resources (`f/emb/*`) from their store's API
-  (`WL_BENCH_STORE_URL`), as [the embedder shapes](#the-embedder-shapes)
-  need.
-
-`WL_BENCH_HOST_BUN_OPTIONS` reaches the compiled host as `BUN_OPTIONS`
-(for its `--cpu-prof`), and `WL_BENCH_HOST_ENV` adds `NAME=value` pairs,
-separated by commas, to the host's environment only.
-
-| Benchmark | What it runs |
-|---|---|
-| `BenchmarkStepBoundary` | `f/bench/chain`, eight steps that each return their argument, on both topologies, one run at a time and eight at once. The payloads are those of [internal/bench](../../internal/bench/README.md), from 26 B to 4 MiB. The first step takes the flow input's `p` and the others `previous_result`, which run no expression |
-| `BenchmarkHostShapes` | Flows shaped like a host-mode embedder's, in host mode: 50 to 600 steps and results of 1 to 50 KiB. Except in the bare shape, each step writes up to 3 log lines, makes up to 2 variable or resource reads, and evaluates an expression that binds the flow input. One shape runs eight at once |
-| `BenchmarkRetainedHeap` | Sequential runs of `f/bench/pair`, two steps that each return a payload of 64 KiB or 16 MiB, on one long-lived runtime, in host and subprocess mode and on the plugin host, whose plugin provides resources and variables. It reads the engine's Go heap after two collections before and after the runs, with its own input kept alive through both readings, and reports what each finished run leaves reachable (`heap-mib/run`); run it with `-benchtime 1x` |
-| `BenchmarkHostShapes`, the `plain` shape | The bare shape's 600 steps of 1 KiB, run by `f/bench/plain`, which returns the same result and holds no I/O code, on the host-plain topology: its bundle has no reader of `args.json`, so the file is left out. `WL_BENCH_ARGS_FILE=1` keeps it, which measures its cost on the same code. The bare shape's `f/bench/work` can fetch, so its bundle is a reader and keeps the file |
-| `BenchmarkHostShapes`, the `pathsA` shape | 50 bare steps that each read three member paths over JSON values: `flow_input.cfg.region`, `previous_result.data.items[0].id` and `results.s<k>?.n` |
-| `BenchmarkHostShapes`, the `resA` shapes | On the plugin host, 50 steps that each take two of 4 resources as `$res:` arguments, the previous result, an expression that binds the flow input, and the previous step's member `results.s<k>.n` |
-| `BenchmarkHostShapes`, the large shapes | 20 steps of 256 KiB, 10 of 1 MiB, 8 of 4 MiB and 4 of 16 MiB (`s20-256KiB` to `s4-16MiB`). Each step works as in the 1 KiB shapes. Its template reads two short fields of a flow input whose `seed` is as large as the results |
-| `BenchmarkPassThrough` | A large value passed on unchanged (`bench_large_test.go`): an array of wide records with one text field each, of 64 KiB and about 2.1 MB. A step returns it through 0 to 4 nested sub-flows; the flow forwards it into 1, 3 or 5 steps and maps it to its ids. It runs on the host and on the plugin host, whose `onRunEnd` takes the whole trace. Per run: time, engine CPU and bytes allocated, host CPU |
-| `BenchmarkExpressions` | A step returns a wide object with a long markup string and its plain-text form, of 96 KiB and 2 MiB. Eight steps each evaluate one expression on it, or on the same value as the flow input's `v`: a short read, an optional-chained read, a null test, an object of three fields and a map. Each expression's time is reported per run (`expr-e<k>-ns`) |
-| `BenchmarkNativeRealm` | Sequential runs of `f/native/steps` (`realm_test.go`) on one host and on one warm harness, read by `f/native/probe` after a first run and after each quarter of the runs. It reports what each native invocation of the last three quarters leaves after a full collection: `Script` objects (`scripts/inv`), JavaScript heap (`heap-B/inv`) and resident set (`rss-B/inv`), then the last reading and the `Script` objects the whole run left (`scripts-kept`). It makes `WL_NATIVE_RUNS` runs, 2,000 by default; run it with `-benchtime 1x` |
-| `BenchmarkEmbedder` | The embedder shapes (`bench_embed_test.go`): twelve workloads shaped like a host-mode embedder's requests. Each runs on windmill-lite in host mode and as the in-process baseline, the same step functions composed by hand in one Bun process, interleaved request by request; see [The embedder shapes](#the-embedder-shapes). Run it with `-benchtime 1x` |
-| `BenchmarkArgsFileOps` | The write sequence of a step's `args.json` alone (a temporary file in a directory under `TMPDIR`, written, closed and renamed over `args.json`), at 256 B, 1 KiB and 64 KiB: user and system CPU per write, from `getrusage` |
-| `BenchmarkRunPeaks` | Linux only, with `-benchtime 1x`: the peak resident memory of the engine and of the host over one run, two steps that return their argument at 16 and 32 MiB, and eight at 16 MiB. Each case runs on its own runtime and host, after a warm run. It reports each peak, their sum, and the largest sum of the two resident sizes read together every millisecond (`combined-sampled-MiB`) |
-
-One iteration is one run per worker, the workers started together, so
-even one iteration has every run of its concurrency in flight at once.
-
-### Stages
-
-Each step is split into stages, each the difference of two readings of the
-same invocation. The readings are the trace's module and harness spans,
-the engine side's clock
-([internal/harness](../../internal/harness/README.md#the-times-hook)) and
-the harness's own
-([harnesses/bun](../../harnesses/bun/README.md#benchmark-timings)). They are
-joined by the invocation's id, the step's job id. A step's stages add up
-to its module span exactly, so their means add up to the step's mean.
-
-| Stage | What it holds |
-|---|---|
-| `engine` | the engine outside its call of the executor: transforms, arguments and their storage, the trace |
-| `executor` | the executor around the harness process: the runtime's recorder and the pool's routing |
-| `go-encode` | checks, the script's arguments and the invoke's payload |
-| `args-file` | `args.json` written, the wait for its lock included |
-| `go-queue` | the invocation registered and its invoke queued |
-| `transport` | from the invoke queued to the result read, less the harness's time: the writer, the socket both ways and the wake-ups. It is not attributed further |
-| `bun-decode` | the invoke's last frame decoded in the harness |
-| `bun-dispatch` | from decoded to the entrypoint called: context, module, binding, and any wait behind other invocations |
-| `code` | the step's own code |
-| `bun-serialise` | the result serialised |
-| `bun-send` | the result frame encoded and handed to the socket |
-| `go-decode` | the result's last frame decoded in the engine |
-| `go-handoff` | from decoded to the outcome back with the engine: settlement and the `Reporter`'s calls |
-
-### Metrics
-
-Each benchmark reports these figures per step:
-
-| Metric | Meaning |
-|---|---|
-| `ns/op`, `MB/s` | wall time per step at the benchmark's concurrency, and the payload the steps moved, both ways, per second |
-| `step-p50-ns`, `step-p95-ns`, `step-mean-ns` | the step's module span |
-| `<stage>-mean-ns`, `<stage>-p50-ns` | each stage, over every step |
-| `boundary-share-p50`, `boundary-share` | the share of a run's module time spent at the boundary: its harness spans less its steps' own code, per run at p50, and over every run together |
-| `harness-share-p50`, `harness-share` | the same for the whole harness span |
-| `module-share-p50` | the share of a run's elapsed time spent in its modules |
-| `engine-cpu-ns/step`, `engine-sys-ns/step` | the engine process's CPU time, and its system part, from `getrusage` |
-| `host-cpu-ns/step` | the host's or harness's CPU time, from `process.cpuUsage()` |
-| `engine-cpu-p50-ns/step` and the like | per run, for runs one at a time; a shape's host CPU too |
-| `expr-ns/step` | the expression spans |
-| `host-calls/run` | on the plugin host, the calls of its `resource` and `variable` hooks per run |
-| `host-peak-rss-mb` | the host's or harness's peak resident set after the runs, in MiB |
-| `conc-peak`, `conc-mean` | the most runs in flight at once, and the mean |
-| `load1` | the one-minute load average when the runs started |
-
-Percentiles are nearest-rank ([internal/bench](../../internal/bench/README.md#percentiles)).
-The probe step `f/bench/probe` reads the host's or harness's CPU time
-before and after the runs, its peak resident set and the plugin's call
-counts, and sets and drains the harness's timings. A
-shape's last step reports the host's CPU time with its result too, so each
-run has its own figure.
-
-The plain shape's bundle has no probe step, which would read the process
-and so make the bundle a reader. Its host writes its CPU time and peak
-resident set to `bench-probe.json` on `SIGUSR1` instead, and the shape
-reports no stages.
-
-`WL_BENCH_TIMINGS=off` leaves the stage readings out, which measures what
-taking them costs. `TestBenchSplit` runs the measurement once on each
-topology with two runs at once, so that a broken split fails the ordinary
-tests. It checks that both runs overlap, that every step is matched with
-its readings, and that its stages add up to its module span.
-
-They need the build helper's dependencies and the pinned Bun in `WL_BUN`,
-and run only with `-bench`. A benchmark fails without `WL_BUN`, rather
-than skip and report a pass with no figures, while `TestBenchSplit`
-skips. The baseline's exact commands, each shape and configuration in a
-test process of its own ([One process per shape](#one-process-per-shape)),
-are in [ADR 0005](../../docs/design/0005-json-step-boundaries.md#baseline).
-One run of both, in one process:
+Every benchmark but `BenchmarkArgsFileOps` needs Bun 1.4.3 in `WL_BUN`
+and the build helper's dependencies, and fails without `WL_BUN`. One run
+of two of them, in one process:
 
 ```sh
 WL_BUN=/path/to/bun-1.4.3/bun go test ./cmd/windmill-lite -run '^$' \
   -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 3s -count 3
 ```
-
-`benchstat` (`golang.org/x/perf/cmd/benchstat`) compares two such outputs.
-
-`WL_BENCH_SIZES` gives `BenchmarkStepBoundary` other payload sizes, as
-labels separated by commas (`26B,1KiB,16MiB`); without it the sizes are
-those of [internal/bench](../../internal/bench/README.md), up to 4 MiB.
-
-### The embedder shapes
-
-`BenchmarkEmbedder` runs each workload two ways and compares them request
-by request, the side that goes first alternating, after five warm requests
-on both:
-
-- **windmill-lite**: the workload as a flow, on the `host-emb` topology,
-  with the per-run read cache on (deviation D21 of ADR 0001);
-- **in process**: the same step functions called as plain functions,
-  composed by hand in one Bun process (`testdata/benchhost/inproc.ts`), the
-  same expressions evaluated as JavaScript in the same scope, each resource
-  read once per request.
-
-Both sides call one store, a separate process (the test binary with
-`WL_BENCH_EMB_STORE`): the steps read and write it by `fetch`, after
-`WL_BENCH_EMB_KV_US` (300 µs by default), and the resources come from its
-API after `WL_BENCH_EMB_API_US` (1,200 µs).
-
-A workload is one tree of nodes (script steps, `branchone`, identity
-steps, a for-loop) that gives both the flow and the in-process program, so
-both run the same steps in the same order with the same inputs. The step
-scripts are synthetic: `get` and `put` are native (`//native`) and call the
-store, `calc` is a Bun step that computes; their CPU work is calibrated per
-workload.
-
-| Workload | Per request: steps / invocations / expressions | Shape |
-|---|---|---|
-| A, B, D1, D2, E, F | 96 / 60 / 375, 155 / 105 / 506, 110 / 68 / 414, 135 / 84 / 459, 102 / 64 / 390, 58 / 33 / 220 | sequential, with branches and identity steps |
-| C1, C5, C20 | 102 / 64 / 390, 178 / 128 / 654, 463 / 368 / 1,644 | a parallel loop (parallelism 2) over 1, 5 or 20 items |
-| G | 50 / 26 / 194 | short and branch-heavy, its expressions mostly the pipeline's shortcuts |
-| H | 624 / 384 / 2,280 per batch: eight requests in flight of 78 / 48 / 285 | concurrent requests |
-| A-typical | 229 / 172 / 837 | A with items of about 65 KB passed through four levels of steps |
-| H-lit | eight requests in flight of 624 / 384 / 2,280 each | H's counts read per request; run only when named |
-
-`TestEmbShapes` checks every shape's counts and that its flow and program
-are well formed; the benchmark checks that both sides return the same
-first result. These variables change a run:
-
-| Variable | Effect |
-|---|---|
-| `WL_BENCH_EMB` | the workloads, names separated by commas (default: the twelve) |
-| `WL_BENCH_EMB_N` | the measured requests per side (default 50) |
-| `WL_BENCH_EMB_SIDE` | `wl` or `inproc`: one side only |
-| `WL_BENCH_EMB_WORK` | the steps' CPU work, in percent of the calibration |
-| `WL_BENCH_EMB_NATIVE=0` | runs the native steps as Bun steps |
-| `WL_BENCH_READ_CACHE=off` | turns the read cache off |
-| `WL_BENCH_ARGS_FILE=skip` | leaves `args.json` out where the bundle allows |
-| `WL_BENCH_EMB_PPROF` | a file for a CPU profile of the engine over the measured requests only |
-| `WL_BENCH_INPROC_BUN_OPTIONS` | the in-process side's `BUN_OPTIONS` |
-
-Its figures, per request (for H, per batch) and per step run:
-
-| Metric | Meaning |
-|---|---|
-| `wl-p50-ms`, `wl-p95-ms`, `inproc-p50-ms`, `inproc-p95-ms` | each side's elapsed time per request |
-| `gap-p50-ms`, `gap-p95-ms`, `ratio-p50` | windmill-lite against the in-process baseline |
-| `gap-us/run-step`, `gap-us/step` | the p50 gap per step of one request, and per step of a batch (H) |
-| `engine-cpu-us/step`, `host-cpu-us/step`, `inproc-cpu-us/step`, `extra-host-cpu-us/step` | CPU per step: the engine's (this process, `getrusage` around the requests), the host's, the in-process side's, and the host's over the in-process side's |
-| `wl-cpu-ms/req`, `inproc-cpu-ms/req` | CPU per request (engine and host together; the in-process side) |
-| `gc/step`, `gc-cpu-us/step` | the engine's collections and their CPU over the measured requests (`runtime/metrics`) |
-| `expr-ms/req` | the expression spans |
-| `host-us/inv`, `host-p50-us/inv` | each invocation's harness span: the time a step spends inside the host |
-| `thr-host-<thread>-us/step`, `thr-inproc-<thread>-us/step` | CPU per step by thread name (Linux from `/proc`, macOS through `testdata/benchhost/threadcpu_darwin.c`) |
-| `steps/req`, `steps/run`, `inv/req`, `expr/req` | the counts, read from the traces |
-| `load1`, `load1-end` | the one-minute load average before and after |
-
-### Comparing builds on GitHub's runners
-
-The workflow `Benchmarks` (`.github/workflows/bench.yml`) compares builds
-of the engine on GitHub's hosted runners, linux/amd64 and linux/arm64. It
-is started by hand and gates nothing. It takes the builds as `name=ref`
-pairs, the benchmark groups, the number of rounds and an optional memory
-limit.
-
-A build can add
-environment to its runs, to compare a runtime setting on the same code in
-the same job: `name=ref:VAR=value`, with more `:VAR=value` fields as
-needed (git refuses `:` in ref names), as in
-`tmpfs=<sha>:TMPDIR=/dev/shm` or `gc=<sha>:GOGC=400`.
-
-Each build runs on the Bun its own tree pins (`PinnedBun` in
-`internal/harness`). The workflow downloads it from Bun's releases and
-checks it against the release's `SHASUMS256.txt`. So a build from before a
-Bun upgrade runs on its own Bun, in the same job as one after it.
-
-With `memory_limit` set to a size that `docker run --memory` takes, such
-as `1536m`, each command runs in a container of its own:
-
-- The container has that cgroup v2 memory limit and no swap.
-- Its image is Ubuntu 24.04, the runners' release, pinned by digest, so
-  the binaries built on the runner run in it.
-- After each command, the output gives the container's peak
-  (`memory.peak`, page cache included) and its OOM kills.
-
-Each job runs one group on one architecture:
-
-1. It builds every ref's test binary in a worktree of its own.
-2. It runs the rounds; each round runs every build once, in a rotating
-   order. A command that fails, or a test run that skips a test, fails the
-   job once every round has run. A test run times out after 30 minutes.
-   In the `memory` group, the closure's budgets are judged on the median of
-   each build's rounds instead: the job lists each round over a budget,
-   and fails only when a median is over its budget.
-3. It compares each build with the one before it, and the last with the
-   first, with `benchstat`.
-
-Its artifacts hold the outputs, the comparisons and the machine. The
-groups:
-
-| Group | What it runs |
-|---|---|
-| `boundary` | `BenchmarkStepBoundary` in host mode, one run at a time, 256 KiB to 16 MiB, `-benchtime 3s` |
-| `shapes` | the large shapes of `BenchmarkHostShapes`, `-benchtime 5x` |
-| `passthrough` | `BenchmarkPassThrough`, `-benchtime 10x` |
-| `expressions` | `BenchmarkExpressions`, `-benchtime 10x` |
-| `peaks` | `BenchmarkRunPeaks`, `-benchtime 1x` |
-| `retained` | `BenchmarkRetainedHeap`, `-benchtime 1x` |
-| `native` | `BenchmarkNativeRealm`, `-benchtime 1x`, with `WL_NATIVE_RUNS=8000` (80,000 native invocations), so that the process warms up within the first quarter, which the figures per invocation leave out |
-| `small` | in a process each (`WL_BENCH_FRESH=1`), `BenchmarkStepBoundary` at 26 B and 1 KiB on both topologies and both concurrencies, `-benchtime 3s`, and the shapes of 1 KiB and below and `s200-mixed-conc8`, `-benchtime 20x` |
-| `mid` | in a process each (`WL_BENCH_FRESH=1`), the sequential shapes between 1 KiB and 256 KiB: `s50-50KiB`, `s200-mixed`, `s600-10KiB`, `s600-50KiB` and `s600-mixed`, `-benchtime 10x` |
-| `embedder` | `BenchmarkEmbedder`, all twelve workloads, `-benchtime 1x`, 20 measured requests per side per round (`WL_BENCH_EMB_N=20`) |
-| `memory` | the tests of `memory_test.go`, with `-v` and `WL_MEMORY_PROBE=1`: `TestModuleMemory`, then the shared-instance and shared-code layouts of `TestModuleMemoryClosure`. The job's summary gives each build's figures |
-| `closure-per-script` | the per-script layout of `TestModuleMemoryClosure`, whose host grows to about 2 GiB, so it needs a `memory_limit` above that, or none |
-
-```sh
-gh workflow run bench.yml -f builds="main=origin/main head=my-branch" -f groups="boundary small" -f rounds=10
-gh workflow run bench.yml -f builds="main=origin/main head=my-branch" -f groups=memory -f rounds=5 -f memory_limit=1536m
-```
-
-### One process per shape
-
-With `WL_BENCH_FRESH=1`, each shape of `BenchmarkHostShapes` and each
-configuration of `BenchmarkStepBoundary` runs in a test process of its
-own (`benchfresh_test.go`). The process `go test` starts sets nothing up.
-For each of them it runs the test binary again, for that benchmark alone,
-and reports the child's figures as its own.
-
-The child gets the test flags this process was given, such as
-`-benchtime`, `-timeout`, `-benchmem`, `-short` and `-v`. It gets `-cpu`
-at the GOMAXPROCS of each `-cpu` value, so `-cpu 1,4` runs each benchmark
-in a child per value. A profile or trace flag gives each child a file of
-its own: the name, then the benchmark's, its `-cpu` and the child's number
-(`cpu.out.BenchmarkHostShapes_shape-s600-1KiB.cpu4.3`).
-
-With more than one `-cpu` value, each benchmark starts one more child,
-whose figures go unused: the testing package calls a benchmark once
-before it sets GOMAXPROCS to the first value.
-The flags this process acts on itself stay its own: `-run`, `-bench`,
-`-count`, `-list`, `-skip`, `-shuffle`, fuzzing and coverage.
-
-The output keeps its form, so `benchstat` reads it as before. The
-iteration count printed is the parent's: with `-benchtime 10x` it is 10,
-as the child's, and with a duration it is 1. `-count` starts a child for
-each count.
-
-Use this mode to compare revisions and to record a baseline. In one
-process, a shape runs on the heap that the shapes before it left, so how
-often the Go collector runs depends on which shapes ran first. The
-engine's CPU and the slowest steps move with it. A change to what the
-engine keeps in memory then moves the figures of every later shape, not
-only its own.
-
-One process is quicker, and is enough for a quick look, or for a single
-shape or configuration, which `-bench` already runs alone. `go test`'s
-`-timeout` covers the whole process, children included, so a full run
-needs more than its default 10 minutes:
-
-```sh
-WL_BENCH_FRESH=1 WL_BUN=/path/to/bun-1.4.3/bun go test ./cmd/windmill-lite -run '^$' \
-  -bench 'BenchmarkStepBoundary|BenchmarkHostShapes' -benchtime 10x -count 3 -timeout 60m
-```
-
-`TestBenchFresh` runs one boundary configuration in this mode and checks
-that it ran in a child process and reports the usual figures.
-`BenchmarkRetainedHeap` has no such mode: it measures one long-lived
-runtime on purpose.

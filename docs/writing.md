@@ -51,7 +51,10 @@ expected to know:
 
 Explain or link everything else at its first use in a document, such as
 [Bun](glossary.md#bun), [Windmill](glossary.md#windmill) and every other
-term in the [glossary](glossary.md).
+term in the [glossary](glossary.md). A summary sentence, such as the root
+README's opening, links only the terms that a newcomer cannot guess from
+it; the document links each other term at its next use, and the glossary
+keeps every term.
 
 ## Self-contained and durable
 
@@ -230,9 +233,19 @@ and review notes belong in pull requests.
 - **Reader:** a person who decides whether to use windmill-lite.
 - **Purpose:** say what windmill-lite is, which problem it solves, what
   works today, and how to start.
-- **Contents, in this order:** the product and the problem; a
-  `**Current state:**` paragraph; a quick start; an index of every module
-  README and of `docs/`.
+- **Contents, in this order:**
+  1. the product and the problem that it solves, in one or two sentences;
+  2. a `**Current state:**` paragraph, before the first `##` heading, that
+     says what works today and what does not;
+  3. who it is for: when to use windmill-lite, and when not;
+  4. how it works: the parts, one line each, with a link;
+  5. a quick start;
+  6. how to install the Bun host SDK, with the version rule;
+  7. an index of every module README and of `docs/`, with what each
+     document answers and for whom;
+  8. compatibility: the versions of Windmill, Bun and Go, and the platforms
+     of the released engines;
+  9. contributing and the licence.
 
 ### Package README
 

@@ -1,453 +1,468 @@
 # wl
 
-**Current state:** milestones F1, F2a, F2b, F3a and F2c of
-[ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
-[ADR 0009](../docs/design/0009-host-adapters.md), the host hooks of
-[ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
-bundle's mandatory host-provided sites (F2a), its budgets and latches
-(F2b: write-capable steps and the first-write signal, deadlines, the
-latch, fatal error names, the clock and the jitter), host mode (F3a),
-and host plugins in TypeScript over `host_call` (F2c). This README covers `wl`,
-the public Go library API and the only exported engine package
-(`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
-([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
-and root scripts with `Run`, reads what it opened with `BuildInfo`, and
-stops it with `Close`. Every adapter of ADR 0009 is a transport over these
-calls: the command line's `windmill-lite run`
-([cmd/windmill-lite](../cmd/windmill-lite/README.md)) is the first, and
-`wltest check` ([cmd/wltest](../cmd/wltest/README.md)) runs the flow suite
-through it. Host mode (F3a) is `Options.Host`: a runtime whose steps run
-in the host process that started it, and whose runs that host submits;
-`windmill-lite host`, the engine the Bun host SDK starts, is that runtime.
-Host plugins (F2c) are TypeScript hooks the harness runs, which the
-runtime asks over `host_call`: `Options.Plugin` in `warm`, the host's own
-in host mode. The go-plugin adapter (F5, `wl/plugin`) comes later, as
-fields of `Options` and `RunOptions` and as a runtime over the same
-calls, so a host written against this API keeps compiling.
+**Current state:** `wl` opens a bundle and runs its flows and root
+scripts, with host hooks, providers, budgets, host mode and host plugins.
+Only Bun steps run, and the go-plugin, gRPC and HTTP adapters of the
+[host adapters ADR](../docs/design/0009-host-adapters.md) do not exist yet.
+This README covers `wl/`, the Go package
+`github.com/invakid404/windmill-lite/wl`.
 
-A runtime runs bundles built with the shared code of
-[ADR 0013](../docs/design/0013-shared-module-code.md) (`BuildInfo` below).
+`wl` is the only exported Go package of the windmill-lite
+[engine](../docs/glossary.md#engine). A Go program, the
+[host](../docs/glossary.md#host), opens a
+[bundle](../docs/glossary.md#bundle) with `Open`, runs its
+[flows](../docs/glossary.md#flow) and [root](../docs/glossary.md#root)
+[scripts](../docs/glossary.md#script) with `Run`, and stops the runtime
+with `Close`. The runtime runs each [step](../docs/glossary.md#step)'s
+script in [Bun](../docs/glossary.md#bun)
+[harness](../docs/glossary.md#harness) processes that it starts.
 
-## Files
+The `windmill-lite run` and `windmill-lite host` commands
+([cmd/windmill-lite](../cmd/windmill-lite/README.md)) and `wltest check`
+([cmd/wltest](../cmd/wltest/README.md)) use `wl` too.
 
-| File | Contents |
+## What you need
+
+| Requirement | Why |
 |---|---|
-| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
-| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; `Clock`, `RealClock`, `RecordClock`, `Jitter`, `SeededJitter`, `ErrPreWriteDeadline` (H4, H10); the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
-| `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `FatalError`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
-| `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs it serves |
-| `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins (F2c), their declaration as `Hooks` and `Providers` whose callbacks are `host_call`s, their resources and variables (H13), `around`, and the merge of a run's hooks with its plugin's |
+| Go 1.27.3 or later, and a C compiler | `wl` embeds the [expression](../docs/glossary.md#expression) engine, QuickJS-ng, through cgo. |
+| Bun 1.4.3 | The harness processes run on it, and their handshake refuses any other Bun. |
+| A bundle that the engine of your `wl` version built | `Open` refuses a bundle that another engine version built, with `ErrEngineVersion`. |
+| The [harness runtime](../docs/glossary.md#harness-runtime) of the same version | `Open` checks its digest against the bundle's manifest. It is the directory `harnesses/bun/runtime` of a checkout of the release's tag. |
+
+The engine version of your program is `wl.Version()`. It is the version
+of the module `github.com/invakid404/windmill-lite` in the program's build
+information, such as `v0.2.0` when your `go.mod` requires that version.
+Build the bundle with the engine of the same version: the release's
+`windmill-lite` binary, or the command that
+`go install github.com/invakid404/windmill-lite/cmd/windmill-lite@v0.2.0`
+installs.
+
+## A minimal example
+
+1. Build a bundle with that engine and the
+   [build helper](../docs/glossary.md#build-helper) of a checkout of the
+   release's tag ([Build a bundle](../harnesses/README.md#build-a-bundle)).
+   This example uses the synthetic [fixture](../docs/glossary.md#fixture) of
+   [Quick start](../README.md#quick-start), built to `fixture.wlb`.
+2. Add the module to your program:
+   `go get github.com/invakid404/windmill-lite@v0.2.0`.
+3. Open the bundle, run its flow `f/app/main`, and print the outcome:
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+
+	"github.com/invakid404/windmill-lite/wl"
+)
+
+func main() {
+	rt, err := wl.Open("fixture.wlb", wl.Options{
+		Bun:            "/path/to/bun-1.4.3/bun",
+		HarnessRuntime: "windmill-lite/harnesses/bun/runtime",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rt.Close()
+
+	args := json.RawMessage(`{"name": "lite"}`)
+	res, err := rt.Run(context.Background(), "f/app/main", args, wl.RunOptions{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(res.Status, string(res.Result))
+}
+```
+
+What the code does:
+
+- `wl.Open` verifies the bundle, checks the engine version and the harness
+  runtime, and returns a `*wl.Runtime`. `HarnessRuntime` is the path of
+  the harness runtime in the checkout of the release's tag.
+- `rt.Run` runs the flow with its arguments, a JSON object, and returns a
+  `*wl.Result`. An error means that the [run](../docs/glossary.md#run)
+  could not start.
+- `res.Status` is `success` when the flow succeeded, and `res.Result` is
+  the flow's result as JSON.
+- `rt.Close` cancels the runs in flight and removes the runtime's
+  temporary files.
+
+The same code is the example function in
+[example_test.go](example_test.go). `go test` compiles it, so a change to
+`wl` that breaks the example fails CI. It does not run it, because it
+needs a bundle.
 
 ## Open
 
-`Open(path, Options)` opens a bundle directory or `.wlb` archive:
+`Open(path string, opts Options) (*Runtime, error)` opens a bundle
+directory or a `.wlb` archive. It returns an error when one of these
+checks fails:
 
-1. **Paths.** The bundle, the data directory and the harness runtime are
-   made absolute, since harness processes run in directories of their own.
-   The data directory is `Options.DataDir`, or a temporary one that `Close`
-   removes.
-2. **Verification.** A directory is verified in place
-   (`bundle.Verify`); an archive is verified and extracted
-   (`bundle.Extract`) into a directory of its own, `<data>/bundle-*`, which
-   `Close` removes, so a data directory the host keeps opens again,
-   however the last open ended. `Options.Digest` pins the bundle digest.
-3. **Engine version.** The manifest's engine version must be the runtime's:
-   `Options.EngineVersion`, or `Version()`, the version linked in with
-   `-ldflags "-X github.com/invakid404/windmill-lite/wl.version=<v>"`, else
-   the module's version from the build information, else `(devel)`.
-   Otherwise `Open` fails with `ErrEngineVersion`. `ir.json` must be of the
-   IR version this engine reads.
-4. **Module state.** The manifest's, or `Options.ModuleState` (`warm` or
-   `fresh`, [ADR 0006](../docs/design/0006-module-state.md)). The engine
-   hands it to every invocation and records it in every trace.
-5. **Platform services** ([ADR 0007](../docs/design/0007-platform-interface.md)),
-   which the runtime owns: one store with the bundle's `data/` and, at the
-   same paths, the host's `Options.Resources` and `Options.Variables`,
-   which replace them (a bundle never holds a secret, so secrets come only
-   from the host; a `Variable` with `Ciphertext` is Windmill ciphertext
-   windmill-lite never decrypts, JE-43); an object store under
-   `<data>/objects`; the job registry and flow user state; the result
-   cache of `cache_ttl` (N4, FX-40), `Options.Results` (a `ResultCache`,
-   which a host can share between runtimes) or one in memory for the
-   runtime's runs; the facade
-   (`internal/platform/facade`) that serves them to the steps; and the
-   default dispatcher over the bundle's program, which runs a root a step
-   dispatches as a run of its own (PF3). A step that updates a variable
-   through the job API (WA-11) updates the runtime's store, so a later run
-   reads the new value.
-6. **Harness.** A bundle with steps needs `Options.HarnessRuntime`, the
-   Bun harness runtime directory (`harnesses/bun/runtime`) whose tree
-   digest the manifest records (drift guard 2); `Open` refuses any other.
-   Harness processes start lazily, on the first step: one pool of warm
-   processes, or one process per step in `fresh` mode, on `Options.Bun`
-   (`bun` on the `PATH` by default), whose handshake checks the harness's
-   kind, the pinned Bun 1.4.3 and the bundle digest. A warm process reaches
-   the facade through its intercepted `fetch`, a fresh one over loopback
-   TCP. Their working directories are under `<data>/work`.
-7. **Engine.** The program's expressions are compiled once, on a
-   QuickJS-ng engine of `Options.ExpressionSlots` slots
-   ([ADR 0003](../docs/design/0003-semantics-placement.md)), and a flow the
-   engine does not run yet fails `Open` with `ErrUnsupported`, naming the
-   milestone that runs it.
-8. **Providers.** Every provider the bundle's host contract names for a
-   mandatory host-provided site
-   ([ADR 0002](../docs/design/0002-ir-and-loader.md)) must be in
-   `Options.Providers`, or `Open` fails with `ErrMissingProvider`
-   (`missing_provider`), so no run reaches an unprovided site. A static
-   site needs none.
+1. Every file of the bundle matches the bundle's manifest, and the
+   bundle's digest is `opts.Digest` when that is set. `Open` first
+   extracts an archive into the data directory.
+2. This engine version built the bundle (`ErrEngineVersion`), and its
+   compiled program is of the version that this engine reads.
+3. For a bundle with steps, `opts.HarnessRuntime` is the harness runtime
+   that the bundle was built for.
+4. `opts.Providers` has every [provider](../docs/glossary.md#provider)
+   that the [host contract](../docs/glossary.md#host-contract) names
+   (`ErrMissingProvider`). A [host plugin](../docs/glossary.md#host-plugin)'s
+   providers count too.
+5. The engine runs every feature that the bundle's flows use
+   (`ErrUnsupported`).
+
+Harness processes start on the first step. Only a host plugin makes
+`Open` start one earlier, to read the plugin's declaration.
+
+The engine version is `opts.EngineVersion`, or else `Version()`.
+`Version()` takes the first of these: the version linked in with
+`-ldflags "-X github.com/invakid404/windmill-lite/wl.version=<v>"`, the
+module's version in the program's build information, or `(devel)`.
+
+### Options
+
+The zero value of each field is its default.
+
+| Field | What it sets | Default | When to set it |
+|---|---|---|---|
+| `Bun` | The Bun executable of the harness processes. It must be Bun 1.4.3. | `bun` on the `PATH` | When `bun` on the `PATH` is not Bun 1.4.3 |
+| `HarnessRuntime` | The harness runtime directory that the bundle was built for | None | For every bundle with steps |
+| `DataDir` | The directory that the runtime writes into: an extracted archive, the object store (`objects/`) and the harness processes' working directories | A temporary directory, which `Close` removes | To keep the object store after `Close` |
+| `ModuleState` | The [module state](../docs/glossary.md#module-state): `ModuleStateWarm` or `ModuleStateFresh` | The bundle's | To run the bundle in the other module state |
+| `Digest` | The digest that the bundle must have | None | To open only one exact bundle |
+| `EngineVersion` | The runtime's engine version, which must be the version that built the bundle | `Version()` | When the program's build information does not carry the engine version, such as a build that links its own version in |
+| `Resources`, `Variables` | The host's resources and variables. They replace the bundle's at the same paths. | The bundle's `data/` | To give secrets, which a bundle never holds, and values that differ by deployment |
+| `Results` | The store of the results of steps that have a `cache_ttl` (a `ResultCache`) | One in memory for each runtime | To share cached results between runtimes |
+| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go | `os.Stderr` | To capture them |
+| `ExpressionSlots` | The number of evaluation slots of the expression engine | `min(GOMAXPROCS, 8)` | To change how many expressions can evaluate at once |
+| `QuickJSOnly` | Turns off the engine's Go evaluator of templates, arithmetic, comparisons and predicates over JSON values. Every expression that the shortcuts and the member paths do not answer then runs in QuickJS-ng. Nothing observable changes. | Off | To compare the two evaluators, or to rule the Go evaluator out when a result looks wrong |
+| `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
+| `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
+| `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
+| `ReadCache` | Gives each flow run a read cache: the run reads each resource and variable once, and answers its later reads from that read | Off | When a run reads the same values often and need not see a change during the run |
+| `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
+
+A `Variable` holds its `Value`, and `Secret` marks a secret. With
+`Ciphertext`, the value is [Windmill](../docs/glossary.md#windmill)
+ciphertext, which windmill-lite never
+decrypts: a step that reads it fails as Windmill fails a secret that it
+cannot decrypt. A step can update a variable through Windmill's
+[job](../docs/glossary.md#job) API,
+and later runs of the runtime read the new value.
+
+`ReadCache` is a [deviation](../docs/glossary.md#deviation): Windmill reads
+a resource or variable again for each step and each call. The
+[equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
+names it, and the [trace](../docs/glossary.md#trace) of a run with it
+lists `D21`.
 
 ## Run
 
-`Run(ctx, path, args, RunOptions)` runs the flow at `path`, or with
-`Kind: KindScript` the root script, as a script job (WA-4), with `args`, a
-JSON object (empty means `{}`). `RunOptions.ID` is the run's job id (a new
-UUID by default) and `Seed` fixes the shuffles of the orders Windmill leaves
-unspecified and the retry jitter. `Hooks` are the flow run's host hooks
-and `Platform` its own platform providers (below). An error means the run
-could not start: no such target, arguments that are not an object or
-cannot be stored, or a selector of `Hooks` that is not well formed
-(`ErrSelector`) or is ambiguous (`ErrAmbiguousSelector`).
+`Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error)`
+runs the flow at `path`, or with `Kind: KindScript` the root script, with
+`args`, a JSON object. Empty `args` mean `{}`. `Run` is safe for
+concurrent use: the runs of a runtime share its harness processes, its
+platform services and its expression engine.
 
-The context bounds the run: when it ends, the run ends canceled, with the
-reason and canceler of a `*Cancellation` cause
-(`context.WithCancelCause`), else Windmill's defaults (FX-38). `Close`
-cancels it too, with the reason `the runtime is closing` by
-`windmill-lite`; once `Close` has begun, `Run` refuses a run with
-`ErrClosed`.
+`Run` returns an error only when the run could not start:
 
-`Result` holds the job id, the status (`success`, `failure`, `canceled`,
-`skipped`), the final result in its stored form (FX-36), `MayHaveMutated`
-(ADR 0008 H3), the warnings, and for a flow its `Trace`: per site what
-happened and why, with provenance and timings, and `PlatformCalls`, every
-platform call the run's steps made as the facade recorded it, with the
-step's site and job, the route it matched and the answer's status, in the
-order the facade answered them. The runtime collects them per run: its
-executor maps each invocation to its run and site, and the facade hands
-over each call as soon as its answer is decided (`Config.Answered`), before
-the step sees the answer. An invocation's run and site stay known until
-its run ends, not only until the facade releases the invocation, since a
-call the step did not await can be answered after the step settled. So a
-run's trace has every call its steps were answered before it ended, those
-of a step that settled without awaiting one and of a step that the run's
-cancellation abandoned included; a call answered after the run ended, and
-the calls of the runs the dispatcher starts, are not in it.
+- the runtime is closing (`ErrClosed`);
+- the bundle has no such flow or root script;
+- `args` is not a JSON object, or cannot be stored;
+- a [selector](../docs/glossary.md#selector) of `opts.Hooks` is not well
+  formed (`ErrSelector`) or is
+  ambiguous (`ErrAmbiguousSelector`).
 
-`Options.ReadCache`, off by default, gives each flow run a read cache
-(deviation D21 of
-[ADR 0001](../docs/design/0001-equivalence-contract.md#5-named-deviations)).
-The run reads each resource and variable from its providers once, the
-plugin's included, and answers its later reads of it from that read. This
-covers its steps' `$res:` and `$var:` arguments, `flow_env` and their reads
-through the job API (`platform.ReadCache`). The run's trace lists D21.
+The context bounds the run. When it ends, the run ends with status
+`canceled`, and Windmill's default reason and canceler. A context
+canceled with a `*wl.Cancellation` cause (`context.WithCancelCause`) names
+its own reason and canceler.
 
-`Options.QuickJSOnly`, off by default, turns off the expression pipeline's
-Go evaluator of templates, arithmetic, comparisons and predicates over JSON
-values (`jsExpr`,
-[ADR 0003](../docs/design/0003-semantics-placement.md)). Every expression
-that the shortcuts and the member paths do not answer then runs on
-QuickJS-ng. The evaluator answers only what QuickJS-ng
-answers the same way, so nothing observable changes: the option is a
-safety valve for an embedder that meets a difference, and a way to compare
-the two.
+### RunOptions
 
-`Run` is safe for concurrent use: runs of one runtime share its harness
-pool, its services and its expression engine. A run latched by a hook, a
-provider or the engine (H5) has status `latched` and its error in
-`Result.Latched`; a halted one (H8) has status `halted`.
+| Field | What it sets | Default |
+|---|---|---|
+| `Kind` | `KindFlow` or `KindScript`. A root script runs as a script job. | `KindFlow` |
+| `ID` | The run's job id. Steps read it as `WM_FLOW_JOB_ID`, a script as `WM_JOB_ID`. | A new UUID |
+| `Seed` | Fixes the run's shuffles of the orders that Windmill leaves unspecified, and its retry jitter | A random seed |
+| `Hooks` | The run's [hooks](#hooks) | None |
+| `Platform` | The run's own resources, variables and secret resolver ([Per-run platform data](#per-run-platform-data)) | The runtime's |
+| `PreWriteDeadline` | A deadline that applies until the run's first write is approved ([Budgets](#budgets)) | None |
+| `Clock` | The clock of every sleep and retry delay: `wl.RealClock`, or a `*wl.RecordClock` that returns each wait at once | The real clock |
+| `Jitter` | The source of the retry jitter. `SeededJitter(seed)` fixes it. | One seeded with `Seed` |
+
+A script run uses only `Kind` and `ID`. The other fields apply to flow
+runs.
+
+### Result
+
+| Field | What it holds |
+|---|---|
+| `ID` | The run's job id |
+| `Status` | How the run ended (table below) |
+| `Result` | The final result as Windmill stores it: the flow's result, or the script's result or failure value |
+| `MayHaveMutated` | `true` once the run's first write was approved ([Budgets](#budgets)), in a failed run too. The approval counts even when what prepares the launch after it, such as `InvocationEnv`, stops the job. |
+| `Trace` | For a flow, the [trace](../docs/glossary.md#trace): for each call site what happened and why, with timings, and the platform calls that the steps made before the run ended. `nil` for a script. |
+| `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled |
+| `Latched` | For a `latched` run, the error that was latched |
+
+| Status | Constant | Meaning |
+|---|---|---|
+| `success` | `StatusSuccess` | The flow or script succeeded. |
+| `failure` | `StatusFailure` | The flow or script failed. `Result` holds the error value. |
+| `canceled` | `StatusCanceled` | The run's context ended, or a deadline passed, or `Close` canceled it. |
+| `skipped` | `StatusSkipped` | A step's early stop with `skip_if_stopped` ended the flow. |
+| `latched` | `StatusLatched` | A hook, a provider, a step or the engine [latched](../docs/glossary.md#latch) an error. `Latched` holds it. |
+| `halted` | `StatusHalted` | A halt hook ended the run. |
 
 ## Hooks
 
-`RunOptions.Hooks` gives a run the host hooks of ADR 0008 as Go
-callbacks, each optional, over the engine's hook seams, with ADR 0008's
-precedence. A hook's error latches the run with it (H5), and so does
-`RunHandle.Latch`; a hook never fails a module by returning an error,
-which an `Outcome` with `Failed` does. The callbacks of one run can be
-called from several goroutines at once (a parallel loop's iterations).
+`RunOptions.Hooks` gives a run its [hooks](../docs/glossary.md#hook) as Go
+callbacks. The [host hooks ADR](../docs/design/0008-host-hooks.md) gives
+their full rules and the reasons for them.
 
-| Hook | Field | What it does |
+- Every field is optional.
+- A hook that returns an error [latches](../docs/glossary.md#latch) the
+  run with it. A hook can also call `RunHandle.Latch`.
+- A hook makes a step fail only through an `Outcome` with `Failed` set,
+  never by returning an error.
+- The engine can call the hooks of one run from several goroutines at
+  once, for the iterations of a parallel loop.
+
+| Field | When the engine calls it | What it can do |
 |---|---|---|
-| H1 | `Intercept` | answers for a matching site's job when its module would launch, after `skip_if`, `mock`, its arguments and its timeout are decided: `Static`, a fixed result, or `Func`, which returns an `Outcome` or declines; the first matching interceptor answers, and the completion phase applies to its outcome. The record lists `H1` |
-| H2 | `RewriteArgs` | rewrites the arguments of a matching site whose module launches its own job, every matching rewriter in order; the record keeps both and lists `H2` |
-| H6 | `OnModuleStart`, `OnModuleEnd` | observe every module, nested ones and iterations included, the end with the site's record |
-| H8 | `HaltBefore`, `HaltAfter` | end the run halted before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module |
-| H9 | `OnRunEnd`, `OnRunSettled` | the run's end, whose warnings join the run's, and its settlement, once its abandoned invocations have settled; both traces carry the run's platform calls as of its end, as the returned trace does |
-| H12 | `InvocationEnv` | sets or deletes variables of each invocation's job environment before it runs |
-| H3 | `WriteCapable`, `BeforeFirstWrite` | marks the sites the host deems write-capable, a leaf or a subflow call (asked about before its child flow starts, so a veto stops every step below it); before the first of them launches a job in a run, `BeforeFirstWrite` is asked once, and its error vetoes the write and latches the run; parallel launches wait for that one verdict, and a veto stops them all. The approval is the commit point: from it on the run reports `MayHaveMutated`, a failed run too, and the pre-write deadline no longer applies, even when what prepares the launch after it (`InvocationEnv`, the arguments' resolution) stops the job. An interception, a provided site, a mock or a skipped module launches no job, so it is never a write |
-| H7 | `FatalErrorNames` | error names that bypass retry, `continue_on_error`, `skip_failures` and `skip_failure`: a module that fails with one latches the run with a `*FatalError`, and the trace lists `H7` among its deviations |
+| `Intercept` | When a matching site would launch its job, after `skip_if`, `mock`, its arguments and its timeout are decided | Answer for the job with a `Static` result, or with the `Outcome` of `Func`, which can also decline. The first matching interceptor answers. |
+| `RewriteArgs` | When a matching site launches its own job | Return the arguments that the step runs with. Every matching rewriter runs, in order, and the trace keeps the arguments before and after. |
+| `OnModuleStart`, `OnModuleEnd` | At the start and end of every module, nested ones and iterations included | Observe. `OnModuleEnd` gets the site's `StepRecord`. |
+| `HaltBefore`, `HaltAfter` | Before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module | End the run with status `halted` |
+| `InvocationEnv` | Before each [invocation](../docs/glossary.md#invocation) runs | Set or delete variables of the invocation's job environment |
+| `OnRunEnd` | Once the run's outcome is decided | Add warnings to the run. It cannot change the status, and must not change the trace. |
+| `OnRunSettled` | Once every invocation that the run abandoned has settled, which may be never | Release the resources that step code can reach |
+| `WriteCapable`, `BeforeFirstWrite` | Before the first write-capable site launches a job | Veto the write ([Budgets](#budgets)) |
+| `FatalErrorNames` | When a module fails | Latch the run instead of retrying or continuing ([Budgets](#budgets)) |
 
-**Selectors** (`Selector`, the host contract's selector type) name call
-sites: `{Flow, Module}` names the module with that id in any module list
-of the flow (container bodies belong to their enclosing flow), and
-`{Script}` every call of a script, a script step by its path and an inline
-step by `<flow path>/<module id>`, a host-provided site that replaces such
-a step included. A module selector may add `Occurrence`,
-required for an id repeated in one module list (otherwise
-`ErrAmbiguousSelector` before the run starts), and `Iterations` or
-`Branches`, which match within those iterations or branches of the
-innermost loop or branching module around the site.
+A step's record (`StepRecord.Hooks`) and the trace's deviations name the
+hooks that acted. They use the IDs of the
+[host hooks ADR](../docs/design/0008-host-hooks.md#the-hooks): `H1` for an
+interception, `H2` for a rewrite, `H7` for a fatal error name, `H8` for a
+halt, `H10` for the record clock, and `provided` for a provided site.
 
-**Providers.** A mandatory host-provided site (ADR 0002, ADR 0008) runs
-with its own envelope, its transforms, `skip_if`, `mock`, `stop_after_if`,
-retries and `continue_on_error`, and at its launch the site's provider
-answers in place of the job its target would have run: a static
-contract value, or `Options.Providers[name]`, which gets a `Call` with the
-site's stored arguments and returns an `Outcome`, once per attempt. A
-mandatory provider cannot decline: declining latches the run with
-`ErrProviderDeclined` (`provider_declined`), and the run fails closed. The
-site's record has `Ran` set, no job, and `provided` among its hooks.
+### Selectors
 
-**Sealed arguments.** A step stores an argument computed from a secret
-`flow_env` entry sealed, as an `$encrypted:` value that only the engine
-opens ([JE-38](../docs/semantics/expressions.md#je-38)). An interceptor's or
-a rewriter's `Call` therefore holds it sealed. A provided site stores it in
-clear, since its provider runs outside the engine.
+A [selector](../docs/glossary.md#selector) (`wl.Selector`, the host
+contract's type) names the call sites that a hook applies to.
 
-**Per-run providers** (H13). `RunOptions.Platform` gives a run its own
-resources and variables, over the runtime's at the same paths, and its
-own resolver (`Resolve`, the host secret layer of ADR 0007), which a host
-chooses from its run data, for example per tenant. The run's argument
-resolution, `flow_env`, expression helpers and its steps' API reads answer
-from them; a step's variable update changes the run's own variable, or the
-runtime's where the run has none. The job registry, flow user state,
-object store and result cache stay the runtime's, and the runs a step
-dispatches read the runtime's providers.
+- `{Flow, Module}` names the module with that id in any module list of the
+  flow. The modules inside a loop or a branch belong to their enclosing
+  flow.
+- `{Script}` names every call of a script: a script step by its path, and
+  an inline script by `<flow path>/<module id>`. A provided site that
+  replaces such a step matches too.
+- `Occurrence` picks one module when its id is repeated in one module
+  list. Without it, `Run` fails with `ErrAmbiguousSelector`.
+- `Iterations` or `Branches` limit a module selector to those iterations
+  or branches of the innermost loop or branch around the site.
 
-## Budgets and latches
+### Providers
 
-Every one of them is off unless a host sets it (F2b).
+A [provided site](../docs/glossary.md#provided-site) runs with its own
+input transforms, `skip_if`, `mock`, `stop_after_if`, retries and
+`continue_on_error`. When it launches, its provider answers in place of
+the job that its target would have run.
 
-- **Cancellation and deadlines (H4).** The run's context is its
-  cancellation source and its hard deadline; `RunOptions.PreWriteDeadline`
-  is a second deadline that applies only until the run's first write is
-  approved (H3), after which it no longer counts. A passed
-  deadline ends the run canceled, as a cancellation does, with Windmill's
-  default reason and canceler in the Canceled error; a cancellation with
-  a `*Cancellation` cause names its own. Both are checked at every module
-  boundary, iteration, sleep and retry delay.
-- **The latch (H5).** A hook's error, `RunHandle.Latch`, a veto (H3), a
-  fatal error name (H7) and a declining provider each latch an error on
-  the run: it starts nothing more and ends `latched` with the first error
-  latched (`Result.Latched`), which never becomes a step's result.
-- **The clock and the jitter (H10).** `RunOptions.Clock` is the clock every
-  sleep and retry delay waits on: the real one by default, or a
-  `*RecordClock`, which records each wait and returns at once (quick
-  waits), and makes the trace list `H10` among its deviations.
-  `RunOptions.Jitter` is the retry-jitter source; `SeededJitter` fixes it,
-  as `Seed` does.
-- **Precedence** (ADR 0008). At a module's start: the latch, then
-  cancellation and deadlines, then halts. At its completion: the latch,
-  then cancellation, then fatal error names, then Windmill's own continue
-  decision; one exception lets an error stop that coincides with the
-  cancellation, in a flow with a failure module, still start what
-  Windmill's continue decision asks for. The latch-precedence cases of
-  `conformance/hooks` hold this order against retry, `continue_on_error`,
-  `skip_failures` and the failure module.
+- The host contract gives each provided site a static value or a provider
+  name. `Options.Providers[name]` is a `wl.Provider`: it gets a `Call` with
+  the site's stored arguments, and returns an `Outcome`, once for each
+  attempt.
+- A provider cannot decline. Returning `false` latches the run with
+  `ErrProviderDeclined`, and the run fails closed.
+- The site's record has `Ran` set, no job, and `provided` among its hooks.
+- An argument computed from a secret `flow_env` entry is stored sealed, as
+  an `$encrypted:` value that only the engine opens. An interceptor's or a
+  rewriter's `Call` holds it sealed; a provider gets it in clear.
+
+### Per-run platform data
+
+`RunOptions.Platform` gives one flow run its own platform data, which a
+host can choose from the run's data, for example per tenant.
+
+- `Resources` and `Variables` replace the runtime's at the same paths, for
+  this run only. A step's variable update changes the run's own variable,
+  or the runtime's where the run has none.
+- `Resolve`, when set, is the run's secret layer. Each resource value and
+  each secret's plaintext passes through it after interpolation. A raw
+  resource read does not.
+- The run's argument resolution, `flow_env`, expression helpers and its
+  steps' job-API reads answer from this data.
+- The job registry, flow user state, object store and result cache stay
+  the runtime's. The runs that a step dispatches read the runtime's data.
+
+## Budgets
+
+A budget limits a run. Every budget is off unless the host sets it,
+except the host plugin's timeout, which is 60 s by default. The
+engine checks the context and the deadlines at every module boundary,
+iteration, sleep and retry delay.
+
+| Setting | What it limits | What happens when it trips |
+|---|---|---|
+| The run's context (`ctx`) | The whole run: its cancellation and its hard deadline | The run ends `canceled`. |
+| `RunOptions.PreWriteDeadline` | The time before the run's first write is approved | The run ends `canceled`, and its context's cause is `ErrPreWriteDeadline`. After the approval, the deadline no longer applies. |
+| `Hooks.WriteCapable` and `Hooks.BeforeFirstWrite` | The first write: the first job of a write-capable site, or a write-capable subflow call | An error from `BeforeFirstWrite` vetoes the write and latches the run. Parallel launches wait for that one verdict. After an approval, `Result.MayHaveMutated` is `true`, also in a failed run. |
+| `Hooks.FatalErrorNames` | The error names that skip retries, `continue_on_error`, `skip_failures` and `skip_failure` | The run latches with a `*FatalError`, and the trace lists `H7`. |
+| `RunOptions.Clock` set to a `*wl.RecordClock` | The time of sleeps and retry delays | Each wait is recorded and returns at once, and the trace lists `H10`. |
+| `Options.PluginTimeout` | Each call to the host plugin | The run latches with `ErrHostCallTimeout`, unless its context ended first. A late `onRunEnd` adds a `plugin_error` warning instead, and a late `onRunSettled` goes to the diagnostics. |
+
+The host decides which sites are write-capable, and the first-write gate
+covers only those. An interception, a provided site, a mock or a skipped
+module launches no job, so it is never a write.
+
+**Order.** At a module's start, the engine checks the latch, then
+cancellation and deadlines, then halts. At its completion, it checks the
+latch, then cancellation, then fatal error names, then Windmill's own
+decision to continue. The
+[host hooks ADR](../docs/design/0008-host-hooks.md#the-hooks) gives the one
+exception, for an error stop that coincides with a cancellation.
+
+## Errors
+
+Test a sentinel error with `errors.Is`, and a typed error with
+`errors.As`. Other errors of `Open` name the file or option at fault, such
+as a missing `HarnessRuntime` or one of another digest.
+
+| Error | Where | What it means | What to do |
+|---|---|---|---|
+| `ErrEngineVersion` | `Open` | Another engine version built the bundle. | Build the bundle with the engine of your `wl` version ([What you need](#what-you-need)). |
+| `ErrUnsupported` | `Open` | A flow uses a feature that the engine does not run yet. The error names it. | Change the flow, or run it on Windmill. |
+| `ErrMissingProvider` (`missing_provider`) | `Open` | The host contract names a provider that neither `Options.Providers` nor the host plugin has. | Register the provider. |
+| `ErrClosed` | `Run` | `Close` has begun. | Open a new runtime. |
+| `ErrSelector` | `Run` | A selector does not name exactly one of a module and a script, or a script selector has `Occurrence`, `Iterations` or `Branches`. | Fix the selector. |
+| `ErrAmbiguousSelector` (`ambiguous_selector`) | `Run` | A module selector names an id that a module list repeats. | Add `Occurrence`. |
+| `ErrProviderDeclined` (`provider_declined`) | `Result.Latched` | A provider declined. | Make the provider answer every call. |
+| `*FatalError` | `Result.Latched` | A module failed with one of `Hooks.FatalErrorNames`. It holds the site, the error's name and the failure value. | Handle the failure in the host. |
+| `*HostCallError` | `Result.Latched` | A host plugin's hook threw or gave a wrong answer (code `plugin_error`), or the plugin lacks the hook (`unknown_hook`). | Fix the plugin. |
+| `ErrHostCallTimeout` (`host_call_timeout`) | `Result.Latched` | A host plugin's hook did not reply within `Options.PluginTimeout`. | Make the hook faster, or raise the timeout. |
+| `ErrPreWriteDeadline` | The cause of the run's context, which hooks see with `context.Cause` | The pre-write deadline passed before a first write was approved, so no write-capable site launched a job. It wraps `context.DeadlineExceeded`. | Retry only if the steps that ran are safe to repeat: steps that the host did not mark write-capable may have had effects. |
+| `*HandshakeError` | `Open`, in host mode | The runtime refused the host, or the host's connection ended first. `Code` is a reject code. | See the codes below. |
+
+A step that calls `wl.latch(error)` latches its run too, and so does a
+host plugin's `around` wrapper that fails. `Result.Latched` then holds
+that error.
+
+| Reject code | Constant | Meaning |
+|---|---|---|
+| `workdir_not_writable` | `RejectWorkdirNotWritable` | `Host.Workdir` is not a directory that the runtime can write. |
+| `workdir_mismatch` | `RejectWorkdirMismatch` | `Host.Workdir` is not the host's working directory. |
+| `engine_refused` | `RejectEngine` | The runtime cannot serve the bundle at all, for example because another engine version built it or it does not verify. The message gives the reason. |
+
+## Inspect and close a runtime
+
+`BuildInfo()` reports what the runtime opened:
+
+| Field | What it holds |
+|---|---|
+| `BundleDigest` | The digest of the bundle's manifest |
+| `EngineVersion` | The runtime's engine version, which built the bundle |
+| `BunVersion`, `EsbuildVersion` | The Bun that built the scripts, and the esbuild of the codebase scripts, if any |
+| `HarnessRuntimes` | The digests of the harness runtimes that the bundle was built for, by harness class |
+| `ModuleState` | The module state in effect |
+| `SharedCode` | Whether the steps run the bundle's shared code: the bundle has it, and the steps run `warm` ([shared module code ADR](../docs/design/0013-shared-module-code.md)). A run's trace records it too (`Trace.SharedCode`). |
+| `Contract` | The host contract that the bundle was built with, as JSON |
+| `Deviations` | The deviations in effect: the manifest's, with those of the module state in effect |
+| `NonconformantRuntime` | The bundle was built on a Bun other than 1.4.3. |
+
+- `PlatformOrigin()` is the origin at which the steps reach the runtime's
+  [platform facade](../docs/glossary.md#platform-facade). A step reads it
+  as `BASE_URL`, and a native step also as `BASE_INTERNAL_URL`. A `warm`
+  or host-mode process reaches it through its
+  intercepted `fetch`, and a `fresh` process over loopback TCP.
+- `Done()` is closed when host mode ends, and is `nil` outside host mode.
+- `Close()` stops admitting runs, cancels the runs in flight with the
+  reason `the runtime is closing` by `windmill-lite`, and waits for them.
+  Then it stops the harness processes, the facade and the expression
+  engine, and removes the runtime's temporary directories. It takes at
+  most 10 s, and returns an error if a run is still in flight then.
+  `Close` is idempotent and safe to call while runs start.
 
 ## Host mode
 
-`Options.Host` opens the runtime in host mode
-([ADR 0004](../docs/design/0004-harness-protocol.md) host mode,
-[ADR 0009](../docs/design/0009-host-adapters.md)): the runtime is the
-engine of a host process that is also its Bun harness, that started it
-with one end of a socketpair (`Host.Conn`, and `Host.Children` for the
-channel of its steps' child groups, WR-55), and that submits its runs.
-The bundle must be a directory, which the host loads too; steps run warm
-(ADR 0006: a `fresh` `ModuleState` fails `Open`), and `HarnessRuntime` and
-`Bun` are not used, since the host is the harness.
+In [host mode](../docs/glossary.md#host-mode), the steps run in the
+process of the host that started the engine, and that host submits the
+runs. `windmill-lite host` is such an engine, and the
+[Bun host SDK](../harnesses/README.md) starts it. Use `Options.Host` only
+to write another such engine.
 
-1. **Handshake.** `Open` builds the runtime as for any bundle, then
-   completes the handshake with the host before it returns
-   ([internal/harness](../internal/harness/README.md), host mode): the
-   host must greet it as a Bun harness that offers the host capability,
-   with the pinned Bun and the bundle's digest, from the engine's parent
-   process, and its hello's working directory must be `Host.Workdir`, the
-   directory the host passed, which must be a directory the runtime can
-   write. Otherwise `Open` fails with a `*HandshakeError` whose code is
-   the reject's (`RejectWorkdirNotWritable`, `RejectWorkdirMismatch`, or
-   the protocol's others). When `Open` fails before the handshake (the
-   bundle does not verify, another engine version built it, a fresh
-   module state, an archive, no `Workdir`), it refuses the host in the
-   handshake with `RejectEngine` (`engine_refused`) and the reason, so the
-   host learns why; `Host.Refuse` does the same for an engine that fails
-   before `Open`.
-2. **Runs.** Each run the host submits is a `Run` of its `kind` (flow or
-   script) and `path`, with its `id` as the run's job id, its `intercept`
-   as static stand-ins for the modules it names (H1's no-code form), and
-   the run's invocations sent back to the host, which runs them in the
-   scope it captured at submission (H11). The outcome goes back in
-   `run_done` (status, stored result, `may_have_mutated`, warnings); a run
-   `Run` refuses goes back with its reason (`refused`, or `draining` once
-   `Close` has begun). When the run has settled (H9's `onRunSettled`: for
-   a flow, through the engine's settlement; for a script job, its one
-   invocation), `run_settled` follows. Runs the host's steps dispatch run
-   in the host too, outside every scope it entered.
-3. **The host's steps** reach the facade through their intercepted
-   `fetch`: each invocation carries the facade's origin as `BASE_URL`,
-   since the host was not spawned with the base environment, and its
-   arguments go to `args.json` in the host's working directory (WR-5).
-   - **Leaving the file out.** Only for a bundle none of whose scripts can
-     read it (the manifest's `no_args_file_reader`) whose host opted in
-     with `Host.SkipArgsFile` (ADR 0004 host mode item 7). The option,
-     off by default, states that the host's own code, its plugin's hooks
-     included, never reads the file.
-4. **Drain.** A host's `drain` is answered by the harness side: later runs
-   are refused `draining`, and `bye` follows once none is in flight.
-5. **The watchdog.** `Host.KillAfter` (default 30 s, negative disables it)
-   is the silence after which the runtime sends the host `SIGKILL` (ADR
-   0004 host mode item 4).
-6. **The end.** `Done` closes once the host's connection ends; the runs in
-   flight were lost with the host (`harness_lost`). `Close` cancels the
-   runs in flight and ends the connection.
+- The bundle must be a directory, which the host loads too.
+- Steps run `warm`: `ModuleState` `fresh` and `Options.Plugin` fail
+  `Open`. `HarnessRuntime` and `Bun` are not used.
+- `Open` completes the handshake with the host before it returns. When
+  `Open` fails, it refuses the host with the reason.
+- `Host.Refuse` refuses the host for an engine that fails before `Open`.
+
+| `Host` field | What it sets |
+|---|---|
+| `Conn` | The engine's end of the socket to the host: file descriptor 3 of `windmill-lite host` |
+| `Children` | The channel on which the host announces its steps' child process groups, file descriptor 4. `nil` means that they come on `Conn`. |
+| `Workdir` | The working directory that the host passed. It must be a directory that the runtime can write, and already the host's working directory. Required. |
+| `SkipArgsFile` | The host's statement that its own code never reads `args.json` in `Workdir`. For a bundle none of whose scripts can read the file, the runtime then writes none. |
+| `KillAfter` | The time without a frame from the host after which the runtime kills the host with `SIGKILL`. Zero means 30 s, and a negative value turns the watchdog off. |
+
+The [Bun host SDK](../harnesses/bun/README.md#host-mode-and-the-host-sdk)
+describes host mode from the host's side, and the
+[harness protocol ADR](../docs/design/0004-harness-protocol.md#host-mode)
+gives the protocol.
 
 ## Host plugins
 
-A host plugin (milestone F2c, ADR 0008, ADR 0004 §Host plugins) is
-TypeScript the Bun harness runs, written against
-`harnesses/bun/runtime/plugin.ts`: the hooks of F2a (H1's interceptions,
-H2's rewrites, H6's observers, H8's halts, H9's run-end hooks, H12's
-environment hook), `around` wrappers, the named providers of the host
-contract's provided sites, and `resource` and `variable` (H13's provider
-bridge).
+A [host plugin](../docs/glossary.md#host-plugin) gives hooks and providers
+in TypeScript. The
+[Bun harness README](../harnesses/bun/README.md#host-plugins) describes how
+to write one.
 
-1. **Where.** `Options.Plugin` names a module that every `warm` harness
-   process loads (`--plugin`); `Open` starts the first process to read
-   its declaration. In host mode the plugin is the host's (the host SDK's
-   `plugin`), and the handshake reads it from the hello (`HostConfig.Check`).
-   A `fresh` runtime, and `Options.Plugin` in host mode, fail `Open`.
-2. **The declaration** names the hooks the plugin answers and their
-   selectors. The runtime checks them as it checks a Go host's (well
-   formed, unambiguous), checks that every provider the host contract
-   names is in `Options.Providers` or the plugin's (`missing_provider`;
-   none may be in both), and refuses otherwise: `Open` fails, or the host
-   is refused with `plugin_mismatch`.
-3. **Hooks.** The declaration becomes `Hooks` and `Providers` (F2a's
-   seams): a static interception and the halts stay in Go, and every other
-   callback sends a `host_call` with its hook, run, site and payload (an
-   interception or rewrite names its entry by index) and decodes the
-   reply. A run's own `RunOptions.Hooks` come first, then the plugin's
-   (`mergeHooks`). A plugin's error (`HostCallError`) latches the run, as
-   a Go hook's does, and so does a reply that does not come within
-   `Options.PluginTimeout` (`ErrHostCallTimeout`, 60 s by default); a run
-   whose context ends first is not latched. A failed `onRunEnd` adds a
-   `plugin_error` warning; a failed `onRunSettled` is written to the
-   diagnostics.
-   - **The payload** (`marshalPayload`) is written as `json.Marshal`
-     writes it, map keys sorted, but the stored texts of arguments,
-     results, carried values and late bodies (`spliced`) go in as they
-     are. Its escapes may therefore differ from `encoding/json`'s inside
-     a stored text (`<`, `>`, `&`, U+2028 and U+2029); the plugin parses
-     the same values ([ADR 0008](../docs/design/0008-host-hooks.md),
-     §Where hooks run).
-   - A value without a stored text, and the arguments a rewrite gets
-     before storage, are written by `encoding/json`, its errors included.
-     `TestPayloadSplice` holds the payloads to `json.Marshal`'s: the same
-     parsed values, and the same bytes but for those escapes.
-   - **Run-end trace detail.** Each run-end hook gets the full trace
-     unless the declaration's `trace_detail` asks for a `summary` (the
-     run's own fields, without its per-step parts) or `none` (its id and
-     status), as ADR 0004 §Host plugins says. A Go hook always gets the
-     whole `Trace`.
-4. **H13.** A plugin that declares `resource` or `variable` answers them
-   for each run, after the run's own (`RunOptions.Platform`) and before
-   the runtime's, for the job API and argument resolution alike; the
-   engine's router does the interpolation and errors.
-5. **`around`.** The engine puts the indexes of the plugin's around
-   wrappers whose selectors match a leaf's site on its invocation, and
-   the harness runs the step inside them; a script run's job too.
-6. **F2b's hooks.** A plugin can declare write-capable selectors,
-   `beforeFirstWrite` (a `host_call`) and fatal error names (H3, H7);
-   `mergeHooks` puts them after the run's own. `onRunEnd` reports a run
-   whose context ended too: its call has the plugin timeout alone.
-   - **Hooks hold settlement.** Every `host_call` of a run holds the run's
-     settlement from before it is sent (`doHeld`,
-     `engine.HoldSettlement`) until its reply, or, when the runtime
-     stopped waiting first (the plugin timeout, the run's end, a step that
-     settled meanwhile), its late reply or the harness's exit, so
-     `OnRunSettled`, `run_settled` and the release of the run's resources
-     come after every hook of the run. A hook of a settled run is not
-     called (`errRunSettled`).
-   - **H13 failures latch.** The plugin's `resource` and `variable` reach
-     their run through a `runBinding` that `engine.RunRequest.Started`
-     fills, since the facade serves job-API calls outside the run's
-     context: a failure or timeout latches the run, unless the call ended
-     with its context or the run's outcome was decided, and the router
-     still answers the call with the error.
-   - **The trace.** A hook's record and trace (`recordJSON`, `traceJSON`)
-     carry every field of the Go `StepRecord` and `Trace` in snake_case:
-     the arguments before H2, as stored and as resolved, the carried value,
-     timings, late output, child flows, spans, deviations and platform
-     calls.
-7. **The step API.** Steps call `wl.latch(error)` and `wl.signal()` on
-   `globalThis` (ADR 0004 §Host plugins): a latch latches the run, a
-   script run's too (`StatusLatched`, with `*engine.StepLatch` in
-   `Result.Latched`, as a failed `around` gives a `*engine.PluginError`),
-   and the signal aborts when the engine abandons the step.
-8. **A run's own hooks in host mode.** A run frame carries what a Go host
-   gives in `RunOptions` (`hostBudgets`). Write-capable selectors, halts
-   and fatal error names become the run's own hooks, ahead of the
-   plugin's. The frame also carries the pre-write deadline, the record
-   clock, and a hard deadline, which bounds the run's context until the
-   run has settled; `run_done` carries `MayHaveMutated` and the trace's
-   deviations.
-   - **Halts per run.** The halts in a plugin's declaration apply to every
-     run on its host's connection. A run frame's `halt_before` and
-     `halt_after` apply to that run alone, as `Hooks.HaltBefore` and
-     `Hooks.HaltAfter` do for a Go host. So a host can evaluate a read-only
-     prefix of a flow that it also runs whole
-     ([H8](../docs/design/0008-host-hooks.md#the-hooks)).
-   - **Selector checks.** `hostBudgets` checks the frame's selectors as a
-     plugin's are checked (`checkSelectorIn`: known fields, form, no
-     ambiguity). A selector that fails refuses the run with `refused`, and
-     the error names it as the host SDK's run options do, such as
-     `the run's haltAfter[0]`.
-
-## BuildInfo, PlatformOrigin and Close
-
-`BuildInfo()` reports the bundle digest, the engine version, the Bun and
-esbuild versions, the harness runtime digests, the module state in effect,
-the host contract, the deviations in effect and whether the bundle was
-built on another Bun (`nonconformant_runtime`). The deviations are the
-manifest's, with those of the module state in effect in place of the
-manifest's mode's when `Options.ModuleState` overrode it (D1, D2, D9, D10
-and D11 are warm mode's, ADR 0006; `bundle.ModeDeviations`, the rule the
-build lists them by).
-
-For a bundle built with the shared code of [ADR 0013](../docs/design/0013-shared-module-code.md),
-`BuildInfo().SharedCode` says whether steps run it: they do when the
-bundle has it and steps run warm, as in host mode. [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations), the
-differences of shared code, is then among the deviations, as warm mode's
-are. A run's trace records shared code too (`Trace.SharedCode`, and
-`shared_code` in the trace that a host plugin reads).
-
-`PlatformOrigin()` is the origin at which the runtime's steps reach its
-platform facade: the one where nothing listens, which a warm or host-mode
-process reaches through its intercepted `fetch`, or in `fresh` mode the
-loopback one it reaches over TCP. A step reads it as `BASE_URL`, and a
-native step as `BASE_INTERNAL_URL` too
-([WR-45](../docs/semantics/languages.md#wr-45)); `cmd/wltest` compares it
-as the oracle's base URL.
-
-`Close()` stops admitting runs, cancels the runs in flight and the
-dispatcher's and waits for them, then drains the harness pool (in host
-mode, ends the host's connection), closes the facade and the expression
-engine, and removes the directory an archive was
-extracted into and a data directory `Open` made. All of it is bounded by
-10 s; a run still in flight then makes `Close` return an error. It is
-idempotent and safe to call while runs start.
+- `Options.Plugin` names the plugin's module. Every `warm` harness process
+  loads it, and `Open` starts the first process to read the plugin's
+  declaration. A `fresh` runtime refuses a plugin. In host mode, the
+  plugin is the host's.
+- The runtime checks the declaration's selectors as it checks a Go host's.
+  Each provider that the host contract names must be in
+  `Options.Providers` or in the plugin, not in both. Otherwise `Open`
+  fails, or in host mode the host is refused with `plugin_mismatch`.
+- A run's own `RunOptions.Hooks` come first, then the plugin's. This holds
+  for a plugin's write-capable selectors, `beforeFirstWrite` and fatal
+  error names too.
+- A plugin's `around` wrappers run a step inside them, in the step's
+  invocation; the Bun harness README describes them.
+- A plugin's `resource` and `variable` answer after the run's own
+  platform data and before the runtime's.
+- A failed `onRunEnd` adds a `plugin_error` warning, and a failed
+  `onRunSettled` goes to the diagnostics. Every other failed hook latches
+  the run, unless the run's context ended first.
+- `onRunEnd` is called for a run whose context ended too, canceled or past
+  a deadline. Its call is bounded by the plugin timeout alone.
+- A Go hook always gets the whole trace. A plugin's run-end hooks get the
+  trace in the form that its declaration asks for.
 
 ## Garbage collection
 
 A Go program that embeds `wl` runs the engine in its own process, so the
-engine's collections follow the program's setting (`GOGC`,
+engine's garbage collection follows the program's setting (`GOGC`,
 `debug.SetGCPercent`). A host-mode engine follows the `GOGC` of the host
-that spawned it. At Go's default, 100, the engine collects when its heap
+that started it. At Go's default, 100, the engine collects when its heap
 reaches twice what is live; at 400, five times.
 
 `GOGC=400` against the default, measured on the embedder shapes in host
-mode ([cmd/windmill-lite](../cmd/windmill-lite/README.md#the-embedder-shapes);
-Linux: [one job per architecture](https://github.com/invakid404/windmill-lite/actions/runs/41756851459), 5 rounds; macOS: 3
-rounds), as the range over the twelve workloads of each one's median
-change over paired rounds:
+mode ([docs/benchmarks.md](../docs/benchmarks.md#the-embedder-shapes)),
+as the range over the twelve workloads of each workload's median change
+over paired rounds. Linux ran
+[one job per architecture](https://github.com/invakid404/windmill-lite/actions/runs/41756851459)
+with 5 rounds; macOS ran 3 rounds.
 
 | Runner | p50 | Engine CPU per step | Collector CPU per step |
 |---|---|---|---|
@@ -456,104 +471,142 @@ change over paired rounds:
 | macOS (Apple M4) | +5 to −11 % | −5 to −25 % | −59 to −77 % |
 
 At −100 %, no collection ran during the measured requests. The default
-suits most embedders; raise `GOGC` where the engine's CPU matters more than
-its memory.
+suits most hosts. Raise `GOGC` where the engine's CPU matters more than its
+memory.
 
-## Tests
+## Work on wl
 
-`wl_test.go` opens bundles written by hand (identity and mocked steps, so
-no harness runs): `Open` and `Run` with `BuildInfo` and `Close`, an
-archive extracted into a given data directory, the host's variables
-replacing the bundle's, the refusals (another engine version, a pinned
-digest, an unknown module state, a changed file, another IR version, an
-unknown target or kind, arguments that are not an object), and a canceled
-run; `Close` ending a run in its 30 s sleep, canceled with the runtime's
-reason, and refusing later runs (`ErrClosed`); runs racing `Close`, each
-run or refused; an archive opened twice with one data directory, and
-again after an open that failed once it was extracted; and `BuildInfo`'s
-deviations under an override both ways; and an unawaited call answered
-after its step's invocation was released, which still goes to the run in
-flight, with nothing of the invocation kept after the run ends.
-`hookcases_test.go` runs `conformance/hooks`, the latch-precedence cases,
-through the public hooks (F2b). `hooks_test.go` covers the hooks without Bun: H1 by function and static,
-H2 with the trace's arguments before and after, H6's observers, H9's
-warnings and settlement, H8 before and after, a hook's error and a latch,
-an interception narrowed to one iteration, the selector checks
-(`ErrSelector`, `ErrAmbiguousSelector`, an occurrence), the run-time half
-of ADR 0002's provided-site policy case (the provider's value from the
-site's arguments, with the site's `stop_after_if`; `missing_provider`;
-`provider_declined`; a provider's error), and H13's variables and
-resolver; and a script selector on a provided path script and inline
-script, whose H2 reaches the provider and whose halts stop before and
-after it, while an optional H1 does not apply. `bun_test.go` builds a real
-bundle with `bundle.Build` and runs it on
-the pinned Bun in `warm` and `fresh` mode: a step reads a host's variable
-and updates it through the job API, both calls are in the trace with the
-step's site and job, the next run reads the update, the script runs as a
-script job too, and a bundle with steps does not open without its harness
-runtime or with another; two runtimes that share a host's result
-cache share a `cache_ttl` step's result, which the first stores once; and
-a run canceled while its step waits, after the step read and updated the
-variable, keeps both calls in its trace, in `warm` and `fresh`; and, in
-both, an `InvocationEnv` hook's variable in the step's environment (H12)
-and a run's own variable read and updated through the job API (H13), the
-runtime's left as it was; and the same platform calls in the returned
-trace and in the traces `OnRunEnd` and `OnRunSettled` get, for a run
-canceled while its step waits too; and the first write (H3) and the
-pre-write deadline (H4): a veto latches and launches nothing, an approval
-is asked once for two write-capable steps and makes the run report
-`MayHaveMutated`, a veto stops parallel write-capable branches, and the
-pre-write deadline ends a run with no write but not one past its first
-write; a write-capable subflow call asked about before its child flow,
-vetoed and approved, and of two calls of one subflow only the marked one;
-and an H12 veto after the approval, which still counts as written; and
-the step API (F2c, `TestStepAPI`): a script's `wl.latch` latches its
-script run in `warm` and `fresh`, so does a failed `around` wrapper, and
-in `warm` a step that waits for `wl.signal()` alone settles once the
-run's deadline has aborted it; that a TypeScript plugin's `onRunEnd` and
-`onModuleEnd` get, on one run, the trace and records a Go hook gets, with
-a job-API read and update, a rewrite and a `$var` resolution
-(`TestPluginTraceParity`); and that an `around` wrapper's late `next()`
-runs no step (`TestAroundLateNextStartsNothing`).
-`outside_test.go` builds a bundle whose host contract lists two modules
-outside the sync folder (milestone F3h) and runs it on Bun without a host:
-a codebase script that imports one finds no host scope, and two step
-bundles share the other's one registered copy. Both need
-`WL_BUN` and the build helper's dependencies, and skip without them unless
-`WL_REQUIRE_BUN` is set, as CI sets it.
+This section is for contributors who change `wl`.
 
-`host_test.go` plays a host on a socketpair, so it needs no Bun: `Open`
-in host mode welcomes the host, a run's `run_done` and then its
-`run_settled`, a run that cannot start refused, a drain answered `bye`
-and a later run refused `draining`, and `Close` ending `Done`; and the
-refusals in the handshake: another working directory, one that does not
-exist, a fresh module state, a bundle of another engine version and no
-working directory. cmd/windmill-lite runs host mode end to end with the
-Bun host SDK.
+### Files
 
-`TestHostRunHalts`, in `host_test.go`, runs one flow several times on one
-connection. Only a run whose frame names a halt ends `halted`, before or
-after its module, and the host plugin's own halt still halts every run of
-its flow. A run whose halt selector is malformed, ambiguous or has an
-unknown field is refused, naming the selector, and the next run succeeds.
+| File | Contents |
+|---|---|
+| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
+| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
+| `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
+| `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
+| `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
+| `payload.go` | The encoding of the payloads that the runtime sends to a host plugin |
+| `example_test.go` | The README's example, compiled by `go test` |
 
-`plugin_test.go` (F2c) covers host plugins without Bun: a plugin refused
-in a `fresh` runtime and as `Options.Plugin` in host mode, a host whose
-declaration has a malformed or ambiguous selector refused with
-`plugin_mismatch` and a usable one welcomed, the providers a plugin adds
-toward the contract's (`missing_provider`, a name given twice), the
-declaration's hooks as `host_call`s (an interception by index, a
-decline, `around`'s matches, a timeout latching and a run's own end not),
-`mergeHooks`'s order, and that a hook's call holds its run's settlement
-while in flight and is not made for a settled run
-(`TestPluginCallsHoldSettlement`). `TestPluginTraceDetail` checks each
-run-end trace detail's payload against the full trace, and the
-declarations refused. `plugincases_test.go` runs the cases of
-`conformance/plugins/hooks.yaml` on a bundle built from them, through
-the TypeScript case plugin in `warm` processes (`Options.Plugin`) and
-through Go callbacks built from the same plugins, each of a case's runs
-with its own hooks and budgets in `RunOptions` (`caseRun`), and checks that
-every run's `onRunEnd` reported it, a canceled run's too, and, from the
-plugin's report file, that every case's run settled and none while one
-of its hooks still ran (`checkSettlement`); it needs Bun like
-`bun_test.go`.
+### How Open works
+
+- `Open` makes every path absolute, because harness processes run in
+  directories of their own.
+- It verifies a directory in place (`bundle.Verify`). It verifies and
+  extracts an archive (`bundle.Extract`) into a new `<data>/bundle-*`
+  directory, which `Close` removes. So a data directory that the host
+  keeps opens again, however the last open ended.
+- The runtime owns its platform services
+  ([internal/platform](../internal/platform/README.md)). They are one
+  store with the bundle's `data/` and the host's resources and variables,
+  an object store in `<data>/objects`, the job registry and flow user
+  state, the result cache, the facade, and the default dispatcher. The
+  dispatcher runs a root that a step dispatches as a run of its own.
+- Harness processes start on the first step: a pool of `warm` processes,
+  or one process for each step in `fresh` mode, with working directories
+  in `<data>/work`. Their handshake checks the harness's kind, Bun 1.4.3
+  and the bundle's digest.
+- A `warm` process reaches the facade through its intercepted `fetch`, and
+  a `fresh` one over loopback TCP.
+- `Open` compiles the program's expressions once.
+  `Options.QuickJSOnly` turns off the expression pipeline's Go evaluator,
+  `jsExpr` ([internal/expr](../internal/expr/README.md)).
+
+### Platform calls in the trace
+
+The runtime's executor maps each invocation to its run and site. The
+facade hands over each platform call as soon as its answer is decided
+(`Config.Answered`), before the step sees the answer.
+
+- An invocation's run and site stay known until its run ends, because a
+  call that the step did not await can be answered after the step
+  settled.
+- So a run's trace has every call that was answered before the run ended,
+  also from a step that settled without awaiting it, or that the run's
+  cancellation abandoned.
+- A call answered after the run ended is not in the trace, and neither
+  are the calls of the runs that the dispatcher starts.
+
+### Host mode inside
+
+`host.go` serves host mode over the
+[harness protocol](../docs/design/0004-harness-protocol.md#host-mode),
+with the engine's side of the protocol in
+[internal/harness](../internal/harness/README.md).
+
+- **Handshake.** The host must greet the runtime as a Bun harness that
+  offers the host capability, with Bun 1.4.3 and the bundle's digest,
+  from the engine's parent process. Its hello's working directory must be
+  `Host.Workdir`.
+- **Refusals.** When `Open` fails before the handshake, `refuseHost`
+  refuses the host with `engine_refused` and the reason.
+- **Runs.** Each run frame becomes a `Run` of its kind and path, with its
+  id as the job id and its `intercept` entries as static interceptions.
+  The run's invocations go back to the host, which runs them in the scope
+  that it captured when it submitted the run.
+- **Outcomes.** `run_done` carries the status, the stored result,
+  `may_have_mutated`, the warnings and the trace's deviations.
+  `run_settled` follows once the run has settled. A run that `Run`
+  refuses goes back as `refused`, or `draining` once `Close` has begun.
+- **A run's own hooks.** `hostBudgets` turns a run frame's write-capable
+  selectors, halts and fatal error names into the run's own hooks, ahead
+  of the plugin's, with its pre-write deadline, record clock and hard
+  deadline. `checkSelectorIn` checks their selectors as a plugin's are
+  checked, and a selector that fails refuses the run, naming it, such as
+  `the run's haltAfter[0]`.
+- **Drain and end.** A host's `drain` is answered on the harness side:
+  later runs are refused `draining`, and `bye` follows once no run is in
+  flight. When the host's connection ends, `Done` closes, and the runs in
+  flight are lost (`harness_lost`).
+
+### Host plugins inside
+
+- **Hooks.** `plugin.go` turns the declaration into `Hooks` and
+  `Providers`, and `mergeHooks` puts the run's own hooks first. A static
+  interception and the halts stay in Go. Every other callback sends a
+  `host_call` with its hook, run, site and payload, and decodes the reply.
+- **Payloads.** `marshalPayload` writes a payload as `json.Marshal` does,
+  map keys sorted, but splices the stored texts of arguments, results,
+  carried values and late bodies in as they are. So its escapes can differ
+  from `encoding/json`'s inside a stored text (`<`, `>`, `&`, U+2028,
+  U+2029), and the plugin parses the same values. `TestPayloadSplice`
+  holds this.
+- **`around`.** `aroundAt` puts the indexes of the plugin's `around`
+  wrappers whose selectors match a leaf's site on its invocation, and on a
+  script run's one job too. The harness runs the step inside them.
+- **Records and traces.** `recordJSON` and `traceJSON` carry every field
+  of the Go `StepRecord` and `Trace`, in snake_case.
+- **Settlement.** Every `host_call` of a run holds the run's settlement
+  (`doHeld`, `engine.HoldSettlement`) until its reply, or until its late
+  reply or the harness's exit when the runtime stopped waiting first. So
+  `OnRunSettled`, `run_settled` and the release of the run's resources come
+  after every hook of the run. A hook of a settled run is not called
+  (`errRunSettled`).
+- **Resources and variables.** The plugin's `resource` and `variable`
+  reach their run through a `runBinding` that `engine.RunRequest.Started`
+  fills, because the facade serves job-API calls outside the run's
+  context. A failure or a timeout latches the run, unless the call ended
+  with its context or the run's outcome was decided.
+
+### Tests
+
+Run `go test -race ./wl`. The tests that need Bun need `WL_BUN` and the
+build helper's dependencies, and skip without them unless
+`WL_REQUIRE_BUN` is set, as CI sets it
+([Run the tests locally](../docs/ci.md#run-the-tests-locally)).
+
+| File | What it covers | Needs Bun |
+|---|---|---|
+| `wl_test.go` | `Open`, `Run`, `BuildInfo` and `Close` on hand-written bundles that need no harness. It covers archives, data directories, the host's variables, every refusal of `Open` and `Run`, cancellation, `Close` during runs, and a late platform call that still reaches its run. | No |
+| `hooks_test.go` | Every hook without Bun: interceptions, rewrites, observers, halts, run-end hooks, latches, selector checks, providers and their errors, per-run variables and the resolver | No |
+| `hookcases_test.go` | The latch-precedence cases of `conformance/hooks`, through the public hooks | No |
+| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`) | No |
+| `plugin_test.go` | Host plugins without Bun: refusals, the declaration's checks, providers, `host_call`s, timeouts, `mergeHooks`, settlement (`TestPluginCallsHoldSettlement`) and the run-end trace detail (`TestPluginTraceDetail`) | No |
+| `payload_test.go` | The payload encoding against `json.Marshal` (`TestPayloadSplice`) | No |
+| `settled_test.go` | The run-settlement hooks | No |
+| `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
+| `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
+| `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
+| `example_test.go` | Compiles the README's example | No |

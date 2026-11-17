@@ -89,7 +89,7 @@ The engine now releases a finished run's values once the run has
 settled, and the collector reclaims them. In a shared process the
 engine's CPU then depends on which benchmarks ran first; in a process of
 its own each figure is its own
-([cmd/windmill-lite](../../cmd/windmill-lite/README.md#one-process-per-shape)).
+([docs/benchmarks.md](../benchmarks.md#one-process-per-shape)).
 
 A run that overlapped another build, benchmark or Spotlight indexing at
 more than a third of a core was repeated: the first take of the
@@ -168,7 +168,7 @@ its peak, and 7.8 to 8 on average:
 
 Each step is split into stages, each the difference of two readings of
 that step's own invocation: the trace's module and harness spans, and the
-clocks of both processes ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#stages)).
+clocks of both processes ([docs/benchmarks.md](../benchmarks.md#stages)).
 A step's stages add up to its module span, so their means add up to its
 mean.
 
