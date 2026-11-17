@@ -8,14 +8,17 @@
 # body. Runs: answers (create, conflict, update_value with a value, with {}
 # and with null, a missing path, delete, exists, the request's own
 # rejections), counter (a counter at the default state path across loop
-# iterations), explicit (an explicit path two steps share), values (what
+# iterations, deleted at the end), pair_1_first, pair_2_second and
+# pair_3_cleanup (a counter at the default state path across separate runs,
+# then deleted), explicit (an explicit path two steps share), values (what
 # jsonb refuses, the stored form, interpolation on read), paths (which paths
-# a create accepts), race (two creates racing for one path) and size (the
-# largest value accepted). Each run deletes what it writes first, so the
-# oracle's repeated runs compare. Answers that name the workspace or the
-# user read <ws> and <user>. Synthetic, written for this repository from
-# docs/semantics/client-api.md#wa-13 and the stock client windmill-client
-# 1.862.0. Deployed with oracle.deploy api.
+# a create accepts), race (two creates racing for one path) and size (values
+# up to 32 MiB). Each run deletes what it writes first, so the oracle's
+# repeated runs compare. Answers that name the workspace or the user read
+# <ws> and <user>, and a trailing Rust source location is dropped from a
+# body. Synthetic, written for this repository from docs/semantics/client-
+# api.md#wa-13 and the stock client windmill-client 1.862.0. Deployed with
+# oracle.deploy api.
 id: client-api/state
 spec: [WA-13/c, WA-13/d, WA-13/e, WA-13/f, WA-13/g, WA-13/h, WA-13/i, WA-13/j, WA-13/k, WA-13/p]
 scope: later

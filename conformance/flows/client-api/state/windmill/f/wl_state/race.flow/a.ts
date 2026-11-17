@@ -7,7 +7,7 @@ const auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };
 type Answer = { status: number; type: string | null; body: string };
 // A body that ends in Windmill's Rust source location (a parenthesised
 // "(<file>.rs:<line>)" or "@<file>.rs:<line>:<col>" suffixes) is kept
-// without it, since windmill-lite has no such location to give (D14).
+// without it, since windmill-lite gives no such location in its messages.
 const unlocated = (s: string) => s.replace(/ \([a-z_]+\.rs:\d+\)$/, "").replace(/( @[a-z_]+\.rs:\d+:\d+)+$/, "");
 const scrub = (s: string) => unlocated(s.replaceAll(ws, "<ws>").replaceAll(`u/${user}/`, "u/<user>/"));
 async function call(method: string, route: string, body?: string, type: string | null = "application/json"): Promise<Answer> {

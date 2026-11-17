@@ -6,11 +6,18 @@
 # never written reads 404 (WA-41); update_value's value is optional in the
 # schema, so {} is predicted to store null.
 #
-# Recorded on the oracle, which corrected the prediction: a create without a
-# value creates the entry with the value null (201), and update_value with
-# {} stores null too; a delete of a missing path answers 404 "Not found:
-# Resource not found at name <path>" followed by a Rust location, which the
-# step drops (D14); the JSON reads are compact.
+# Recorded on the oracle, which confirmed the prediction for update_value
+# with {} (200, value null) and corrected the rest: a create without a value
+# creates the entry with the value null (201); a delete of a missing path
+# answers 404 "Not found: Resource not found at name <path>" followed by a
+# Rust location, which the step drops; the JSON reads are compact.
+#
+# Added before a second recording, and predicted: the value of setup.yaml's
+# resource read after the conflicting create, which leaves it as it was; a
+# create and an update_value sent as bytes with no Content-Type header (the
+# step reports the header the request carried: none) and sent as text/plain,
+# each answering 415 with the text of the rejection above. The Python
+# client's probe, GET resources/get, moved to client-api/resource-writes.
 spec: [WA-13/c, WA-13/d, WA-13/e, WA-13/f]
 target: f/wl_state/answers
 expect:
@@ -22,7 +29,6 @@ expect:
     update: {body: "value of resource f/wl_state/a updated", type: "text/plain; charset=utf-8", status: 200}
     exists_end: {body: "false", type: application/json, status: 200}
     exists_none: {body: "false", type: application/json, status: 200}
-    get_missing: {body: "Not found: Resource f/wl_state/a not found", type: text/plain, status: 404}
     update_null: {body: "value of resource f/wl_state/a updated", type: "text/plain; charset=utf-8", status: 200}
     create_taken: {body: "Bad request: Resource f/wl_state/a already exists", type: text/plain, status: 400}
     update_empty: {body: "value of resource f/wl_state/a updated", type: "text/plain; charset=utf-8", status: 200}
@@ -43,19 +49,11 @@ expect:
       type: "text/plain; charset=utf-8"
       status: 400
     create_no_value: {body: "resource f/wl_state/a created", type: "text/plain; charset=utf-8", status: 201}
-    create_not_json:
-      body: "Expected request with `Content-Type: application/json`"
-      type: "text/plain; charset=utf-8"
-      status: 415
     exists_no_value: {body: "true", type: application/json, status: 200}
     update_bad_json:
       body: "Failed to parse the request body as JSON: EOF while parsing an object at line 1 column 1"
       type: "text/plain; charset=utf-8"
       status: 400
-    update_not_json:
-      body: "Expected request with `Content-Type: application/json`"
-      type: "text/plain; charset=utf-8"
-      status: 415
     get_interpolated: {body: "{\"n\":1}", type: application/json, status: 200}
     get_value_missing: {body: "Not found: Resource f/wl_state/a not found", type: text/plain, status: 404}
     get_value_updated: {body: "{\"n\":2}", type: application/json, status: 200}
@@ -65,6 +63,25 @@ expect:
     get_value_after_null: {body: "null", type: application/json, status: 200}
     get_value_after_empty: {body: "null", type: application/json, status: 200}
     get_interpolated_missing: {body: "Not found: Resource f/wl_state/a not found", type: text/plain, status: 404}
+    other_type_value_after: {status: 200, type: application/json, body: "{\"a\":1}"}
+    create_no_content_type:
+      sent_type: null
+      status: 415
+      type: "text/plain; charset=utf-8"
+      body: "Expected request with `Content-Type: application/json`"
+    create_text_plain:
+      status: 415
+      type: "text/plain; charset=utf-8"
+      body: "Expected request with `Content-Type: application/json`"
+    update_no_content_type:
+      sent_type: null
+      status: 415
+      type: "text/plain; charset=utf-8"
+      body: "Expected request with `Content-Type: application/json`"
+    update_text_plain:
+      status: 415
+      type: "text/plain; charset=utf-8"
+      body: "Expected request with `Content-Type: application/json`"
   steps:
     "m:a":
       status: success
@@ -76,7 +93,6 @@ expect:
         update: {body: "value of resource f/wl_state/a updated", type: "text/plain; charset=utf-8", status: 200}
         exists_end: {body: "false", type: application/json, status: 200}
         exists_none: {body: "false", type: application/json, status: 200}
-        get_missing: {body: "Not found: Resource f/wl_state/a not found", type: text/plain, status: 404}
         update_null: {body: "value of resource f/wl_state/a updated", type: "text/plain; charset=utf-8", status: 200}
         create_taken: {body: "Bad request: Resource f/wl_state/a already exists", type: text/plain, status: 400}
         update_empty: {body: "value of resource f/wl_state/a updated", type: "text/plain; charset=utf-8", status: 200}
@@ -97,19 +113,11 @@ expect:
           type: "text/plain; charset=utf-8"
           status: 400
         create_no_value: {body: "resource f/wl_state/a created", type: "text/plain; charset=utf-8", status: 201}
-        create_not_json:
-          body: "Expected request with `Content-Type: application/json`"
-          type: "text/plain; charset=utf-8"
-          status: 415
         exists_no_value: {body: "true", type: application/json, status: 200}
         update_bad_json:
           body: "Failed to parse the request body as JSON: EOF while parsing an object at line 1 column 1"
           type: "text/plain; charset=utf-8"
           status: 400
-        update_not_json:
-          body: "Expected request with `Content-Type: application/json`"
-          type: "text/plain; charset=utf-8"
-          status: 415
         get_interpolated: {body: "{\"n\":1}", type: application/json, status: 200}
         get_value_missing: {body: "Not found: Resource f/wl_state/a not found", type: text/plain, status: 404}
         get_value_updated: {body: "{\"n\":2}", type: application/json, status: 200}
@@ -119,3 +127,22 @@ expect:
         get_value_after_null: {body: "null", type: application/json, status: 200}
         get_value_after_empty: {body: "null", type: application/json, status: 200}
         get_interpolated_missing: {body: "Not found: Resource f/wl_state/a not found", type: text/plain, status: 404}
+        other_type_value_after: {status: 200, type: application/json, body: "{\"a\":1}"}
+        create_no_content_type:
+          sent_type: null
+          status: 415
+          type: "text/plain; charset=utf-8"
+          body: "Expected request with `Content-Type: application/json`"
+        create_text_plain:
+          status: 415
+          type: "text/plain; charset=utf-8"
+          body: "Expected request with `Content-Type: application/json`"
+        update_no_content_type:
+          sent_type: null
+          status: 415
+          type: "text/plain; charset=utf-8"
+          body: "Expected request with `Content-Type: application/json`"
+        update_text_plain:
+          status: 415
+          type: "text/plain; charset=utf-8"
+          body: "Expected request with `Content-Type: application/json`"

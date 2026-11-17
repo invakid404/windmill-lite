@@ -8,7 +8,7 @@ const auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };
 type Answer = { status: number; type: string | null; body: string };
 // A body that ends in Windmill's Rust source location (a parenthesised
 // "(<file>.rs:<line>)" or "@<file>.rs:<line>:<col>" suffixes) is kept
-// without it, since windmill-lite has no such location to give (D14).
+// without it, since windmill-lite gives no such location in its messages.
 const unlocated = (s: string) => s.replace(/ \([a-z_]+\.rs:\d+\)$/, "").replace(/( @[a-z_]+\.rs:\d+:\d+)+$/, "");
 const scrub = (s: string) => unlocated(s.replaceAll(ws, "<ws>").replaceAll(`u/${user}/`, "u/<user>/"));
 async function call(method: string, route: string, body?: string, type: string | null = "application/json"): Promise<Answer> {
@@ -33,6 +33,7 @@ export async function main() {
   out.create_nul = await create('{"path":"f/wl_state/nul","value":{"s":"a\\u0000b"},"resource_type":"state"}');
   out.exists_nul = await call("GET", `/resources/exists/${at("f/wl_state/nul")}`);
   out.create_surrogate = await create('{"path":"f/wl_state/nul","value":{"s":"\\ud800"},"resource_type":"state"}');
+  out.exists_surrogate = await call("GET", `/resources/exists/${at("f/wl_state/nul")}`);
   await del("f/wl_state/nul");
   await create(JSON.stringify({ path: "f/wl_state/nul", value: { s: "ok" }, resource_type: "state" }));
   out.update_nul = await call("POST", `/resources/update_value/${at("f/wl_state/nul")}`, '{"value":{"s":"a\\u0000b"}}');

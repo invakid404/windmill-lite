@@ -1,5 +1,13 @@
-// Value size limits: calls made with fetch at BASE_URL and the step's own
-// token.
+// Value size limits: a state value {"s": "<n bytes>"} created at sizes
+// doubling from 1 MiB to 32 MiB, each answer kept whole (status, content
+// type, body) and each accepted value read back and compared by SHA-256;
+// a transport error is kept as its own outcome, never counted as an
+// answer. If a size is refused, a bisection between the largest accepted
+// and the smallest refused size follows, to 64 KiB. Then update_value of
+// a state with the largest accepted value, its answer kept whole and the
+// value read back by SHA-256 before the state is deleted. Calls made with
+// fetch at BASE_URL and the step's own token. The run returns sizes,
+// answers and comparisons, never a value.
 const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;
 const ws = process.env.WM_WORKSPACE!;
 const user = process.env.WM_USERNAME ?? "";
@@ -7,7 +15,7 @@ const auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };
 type Answer = { status: number; type: string | null; body: string };
 // A body that ends in Windmill's Rust source location (a parenthesised
 // "(<file>.rs:<line>)" or "@<file>.rs:<line>:<col>" suffixes) is kept
-// without it, since windmill-lite has no such location to give (D14).
+// without it, since windmill-lite gives no such location in its messages.
 const unlocated = (s: string) => s.replace(/ \([a-z_]+\.rs:\d+\)$/, "").replace(/( @[a-z_]+\.rs:\d+:\d+)+$/, "");
 const scrub = (s: string) => unlocated(s.replaceAll(ws, "<ws>").replaceAll(`u/${user}/`, "u/<user>/"));
 async function call(method: string, route: string, body?: string, type: string | null = "application/json"): Promise<Answer> {
@@ -26,49 +34,52 @@ const del = (p: string) => call("DELETE", `/resources/delete/${at(p)}`);
 // accepted value is read back and compared by SHA-256.
 const MiB = 1 << 20;
 const sha = (s: string) => new Bun.CryptoHasher("sha256").update(s).digest("hex");
+type Outcome = Answer | { transport_error: string };
+async function attempt(method: string, route: string, body: string): Promise<Outcome> {
+  try {
+    return await call(method, route, body);
+  } catch (e) {
+    return { transport_error: String((e as Error).message ?? e) };
+  }
+}
+const accepted = (o: Outcome, status: number) => "status" in o && o.status === status;
+const readback = async (p: string, v: string) => {
+  const r = await fetch(`${base}/api/w/${ws}/resources/get_value/${at(p)}`, { headers: auth });
+  return r.status === 200 && sha(await r.text()) === sha(v);
+};
 export async function main() {
   const p = "f/wl_state/size";
   const value = (n: number) => JSON.stringify({ s: "x".repeat(n) });
   const tryCreate = async (n: number) => {
     await del(p);
     const v = value(n);
-    let a: Answer;
-    try {
-      a = await call("POST", "/resources/create", `{"path":"${p}","value":${v},"resource_type":"state"}`);
-    } catch (e) {
-      a = { status: 0, type: null, body: `fetch failed: ${(e as Error).message}` };
-    }
-    let readback = false;
-    if (a.status < 300) {
-      const r = await fetch(`${base}/api/w/${ws}/resources/get_value/${at(p)}`, { headers: auth });
-      readback = sha(await r.text()) === sha(v);
-    }
+    const answer = await attempt("POST", "/resources/create", `{"path":"${p}","value":${v},"resource_type":"state"}`);
+    const back = accepted(answer, 201) ? await readback(p, v) : null;
     await del(p);
-    return { ok: a.status < 300, a, readback };
+    return { size: n, answer, readback: back };
   };
-  let ok = 0, refused = 0, refusal: Answer | null = null, readback = true;
+  const creates = [];
+  let ok = 0, refused = 0;
   for (let n = MiB; n <= 32 * MiB; n *= 2) {
     const t = await tryCreate(n);
-    if (t.ok) { ok = n; readback &&= t.readback; } else { refused = n; refusal = t.a; break; }
+    creates.push(t);
+    if (accepted(t.answer, 201)) ok = n; else { refused = n; break; }
   }
   if (refused > 0) {
     let lo = ok, hi = refused;
     while (hi - lo > 64 * 1024) {
       const mid = lo + Math.floor((hi - lo) / 2 / 65536) * 65536;
       const t = await tryCreate(mid);
-      if (t.ok) { lo = mid; readback &&= t.readback; } else { hi = mid; refusal = t.a; }
+      creates.push(t);
+      if (accepted(t.answer, 201)) lo = mid; else hi = mid;
     }
     ok = lo; refused = hi;
   }
-  // update_value at the largest accepted size and just above it.
   await del(p);
   await call("POST", "/resources/create", JSON.stringify({ path: p, value: 0, resource_type: "state" }));
-  const upd = async (n: number) => {
-    const a = await call("POST", `/resources/update_value/${at(p)}`, `{"value":${value(n)}}`);
-    return a.status < 300 ? { status: a.status } : a;
-  };
-  const update_largest = ok > 0 ? await upd(ok) : null;
-  const update_above = refused > 0 ? await upd(refused) : null;
+  const v = value(ok);
+  const answer = await attempt("POST", `/resources/update_value/${at(p)}`, `{"value":${v}}`);
+  const update = { size: ok, answer, readback: accepted(answer, 200) ? await readback(p, v) : null };
   await del(p);
-  return { largest_accepted: ok, smallest_refused: refused, refusal, readback, update_largest, update_above };
+  return { largest_accepted: ok, smallest_refused: refused, creates, update };
 }

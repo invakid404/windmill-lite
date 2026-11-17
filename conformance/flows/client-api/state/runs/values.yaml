@@ -14,6 +14,11 @@
 # order; create keeps 1.0 and spells 1.50 as 1.5, -0 as 0, 1E-2 as 0.01 and
 # 1e3 as 1000, while update_value spells -0 as 0.0 and 1e3 as 1000.0. Reads
 # are compact JSON.
+#
+# Added before a second recording, and predicted: exists after the refused
+# lone-surrogate create answers false. The interpolation recorded here is of
+# the positions the value holds: the top level, a nested object and an array
+# inside it; the general traversal rule is WA-12's.
 spec: [WA-13/h, WA-13/i]
 target: f/wl_state/values
 expect:
@@ -73,6 +78,7 @@ expect:
       body: "SqlErr: error returned from database: invalid input syntax for type json"
       type: text/plain
       status: 400
+    exists_surrogate: {status: 200, type: application/json, body: "false"}
   steps:
     "m:a":
       status: success
@@ -132,3 +138,4 @@ expect:
           body: "SqlErr: error returned from database: invalid input syntax for type json"
           type: text/plain
           status: 400
+        exists_surrogate: {status: 200, type: application/json, body: "false"}

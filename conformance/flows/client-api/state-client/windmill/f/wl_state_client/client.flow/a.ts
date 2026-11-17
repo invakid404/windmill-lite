@@ -15,8 +15,8 @@ async function outcome(f: () => Promise<unknown>) {
     const v = await f();
     return { value: v === undefined ? "<undefined>" : v };
   } catch (err) {
-    const x = err as { message?: string; status?: number; body?: unknown };
-    return { error: { message: String(x.message).replaceAll(e.WM_WORKSPACE!, "<ws>"), status: x.status ?? null, body: x.body ?? null } };
+    const x = err as { name?: string; message?: string; status?: number; body?: unknown };
+    return { error: { name: x.name ?? null, message: String(x.message).replaceAll(e.WM_WORKSPACE!, "<ws>"), status: x.status ?? null, body: x.body ?? null } };
   }
 }
 export async function main() {

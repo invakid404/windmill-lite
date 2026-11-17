@@ -32,11 +32,6 @@
         "type": "application/json",
         "status": 200
       },
-      "get_missing": {
-        "body": "Not found: Resource f/wl_state/a not found",
-        "type": "text/plain",
-        "status": 404
-      },
       "update_null": {
         "body": "value of resource f/wl_state/a updated",
         "type": "text/plain; charset=utf-8",
@@ -92,11 +87,6 @@
         "type": "text/plain; charset=utf-8",
         "status": 201
       },
-      "create_not_json": {
-        "body": "Expected request with `Content-Type: application/json`",
-        "type": "text/plain; charset=utf-8",
-        "status": 415
-      },
       "exists_no_value": {
         "body": "true",
         "type": "application/json",
@@ -107,15 +97,15 @@
         "type": "text/plain; charset=utf-8",
         "status": 400
       },
-      "update_not_json": {
-        "body": "Expected request with `Content-Type: application/json`",
-        "type": "text/plain; charset=utf-8",
-        "status": 415
-      },
       "get_interpolated": {
         "body": "{\"n\":1}",
         "type": "application/json",
         "status": 200
+      },
+      "create_text_plain": {
+        "body": "Expected request with `Content-Type: application/json`",
+        "type": "text/plain; charset=utf-8",
+        "status": 415
       },
       "get_value_missing": {
         "body": "Not found: Resource f/wl_state/a not found",
@@ -126,6 +116,11 @@
         "body": "{\"n\":2}",
         "type": "application/json",
         "status": 200
+      },
+      "update_text_plain": {
+        "body": "Expected request with `Content-Type: application/json`",
+        "type": "text/plain; charset=utf-8",
+        "status": 415
       },
       "exists_after_empty": {
         "body": "true",
@@ -151,6 +146,23 @@
         "body": "null",
         "type": "application/json",
         "status": 200
+      },
+      "create_no_content_type": {
+        "body": "Expected request with `Content-Type: application/json`",
+        "type": "text/plain; charset=utf-8",
+        "status": 415,
+        "sent_type": null
+      },
+      "other_type_value_after": {
+        "body": "{\"a\":1}",
+        "type": "application/json",
+        "status": 200
+      },
+      "update_no_content_type": {
+        "body": "Expected request with `Content-Type: application/json`",
+        "type": "text/plain; charset=utf-8",
+        "status": 415,
+        "sent_type": null
       },
       "get_interpolated_missing": {
         "body": "Not found: Resource f/wl_state/a not found",
@@ -192,11 +204,6 @@
             "body": "false",
             "type": "application/json",
             "status": 200
-          },
-          "get_missing": {
-            "body": "Not found: Resource f/wl_state/a not found",
-            "type": "text/plain",
-            "status": 404
           },
           "update_null": {
             "body": "value of resource f/wl_state/a updated",
@@ -253,11 +260,6 @@
             "type": "text/plain; charset=utf-8",
             "status": 201
           },
-          "create_not_json": {
-            "body": "Expected request with `Content-Type: application/json`",
-            "type": "text/plain; charset=utf-8",
-            "status": 415
-          },
           "exists_no_value": {
             "body": "true",
             "type": "application/json",
@@ -268,15 +270,15 @@
             "type": "text/plain; charset=utf-8",
             "status": 400
           },
-          "update_not_json": {
-            "body": "Expected request with `Content-Type: application/json`",
-            "type": "text/plain; charset=utf-8",
-            "status": 415
-          },
           "get_interpolated": {
             "body": "{\"n\":1}",
             "type": "application/json",
             "status": 200
+          },
+          "create_text_plain": {
+            "body": "Expected request with `Content-Type: application/json`",
+            "type": "text/plain; charset=utf-8",
+            "status": 415
           },
           "get_value_missing": {
             "body": "Not found: Resource f/wl_state/a not found",
@@ -287,6 +289,11 @@
             "body": "{\"n\":2}",
             "type": "application/json",
             "status": 200
+          },
+          "update_text_plain": {
+            "body": "Expected request with `Content-Type: application/json`",
+            "type": "text/plain; charset=utf-8",
+            "status": 415
           },
           "exists_after_empty": {
             "body": "true",
@@ -313,6 +320,23 @@
             "type": "application/json",
             "status": 200
           },
+          "create_no_content_type": {
+            "body": "Expected request with `Content-Type: application/json`",
+            "type": "text/plain; charset=utf-8",
+            "status": 415,
+            "sent_type": null
+          },
+          "other_type_value_after": {
+            "body": "{\"a\":1}",
+            "type": "application/json",
+            "status": 200
+          },
+          "update_no_content_type": {
+            "body": "Expected request with `Content-Type: application/json`",
+            "type": "text/plain; charset=utf-8",
+            "status": 415,
+            "sent_type": null
+          },
           "get_interpolated_missing": {
             "body": "Not found: Resource f/wl_state/a not found",
             "type": "text/plain",
@@ -335,8 +359,8 @@
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.2.1-0.20261117182955-c6858de5ade3",
-      "revision": "c6858de5ade323be3cdaf5f6da825ba508e96e12",
+      "version": "v0.2.1-0.20261117205337-7f6f3ad42f8d",
+      "revision": "7f6f3ad42f8d4bc4d8952d7858fc04dbb5dc85fc",
       "go": "go1.27.3"
     },
     "host": {
@@ -344,32 +368,32 @@
       "arch": "amd64",
       "docker_arch": "amd64"
     },
-    "recorded_at": "2026-11-17T18:31:27Z",
+    "recorded_at": "2026-11-17T20:57:35Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:40365"
+      "WL_EFFECT_SINK": "http://host.docker.internal:35787"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 910,
+      "submit_to_complete_ms": 1821,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-17T18:31:26.730583Z",
-          "started_at": "2026-11-17T18:31:26.826628Z",
-          "completed_at": "2026-11-17T18:31:27.402225Z",
-          "duration_ms": 576
+          "created_at": "2026-11-17T20:57:33.444378Z",
+          "started_at": "2026-11-17T20:57:33.473958Z",
+          "completed_at": "2026-11-17T20:57:35.067026Z",
+          "duration_ms": 1593
         },
         "m:a": {
           "kind": "flowscript",
-          "created_at": "2026-11-17T18:31:26.856988Z",
-          "started_at": "2026-11-17T18:31:26.889453Z",
-          "completed_at": "2026-11-17T18:31:27.377685Z",
-          "duration_ms": 462
+          "created_at": "2026-11-17T20:57:33.704758Z",
+          "started_at": "2026-11-17T20:57:33.821336Z",
+          "completed_at": "2026-11-17T20:57:35.034600Z",
+          "duration_ms": 1169
         }
       }
     },
@@ -380,7 +404,7 @@
           {
             "id": "a",
             "value": {
-              "content": "// The resource routes behind getState and setState at one path of type\n// state, each answer's status, content type and body, called with fetch at\n// BASE_URL and the step's own token, as the stock client calls them: the\n// reads getState makes, the exists check and the create or update_value\n// that setState makes, and delete. The run deletes its paths first, so a\n// repeated run starts from the same state.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst user = process.env.WM_USERNAME ?? \"\";\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\n// A body that ends in Windmill's Rust source location (a parenthesised\n// \"(<file>.rs:<line>)\" or \"@<file>.rs:<line>:<col>\" suffixes) is kept\n// without it, since windmill-lite has no such location to give (D14).\nconst unlocated = (s: string) => s.replace(/ \\([a-z_]+\\.rs:\\d+\\)$/, \"\").replace(/( @[a-z_]+\\.rs:\\d+:\\d+)+$/, \"\");\nconst scrub = (s: string) => unlocated(s.replaceAll(ws, \"<ws>\").replaceAll(`u/${user}/`, \"u/<user>/\"));\nasync function call(method: string, route: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${route}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\nconst at = (p: string) => encodeURI(p);\nconst del = (p: string) => call(\"DELETE\", `/resources/delete/${at(p)}`);\n\nexport async function main() {\n  const p = \"f/wl_state/a\";\n  const none = \"f/wl_state/none\";\n  await del(p);\n  await del(none);\n  const create = (body: string, type: string | null = \"application/json\") => call(\"POST\", \"/resources/create\", body, type);\n  const update = (path: string, body: string, type: string | null = \"application/json\") => call(\"POST\", `/resources/update_value/${at(path)}`, body, type);\n  const out: Record<string, Answer> = {};\n  out.exists_missing = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_interpolated_missing = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.get_value_missing = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.get_missing = await call(\"GET\", `/resources/get/${at(p)}`);\n  out.create = await create(JSON.stringify({ path: p, value: { n: 1 }, resource_type: \"state\" }));\n  out.exists = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.create_taken = await create(JSON.stringify({ path: p, value: { n: 9 }, resource_type: \"state\" }));\n  // A path that a resource of another type holds (setup.yaml's).\n  out.create_at_other_type = await create(JSON.stringify({ path: \"f/wl_state/r\", value: { n: 1 }, resource_type: \"state\" }));\n  out.get_interpolated = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.update = await update(p, JSON.stringify({ value: { n: 2 } }));\n  out.get_value_updated = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  // setState(undefined) on an existing state: JSON.stringify drops the\n  // undefined value, so the body is {}.\n  out.update_empty = await update(p, \"{}\");\n  out.get_value_after_empty = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.exists_after_empty = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.update_null = await update(p, JSON.stringify({ value: null }));\n  out.get_value_after_null = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.update_missing = await update(none, JSON.stringify({ value: 1 }));\n  out.exists_none = await call(\"GET\", `/resources/exists/${at(none)}`);\n  out.delete = await del(p);\n  out.delete_missing = await del(p);\n  out.exists_deleted = await call(\"GET\", `/resources/exists/${at(p)}`);\n  // setState(undefined) on a missing state: the create body has no value.\n  out.create_no_value = await create(JSON.stringify({ path: p, resource_type: \"state\" }));\n  out.exists_no_value = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_value_no_value = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  await del(p);\n  // The request's own rejections, before any write.\n  out.create_no_type = await create(JSON.stringify({ path: p, value: 1 }));\n  out.create_no_path = await create(JSON.stringify({ value: 1, resource_type: \"state\" }));\n  out.create_bad_json = await create(\"{\");\n  out.create_not_json = await create(JSON.stringify({ path: p, value: 1, resource_type: \"state\" }), null);\n  out.update_bad_json = await update(p, \"{\");\n  out.update_not_json = await update(p, JSON.stringify({ value: 1 }), null);\n  out.exists_end = await call(\"GET\", `/resources/exists/${at(p)}`);\n  await del(p);\n  return out;\n}\n",
+              "content": "// The resource routes behind getState and setState at one path of type\n// state, each answer's status, content type and body, called with fetch at\n// BASE_URL and the step's own token, as the stock client calls them: the\n// reads getState makes, the exists check and the create or update_value\n// that setState makes, and delete. The run deletes its paths first, so a\n// repeated run starts from the same state.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst user = process.env.WM_USERNAME ?? \"\";\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\n// A body that ends in Windmill's Rust source location (a parenthesised\n// \"(<file>.rs:<line>)\" or \"@<file>.rs:<line>:<col>\" suffixes) is kept\n// without it, since windmill-lite gives no such location in its messages.\nconst unlocated = (s: string) => s.replace(/ \\([a-z_]+\\.rs:\\d+\\)$/, \"\").replace(/( @[a-z_]+\\.rs:\\d+:\\d+)+$/, \"\");\nconst scrub = (s: string) => unlocated(s.replaceAll(ws, \"<ws>\").replaceAll(`u/${user}/`, \"u/<user>/\"));\nasync function call(method: string, route: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${route}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\nconst at = (p: string) => encodeURI(p);\nconst del = (p: string) => call(\"DELETE\", `/resources/delete/${at(p)}`);\n// Sends a body as bytes with no Content-Type header, which fetch then adds\n// none of, and reports the header the request carried (null).\nasync function bytes(method: string, route: string, body: string): Promise<Answer & { sent_type: string | null }> {\n  const req = new Request(`${base}/api/w/${ws}${route}`, { method, headers: auth, body: new TextEncoder().encode(body) });\n  const sent_type = req.headers.get(\"content-type\");\n  const r = await fetch(req);\n  return { sent_type, status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\n\nexport async function main() {\n  const p = \"f/wl_state/a\";\n  const none = \"f/wl_state/none\";\n  await del(p);\n  await del(none);\n  const create = (body: string, type: string | null = \"application/json\") => call(\"POST\", \"/resources/create\", body, type);\n  const update = (path: string, body: string, type: string | null = \"application/json\") => call(\"POST\", `/resources/update_value/${at(path)}`, body, type);\n  const out: Record<string, unknown> = {};\n  out.exists_missing = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_interpolated_missing = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.get_value_missing = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.create = await create(JSON.stringify({ path: p, value: { n: 1 }, resource_type: \"state\" }));\n  out.exists = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.create_taken = await create(JSON.stringify({ path: p, value: { n: 9 }, resource_type: \"state\" }));\n  // A path that a resource of another type holds (setup.yaml's).\n  out.create_at_other_type = await create(JSON.stringify({ path: \"f/wl_state/r\", value: { n: 1 }, resource_type: \"state\" }));\n  out.other_type_value_after = await call(\"GET\", `/resources/get_value/${at(\"f/wl_state/r\")}`);\n  out.get_interpolated = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.update = await update(p, JSON.stringify({ value: { n: 2 } }));\n  out.get_value_updated = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  // setState(undefined) on an existing state: JSON.stringify drops the\n  // undefined value, so the body is {}.\n  out.update_empty = await update(p, \"{}\");\n  out.get_value_after_empty = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.exists_after_empty = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.update_null = await update(p, JSON.stringify({ value: null }));\n  out.get_value_after_null = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.update_missing = await update(none, JSON.stringify({ value: 1 }));\n  out.exists_none = await call(\"GET\", `/resources/exists/${at(none)}`);\n  out.delete = await del(p);\n  out.delete_missing = await del(p);\n  out.exists_deleted = await call(\"GET\", `/resources/exists/${at(p)}`);\n  // setState(undefined) on a missing state: the create body has no value.\n  out.create_no_value = await create(JSON.stringify({ path: p, resource_type: \"state\" }));\n  out.exists_no_value = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_value_no_value = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  await del(p);\n  // The request's own rejections, before any write.\n  out.create_no_type = await create(JSON.stringify({ path: p, value: 1 }));\n  out.create_no_path = await create(JSON.stringify({ value: 1, resource_type: \"state\" }));\n  out.create_bad_json = await create(\"{\");\n  out.create_no_content_type = await bytes(\"POST\", \"/resources/create\", JSON.stringify({ path: p, value: 1, resource_type: \"state\" }));\n  out.create_text_plain = await create(JSON.stringify({ path: p, value: 1, resource_type: \"state\" }), \"text/plain\");\n  out.update_bad_json = await update(p, \"{\");\n  out.update_no_content_type = await bytes(\"POST\", `/resources/update_value/${at(p)}`, JSON.stringify({ value: 1 }));\n  out.update_text_plain = await update(p, JSON.stringify({ value: 1 }), \"text/plain\");\n  out.exists_end = await call(\"GET\", `/resources/exists/${at(p)}`);\n  await del(p);\n  return out;\n}\n",
               "input_transforms": {},
               "language": "bun",
               "type": "rawscript"
@@ -395,7 +419,7 @@
             "value": {
               "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
               "type": "rawscript",
-              "content": "// The resource routes behind getState and setState at one path of type\n// state, each answer's status, content type and body, called with fetch at\n// BASE_URL and the step's own token, as the stock client calls them: the\n// reads getState makes, the exists check and the create or update_value\n// that setState makes, and delete. The run deletes its paths first, so a\n// repeated run starts from the same state.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst user = process.env.WM_USERNAME ?? \"\";\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\n// A body that ends in Windmill's Rust source location (a parenthesised\n// \"(<file>.rs:<line>)\" or \"@<file>.rs:<line>:<col>\" suffixes) is kept\n// without it, since windmill-lite has no such location to give (D14).\nconst unlocated = (s: string) => s.replace(/ \\([a-z_]+\\.rs:\\d+\\)$/, \"\").replace(/( @[a-z_]+\\.rs:\\d+:\\d+)+$/, \"\");\nconst scrub = (s: string) => unlocated(s.replaceAll(ws, \"<ws>\").replaceAll(`u/${user}/`, \"u/<user>/\"));\nasync function call(method: string, route: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${route}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\nconst at = (p: string) => encodeURI(p);\nconst del = (p: string) => call(\"DELETE\", `/resources/delete/${at(p)}`);\n\nexport async function main() {\n  const p = \"f/wl_state/a\";\n  const none = \"f/wl_state/none\";\n  await del(p);\n  await del(none);\n  const create = (body: string, type: string | null = \"application/json\") => call(\"POST\", \"/resources/create\", body, type);\n  const update = (path: string, body: string, type: string | null = \"application/json\") => call(\"POST\", `/resources/update_value/${at(path)}`, body, type);\n  const out: Record<string, Answer> = {};\n  out.exists_missing = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_interpolated_missing = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.get_value_missing = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.get_missing = await call(\"GET\", `/resources/get/${at(p)}`);\n  out.create = await create(JSON.stringify({ path: p, value: { n: 1 }, resource_type: \"state\" }));\n  out.exists = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.create_taken = await create(JSON.stringify({ path: p, value: { n: 9 }, resource_type: \"state\" }));\n  // A path that a resource of another type holds (setup.yaml's).\n  out.create_at_other_type = await create(JSON.stringify({ path: \"f/wl_state/r\", value: { n: 1 }, resource_type: \"state\" }));\n  out.get_interpolated = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.update = await update(p, JSON.stringify({ value: { n: 2 } }));\n  out.get_value_updated = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  // setState(undefined) on an existing state: JSON.stringify drops the\n  // undefined value, so the body is {}.\n  out.update_empty = await update(p, \"{}\");\n  out.get_value_after_empty = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.exists_after_empty = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.update_null = await update(p, JSON.stringify({ value: null }));\n  out.get_value_after_null = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.update_missing = await update(none, JSON.stringify({ value: 1 }));\n  out.exists_none = await call(\"GET\", `/resources/exists/${at(none)}`);\n  out.delete = await del(p);\n  out.delete_missing = await del(p);\n  out.exists_deleted = await call(\"GET\", `/resources/exists/${at(p)}`);\n  // setState(undefined) on a missing state: the create body has no value.\n  out.create_no_value = await create(JSON.stringify({ path: p, resource_type: \"state\" }));\n  out.exists_no_value = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_value_no_value = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  await del(p);\n  // The request's own rejections, before any write.\n  out.create_no_type = await create(JSON.stringify({ path: p, value: 1 }));\n  out.create_no_path = await create(JSON.stringify({ value: 1, resource_type: \"state\" }));\n  out.create_bad_json = await create(\"{\");\n  out.create_not_json = await create(JSON.stringify({ path: p, value: 1, resource_type: \"state\" }), null);\n  out.update_bad_json = await update(p, \"{\");\n  out.update_not_json = await update(p, JSON.stringify({ value: 1 }), null);\n  out.exists_end = await call(\"GET\", `/resources/exists/${at(p)}`);\n  await del(p);\n  return out;\n}\n",
+              "content": "// The resource routes behind getState and setState at one path of type\n// state, each answer's status, content type and body, called with fetch at\n// BASE_URL and the step's own token, as the stock client calls them: the\n// reads getState makes, the exists check and the create or update_value\n// that setState makes, and delete. The run deletes its paths first, so a\n// repeated run starts from the same state.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst user = process.env.WM_USERNAME ?? \"\";\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\n// A body that ends in Windmill's Rust source location (a parenthesised\n// \"(<file>.rs:<line>)\" or \"@<file>.rs:<line>:<col>\" suffixes) is kept\n// without it, since windmill-lite gives no such location in its messages.\nconst unlocated = (s: string) => s.replace(/ \\([a-z_]+\\.rs:\\d+\\)$/, \"\").replace(/( @[a-z_]+\\.rs:\\d+:\\d+)+$/, \"\");\nconst scrub = (s: string) => unlocated(s.replaceAll(ws, \"<ws>\").replaceAll(`u/${user}/`, \"u/<user>/\"));\nasync function call(method: string, route: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${route}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\nconst at = (p: string) => encodeURI(p);\nconst del = (p: string) => call(\"DELETE\", `/resources/delete/${at(p)}`);\n// Sends a body as bytes with no Content-Type header, which fetch then adds\n// none of, and reports the header the request carried (null).\nasync function bytes(method: string, route: string, body: string): Promise<Answer & { sent_type: string | null }> {\n  const req = new Request(`${base}/api/w/${ws}${route}`, { method, headers: auth, body: new TextEncoder().encode(body) });\n  const sent_type = req.headers.get(\"content-type\");\n  const r = await fetch(req);\n  return { sent_type, status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\n\nexport async function main() {\n  const p = \"f/wl_state/a\";\n  const none = \"f/wl_state/none\";\n  await del(p);\n  await del(none);\n  const create = (body: string, type: string | null = \"application/json\") => call(\"POST\", \"/resources/create\", body, type);\n  const update = (path: string, body: string, type: string | null = \"application/json\") => call(\"POST\", `/resources/update_value/${at(path)}`, body, type);\n  const out: Record<string, unknown> = {};\n  out.exists_missing = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_interpolated_missing = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.get_value_missing = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.create = await create(JSON.stringify({ path: p, value: { n: 1 }, resource_type: \"state\" }));\n  out.exists = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.create_taken = await create(JSON.stringify({ path: p, value: { n: 9 }, resource_type: \"state\" }));\n  // A path that a resource of another type holds (setup.yaml's).\n  out.create_at_other_type = await create(JSON.stringify({ path: \"f/wl_state/r\", value: { n: 1 }, resource_type: \"state\" }));\n  out.other_type_value_after = await call(\"GET\", `/resources/get_value/${at(\"f/wl_state/r\")}`);\n  out.get_interpolated = await call(\"GET\", `/resources/get_value_interpolated/${at(p)}`);\n  out.update = await update(p, JSON.stringify({ value: { n: 2 } }));\n  out.get_value_updated = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  // setState(undefined) on an existing state: JSON.stringify drops the\n  // undefined value, so the body is {}.\n  out.update_empty = await update(p, \"{}\");\n  out.get_value_after_empty = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.exists_after_empty = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.update_null = await update(p, JSON.stringify({ value: null }));\n  out.get_value_after_null = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  out.update_missing = await update(none, JSON.stringify({ value: 1 }));\n  out.exists_none = await call(\"GET\", `/resources/exists/${at(none)}`);\n  out.delete = await del(p);\n  out.delete_missing = await del(p);\n  out.exists_deleted = await call(\"GET\", `/resources/exists/${at(p)}`);\n  // setState(undefined) on a missing state: the create body has no value.\n  out.create_no_value = await create(JSON.stringify({ path: p, resource_type: \"state\" }));\n  out.exists_no_value = await call(\"GET\", `/resources/exists/${at(p)}`);\n  out.get_value_no_value = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  await del(p);\n  // The request's own rejections, before any write.\n  out.create_no_type = await create(JSON.stringify({ path: p, value: 1 }));\n  out.create_no_path = await create(JSON.stringify({ value: 1, resource_type: \"state\" }));\n  out.create_bad_json = await create(\"{\");\n  out.create_no_content_type = await bytes(\"POST\", \"/resources/create\", JSON.stringify({ path: p, value: 1, resource_type: \"state\" }));\n  out.create_text_plain = await create(JSON.stringify({ path: p, value: 1, resource_type: \"state\" }), \"text/plain\");\n  out.update_bad_json = await update(p, \"{\");\n  out.update_no_content_type = await bytes(\"POST\", `/resources/update_value/${at(p)}`, JSON.stringify({ value: 1 }));\n  out.update_text_plain = await update(p, JSON.stringify({ value: 1 }), \"text/plain\");\n  out.exists_end = await call(\"GET\", `/resources/exists/${at(p)}`);\n  await del(p);\n  return out;\n}\n",
               "language": "bun",
               "input_transforms": {}
             }

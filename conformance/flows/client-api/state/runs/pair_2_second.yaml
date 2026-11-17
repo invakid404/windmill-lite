@@ -1,0 +1,31 @@
+# Written before the oracle ran it: a separate run of the same flow and step
+# reads the 1 that pair_1_first wrote at the same default state path, and
+# updates it to 2. It then puts 1 back, so that the oracle's repetition of
+# this run reads 1 again.
+spec: [WA-13/g]
+target: f/wl_state/pair
+args: {phase: second}
+expect:
+  status: success
+  result:
+    phase: second
+    path: f/wl_state/pair/x_user
+    read: 200
+    "n": 1
+    exists: true
+    write: 200
+    written: "value of resource f/wl_state/pair/x_user updated"
+    put_back: 200
+  steps:
+    "m:x":
+      status: success
+      args: {phase: second}
+      result:
+        phase: second
+        path: f/wl_state/pair/x_user
+        read: 200
+        "n": 1
+        exists: true
+        write: 200
+        written: "value of resource f/wl_state/pair/x_user updated"
+        put_back: 200

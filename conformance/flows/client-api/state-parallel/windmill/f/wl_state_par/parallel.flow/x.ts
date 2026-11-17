@@ -19,15 +19,14 @@ function value(id: string): string {
   const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);
   return `${body}|${sha(body)}`;
 }
-// The writer id of a whole value, or null for a torn or foreign one.
+// The writers of a run: "init." before the loop, w0. to w3. in the loop,
+// and "final." after it.
+const WRITERS = ["init", "w0", "w1", "w2", "w3", "final"];
+// The writer id of a whole value one of the run's writers wrote, or null
+// for a torn or foreign one.
+const WRITTEN = new Map(WRITERS.map((id) => [value(`${id}.`), id]));
 function check(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const bar = v.lastIndexOf("|");
-  if (bar < 0) return null;
-  const body = v.slice(0, bar);
-  if (sha(body) !== v.slice(bar + 1)) return null;
-  const id = body.slice(0, body.indexOf("."));
-  return value(`${id}.`) === v ? id : null;
+  return typeof v === "string" ? WRITTEN.get(v) ?? null : null;
 }
 async function req(method: string, route: string, body?: unknown) {
   const headers: Record<string, string> = { ...auth };
@@ -53,7 +52,7 @@ export async function main(role: string) {
         if (id === null) torn++; else seen.add(id);
       }
     }));
-    return { role, torn, failed, every_read_whole: reads > 0 && torn === 0 && failed === 0, saw_writers: [...seen].filter((s) => s.startsWith("w")).length >= 2 };
+    return { role, torn, failed, every_read_whole: reads > 0 && torn === 0 && failed === 0, saw_writers: ["w0", "w1", "w2", "w3"].filter((s) => seen.has(s)).length >= 2 };
   }
   for (let i = 0; i < 600; i++) {
     if ((await req("GET", `/exists/${at(READY)}`)).text === "true") break;

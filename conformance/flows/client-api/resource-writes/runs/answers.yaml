@@ -6,6 +6,11 @@
 #
 # Recorded on the oracle, which corrected the prediction: a create with a
 # resource type that does not exist succeeds; reads are compact JSON.
+#
+# Added before a second recording, and predicted: GET resources/get, the
+# Python client's state probe, answers a missing path as the value reads do
+# (404); after update_value, that read shows the entry's type unchanged,
+# state for a state and wl_writes_obj for the other entry.
 spec: [WA-13/n]
 target: f/wl_writes/answers
 expect:
@@ -30,6 +35,10 @@ expect:
     read_update_if_exists: {body: "2", type: application/json, status: 200}
     create_update_if_exists: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
     create_update_if_exists_missing: {body: "resource f/wl_writes/unknown created", type: "text/plain; charset=utf-8", status: 201}
+    get_missing: {status: 404, type: text/plain, body: "Not found: Resource f/wl_writes/none not found"}
+    update_state: {status: 200, type: "text/plain; charset=utf-8", body: "value of resource f/wl_writes/st updated"}
+    get_state_updated: {status: 200, type: application/json, resource_type: state, value: {"n": 2}}
+    get_other_type_updated: {status: 200, type: application/json, resource_type: wl_writes_obj, value: {a: 2}}
   steps:
     "m:a":
       status: success
@@ -54,3 +63,7 @@ expect:
         read_update_if_exists: {body: "2", type: application/json, status: 200}
         create_update_if_exists: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
         create_update_if_exists_missing: {body: "resource f/wl_writes/unknown created", type: "text/plain; charset=utf-8", status: 201}
+        get_missing: {status: 404, type: text/plain, body: "Not found: Resource f/wl_writes/none not found"}
+        update_state: {status: 200, type: "text/plain; charset=utf-8", body: "value of resource f/wl_writes/st updated"}
+        get_state_updated: {status: 200, type: application/json, resource_type: state, value: {"n": 2}}
+        get_other_type_updated: {status: 200, type: application/json, resource_type: wl_writes_obj, value: {a: 2}}

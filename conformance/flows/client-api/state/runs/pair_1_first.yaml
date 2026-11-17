@@ -1,0 +1,29 @@
+# Written before the oracle ran it: the first of three runs of one flow,
+# taken in name order. It deletes the step's default state, then counts as
+# the stock client's getState and setState do: it reads nothing (404, so 0),
+# finds that the state does not exist, and creates 1.
+spec: [WA-13/g]
+target: f/wl_state/pair
+args: {phase: first}
+expect:
+  status: success
+  result:
+    phase: first
+    path: f/wl_state/pair/x_user
+    read: 404
+    "n": 0
+    exists: false
+    write: 201
+    written: "resource f/wl_state/pair/x_user created"
+  steps:
+    "m:x":
+      status: success
+      args: {phase: first}
+      result:
+        phase: first
+        path: f/wl_state/pair/x_user
+        read: 404
+        "n": 0
+        exists: false
+        write: 201
+        written: "resource f/wl_state/pair/x_user created"

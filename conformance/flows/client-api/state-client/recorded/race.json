@@ -6,6 +6,7 @@
         {
           "error": {
             "body": "Bad request: Resource f/wl_state_client/race already exists",
+            "name": "ApiError",
             "status": 400,
             "message": "Bad Request"
           }
@@ -13,6 +14,10 @@
         {
           "ok": true
         }
+      ],
+      "exists_seen": [
+        false,
+        false
       ],
       "stored_is_one": true
     },
@@ -25,6 +30,7 @@
             {
               "error": {
                 "body": "Bad request: Resource f/wl_state_client/race already exists",
+                "name": "ApiError",
                 "status": 400,
                 "message": "Bad Request"
               }
@@ -32,6 +38,10 @@
             {
               "ok": true
             }
+          ],
+          "exists_seen": [
+            false,
+            false
           ],
           "stored_is_one": true
         }
@@ -51,8 +61,8 @@
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.2.1-0.20261117181200-fa5d2fd832b2",
-      "revision": "fa5d2fd832b2f0d18d1d8b6c45e9f124befce5af",
+      "version": "v0.2.1-0.20261117205337-7f6f3ad42f8d",
+      "revision": "7f6f3ad42f8d4bc4d8952d7858fc04dbb5dc85fc",
       "go": "go1.27.3"
     },
     "host": {
@@ -60,32 +70,32 @@
       "arch": "amd64",
       "docker_arch": "amd64"
     },
-    "recorded_at": "2026-11-17T18:23:19Z",
+    "recorded_at": "2026-11-17T21:03:33Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:34683"
+      "WL_EFFECT_SINK": "http://host.docker.internal:35787"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 498,
+      "submit_to_complete_ms": 715,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-17T18:23:18.548567Z",
-          "started_at": "2026-11-17T18:23:18.580984Z",
-          "completed_at": "2026-11-17T18:23:18.954811Z",
-          "duration_ms": 374
+          "created_at": "2026-11-17T21:03:32.978415Z",
+          "started_at": "2026-11-17T21:03:33.040852Z",
+          "completed_at": "2026-11-17T21:03:33.474980Z",
+          "duration_ms": 434
         },
         "m:a": {
           "kind": "flowscript",
-          "created_at": "2026-11-17T18:23:18.600530Z",
-          "started_at": "2026-11-17T18:23:18.635779Z",
-          "completed_at": "2026-11-17T18:23:18.926983Z",
-          "duration_ms": 275
+          "created_at": "2026-11-17T21:03:33.045620Z",
+          "started_at": "2026-11-17T21:03:33.087107Z",
+          "completed_at": "2026-11-17T21:03:33.426942Z",
+          "duration_ms": 302
         }
       }
     },
@@ -96,7 +106,7 @@
           {
             "id": "a",
             "value": {
-              "content": "import * as wmill from \"windmill-client@1.862.0\";\n// Two setState calls race for a state never written: both are in flight\n// together, so both can see exists answer false and both create. The\n// outcomes are sorted, so the run does not depend on which call won.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nasync function outcome(f: () => Promise<unknown>) {\n  try {\n    await f();\n    return { ok: true };\n  } catch (err) {\n    const x = err as { message?: string; status?: number; body?: unknown };\n    return { error: { message: String(x.message), status: x.status ?? null, body: x.body ?? null } };\n  }\n}\nexport async function main() {\n  const p = \"f/wl_state_client/race\";\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const both = await Promise.all([outcome(() => wmill.setState({ w: \"a\" }, p)), outcome(() => wmill.setState({ w: \"b\" }, p))]);\n  const stored = await wmill.getState(p);\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  both.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));\n  return { outcomes: both, stored_is_one: stored?.w === \"a\" || stored?.w === \"b\" };\n}\n",
+              "content": "import * as wmill from \"windmill-client@1.862.0\";\n// Two setState calls race for a state never written. The step wraps the\n// global fetch that the client calls, and holds each create until both\n// exists checks have answered, so both calls see false and both create:\n// one create wins, and the other call rejects. The outcomes are sorted, so\n// the run does not depend on which call won.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nasync function outcome(f: () => Promise<unknown>) {\n  try {\n    await f();\n    return { ok: true };\n  } catch (err) {\n    const x = err as { name?: string; message?: string; status?: number; body?: unknown };\n    return { error: { name: x.name ?? null, message: String(x.message), status: x.status ?? null, body: x.body ?? null } };\n  }\n}\nexport async function main() {\n  const p = \"f/wl_state_client/race\";\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const real = globalThis.fetch;\n  const seen: boolean[] = [];\n  let release!: () => void;\n  const bothChecked = new Promise<void>((res) => { release = res; });\n  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {\n    const url = String(input instanceof Request ? input.url : input);\n    if (url.includes(\"/resources/create\")) await bothChecked;\n    const r = await real(input, init);\n    if (url.includes(\"/resources/exists/\")) {\n      seen.push((await r.clone().text()) === \"true\");\n      if (seen.length === 2) release();\n    }\n    return r;\n  }) as typeof fetch;\n  let both;\n  try {\n    both = await Promise.all([outcome(() => wmill.setState({ w: \"a\" }, p)), outcome(() => wmill.setState({ w: \"b\" }, p))]);\n  } finally {\n    globalThis.fetch = real;\n  }\n  const stored = await wmill.getState(p);\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  both.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));\n  return { exists_seen: seen, outcomes: both, stored_is_one: stored?.w === \"a\" || stored?.w === \"b\" };\n}\n",
               "input_transforms": {},
               "language": "bun",
               "type": "rawscript"
@@ -111,7 +121,7 @@
             "value": {
               "lock": "{\n  \"dependencies\": {\n    \"windmill-client\": \"1.862.0\"\n  }\n}\n//bun.lock\n{\n  \"lockfileVersion\": 2,\n  \"configVersion\": 1,\n  \"workspaces\": {\n    \"\": {\n      \"dependencies\": {\n        \"windmill-client\": \"1.862.0\",\n      },\n    },\n  },\n  \"packages\": {\n    \"windmill-client\": [\"windmill-client@1.862.0\", \"\", {}, \"sha512-XrrZzzUll/skdegCZ79BG1YrEIyO7qZqhKXVov8S32jYAA740qzvEwo6y3e+myL7mtUFYxSt8Gla7jUz7vaIEQ==\"],\n  }\n}\n",
               "type": "rawscript",
-              "content": "import * as wmill from \"windmill-client@1.862.0\";\n// Two setState calls race for a state never written: both are in flight\n// together, so both can see exists answer false and both create. The\n// outcomes are sorted, so the run does not depend on which call won.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nasync function outcome(f: () => Promise<unknown>) {\n  try {\n    await f();\n    return { ok: true };\n  } catch (err) {\n    const x = err as { message?: string; status?: number; body?: unknown };\n    return { error: { message: String(x.message), status: x.status ?? null, body: x.body ?? null } };\n  }\n}\nexport async function main() {\n  const p = \"f/wl_state_client/race\";\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const both = await Promise.all([outcome(() => wmill.setState({ w: \"a\" }, p)), outcome(() => wmill.setState({ w: \"b\" }, p))]);\n  const stored = await wmill.getState(p);\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  both.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));\n  return { outcomes: both, stored_is_one: stored?.w === \"a\" || stored?.w === \"b\" };\n}\n",
+              "content": "import * as wmill from \"windmill-client@1.862.0\";\n// Two setState calls race for a state never written. The step wraps the\n// global fetch that the client calls, and holds each create until both\n// exists checks have answered, so both calls see false and both create:\n// one create wins, and the other call rejects. The outcomes are sorted, so\n// the run does not depend on which call won.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nasync function outcome(f: () => Promise<unknown>) {\n  try {\n    await f();\n    return { ok: true };\n  } catch (err) {\n    const x = err as { name?: string; message?: string; status?: number; body?: unknown };\n    return { error: { name: x.name ?? null, message: String(x.message), status: x.status ?? null, body: x.body ?? null } };\n  }\n}\nexport async function main() {\n  const p = \"f/wl_state_client/race\";\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const real = globalThis.fetch;\n  const seen: boolean[] = [];\n  let release!: () => void;\n  const bothChecked = new Promise<void>((res) => { release = res; });\n  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {\n    const url = String(input instanceof Request ? input.url : input);\n    if (url.includes(\"/resources/create\")) await bothChecked;\n    const r = await real(input, init);\n    if (url.includes(\"/resources/exists/\")) {\n      seen.push((await r.clone().text()) === \"true\");\n      if (seen.length === 2) release();\n    }\n    return r;\n  }) as typeof fetch;\n  let both;\n  try {\n    both = await Promise.all([outcome(() => wmill.setState({ w: \"a\" }, p)), outcome(() => wmill.setState({ w: \"b\" }, p))]);\n  } finally {\n    globalThis.fetch = real;\n  }\n  const stored = await wmill.getState(p);\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  both.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));\n  return { exists_seen: seen, outcomes: both, stored_is_one: stored?.w === \"a\" || stored?.w === \"b\" };\n}\n",
               "language": "bun",
               "input_transforms": {}
             }

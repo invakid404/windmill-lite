@@ -1,0 +1,13 @@
+# Written before the oracle ran it: the last run deletes the state the pair
+# left and finds that it no longer exists.
+spec: [WA-13/g]
+target: f/wl_state/pair
+args: {phase: cleanup}
+expect:
+  status: success
+  result: {phase: cleanup, path: f/wl_state/pair/x_user, exists: false}
+  steps:
+    "m:x":
+      status: success
+      args: {phase: cleanup}
+      result: {phase: cleanup, path: f/wl_state/pair/x_user, exists: false}

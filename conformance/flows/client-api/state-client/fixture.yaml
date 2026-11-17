@@ -3,12 +3,11 @@
 # deprecated getInternalState and setInternalState (WA-13/l), and when two
 # setState calls race for a state never written (WA-13/m). The routes'
 # own answers are fixture client-api/state's. The steps import the client
-# at its version, which the oracle's worker installs; windmill-lite builds
-# a step that imports a package only from a lock, which this fixture has
-# none of, so it stays later and the stock client's behaviour on
-# windmill-lite is tested by the Go tests that run the client. Synthetic,
-# written for this repository from docs/semantics/client-api.md#wa-13 and
-# the stock client. Deployed with oracle.deploy api.
+# at its version, which the oracle's worker installs; a windmill-lite
+# build installs a package only from a lock, which this fixture has none
+# of, so its scope is later. Synthetic, written for this repository from
+# docs/semantics/client-api.md#wa-13 and the stock client. Deployed with
+# oracle.deploy api.
 id: client-api/state-client
 spec: [WA-13/l, WA-13/m]
 scope: later

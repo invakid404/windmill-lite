@@ -1,36 +1,19 @@
 {
   "observation": {
     "status": "success",
-    "result": [
-      {
-        "i": 1,
-        "n": 0,
-        "path": "f/wl_state/counter/l_user",
-        "read": 404,
-        "write": 201,
-        "exists": false,
-        "written": "resource f/wl_state/counter/l_user created"
-      },
-      {
-        "i": 2,
-        "n": 1,
-        "path": "f/wl_state/counter/l_user",
-        "read": 200,
-        "write": 200,
-        "exists": true,
-        "written": "value of resource f/wl_state/counter/l_user updated"
-      },
-      {
-        "i": 3,
-        "n": 2,
-        "path": "f/wl_state/counter/l_user",
-        "read": 200,
-        "write": 200,
-        "exists": true,
-        "written": "value of resource f/wl_state/counter/l_user updated"
-      }
-    ],
+    "result": {
+      "before": "3",
+      "exists": false
+    },
     "steps": {
+      "m:done": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "before": "3",
+          "exists": false
+        }
+      },
       "m:l": {
         "status": "success",
         "result": [
@@ -128,8 +111,8 @@
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.2.1-0.20261117181200-fa5d2fd832b2",
-      "revision": "fa5d2fd832b2f0d18d1d8b6c45e9f124befce5af",
+      "version": "v0.2.1-0.20261117205337-7f6f3ad42f8d",
+      "revision": "7f6f3ad42f8d4bc4d8952d7858fc04dbb5dc85fc",
       "go": "go1.27.3"
     },
     "host": {
@@ -137,53 +120,60 @@
       "arch": "amd64",
       "docker_arch": "amd64"
     },
-    "recorded_at": "2026-11-17T18:21:58Z",
+    "recorded_at": "2026-11-17T20:57:41Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:34683"
+      "WL_EFFECT_SINK": "http://host.docker.internal:35787"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 2460,
+      "submit_to_complete_ms": 3557,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-11-17T18:21:55.575840Z",
-          "started_at": "2026-11-17T18:21:55.691475Z",
-          "completed_at": "2026-11-17T18:21:57.169039Z",
-          "duration_ms": 1478
+          "created_at": "2026-11-17T20:57:37.325351Z",
+          "started_at": "2026-11-17T20:57:37.458260Z",
+          "completed_at": "2026-11-17T20:57:40.707672Z",
+          "duration_ms": 3249
+        },
+        "m:done": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T20:57:40.085424Z",
+          "started_at": "2026-11-17T20:57:40.111389Z",
+          "completed_at": "2026-11-17T20:57:40.681871Z",
+          "duration_ms": 316
         },
         "m:l/i:0/m:x": {
           "kind": "flowscript",
-          "created_at": "2026-11-17T18:21:55.997614Z",
-          "started_at": "2026-11-17T18:21:56.073680Z",
-          "completed_at": "2026-11-17T18:21:56.299641Z",
-          "duration_ms": 190
+          "created_at": "2026-11-17T20:57:38.235852Z",
+          "started_at": "2026-11-17T20:57:38.357831Z",
+          "completed_at": "2026-11-17T20:57:38.963472Z",
+          "duration_ms": 569
         },
         "m:l/i:1/m:x": {
           "kind": "flowscript",
-          "created_at": "2026-11-17T18:21:56.351038Z",
-          "started_at": "2026-11-17T18:21:56.546561Z",
-          "completed_at": "2026-11-17T18:21:56.762257Z",
-          "duration_ms": 177
+          "created_at": "2026-11-17T20:57:39.050340Z",
+          "started_at": "2026-11-17T20:57:39.339840Z",
+          "completed_at": "2026-11-17T20:57:39.729731Z",
+          "duration_ms": 135
         },
         "m:l/i:2/m:x": {
           "kind": "flowscript",
-          "created_at": "2026-11-17T18:21:56.786932Z",
-          "started_at": "2026-11-17T18:21:56.980746Z",
-          "completed_at": "2026-11-17T18:21:57.150610Z",
+          "created_at": "2026-11-17T20:57:39.788662Z",
+          "started_at": "2026-11-17T20:57:39.871281Z",
+          "completed_at": "2026-11-17T20:57:40.055866Z",
           "duration_ms": 118
         },
         "m:reset": {
           "kind": "flowscript",
-          "created_at": "2026-11-17T18:21:55.705407Z",
-          "started_at": "2026-11-17T18:21:55.795973Z",
-          "completed_at": "2026-11-17T18:21:55.968101Z",
-          "duration_ms": 110
+          "created_at": "2026-11-17T20:57:37.474295Z",
+          "started_at": "2026-11-17T20:57:37.518830Z",
+          "completed_at": "2026-11-17T20:57:38.138118Z",
+          "duration_ms": 553
         }
       }
     },
@@ -194,7 +184,7 @@
           {
             "id": "reset",
             "value": {
-              "content": "// Deletes the loop body's state, so every run of the counter starts from a\n// state never written: the body's state path is the flow's path, the loop's\n// id and the trigger (WA-5, WA-6/a).\nexport async function main() {\n  const e = process.env;\n  const p = `${e.WM_FLOW_PATH}/l_user`;\n  const r = await fetch(`${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources/delete/${encodeURI(p)}`, {\n    method: \"DELETE\",\n    headers: { Authorization: `Bearer ${e.WM_TOKEN}` },\n  });\n  await r.text();\n  return p;\n}\n",
+              "content": "// Deletes the loop body's state, so every run of the counter starts from a\n// state never written: the body's state path is the flow's path, the\n// loop's id and the trigger, which iterations of a simple loop body share.\nexport async function main() {\n  const e = process.env;\n  const p = `${e.WM_FLOW_PATH}/l_user`;\n  const r = await fetch(`${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources/delete/${encodeURI(p)}`, {\n    method: \"DELETE\",\n    headers: { Authorization: `Bearer ${e.WM_TOKEN}` },\n  });\n  await r.text();\n  return p;\n}\n",
               "input_transforms": {},
               "language": "bun",
               "type": "rawscript"
@@ -227,6 +217,15 @@
               "skip_failures": false,
               "type": "forloopflow"
             }
+          },
+          {
+            "id": "done",
+            "value": {
+              "content": "// Deletes the count the loop left and checks that it is gone, so the run\n// leaves nothing in the workspace.\nexport async function main() {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = `${e.WM_FLOW_PATH}/l_user`;\n  const before = await (await fetch(`${api}/get_value/${encodeURI(p)}`, { headers: auth })).text();\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const exists = await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  return { before, exists };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
           }
         ]
       },
@@ -237,7 +236,7 @@
             "value": {
               "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
               "type": "rawscript",
-              "content": "// Deletes the loop body's state, so every run of the counter starts from a\n// state never written: the body's state path is the flow's path, the loop's\n// id and the trigger (WA-5, WA-6/a).\nexport async function main() {\n  const e = process.env;\n  const p = `${e.WM_FLOW_PATH}/l_user`;\n  const r = await fetch(`${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources/delete/${encodeURI(p)}`, {\n    method: \"DELETE\",\n    headers: { Authorization: `Bearer ${e.WM_TOKEN}` },\n  });\n  await r.text();\n  return p;\n}\n",
+              "content": "// Deletes the loop body's state, so every run of the counter starts from a\n// state never written: the body's state path is the flow's path, the\n// loop's id and the trigger, which iterations of a simple loop body share.\nexport async function main() {\n  const e = process.env;\n  const p = `${e.WM_FLOW_PATH}/l_user`;\n  const r = await fetch(`${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources/delete/${encodeURI(p)}`, {\n    method: \"DELETE\",\n    headers: { Authorization: `Bearer ${e.WM_TOKEN}` },\n  });\n  await r.text();\n  return p;\n}\n",
               "language": "bun",
               "input_transforms": {}
             }
@@ -269,6 +268,16 @@
               },
               "parallel": false,
               "skip_failures": false
+            }
+          },
+          {
+            "id": "done",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// Deletes the count the loop left and checks that it is gone, so the run\n// leaves nothing in the workspace.\nexport async function main() {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = `${e.WM_FLOW_PATH}/l_user`;\n  const before = await (await fetch(`${api}/get_value/${encodeURI(p)}`, { headers: auth })).text();\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const exists = await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  return { before, exists };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
             }
           }
         ]
@@ -312,6 +321,16 @@
               },
               "parallel": false,
               "skip_failures": false
+            }
+          },
+          {
+            "id": "done",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline done.ts",
+              "input_transforms": {},
+              "lock": "!inline done.lock",
+              "language": "bun"
             }
           }
         ]
