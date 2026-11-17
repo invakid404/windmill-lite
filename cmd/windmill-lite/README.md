@@ -353,6 +353,15 @@ own: `Budget <name>: <value> MiB, at most <limit> MiB`. With
 each budget on the median of several runs, as the workflow `Benchmarks`
 does. `TestModuleMemory` always judges its own run.
 
+`WL_MEMHOST_COLLECT`, unset by default, sets the host SDK's collect
+trigger in the memory host
+([harnesses/bun](../../harnesses/bun/README.md)): `<mark>` or
+`<mark>,<cooldown>`, in bytes and milliseconds. `/rss` then also reports
+the trigger's collections and how long they took in all.
+`TestModuleMemoryClosure` logs them for each layout on a line of its own:
+`<layout>: collections of the collect trigger <n> at connect, …`. A build
+of the workflow `Benchmarks` sets it as `name=<ref>:WL_MEMHOST_COLLECT=<mark>,<cooldown>`.
+
 The host's peak is its own high-water mark:
 
 - On Linux it reads `VmHWM` from `/proc/self/status`. `getrusage`'s peak,
