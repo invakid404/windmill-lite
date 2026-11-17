@@ -16,13 +16,14 @@
 // imports this one.
 //
 // WL_MEMHOST_COLLECT, unset by default, sets the SDK's collect trigger:
-// "<mark>" or "<mark>,<cooldown>", the mark in bytes and the cooldown in
-// milliseconds. It holds no ":", since the Benchmarks workflow splits a
-// build's environment on ":".
+// "<mark>", "<mark>,<cooldown>" or "<mark>,<cooldown>,<policy>", the mark
+// in bytes, the cooldown in milliseconds and the policy heartbeat or idle.
+// Without a policy, the SDK's default applies. It holds no ":", since the
+// Benchmarks workflow splits a build's environment on ":".
 
 import { heapStats } from "bun:jsc";
 import { readFileSync } from "node:fs";
-import { connect } from "../../../../harnesses/bun/host/index.ts";
+import { type CollectPolicy, connect } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
 const modules: Record<string, unknown> = { ...((globalThis as Record<symbol, unknown>)[Symbol.for("windmill-lite.memhost.modules")] ?? {}) };
@@ -31,9 +32,9 @@ for (const [key, file] of Object.entries((JSON.parse(env.WL_HOST_MODULES || "{}"
 }
 function collectOption(v: string | undefined) {
   if (!v) return undefined;
-  const m = /^(\d+)(?:,(\d+))?$/.exec(v);
-  if (!m) throw new Error(`WL_MEMHOST_COLLECT is "<mark>" or "<mark>,<cooldown>", in bytes and milliseconds: ${v}`);
-  return { rss: Number(m[1]), cooldown: m[2] === undefined ? undefined : Number(m[2]) };
+  const m = /^(\d+)(?:,(\d+)(?:,(heartbeat|idle))?)?$/.exec(v);
+  if (!m) throw new Error(`WL_MEMHOST_COLLECT is "<mark>", "<mark>,<cooldown>" or "<mark>,<cooldown>,<policy>", in bytes and milliseconds, the policy heartbeat or idle: ${v}`);
+  return { rss: Number(m[1]), cooldown: m[2] === undefined ? undefined : Number(m[2]), policy: m[3] as CollectPolicy | undefined };
 }
 const host = await connect({
   engine: env.WL_ENGINE!,
