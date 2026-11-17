@@ -467,17 +467,22 @@ the quiet period.
   bound on memory.
 - **What idle cannot see.** The SDK sees only its own runs and
   invocations. Work that the host does outside a run counts as idle, such
-  as its own request handlers, and so does an invocation that a timeout
-  abandoned or whose outcome was fixed early, though its code may still
-  run. A request that reaches the host while a collection runs waits for
-  it.
+  as its own request handlers. A request that reaches the host while a
+  collection runs waits for it.
+- **Invocations that no caller waits for.** An invocation that a timeout
+  abandoned, or whose outcome was fixed early, counts as idle, though its
+  code may still run. No caller waits for it, so a collection then delays
+  no caller. Counting it would let one step that never settles stop every
+  collection.
 - **A failed collection.** A collection that throws is not counted. The
   SDK writes a diagnostic line, the collection is no longer due, and the
   cooldown starts as after a collection.
 
 A collection frees only what is unreachable, so it never frees a loaded
 module. It never trips or resets a recycle trigger, and the two options
-can be set together.
+can be set together. Once the connection to the engine has ended, the
+trigger makes no collection, even in a host that `onEngineExit` keeps
+alive.
 
 ### When the engine exits
 
@@ -1070,14 +1075,17 @@ The registry:
   clears it, and so does a check that finds an invocation running; the
   next check that finds none sets it again.
 - **The idle check** (`checkIdle`). Each check first clears the pending
-  timer, then returns while a run is open or after `close()`. With a
+  timer, then returns while a run is open, after `close()`, or once the
+  engine connection has ended. With a
   collection due and the host idle, it collects once the quiet period has
   passed, or arms a timer for the rest. At the run count's zero it never
   collects: where it would, it arms the timer, so that the caller's
   continuation runs first.
 - **The quiet timer** runs outside every invocation (`invocations.exit`),
   on `realTimers`, so the fence leaves it alone. It is `unref`'d, so it
-  keeps no process alive, and `close()` clears it.
+  keeps no process alive. `close()` clears it, and so does the end of the
+  engine connection (`exit`), so nothing collects once the engine has
+  gone.
 - **The socket.** `connect` starts the engine with one end of a socket
   pair as its file descriptor 3: Node's extra `"pipe"` standard I/O, which
   Bun 1.4.3 makes a socket. The socket's backpressure reaches the
@@ -1394,7 +1402,7 @@ cd harnesses/bun && bun test
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
 | `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts |
-| `test/host.test.ts`, the collect trigger | The collect trigger, on hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, and with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, for steps that outlive them and for the quiet period, and `close()` with the quiet timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
+| `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |
 | `test/build.test.ts` | The build helper's scans and parse |
