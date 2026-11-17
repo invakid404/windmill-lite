@@ -7,9 +7,10 @@
 // and the smallest refused size follows, to 64 KiB. Then update_value of a
 // state with the largest accepted value, its answer kept whole and the value
 // read back by SHA-256 before the state is deleted. Calls made with fetch at
-// BASE_URL and the step's own token. The state is deleted at the end whether
-// the probe succeeds or fails. The run returns sizes, answers and
-// comparisons, never a value.
+// BASE_URL and the step's own token. After a successful probe the run passes
+// only if a last delete answers 200 or 404; after a failed one the state is
+// deleted at best effort and the probe's error stands. The run returns
+// sizes, answers and comparisons, never a value.
 const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;
 const ws = process.env.WM_WORKSPACE!;
 const user = process.env.WM_USERNAME ?? "";
@@ -86,16 +87,24 @@ async function probe(p: string) {
 }
 export async function main() {
   const p = "f/wl_state/size";
+  let result;
   try {
-    return await probe(p);
-  } finally {
-    // Deletes what the probe left when an attempt failed after its write
-    // landed. A failed delete leaves the probe's own outcome or error as the
-    // run's: the error of an attempt with no HTTP answer is not replaced.
+    result = await probe(p);
+  } catch (e) {
+    // The probe failed: delete what an attempt may have left after its write
+    // landed, at best effort, and keep the probe's own error as the run's.
     try {
       await del(p);
     } catch {
-      // nothing to add to the probe's outcome
+      // the probe's error stands
     }
+    throw e;
   }
+  // The probe succeeded: the run passes only if its state is gone, which a
+  // delete shows by answering 200 (deleted) or 404 (already absent).
+  const gone = await del(p);
+  if (gone.status !== 200 && gone.status !== 404) {
+    throw new Error(`cleanup of ${p} answered ${gone.status}: ${gone.body}`);
+  }
+  return result;
 }
