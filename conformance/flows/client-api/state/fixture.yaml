@@ -13,12 +13,14 @@
 # then deleted), explicit (an explicit path two steps share), values (what
 # jsonb refuses, the stored form, interpolation on read), paths (which paths
 # a create accepts), race (two creates racing for one path) and size (values
-# up to 32 MiB). Each run deletes what it writes first, so the oracle's
-# repeated runs compare. Answers that name the workspace or the user read
-# <ws> and <user>, and a trailing Rust source location is dropped from a
-# body. Synthetic, written for this repository from docs/semantics/client-
-# api.md#wa-13 and the stock client windmill-client 1.862.0. Deployed with
-# oracle.deploy api.
+# up to 32 MiB). Each run deletes what it writes before it starts, so the
+# oracle's repeated runs compare, except pair_2_second and pair_3_cleanup:
+# pair_2_second reads the value pair_1_first left and writes it back for the
+# next repetition, and pair_3_cleanup deletes it. Answers that name the
+# workspace or the user read <ws> and <user>, and a trailing Rust source
+# location is dropped from a body. Synthetic, written for this repository
+# from docs/semantics/client- api.md#wa-13 and the stock client windmill-
+# client 1.862.0. Deployed with oracle.deploy api.
 id: client-api/state
 spec: [WA-13/c, WA-13/d, WA-13/e, WA-13/f, WA-13/g, WA-13/h, WA-13/i, WA-13/j, WA-13/k, WA-13/p]
 scope: later

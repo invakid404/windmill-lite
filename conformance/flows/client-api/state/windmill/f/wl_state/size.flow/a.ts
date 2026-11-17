@@ -1,13 +1,14 @@
 // Value size limits: a state value {"s": "<n bytes>"} created at sizes
 // doubling from 1 MiB to 32 MiB, each answer kept whole (status, content
-// type, body) and each accepted value read back and compared by SHA-256;
-// a transport error is kept as its own outcome, never counted as an
-// answer. If a size is refused, a bisection between the largest accepted
-// and the smallest refused size follows, to 64 KiB. Then update_value of
-// a state with the largest accepted value, its answer kept whole and the
-// value read back by SHA-256 before the state is deleted. Calls made with
-// fetch at BASE_URL and the step's own token. The run returns sizes,
-// answers and comparisons, never a value.
+// type, body) and each accepted value read back and compared by SHA-256. An
+// attempt that gets no HTTP answer fails the run with the error, since it
+// says nothing about the size; only an HTTP answer other than 201 counts as
+// a refusal. If a size is refused, a bisection between the largest accepted
+// and the smallest refused size follows, to 64 KiB. Then update_value of a
+// state with the largest accepted value, its answer kept whole and the value
+// read back by SHA-256 before the state is deleted. Calls made with fetch at
+// BASE_URL and the step's own token. The run returns sizes, answers and
+// comparisons, never a value.
 const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;
 const ws = process.env.WM_WORKSPACE!;
 const user = process.env.WM_USERNAME ?? "";
@@ -34,15 +35,15 @@ const del = (p: string) => call("DELETE", `/resources/delete/${at(p)}`);
 // accepted value is read back and compared by SHA-256.
 const MiB = 1 << 20;
 const sha = (s: string) => new Bun.CryptoHasher("sha256").update(s).digest("hex");
-type Outcome = Answer | { transport_error: string };
-async function attempt(method: string, route: string, body: string): Promise<Outcome> {
+// An HTTP answer, or a thrown error naming the size when there was none.
+async function attempt(method: string, route: string, body: string, size: number): Promise<Answer> {
   try {
     return await call(method, route, body);
   } catch (e) {
-    return { transport_error: String((e as Error).message ?? e) };
+    throw new Error(`${route} at ${size} bytes got no HTTP answer: ${String((e as Error).message ?? e)}`);
   }
 }
-const accepted = (o: Outcome, status: number) => "status" in o && o.status === status;
+const accepted = (a: Answer, status: number) => a.status === status;
 const readback = async (p: string, v: string) => {
   const r = await fetch(`${base}/api/w/${ws}/resources/get_value/${at(p)}`, { headers: auth });
   return r.status === 200 && sha(await r.text()) === sha(v);
@@ -53,7 +54,7 @@ export async function main() {
   const tryCreate = async (n: number) => {
     await del(p);
     const v = value(n);
-    const answer = await attempt("POST", "/resources/create", `{"path":"${p}","value":${v},"resource_type":"state"}`);
+    const answer = await attempt("POST", "/resources/create", `{"path":"${p}","value":${v},"resource_type":"state"}`, n);
     const back = accepted(answer, 201) ? await readback(p, v) : null;
     await del(p);
     return { size: n, answer, readback: back };
@@ -78,7 +79,7 @@ export async function main() {
   await del(p);
   await call("POST", "/resources/create", JSON.stringify({ path: p, value: 0, resource_type: "state" }));
   const v = value(ok);
-  const answer = await attempt("POST", `/resources/update_value/${at(p)}`, `{"value":${v}}`);
+  const answer = await attempt("POST", `/resources/update_value/${at(p)}`, `{"value":${v}}`, ok);
   const update = { size: ok, answer, readback: accepted(answer, 200) ? await readback(p, v) : null };
   await del(p);
   return { largest_accepted: ok, smallest_refused: refused, creates, update };

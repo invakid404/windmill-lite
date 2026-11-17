@@ -11,6 +11,9 @@
 # predicted from the first recording, which accepted every size: each create
 # answers 201 with the create text and reads back whole, and the update at
 # 32 MiB answers 200 with the update text and reads back whole.
+#
+# An attempt that gets no HTTP answer now fails the run instead of counting
+# as a refusal; the recorded repetitions had none.
 spec: [WA-13/p]
 target: f/wl_state/size
 expect:
