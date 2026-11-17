@@ -3,9 +3,9 @@
 # 32 MiB with 413 and accept 16 MiB. The bisection's result is the oracle's
 # to record.
 #
-# Recorded on the oracle, which corrected the prediction: no size up to 32
-# MiB is refused; create and update_value accept a 32 MiB value, and it
-# reads back whole.
+# Recorded on the oracle, which corrected the prediction: none of the
+# sizes tried is refused (create at 1, 2, 4, 8, 16 and 32 MiB, update_value
+# at 32 MiB), and each value reads back whole.
 #
 # The step now keeps each answer whole and reads the updated value back;
 # predicted from the first recording, which accepted every size: each create

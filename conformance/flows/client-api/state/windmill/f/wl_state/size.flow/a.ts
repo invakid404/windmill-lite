@@ -7,7 +7,8 @@
 // and the smallest refused size follows, to 64 KiB. Then update_value of a
 // state with the largest accepted value, its answer kept whole and the value
 // read back by SHA-256 before the state is deleted. Calls made with fetch at
-// BASE_URL and the step's own token. The run returns sizes, answers and
+// BASE_URL and the step's own token. The state is deleted at the end whether
+// the probe succeeds or fails. The run returns sizes, answers and
 // comparisons, never a value.
 const base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;
 const ws = process.env.WM_WORKSPACE!;
@@ -48,8 +49,7 @@ const readback = async (p: string, v: string) => {
   const r = await fetch(`${base}/api/w/${ws}/resources/get_value/${at(p)}`, { headers: auth });
   return r.status === 200 && sha(await r.text()) === sha(v);
 };
-export async function main() {
-  const p = "f/wl_state/size";
+async function probe(p: string) {
   const value = (n: number) => JSON.stringify({ s: "x".repeat(n) });
   const tryCreate = async (n: number) => {
     await del(p);
@@ -83,4 +83,19 @@ export async function main() {
   const update = { size: ok, answer, readback: accepted(answer, 200) ? await readback(p, v) : null };
   await del(p);
   return { largest_accepted: ok, smallest_refused: refused, creates, update };
+}
+export async function main() {
+  const p = "f/wl_state/size";
+  try {
+    return await probe(p);
+  } finally {
+    // Deletes what the probe left when an attempt failed after its write
+    // landed. A failed delete leaves the probe's own outcome or error as the
+    // run's: the error of an attempt with no HTTP answer is not replaced.
+    try {
+      await del(p);
+    } catch {
+      // nothing to add to the probe's outcome
+    }
+  }
 }

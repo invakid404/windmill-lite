@@ -10,10 +10,10 @@
 # from the database, as 400 "SqlErr: error returned from database:
 # unsupported Unicode escape sequence" for a NUL and "... invalid input
 # syntax for type json" for a lone surrogate, each followed by a Rust
-# location, which the step drops (D14). The stored form: keys in jsonb's
-# order; create keeps 1.0 and spells 1.50 as 1.5, -0 as 0, 1E-2 as 0.01 and
-# 1e3 as 1000, while update_value spells -0 as 0.0 and 1e3 as 1000.0. Reads
-# are compact JSON.
+# location, which the step drops, since windmill-lite gives none. The stored
+# form: keys in jsonb's order; create keeps 1.0 and spells 1.50 as 1.5, -0
+# as 0, 1E-2 as 0.01 and 1e3 as 1000, while update_value spells -0 as 0.0
+# and 1e3 as 1000.0. Reads are compact JSON.
 #
 # Added before a second recording, and predicted: exists after the refused
 # lone-surrogate create answers false. The interpolation recorded here is of
