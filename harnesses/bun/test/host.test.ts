@@ -831,6 +831,44 @@ describe("the collect trigger", () => {
     expect(gcCalls).toEqual([]);
   }, 20_000);
 
+  // The host lives on after its engine: onEngineExit returns.
+  test("the idle policy: an engine exit clears a pending check, and no collection follows", async () => {
+    const quiet = 300;
+    let exits = 0;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }), onEngineExit: () => void exits++ });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    run.release();
+    await run.done;
+    const realRss = process.memoryUsage.rss;
+    let rssReads = 0;
+    process.memoryUsage.rss = () => (rssReads++, realRss());
+    try {
+      process.kill(host.enginePid, "SIGKILL");
+      await until("the engine's exit", () => exits > 0);
+      rssReads = 0;
+      await Bun.sleep(quiet + 200);
+    } finally {
+      process.memoryUsage.rss = realRss;
+    }
+    expect(rssReads).toBe(0);
+    expect(gcCalls).toEqual([]);
+    expect(host.health().collections.dueNow).toBe(true);
+  }, 20_000);
+
+  test("the idle policy: an engine exit with a run open ends the run, and no collection follows", async () => {
+    const quiet = 50;
+    let exits = 0;
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }), onEngineExit: () => void exits++ });
+    const run = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    process.kill(host.enginePid, "SIGKILL");
+    expect(await code(run.done)).toContain("the engine connection ended");
+    await until("the engine's exit", () => exits > 0);
+    await Bun.sleep(quiet + 200);
+    expect(gcCalls).toEqual([]);
+  }, 20_000);
+
   // In a process of its own: once the engine is gone, only the idle
   // policy's pending check is left, with a quiet period of 60 s.
   test("the idle policy: a pending check keeps no process alive", async () => {

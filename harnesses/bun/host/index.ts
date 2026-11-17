@@ -414,6 +414,8 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   let draining = false;
   let drained: Promise<void> | undefined;
   let closing = false;
+  // Whether the connection to the engine has ended, by close() or not.
+  let ended = false;
   let welcomed = false;
   let refused: HostError | undefined;
   let recycle: string | null = null;
@@ -469,8 +471,9 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     try {
       Bun.gc(true);
     } catch (e) {
-      // The cooldown starts anyway: a collection that keeps failing
-      // writes one line per cooldown, not one per heartbeat.
+      // The cooldown starts anyway, so a collection that keeps failing
+      // writes at most one line per cooldown, or per heartbeat when the
+      // cooldown is shorter than the heartbeat interval.
       collectedAt = performance.now();
       diag(`windmill-lite: the collect trigger's collection failed: ${e instanceof Error ? e.message : String(e)}`);
       return;
@@ -481,9 +484,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     collections.lastMs = ms;
     collections.totalMs += ms;
   };
-  // The heartbeat observer calls this after the heartbeat's ping has gone
-  // to the socket, and after the recycle triggers have read the same
-  // health, so a collection changes neither.
+  // The heartbeat observer calls this once the runtime has queued the
+  // heartbeat's ping (under backpressure the socket takes it later), and
+  // after the recycle triggers have read the same health, so a collection
+  // changes neither the ping's health nor those triggers.
   const maybeCollect = (h: HostHealth) => {
     if (!collect) return;
     if (!whenIdle) {
@@ -502,18 +506,22 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   };
   // The "idle" policy's check, given the invocations running: at each
   // heartbeat, when the run count drops to 0 (atZero), and from its own
-  // timer. Idle starts when a check first finds no run open and no
-  // invocation running; every invocation then running belongs to a run
-  // that has ended, and none starts until a run is submitted. So a step
-  // that outlives its run delays the quiet period until a check finds it
-  // ended. At the zero the run's caller has not had its outcome yet: its
-  // continuation runs before any timer, so the check never collects
-  // there. The timer is outside every invocation, unfenced, and keeps no
-  // process alive; close() clears it, and a check after close(), which
-  // ends the runs still open, does nothing.
+  // timer. Idle starts at connect. A submitted run clears it, and so does
+  // a check that finds an invocation running; the next check that finds
+  // no run open and none running starts it again. An invocation then
+  // running belongs to a run that has ended, and none starts until a run
+  // is submitted, so a step that outlives its run delays the quiet period
+  // until a check finds it ended. running counts only invocations in the
+  // running state: one that was abandoned, or whose outcome is fixed, has
+  // no caller waiting for it, and counting it would let a step that never
+  // settles stop every collection. At the zero the run's caller has not
+  // had its outcome yet: its continuation runs before any timer, so the
+  // check never collects there. The timer is outside every invocation,
+  // unfenced, and keeps no process alive. close() and the end of the
+  // engine connection clear it, and a check after either does nothing.
   const checkIdle = (running: number, atZero: boolean) => {
     disarm();
-    if (closing || inflight > 0) return;
+    if (closing || ended || inflight > 0) return;
     const now = performance.now();
     if (running > 0) idleSince = null;
     else idleSince ??= now;
@@ -580,6 +588,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
           }
         : undefined,
     exit: (code) => {
+      // Nothing collects once the engine has gone: the quiet timer is
+      // cleared, and every later idle check returns.
+      ended = true;
+      disarm();
       if (!welcomed) {
         settle.reject(refused ?? new HostError("rejected", `the engine refused this host (harness exit code ${code}); see its stderr`));
         return;
