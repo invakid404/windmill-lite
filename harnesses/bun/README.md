@@ -384,8 +384,8 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `recycle` | The recycle trigger that tripped, or `null` |
 | `collections` | The collections of the [collect trigger](#collect-garbage), in the fields below. Each duration is in ms. |
 | `collections.count` | The collections that ran. One that threw is not counted. |
-| `collections.lastMs` | How long the last one took, or `null` before the first |
-| `collections.totalMs` | How long they all took |
+| `collections.lastMs` | How long the last successful one took, or `null` before the first |
+| `collections.totalMs` | How long the successful ones took in all. A collection that threw counts in neither field. |
 | `collections.due` | How many times a collection became due: `count`, plus the collections that threw, plus 1 while `dueNow` is `true` |
 | `collections.deferredMs`, `collections.maxDeferredMs` | The total and the longest wait from due to the start of a collection, failed ones included. Both stay 0 under `"heartbeat"`. |
 | `collections.dueNow` | Whether a collection is due and has not started |
@@ -423,17 +423,17 @@ the collections that Bun makes on its own. It is off by default.
 | `quiet` | 100 | How long, in ms, the host must stay idle before `"idle"` collects |
 
 Set the mark above what a full collection leaves of the resident set.
-Otherwise the trigger collects at the end of every cooldown. A due
-collection stays due until it runs, even when the resident set falls
-below the mark. `health().collections` counts the collections, their
+Otherwise a collection becomes due again at the first heartbeat after
+each cooldown. A due collection stays due until it runs, even when the
+resident set falls below the mark. `health().collections` counts the collections, their
 durations and their waits ([Health](#health)).
 
 #### The policies of collect
 
 | Policy | When a due collection runs | What it costs |
 |---|---|---|
-| `"idle"`, the default | Once no run is open and no invocation is running (`health().runs` and `in_flight` are 0), and the host has stayed so for `quiet` ms | A collection never stops a run that is open. It waits as long as the host stays busy. |
-| `"heartbeat"` | At the heartbeat that found it due, even while runs are open | It collects sooner, so the resident set stays lower, but each collection stops the steps that are running. |
+| `"idle"`, the default | Once no run is open and no invocation is running (`health().runs` and `in_flight` are 0), and the host has stayed so for `quiet` ms | A collection never stops a run that is open, but it can wait ([Limits of collect](#limits-of-collect)). |
+| `"heartbeat"` | At the heartbeat that found it due, even while runs are open | It can collect sooner, which kept the peak resident set lower in the measured workload below. Each collection stops the steps that are running. |
 
 In one measured workload, with a mark of 640 MiB and a cooldown of 5 s,
 the peak resident set was about 137 MiB lower than without the trigger
@@ -451,29 +451,33 @@ Under `"idle"`, the SDK checks whether the host is idle:
 A step that runs on after its run has ended keeps the host busy. The quiet
 period then starts at the first heartbeat that finds the step ended. The
 quiet period itself is for a host that runs several flows one after
-another for one request: it keeps the collection out of the moment
-between two of them, when no run is open.
+another for one request. It keeps the collection out of the moment
+between two of them, when no run is open, if that moment is shorter than
+the quiet period.
 
 #### Limits of collect
 
 - **The collection is synchronous.** It stops the event loop, and every
-  invocation in the process, while it runs. A stop longer than
+  invocation in the process, while it runs. The host sends no frame
+  meanwhile, so with the watchdog on, a collection longer than
   `watchdog.killAfter` ms makes the engine kill the host.
-- **No maximum wait under `"idle"`.** A host that never goes idle never
-  collects. While a collection waits, the SDK does nothing to the host's
-  memory.
+- **No maximum wait under `"idle"`.** A due collection waits as long as
+  the host stays busy, and a host that never goes idle never collects.
+  Set [recycle](#recycle-a-host) too, and act on its trigger: it stays the
+  bound on memory.
 - **What idle cannot see.** The SDK sees only its own runs and
   invocations. Work that the host does outside a run counts as idle, such
-  as its own request handlers. A request that reaches the host while a
-  collection runs waits for it.
+  as its own request handlers, and so does an invocation that a timeout
+  abandoned or whose outcome was fixed early, though its code may still
+  run. A request that reaches the host while a collection runs waits for
+  it.
 - **A failed collection.** A collection that throws is not counted. The
   SDK writes a diagnostic line, the collection is no longer due, and the
   cooldown starts as after a collection.
 
-Set `recycle` with `collect`: [recycle](#recycle-a-host) stays the bound on
-memory. A collection frees only what is unreachable, so it never frees a
-loaded module, and under `"idle"` a host that is never idle never
-collects. A collection never trips or resets a recycle trigger.
+A collection frees only what is unreachable, so it never frees a loaded
+module. It never trips or resets a recycle trigger, and the two options
+can be set together.
 
 ### When the engine exits
 
@@ -599,7 +603,7 @@ error that has no `code`:
 |---|---|---|---|
 | `workdir_not_writable` | `connect`, or the engine | `workdir` is not a directory that this process can write. | Pass a writable directory. |
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
-| `options` | `connect` | The `collect` option has an `rss` that is not a positive number, a `cooldown` or a `quiet` that is negative or not finite, or a `policy` other than `"idle"` and `"heartbeat"`. | Fix the option. The message gives the value. |
+| `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The check compares values and does not test their type, so pass numbers, as the type says. | Fix the option. The message names the rule that failed. |
 | `bundle` | `connect` | The bundle's `manifest.json` does not read. | Pass the bundle directory, as an absolute path. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
 | `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
@@ -1053,23 +1057,27 @@ The registry:
   hears it at every heartbeat.
 - **The heartbeat observer.** `connect` installs `onHeartbeat` only when
   `recycle` or `collect` is set, so a heartbeat without a trigger costs
-  only its ping. The runtime calls it outside every invocation, after the
-  heartbeat's ping has gone to the socket. It checks the recycle triggers
-  first, then the collect trigger (`maybeCollect`), so a collection
-  changes neither the ping nor the recycle triggers.
-- **A collection** (`collectNow`) is one `Bun.gc(true)`. The cooldown
-  starts at its end, or at its failure, so a collection that keeps failing
-  writes one diagnostic line per cooldown, not one per heartbeat.
-- **The idle check** (`checkIdle`). Idle starts (`idleSince`) when a check
-  first finds no run open and no invocation running, and ends at a
-  submitted run or at a check that finds an invocation running. With a
-  collection due, the check arms a timer for the rest of the quiet period.
-  At the run count's zero it only arms the timer: the caller's
-  continuation runs before any timer.
+  only its ping. The runtime calls it outside every invocation, once it
+  has queued the heartbeat's ping: under backpressure, the socket may
+  take the ping later. It checks the recycle triggers first, then the
+  collect trigger (`maybeCollect`), so a collection changes neither the
+  ping's health nor the recycle triggers.
+- **A collection** (`collectNow`) clears `dueAt` and adds the wait, then
+  calls `Bun.gc(true)`. It sets `collectedAt` at the call's end, also
+  when the call throws, and only a call that returns updates `count`,
+  `lastMs` and `totalMs`.
+- **The idle state.** `idleSince` starts at `connect`. A submitted run
+  clears it, and so does a check that finds an invocation running; the
+  next check that finds none sets it again.
+- **The idle check** (`checkIdle`). Each check first clears the pending
+  timer, then returns while a run is open or after `close()`. With a
+  collection due and the host idle, it collects once the quiet period has
+  passed, or arms a timer for the rest. At the run count's zero it never
+  collects: where it would, it arms the timer, so that the caller's
+  continuation runs first.
 - **The quiet timer** runs outside every invocation (`invocations.exit`),
   on `realTimers`, so the fence leaves it alone. It is `unref`'d, so it
-  keeps no process alive, and `close()` clears it. A check after
-  `close()`, or while a run is open, does nothing.
+  keeps no process alive, and `close()` clears it.
 - **The socket.** `connect` starts the engine with one end of a socket
   pair as its file descriptor 3: Node's extra `"pipe"` standard I/O, which
   Bun 1.4.3 makes a socket. The socket's backpressure reaches the

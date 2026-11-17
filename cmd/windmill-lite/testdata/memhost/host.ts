@@ -15,9 +15,10 @@
 // globalThis[Symbol.for("windmill-lite.memhost.modules")], before it
 // imports this one.
 //
-// WL_MEMHOST_COLLECT, unset by default, sets the SDK's collect trigger:
-// "<mark>", "<mark>,<cooldown>" or "<mark>,<cooldown>,<policy>", the mark
-// in bytes, the cooldown in milliseconds and the policy heartbeat or idle.
+// WL_MEMHOST_COLLECT sets the SDK's collect trigger; unset or empty, there
+// is none. It is "<mark>", "<mark>,<cooldown>" or
+// "<mark>,<cooldown>,<policy>": the mark in bytes and the cooldown in
+// milliseconds, both decimal digits, and the policy heartbeat or idle.
 // Without a policy, the SDK's default applies. It holds no ":", since the
 // Benchmarks workflow splits a build's environment on ":".
 
