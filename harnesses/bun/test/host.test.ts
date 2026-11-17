@@ -186,10 +186,10 @@ test("a run frame carries the run's write-capable selectors and halts", async ()
 });
 
 // The collect trigger, on hosts connected to test/heartbeatengine.ts, which
-// welcomes them with a heartbeat of 10 ms and answers their runs when the
-// test says. Each test replaces Bun.gc with a stand-in that records its
-// calls, and counts the host's heartbeats with a retired-entry count that
-// never trips.
+// welcomes them with a heartbeat of 10 ms, or of the interval that a test
+// gives, and answers their runs when the test says. Each test replaces
+// Bun.gc with a stand-in that records its calls. Most tests count the
+// host's heartbeats with a retired-entry count that never trips.
 describe("the collect trigger", () => {
   const realGc = Bun.gc;
   let gcCalls: { at: number; beat: number; arg: unknown }[] = [];
@@ -289,15 +289,23 @@ describe("the collect trigger", () => {
   }, 20_000);
 
   test("at the mark, makes one full collection, then none within the cooldown, and reports its duration", async () => {
-    gcStandIn = () => Bun.sleepSync(20);
-    const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: 1, cooldown: 60_000, policy: "heartbeat" } });
-    await until("ten heartbeats after the first collection", () => gcCalls.length > 0 && beats >= gcCalls[0].beat + 10);
-    expect(gcCalls.map((c) => c.arg)).toEqual([true]);
-    const { count, lastMs, totalMs } = host.health().collections;
-    expect(count).toBe(1);
-    expect(lastMs).toBeGreaterThanOrEqual(20);
-    expect(totalMs).toBe(lastMs!);
-    await host.close();
+    // The resident set reads exactly the mark, which is due.
+    const mark = 5_000_000;
+    const realRss = process.memoryUsage.rss;
+    process.memoryUsage.rss = () => mark;
+    try {
+      gcStandIn = () => Bun.sleepSync(20);
+      const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: mark, cooldown: 60_000, policy: "heartbeat" } });
+      await until("ten heartbeats after the first collection", () => gcCalls.length > 0 && beats >= gcCalls[0].beat + 10);
+      expect(gcCalls.map((c) => c.arg)).toEqual([true]);
+      const { count, lastMs, totalMs } = host.health().collections;
+      expect(count).toBe(1);
+      expect(lastMs).toBeGreaterThanOrEqual(20);
+      expect(totalMs).toBe(lastMs!);
+      await host.close();
+    } finally {
+      process.memoryUsage.rss = realRss;
+    }
   }, 20_000);
 
   test("works without any recycle trigger", async () => {
@@ -323,13 +331,17 @@ describe("the collect trigger", () => {
 
   test("leaves the recycle triggers as they are: rss trips on its own samples, and collections go on after it", async () => {
     const reasons: string[] = [];
+    // The heartbeats counted when the trigger tripped. Each heartbeat checks
+    // rss before it counts, so the third heartbeat trips with two counted.
+    const tripBeats: number[] = [];
     const { host } = await heartbeatHost({
       recycle: { rss: 1, samples: 3, retired: beatCounter },
-      onRecycle: (r) => reasons.push(r),
+      onRecycle: (r) => (reasons.push(r), tripBeats.push(beats)),
       collect: { rss: 1, cooldown: 0, policy: "heartbeat" },
     });
     await until("five heartbeats", () => beats >= 5);
     expect(reasons).toEqual(["rss"]);
+    expect(tripBeats).toEqual([2]);
     expect(host.health().recycle).toBe("rss");
     const after = gcCalls.length;
     await until("a collection after the trip", () => gcCalls.length > after);
@@ -498,7 +510,7 @@ describe("the collect trigger", () => {
     await host.close();
   }, 20_000);
 
-  test("the idle policy: at a heartbeat, once the host has been idle for the quiet period, the collection runs there", async () => {
+  test("the idle policy: a host idle since connect collects once the quiet period has passed", async () => {
     const quiet = 300;
     const before = performance.now();
     const { host } = await heartbeatHost({ collect: whenIdle({ quiet }) });
@@ -509,6 +521,39 @@ describe("the collect trigger", () => {
     expect(c).toMatchObject({ count: 1, due: 1, dueNow: false });
     expect(c.maxDeferredMs).toBeGreaterThan(0);
     await host.close();
+  }, 20_000);
+
+  test("the idle policy: a heartbeat that finds a collection due after the quiet period has passed collects inside that heartbeat", async () => {
+    // Below the mark until the host has been idle for longer than quiet.
+    const realRss = process.memoryUsage.rss;
+    let rss = 10;
+    process.memoryUsage.rss = () => rss;
+    // inBeat is true from a heartbeat's retired count until the microtasks
+    // after that heartbeat's callback: no timer's callback sees it.
+    let inBeat = false;
+    const inBeats: boolean[] = [];
+    gcStandIn = () => inBeats.push(inBeat);
+    const counter = {
+      max: Number.MAX_SAFE_INTEGER,
+      count: () => {
+        inBeat = true;
+        queueMicrotask(() => (inBeat = false));
+        return beatCounter.count();
+      },
+    };
+    try {
+      const quiet = 100;
+      const { host } = await heartbeatHost({ recycle: { retired: counter }, collect: whenIdle({ rss: 1000, quiet }) });
+      await Bun.sleep(quiet + 50);
+      expect(gcCalls).toEqual([]);
+      rss = 2000;
+      await until("the collection", () => gcCalls.length > 0);
+      expect(inBeats).toEqual([true]);
+      expect(host.health().collections).toMatchObject({ count: 1, due: 1, dueNow: false });
+      await host.close();
+    } finally {
+      process.memoryUsage.rss = realRss;
+    }
   }, 20_000);
 
   // A step of the bundle in dir, u/hold, that runs until the returned file
@@ -818,13 +863,15 @@ describe("the collect trigger", () => {
 
   test("the idle policy leaves the recycle triggers as they are, and a collection never trips one", async () => {
     const reasons: string[] = [];
+    const tripBeats: number[] = [];
     const { host } = await heartbeatHost({
       recycle: { rss: 1, samples: 3, retired: beatCounter },
-      onRecycle: (r) => reasons.push(r),
+      onRecycle: (r) => (reasons.push(r), tripBeats.push(beats)),
       collect: whenIdle({ cooldown: 0, quiet: 0 }),
     });
     await until("five heartbeats", () => beats >= 5);
     expect(reasons).toEqual(["rss"]);
+    expect(tripBeats).toEqual([2]);
     const after = gcCalls.length;
     await until("a collection after the trip", () => gcCalls.length > after);
     expect(reasons).toEqual(["rss"]);
@@ -851,8 +898,9 @@ describe("the collect trigger", () => {
 });
 
 // The runtime calls the heartbeat observer, where the SDK's triggers run,
-// once the heartbeat's ping has gone to the transport.
-test("the heartbeat observer runs after the heartbeat's ping is written", async () => {
+// once it has queued the heartbeat's ping. Here the transport takes every
+// write at once, so the ping is written before the observer runs.
+test("the heartbeat observer runs after the heartbeat's ping, on a transport that takes every write", async () => {
   const { Runtime } = await import("../runtime/runtime.ts");
   const { DEFAULT_MAX_MESSAGE, decodeAll, encode, frame, FrameReader, MAX_FRAME } = await import("../runtime/frame.ts");
   const reader = new FrameReader(MAX_FRAME);

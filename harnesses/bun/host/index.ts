@@ -111,13 +111,14 @@ export type ConnectOptions = {
    *   so for quiet milliseconds (default 100). The SDK checks at each
    *   heartbeat, when the run count drops to 0, and, with a collection
    *   due, once the quiet period has passed. A due collection waits as
-   *   long as the host stays busy; the recycle triggers stay the bound on
-   *   memory. The SDK sees only its own runs and invocations: the host's
-   *   other work counts as idle. It is the default because its
-   *   collections never stop a run that is open.
-   * - "heartbeat": at that heartbeat, while runs may be open. It collects
-   *   sooner, so the resident set stays lower, but each collection stops
-   *   the invocations that are running.
+   *   long as the host stays busy; the recycle triggers, which the host
+   *   acts on, stay the bound on memory. The SDK sees only its own runs
+   *   and invocations: the host's other work counts as idle. It is the
+   *   default because its collections never stop a run that is open.
+   * - "heartbeat": at that heartbeat, while runs may be open. It can
+   *   collect sooner, which kept the peak resident set lower in a measured
+   *   workload, but each collection stops the invocations that are
+   *   running.
    *
    * health().collections reports what the collections cost and how long
    * they waited. A collection never trips or resets a recycle trigger. */
@@ -198,11 +199,14 @@ export type Health = HostHealth & {
    * milliseconds:
    *
    * - count: how many ran; a collection that threw is not counted.
-   * - lastMs: how long the last one took, null before the first.
-   * - totalMs: how long they took in all.
-   * - due: how many times a collection became due. Each one due starts
-   *   one collection, so due exceeds count by the collections that threw,
-   *   plus 1 while dueNow is true.
+   * - lastMs: how long the last successful one took, null before the
+   *   first.
+   * - totalMs: how long the successful ones took in all; the time of a
+   *   collection that threw is in neither.
+   * - due: how many times a collection became due. Each one due starts at
+   *   most one collection, and a due one may wait for good on a busy host
+   *   or end unstarted at close(). So due exceeds count by the collections
+   *   that threw, plus 1 while dueNow is true.
    * - deferredMs and maxDeferredMs: the total and the longest wait from
    *   due to the start of a collection, failed ones included; 0 under the
    *   "heartbeat" policy, which never waits. The default policy, "idle",
@@ -231,7 +235,7 @@ export const DEFAULT_COLLECT_COOLDOWN_MS = 3000;
  * when connect's collect option gives no quiet, in milliseconds. A host
  * that runs several flows one after another for one request has no run
  * open for a moment between them; the quiet period keeps the collection
- * out of that gap. */
+ * out of such a gap when the gap is shorter than the quiet period. */
 export const DEFAULT_COLLECT_QUIET_MS = 100;
 
 export type Host = {
