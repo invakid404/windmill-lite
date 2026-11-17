@@ -124,7 +124,7 @@ jobs:
       - name: Set up Go
         # No build cache: a release engine is built from the tag's sources
         # alone.
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
@@ -195,7 +195,7 @@ jobs:
       - name: Set up Go
         # The packaging test builds an engine of another version, which
         # must refuse the packed SDK.
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -283,7 +283,7 @@ jobs:
       - name: Set up Go
         # notices lists the Go modules that the engine links, and reads
         # their licence files from the module cache.
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
