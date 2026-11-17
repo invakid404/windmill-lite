@@ -51,7 +51,10 @@ expected to know:
 
 Explain or link everything else at its first use in a document, such as
 [Bun](glossary.md#bun), [Windmill](glossary.md#windmill) and every other
-term in the [glossary](glossary.md).
+term in the [glossary](glossary.md). A summary sentence, such as the root
+README's opening, links only the terms that a newcomer cannot guess from
+it; the document links each other term at its next use, and the glossary
+keeps every term.
 
 ## Self-contained and durable
 
