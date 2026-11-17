@@ -321,9 +321,9 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const collect = o.collect;
   const cooldown = collect?.cooldown ?? DEFAULT_COLLECT_COOLDOWN_MS;
   const quiet = collect?.quiet ?? DEFAULT_COLLECT_QUIET_MS;
-  // Without this check, a missing or NaN mark would make no collection
-  // due under "idle" and one at every heartbeat after the cooldown under
-  // "heartbeat"; a mark of 0 or less would do the latter under either.
+  // The mark must compare greater than 0. Without this check, a missing
+  // or NaN mark would never make a collection due under "idle", and under
+  // "heartbeat" would collect at the first heartbeat after each cooldown.
   if (collect !== undefined && !(collect.rss > 0 && cooldown >= 0 && Number.isFinite(cooldown))) {
     throw new HostError("options", `collect needs rss, a positive number of bytes, and a cooldown of 0 ms or more; got ${JSON.stringify(collect)}`);
   }

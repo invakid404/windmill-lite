@@ -188,9 +188,8 @@ test("a run frame carries the run's write-capable selectors and halts", async ()
 // The collect trigger, on hosts connected to test/heartbeatengine.ts, which
 // welcomes them with a heartbeat of 10 ms, or of the interval that a test
 // gives, and answers their runs when the test says. Each test replaces
-// Bun.gc with a stand-in that records its calls. A test that needs the
-// host's heartbeats counts them with a retired-entry count that never
-// trips.
+// Bun.gc with a stand-in that records its calls. Some tests count the
+// host's heartbeats with a retired-entry callback that never trips.
 describe("the collect trigger", () => {
   const realGc = Bun.gc;
   let gcCalls: { at: number; beat: number; arg: unknown }[] = [];
