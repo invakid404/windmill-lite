@@ -1297,19 +1297,24 @@ interface); `WA-Vn` findings were added during validation.
     creates the resource.
 - **Rule, the resource routes (oracle-observed):**
   - **Reads.** `exists` answers 200 `application/json` `true` or `false`.
-    A read of a path with no resource answers 404 `text/plain`
-    `Not found: Resource <p> not found`, which `getState` turns into
-    `undefined` ([WA-13/c](conformance.md#wa-13)). A read answers the
-    value as compact JSON in jsonb's key order.
+    A read of a path with no resource, through `get_value_interpolated`,
+    `get_value` or `get` (the Python client's probe), answers 404
+    `text/plain` `Not found: Resource <p> not found`, which `getState`
+    turns into `undefined` ([WA-13/c](conformance.md#wa-13),
+    [WA-13/n](conformance.md#wa-13)). A read answers the value as compact
+    JSON in jsonb's key order.
   - **Create** answers 201 `text/plain; charset=utf-8`
-    `resource <p> created`. A path that any resource holds, of any type,
-    answers 400 `text/plain` `Bad request: Resource <p> already exists`
-    and changes nothing ([WA-13/d](conformance.md#wa-13)).
+    `resource <p> created`. A path that a resource holds, of type `state`
+    or another, answers 400 `text/plain`
+    `Bad request: Resource <p> already exists`, and the entry's value
+    reads back as it was ([WA-13/d](conformance.md#wa-13)).
   - **`update_value`** answers 200 `text/plain; charset=utf-8`
-    `value of resource <p> updated` and keeps the type; a body without
-    `value`, such as `{}`, stores `null`. A path with no resource answers
-    404 `Not found: Resource <p> not found` and creates nothing
-    ([WA-13/e](conformance.md#wa-13)).
+    `value of resource <p> updated`; a body without `value`, such as
+    `{}`, stores `null`. A path with no resource answers 404
+    `Not found: Resource <p> not found` and creates nothing
+    ([WA-13/e](conformance.md#wa-13)). The entry keeps its type: `get`
+    shows `state`, or the other type, after an update
+    ([WA-13/n](conformance.md#wa-13)).
   - **Delete** answers 200 `resource <p> deleted`. A path with no resource
     answers 404 `Not found: Resource not found at name <p>`, followed by a
     source location ([WA-13/f](conformance.md#wa-13)).
@@ -1318,36 +1323,49 @@ interface); `WA-Vn` findings were added during validation.
     ([WA-13/f](conformance.md#wa-13), [WA-13/l](conformance.md#wa-13)).
   - **The request's own rejections** come before any write: a missing
     `path` or `resource_type` answers 422, a body that is not JSON 400, and
-    a body without `Content-Type: application/json` 415, with the texts of
-    [WA-13/f](conformance.md#wa-13).
+    a body sent with no `Content-Type` header or as `text/plain` 415, with
+    the texts of [WA-13/f](conformance.md#wa-13).
   - **Values.** A value that jsonb refuses, such as a string with a NUL or
     a lone surrogate, answers 400 `text/plain` with the database's error
-    after `SqlErr: error returned from database: ` and writes nothing
-    ([WA-13/h](conformance.md#wa-13)). No value up to 32 MiB is refused
-    ([WA-13/p](conformance.md#wa-13)).
+    after `SqlErr: error returned from database: `. A refused create leaves
+    no entry, and a refused update leaves the old value
+    ([WA-13/h](conformance.md#wa-13)). A value `{"s":"<n bytes>"}` with
+    `n` from 1 MiB to 32 MiB was accepted by create and by `update_value`
+    and read back whole ([WA-13/p](conformance.md#wa-13)).
   - **The stored form** respells numbers, and create and `update_value`
     spell them differently: `-0` and `1e3` read back as `0` and `1000`
     after a create, and as `0.0` and `1000.0` after an update
     ([WA-13/i](conformance.md#wa-13)).
-  - **Paths.** A create checks only the path's form: `u/<user>/<name>`,
-    `f/<folder>/<name>` or `g/<group>/<name>`, each segment of letters,
-    digits, `_` or `-`; otherwise it answers 400 with the text of
-    [WA-13/j](conformance.md#wa-13). The folder need not exist, and a
-    superadmin's job may write any user's path.
+  - **Paths.** For a superadmin's job, a create at a malformed path
+    answers 400 with the text of [WA-13/j](conformance.md#wa-13), which
+    names the forms `u/<user>/<name>`, `f/<folder>/<name>` and
+    `g/<group>/<name>`. The recorded refusals are another prefix, no name,
+    a trailing `/`, and a `.` or a space in a segment.
+  - **Paths accepted.** A create was accepted in a folder that does not
+    exist, under another user's `u/`, under `g/`, at a nested path, and
+    with `-`, `_`, digits, capitals or `ü` in a segment. Other characters
+    and other callers are not recorded ([WA-13/j](conformance.md#wa-13)).
   - **Types.** A create with any `resource_type`, one the workspace lacks
     included, succeeds, and update and delete work on any type
     ([WA-13/n](conformance.md#wa-13)).
-  - **Atomicity.** Each call reads or writes one whole value: under
-    parallel writers and readers on two workers, no read is torn, and the
-    last completed update is what a later read gives
-    ([WA-13/o](conformance.md#wa-13)). Of two creates racing for one path,
-    one wins and the other gets the conflict, so of two `setState` calls
-    racing for a state never written, one rejects with status 400
-    ([WA-13/k](conformance.md#wa-13), [WA-13/m](conformance.md#wa-13)).
+  - **Across runs.** The default state path names no run, so a later run
+    of the same flow step reads what an earlier run wrote there
+    ([WA-13/g](conformance.md#wa-13)).
+  - **Atomicity.** Each call reads or writes one whole value. Under
+    parallel writers and readers on two workers, every read was a whole
+    value that one of the run's writers wrote. The last completed update is
+    what a later read gives ([WA-13/o](conformance.md#wa-13)).
+  - **Races.** Of two creates in flight together for one path, one wins and the other
+    gets the conflict ([WA-13/k](conformance.md#wa-13)). So when two
+    `setState` calls both find that the state does not exist before either
+    creates it, one rejects with status 400
+    ([WA-13/m](conformance.md#wa-13)).
   - **Interpolation on read.** The interpolating read resolves a string
-    that is wholly a `$var:` or `$res:` reference, at any depth; a missing
-    variable makes it answer 404
-    ([WA-13/i](conformance.md#wa-13)).
+    that is wholly a `$var:` or `$res:` reference, at the positions
+    recorded: the top level, a nested object, and an array inside it. A
+    missing variable makes it answer 404
+    ([WA-13/i](conformance.md#wa-13)). [WA-12](#wa-12) gives the general
+    traversal rule and its limits.
 - **Evidence:** `typescript-client/client.ts:558-564`, `:572-618`, `:726-736`;
   `python-client/wmill/wmill/client.py:675-712`, `:743-761`, `:1188-1199`,
   `:1882-1887`; the recordings of
