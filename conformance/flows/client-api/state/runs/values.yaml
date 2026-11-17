@@ -1,0 +1,134 @@
+# Written from the reference before the oracle ran it: jsonb refuses a NUL
+# character (the database's error) and serde a lone surrogate (the body
+# parser's 400); the stored form follows jsonb (keys by length, then bytes;
+# the number spelling as written, as WA-14/e records for flow user state);
+# the interpolating read resolves $var: and $res: strings at any depth
+# (WA-13, WA-12), and a missing variable fails the read with 404 (WA-V3/b's
+# whole-value consumers).
+#
+# Recorded on the oracle, which corrected the prediction: both refusals come
+# from the database, as 400 "SqlErr: error returned from database:
+# unsupported Unicode escape sequence" for a NUL and "... invalid input
+# syntax for type json" for a lone surrogate, each followed by a Rust
+# location, which the step drops (D14). The stored form: keys in jsonb's
+# order; create keeps 1.0 and spells 1.50 as 1.5, -0 as 0, 1E-2 as 0.01 and
+# 1e3 as 1000, while update_value spells -0 as 0.0 and 1e3 as 1000.0. Reads
+# are compact JSON.
+spec: [WA-13/h, WA-13/i]
+target: f/wl_state/values
+expect:
+  status: success
+  result:
+    vars:
+      get_value:
+        body: "{\"o\":{\"l\":[\"$var:f/wl_state/v\"],\"v\":\"$var:f/wl_state/v\"},\"r\":\"$res:f/wl_state/r\",\"v\":\"$var:f/wl_state/v\",\"plain\":\"x $var:f/wl_state/v\"}"
+        type: application/json
+        status: 200
+      get_interpolated:
+        body: "{\"o\":{\"l\":[\"hello\"],\"v\":\"hello\"},\"r\":{\"a\":1},\"v\":\"hello\",\"plain\":\"x $var:f/wl_state/v\"}"
+        type: application/json
+        status: 200
+    whole:
+      get_value: {body: "\"$var:f/wl_state/v\"", type: application/json, status: 200}
+      get_interpolated: {body: "\"hello\"", type: application/json, status: 200}
+    stored:
+      get_value:
+        body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0,0.01]},\"ab\":1000}"
+        type: application/json
+        status: 200
+      get_interpolated:
+        body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0,0.01]},\"ab\":1000}"
+        type: application/json
+        status: 200
+    create_nul:
+      body: "SqlErr: error returned from database: unsupported Unicode escape sequence"
+      type: text/plain
+      status: 400
+    exists_nul: {body: "false", type: application/json, status: 200}
+    update_nul:
+      body: "SqlErr: error returned from database: unsupported Unicode escape sequence"
+      type: text/plain
+      status: 400
+    missing_var:
+      get_value: {body: "{\"v\":\"$var:f/wl_state/none\"}", type: application/json, status: 200}
+      get_interpolated: {body: "Not found: Variable f/wl_state/none not found", type: text/plain, status: 404}
+    create_stored: {body: "resource f/wl_state/stored created", type: "text/plain; charset=utf-8", status: 201}
+    update_stored:
+      body: "value of resource f/wl_state/stored updated"
+      type: "text/plain; charset=utf-8"
+      status: 200
+    stored_updated:
+      get_value:
+        body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0.0,0.01]},\"ab\":1000.0}"
+        type: application/json
+        status: 200
+      get_interpolated:
+        body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0.0,0.01]},\"ab\":1000.0}"
+        type: application/json
+        status: 200
+    after_update_nul:
+      get_value: {body: "{\"s\":\"ok\"}", type: application/json, status: 200}
+      get_interpolated: {body: "{\"s\":\"ok\"}", type: application/json, status: 200}
+    create_surrogate:
+      body: "SqlErr: error returned from database: invalid input syntax for type json"
+      type: text/plain
+      status: 400
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        vars:
+          get_value:
+            body: "{\"o\":{\"l\":[\"$var:f/wl_state/v\"],\"v\":\"$var:f/wl_state/v\"},\"r\":\"$res:f/wl_state/r\",\"v\":\"$var:f/wl_state/v\",\"plain\":\"x $var:f/wl_state/v\"}"
+            type: application/json
+            status: 200
+          get_interpolated:
+            body: "{\"o\":{\"l\":[\"hello\"],\"v\":\"hello\"},\"r\":{\"a\":1},\"v\":\"hello\",\"plain\":\"x $var:f/wl_state/v\"}"
+            type: application/json
+            status: 200
+        whole:
+          get_value: {body: "\"$var:f/wl_state/v\"", type: application/json, status: 200}
+          get_interpolated: {body: "\"hello\"", type: application/json, status: 200}
+        stored:
+          get_value:
+            body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0,0.01]},\"ab\":1000}"
+            type: application/json
+            status: 200
+          get_interpolated:
+            body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0,0.01]},\"ab\":1000}"
+            type: application/json
+            status: 200
+        create_nul:
+          body: "SqlErr: error returned from database: unsupported Unicode escape sequence"
+          type: text/plain
+          status: 400
+        exists_nul: {body: "false", type: application/json, status: 200}
+        update_nul:
+          body: "SqlErr: error returned from database: unsupported Unicode escape sequence"
+          type: text/plain
+          status: 400
+        missing_var:
+          get_value: {body: "{\"v\":\"$var:f/wl_state/none\"}", type: application/json, status: 200}
+          get_interpolated: {body: "Not found: Variable f/wl_state/none not found", type: text/plain, status: 404}
+        create_stored: {body: "resource f/wl_state/stored created", type: "text/plain; charset=utf-8", status: 201}
+        update_stored:
+          body: "value of resource f/wl_state/stored updated"
+          type: "text/plain; charset=utf-8"
+          status: 200
+        stored_updated:
+          get_value:
+            body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0.0,0.01]},\"ab\":1000.0}"
+            type: application/json
+            status: 200
+          get_interpolated:
+            body: "{\"\":true,\"a\":1.0,\"b\":1,\"c\":{\"x\":null,\"y\":[1.5,\"A\",0.0,0.01]},\"ab\":1000.0}"
+            type: application/json
+            status: 200
+        after_update_nul:
+          get_value: {body: "{\"s\":\"ok\"}", type: application/json, status: 200}
+          get_interpolated: {body: "{\"s\":\"ok\"}", type: application/json, status: 200}
+        create_surrogate:
+          body: "SqlErr: error returned from database: invalid input syntax for type json"
+          type: text/plain
+          status: 400

@@ -1,0 +1,56 @@
+# Written from the vendored API schema before the oracle ran it, texts as in
+# client-api/state's answers run: a create of an existing type, its update
+# and delete succeed as for state; an unknown type is predicted to be
+# refused; the options are accepted, and update_if_exists replaces the value
+# of a taken path.
+#
+# Recorded on the oracle, which corrected the prediction: a create with a
+# resource type that does not exist succeeds; reads are compact JSON.
+spec: [WA-13/n]
+target: f/wl_writes/answers
+expect:
+  status: success
+  result:
+    delete_setup: {body: "resource f/wl_writes/setup deleted", type: "text/plain; charset=utf-8", status: 200}
+    update_setup:
+      body: "value of resource f/wl_writes/setup updated"
+      type: "text/plain; charset=utf-8"
+      status: 200
+    create_labels: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+    recreate_setup: {body: "resource f/wl_writes/setup created", type: "text/plain; charset=utf-8", status: 201}
+    create_preserve: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+    read_other_type: {body: "{\"a\":2}", type: application/json, status: 200}
+    create_other_type: {body: "resource f/wl_writes/obj created", type: "text/plain; charset=utf-8", status: 201}
+    delete_other_type: {body: "resource f/wl_writes/obj deleted", type: "text/plain; charset=utf-8", status: 200}
+    update_other_type: {body: "value of resource f/wl_writes/obj updated", type: "text/plain; charset=utf-8", status: 200}
+    create_description: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+    create_ws_specific: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+    create_unknown_type: {body: "resource f/wl_writes/unknown created", type: "text/plain; charset=utf-8", status: 201}
+    exists_unknown_type: {body: "true", type: application/json, status: 200}
+    read_update_if_exists: {body: "2", type: application/json, status: 200}
+    create_update_if_exists: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+    create_update_if_exists_missing: {body: "resource f/wl_writes/unknown created", type: "text/plain; charset=utf-8", status: 201}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        delete_setup: {body: "resource f/wl_writes/setup deleted", type: "text/plain; charset=utf-8", status: 200}
+        update_setup:
+          body: "value of resource f/wl_writes/setup updated"
+          type: "text/plain; charset=utf-8"
+          status: 200
+        create_labels: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+        recreate_setup: {body: "resource f/wl_writes/setup created", type: "text/plain; charset=utf-8", status: 201}
+        create_preserve: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+        read_other_type: {body: "{\"a\":2}", type: application/json, status: 200}
+        create_other_type: {body: "resource f/wl_writes/obj created", type: "text/plain; charset=utf-8", status: 201}
+        delete_other_type: {body: "resource f/wl_writes/obj deleted", type: "text/plain; charset=utf-8", status: 200}
+        update_other_type: {body: "value of resource f/wl_writes/obj updated", type: "text/plain; charset=utf-8", status: 200}
+        create_description: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+        create_ws_specific: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+        create_unknown_type: {body: "resource f/wl_writes/unknown created", type: "text/plain; charset=utf-8", status: 201}
+        exists_unknown_type: {body: "true", type: application/json, status: 200}
+        read_update_if_exists: {body: "2", type: application/json, status: 200}
+        create_update_if_exists: {body: "resource f/wl_writes/opt created", type: "text/plain; charset=utf-8", status: 201}
+        create_update_if_exists_missing: {body: "resource f/wl_writes/unknown created", type: "text/plain; charset=utf-8", status: 201}

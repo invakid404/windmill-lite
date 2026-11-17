@@ -1,0 +1,27 @@
+# Written before the oracle ran it, from the client's two calls (WA-13):
+# both calls see exists answer false, one create wins and the other's
+# setState rejects with the conflict.
+spec: [WA-13/m]
+target: f/wl_state_client/race
+expect:
+  status: success
+  result:
+    outcomes:
+      - error:
+          message: "Bad Request"
+          status: 400
+          body: "Bad request: Resource f/wl_state_client/race already exists"
+      - {ok: true}
+    stored_is_one: true
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        outcomes:
+          - error:
+              message: "Bad Request"
+              status: 400
+              body: "Bad request: Resource f/wl_state_client/race already exists"
+          - {ok: true}
+        stored_is_one: true

@@ -1,0 +1,34 @@
+summary: "state: parallel writers and readers on two workers"
+value:
+  modules:
+    - id: reset
+      value:
+        type: rawscript
+        content: "!inline reset.ts"
+        language: bun
+        input_transforms: {}
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                role: {type: javascript, expr: flow_input.iter.value}
+        iterator: {type: javascript, expr: '["r", "w"]'}
+        parallel: true
+        parallelism: 2
+        skip_failures: false
+    - id: after
+      value:
+        type: rawscript
+        content: "!inline after.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

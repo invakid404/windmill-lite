@@ -1,0 +1,15 @@
+# The resource writes beside state, recorded on the oracle: create with a
+# type other than state, update_value and delete of an entry of another
+# type, and create with the options the stock client never sends
+# (WA-13/n). windmill-lite writes only entries of type state and answers
+# these with a named 501, so the fixture stays later and records what
+# Windmill does. The step calls the API with fetch at BASE_URL and its own
+# token. Synthetic, written for this repository from
+# docs/semantics/client-api.md#wa-13 and the vendored API schema. Deployed
+# with oracle.deploy api.
+id: client-api/resource-writes
+spec: [WA-13/n]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

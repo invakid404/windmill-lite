@@ -1,0 +1,323 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "last": "final",
+      "status": 200
+    },
+    "steps": {
+      "m:after": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "last": "final",
+          "status": 200
+        }
+      },
+      "m:l": {
+        "status": "success",
+        "result": [
+          {
+            "role": "r",
+            "torn": 0,
+            "failed": 0,
+            "saw_writers": true,
+            "every_read_whole": true
+          },
+          {
+            "role": "w",
+            "final": 200,
+            "failed": 0,
+            "final_read_back": true
+          }
+        ]
+      },
+      "m:l/i:0/m:x": {
+        "status": "success",
+        "args": {
+          "role": "r"
+        },
+        "result": {
+          "role": "r",
+          "torn": 0,
+          "failed": 0,
+          "saw_writers": true,
+          "every_read_whole": true
+        }
+      },
+      "m:l/i:1/m:x": {
+        "status": "success",
+        "args": {
+          "role": "w"
+        },
+        "result": {
+          "role": "w",
+          "final": 200,
+          "failed": 0,
+          "final_read_back": true
+        }
+      },
+      "m:reset": {
+        "status": "success",
+        "args": {},
+        "result": 201
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.876.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.2.1-0.20261117181200-fa5d2fd832b2+dirty",
+      "revision": "fa5d2fd832b2f0d18d1d8b6c45e9f124befce5af",
+      "modified": true,
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64"
+    },
+    "recorded_at": "2026-11-17T18:25:23Z",
+    "workers": 2,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:46511"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 10286,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-17T18:25:12.593812Z",
+          "started_at": "2026-11-17T18:25:12.631887Z",
+          "completed_at": "2026-11-17T18:25:22.789946Z",
+          "duration_ms": 10158
+        },
+        "m:after": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:25:22.048710Z",
+          "started_at": "2026-11-17T18:25:22.104633Z",
+          "completed_at": "2026-11-17T18:25:22.759134Z",
+          "duration_ms": 635
+        },
+        "m:l/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-17T18:25:13.255743Z",
+          "started_at": "2026-11-17T18:25:13.455407Z",
+          "completed_at": "2026-11-17T18:25:21.994826Z",
+          "duration_ms": 8539
+        },
+        "m:l/i:0/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:25:13.498680Z",
+          "started_at": "2026-11-17T18:25:13.611832Z",
+          "completed_at": "2026-11-17T18:25:21.943621Z",
+          "duration_ms": 8265
+        },
+        "m:l/i:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-17T18:25:13.255743Z",
+          "started_at": "2026-11-17T18:25:13.464585Z",
+          "completed_at": "2026-11-17T18:25:21.252960Z",
+          "duration_ms": 7788
+        },
+        "m:l/i:1/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:25:13.520722Z",
+          "started_at": "2026-11-17T18:25:13.679613Z",
+          "completed_at": "2026-11-17T18:25:21.139692Z",
+          "duration_ms": 7384
+        },
+        "m:reset": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:25:12.642528Z",
+          "started_at": "2026-11-17T18:25:12.689386Z",
+          "completed_at": "2026-11-17T18:25:13.153728Z",
+          "duration_ms": 407
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "reset",
+            "value": {
+              "content": "// The API at BASE_URL with the step's\n// own token, and the self-validating values the writers write: the\n// writer's id repeated to 256 KiB, a bar, then the SHA-256 of that text.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nconst P = \"f/wl_state_par/p\";\nconst READY = \"f/wl_state_par/ready\";\nconst sha = (s: string) => new Bun.CryptoHasher(\"sha256\").update(s).digest(\"hex\");\nfunction value(id: string): string {\n  const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);\n  return `${body}|${sha(body)}`;\n}\n// The writer id of a whole value, or null for a torn or foreign one.\nfunction check(v: unknown): string | null {\n  if (typeof v !== \"string\") return null;\n  const bar = v.lastIndexOf(\"|\");\n  if (bar < 0) return null;\n  const body = v.slice(0, bar);\n  if (sha(body) !== v.slice(bar + 1)) return null;\n  const id = body.slice(0, body.indexOf(\".\"));\n  return value(`${id}.`) === v ? id : null;\n}\nasync function req(method: string, route: string, body?: unknown) {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined) headers[\"Content-Type\"] = \"application/json\";\n  const r = await fetch(`${api}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });\n  return { status: r.status, text: await r.text() };\n}\nconst at = (p: string) => encodeURI(p);\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// Starts every run from one whole value, written by \"init.\", and no\n// readiness marker.\nexport async function main() {\n  await req(\"DELETE\", `/delete/${at(P)}`);\n  await req(\"DELETE\", `/delete/${at(READY)}`);\n  const c = await req(\"POST\", \"/create\", { path: P, value: value(\"init.\"), resource_type: \"state\" });\n  return c.status;\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "l",
+            "value": {
+              "iterator": {
+                "expr": "[\"r\", \"w\"]",
+                "type": "javascript"
+              },
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "content": "// The API at BASE_URL with the step's\n// own token, and the self-validating values the writers write: the\n// writer's id repeated to 256 KiB, a bar, then the SHA-256 of that text.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nconst P = \"f/wl_state_par/p\";\nconst READY = \"f/wl_state_par/ready\";\nconst sha = (s: string) => new Bun.CryptoHasher(\"sha256\").update(s).digest(\"hex\");\nfunction value(id: string): string {\n  const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);\n  return `${body}|${sha(body)}`;\n}\n// The writer id of a whole value, or null for a torn or foreign one.\nfunction check(v: unknown): string | null {\n  if (typeof v !== \"string\") return null;\n  const bar = v.lastIndexOf(\"|\");\n  if (bar < 0) return null;\n  const body = v.slice(0, bar);\n  if (sha(body) !== v.slice(bar + 1)) return null;\n  const id = body.slice(0, body.indexOf(\".\"));\n  return value(`${id}.`) === v ? id : null;\n}\nasync function req(method: string, route: string, body?: unknown) {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined) headers[\"Content-Type\"] = \"application/json\";\n  const r = await fetch(`${api}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });\n  return { status: r.status, text: await r.text() };\n}\nconst at = (p: string) => encodeURI(p);\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// One iteration of the parallel loop, on its own worker: the reader marks\n// itself ready and reads the state for 8 s from four concurrent loops,\n// checking that every read is one whole value a writer wrote; the writer\n// waits for the reader, then writes from four concurrent loops for 6 s,\n// each loop its own value w0. to w3., and ends with one more write of\n// \"final.\" that it reads back.\nexport async function main(role: string) {\n  if (role === \"r\") {\n    await req(\"POST\", \"/create\", { path: READY, value: true, resource_type: \"state\" });\n    const until = Date.now() + 8000;\n    let reads = 0, torn = 0, failed = 0;\n    const seen = new Set<string>();\n    await Promise.all([0, 1, 2, 3].map(async () => {\n      while (Date.now() < until) {\n        const r = await req(\"GET\", `/get_value_interpolated/${at(P)}`);\n        reads++;\n        if (r.status !== 200) { failed++; continue; }\n        const id = check(JSON.parse(r.text));\n        if (id === null) torn++; else seen.add(id);\n      }\n    }));\n    return { role, torn, failed, every_read_whole: reads > 0 && torn === 0 && failed === 0, saw_writers: [...seen].filter((s) => s.startsWith(\"w\")).length >= 2 };\n  }\n  for (let i = 0; i < 600; i++) {\n    if ((await req(\"GET\", `/exists/${at(READY)}`)).text === \"true\") break;\n    await sleep(100);\n  }\n  const until = Date.now() + 6000;\n  let failed = 0;\n  await Promise.all([0, 1, 2, 3].map(async (w) => {\n    const v = value(`w${w}.`);\n    while (Date.now() < until) {\n      const u = await req(\"POST\", `/update_value/${at(P)}`, { value: v });\n      if (u.status !== 200) failed++;\n    }\n  }));\n  const f = await req(\"POST\", `/update_value/${at(P)}`, { value: value(\"final.\") });\n  const back = await req(\"GET\", `/get_value_interpolated/${at(P)}`);\n  return { role, failed, final: f.status, final_read_back: check(JSON.parse(back.text)) === \"final\" };\n}\n",
+                    "input_transforms": {
+                      "role": {
+                        "expr": "flow_input.iter.value",
+                        "type": "javascript"
+                      }
+                    },
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                }
+              ],
+              "parallel": true,
+              "parallelism": 2,
+              "skip_failures": false,
+              "type": "forloopflow"
+            }
+          },
+          {
+            "id": "after",
+            "value": {
+              "content": "// The API at BASE_URL with the step's\n// own token, and the self-validating values the writers write: the\n// writer's id repeated to 256 KiB, a bar, then the SHA-256 of that text.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nconst P = \"f/wl_state_par/p\";\nconst READY = \"f/wl_state_par/ready\";\nconst sha = (s: string) => new Bun.CryptoHasher(\"sha256\").update(s).digest(\"hex\");\nfunction value(id: string): string {\n  const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);\n  return `${body}|${sha(body)}`;\n}\n// The writer id of a whole value, or null for a torn or foreign one.\nfunction check(v: unknown): string | null {\n  if (typeof v !== \"string\") return null;\n  const bar = v.lastIndexOf(\"|\");\n  if (bar < 0) return null;\n  const body = v.slice(0, bar);\n  if (sha(body) !== v.slice(bar + 1)) return null;\n  const id = body.slice(0, body.indexOf(\".\"));\n  return value(`${id}.`) === v ? id : null;\n}\nasync function req(method: string, route: string, body?: unknown) {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined) headers[\"Content-Type\"] = \"application/json\";\n  const r = await fetch(`${api}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });\n  return { status: r.status, text: await r.text() };\n}\nconst at = (p: string) => encodeURI(p);\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// After both iterations ended, the state holds the last completed write.\nexport async function main() {\n  const r = await req(\"GET\", `/get_value_interpolated/${at(P)}`);\n  const last = check(JSON.parse(r.text));\n  await req(\"DELETE\", `/delete/${at(P)}`);\n  await req(\"DELETE\", `/delete/${at(READY)}`);\n  return { status: r.status, last };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "reset",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// The API at BASE_URL with the step's\n// own token, and the self-validating values the writers write: the\n// writer's id repeated to 256 KiB, a bar, then the SHA-256 of that text.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nconst P = \"f/wl_state_par/p\";\nconst READY = \"f/wl_state_par/ready\";\nconst sha = (s: string) => new Bun.CryptoHasher(\"sha256\").update(s).digest(\"hex\");\nfunction value(id: string): string {\n  const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);\n  return `${body}|${sha(body)}`;\n}\n// The writer id of a whole value, or null for a torn or foreign one.\nfunction check(v: unknown): string | null {\n  if (typeof v !== \"string\") return null;\n  const bar = v.lastIndexOf(\"|\");\n  if (bar < 0) return null;\n  const body = v.slice(0, bar);\n  if (sha(body) !== v.slice(bar + 1)) return null;\n  const id = body.slice(0, body.indexOf(\".\"));\n  return value(`${id}.`) === v ? id : null;\n}\nasync function req(method: string, route: string, body?: unknown) {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined) headers[\"Content-Type\"] = \"application/json\";\n  const r = await fetch(`${api}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });\n  return { status: r.status, text: await r.text() };\n}\nconst at = (p: string) => encodeURI(p);\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// Starts every run from one whole value, written by \"init.\", and no\n// readiness marker.\nexport async function main() {\n  await req(\"DELETE\", `/delete/${at(P)}`);\n  await req(\"DELETE\", `/delete/${at(READY)}`);\n  const c = await req(\"POST\", \"/create\", { path: P, value: value(\"init.\"), resource_type: \"state\" });\n  return c.status;\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "// The API at BASE_URL with the step's\n// own token, and the self-validating values the writers write: the\n// writer's id repeated to 256 KiB, a bar, then the SHA-256 of that text.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nconst P = \"f/wl_state_par/p\";\nconst READY = \"f/wl_state_par/ready\";\nconst sha = (s: string) => new Bun.CryptoHasher(\"sha256\").update(s).digest(\"hex\");\nfunction value(id: string): string {\n  const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);\n  return `${body}|${sha(body)}`;\n}\n// The writer id of a whole value, or null for a torn or foreign one.\nfunction check(v: unknown): string | null {\n  if (typeof v !== \"string\") return null;\n  const bar = v.lastIndexOf(\"|\");\n  if (bar < 0) return null;\n  const body = v.slice(0, bar);\n  if (sha(body) !== v.slice(bar + 1)) return null;\n  const id = body.slice(0, body.indexOf(\".\"));\n  return value(`${id}.`) === v ? id : null;\n}\nasync function req(method: string, route: string, body?: unknown) {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined) headers[\"Content-Type\"] = \"application/json\";\n  const r = await fetch(`${api}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });\n  return { status: r.status, text: await r.text() };\n}\nconst at = (p: string) => encodeURI(p);\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// One iteration of the parallel loop, on its own worker: the reader marks\n// itself ready and reads the state for 8 s from four concurrent loops,\n// checking that every read is one whole value a writer wrote; the writer\n// waits for the reader, then writes from four concurrent loops for 6 s,\n// each loop its own value w0. to w3., and ends with one more write of\n// \"final.\" that it reads back.\nexport async function main(role: string) {\n  if (role === \"r\") {\n    await req(\"POST\", \"/create\", { path: READY, value: true, resource_type: \"state\" });\n    const until = Date.now() + 8000;\n    let reads = 0, torn = 0, failed = 0;\n    const seen = new Set<string>();\n    await Promise.all([0, 1, 2, 3].map(async () => {\n      while (Date.now() < until) {\n        const r = await req(\"GET\", `/get_value_interpolated/${at(P)}`);\n        reads++;\n        if (r.status !== 200) { failed++; continue; }\n        const id = check(JSON.parse(r.text));\n        if (id === null) torn++; else seen.add(id);\n      }\n    }));\n    return { role, torn, failed, every_read_whole: reads > 0 && torn === 0 && failed === 0, saw_writers: [...seen].filter((s) => s.startsWith(\"w\")).length >= 2 };\n  }\n  for (let i = 0; i < 600; i++) {\n    if ((await req(\"GET\", `/exists/${at(READY)}`)).text === \"true\") break;\n    await sleep(100);\n  }\n  const until = Date.now() + 6000;\n  let failed = 0;\n  await Promise.all([0, 1, 2, 3].map(async (w) => {\n    const v = value(`w${w}.`);\n    while (Date.now() < until) {\n      const u = await req(\"POST\", `/update_value/${at(P)}`, { value: v });\n      if (u.status !== 200) failed++;\n    }\n  }));\n  const f = await req(\"POST\", `/update_value/${at(P)}`, { value: value(\"final.\") });\n  const back = await req(\"GET\", `/get_value_interpolated/${at(P)}`);\n  return { role, failed, final: f.status, final_read_back: check(JSON.parse(back.text)) === \"final\" };\n}\n",
+                    "language": "bun",
+                    "input_transforms": {
+                      "role": {
+                        "expr": "flow_input.iter.value",
+                        "type": "javascript"
+                      }
+                    }
+                  }
+                }
+              ],
+              "iterator": {
+                "expr": "[\"r\", \"w\"]",
+                "type": "javascript"
+              },
+              "parallel": true,
+              "parallelism": {
+                "type": "static",
+                "value": 2
+              },
+              "skip_failures": false
+            }
+          },
+          {
+            "id": "after",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// The API at BASE_URL with the step's\n// own token, and the self-validating values the writers write: the\n// writer's id repeated to 256 KiB, a bar, then the SHA-256 of that text.\nconst e = process.env;\nconst auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\nconst api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\nconst P = \"f/wl_state_par/p\";\nconst READY = \"f/wl_state_par/ready\";\nconst sha = (s: string) => new Bun.CryptoHasher(\"sha256\").update(s).digest(\"hex\");\nfunction value(id: string): string {\n  const body = id.repeat(Math.ceil((256 * 1024) / id.length)).slice(0, 256 * 1024);\n  return `${body}|${sha(body)}`;\n}\n// The writer id of a whole value, or null for a torn or foreign one.\nfunction check(v: unknown): string | null {\n  if (typeof v !== \"string\") return null;\n  const bar = v.lastIndexOf(\"|\");\n  if (bar < 0) return null;\n  const body = v.slice(0, bar);\n  if (sha(body) !== v.slice(bar + 1)) return null;\n  const id = body.slice(0, body.indexOf(\".\"));\n  return value(`${id}.`) === v ? id : null;\n}\nasync function req(method: string, route: string, body?: unknown) {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined) headers[\"Content-Type\"] = \"application/json\";\n  const r = await fetch(`${api}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });\n  return { status: r.status, text: await r.text() };\n}\nconst at = (p: string) => encodeURI(p);\nconst sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));\n// After both iterations ended, the state holds the last completed write.\nexport async function main() {\n  const r = await req(\"GET\", `/get_value_interpolated/${at(P)}`);\n  const last = check(JSON.parse(r.text));\n  await req(\"DELETE\", `/delete/${at(P)}`);\n  await req(\"DELETE\", `/delete/${at(READY)}`);\n  return { status: r.status, last };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "reset",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline reset.ts",
+              "input_transforms": {},
+              "lock": "!inline reset.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "x",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline x.ts",
+                    "input_transforms": {
+                      "role": {
+                        "type": "javascript",
+                        "expr": "flow_input.iter.value"
+                      }
+                    },
+                    "lock": "!inline x.lock",
+                    "language": "bun"
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "javascript",
+                "expr": "[\"r\", \"w\"]"
+              },
+              "parallel": true,
+              "parallelism": {
+                "type": "static",
+                "value": 2
+              },
+              "skip_failures": false
+            }
+          },
+          {
+            "id": "after",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline after.ts",
+              "input_transforms": {},
+              "lock": "!inline after.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

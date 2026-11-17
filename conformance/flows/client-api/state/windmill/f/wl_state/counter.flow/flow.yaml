@@ -1,0 +1,27 @@
+summary: "state: a counter at the default state path"
+value:
+  modules:
+    - id: reset
+      value:
+        type: rawscript
+        content: "!inline reset.ts"
+        language: bun
+        input_transforms: {}
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms:
+                i: {type: javascript, expr: flow_input.iter.value}
+        iterator: {type: javascript, expr: "[1, 2, 3]"}
+        parallel: false
+        skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

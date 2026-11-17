@@ -1,0 +1,9 @@
+# Created after the deployment (OR-31): a resource type of the fixture's own
+# and a resource of it, which the run updates, deletes and creates again.
+resource_types:
+  - name: wl_writes_obj
+    schema: {type: object}
+resources:
+  - path: f/wl_writes/setup
+    resource_type: wl_writes_obj
+    value: {a: 1}

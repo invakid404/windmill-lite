@@ -1,0 +1,30 @@
+# Written from the reference before the oracle ran it, which states no
+# limit: the server's request body limit is predicted to refuse a value of
+# 32 MiB with 413 and accept 16 MiB. The bisection's result is the oracle's
+# to record.
+#
+# Recorded on the oracle, which corrected the prediction: no size up to 32
+# MiB is refused; create and update_value accept a 32 MiB value, and it
+# reads back whole.
+spec: [WA-13/p]
+target: f/wl_state/size
+expect:
+  status: success
+  result:
+    refusal: null
+    readback: true
+    update_above: null
+    update_largest: {status: 200}
+    largest_accepted: 33554432
+    smallest_refused: 0
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        refusal: null
+        readback: true
+        update_above: null
+        update_largest: {status: 200}
+        largest_accepted: 33554432
+        smallest_refused: 0

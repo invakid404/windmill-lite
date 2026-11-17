@@ -1,0 +1,14 @@
+# Written from the reference before the oracle ran it: an explicit path is
+# an ordinary resource path, so a state step a writes there is what step b
+# reads and updates (WA-13).
+spec: [WA-13/g]
+target: f/wl_state/explicit
+expect:
+  status: success
+  result: {before: {from: a}, exists: true, update: 200, after: {from: b, saw: {from: a}}}
+  steps:
+    "m:a": {status: success, args: {}, result: {exists: false, create: 201, own_path_differs: true}}
+    "m:b":
+      status: success
+      args: {}
+      result: {before: {from: a}, exists: true, update: 200, after: {from: b, saw: {from: a}}}
