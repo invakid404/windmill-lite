@@ -1178,6 +1178,7 @@ write-capable selectors and halts as the host gave them.
 `test/heartbeatengine.ts` welcomes with a heartbeat of 10 ms, with a
 stand-in for `Bun.gc` that records its calls:
 
+- with neither `collect` nor `recycle` set, heartbeats call no observer;
 - off by default, and below the mark, heartbeats make no collection;
 - set alone, without a recycle trigger, it collects;
 - at the mark, one collection, none within the cooldown, and another

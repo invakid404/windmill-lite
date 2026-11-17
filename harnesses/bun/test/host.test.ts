@@ -247,6 +247,31 @@ describe("the collect trigger", () => {
     await host.close();
   }, 20_000);
 
+  // Each heartbeat's ping reads the resident set once; the runtime calls a
+  // heartbeat observer through invocations.exit. With no trigger set, the
+  // heartbeats run and no observer is called.
+  test("with no trigger set, heartbeats call no observer", async () => {
+    const { invocations } = await import("../runtime/context.ts");
+    const realRss = process.memoryUsage.rss;
+    const realExit = invocations.exit;
+    let rssReads = 0;
+    let exits = 0;
+    process.memoryUsage.rss = () => (rssReads++, realRss());
+    invocations.exit = ((fn: (...args: unknown[]) => unknown, ...args: unknown[]) => (exits++, realExit.call(invocations, fn, ...args))) as typeof invocations.exit;
+    try {
+      const { host } = await heartbeatHost({});
+      rssReads = 0;
+      exits = 0;
+      await until("ten heartbeats", () => rssReads >= 10);
+      expect(exits).toBe(0);
+      expect(gcCalls).toEqual([]);
+      await host.close();
+    } finally {
+      process.memoryUsage.rss = realRss;
+      invocations.exit = realExit;
+    }
+  }, 20_000);
+
   test("makes no collection while the resident set is below the mark", async () => {
     const { host } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: { rss: Number.MAX_SAFE_INTEGER } });
     await until("ten heartbeats", () => beats >= 10);
