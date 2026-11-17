@@ -200,6 +200,7 @@ use.
 | [docs/writing.md](docs/writing.md) | How to write the documentation | Everyone who writes or reviews documentation |
 | [docs/memoria.md](docs/memoria.md) | How the documentation gate works, and how to pass it | Every contributor |
 | [docs/ci.md](docs/ci.md) | What each CI workflow checks, and how to read a failure | Every contributor |
+| [docs/benchmarks.md](docs/benchmarks.md) | How to run the benchmarks, what each one measures, and how to compare two builds | Contributors who measure |
 | [RELEASING.md](RELEASING.md) | How to release a version | The maintainer |
 | [docs/design](docs/design/README.md) | The architecture decision records and why the design is what it is | Designers and reviewers |
 | [cmd/wltest](cmd/wltest/README.md) | The runner of the [conformance cases](docs/glossary.md#conformance-case) and of the oracle: `record`, `stub`, `check` | Contributors to conformance |
