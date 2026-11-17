@@ -107,13 +107,14 @@ export type ConnectOptions = {
    * collection runs:
    *
    * - "heartbeat", the default: at that heartbeat.
-   * - "idle": once no run has been open for quiet milliseconds (default
-   *   100; health().runs is 0), and no invocation is running (in_flight
-   *   is 0). The SDK checks at each heartbeat, and, with a collection
-   *   due, quiet milliseconds after the run count drops to 0. A due
-   *   collection waits as long as the host stays busy; the recycle
-   *   triggers stay the bound on memory. The SDK sees only its own runs
-   *   and invocations: the host's other work counts as idle.
+   * - "idle": once no run is open and no invocation is running
+   *   (health().runs and in_flight are 0), and the host has stayed so for
+   *   quiet milliseconds (default 100). The SDK checks at each heartbeat,
+   *   when the run count drops to 0, and, with a collection due, once the
+   *   quiet period has passed. A due collection waits as long as the host
+   *   stays busy; the recycle triggers stay the bound on memory. The SDK
+   *   sees only its own runs and invocations: the host's other work
+   *   counts as idle.
    *
    * health().collections reports what the collections cost and how long
    * they waited. A collection never trips or resets a recycle trigger. */
@@ -430,10 +431,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const collections: Omit<Health["collections"], "dueNow"> = { count: 0, lastMs: null, totalMs: 0, due: 0, deferredMs: 0, maxDeferredMs: 0 };
   // When the last collection ended, or failed.
   let collectedAt = -Infinity;
-  // The "idle" policy's state: when the due collection became due, when
-  // the run count last dropped to 0 (null while a run is open), and the
-  // timer that checks again once the quiet period has passed, armed only
-  // while no run has been submitted since.
+  // The "idle" policy's state: when the due collection became due, since
+  // when the host has been seen idle (null while a run is open or an
+  // invocation was last seen running), and the timer that checks again
+  // once the quiet period has passed.
   let dueAt: number | null = null;
   let idleSince: number | null = performance.now();
   let quietTimer: ReturnType<typeof setTimeout> | undefined;
@@ -476,34 +477,49 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       collectNow();
       return;
     }
-    const now = performance.now();
     // A collection stays due until it runs, whatever the resident set
     // reads in the meantime.
-    if (dueAt === null && h.rss >= collect.rss && now - collectedAt >= cooldown) {
-      dueAt = now;
+    if (dueAt === null && h.rss >= collect.rss && performance.now() - collectedAt >= cooldown) {
+      dueAt = performance.now();
       collections.due++;
     }
-    if (dueAt !== null && idleSince !== null && now - idleSince >= quiet && h.in_flight === 0) collectNow();
+    checkIdle(h.in_flight, false);
   };
-  // The "idle" policy, when the run count drops to 0. The run's caller has
-  // not had its outcome yet: its continuation runs before any timer, so
-  // the collection never runs inside that settlement. The timer is outside
-  // every invocation, unfenced, and keeps no process alive; a run
-  // submitted before it fires cancels it. close() ends the runs still
-  // open, which arms nothing.
-  const onIdle = () => {
-    idleSince = performance.now();
-    if (dueAt === null || closing) return;
+  // The "idle" policy's check, given the invocations running: at each
+  // heartbeat, when the run count drops to 0 (atZero), and from its own
+  // timer. Idle starts when a check first finds no run open and no
+  // invocation running; every invocation then running belongs to a run
+  // that has ended, and none starts until a run is submitted. So a step
+  // that outlives its run delays the quiet period until a check finds it
+  // ended. At the zero the run's caller has not had its outcome yet: its
+  // continuation runs before any timer, so the check never collects
+  // there. The timer is outside every invocation, unfenced, and keeps no
+  // process alive; close() clears it, and a check after close(), which
+  // ends the runs still open, does nothing.
+  const checkIdle = (running: number, atZero: boolean) => {
     disarm();
+    if (closing || inflight > 0) return;
+    const now = performance.now();
+    if (running > 0) idleSince = null;
+    else idleSince ??= now;
+    if (dueAt === null || idleSince === null) return;
+    const left = quiet - (now - idleSince);
+    if (left <= 0 && !atZero) {
+      collectNow();
+      return;
+    }
     quietTimer = invocations.exit(() =>
-      realTimers.setTimeout(() => {
-        quietTimer = undefined;
-        try {
-          if (dueAt !== null && runtime.hostHealth().in_flight === 0) collectNow();
-        } catch (e) {
-          diag(`windmill-lite: the collect trigger's idle check failed: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }, quiet),
+      realTimers.setTimeout(
+        () => {
+          quietTimer = undefined;
+          try {
+            checkIdle(runtime.hostHealth().in_flight, false);
+          } catch (e) {
+            diag(`windmill-lite: the collect trigger's idle check failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        },
+        Math.max(0, left),
+      ),
     );
     quietTimer.unref();
   };
@@ -606,10 +622,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       }
       const { id, done } = submitted;
       inflight++;
-      if (whenIdle) {
-        idleSince = null;
-        disarm();
-      }
+      if (whenIdle) idleSince = null;
       const cancel = () => runtime.cancelRun(id);
       if (opts.signal?.aborted) cancel();
       else opts.signal?.addEventListener("abort", cancel, { once: true });
@@ -632,7 +645,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
           inflight--;
           opts.signal?.removeEventListener("abort", cancel);
           if (inflight === 0) for (const cb of idle.splice(0)) cb();
-          if (inflight === 0 && whenIdle) onIdle();
+          if (inflight === 0 && whenIdle) checkIdle(runtime.hostHealth().in_flight, true);
         });
     },
     health: () => ({ ...runtime.hostHealth(), runs: inflight, draining, recycle, collections: { ...collections, dueNow: dueAt !== null } }),

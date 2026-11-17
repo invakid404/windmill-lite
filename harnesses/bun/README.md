@@ -674,13 +674,17 @@ host idle. A host whose callers wait on its runs, such as a server, can
 choose it, so that a collection does not stall a request that a run
 serves.
 
-- **Idle:** no run has been open for at least `quiet` milliseconds
-  (`health().runs` is 0), and no invocation is running when the SDK
-  checks (`in_flight` is 0).
-- **When the SDK checks:** at each heartbeat, and, when a collection is
-  due, `quiet` milliseconds after the run count drops to 0. A run
-  submitted before then cancels that check, and so does `close()`. The check's timer runs outside every
+- **Idle:** no run is open and no invocation is running
+  (`health().runs` and `in_flight` are 0), and the host has stayed so
+  for `quiet` milliseconds.
+- **When the SDK checks:** at each heartbeat, when the run count drops
+  to 0, and, with a collection due, from a timer once the quiet period
+  has passed. A check that finds a run open does nothing: the run's end
+  checks again. `close()` clears the timer. The timer runs outside every
   invocation and keeps no process alive.
+- **A step that outlives its run:** the quiet period starts at the first
+  heartbeat that finds the step ended, so up to one heartbeat interval
+  after it ends.
 - **After the caller's outcome:** the caller of the run whose end left
   the host idle has its outcome before any collection starts.
 - **Why `quiet`:** a host that runs several flows one after another for
@@ -1246,6 +1250,7 @@ sent the host an invocation of a step that runs on. The tests check:
 
 For the `"idle"` policy, they check:
 
+- the default quiet period is 100 ms;
 - a collection due while a run is open waits for the run's end and the
   quiet period, then runs once, and `health()` gives its wait;
 - the caller of the run whose end left the host idle has its outcome
@@ -1256,12 +1261,18 @@ For the `"idle"` policy, they check:
   heartbeat collects once the host has been idle for the quiet period;
 - the collection runs outside every invocation, even for a run submitted
   inside one;
-- a step still running after its run's outcome keeps the collection due;
-- below the mark nothing becomes due, and the cooldown runs from the end
-  of a deferred collection;
+- a step still running after its run's outcome keeps the collection due,
+  and the quiet period starts once a heartbeat finds it ended, also when
+  it ends just before the quiet period after its run's end would pass;
+- below the mark nothing becomes due, and a due collection stays due
+  when the resident set falls below the mark;
+- the cooldown runs from the end of a collection that takes time, or
+  that fails after it;
+- `deferredMs` adds every wait, a failed collection's too, and
+  `maxDeferredMs` keeps the longest;
 - a collection that throws writes one diagnostic line and is no longer
   due;
-- `close()` cancels a pending check, also when it ends a run still open,
+- `close()` clears a pending check, also when it ends a run still open,
   and a pending check keeps no process alive;
 - the recycle triggers trip as they would without it;
 - `connect` refuses an unknown policy, and a quiet period that is not a

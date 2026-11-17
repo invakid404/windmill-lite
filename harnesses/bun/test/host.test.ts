@@ -195,10 +195,12 @@ describe("the collect trigger", () => {
   let gcCalls: { at: number; beat: number; arg: unknown }[] = [];
   let gcStandIn: () => void = () => {};
   let beats = 0;
+  let beatTimes: number[] = [];
   beforeEach(() => {
     gcCalls = [];
     gcStandIn = () => {};
     beats = 0;
+    beatTimes = [];
     Bun.gc = ((arg: unknown) => {
       gcCalls.push({ at: performance.now(), beat: beats, arg });
       gcStandIn();
@@ -213,7 +215,7 @@ describe("the collect trigger", () => {
     Bun.gc = realGc;
   });
 
-  const beatCounter = { max: Number.MAX_SAFE_INTEGER, count: () => ++beats };
+  const beatCounter = { max: Number.MAX_SAFE_INTEGER, count: () => (beatTimes.push(performance.now()), ++beats) };
   async function heartbeatHost(opts: Partial<ConnectOptions>, heartbeatMs = 10) {
     const dir = tempDir("wl-host-collect-");
     writeFileSync(join(dir, "manifest.json"), "{}");
@@ -388,7 +390,13 @@ describe("the collect trigger", () => {
   // clock that performance.now() reads.
   const early = 5;
 
+  test("the default quiet period is 100 ms", () => {
+    expect(DEFAULT_COLLECT_QUIET_MS).toBe(100);
+  });
+
   test("the idle policy: a collection due while a run is open waits for the run's end and the quiet period, then runs once", async () => {
+    // quiet left out: the default, 100 ms, written here, not read from the SDK.
+    const quiet = 100;
     const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle() });
     const run = heldRun(host, dir, "a");
     await until("the collection due", () => host.health().collections.dueNow);
@@ -401,14 +409,14 @@ describe("the collect trigger", () => {
     run.release();
     await run.done;
     await until("the collection", () => gcCalls.length > 0);
-    expect(gcCalls[0].at - released).toBeGreaterThanOrEqual(DEFAULT_COLLECT_QUIET_MS - early);
+    expect(gcCalls[0].at - released).toBeGreaterThanOrEqual(quiet - early);
     const beatsAfter = beats;
     await until("ten more heartbeats", () => beats >= beatsAfter + 10);
     expect(gcCalls.map((c) => c.arg)).toEqual([true]);
     const c = host.health().collections;
     expect(c).toMatchObject({ count: 1, due: 1, dueNow: false });
     expect(c.maxDeferredMs).toBe(c.deferredMs);
-    expect(c.deferredMs).toBeGreaterThanOrEqual(released - dueSeen + DEFAULT_COLLECT_QUIET_MS - early);
+    expect(c.deferredMs).toBeGreaterThanOrEqual(released - dueSeen + quiet - early);
     await host.close();
   }, 20_000);
 
@@ -503,10 +511,9 @@ describe("the collect trigger", () => {
     await host.close();
   }, 20_000);
 
-  test("the idle policy: a step still running after its run's outcome keeps the collection due", async () => {
-    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle() });
-    const held = heldRun(host, dir, "a");
-    await until("the collection due", () => host.health().collections.dueNow);
+  // A step of the bundle in dir, u/hold, that runs until the returned file
+  // exists. The stand-in engine sends its invoke, then its run's outcome.
+  function holdStep(dir: string): string {
     const release = join(dir, "step-release");
     mkdirSync(join(dir, "scripts", "bun", "u"), { recursive: true });
     writeFileSync(join(dir, "scripts", "bun", "u", "hold.meta.json"), JSON.stringify({ signatures: { main: { params: [] } } }));
@@ -514,7 +521,15 @@ describe("the collect trigger", () => {
       join(dir, "scripts", "bun", "u", "hold.mjs"),
       `import { existsSync } from "node:fs";\nexport async function main() {\n  while (!existsSync(${JSON.stringify(release)})) await new Promise((r) => setTimeout(r, 2));\n  return 1;\n}\n`,
     );
-    // The stand-in engine sends the step's invoke, then the run's outcome.
+    return release;
+  }
+
+  test("the idle policy: a step still running after its run's outcome keeps the collection due, and the quiet period starts once it has ended", async () => {
+    const quiet = 100;
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle() });
+    const release = holdStep(dir);
+    const held = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
     await host.run("f/step", { invoke: "u/hold" });
     // The held run's end leaves no run open, with the step running.
     held.release();
@@ -524,11 +539,77 @@ describe("the collect trigger", () => {
     await until("twenty more heartbeats", () => beats >= beatsThen + 20);
     expect(gcCalls).toEqual([]);
     expect(host.health().collections.dueNow).toBe(true);
+    const stepReleased = performance.now();
     writeFileSync(release, "");
     await until("the collection", () => gcCalls.length > 0);
+    expect(gcCalls[0].at - stepReleased).toBeGreaterThanOrEqual(quiet - early);
     expect(host.health()).toMatchObject({ runs: 0, in_flight: 0 });
     expect(host.health().collections).toMatchObject({ count: 1, due: 1, dueNow: false });
     await host.close();
+  }, 20_000);
+
+  test("the idle policy: a step that ends just before the quiet period after its run's end would pass delays the collection by a whole quiet period", async () => {
+    const quiet = 100;
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle() });
+    const release = holdStep(dir);
+    const held = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    await host.run("f/step", { invoke: "u/hold" });
+    held.release();
+    await held.done;
+    await Bun.sleep(quiet - 10);
+    const stepReleased = performance.now();
+    writeFileSync(release, "");
+    await until("the collection", () => gcCalls.length > 0);
+    expect(gcCalls[0].at - stepReleased).toBeGreaterThanOrEqual(quiet - early);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: once a heartbeat finds the step ended, the collection runs a quiet period later, between heartbeats", async () => {
+    const quiet = 50;
+    const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle({ quiet }) }, 500);
+    const release = holdStep(dir);
+    const held = heldRun(host, dir, "a");
+    await until("the collection due", () => host.health().collections.dueNow);
+    await host.run("f/step", { invoke: "u/hold" });
+    held.release();
+    await held.done;
+    const stepReleased = performance.now();
+    writeFileSync(release, "");
+    await until("the collection", () => gcCalls.length > 0);
+    const at = gcCalls[0].at;
+    // The last heartbeat before the collection found the step ended.
+    const lastBeat = beatTimes.filter((t) => t <= at).at(-1)!;
+    expect(lastBeat).toBeGreaterThanOrEqual(stepReleased);
+    expect(at - lastBeat).toBeGreaterThanOrEqual(quiet - early);
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: a due collection stays due when the resident set falls below the mark", async () => {
+    const realRss = process.memoryUsage.rss;
+    let rss = 2000;
+    process.memoryUsage.rss = () => rss;
+    try {
+      const quiet = 50;
+      const { host, dir } = await heartbeatHost({ recycle: { retired: beatCounter }, collect: whenIdle({ rss: 1000, quiet }) }, 300);
+      const run = heldRun(host, dir, "a");
+      await until("the collection due", () => host.health().collections.dueNow);
+      rss = 10;
+      const beatsThen = beats;
+      await until("two more heartbeats", () => beats >= beatsThen + 2);
+      expect(gcCalls).toEqual([]);
+      expect(host.health().collections.dueNow).toBe(true);
+      run.release();
+      await run.done;
+      await until("the collection", () => gcCalls.length > 0);
+      const beatsAfter = beats;
+      await until("two more heartbeats", () => beats >= beatsAfter + 2);
+      expect(gcCalls.length).toBe(1);
+      expect(host.health().collections).toMatchObject({ count: 1, due: 1, dueNow: false });
+      await host.close();
+    } finally {
+      process.memoryUsage.rss = realRss;
+    }
   }, 20_000);
 
   test("the idle policy: below the mark, no collection becomes due", async () => {
@@ -549,6 +630,58 @@ describe("the collect trigger", () => {
     await until("two collections", () => gcCalls.length >= 2);
     expect(gcCalls[1].at - gcCalls[0].at).toBeGreaterThanOrEqual(cooldown);
     expect(host.health().collections).toMatchObject({ count: 2, due: 2 });
+    await host.close();
+  }, 20_000);
+
+  test("the idle policy: the cooldown runs from the end of a collection that takes time, or fails after it", async () => {
+    const cooldown = 300;
+    for (const fails of [false, true]) {
+      gcCalls = [];
+      const ends: number[] = [];
+      gcStandIn = () => {
+        Bun.sleepSync(100);
+        ends.push(performance.now());
+        if (fails && ends.length === 1) throw new Error("collection refused");
+      };
+      const { host, dir } = await heartbeatHost({ collect: whenIdle({ cooldown }) });
+      const run = heldRun(host, dir, `a-${fails}`);
+      await until("the collection due", () => host.health().collections.dueNow);
+      run.release();
+      await run.done;
+      await until("two collections", () => gcCalls.length >= 2);
+      expect(gcCalls[1].at - ends[0]).toBeGreaterThanOrEqual(cooldown);
+      expect(host.health().collections.count).toBe(fails ? 1 : 2);
+      await host.close();
+    }
+  }, 20_000);
+
+  test("the idle policy: deferredMs adds every wait, a failed collection's too, and maxDeferredMs keeps the longest", async () => {
+    gcStandIn = () => {
+      if (gcCalls.length === 3) throw new Error("collection refused");
+    };
+    // The cooldown keeps the next collection from becoming due before the
+    // test has opened the next run.
+    const { host, dir } = await heartbeatHost({ collect: whenIdle({ cooldown: 200, quiet: 0 }) });
+    const deferred = async (name: string, holdMs: number, n: number) => {
+      const run = heldRun(host, dir, name);
+      await until(`collection ${n} due`, () => host.health().collections.due === n);
+      await Bun.sleep(holdMs);
+      run.release();
+      await run.done;
+      await until(`collection ${n}`, () => gcCalls.length === n);
+      return host.health().collections;
+    };
+    const first = await deferred("a", 300, 1);
+    expect(first.deferredMs).toBeGreaterThanOrEqual(300);
+    expect(first.maxDeferredMs).toBe(first.deferredMs);
+    const second = await deferred("b", 100, 2);
+    const secondWait = second.deferredMs - first.deferredMs;
+    expect(secondWait).toBeGreaterThanOrEqual(100);
+    expect(secondWait).toBeLessThan(first.maxDeferredMs);
+    expect(second.maxDeferredMs).toBe(first.maxDeferredMs);
+    const third = await deferred("c", 50, 3);
+    expect(third.deferredMs - second.deferredMs).toBeGreaterThanOrEqual(50);
+    expect(third).toMatchObject({ count: 2, due: 3, dueNow: false, maxDeferredMs: first.maxDeferredMs });
     await host.close();
   }, 20_000);
 
@@ -591,7 +724,9 @@ describe("the collect trigger", () => {
     await host.close();
   }, 20_000);
 
-  test("the idle policy: close() cancels a pending check, and no collection follows", async () => {
+  // The pending check reads the host's health, and so the resident set,
+  // when its timer fires.
+  test("the idle policy: close() clears a pending check, and no collection follows", async () => {
     const quiet = 300;
     const { host, dir } = await heartbeatHost({ collect: whenIdle({ quiet }) });
     const run = heldRun(host, dir, "a");
@@ -599,7 +734,17 @@ describe("the collect trigger", () => {
     run.release();
     await run.done;
     await host.close();
-    await Bun.sleep(quiet + 200);
+    // Past the last heartbeat that close() may still have let through.
+    await Bun.sleep(50);
+    const realRss = process.memoryUsage.rss;
+    let rssReads = 0;
+    process.memoryUsage.rss = () => (rssReads++, realRss());
+    try {
+      await Bun.sleep(quiet + 200);
+    } finally {
+      process.memoryUsage.rss = realRss;
+    }
+    expect(rssReads).toBe(0);
     expect(gcCalls).toEqual([]);
   }, 20_000);
 
