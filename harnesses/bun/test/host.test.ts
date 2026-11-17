@@ -188,8 +188,9 @@ test("a run frame carries the run's write-capable selectors and halts", async ()
 // The collect trigger, on hosts connected to test/heartbeatengine.ts, which
 // welcomes them with a heartbeat of 10 ms, or of the interval that a test
 // gives, and answers their runs when the test says. Each test replaces
-// Bun.gc with a stand-in that records its calls. Most tests count the
-// host's heartbeats with a retired-entry count that never trips.
+// Bun.gc with a stand-in that records its calls. A test that needs the
+// host's heartbeats counts them with a retired-entry count that never
+// trips.
 describe("the collect trigger", () => {
   const realGc = Bun.gc;
   let gcCalls: { at: number; beat: number; arg: unknown }[] = [];
@@ -869,9 +870,12 @@ describe("the collect trigger", () => {
     expect(gcCalls).toEqual([]);
   }, 20_000);
 
-  // In a process of its own: once the engine is gone, only the idle
-  // policy's pending check is left, with a quiet period of 60 s.
-  test("the idle policy: a pending check keeps no process alive", async () => {
+  // In a process of its own, with a quiet period of 60 s: the child records
+  // the timers set through realTimers, and prints whether the pending
+  // check's timer holds the process while the engine is still connected.
+  // Then it kills the engine, which clears that timer, and has nothing
+  // left that keeps it alive.
+  test("the idle policy: a pending check's timer is unref'd, and the host exits once its engine has gone", async () => {
     const dir = tempDir("wl-host-collect-");
     writeFileSync(join(dir, "manifest.json"), "{}");
     const script = join(dir, "host.ts");
@@ -880,6 +884,10 @@ describe("the collect trigger", () => {
       [
         `import { writeFileSync } from "node:fs";`,
         `import { connect } from ${JSON.stringify(join(import.meta.dir, "..", "host", "index.ts"))};`,
+        `import { realTimers } from ${JSON.stringify(join(import.meta.dir, "..", "runtime", "context.ts"))};`,
+        `const quietTimers = [];`,
+        `const realSetTimeout = realTimers.setTimeout;`,
+        `realTimers.setTimeout = (fn, ms, ...args) => { const t = realSetTimeout(fn, ms, ...args); if (ms > 50_000) quietTimers.push(t); return t; };`,
         `Bun.gc = () => (console.log("collected"), 0);`,
         `const dir = process.cwd();`,
         `const host = await connect({ engine: process.execPath, engineArgs: [${JSON.stringify(join(import.meta.dir, "heartbeatengine.ts"))}], bundle: dir, workdir: dir, collect: { rss: 1, cooldown: 60_000, policy: "idle", quiet: 60_000 }, onEngineExit: () => console.log("engine exited") });`,
@@ -887,8 +895,9 @@ describe("the collect trigger", () => {
         `while (!host.health().collections.dueNow) await Bun.sleep(5);`,
         `writeFileSync(dir + "/held", "");`,
         `await run;`,
+        `while (quietTimers.length === 0) await Bun.sleep(5);`,
+        `console.log("armed", quietTimers.length, quietTimers.map((t) => t.hasRef()).join());`,
         `process.kill(host.enginePid, "SIGKILL");`,
-        `console.log("armed");`,
       ].join("\n"),
     );
     const child = Bun.spawn([process.execPath, script], { cwd: dir, env: { ...process.env, WL_TEST_HEARTBEAT_MS: "10" }, stdout: "pipe", stderr: "inherit" });
@@ -896,7 +905,7 @@ describe("the collect trigger", () => {
     const code = await child.exited;
     clearTimeout(timer);
     expect(code).toBe(0);
-    expect((await new Response(child.stdout).text()).trim().split("\n")).toEqual(["armed", "engine exited"]);
+    expect((await new Response(child.stdout).text()).trim().split("\n")).toEqual(["armed 1 false", "engine exited"]);
   }, 20_000);
 
   test("the idle policy leaves the recycle triggers as they are, and a collection never trips one", async () => {
