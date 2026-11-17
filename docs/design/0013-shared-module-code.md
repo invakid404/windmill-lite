@@ -180,7 +180,7 @@ that was swapping.
 
 **On Linux, with Bun 1.3.10 and 1.4.3.** The two tests ran again in the
 workflow `Benchmarks`, group `memory`
-([cmd/windmill-lite](../../cmd/windmill-lite/README.md#comparing-builds-on-githubs-runners)):
+([docs/benchmarks.md](../benchmarks.md#comparing-builds-on-githubs-runners)):
 
 - **Machines:** GitHub's hosted runners, linux/amd64 (Intel Xeon Platinum
   8370C) and linux/arm64 (Neoverse-N2), 4 vCPUs and 16 GiB each. Their

@@ -53,6 +53,12 @@ type memSample struct {
 	RusagePeak int64 `json:"rusagePeak"`
 	Heap       int64 `json:"heap"`
 	Modules    int   `json:"modules"`
+	// Collections counts the full collections of the host SDK's collect
+	// trigger so far, which WL_MEMHOST_COLLECT sets; CollectMS is how long
+	// they took in all. The host's own collections before each reading are
+	// not among them.
+	Collections int     `json:"collections"`
+	CollectMS   float64 `json:"collectMs"`
 }
 
 func (m memSample) mib() float64 { return float64(m.RSS) / (1 << 20) }
@@ -427,6 +433,10 @@ func TestModuleMemoryClosure(t *testing.T) {
 			// The peak so far at each reading shows which phase set it.
 			t.Logf("%s: peak %.1f MiB at connect, %.1f after one module, %.1f after %d, %.1f after eight concurrent runs, %.1f after 1,000 runs; getrusage's peak %.1f MiB at connect and %.1f after 1,000 runs",
 				layout, mib(connect.Peak), mib(one.Peak), mib(loaded.Peak), steps, mib(eight.Peak), mib(after.Peak), mib(connect.RusagePeak), mib(after.RusagePeak))
+			// The collect trigger's collections so far at each reading: none
+			// unless WL_MEMHOST_COLLECT sets the trigger.
+			t.Logf("%s: collections of the collect trigger %d at connect, %d after one module, %d after %d, %d after eight concurrent runs, %d after 1,000 runs (%.0f ms in all)",
+				layout, connect.Collections, one.Collections, loaded.Collections, steps, eight.Collections, after.Collections, after.CollectMS)
 			if loaded.Modules != steps {
 				t.Fatalf("modules loaded: %d; want %d", loaded.Modules, steps)
 			}

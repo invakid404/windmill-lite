@@ -14,15 +14,28 @@
 // imports such a module statically sets the modules itself, in
 // globalThis[Symbol.for("windmill-lite.memhost.modules")], before it
 // imports this one.
+//
+// WL_MEMHOST_COLLECT sets the SDK's collect trigger; unset or empty, there
+// is none. It is "<mark>", "<mark>,<cooldown>" or
+// "<mark>,<cooldown>,<policy>": the mark in bytes and the cooldown in
+// milliseconds, both decimal digits, and the policy heartbeat or idle.
+// Without a policy, the SDK's default applies. It holds no ":", since the
+// Benchmarks workflow splits a build's environment on ":".
 
 import { heapStats } from "bun:jsc";
 import { readFileSync } from "node:fs";
-import { connect } from "../../../../harnesses/bun/host/index.ts";
+import { type CollectPolicy, connect } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
 const modules: Record<string, unknown> = { ...((globalThis as Record<symbol, unknown>)[Symbol.for("windmill-lite.memhost.modules")] ?? {}) };
 for (const [key, file] of Object.entries((JSON.parse(env.WL_HOST_MODULES || "{}") ?? {}) as Record<string, string>)) {
   modules[key] = await import(file);
+}
+function collectOption(v: string | undefined) {
+  if (!v) return undefined;
+  const m = /^(\d+)(?:,(\d+)(?:,(heartbeat|idle))?)?$/.exec(v);
+  if (!m) throw new Error(`WL_MEMHOST_COLLECT is "<mark>", "<mark>,<cooldown>" or "<mark>,<cooldown>,<policy>", in bytes and milliseconds, the policy heartbeat or idle: ${v}`);
+  return { rss: Number(m[1]), cooldown: m[2] === undefined ? undefined : Number(m[2]), policy: m[3] as CollectPolicy | undefined };
 }
 const host = await connect({
   engine: env.WL_ENGINE!,
@@ -30,11 +43,13 @@ const host = await connect({
   workdir: process.cwd(),
   hostModules: modules,
   watchdog: { killAfter: 0 },
+  collect: collectOption(env.WL_MEMHOST_COLLECT),
 });
 
 // The resident set after a full collection, the peak resident set so far,
-// and the script modules loaded. On Linux the peak is the process's own
-// high-water mark (VmHWM): getrusage's maxRSS, also reported, keeps the
+// the script modules loaded, and the full collections the collect trigger
+// made, with how long they took in all. On Linux the peak is the process's
+// own high-water mark (VmHWM): getrusage's maxRSS, also reported, keeps the
 // peak of what the process was before its execve, which for a child that
 // Go's os/exec starts is its parent's. Bun 1.4.3 reports maxRSS in
 // kilobytes on every platform, as Node does; Bun 1.3.10 reported bytes on
@@ -54,6 +69,8 @@ function memory() {
     rusagePeak,
     heap: heapStats().heapSize,
     modules: host.health().modules,
+    collections: host.health().collections.count,
+    collectMs: host.health().collections.totalMs,
   };
 }
 
