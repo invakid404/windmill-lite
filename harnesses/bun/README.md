@@ -313,7 +313,8 @@ that steps write, such as the stock client's state
   only, a named deviation of the
   [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations).
 - **`{ kind: "redis", url, prefix, allowEviction }`** keeps them on the
-  Redis that `url` names, under `prefix` (default `windmill-lite:`). Every
+  Redis that `url` names, under `prefix` (default `windmill-lite:`; one or
+  more characters without a colon, then a colon). Every
   engine on that Redis and prefix shares them.
 - **The URL** reaches the engine only in its environment, as
   `WL_REDIS_URL`: a command line shows in `ps`. `prefix` and
@@ -1424,7 +1425,7 @@ cd harnesses/bun && bun test
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
-| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes and the `WL_REDIS_URL` of its environment, which the URL reaches and its arguments never do. |
+| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |
