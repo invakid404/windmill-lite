@@ -35,7 +35,7 @@ store that the host gave it.
 | `Options` field | Default | What it does |
 |---|---|---|
 | `URL` | none, required | The Redis server: [URL forms](#url-forms) |
-| `Prefix` | `windmill-lite:` (`DefaultPrefix`) | Starts every key, so deployments can share one Redis |
+| `Prefix` | `windmill-lite:` (`DefaultPrefix`) | Starts every key, so deployments can share one Redis: one or more characters without a colon, then a colon ([Data model](#data-model)) |
 | `AllowEviction` | `false` | Lets `New` succeed on a server whose `maxmemory-policy` is `allkeys-*`, with a warning |
 | `OperationTimeout` | 10 s (`DefaultOperationTimeout`) | Bounds each operation, go-redis's retries included, and `New`'s own checks |
 | `Warn` | the standard `log` package | Receives each warning of `New` |
@@ -62,9 +62,15 @@ query parameter `master_name` goes to `ParseFailoverURL`, any other URL to
 - **Deadlines.** `New` turns on go-redis's `ContextTimeoutEnabled`, so each
   operation's deadline also bounds go-redis's reads and writes.
 
-A URL holds the password. No error or warning of this package holds it:
-the store names the server by its address and database, or by the
-master's name and the Sentinels' addresses.
+- **Replicas.** A Sentinel URL that asks for replicas (`route_by_latency`,
+  `route_randomly`, `replica_only`, `use_disconnected_replicas`) fails
+  `New`: the store reads and writes the master only.
+- **Sentinel addresses.** Each `addr` parameter must be a plain host and a
+  numeric port.
+
+A URL holds the password. A URL that does not parse gets one fixed error,
+which names no part of it. Otherwise the store names the server by its
+address and database, or by the Sentinels' addresses and the database.
 
 ## Data model
 
@@ -74,8 +80,11 @@ Each entry is one Redis hash, with no expiry:
 |---|---|---|---|
 | `<prefix>res:<workspace>:<path>` | The resource type | The value's bytes, as the facade stored them | The random id of the write that left them |
 
-A workspace id never holds a colon, so a key names one workspace and path.
-The store refuses a workspace id that holds one, before any command.
+A prefix is one or more characters without a colon, then a colon, and a
+workspace id never holds a colon. So a key's first colon ends its prefix,
+and a key names one prefix, workspace and path. `New` refuses any other
+prefix, and each operation refuses a workspace id with a colon, before any
+command.
 
 Each operation is one command or one Lua script on the entry's one key.
 Redis runs a script with no other command in between, so each operation is
@@ -83,7 +92,7 @@ atomic:
 
 | Operation | Redis | Result |
 |---|---|---|
-| `Get` | `HMGET t v` | The type and value; no fields is no entry; a key without both fields is an error |
+| `Get` | `HMGET t v` | The type and value. Neither field is no entry, even at a key that holds other fields. Exactly one of them, or a key that is not a hash, is an error |
 | `Create` | A script | An existing key is `false`, unless its `w` is this create's own; else `HSET t v w` and `true` |
 | `UpdateValue` | A script | A missing key, or one whose `t` is not the expected type, is `false`; else `HSET v w` and `true` |
 | `Delete` | A script | A missing key, or one whose `t` is not the expected type, is `false`; else `DEL` and `true` |
@@ -126,8 +135,12 @@ expiry can drop them, so `New` reads the policy with
 
 ## Errors
 
-Every error starts with `redisstore: ` and names the operation, for example
+Every error of the store starts with `redisstore: ` and names the
+operation, for example
 `redisstore: get: dial tcp 10.0.0.5:6379: connect: connection refused`.
+An operation whose context is canceled returns the context's error
+unchanged. A URL that does not parse gets an error that names no part of
+it.
 The facade answers such an error with a 500 and the step's `getState`
 throws ([internal/platform](../../internal/platform/README.md#the-resource-store)).
 
@@ -147,21 +160,25 @@ by digest, on a Docker network of their own, and prints the variables;
 
 | File | What it checks |
 |---|---|
-| `redisstore_test.go` | The contract suite on one server and through Sentinel. The hash layout and its lack of expiry; two stores on one prefix, and one on another. Each branch of the eviction check, and a user that may not run `CONFIG`. URL errors and an unreachable server, which never show the password, and a workspace id with a colon. |
+| `redisstore_test.go` | The contract suite on one server and through Sentinel. The hash layout and its lack of expiry; two stores on one prefix, and one on another. Each branch of the eviction check, and a user that may not run `CONFIG`. URL errors, Sentinel addresses and an unreachable server, which never show a synthetic secret, the refused replica options and prefixes, and a workspace id with a colon. |
 | `fault_test.go` | The fault tests below |
 
 `fault_test.go` cuts the store's connection through
 [Toxiproxy](https://github.com/Shopify/toxiproxy) for each operation. With
 the script cache full and after `SCRIPT FLUSH`, it cuts:
 
-- **before the command:** nothing reaches Redis, and the entry is
-  unchanged;
-- **after the command:** the reply comes after go-redis's read timeout, so
-  the write is applied and its reply lost;
+- **before the command:** nothing reaches Redis, on every attempt; the
+  operation errors and the entry is unchanged;
+- **after the command:** the reply comes after go-redis's read timeout. With
+  the script cache full, the write is applied and its reply lost. After
+  `SCRIPT FLUSH`, it is `EVALSHA`'s reply that is lost, so `EVAL` never
+  runs and the entry is unchanged;
 - **in the middle of the reply:** the connection closes after half of it.
+  After `SCRIPT FLUSH`, the cut falls on `EVAL`'s reply.
 
-Each cut is made once, when go-redis's retry gets through, and on every
-attempt, when the operation errors. Readers on another connection check
-throughout that the entry is missing or one whole value. An errored write
-leaves the entry whole. A retried create reports `true`, and a competing
-create after it `false`.
+The cuts after the command and in the middle of the reply are made on every
+attempt, when the operation errors, and once, when go-redis's retry gets
+through. Readers on another connection check throughout that the entry is
+in a state the operation can leave: a seeded entry stays present for a get
+or an update. A retried create reports `true`, and a competing create after
+it `false`.

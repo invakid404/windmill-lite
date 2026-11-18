@@ -20,7 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,11 +54,15 @@ type Options struct {
 	//     master's.
 	//
 	// Other query parameters set go-redis's options, such as dial_timeout,
-	// read_timeout, pool_size or max_retries. The URL carries the
-	// password: New never puts it in an error or a warning.
+	// read_timeout, pool_size or max_retries. The Sentinel options that
+	// route to replicas (route_by_latency, route_randomly, replica_only,
+	// use_disconnected_replicas) are refused: the store reads and writes the
+	// master. The URL carries the password: no error or warning of New
+	// holds any part of a URL that does not parse.
 	URL string
-	// Prefix starts every key, so deployments can share one Redis; empty
-	// means DefaultPrefix.
+	// Prefix starts every key, so deployments can share one Redis: one or
+	// more characters without a colon, then a colon, such as "app-1:", so
+	// that two prefixes never name one key; empty means DefaultPrefix.
 	Prefix string
 	// AllowEviction lets New succeed on a server whose maxmemory-policy is
 	// allkeys-*, which evicts keys that have no expiry, such as every
@@ -90,14 +96,18 @@ var _ wl.ResourceStore = (*Store)(nil)
 // o.AllowEviction is false. A policy that cannot be read, because CONFIG
 // is renamed or the user may not run it, is a warning.
 func New(ctx context.Context, o Options) (*Store, error) {
+	prefix := o.Prefix
+	if prefix == "" {
+		prefix = DefaultPrefix
+	}
+	if !validPrefix(prefix) {
+		return nil, fmt.Errorf("redisstore: the key prefix %q must be one or more characters without a colon, then a colon, such as %q", prefix, DefaultPrefix)
+	}
 	client, target, err := connect(o.URL)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{client: client, prefix: o.Prefix, timeout: o.OperationTimeout, target: target}
-	if s.prefix == "" {
-		s.prefix = DefaultPrefix
-	}
+	s := &Store{client: client, prefix: prefix, timeout: o.OperationTimeout, target: target}
 	if s.timeout <= 0 {
 		s.timeout = DefaultOperationTimeout
 	}
@@ -113,88 +123,71 @@ func New(ctx context.Context, o Options) (*Store, error) {
 }
 
 // connect parses url with the go-redis parser that its form needs and
-// returns a client for it, and the server's description for messages.
-// Neither the error nor the description holds the URL's password.
+// returns a client for it, and the server's description for messages: its
+// address and database, or the Sentinels' addresses and the database, as
+// go-redis parsed them. A URL that does not parse gets an error that names
+// no part of it, since any part may be a secret pasted in the wrong place.
 func connect(raw string) (redis.UniversalClient, string, error) {
 	if raw == "" {
 		return nil, "", errors.New("redisstore: no Redis URL")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		// url.Parse's error quotes the whole URL: only its reason is
-		// kept, and anything that may be the user information is masked.
-		var ue *url.Error
-		reason := "it is not a URL"
-		if errors.As(err, &ue) {
-			reason = ue.Err.Error()
-		}
-		return nil, "", fmt.Errorf("redisstore: the Redis URL does not parse: %s", mask(reason, userinfoOf(raw)...))
+		return nil, "", errors.New(badURL)
 	}
-	secrets := secretsOf(u, raw)
 	if u.Query().Has("master_name") {
 		fo, err := redis.ParseFailoverURL(raw)
 		if err != nil {
-			return nil, "", fmt.Errorf("redisstore: the Redis URL does not parse: %s", mask(err.Error(), secrets...))
+			return nil, "", errors.New(badURL)
+		}
+		// go-redis takes each addr parameter as written: one that is not
+		// a plain host and port, such as a URL with a password pasted
+		// there, would reach the messages through the dial's error.
+		for _, a := range fo.SentinelAddrs {
+			if !plainAddr(a) {
+				return nil, "", errors.New(badURL)
+			}
+		}
+		// The store reads and writes the master only: go-redis routes
+		// these to replicas, or refuses them in NewFailoverClient.
+		if fo.RouteByLatency || fo.RouteRandomly || fo.ReplicaOnly || fo.UseDisconnectedReplicas {
+			return nil, "", errors.New("redisstore: the Sentinel URL asks for replicas (route_by_latency, route_randomly, replica_only or use_disconnected_replicas), and the store reads and writes the master only")
 		}
 		// Each operation's own deadline (Store.op) bounds go-redis's
 		// reads, writes and retries.
 		fo.ContextTimeoutEnabled = true
-		target := fmt.Sprintf("the master %q through the Sentinels %s (database %d)", fo.MasterName, strings.Join(fo.SentinelAddrs, ", "), fo.DB)
+		target := fmt.Sprintf("the master of the Sentinels %s (database %d)", strings.Join(fo.SentinelAddrs, ", "), fo.DB)
 		return redis.NewFailoverClient(fo), target, nil
 	}
 	o, err := redis.ParseURL(raw)
 	if err != nil {
-		return nil, "", fmt.Errorf("redisstore: the Redis URL does not parse: %s", mask(err.Error(), secrets...))
+		return nil, "", errors.New(badURL)
 	}
 	o.ContextTimeoutEnabled = true
 	return redis.NewClient(o), fmt.Sprintf("%s (database %d)", o.Addr, o.DB), nil
 }
 
-// userinfoOf returns what may be the user information of a URL, which
-// may not parse: the text between "://" and the last "@" before the path,
-// and the part of it after its first colon, the password.
-func userinfoOf(raw string) []string {
-	_, rest, ok := strings.Cut(raw, "://")
-	if !ok {
-		return nil
+// badURL is the error of a URL that no go-redis parser accepts.
+const badURL = "redisstore: the Redis URL does not parse: it must be redis:// or rediss://, with a host, an optional port, an optional database number and query parameters that go-redis knows, or a Sentinel URL with master_name"
+
+// plainAddr reports whether addr is a host, with no user information or
+// path, and a numeric port.
+func plainAddr(addr string) bool {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host == "" || strings.ContainsAny(host, "@/?#") {
+		return false
 	}
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		rest = rest[:i]
-	}
-	i := strings.LastIndex(rest, "@")
-	if i < 0 {
-		return nil
-	}
-	info := rest[:i]
-	if _, password, ok := strings.Cut(info, ":"); ok {
-		return []string{info, password}
-	}
-	return []string{info}
+	_, err = strconv.ParseUint(port, 10, 16)
+	return err == nil
 }
 
-// secretsOf returns the passwords a parsed URL carries, as go-redis reads
-// them: the user information's, and the query parameters password and
-// sentinel_password, both as written and decoded.
-func secretsOf(u *url.URL, raw string) []string {
-	var s []string
-	if p, ok := u.User.Password(); ok {
-		s = append(s, p)
-	}
-	q := u.Query()
-	for _, k := range []string{"password", "sentinel_password"} {
-		s = append(s, q[k]...)
-	}
-	return append(s, userinfoOf(raw)...)
-}
-
-// mask replaces every secret in text with "xxxxx".
-func mask(text string, secrets ...string) string {
-	for _, s := range secrets {
-		if s != "" {
-			text = strings.ReplaceAll(text, s, "xxxxx")
-		}
-	}
-	return text
+// validPrefix reports whether prefix is one or more characters with no
+// colon, then one colon. Each key is then <prefix>res:<workspace>:<path>
+// with its first colon at the prefix's end, and a workspace id holds no
+// colon, so two different (prefix, workspace, path) never name one key.
+func validPrefix(prefix string) bool {
+	head, ok := strings.CutSuffix(prefix, ":")
+	return ok && head != "" && !strings.Contains(head, ":")
 }
 
 // check pings the server, loads the scripts, and checks its

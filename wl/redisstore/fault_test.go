@@ -171,11 +171,37 @@ func TestFaults(t *testing.T) {
 							t.Fatalf("seeding: %v %v", ok, err)
 						}
 					}
-					// Readers: every read is missing or one whole value.
+					// legal says whether an entry may be in a state while
+					// the operation runs, and after it: a seeded get or
+					// update always finds the entry, old (or new, for the
+					// update); a create finds none or the new value; a
+					// delete the old value or none.
+					legal := func(present bool, v string) bool {
+						switch op {
+						case "get":
+							return present && v == string(oldValue)
+						case "update":
+							return present && (v == string(oldValue) || v == string(newValue))
+						case "create":
+							return !present || v == string(newValue)
+						default:
+							return !present || v == string(oldValue)
+						}
+					}
+					// Readers on a direct connection check every state in
+					// between. Cleanup stops them, and removes the cut,
+					// whichever way the case ends.
 					stop := make(chan struct{})
+					var stopOnce sync.Once
 					var torn atomic.Value
 					var reads atomic.Int64
 					var wg sync.WaitGroup
+					t.Cleanup(func() {
+						stopOnce.Do(func() { close(stop) })
+						wg.Wait()
+						hook.disarm()
+						proxy.RemoveToxic("cut")
+					})
 					for range 2 {
 						wg.Go(func() {
 							for {
@@ -189,11 +215,10 @@ func TestFaults(t *testing.T) {
 									continue
 								}
 								reads.Add(1)
-								if f[0] == nil && f[1] == nil {
-									continue
-								}
-								if f[0] != "state" || (f[1] != string(oldValue) && f[1] != string(newValue)) {
-									torn.Store(fmt.Sprintf("a read of %.40v %.40v", f[0], f[1]))
+								present := f[0] != nil || f[1] != nil
+								v, _ := f[1].(string)
+								if present && f[0] != "state" || !legal(present, v) {
+									torn.Store(fmt.Sprintf("a read of present %v, %.40v %.40v", present, f[0], f[1]))
 								}
 							}
 						})
@@ -267,10 +292,10 @@ func TestFaults(t *testing.T) {
 					hook.disarm()
 					proxy.RemoveToxic("cut")
 					time.Sleep(50 * time.Millisecond)
-					close(stop)
+					stopOnce.Do(func() { close(stop) })
 					wg.Wait()
 					if v := torn.Load(); v != nil {
-						t.Fatalf("a reader saw a value that is not whole: %s", v)
+						t.Fatalf("a reader saw a state the operation cannot leave: %s", v)
 					}
 					if reads.Load() == 0 {
 						t.Fatal("no read finished")
@@ -280,9 +305,8 @@ func TestFaults(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					whole := !present || after.Type == "state" && (string(after.Value) == string(oldValue) || string(after.Value) == string(newValue))
-					if !whole {
-						t.Fatalf("after the operation the entry is not whole: %.60s", after.Value)
+					if present && after.Type != "state" || !legal(present, string(after.Value)) {
+						t.Fatalf("after the operation the entry is in a state it cannot leave: present %v, %.60s", present, after.Value)
 					}
 					if k.once && !hook.fired.Load() {
 						t.Fatalf("go-redis did not connect again after the cut: %v", opErr)
@@ -292,13 +316,14 @@ func TestFaults(t *testing.T) {
 							t.Fatalf("the operation succeeded through the cut: found %v ok %v", found, ok)
 						}
 						switch {
-						case k.before:
+						case k.before, k.after && flush:
+							// Nothing reached Redis, or only EVALSHA, whose
+							// NOSCRIPT reply was lost, so EVAL was never
+							// sent: the entry is as before.
 							wantPresent := op != "create"
 							if present != wantPresent || present && string(after.Value) != string(oldValue) {
-								t.Errorf("a cut before the command changed the entry: present %v", present)
+								t.Errorf("an operation that never ran changed the entry: present %v", present)
 							}
-						case k.after && flush:
-							// EVALSHA's reply was lost: whole, as checked.
 						case op == "delete":
 							// The command ran before its reply was cut.
 							if present {

@@ -57,7 +57,7 @@ func direct(t *testing.T) *redis.Client {
 // t ends.
 func testPrefix(t *testing.T, c *redis.Client) string {
 	t.Helper()
-	prefix := "wl-test:" + writeID()[:12] + ":"
+	prefix := "wl-test-" + writeID()[:12] + ":"
 	t.Cleanup(func() {
 		ctx := context.Background()
 		iter := c.Scan(ctx, 0, prefix+"*", 100).Iterator()
@@ -102,11 +102,13 @@ func TestEvicts(t *testing.T) {
 	}
 }
 
-// TestURLErrorsHideThePassword: a URL that does not parse, or that no
-// server answers, gives an error that never holds its password.
+// TestURLErrorsHideThePassword: a URL that does not parse, that asks for
+// replicas, or that no server answers, gives an error that holds no part of
+// the URL's secrets, which the synthetic marker stands for, wherever it is
+// pasted: user information, a query parameter, a secondary address.
 func TestURLErrorsHideThePassword(t *testing.T) {
-	const secret = "s3cr3t-pw"
-	for _, u := range []string{
+	const secret = "s3cr3t-marker"
+	for i, u := range []string{
 		"redis://user:" + secret + "@host:notaport/0",
 		"redis://user:" + secret + "@host:6379/x",
 		"redis://user:" + secret + "@host:6379/0?bogus=1",
@@ -115,16 +117,24 @@ func TestURLErrorsHideThePassword(t *testing.T) {
 		"redis://user:" + secret + "@ho st:6379",
 		"redis://host:6379/0?master_name=m&password=" + secret + "&bogus=1",
 		"redis://user:" + secret + "@host:6379/0?master_name=m&addr=bad:addr:x",
+		"redis://host:26379/0?master_name=m&addr=redis://user:" + secret + "@host2:26379",
+		"redis://host:26379/0?master_name=m&addr=user:" + secret + "@host2",
+		"redis://host:26379/0?master_name=m&addr=" + secret + "@host2:26379",
+		"redis://host:26379/0?master_name=m&addr=host2:" + secret,
+		"redis://host:26379/0?master_name=m&replica_only=true&password=" + secret,
+		"redis://host:26379/0?master_name=m&route_by_latency=true&password=" + secret,
+		"redis://host:26379/0?master_name=m&route_randomly=true&password=" + secret,
+		"redis://host:26379/0?master_name=m&use_disconnected_replicas=true&password=" + secret,
 		"",
 	} {
 		s, err := New(context.Background(), Options{URL: u, OperationTimeout: time.Second})
 		if err == nil {
 			s.Close()
-			t.Errorf("New(%q) succeeded", u)
+			t.Errorf("URL case %d: New succeeded", i)
 			continue
 		}
 		if strings.Contains(err.Error(), secret) || !strings.HasPrefix(err.Error(), "redisstore: ") {
-			t.Errorf("New(%q): %v", u, err)
+			t.Errorf("URL case %d: the error holds the marker or lacks the package's prefix (%d bytes)", i, len(err.Error()))
 		}
 	}
 	// No server listens on port 1: New fails within its timeout, naming
@@ -132,10 +142,44 @@ func TestURLErrorsHideThePassword(t *testing.T) {
 	start := time.Now()
 	_, err := New(context.Background(), Options{URL: "redis://user:" + secret + "@127.0.0.1:1/2", OperationTimeout: 2 * time.Second})
 	if err == nil || strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "cannot reach Redis at 127.0.0.1:1 (database 2)") {
-		t.Errorf("an unreachable server: %v", err)
+		t.Errorf("an unreachable server: the error holds the marker or names no address")
 	}
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("an unreachable server: New took %v", d)
+	}
+}
+
+// TestSentinelReplicaOptions: a Sentinel URL that asks for replicas is
+// refused before any connection, since the store reads and writes the
+// master only, and go-redis's NewFailoverClient panics on two of them.
+func TestSentinelReplicaOptions(t *testing.T) {
+	for _, opt := range []string{"route_by_latency", "route_randomly", "replica_only", "use_disconnected_replicas"} {
+		_, err := New(context.Background(), Options{URL: "redis://127.0.0.1:1/0?master_name=m&" + opt + "=true", OperationTimeout: time.Second})
+		if err == nil || !strings.Contains(err.Error(), "asks for replicas") {
+			t.Errorf("%s: %v, want the refusal", opt, err)
+		}
+	}
+}
+
+// TestPrefixes: a prefix is one or more characters without a colon, then a
+// colon. The prefixes that would let two (prefix, workspace, path) name one
+// key are refused before any connection: "a:" with workspace one and path
+// f/x/res:two:f/y/z, and "a:res:one:f/x/" with workspace two and path f/y/z,
+// would both be a:res:one:f/x/res:two:f/y/z; an empty prefix's keys would
+// meet those of the prefix "res:".
+func TestPrefixes(t *testing.T) {
+	for _, p := range []string{"a:res:one:f/x/", "res", ":", "a:b:", "app:prod:", "a"} {
+		if _, err := New(context.Background(), Options{URL: "redis://127.0.0.1:1/0", Prefix: p, OperationTimeout: time.Second}); err == nil || !strings.Contains(err.Error(), "the key prefix") {
+			t.Errorf("prefix %q: %v, want the prefix refused", p, err)
+		}
+	}
+	for _, p := range []string{"a:", "res:", "windmill-lite:", "app-1:", "{app}:"} {
+		if !validPrefix(p) {
+			t.Errorf("prefix %q refused", p)
+		}
+	}
+	if !validPrefix(DefaultPrefix) {
+		t.Errorf("DefaultPrefix %q refused", DefaultPrefix)
 	}
 }
 
@@ -301,15 +345,23 @@ func TestEvictionCheck(t *testing.T) {
 }
 
 // TestUnreadablePolicy: a user that may not run CONFIG gets a warning,
-// which holds no password, and a working store.
+// which holds no password, and a working store. The test makes an ACL user
+// of its own, refusing a name that exists, and deletes only that user.
 func TestUnreadablePolicy(t *testing.T) {
 	c := direct(t)
 	ctx := context.Background()
-	const user, secret = "wl-test-noconfig", "s3cr3t-pw"
-	if err := c.Do(ctx, "ACL", "SETUSER", user, "reset", "on", ">"+secret, "~*", "&*", "+@all", "-config").Err(); err != nil {
+	user, secret := "wl-test-noconfig-"+writeID()[:12], "s3cr3t-marker"
+	if n, err := c.Do(ctx, "ACL", "USERS").StringSlice(); err != nil || slices.Contains(n, user) {
+		t.Fatalf("ACL USERS = %v, %v: the test's user exists already", n, err)
+	}
+	if err := c.Do(ctx, "ACL", "SETUSER", user, "on", ">"+secret, "~*", "&*", "+@all", "-config").Err(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { c.Do(ctx, "ACL", "DELUSER", user) })
+	t.Cleanup(func() {
+		if n, err := c.Do(context.Background(), "ACL", "DELUSER", user).Int(); err != nil || n != 1 {
+			t.Errorf("ACL DELUSER of the test's user = %d, %v", n, err)
+		}
+	})
 	addr := c.Options().Addr
 	s, warnings := open(t, Options{URL: fmt.Sprintf("redis://%s:%s@%s/%d", user, secret, addr, c.Options().DB), Prefix: testPrefix(t, c)})
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "cannot read the maxmemory-policy of Redis at "+addr) || !strings.Contains(warnings[0], "NOPERM") || strings.Contains(warnings[0], secret) {
