@@ -105,10 +105,10 @@ and [licensing.md](licensing.md) maps which parts do.
 | [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 124 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 203 |
 | [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 217 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 135 |
+| [client-api.md](client-api.md) | 41 | 29 | 10 | 1 | 1 | 0 | 13 | 135 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 18 | 89 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **352** | **272** | **68** | **7** | **5** | **0** | **130** | **1107** |
+| **Total** | **352** | **273** | **67** | **7** | **5** | **0** | **130** | **1107** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose

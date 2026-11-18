@@ -23,6 +23,7 @@ cmd/windmill-lite/          the CLI: build, run, gen, pack, image, verify, selfc
 cmd/wltest/                 conformance and oracle runner: check, record, diff, stub
 wl/                         the public Go library API (0009); the only exported engine package
 wl/plugin/                  go-plugin client and server helpers for hosts (0009)
+wl/storetest/               the contract suite of wl.ResourceStore, which every resource store runs (0007)
 internal/jsonval/           JSON text values, jsonb canonicaliser, NUL checks (0005)
 internal/yamlx/             YAML 1.2 core scalar resolution over a node parser (0002)
 internal/openflow/          OpenFlow types, effective decoder, vendored schema, coverage test (0002)
@@ -42,6 +43,7 @@ internal/gen/               typed client generation (0009)
 internal/conformance/       fixture loading, observation, comparison, identity encoding (0003, 0011)
 internal/oracle/            the oracle harness (0011)
 internal/bench/             what the benchmarks share: payloads, percentiles, concurrent workers (0005)
+internal/racebuild/         whether the binary was built with -race, and the factor for race-sensitive time limits
 harnesses/                  the npm package windmill-lite (0009): package.json, one subpath per runtime
                             and the Bun SDK's test entry; npm/ (its build and packaging test)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
@@ -50,7 +52,7 @@ proto/windmill_lite/v1/     runner.proto (0009)
 conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/, build/: the shared cases (0003)
 ```
 
-Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
+Everything except `wl/`, `wl/plugin/` and `wl/storetest/` is internal, so the engine can change
 without breaking hosts. The Bun host SDK is published to npm as the package
 `windmill-lite`, whose root is `harnesses/`
 ([0009](0009-host-adapters.md#the-npm-package)); a host can also vendor it

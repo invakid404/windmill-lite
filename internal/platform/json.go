@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strconv"
@@ -188,12 +189,25 @@ type parser struct {
 	src   []byte
 	pos   int
 	depth int
+	// rawMember names a member of the top-level object whose value is
+	// read as the body parser reads a raw value: its \u escapes need not
+	// pair their surrogates. raw is set while that value is read.
+	rawMember string
+	raw       bool
+	// perChar turns the ASCII fast path of str off, so that tests can
+	// compare the two paths.
+	perChar bool
 }
 
 // parseJSON parses text as the library does: one value, optionally
 // surrounded by whitespace, anything else after it refused.
 func parseJSON(text []byte) (*node, error) {
-	p := &parser{src: text}
+	return (&parser{src: text}).document()
+}
+
+// document reads the whole text as one value, optionally surrounded by
+// whitespace.
+func (p *parser) document() (*node, error) {
 	v, err := p.value()
 	if err != nil {
 		return nil, err
@@ -362,7 +376,10 @@ func (p *parser) object() (*node, error) {
 			return nil, p.fail("expected `:`", p.pos+1)
 		}
 		p.pos++
+		raw := p.raw
+		p.raw = raw || p.depth == 1 && p.rawMember != "" && k == p.rawMember
 		v, err := p.value()
+		p.raw = raw
 		if err != nil {
 			return nil, err
 		}
@@ -405,6 +422,20 @@ func (p *parser) str() (string, error) {
 		case c < 0x20:
 			p.pos++
 			return "", p.fail("control character (\\u0000-\\u001F) found while parsing a string", p.pos)
+		case c != '\\' && c < utf8.RuneSelf && !p.perChar:
+			// A run of ASCII without a quote, a backslash or a control
+			// character is copied in one write: the per-character path
+			// below would write each byte of it as it is.
+			end := p.pos + 1
+			for end < len(p.src) {
+				if d := p.src[end]; d == '"' || d == '\\' || d < 0x20 || d >= utf8.RuneSelf {
+					break
+				}
+				end++
+			}
+			b.Write(p.src[p.pos:end])
+			p.pos = end
+			continue
 		case c != '\\':
 			r, size := utf8.DecodeRune(p.src[p.pos:])
 			if r == utf8.RuneError && size == 1 {
@@ -453,10 +484,15 @@ func (p *parser) unicode() (rune, error) {
 		return 0, err
 	}
 	switch {
+	case n >= 0xDC00 && n <= 0xDFFF && p.raw:
+		return utf8.RuneError, nil
 	case n >= 0xDC00 && n <= 0xDFFF:
 		return 0, p.fail("lone leading surrogate in hex escape", p.pos)
 	case n < 0xD800 || n > 0xDBFF:
 		return rune(n), nil
+	case p.raw && !bytes.HasPrefix(p.src[p.pos:], []byte(`\u`)):
+		// A raw value's lone surrogate is left for the database to refuse.
+		return utf8.RuneError, nil
 	}
 	for _, want := range []byte{'\\', 'u'} {
 		if p.pos >= len(p.src) {
@@ -473,6 +509,9 @@ func (p *parser) unicode() (rune, error) {
 		return 0, err
 	}
 	if n2 < 0xDC00 || n2 > 0xDFFF {
+		if p.raw {
+			return utf8.RuneError, nil
+		}
 		return 0, p.fail("lone leading surrogate in hex escape", p.pos)
 	}
 	return rune((n-0xD800)<<10|(n2-0xDC00)) + 0x10000, nil

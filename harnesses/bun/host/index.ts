@@ -74,8 +74,18 @@ export type ConnectOptions = {
    * alike, from that read. Windmill reads them again for each job, so a
    * value that changes during a run reaches its later steps there, and
    * here only the next run. $WM_* strings still resolve for each job, and
-   * a variable a step updates is read again. */
+   * a variable a step updates is read again. The cache keeps only the
+   * host's and the bundle's answers: a state that steps wrote to the
+   * resource store is read again each time, so a run sees its latest
+   * value. */
   readCache?: boolean;
+  /** The store of the resources that steps write through the job API: the
+   * state of the stock client's setState (WA-13), which reads find after
+   * the bundle's and the host's resources. kind "memory", the only store
+   * and the default, keeps them in the engine's memory for this connection:
+   * a reconnect, another host process and another engine never see them
+   * (deviation D24 of ADR 0001). */
+  resourceStore?: { kind: "memory" };
   /** Off by default. Set, it states that this host's own code, its
    * plugin's hooks included, never reads args.json in the working
    * directory; the engine then writes no args.json for a bundle none of
@@ -333,6 +343,9 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   if (collect !== undefined && !(quiet >= 0 && Number.isFinite(quiet))) {
     throw new HostError("options", `collect's quiet period is 0 ms or more; got ${String(collect.quiet)}`);
   }
+  if (o.resourceStore !== undefined && o.resourceStore?.kind !== "memory") {
+    throw new HostError("options", `resourceStore's kind is "memory"; got ${JSON.stringify(o.resourceStore?.kind)}`);
+  }
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
@@ -372,7 +385,14 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // overtake, and the step may block the event loop right after.
   const child = spawn(
     o.engine,
-    [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`, ...(o.readCache ? ["-read-cache"] : []), ...(o.skipArgsFile ? ["-skip-args-file"] : []), ...(o.engineFlags ?? [])],
+    [
+      ...(o.engineArgs ?? []),
+      ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
+      ...(o.readCache ? ["-read-cache"] : []),
+      ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+      ...(o.resourceStore ? ["-resource-store", o.resourceStore.kind] : []),
+      ...(o.engineFlags ?? []),
+    ],
     { stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"] },
   );
   let settle: { resolve: () => void; reject: (e: Error) => void };

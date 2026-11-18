@@ -29,6 +29,21 @@ func TestRunCommand(t *testing.T) {
 `,
 		"f/t/greet.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/hello","input_transforms":{` +
 			`"greeting":{"type":"static","value":"$var:u/t/greeting"},"name":{"type":"javascript","expr":"flow_input.name"}}}}]}}`,
+		// A state that step a creates through the job API and step b
+		// reads through a $res: argument: a run keeps it, and the next run
+		// creates it again (D24).
+		"f/t/state.ts": `export async function main() {
+  const r = await fetch(` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/resources/create`" + `, {
+    method: "POST",
+    headers: { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" },
+    body: JSON.stringify({ path: "f/t/kept", value: { k: 1 }, resource_type: "state" }),
+  });
+  return await r.text();
+}
+`,
+		"f/t/keep.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/state","input_transforms":{}}},` +
+			`{"id":"b","value":{"type":"rawscript","language":"bun","content":"export async function main(created: string, x: unknown) { return { created, x } }",` +
+			`"input_transforms":{"created":{"type":"javascript","expr":"results.a"},"x":{"type":"static","value":"$res:f/t/kept"}}}}]}}`,
 	} {
 		f := filepath.Join(folder, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
@@ -78,6 +93,26 @@ func TestRunCommand(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || code != 1 || out.Status != "failure" || !strings.Contains(string(out.Result), "no fail") {
 			t.Fatalf("%s: a failing run: exit code %d, stdout %s", mode, code, stdout.String())
 		}
+	}
+	// -resource-store memory: a run keeps the state its step writes, and
+	// the next run, a new runtime, starts without it (D24); a store other
+	// than memory is refused before the bundle opens.
+	for i := range 2 {
+		stdout.Reset()
+		stderr.Reset()
+		code := run([]string{"run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "memory"}, &stdout, &stderr)
+		var out runOutput
+		var result bytes.Buffer
+		if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || code != 0 || json.Compact(&result, out.Result) != nil ||
+			result.String() != `{"x":{"k":1},"created":"resource f/t/kept created"}` {
+			t.Fatalf("-resource-store memory, run %d: exit code %d, stdout %s, stderr %s", i+1, code, stdout.String(), stderr.String())
+		}
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "redis"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), `-resource-store "redis": the resource store must be memory`) {
+		t.Errorf("-resource-store redis: exit code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 	// Without the harness runtime the bundle was built for, nothing runs.
 	stdout.Reset()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -118,6 +119,11 @@ func SeededJitter(seed uint64) Jitter { return engine.SeededJitter(seed) }
 // context.DeadlineExceeded.
 var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
+// ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
+// runtime in flight already has. Nothing runs; the id can be used again
+// once that run has returned.
+var ErrRunInFlight = errors.New("wl: a run with this id is in flight")
+
 // RunPlatform is a run's own platform providers (H13, ADR 0008). The run's
 // argument resolution, flow_env, expression helpers and its steps' API
 // reads answer from them; its job registry, flow user state, object store
@@ -189,7 +195,20 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
-		req := engine.ScriptRequest{ID: opts.ID, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
+		id := opts.ID
+		if id == "" {
+			id = newUUID()
+		}
+		// The script's job is its invocation's run: its platform calls,
+		// and the store failures they or its own argument reads meet,
+		// warn as a flow run's do.
+		calls, ok := rt.exec.begin(id)
+		if !ok {
+			return nil, ErrRunInFlight
+		}
+		defer rt.exec.end(id)
+		ctx = calls.reportStoreFailures(ctx)
+		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -203,7 +222,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		if err != nil {
 			return nil, err
 		}
-		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result)}
+		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
 		switch {
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
@@ -222,6 +241,11 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if id == "" {
 		id = newUUID()
 	}
+	calls, ok := rt.exec.begin(id)
+	if !ok {
+		return nil, ErrRunInFlight
+	}
+	defer rt.exec.end(id)
 	h, err := engineHooks(rt.withPlugin(opts.Hooks), rt.prog)
 	if err != nil {
 		return nil, err
@@ -233,12 +257,13 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			return nil, err
 		}
 	}
-	calls := rt.exec.begin(id)
-	defer rt.exec.end(id)
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
 		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started}
 	if rt.readCache {
-		req.Deviations = []string{"D21"}
+		req.Deviations = append(req.Deviations, "D21")
+	}
+	if rt.memoryStore {
+		req.Deviations = append(req.Deviations, "D24")
 	}
 	switch {
 	case h != nil && extra != nil:
@@ -255,6 +280,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		req.Hooks = settledHooks{Hooks: req.Hooks, settled: settled}
 	}
+	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
 		return nil, err
@@ -265,6 +291,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	} else {
 		tr.PlatformCalls = calls.taken()
 	}
+	tr.Warnings = append(tr.Warnings, calls.warned()...)
 	return &Result{
 		ID:             tr.RunID,
 		Status:         string(tr.Status),
@@ -357,14 +384,19 @@ type recorder struct {
 type invocation struct {
 	run  string
 	site conformance.SitePath
+	// key is the facade's RegistrationKey of the invocation's job token: an
+	// answer delivered late for an earlier invocation of the same id, a
+	// root script run again with its id, carries another key.
+	key string
 }
 
 // callLog is the platform calls of one run, and its invocations, which
 // end forgets (guarded by the recorder's mu).
 type callLog struct {
-	mu    sync.Mutex
-	calls []PlatformCall
-	invs  []string
+	mu       sync.Mutex
+	calls    []PlatformCall
+	invs     []string
+	warnings []Warning
 }
 
 func (l *callLog) taken() []PlatformCall {
@@ -373,12 +405,39 @@ func (l *callLog) taken() []PlatformCall {
 	return append([]PlatformCall(nil), l.calls...)
 }
 
-func (x *recorder) begin(run string) *callLog {
-	l := &callLog{}
+// warned is the run's warnings of a failure of the resource store: one for
+// each platform call it failed, which the facade's answer asked for, and
+// one for each read of the run's own ($res: arguments, flow_env,
+// resource()) that it failed.
+func (l *callLog) warned() []Warning {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]Warning(nil), l.warnings...)
+}
+
+// reportStoreFailures returns ctx with the report of the resource store's
+// failures in reads that no platform call makes (a $res: argument,
+// flow_env, resource()), which l keeps as warnings of the run.
+func (l *callLog) reportStoreFailures(ctx context.Context) context.Context {
+	return platform.WithStoreFailureReport(ctx, func(err error) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.warnings = append(l.warnings, Warning{Code: "resource_store_failed", Message: "engine read: Internal: " + err.Error()})
+	})
+}
+
+// begin registers the call log of run, and returns false, registering
+// nothing, while a run of that id is in flight: its log, and the calls and
+// warnings it collects, stay its own.
+func (x *recorder) begin(run string) (*callLog, bool) {
 	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.runs[run] != nil {
+		return nil, false
+	}
+	l := &callLog{}
 	x.runs[run] = l
-	x.mu.Unlock()
-	return l
+	return l, true
 }
 
 func (x *recorder) end(run string) {
@@ -394,7 +453,7 @@ func (x *recorder) end(run string) {
 
 func (x *recorder) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
 	x.mu.Lock()
-	x.invs[inv.ID] = invocation{run: inv.Run, site: inv.Site}
+	x.invs[inv.ID] = invocation{run: inv.Run, site: inv.Site, key: facade.RegistrationKey(inv.Env["WM_TOKEN"])}
 	if l := x.runs[inv.Run]; l != nil {
 		l.invs = append(l.invs, inv.ID)
 	}
@@ -404,13 +463,15 @@ func (x *recorder) Execute(ctx context.Context, inv engine.Invocation) (engine.S
 
 // answered is the facade's Config.Answered: a call, which goes to its
 // invocation's run while the run is in flight. A call answered after its
-// run ended, an abandoned step's, is dropped.
+// run ended, an abandoned step's, is dropped, and so is one whose
+// registration is not the invocation's now: an earlier run's late answer
+// for an id that a later run reuses.
 func (x *recorder) answered(inv string, c facade.Record) {
 	x.mu.Lock()
 	in, ok := x.invs[inv]
 	l := x.runs[in.run]
 	x.mu.Unlock()
-	if !ok || l == nil {
+	if !ok || l == nil || c.Registration != in.key {
 		return
 	}
 	l.mu.Lock()
@@ -419,6 +480,9 @@ func (x *recorder) answered(inv string, c facade.Record) {
 		Site: in.site, Job: inv, Method: c.Method, Path: c.Path, Query: c.Query, Route: c.Route,
 		Status: c.Status, Unsupported: c.Unsupported, Message: c.Message,
 	})
+	if c.Warning != "" {
+		l.warnings = append(l.warnings, Warning{Code: "resource_store_failed", Message: c.Route + ": " + c.Warning})
+	}
 }
 
 // released is the facade's Config.Recorded: the invocation's record is

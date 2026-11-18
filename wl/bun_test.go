@@ -60,12 +60,7 @@ const setScript = `export async function main(v: string) {
 // cache_ttl (FX-40: a path script's step would drop it).
 func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 	t.Helper()
-	repo, err := filepath.Abs("..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	folder := t.TempDir()
-	for p, s := range map[string]string{
+	return buildBunBundle(t, bun, map[string]string{
 		"wmill.yaml":              "defaultTs: bun\n",
 		"f/t/set.ts":              setScript,
 		"f/t/flow.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/set","input_transforms":{"v":{"type":"static","value":"u/t/v"}}}}]}}`,
@@ -93,7 +88,19 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"f/t/par.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"all","value":{"type":"branchall","parallel":true,"branches":[` +
 			`{"skip_failure":false,"modules":[{"id":"p1","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}}]},` +
 			`{"skip_failure":false,"modules":[{"id":"p2","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 2 }","input_transforms":{}}}]}]}}]}}`,
-	} {
+	})
+}
+
+// buildBunBundle builds a real bundle (bundle.Build) of a folder of files,
+// keyed by their paths, for Bun.
+func buildBunBundle(t *testing.T, bun string, files map[string]string) (out, runtimeDir string) {
+	t.Helper()
+	repo, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := t.TempDir()
+	for p, s := range files {
 		f := filepath.Join(folder, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 			t.Fatal(err)

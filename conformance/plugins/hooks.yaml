@@ -50,7 +50,8 @@
 #   from the run's start (H4); clock: real or record (H10)
 # expect: status; may_have_mutated; result (the run's result); latched (a text the latched
 # error contains); log; warnings (codes besides plugin_log); not_ran
-# (sites with no job); deviations (the run's run-time deviations).
+# (sites with no job); deviations (the run's run-time deviations, D24 among
+# them: every runner uses its runtime's default memory resource store).
 # then: more runs of the case's flow, after its run, each a run and an
 #   expect as above: on the same runtime, and in host mode on the same
 #   connection, so a run's own hooks must not reach them.
@@ -376,7 +377,7 @@ cases:
         - {id: b, value: {type: identity}}
     plugin: {intercept: [{module: a, failed: {name: RunFatal, message: stop}}]}
     run: {fatal_error_names: [RunFatal]}
-    expect: {status: latched, latched: RunFatal, not_ran: ["m:b"], deviations: [H7]}
+    expect: {status: latched, latched: RunFatal, not_ran: ["m:b"], deviations: [D24, H7]}
 
   - id: run_record_clock
     spec: [H10]
@@ -387,7 +388,7 @@ cases:
         - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 2}}}}
     plugin: {}
     run: {clock: record}
-    expect: {status: success, result: {x: 2, y: null, tenant: null}, deviations: [H10]}
+    expect: {status: success, result: {x: 2, y: null, tenant: null}, deviations: [D24, H10]}
 
   - id: run_pre_write_deadline
     spec: [H4]

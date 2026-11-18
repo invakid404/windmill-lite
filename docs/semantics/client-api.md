@@ -694,7 +694,7 @@ interface); `WA-Vn` findings were added during validation.
   | — | `list_resources(resource_type?, page?, per_page?)` | `GET /w/{ws}/resources/list` with those query keys | resources | later |
   | `getVariable(path)` | `get_variable(path)` | `GET /w/{ws}/variables/get_value/{path}` | variables/secrets | core |
   | `setVariable(path, value, isSecretIfNotExist?, descriptionIfNotExist?)` | `set_variable(path, value, is_secret=False)` | TS: `GET /w/{ws}/variables/exists/{path}`, then `POST /w/{ws}/variables/update/{path}` `{value}` or `POST /w/{ws}/variables/create` `{path,value,is_secret,description}`. Python: probes `GET /w/{ws}/variables/get/{path}` | variables | later |
-  | `getState(path?)`, `setState(state, path?)`; deprecated `getInternalState`, `setInternalState` | `get_state`, `set_state`, `Windmill.state` | the resource calls above at the state path, type `state` | state | later |
+  | `getState(path?)`, `setState(state, path?)`; deprecated `getInternalState`, `setInternalState` | `get_state`, `set_state`, `Windmill.state` | the resource calls above at the state path, type `state` | state | core (TS); later (Python) |
   | `getFlowUserState(key, errorIfNotPossible?)`, `setFlowUserState(key, value, errorIfNotPossible?)` | `get_flow_user_state`, `set_flow_user_state` | `GET /w/{ws}/jobs_u/get_root_job_id/{WM_JOB_ID}`, then `GET`/`POST /w/{ws}/jobs/flow/user_states/{root}/{key}` | flow-run KV | core |
   | `getRootJobId(jobId?)` | `get_root_job_id` | `GET /w/{ws}/jobs_u/get_root_job_id/{id}` | job tree | core |
   | `runScriptByPathAsync(path, args, scheduledInSeconds, tag)`, `runScriptByHashAsync`; deprecated `runScriptAsync` | `run_script_by_path_async`, `run_script_by_hash_async`, `run_script_async` | `POST /w/{ws}/jobs/run/p/{path}` or `POST /w/{ws}/jobs/run/h/{hash}`; query `parent_job`, `root_job`, `tag`, `scheduled_in_secs`; body = args JSON | dispatch | core (interface) |
@@ -1271,7 +1271,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
 
-**Scope:** later · **Confidence:** high; oracle-observed (WA-13/c to WA-13/p) · **Status:** confirmed · verified at v1.767.0 only, except the answers of the resource routes and the stock client's outcomes (recorded at v1.862.0)
+**Scope:** core (TS); later (Python) · **Confidence:** high; oracle-observed (WA-13/c to WA-13/p) · **Status:** confirmed · verified at v1.767.0 only, except the answers of the resource routes and the stock client's outcomes (recorded at v1.862.0)
 
 - **Rule:**
   - **TS `getState(path?)`** is `getResource(path ?? statePath, undefinedIfEmpty=true)`:
@@ -1379,6 +1379,22 @@ interface); `WA-Vn` findings were added during validation.
   [`resource-writes`](../../conformance/flows/client-api/resource-writes).
 - **Conformance:** [WA-13/a to WA-13/p](conformance.md#wa-13)
 - **Note:** answers [Q-WA-7](#q-wa-7).
+- **Note, what windmill-lite decides beyond the recordings:**
+  - **Paths.** windmill-lite accepts and refuses every recorded path as
+    Windmill did. For paths not recorded, it applies the narrowest rule
+    those cases fit: `u/`, `f/` or `g/`, then at least two segments, each
+    non-empty and made of letters of any script, ASCII digits, `_` and
+    `-` ([WA-13/j](conformance.md#wa-13)).
+  - **The 422's position.** Only compact one-line bodies are recorded, at
+    line 1 and the column after the closing brace. windmill-lite gives
+    the line and column after the closing brace for any layout.
+  - **Numbers.** One rule per route fits every recorded spelling. After
+    `update_value`, an integer without a fraction or an exponent that
+    fits 64 bits stays, except `-0`, which becomes `0.0`; any other number
+    becomes its shortest double spelling, with `.0` after a whole value of
+    at most 16 integer digits.
+    After a create, a whole number written without a `.` is that integer
+    ([WA-13/i](conformance.md#wa-13)).
 
 <a id="wa-14"></a>
 ### WA-14 · Flow user state: a key/value map on the root flow job, live while it runs

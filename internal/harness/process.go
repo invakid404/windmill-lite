@@ -27,7 +27,7 @@ import (
 const (
 	// DefaultKillAfter is the watchdog's silence threshold (ADR 0004 host
 	// mode item 4, the architect's default recorded in the design).
-	DefaultKillAfter = 30 * time.Second
+	DefaultKillAfter = 30 * time.Second * killAfterFactor
 	// WatchdogOff, as KillAfter, disables the watchdog.
 	WatchdogOff time.Duration = -1
 	// DefaultHandshakeTimeout bounds the wait for hello.

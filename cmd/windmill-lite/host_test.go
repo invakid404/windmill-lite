@@ -866,6 +866,22 @@ func TestHostReadCacheOption(t *testing.T) {
 	}
 }
 
+// TestHostResourceStoreOption: the SDK's resourceStore of kind memory
+// reaches the engine's -resource-store, and the host's runs list D24 (ADR
+// 0001), as they do with the option left out, memory being the default.
+func TestHostResourceStoreOption(t *testing.T) {
+	for _, env := range []string{"WL_RESOURCE_STORE=memory", "WL_RESOURCE_STORE="} {
+		s := supervise(t, 30000, env)
+		r, err := s.run("f/host/echo", "a", map[string]any{"x": 1}, nil)
+		if err != nil || r.Status != "success" {
+			t.Fatalf("%s: %+v, %v", env, r, err)
+		}
+		if !slices.Contains(r.Deviations, "D24") {
+			t.Fatalf("%s: the run's deviations %v, want D24 among them", env, r.Deviations)
+		}
+	}
+}
+
 // H1's no-code form through host mode: the run frame carries a static
 // stand-in for module b, whose script would throw.
 func TestHostStaticIntercept(t *testing.T) {
@@ -1036,6 +1052,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"another directory", false, true, nil, harness.RejectWorkdirMismatch, ""},
 		{"read-only", true, false, nil, harness.RejectWorkdirNotWritable, ""},
 		{"a bundle that does not open", false, false, []string{"-digest", "sha256:0000"}, harness.RejectEngine, ""},
+		{"a resource store that is not memory", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, ""},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`},
 	} {

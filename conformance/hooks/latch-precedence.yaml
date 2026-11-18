@@ -25,7 +25,8 @@
 # expect:
 #   status; latched: host (the hook's error) or fatal (a FatalError);
 #   ran / not_ran: site paths with and without a record in the trace;
-#   result: the run's result, stored; deviations: the trace's.
+#   result: the run's result, stored; deviations: the trace's, besides
+#   D24, which every run on the runner's memory resource store lists.
 cases:
   - name: a latch outranks continue_on_error
     spec: [H5, FX-30]

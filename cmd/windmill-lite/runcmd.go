@@ -36,6 +36,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	trace := fs.Bool("trace", false, "print the run's steps and platform calls with the outcome")
 	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
 	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof")
+	store := fs.String("resource-store", "memory", resourceStoreUsage)
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
@@ -73,6 +74,9 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	if opts.Resources, err = hostResources(*resources); err != nil {
 		return fail(err)
 	}
+	if opts.ResourceStore, err = resourceStore(*store); err != nil {
+		return fail(err)
+	}
 	rt, err := wl.Open(*bundlePath, opts)
 	if err != nil {
 		return fail(err)
@@ -101,6 +105,20 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	return 1
+}
+
+// resourceStoreUsage is the usage of the -resource-store flag of run and
+// host.
+const resourceStoreUsage = "the `store` of the resources steps write, the state of the stock client's setState: memory, kept for the run (run) or the connection (host), as deviation D24 of ADR 0001 says"
+
+// resourceStore returns the resource store the -resource-store flag names.
+func resourceStore(kind string) (wl.ResourceStore, error) {
+	switch kind {
+	case "memory":
+		return wl.NewMemoryResourceStore(), nil
+	default:
+		return nil, fmt.Errorf("-resource-store %q: the resource store must be memory", kind)
+	}
 }
 
 // argsOf reads --args: a JSON object, or @file holding one.

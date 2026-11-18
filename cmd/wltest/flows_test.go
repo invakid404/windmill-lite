@@ -16,8 +16,10 @@ import (
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/racebuild"
 )
 
 const (
@@ -1333,5 +1335,21 @@ func TestRemoveCounters(t *testing.T) {
 	}
 	if want := []string{"unrelated", "wl-n5-other-a", "wl-n5-run1"}; !slices.Equal(left, want) {
 		t.Fatalf("left %v, want %v", left, want)
+	}
+}
+
+// TestFlowRunTimeout checks the limits that racebuild.Factor stretches: the
+// per-run limit, 150 s in a plain build and 450 s in a binary built with
+// -race, and the harness watchdog's default threshold, 30 s and 90 s.
+func TestFlowRunTimeout(t *testing.T) {
+	run, watchdog := 150*time.Second, 30*time.Second
+	if racebuild.Enabled {
+		run, watchdog = 450*time.Second, 90*time.Second
+	}
+	if flowRunTimeout != run {
+		t.Errorf("flowRunTimeout = %s, want %s (race build %v)", flowRunTimeout, run, racebuild.Enabled)
+	}
+	if harness.DefaultKillAfter != watchdog {
+		t.Errorf("harness.DefaultKillAfter = %s, want %s (race build %v)", harness.DefaultKillAfter, watchdog, racebuild.Enabled)
 	}
 }

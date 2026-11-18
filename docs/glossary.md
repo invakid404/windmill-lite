@@ -309,6 +309,14 @@ What the [oracle](#oracle) observed for one fixture or case, committed with
 its provenance: the oracle's image and configuration, and the CI run that
 recorded it ([internal/oracle](../internal/oracle/README.md)).
 
+### resource store
+
+Where a runtime keeps the resources that steps write through the job API,
+such as the state of the stock client's `setState`. Every read finds them
+after the host's and the bundle's resources. A Go host sets it with `wl`'s
+`Options.ResourceStore`; the default keeps them in memory, a
+[deviation](#deviation) ([wl](../wl/README.md#the-resource-store)).
+
 ### root
 
 A flow or script that the [host contract](#host-contract) lists: one that

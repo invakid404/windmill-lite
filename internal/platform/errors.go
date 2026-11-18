@@ -16,6 +16,9 @@ type Error struct {
 	Message string
 	// Status is the status of a Generic error, which carries its own.
 	Status int
+	// StoreFailure marks an error of the resource store (Services.
+	// ResourceStore), which the facade also reports as a trace warning.
+	StoreFailure bool
 }
 
 // errorVariants maps each variant to its status and the format of its

@@ -3,8 +3,9 @@
 **Current state:** the platform facade of
 [ADR 0007](../../../docs/design/0007-platform-interface.md) serves the root
 lookup, the job reads of a live run, the resource and variable reads, a
-variable's update, flow user state, dispatch and its result polls, and the
-object store; every other route of Windmill's API answers 501. This README covers
+variable's update and the writes of state. It also serves flow user
+state, dispatch and its result polls, and the object store; every other
+route of Windmill's API answers 501. This README covers
 `internal/platform/facade`. Job identity and the services are
 [internal/platform](../README.md).
 
@@ -18,12 +19,13 @@ windmill-lite does not serve.
 
 | File | Contents |
 |---|---|
-| `facade.go` | `Facade`, `Config`, `Policy`, `Session`, `Call`, `Reply`, `Handler`, `Record`: registration, attribution, recording, a token's workspace, the 501 decision |
+| `facade.go` | `Facade`, `Config`, `Policy`, `Session`, `Call`, `Reply`, `Handler`, `Record`, `RegistrationKey`: registration, attribution, recording (each record keyed by the registration that admitted it), a token's workspace, the 501 decision |
 | `routes.go`, `routes.json` | The route table and its matching |
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |
 | `jobs.go` | The root lookup, flow user state and the result polls, from the job registry and the dispatcher |
 | `providers.go` | The resource and variable reads, a read's `job_id`, and the variable update, answered from the caller's run's own services when it has them (H13) |
+| `resources.go` | The writes of state: `createResource`, `updateResourceValue` and `deleteResource` |
 | `dispatch.go` | The dispatch routes |
 | `objects.go` | The object store's job helpers |
 | `errors.go` | `Error`: an API error as a reply, with the variants of `platform.Error` (WA-42) |
@@ -171,12 +173,47 @@ which later reads, the engine's included, see. It answers as Windmill does:
 
 The stock clients never show the answer's text to a script: TS
 `setVariable` asks `existsVariable` first, then updates or creates, and
-resolves to `undefined`. The other writes (`createResource`,
-`updateResourceValue`, `createVariable`) are `later` and answer 501, as
-does state's write (`setState`); `getState` reads the state path through
-`get_value_interpolated`, so a state never written is a 404, which the
-stock client turns into `undefined`
-([WA-41](../../../docs/semantics/client-api.md#wa-41)/b).
+resolves to `undefined`. `createVariable` answers 501.
+
+**State writes** ([WA-13](../../../docs/semantics/client-api.md#wa-13))
+go to the services' resource store (`platform.Services.ResourceStore`),
+which every read finds after the providers' resources. The stock client's
+`setState` asks `existsResource` first, then creates the state or updates
+its value; `getState` reads it through `get_value_interpolated`, so a
+state never written is a 404, which the client turns into `undefined`.
+Each route runs the web framework's checks first
+([Request rejections](#request-rejections)).
+
+| Operation | Route | Answer |
+|---|---|---|
+| `createResource` | `POST /w/{ws}/resources/create` | `201` `text/plain; charset=utf-8` `resource <path> created`, for `resource_type` `state` at a path that neither a provider nor the store holds; else `400` `text/plain` `Bad request: Resource <path> already exists` |
+| `updateResourceValue` | `POST /w/{ws}/resources/update_value/{path}` | `200` `text/plain; charset=utf-8` `value of resource <path> updated` for a stored state; `404` `text/plain` `Not found: Resource <path> not found` without one |
+| `deleteResource` | `DELETE /w/{ws}/resources/delete/{path}` | `200` `text/plain; charset=utf-8` `resource <path> deleted` for a stored state; `404` `text/plain` `Not found: Resource not found at name <path>` without one |
+
+- **The value** is stored as jsonb stores it: keys by length, then bytes,
+  and each number in the route's spelling (`platform.CreateStateResource`
+  and `UpdateStateResource`). A value without `value` stores `null`. A
+  NUL or a lone surrogate answers `400` `SqlErr: error returned from
+  database: <message>`, as Windmill's database refuses it, and stores
+  nothing.
+- **The path** must be `u/`, `f/` or `g/`, then at least two segments of
+  letters, digits, `_` and `-`; any other answers `400` with Windmill's
+  `Bad request: Invalid path: …` text.
+- **The body:** a create without `path` or `resource_type` answers `422`
+  `Failed to deserialize the JSON body into the target type: missing
+  field` with the member's name and the position after the body's
+  closing brace, as the web framework gives it. One that is not a JSON
+  string, `null` included, answers `422` too.
+- **Not served:** another resource type, `update_if_exists`, and the
+  options the stock client never sends (`description`, `labels`,
+  `ws_specific`, `preserve_on_behalf_of`) answer 501, as does an update
+  or a delete of an entry of another type. An update or a delete of a
+  provider's resource answers 501 with the reason after the route's name,
+  a [restriction](../../../docs/design/0001-equivalence-contract.md#5a-restrictions).
+- **A failing store** answers `500` `text/plain` `Internal: windmill-lite:
+  the resource store failed: <err>` on every read and write that reaches
+  it, and the call's `Record.Warning` carries the text for the run's
+  trace. A failure never reads as a missing state.
 
 **Flow user state** ([WA-14](../../../docs/semantics/client-api.md#wa-14),
 PF3) answers from `platform.Services`:

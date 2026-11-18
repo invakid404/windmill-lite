@@ -394,11 +394,8 @@ a few at a time (`flows.go`):
    canceler the oracle's cancellation names
    (`oracle.CancelAfterReason`, `wltest: cancel_after_ms`, by
    `oracle.CancelAfterCanceler`, `admin`), which the engine's `Canceled`
-   result quotes ([FX-38](../../docs/semantics/execution.md#fx-38)), and a
-   run that has not ended after 150 s fails: sleeps and retry delays are
-   waited for on the real clock, and the monitor of flows that hang between
-   steps ends a runaway expression's run after 60 s, as on the oracle
-   after a first step ([JE-2](../../docs/semantics/expressions.md#je-2)). Each run has its own id, which its
+   result quotes ([FX-38](../../docs/semantics/execution.md#fx-38)). A run
+   that does not end in time fails (the run limit, below). Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
    `WM_ROOT_JOB_ID`; the trace records each step's job id (`WM_JOB_ID`),
    superseded attempts' included, with its site.
@@ -506,6 +503,14 @@ a few at a time (`flows.go`):
    `wl-<fixture>-<job id>-<tag>` after a job of the run, are removed
    (`removeCounters`, milestone FU8): on Windmill they stay in the worker's
    `/tmp`, but a windmill-lite run would leave them in the host's.
+
+**The run limit.** A run that has not ended after 150 s fails. A binary
+built with `-race` allows 450 s, and its harness watchdog 90 s for 30 s:
+large values are about ten times slower there
+([internal/racebuild](../../internal/racebuild/README.md)). Sleeps and retry delays are waited for on the real
+clock, and the monitor of flows that hang between steps ends a runaway
+expression's run after 60 s, as on the oracle after a first step
+([JE-2](../../docs/semantics/expressions.md#je-2)).
 
 **Unwalked job ids.** A job id that no record names but an error object
 gives as its `job_id`, such as a job of a flow a step ran through the
