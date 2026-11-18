@@ -130,6 +130,10 @@ func TestURLErrorsHideThePassword(t *testing.T) {
 		// which go-redis would write to its log.
 		"redis://host:26379/0?master_name=redis://user:" + secret + "@host2:6379",
 		"redis://host:26379/0?master_name=user:" + secret,
+		// A master name that holds a password the URL carries.
+		"redis://host:26379/0?master_name=" + secret + "&password=" + secret,
+		"redis://user:" + secret + "@host:26379/0?master_name=" + secret,
+		"redis://user:" + secret + "@host:26379/0?master_name=main-" + secret + "-1",
 		"unix://user:" + secret + "@/tmp/redis.sock",
 		"",
 	} {
@@ -216,6 +220,12 @@ func TestURLForms(t *testing.T) {
 		"unix:///tmp/redis.sock", "unix:///tmp/redis.sock?db=1", "redis:///0", "redis://:6379/0", "rediss://", "redis://",
 		"redis:///0?master_name=m", "http://127.0.0.1:1/0", "redis://127.0.0.1:1/0?master_name=m%20n",
 		"redis://127.0.0.1:1/0?master_name=a/b", "redis://127.0.0.1:1/0?master_name=a@b",
+		// Malformed query pairs, which url.URL.Query would drop: a
+		// database that would become 0, a master name that would make
+		// the URL one server's.
+		"redis://127.0.0.1:1/?db=1%zz", "redis://127.0.0.1:1/0?master_name=%zzmain", "redis://127.0.0.1:1/0?master_name=m&dial_timeout=%zz",
+		// A master name equal to the Sentinels' or the master's password.
+		"redis://u:pw-1@127.0.0.1:1/0?master_name=pw-1", "redis://127.0.0.1:1/0?master_name=main&password=main",
 	} {
 		if c, _, err := connect(u); err == nil || err.Error() != badURL {
 			if c != nil {

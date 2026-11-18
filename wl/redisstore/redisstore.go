@@ -56,9 +56,11 @@ type Options struct {
 	//
 	//   - redis://[user:password@]host[:port][/db], or rediss:// for TLS,
 	//     with an explicit host: one server, parsed by go-redis's ParseURL.
-	//     Other schemes, unix:// among them, are refused.
+	//     Other schemes, unix:// among them, and a query with a malformed
+	//     pair are refused.
 	//   - The same form with the query parameter master_name, a name of
-	//     letters, digits, '.', '_' and '-': host:port and each addr query
+	//     letters, digits, '.', '_' and '-' that holds none of the URL's
+	//     passwords (go-redis logs the name): host:port and each addr query
 	//     parameter name a Sentinel, which gives the current master of that
 	//     name, parsed by go-redis's ParseFailoverURL. The user and password
 	//     of the URL are the Sentinels'; the query parameters username and
@@ -151,15 +153,23 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 	if err != nil || u.Scheme != "redis" && u.Scheme != "rediss" || u.Hostname() == "" {
 		return nil, "", errors.New(badURL)
 	}
+	// url.URL.Query, which go-redis's parsers use too, drops a malformed
+	// pair without an error, so a malformed db or master_name would
+	// silently choose database 0 or one server.
+	if _, err := url.ParseQuery(u.RawQuery); err != nil {
+		return nil, "", errors.New(badURL)
+	}
 	if u.Query().Has("master_name") {
 		fo, err := redis.ParseFailoverURL(raw)
 		if err != nil {
 			return nil, "", errors.New(badURL)
 		}
 		// go-redis writes the master's name to its log when it cannot find
-		// the master, so a name is a plain identifier, never something
-		// that could hold a pasted URL or password.
-		if !plainName(fo.MasterName) {
+		// the master or the master changes. A plain identifier cannot hold
+		// a pasted URL, and a name that holds a password the URL carries is
+		// refused. A secret the store is not given cannot be told from a
+		// name: such a name is logged as written.
+		if !plainName(fo.MasterName) || holdsSecret(fo.MasterName, fo.Password, fo.SentinelPassword) {
 			return nil, "", errors.New(badURL)
 		}
 		// go-redis takes each addr parameter as written: one that is not
@@ -203,6 +213,16 @@ func construct(f func() redis.UniversalClient) (c redis.UniversalClient, err err
 		}
 	}()
 	return f(), nil
+}
+
+// holdsSecret reports whether name contains one of the non-empty secrets.
+func holdsSecret(name string, secrets ...string) bool {
+	for _, s := range secrets {
+		if s != "" && strings.Contains(name, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // plainName reports whether a Sentinel master name is one or more ASCII

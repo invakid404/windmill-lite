@@ -68,8 +68,13 @@ without a host, which `New` refuses instead.
   `route_randomly`, `replica_only`, `use_disconnected_replicas`) fails
   `New`: the store reads and writes the master only.
 - **Sentinel addresses and name.** Each `addr` parameter must be a plain
-  host and a numeric port, and `master_name` letters, digits, `.`, `_` and
-  `-`: go-redis writes the master's name to its log.
+  host and a numeric port. `master_name` must be letters, digits, `.`, `_`
+  and `-`, and hold none of the URL's passwords: go-redis writes the
+  master's name to its log. A secret the URL does not carry cannot be told
+  from a name, so any other name is logged as written.
+- **Malformed query pairs**, such as an invalid percent escape, are refused:
+  go-redis's parsers would drop them and fall back to database 0 or to one
+  server.
 - **Client options** that go-redis's parser accepts but its constructor
   panics on, such as a `pipeline_pool_size` too large for its pool, are an
   error of `New`.
@@ -151,13 +156,17 @@ The store's errors take these forms:
 
 | Case | Error |
 |---|---|
-| Redis or the connection fails during an operation | `redisstore: <operation>: <cause>`, for example `redisstore: get: dial tcp 10.0.0.5:6379: connect: connection refused`, wrapping go-redis's error. A context canceled or past its deadline while the command runs is such a cause: `errors.Is` finds it. |
+| Redis or the connection fails during an operation | `redisstore: <operation>: <cause>`, for example `redisstore: get: dial tcp 10.0.0.5:6379: connect: connection refused`, wrapping go-redis's error. When go-redis returns the context's own error for a context canceled or past its deadline in flight, `errors.Is` finds it; a deadline can also surface as a network timeout. |
 | The context is already canceled when the operation starts | The context's error itself, before any command |
 | A workspace id with a colon | `redisstore: the workspace id … contains a colon …`, before any command, naming no operation |
 | `New`: a URL that does not parse, or client options go-redis refuses | A fixed `redisstore: ` message that names no part of the URL |
 | `New`: an unreachable server, refused scripts, an evicting policy | `redisstore: ` and the server's address, or the Sentinels' |
-The facade answers such an error with a 500 and the step's `getState`
-throws ([internal/platform](../../internal/platform/README.md#the-resource-store)).
+
+An error of an operation reaches the step through the facade, which
+answers 500, and the step's `getState` throws
+([internal/platform](../../internal/platform/README.md#the-resource-store)).
+An error of `New` stops the start: the command exits, and a host-mode
+engine refuses its host with `engine_refused`.
 
 ## Tests
 
