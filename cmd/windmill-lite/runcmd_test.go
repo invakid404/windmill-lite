@@ -129,6 +129,9 @@ func TestRunCommand(t *testing.T) {
 		// credential pasted as a Sentinel address and as the master's name.
 		{"redis", "redis://127.0.0.1:26379/0?master_name=m&addr=redis://u:s3cr3t-pw@host2:26379", "-resource-store redis: redisstore: the Redis URL does not parse"},
 		{"redis", "redis://127.0.0.1:26379/0?master_name=redis://u:s3cr3t-pw@host2:6379", "-resource-store redis: redisstore: the Redis URL does not parse"},
+		// The password itself given as the master's name, which go-redis
+		// would log.
+		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0?master_name=s3cr3t-pw", "-resource-store redis: redisstore: the Redis URL does not parse"},
 	} {
 		cmd := exec.Command(os.Args[0], "run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", c.kind)
 		cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL="+c.url)
