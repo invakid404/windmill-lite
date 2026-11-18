@@ -67,7 +67,9 @@ type MemoryResourceStore struct {
 	mu      sync.Mutex
 	entries map[storeKey]Resource
 	// released says that ReleaseMemoryResourceStore dropped the entries:
-	// every operation then fails with ErrStoreReleased.
+	// an operation that takes the lock afterwards fails with
+	// ErrStoreReleased, unless its ctx was canceled, whose error comes
+	// first.
 	released bool
 }
 

@@ -10,6 +10,8 @@ package facade
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"slices"
@@ -119,6 +121,23 @@ type Record struct {
 	// Warning is what the answer asked the run's trace to warn of, such as a
 	// failure of the resource store; "" for none.
 	Warning string
+	// Registration identifies the registration that admitted the call:
+	// RegistrationKey of its WM_TOKEN, "" for a stray. An invocation id can
+	// be registered again once its registration has ended (a root script
+	// run again with its id), so an answer delivered late tells its own
+	// registration's calls from the next one's by this key, never by Inv.
+	Registration string
+}
+
+// RegistrationKey is the key of a registration whose job token is token,
+// as Record.Registration gives it: an opaque digest, so that a record
+// never carries the token itself.
+func RegistrationKey(token string) string {
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte("windmill-lite registration\x00" + token))
+	return hex.EncodeToString(sum[:12])
 }
 
 // name is how a 501 names the call: its route, or, when no route of the
@@ -484,7 +503,7 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 		f.mu.Unlock()
 		return fixed(text(401, UnknownToken))
 	}
-	rec.Inv = e.caller.ID
+	rec.Inv, rec.Registration = e.caller.ID, RegistrationKey(e.token)
 	e.calls = append(e.calls, rec)
 	call := &Call{Caller: &e.caller, Method: req.method, Path: rec.Path, Query: u.Query(), Headers: rec.Headers, Body: req.body}
 	api, isAPI := strings.CutPrefix(rec.Path, "/api/")

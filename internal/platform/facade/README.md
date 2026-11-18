@@ -19,7 +19,7 @@ windmill-lite does not serve.
 
 | File | Contents |
 |---|---|
-| `facade.go` | `Facade`, `Config`, `Policy`, `Session`, `Call`, `Reply`, `Handler`, `Record`: registration, attribution, recording, a token's workspace, the 501 decision |
+| `facade.go` | `Facade`, `Config`, `Policy`, `Session`, `Call`, `Reply`, `Handler`, `Record`, `RegistrationKey`: registration, attribution, recording (each record keyed by the registration that admitted it), a token's workspace, the 501 decision |
 | `routes.go`, `routes.json` | The route table and its matching |
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |

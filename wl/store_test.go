@@ -11,7 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/platform/facade"
 )
 
 // storeFiles is a bundle whose flow f/s/write creates the state f/s/st
@@ -268,5 +272,76 @@ func TestRunIDInFlight(t *testing.T) {
 	res, err := rt.Run(context.Background(), "f/s/write", json.RawMessage(`{"value":1}`), RunOptions{ID: id, Kind: KindScript})
 	if err != nil || res.Status != StatusFailure || len(res.Warnings) == 0 {
 		t.Errorf("a run reusing the id after the first ended = %+v, %v; want a failure with its warning", res, err)
+	}
+}
+
+// TestLateAnswerAcrossIDReuse checks that an answer delivered after its
+// run returned does not reach a later run that reuses the id, as a root
+// script run again with its id does: the late answer carries its own
+// registration's key. The later run's own call still warns.
+func TestLateAnswerAcrossIDReuse(t *testing.T) {
+	x := &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
+	var held atomic.Bool
+	arrived, gate, delivered := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	fac, err := facade.New(facade.Config{
+		Platform: &platform.Services{ResourceStore: offlineStore{}},
+		Recorded: x.released,
+		Answered: func(inv string, c facade.Record) {
+			if held.CompareAndSwap(false, true) {
+				// The first run's answer is decided; its delivery waits
+				// until the id runs again.
+				close(arrived)
+				<-gate
+				x.answered(inv, c)
+				close(delivered)
+				return
+			}
+			x.answered(inv, c)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fac.Close()
+	const id = "00000000-0000-4000-8000-0000000000b1"
+	read := func(inv engine.Invocation) {
+		serve := fac.Platform()(harness.PlatformRequest{ID: "p", Inv: inv.ID, Method: "GET", URL: fac.WarmOrigin() + "/api/w/ws/resources/get_value/f/x/s"})
+		serve(context.Background())
+	}
+	run := func(token string, step func(engine.Invocation)) *callLog {
+		calls, ok := x.begin(id)
+		if !ok {
+			t.Fatal("the id is in flight")
+		}
+		defer x.end(id)
+		x.inner = fac.Executor(stepFunc(func(_ context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+			step(inv)
+			inv.Report.Settled(engine.SettleCompleted)
+			return engine.StepOutcome{Kind: engine.OutcomeOK, Body: jsonval.FromProducer([]byte("null"))}, nil
+		}))
+		env := map[string]string{"WM_JOB_ID": id, "WM_ROOT_JOB_ID": id, "WM_TOKEN": token, "WM_WORKSPACE": "ws"}
+		if _, err := x.Execute(context.Background(), engine.Invocation{ID: id, Run: id, Env: env}); err != nil {
+			t.Fatal(err)
+		}
+		return calls
+	}
+	// The first run's step reads without awaiting the answer, and ends.
+	first := run("token-first", func(inv engine.Invocation) {
+		go read(inv)
+		<-arrived
+	})
+	// The id runs again; its step makes the same failing read, answered at
+	// once, after the first run's answer is let go.
+	second := run("token-second", func(inv engine.Invocation) {
+		close(gate)
+		<-delivered
+		read(inv)
+	})
+	if w := first.warned(); len(w) != 0 {
+		t.Errorf("the first run, which had returned, got warnings %+v", w)
+	}
+	w := second.warned()
+	if len(w) != 1 || second.taken()[0].Job != id || len(second.taken()) != 1 {
+		t.Errorf("the second run's warnings %+v and calls %+v: want only its own call's warning", w, second.taken())
 	}
 }

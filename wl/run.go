@@ -384,6 +384,10 @@ type recorder struct {
 type invocation struct {
 	run  string
 	site conformance.SitePath
+	// key is the facade's RegistrationKey of the invocation's job token: an
+	// answer delivered late for an earlier invocation of the same id, a
+	// root script run again with its id, carries another key.
+	key string
 }
 
 // callLog is the platform calls of one run, and its invocations, which
@@ -449,7 +453,7 @@ func (x *recorder) end(run string) {
 
 func (x *recorder) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
 	x.mu.Lock()
-	x.invs[inv.ID] = invocation{run: inv.Run, site: inv.Site}
+	x.invs[inv.ID] = invocation{run: inv.Run, site: inv.Site, key: facade.RegistrationKey(inv.Env["WM_TOKEN"])}
 	if l := x.runs[inv.Run]; l != nil {
 		l.invs = append(l.invs, inv.ID)
 	}
@@ -459,13 +463,15 @@ func (x *recorder) Execute(ctx context.Context, inv engine.Invocation) (engine.S
 
 // answered is the facade's Config.Answered: a call, which goes to its
 // invocation's run while the run is in flight. A call answered after its
-// run ended, an abandoned step's, is dropped.
+// run ended, an abandoned step's, is dropped, and so is one whose
+// registration is not the invocation's now: an earlier run's late answer
+// for an id that a later run reuses.
 func (x *recorder) answered(inv string, c facade.Record) {
 	x.mu.Lock()
 	in, ok := x.invs[inv]
 	l := x.runs[in.run]
 	x.mu.Unlock()
-	if !ok || l == nil {
+	if !ok || l == nil || c.Registration != in.key {
 		return
 	}
 	l.mu.Lock()
