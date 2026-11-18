@@ -391,13 +391,6 @@ func floatText(t string) string {
 // escape there is not its error but the database's, which storedValue
 // gives (WA-13/h).
 func WriteBodySyntaxError(text []byte) error {
-	p := &parser{src: text, rawMember: "value"}
-	if _, err := p.value(); err != nil {
-		return err
-	}
-	p.space()
-	if p.pos < len(p.src) {
-		return p.fail("trailing characters", p.pos+1)
-	}
-	return nil
+	_, err := (&parser{src: text, rawMember: "value"}).document()
+	return err
 }

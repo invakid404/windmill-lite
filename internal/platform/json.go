@@ -194,12 +194,20 @@ type parser struct {
 	// pair their surrogates. raw is set while that value is read.
 	rawMember string
 	raw       bool
+	// perChar turns the ASCII fast path of str off, so that tests can
+	// compare the two paths.
+	perChar bool
 }
 
 // parseJSON parses text as the library does: one value, optionally
 // surrounded by whitespace, anything else after it refused.
 func parseJSON(text []byte) (*node, error) {
-	p := &parser{src: text}
+	return (&parser{src: text}).document()
+}
+
+// document reads the whole text as one value, optionally surrounded by
+// whitespace.
+func (p *parser) document() (*node, error) {
 	v, err := p.value()
 	if err != nil {
 		return nil, err
@@ -414,6 +422,20 @@ func (p *parser) str() (string, error) {
 		case c < 0x20:
 			p.pos++
 			return "", p.fail("control character (\\u0000-\\u001F) found while parsing a string", p.pos)
+		case c != '\\' && c < utf8.RuneSelf && !p.perChar:
+			// A run of ASCII without a quote, a backslash or a control
+			// character is copied in one write: the per-character path
+			// below would write each byte of it as it is.
+			end := p.pos + 1
+			for end < len(p.src) {
+				if d := p.src[end]; d == '"' || d == '\\' || d < 0x20 || d >= utf8.RuneSelf {
+					break
+				}
+				end++
+			}
+			b.Write(p.src[p.pos:end])
+			p.pos = end
+			continue
 		case c != '\\':
 			r, size := utf8.DecodeRune(p.src[p.pos:])
 			if r == utf8.RuneError && size == 1 {

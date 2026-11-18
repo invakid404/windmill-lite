@@ -564,5 +564,9 @@ One walker implements resolution for the three contracts of
     key was;
   - the nesting limit: a value nests at most 127 deep, and the array or
     object opened at depth 128 fails.
+  - the string reader's ASCII fast path, which copies a run of plain ASCII
+    at once. It reads every text as the per-character path does: the same
+    value, or the same error at the same position, for ASCII, non-ASCII,
+    escapes, NULs, lone surrogates and invalid UTF-8.
 - `data_test.go` loads `testdata/bundle/data/`, a bundle's `data/` in
   internal/bundle's format.

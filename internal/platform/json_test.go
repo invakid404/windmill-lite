@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -111,5 +113,40 @@ func TestParseErrors(t *testing.T) {
 	}
 	if _, err := parseJSON([]byte(strings.Repeat("[", 127) + strings.Repeat("]", 127))); err != nil {
 		t.Errorf("127 levels: %v", err)
+	}
+}
+
+// TestStringFastPathMatchesPerChar checks that str's ASCII fast path reads
+// every text as the per-character path does: the same value written back
+// byte for byte, or the same error at the same line and column. The texts
+// hold plain and long ASCII, non-ASCII letters, escapes, a NUL escape and a
+// raw NUL, lone surrogates (refused, and accepted in a write body's
+// value), invalid UTF-8, control characters and unterminated strings.
+func TestStringFastPathMatchesPerChar(t *testing.T) {
+	long := strings.Repeat("abc/xyz 0123", 1<<16)
+	texts := []string{
+		`"abc"`, `""`, `"` + long + `"`, `"` + long + `é"`, `["ü€😀 mixed ascii é", "日本"]`,
+		`{"k\"ey":"a\"b\\c\/d\b\f\n\r\t e"}`, `"aAé😀z"`,
+		`"a\u0000b"`, "\"a\x00b\"", "\"ab\x01cd\"", "\"tab\there\"",
+		`"\ud800"`, `"x\udc00y"`, `"\ud800A"`, `{"value":{"s":"\ud800 tail"},"path":"f/x/a"}`,
+		`{"value":"\udfff","path":"\ud800"}`, "\"bad \xff utf8\"", "\"bad \xc3\"", `"unterminated`, `"ends in escape\`,
+		`"bad \x escape"`, "{\n  \"a\": \"line two\",\n  \"b\": \"\x02\"\n}", `{"a":"x"} trailing`,
+	}
+	for _, text := range texts {
+		for _, raw := range []string{"", "value"} {
+			fast, slow := &parser{src: []byte(text), rawMember: raw}, &parser{src: []byte(text), rawMember: raw, perChar: true}
+			fv, ferr := fast.document()
+			sv, serr := slow.document()
+			var fout, sout []byte
+			if fv != nil {
+				fout = fv.write(nil)
+			}
+			if sv != nil {
+				sout = sv.write(nil)
+			}
+			if fmt.Sprint(ferr) != fmt.Sprint(serr) || !bytes.Equal(fout, sout) || fast.pos != slow.pos {
+				t.Errorf("%.60q (raw member %q): fast path %q, %v at %d; per character %q, %v at %d", text, raw, fout, ferr, fast.pos, sout, serr, slow.pos)
+			}
+		}
 	}
 }
