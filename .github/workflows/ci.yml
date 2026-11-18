@@ -642,6 +642,14 @@ jobs:
           WL_REQUIRE_BUN: "1"
         run: go test -race -count=1 -v -run '^TestRunCommand$' ./cmd/windmill-lite
 
+      - name: Test wltest's fixture stores on Redis
+        # Each fixture's runtime gets a Redis store of its own, which its
+        # runs share.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_REQUIRE_BUN: "1"
+        run: go test -race -count=1 -v -run '^(TestFixtureStoresAreApart|TestFixtureStateOnRedis)$' ./cmd/wltest
+
       - name: Check client-api/state on the Redis store
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
