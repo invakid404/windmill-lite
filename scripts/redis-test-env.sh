@@ -39,6 +39,20 @@ wait_for() {
 	done
 }
 
+# present <container|network> <name>: succeeds when the object exists, fails
+# when Docker reports it absent, and exits with an error when Docker cannot
+# say, such as when its daemon does not answer.
+present() {
+	if out=$(docker "$1" inspect "$2" 2>&1 >/dev/null); then
+		return 0
+	fi
+	case "$out" in
+	*"No such $1"* | *"$1 $2 not found"*) return 1 ;;
+	esac
+	echo "redis-test-env: cannot inspect the $1 $2: $out" >&2
+	exit 1
+}
+
 case "${1:-}" in
 up)
 	# Pulled first, so that no progress line reaches standard output.
@@ -62,14 +76,15 @@ up)
 	;;
 down)
 	# The containers that exist, with their anonymous volumes (the Redis
-	# image declares one for /data), then the network. A failure to remove
-	# one fails the command.
+	# image declares one for /data), then the network. An object that is
+	# absent, as after a partial start, is skipped; a failure to inspect or
+	# remove one fails the command.
 	for c in master sentinel toxiproxy; do
-		if docker container inspect "$name-$c" >/dev/null 2>&1; then
+		if present container "$name-$c"; then
 			docker rm -f -v "$name-$c" >/dev/null
 		fi
 	done
-	if docker network inspect "$name" >/dev/null 2>&1; then
+	if present network "$name"; then
 		docker network rm "$name" >/dev/null
 	fi
 	;;
