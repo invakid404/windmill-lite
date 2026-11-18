@@ -158,7 +158,7 @@ remotely.
 
 Each deviation has an id and a conformance case that shows the difference.
 A deviation fixed at build time is listed in the bundle manifest. One that
-depends on a runtime setting the host chooses (D15, D21, and D2's
+depends on a runtime setting the host chooses (D15, D21, D24, and D2's
 watchdog), or on what a run meets (D20), is recorded in each run's trace.
 
 | Id | Deviation | Why | Record |
@@ -186,6 +186,7 @@ watchdog), or on what a run meets (D20), is recorded in each run's trace.
 | D21 | Opt-in: with the host's read cache, a flow run reads each resource and variable from its providers once, and answers its later reads of it from that read. Windmill reads them for each job and each call, so a value that changes during a run reaches its later steps there, and here only the next run (**D21, the read cache**, below) | a host whose resources come from an API pays a round trip per read, about 1.5 ms when the API is 1 ms away | [0007](0007-platform-interface.md) |
 | D22 | A job read of a job of a run that has ended (`GET /w/{ws}/jobs_u/get/{id}`, `jobs_u/get_args/{id}`) answers 501, `Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}: the job's run has ended, and windmill-lite keeps no record of the jobs of a run that has ended`, which the 501 policy turns into the step's `UnsupportedPlatformCall`. Windmill answers it from the job's row as a completed job until its job retention removes the row, 30 days by default ([WA-19](../semantics/client-api.md#wa-19)/i). The root lookup still answers for the latest 4096 ended jobs (D3). Case: `conformance/flows/client-api/job-reads-ended`, run `ended`, which `TestEndedRunJobRead` (cmd/wltest) checks | the engine releases a run when it ends, so that a long-lived runtime holds only its live runs. Keeping finished runs' records would be retention that no step of a live run needs: a step reads the jobs of its own run, which lives while it runs | [0007](0007-platform-interface.md) |
 | D23 | Bun scripts run on Bun `1.4.3`, the version windmill-lite pins, where Windmill CE `v1.862.0`'s image runs `1.4.4` ([WR-3](../semantics/languages.md#wr-3)). A script sees it wherever Bun names its version (`Bun.version`, `process.versions.bun`): run `bun_version` of `conformance/flows/oracle/probes` records `"1.4.4"` on the oracle and is not required by the flow suite, while the step case WR-3/a (`conformance/steps/bun/wr-3.yaml`) holds windmill-lite to `"1.4.3"`. Bun 1.4.4's other changes that a script can observe differ as well (**D23, Bun 1.4.3 against 1.4.4**, below); no recorded case meets them | one Bun for every build, harness and host keeps a bundle's build and its run on the same runtime ([0010](0010-packaging.md)); the image's Bun moves with each Windmill release, and the pin moves only on purpose | [0010](0010-packaging.md) |
+| D24 | Steps write resources through the job API, such as the state of the stock client's `setState` ([WA-13](../semantics/client-api.md#wa-13)), into the runtime's resource store. The default memory store loses its entries when the runtime closes, and no other runtime or process sees them; Windmill keeps them in its database. A `windmill-lite run` keeps them for its one run, a host process for its connection (**D24, the memory resource store**, below) | a store is the host's choice, and the memory store needs nothing beyond the runtime; other stores implement the interface | [0007](0007-platform-interface.md) |
 
 **D23, Bun 1.4.3 against 1.4.4.** Bun's v1.4.4 release notes list these
 changes that a script run by `bun run` can observe, each a difference
@@ -256,6 +257,21 @@ The run's trace lists D21. `TestReadCacheHostCalls` (cmd/windmill-lite)
 shows the difference: with the cache, three steps that read a resource
 whose value changes at every read all see its first value, and the host's
 provider is called once per path and run.
+
+**D24, the memory resource store.** A runtime's resource store is
+`wl.Options.ResourceStore`. Left nil, it is a new memory store
+(`wl.NewMemoryResourceStore`), as `-resource-store memory` of
+`windmill-lite run` and `windmill-lite host` and the host SDK's
+`resourceStore: { kind: "memory" }` give. A host can share one store
+between its runtimes; other stores implement the interface and pass its
+contract suite (`wl/storetest`).
+
+Each run of a runtime whose store is a memory store lists D24 in its
+trace. `TestResourceStoreOnBun` (wl) shows
+the difference: two runtimes given one store see each other's writes, and
+a runtime with its own store sees none of them. `TestRunCommand`
+(cmd/windmill-lite) shows a state that one `windmill-lite run` writes
+missing from the next.
 
 **D5, the native boundary mode** (milestone C3n). A native invocation runs
 in a `node:vm` context of the harness process, made for it and released
@@ -399,6 +415,7 @@ sees only the error its client library raises, and nothing is recorded.
 | A codebase entry whose `customBundler` is set, since windmill-lite does not run its shell command as the bundler ([WR-48](../semantics/languages.md#wr-48)/a, `later`; a JavaScript-falsy value counts as unset); and a script with a `schema_validation` annotation, until the reference covers it | load error `unsupported_feature` | [0002](0002-ir-and-loader.md), [0009](0009-host-adapters.md) |
 | Sync folders the CLI pushes but the loader does not read as the CLI does ([SY-1](../semantics/openflow.md#sy-1), [SY-7](../semantics/openflow.md#sy-7), [SY-13](../semantics/openflow.md#sy-13)): a script file with a dot before its script extension (`f/my.dir/x.ts`), which the CLI renames by cutting its path there; an `!inline` or script-lock reference that leaves the sync root, and an absolute script-lock reference; a script, inline or lock file that is not UTF-8; a `wmill.yaml` glob outside the syntax that minimatch 9 and 10 read alike (extglobs, POSIX classes, `.` and `..` segments, some escapes, braces that do not expand, sequences that JavaScript would round); a `wmill.yaml` value of the wrong type; a file whose name is not UTF-8, which is skipped with a warning | load error `dotted_path`, `path_escape`, `invalid_text`, `unsupported_glob` or `invalid_config` | [0002](0002-ir-and-loader.md) |
 | YAML that the CLI's parser accepts but yamlx cannot read as the CLI does ([SY-9](../semantics/openflow.md#sy-9)): JavaScript-specific values (the tags `!!binary`, `!!timestamp`, `!!set`, `!!omap`, `!!pairs` and `!!merge`, collection keys), directives other than `%YAML 1.2`, a carriage return without a line feed (a line break only to a YAML 1.1 parser), anchor names that YAML 1.2 reads further, a `?` or `:` in a flow collection that the two parsers read as different indicators (`[?v]`, `[v:]`), aliases beyond an expansion bound, and some YAML 1.2 syntax the YAML 1.1 parser rejects (the `\/` escape) | load error `unsupported_yaml`, or the parser's `yaml_syntax` for its own rejections | [0002](0002-ir-and-loader.md) |
+| An update or a delete through the job API (`updateResourceValue`, `deleteResource`) of a resource that the host or the bundle provides: windmill-lite writes only the entries of its resource store, of type `state` | the call answers 501, `Not implemented in windmill-lite: POST /w/{ws}/resources/update_value/{path}: the resource is provided by the host or the bundle, which windmill-lite does not write` (`DELETE /w/{ws}/resources/delete/{path}` for a delete), which the 501 policy turns into the step's `UnsupportedPlatformCall` | [0007](0007-platform-interface.md) |
 
 Anything not in this table and not out of scope is a bug when it differs.
 
@@ -604,6 +621,12 @@ switch through a change to this record, naming the reason.
   jitter source injectable as §7 asks (H10), and no deviation is added:
   a run on H10's recording clock, a host's choice, records `H10` among
   its trace's deviations, as H7 does.
+- The resource store added D24 to §5 and a restriction to §5a. Steps
+  write resources of type `state` through the job API, as the stock
+  client's `setState` does, into the runtime's resource store. Every read
+  finds them after the host's and the bundle's resources. The
+  fixture `client-api/state` became `core`, and the flow suite requires
+  its runs.
 
 ## Spec IDs relied on
 

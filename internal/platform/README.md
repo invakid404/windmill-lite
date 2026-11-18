@@ -24,6 +24,8 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
 | `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services`, `Providers` and `Services.WithProviders` (H13) |
 | `readcache.go` | `ReadCache`: a run's read cache, deviation D21 of ADR 0001 |
+| `resourcestore.go` | The `ResourceStore` interface, whose doc comment is its contract, and `MemoryResourceStore`, its memory default |
+| `statewrites.go` | The writes of state: `CreateStateResource`, `UpdateStateResource`, `DeleteStateResource`, the path check, the stored form of a value, and `WriteBodySyntaxError` |
 | `jobs.go` | `Job`, `JobKind`, the `Jobs`, `JobView` and `FlowUserState` interfaces, `NotServed` and `ErrEndedRun`, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `GetJob`, `GetJobArgs`, `JobEnv`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`; `JSONSyntaxError`, the backend JSON library's text for a body that is not JSON, which the facade's JSON-body routes answer |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
@@ -235,6 +237,35 @@ at each read: a `$WM_*` string resolves for the job that reads it, and a
 nested reference is read through the cache. Reads of one path that
 overlap share one provider read. `UpdateVariable` updates through the
 provider and drops the path's answer, so the run reads the new value.
+
+## The resource store
+
+`Services.ResourceStore` keeps the resources that steps write through the
+job API: resources of type `state`, the stock client's `setState`
+([WA-13](../../docs/semantics/client-api.md#wa-13)). Its entries are keyed
+by workspace, `Services.Workspace` or the default host's, and path. A nil
+store serves no writes, and the facade answers them 501.
+
+- **The read order:** every read (`RawResource`, `InterpolatedResource`,
+  `ResourceExists`, a `$res:` reference, `flow_env` and `resource()`) asks
+  the providers first, then the store. A provider's resource shadows a
+  stored entry at its path. The store is never cached, the read cache
+  included, so a read sees the latest write.
+- **The contract:** each operation is atomic per workspace and path, a
+  value comes back byte for byte, and an error is never reported as a
+  missing entry. `wl/storetest` checks it
+  ([its README](../../wl/storetest/README.md)).
+- **The writes** check the path, store the value as jsonb would, and
+  refuse what jsonb refuses (`statewrites.go`). An update or a delete
+  reads the entry first, so a path that the store does not hold as a
+  state is refused before anything is written.
+- **A failure** of the store fails the read or write with `Internal:
+  windmill-lite: the resource store failed: <err>`, an `*Error` marked
+  `StoreFailure`, which the facade answers 500 and records as a warning.
+
+`MemoryResourceStore` holds its entries in one map under one mutex. An
+entry is never changed in place, and bytes are copied in and out, so a
+read never holds the lock while it copies.
 
 ## The job registry and flow user state
 
@@ -451,6 +482,13 @@ One walker implements resolution for the three contracts of
   first, as the API reads it from its column.
 
 ## Tests
+
+- `statewrites_test.go` checks the writes of state. It checks both
+  routes' number spellings, on every recorded number and on others, and
+  the path check on every recorded path. It checks the recorded answers
+  of create, update and delete, a provider's path and an entry of another
+  type. It checks the read order behind the read cache, and a failing
+  store on every read and write.
 
 - `readcache_test.go` checks the read cache. Each path is one provider
   read, through the walker, a variable read or a missing path; an error is

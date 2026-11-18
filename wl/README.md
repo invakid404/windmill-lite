@@ -140,6 +140,7 @@ The zero value of each field is its default.
 | `EngineVersion` | The runtime's engine version, which must be the version that built the bundle | `Version()` | When the program's build information does not carry the engine version, such as a build that links its own version in |
 | `Resources`, `Variables` | The host's resources and variables. They replace the bundle's at the same paths. | The bundle's `data/` | To give secrets, which a bundle never holds, and values that differ by deployment |
 | `Results` | The store of the results of steps that have a `cache_ttl` (a `ResultCache`) | One in memory for each runtime | To share cached results between runtimes |
+| `ResourceStore` | The store of the resources that steps write, such as the state of the stock client's `setState` ([The resource store](#the-resource-store)) | A new memory store for each runtime | To share them between runtimes, or to keep them in a store of the host's |
 | `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go | `os.Stderr` | To capture them |
 | `ExpressionSlots` | The number of evaluation slots of the expression engine | `min(GOMAXPROCS, 8)` | To change how many expressions can evaluate at once |
 | `QuickJSOnly` | Turns off the engine's Go evaluator of templates, arithmetic, comparisons and predicates over JSON values. Every expression that the shortcuts and the member paths do not answer then runs in QuickJS-ng. Nothing observable changes. | Off | To compare the two evaluators, or to rule the Go evaluator out when a result looks wrong |
@@ -162,6 +163,29 @@ a resource or variable again for each step and each call. The
 [equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
 names it, and the [trace](../docs/glossary.md#trace) of a run with it
 lists `D21`.
+
+### The resource store
+
+Steps write resources of type `state` through the job API, as the stock
+client's `setState` does, and the runtime keeps them in its
+`ResourceStore`. Every read finds the host's and the bundle's resources
+first, then the store's entries, without a cache. A step cannot change or
+delete a resource that the host or the bundle provides: that call answers
+501.
+
+- `NewMemoryResourceStore` returns a memory store. Its entries live until
+  the runtime closes, and only the runtimes given the same store see
+  them. The trace of each run on a memory store lists `D24`, a
+  [deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations):
+  Windmill keeps them in its database.
+- A host's own store implements `ResourceStore`, whose doc comment is its
+  contract. The package
+  [`wl/storetest`](storetest/README.md) holds the contract's tests, and
+  `storetest.Run` runs them on a store.
+- When a store fails, the call answers 500, `Internal: windmill-lite: the
+  resource store failed: <err>`, and the run's warnings get one with the
+  code `resource_store_failed`. A missing state is never what a failure
+  reads as.
 
 ## Run
 
@@ -482,13 +506,14 @@ This section is for contributors who change `wl`.
 
 | File | Contents |
 |---|---|
-| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
+| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
 | `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
 | `payload.go` | The encoding of the payloads that the runtime sends to a host plugin |
 | `example_test.go` | The README's example, compiled by `go test` |
+| `storetest/` | The contract suite of `ResourceStore` ([its README](storetest/README.md)) |
 
 ### How Open works
 
@@ -609,4 +634,5 @@ build helper's dependencies, and skip without them unless
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
+| `store_test.go` | `Options.ResourceStore` on real steps: two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace | Yes |
 | `example_test.go` | Compiles the README's example | No |

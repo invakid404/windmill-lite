@@ -46,10 +46,10 @@ them, per runtime or per run ([0008](0008-host-hooks.md)).
 
 | Service | Routes it serves | Default | Scope |
 |---|---|---|---|
-| `Resources` | `resources/get_value_interpolated`, `get_value`, `exists`, `create`, `update_value` | the bundle's resource files plus host overrides | core (read), later (write) |
+| `Resources` | `resources/get_value_interpolated`, `get_value`, `exists`, `create`, `update_value`, `delete` | the bundle's resource files plus host overrides, then the resource store's entries | core (read; write of type `state`), later (write of other types) |
 | `Variables` | `variables/get_value`, `exists`, `create`, `update` | the bundle's variable files; secrets through `Secrets` | core (read), later (write) |
 | `Secrets` | used by the two above | plain-secret folders work; ciphertext without a host resolver fails as a value Windmill cannot decrypt | core |
-| `State` | the resource routes at the state path, type `state` | in memory, per bundle runtime | later |
+| `State` | the resource routes at the state path, type `state` | `ResourceStore`: a memory store per runtime, unless the host gives one (D24) | core |
 | `FlowUserState` | `jobs_u/get_root_job_id`, `jobs/flow/user_states/{root}/{key}` | a map per effective root, discarded when the root run ends; `null` for a missing key | core |
 | `ObjectStore` | `job_helpers/download_s3_file`, `upload_s3_file`, `delete_s3_file` | a local directory keyed by (storage, key) | core (explicit keys), later (the rest) |
 | `Dispatcher` | `jobs/run/p`, `run/h`, `run/f`, `jobs_u/completed/get_result_maybe`, `get_result` | runs the target from the bundle as a detached run of the same runtime | core (interface) |
@@ -676,6 +676,25 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   deviation D21 of [0001](0001-equivalence-contract.md). The cache holds
   the providers' values as stored, below the interpolation walker, so
   `$WM_*` strings still resolve for each job.
+- The resource store served the writes of state
+  ([WA-13](../semantics/client-api.md#wa-13)), and so the stock client's
+  `setState`. `platform.ResourceStore`, re-exported as `wl.ResourceStore`,
+  keeps the entries that steps write, keyed by workspace and path; its doc
+  comment and the suite `wl/storetest` hold its contract. The default
+  store keeps them in memory, one per runtime
+  ([0001](0001-equivalence-contract.md) D24), and other stores implement
+  the interface.
+- `createResource` of type `state`, and `updateResourceValue` and
+  `deleteResource` of a stored state, answer as the recordings of
+  `conformance/flows/client-api/state` do. Another type and the options
+  the stock client never sends answer 501, and an update or a delete of a
+  provided resource answers the restriction's 501
+  ([0001](0001-equivalence-contract.md) §5a).
+- Every read, the engine's `$res:` arguments and `resource()` included,
+  finds the host's and the bundle's resources first, then the store,
+  never cached. A failing store answers 500 `Internal: windmill-lite: the
+  resource store failed: <err>`, which the run's trace keeps as a
+  warning, so `getState` throws rather than reading a missing state.
 
 ## Spec IDs relied on
 

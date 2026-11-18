@@ -1271,7 +1271,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
 
-**Scope:** later · **Confidence:** high; oracle-observed (WA-13/c to WA-13/p) · **Status:** confirmed · verified at v1.767.0 only, except the answers of the resource routes and the stock client's outcomes (recorded at v1.862.0)
+**Scope:** core (TS); later (Python) · **Confidence:** high; oracle-observed (WA-13/c to WA-13/p) · **Status:** confirmed · verified at v1.767.0 only, except the answers of the resource routes and the stock client's outcomes (recorded at v1.862.0)
 
 - **Rule:**
   - **TS `getState(path?)`** is `getResource(path ?? statePath, undefinedIfEmpty=true)`:
@@ -1379,6 +1379,20 @@ interface); `WA-Vn` findings were added during validation.
   [`resource-writes`](../../conformance/flows/client-api/resource-writes).
 - **Conformance:** [WA-13/a to WA-13/p](conformance.md#wa-13)
 - **Note:** answers [Q-WA-7](#q-wa-7).
+- **Note, what windmill-lite decides beyond the recordings:**
+  - **Paths.** windmill-lite accepts and refuses every recorded path as
+    Windmill did. For paths not recorded, it applies the narrowest rule
+    those cases fit: `u/`, `f/` or `g/`, then at least two segments, each
+    non-empty and made of letters of any script, ASCII digits, `_` and
+    `-` ([WA-13/j](conformance.md#wa-13)).
+  - **The 422's position.** Only compact one-line bodies are recorded, at
+    line 1 and the column after the closing brace. windmill-lite gives
+    the line and column after the closing brace for any layout.
+  - **Numbers.** One rule per route fits every recorded spelling. After
+    `update_value`, an integer without a fraction or an exponent that
+    fits 64 bits stays, and any other number becomes its shortest double
+    spelling, `.0` after a whole value. After a create, a whole number
+    written without a `.` is that integer ([WA-13/i](conformance.md#wa-13)).
 
 <a id="wa-14"></a>
 ### WA-14 · Flow user state: a key/value map on the root flow job, live while it runs

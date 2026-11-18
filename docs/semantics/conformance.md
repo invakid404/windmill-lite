@@ -7499,7 +7499,7 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
 
-**Scope:** later · **Finding:** [WA-13](client-api.md#wa-13)
+**Scope:** core (TS); later (Python) · **Finding:** [WA-13](client-api.md#wa-13)
 
 - **WA-13/a** · source-derived · a state counter
   - **Given:** a fresh script `u/x/counter` that does

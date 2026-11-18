@@ -185,6 +185,7 @@ starts. SIGINT and SIGTERM cancel the run.
 | `-digest` | A digest | None | The digest that the bundle must have |
 | `-variables` | A file | None | The host's variables, keyed by path (below). Secrets go here: a bundle never holds a secret's value. |
 | `-resources` | A file | None | The host's resources, keyed by path (below) |
+| `-resource-store` | `memory` | `memory` | The store of the resources that steps write, such as the stock client's state. `memory` keeps them for the run only, a named [deviation](../../docs/design/0001-equivalence-contract.md#5-named-deviations) of the equivalence contract. |
 | `-trace` | None | Off | Adds a summary of the [trace](../../docs/glossary.md#trace) to the outcome |
 | `-quickjs-only` | None | Off | Turns the Go evaluator of [expressions](../../docs/glossary.md#expression) off: every expression that the shortcuts and member paths do not answer runs in QuickJS-ng |
 | `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
@@ -235,6 +236,7 @@ A resources file maps each path to the resource's `resource_type` and
   runtime with another digest than the bundle's.
 - `--args`, `-variables` or `-resources` does not read as JSON, or `<path>`
   names no flow or root script of the bundle.
+- `-resource-store` names a store other than `memory`.
 
 With the bundle of the `build` example, from the root of the same
 checkout:
@@ -319,6 +321,7 @@ The host that starts it passes:
 | `-digest` | A digest | None | The digest that the bundle must have |
 | `-variables`, `-resources` | A file | None | The host's variables and resources, as for [`run`](#variables-and-resources-files) |
 | `-plugin-timeout` | A duration | `1m` | How long a call to the host's [host plugin](../../docs/glossary.md#host-plugin) waits for its reply |
+| `-resource-store` | `memory` | `memory` | The store of the resources that steps write, as for `run`. `memory` keeps them while the host's connection lasts, for every run of the host. |
 | `-read-cache` | None | Off | Each run keeps the answer of its first read of a resource or a variable, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates is read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads each time, so this is a named [deviation](../../docs/glossary.md#deviation) of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `-skip-args-file` | None | Off | The host states that its own code never reads `args.json`. Then, for a bundle none of whose scripts can read it, the engine writes no `args.json` for a step. |
 | `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
@@ -330,7 +333,7 @@ The engine refuses the host in the handshake, with one of these codes:
 |---|---|
 | `workdir_not_writable` | `--workdir` is not a directory that the engine can write. |
 | `workdir_mismatch` | `--workdir` is not the directory that the host's hello names. |
-| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. The message gives the reason. |
+| `engine_refused` | The bundle does not open, another engine version built it, a file of `-variables`, `-resources` or `-cpuprofile` does not open, or `-resource-store` names a store other than `memory`. The message gives the reason. |
 
 The other codes of the handshake, such as `version_mismatch`, are the
 host SDK's errors
@@ -505,6 +508,7 @@ How these tests run:
 | `TestHostStaticIntercept` | The static form of the intercept hook, through the run frame |
 | `TestHostStepLatency` | Reports the latency of each step in host mode |
 | `TestHostReadCacheOption` | The SDK's `readCache` reaches the engine: the run lists the read-cache deviation, and without the option it does not. |
+| `TestHostResourceStoreOption` | The SDK's `resourceStore` of kind `memory` reaches the engine, and the run lists the memory store's deviation, as it does without the option. |
 | `TestReadCacheHostCalls` | On the plugin host, the read cache makes one call of the plugin's hook for each run and path, and every step sees the first read's value. Without it, each read is a call, as on Windmill. A value that holds `$WM_JOB_ID` resolves for each step's own job either way. |
 | `TestHostArgsFileSharedReader`, `TestHostArgsFileHookReader` | By default, a step that reads `args.json` while the eight-step chain runs reads the chain's latest arguments, and a plugin's `onRunEnd` reads the run's last invocation's arguments. |
 | `TestHostSkipArgsFile`, `TestHostSkipArgsFileOption` | The engine leaves `args.json` out only for a bundle with no reader whose host opted in. The SDK's `skipArgsFile` reaches the engine. |

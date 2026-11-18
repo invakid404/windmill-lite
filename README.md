@@ -186,6 +186,7 @@ use.
 | Document | What it answers | For whom |
 |---|---|---|
 | [wl](wl/README.md) | How to open a bundle and run flows from Go, with hooks, budgets and host mode | Go hosts |
+| [wl/storetest](wl/storetest/README.md) | How to check that a resource store of your own meets the contract | Go hosts with their own resource store |
 | [harnesses](harnesses/README.md) | How to install the npm package and test a host's process-level code | Bun hosts |
 | [harnesses/bun](harnesses/bun/README.md) | What `connect()` does, its options, host plugins, and how a step runs | Bun hosts |
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The commands and flags of `windmill-lite`, and its benchmarks | Everyone who builds or runs a bundle |
