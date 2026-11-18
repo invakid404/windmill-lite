@@ -77,6 +77,15 @@ type Options struct {
 	// between runtimes; nil means one in memory for the runtime's runs
 	// (D4).
 	Results ResultCache
+	// ResourceStore keeps the resources that steps write through the job
+	// API: the state that the stock client's setState writes (WA-13),
+	// which reads find after the bundle's and the host's resources. nil
+	// means a new memory store for the runtime, whose entries Close loses
+	// and no other runtime sees (deviation D24 of ADR 0001); a host can
+	// share one store between its runtimes, a memory store
+	// (NewMemoryResourceStore) or its own implementation. Every run of a
+	// runtime whose store is a memory store lists D24 in its trace.
+	ResourceStore ResourceStore
 	// Diagnostics receives the harness processes' output that no step
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
 	Diagnostics io.Writer
@@ -130,13 +139,11 @@ type Options struct {
 	Host *Host
 }
 
-// Resource is a resource the host provides: its resource type, and its
-// value as JSON, whose $var: and $res: references are resolved when it
-// is read (WA-12).
-type Resource struct {
-	Type  string
-	Value json.RawMessage
-}
+// Resource is a resource: its resource type, and its value as JSON, whose
+// $var: and $res: references are resolved when it is read (WA-12). A host
+// provides resources as Resource (Options.Resources, RunPlatform), and a
+// ResourceStore keeps the entries steps write as Resource.
+type Resource = platform.Resource
 
 // Variable is a variable the host provides. A secret's Value is its
 // plaintext, unless Ciphertext says it is Windmill ciphertext under the
@@ -147,6 +154,19 @@ type Variable struct {
 	Secret     bool
 	Ciphertext bool
 }
+
+// ResourceStore is the store of the resources that steps write (WA-13): the
+// interface every store implements, memory or a host's own, whose contract
+// its doc comment states and the contract suite wl/storetest checks.
+type ResourceStore = platform.ResourceStore
+
+// MemoryResourceStore is the resource store that keeps its entries in
+// memory, the default (deviation D24 of ADR 0001).
+type MemoryResourceStore = platform.MemoryResourceStore
+
+// NewMemoryResourceStore returns an empty memory store, which a host can
+// pass as Options.ResourceStore to several runtimes so that they share it.
+func NewMemoryResourceStore() *MemoryResourceStore { return platform.NewMemoryResourceStore() }
 
 // ResultCache is a store of cached job results (ADR 0007, N4): the engine
 // computes the keys, the expiries and the bytes it stores, and a store
@@ -189,6 +209,9 @@ type Runtime struct {
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
 	readCache bool // Options.ReadCache
+	// memoryStore says that the runtime's resource store keeps its entries
+	// in memory, which its runs' traces list as D24.
+	memoryStore bool
 
 	// plugin is the host plugin, once its harness declared it (F2c);
 	// providers are the Go host's and the plugin's named providers, and
@@ -383,7 +406,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		return nil, err
 	}
 	rt.store = store
-	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results}
+	resourceStore := opts.ResourceStore
+	if resourceStore == nil {
+		resourceStore = platform.NewMemoryResourceStore()
+	}
+	_, rt.memoryStore = resourceStore.(*platform.MemoryResourceStore)
+	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results, ResourceStore: resourceStore}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
 	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released}); err != nil {
 		return nil, err

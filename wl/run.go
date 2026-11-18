@@ -238,7 +238,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
 		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started}
 	if rt.readCache {
-		req.Deviations = []string{"D21"}
+		req.Deviations = append(req.Deviations, "D21")
+	}
+	if rt.memoryStore {
+		req.Deviations = append(req.Deviations, "D24")
 	}
 	switch {
 	case h != nil && extra != nil:
@@ -265,6 +268,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	} else {
 		tr.PlatformCalls = calls.taken()
 	}
+	tr.Warnings = append(tr.Warnings, calls.warned()...)
 	return &Result{
 		ID:             tr.RunID,
 		Status:         string(tr.Status),
@@ -362,15 +366,24 @@ type invocation struct {
 // callLog is the platform calls of one run, and its invocations, which
 // end forgets (guarded by the recorder's mu).
 type callLog struct {
-	mu    sync.Mutex
-	calls []PlatformCall
-	invs  []string
+	mu       sync.Mutex
+	calls    []PlatformCall
+	invs     []string
+	warnings []Warning
 }
 
 func (l *callLog) taken() []PlatformCall {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]PlatformCall(nil), l.calls...)
+}
+
+// warned is the warnings the facade's answers asked for: a failure of the
+// resource store (WA-13), one for each call it failed.
+func (l *callLog) warned() []Warning {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]Warning(nil), l.warnings...)
 }
 
 func (x *recorder) begin(run string) *callLog {
@@ -419,6 +432,9 @@ func (x *recorder) answered(inv string, c facade.Record) {
 		Site: in.site, Job: inv, Method: c.Method, Path: c.Path, Query: c.Query, Route: c.Route,
 		Status: c.Status, Unsupported: c.Unsupported, Message: c.Message,
 	})
+	if c.Warning != "" {
+		l.warnings = append(l.warnings, Warning{Code: "resource_store_failed", Message: c.Route + ": " + c.Warning})
+	}
 }
 
 // released is the facade's Config.Recorded: the invocation's record is

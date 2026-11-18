@@ -183,8 +183,14 @@ func runHookCase(t *testing.T, c hookCase) {
 	if e.Result != nil && !sameJSON(res.Result, e.Result) {
 		t.Errorf("result %s, want %s", res.Result, e.Result)
 	}
-	if !slices.Equal(res.Trace.Deviations, e.Deviations) && !(len(res.Trace.Deviations) == 0 && len(e.Deviations) == 0) {
-		t.Errorf("deviations %v, want %v", res.Trace.Deviations, e.Deviations)
+	// The cases fix the engine's deviations; D24 is the runtime's memory
+	// resource store's, which every run of the case's runtime lists.
+	if !slices.Contains(res.Trace.Deviations, "D24") {
+		t.Errorf("deviations %v, want D24 among them: the runtime has a memory resource store", res.Trace.Deviations)
+	}
+	got := slices.DeleteFunc(slices.Clone(res.Trace.Deviations), func(d string) bool { return d == "D24" })
+	if !slices.Equal(got, e.Deviations) && !(len(got) == 0 && len(e.Deviations) == 0) {
+		t.Errorf("deviations %v, want %v and D24", res.Trace.Deviations, e.Deviations)
 	}
 	if clock != nil && time.Since(started) > 10*time.Second {
 		t.Errorf("a record-clock run took %s", time.Since(started))

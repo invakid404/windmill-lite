@@ -414,6 +414,8 @@ func newBunRig(t *testing.T) *bunRig {
 			params = `[{"name":"runs","date":false}]`
 		case "userstate":
 			params = `[{"name":"op","date":false}]`
+		case "state":
+			params = `[{"name":"op","date":false},{"name":"path","date":false},{"name":"value","date":false}]`
 		}
 		write("scripts/bun/attr/"+name+".meta.json", `{"signatures":{"main":{"params":`+params+`}}}`)
 	}
@@ -520,6 +522,49 @@ export async function main() {
     context: await attempt(() => wmill.getResource("u/test/context")),
     state: await attempt(() => wmill.getState()),
   };
+}
+`,
+	// The state helpers of the stock client against the resource store
+	// (WA-13): op is one call, at path or, without one, at the job's
+	// WM_STATE_PATH; value is the value set or written, undefined when the
+	// arguments leave it out. A thrown error gives its message, its status
+	// and its body.
+	"state": `import * as wmill from "windmill-client";
+
+export async function main(op, path, value) {
+  const attempt = async (f) => {
+    try {
+      const v = await f();
+      return { value: v === undefined ? "undefined" : v };
+    } catch (err) {
+      return { thrown: String(err.message ?? err), status: err.status ?? null, body: err.body ?? null };
+    }
+  };
+  const workspace = process.env.WM_WORKSPACE;
+  switch (op) {
+    case "get":
+      return attempt(() => wmill.getState(path ?? undefined));
+    case "set":
+      return attempt(() => wmill.setState(value, path ?? undefined));
+    case "counter":
+      return attempt(async () => {
+        const before = (await wmill.getState()) ?? 0;
+        await wmill.setState(before + 1);
+        return { before, after: await wmill.getState() };
+      });
+    case "setget":
+      return attempt(async () => {
+        await wmill.setState(value, path);
+        return await wmill.getState(path);
+      });
+    case "create":
+      return attempt(() => wmill.ResourceService.createResource({ workspace, requestBody: { path, value, resource_type: "state" } }));
+    case "update":
+      return attempt(() => wmill.ResourceService.updateResourceValue({ workspace, path, requestBody: { value } }));
+    case "delete":
+      return attempt(() => wmill.ResourceService.deleteResource({ workspace, path }));
+  }
+  throw new Error("no op " + op);
 }
 `,
 	// WA-V5/a–c, getIdToken and WA-41/a's generated service (JobService.getJobLogs), each answered

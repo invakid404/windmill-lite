@@ -82,6 +82,9 @@ type Reply struct {
 	Status  int
 	Headers map[string]string
 	Body    []byte
+	// Warning, when set, is not sent: the call's record carries it, for the
+	// run's trace (a failure of the resource store, WA-13).
+	Warning string
 }
 
 // Handler answers the calls of one operation. It runs on a goroutine of
@@ -113,6 +116,9 @@ type Record struct {
 	// bundle: <path>".
 	Unsupported bool
 	Message     string
+	// Warning is what the answer asked the run's trace to warn of, such as a
+	// failure of the resource store; "" for none.
+	Warning string
 }
 
 // name is how a 501 names the call: its route, or, when no route of the
@@ -221,6 +227,7 @@ func New(cfg Config) (*Facade, error) {
 	}
 	f.serveJobs()
 	f.serveProviders()
+	f.serveResourceWrites()
 	f.serveDispatch()
 	f.serveObjects()
 	var err error
@@ -519,6 +526,7 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 			}
 			f.mu.Lock()
 			rec.Status = rep.Status
+			rec.Warning = rep.Warning
 			rec.Unsupported = rep.Status == 501
 			if rec.Unsupported {
 				rec.Message = unsupportedMessage(rec, rep)

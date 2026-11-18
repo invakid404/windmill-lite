@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strconv"
@@ -188,6 +189,11 @@ type parser struct {
 	src   []byte
 	pos   int
 	depth int
+	// rawMember names a member of the top-level object whose value is
+	// read as the body parser reads a raw value: its \u escapes need not
+	// pair their surrogates. raw is set while that value is read.
+	rawMember string
+	raw       bool
 }
 
 // parseJSON parses text as the library does: one value, optionally
@@ -362,7 +368,10 @@ func (p *parser) object() (*node, error) {
 			return nil, p.fail("expected `:`", p.pos+1)
 		}
 		p.pos++
+		raw := p.raw
+		p.raw = raw || p.depth == 1 && p.rawMember != "" && k == p.rawMember
 		v, err := p.value()
+		p.raw = raw
 		if err != nil {
 			return nil, err
 		}
@@ -453,10 +462,15 @@ func (p *parser) unicode() (rune, error) {
 		return 0, err
 	}
 	switch {
+	case n >= 0xDC00 && n <= 0xDFFF && p.raw:
+		return utf8.RuneError, nil
 	case n >= 0xDC00 && n <= 0xDFFF:
 		return 0, p.fail("lone leading surrogate in hex escape", p.pos)
 	case n < 0xD800 || n > 0xDBFF:
 		return rune(n), nil
+	case p.raw && !bytes.HasPrefix(p.src[p.pos:], []byte(`\u`)):
+		// A raw value's lone surrogate is left for the database to refuse.
+		return utf8.RuneError, nil
 	}
 	for _, want := range []byte{'\\', 'u'} {
 		if p.pos >= len(p.src) {
@@ -473,6 +487,9 @@ func (p *parser) unicode() (rune, error) {
 		return 0, err
 	}
 	if n2 < 0xDC00 || n2 > 0xDFFF {
+		if p.raw {
+			return utf8.RuneError, nil
+		}
 		return 0, p.fail("lone leading surrogate in hex escape", p.pos)
 	}
 	return rune((n-0xD800)<<10|(n2-0xDC00)) + 0x10000, nil

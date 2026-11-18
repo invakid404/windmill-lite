@@ -14,8 +14,8 @@ import (
 // facade answers from Config.Platform: the three resource-read contracts
 // of [WA-40] kept apart, with Windmill's statuses and bodies ([WA-10] to
 // [WA-12], [WA-42]); and the update of a variable's value ([WA-11]), when the
-// variable service takes writes. The other writes (creating a variable,
-// the resource writes) are not served, and answer 501.
+// variable service takes writes. Creating a variable is not served, and
+// answers 501; the resource writes of state are resources.go's.
 //
 // [WA-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-40
 // [WA-10]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-10
@@ -154,12 +154,17 @@ func (f *Facade) providers(c *Call) *platform.Services {
 }
 
 // answer is a read's reply: the JSON body, or the error as the API
-// renders it (WA-42).
+// renders it (WA-42). A failure of the resource store also asks the run's
+// trace to warn of it (Reply.Warning).
 func answer(body []byte, err error) Reply {
 	var pe *platform.Error
 	switch {
 	case errors.As(err, &pe):
-		return Error(*pe).Reply()
+		rep := Error(*pe).Reply()
+		if pe.StoreFailure {
+			rep.Warning = pe.Body()
+		}
+		return rep
 	case err != nil:
 		return Error{Variant: "InternalErr", Message: err.Error()}.Reply()
 	}

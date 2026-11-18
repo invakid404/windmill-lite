@@ -250,7 +250,7 @@ type Providers struct {
 
 // WithProviders returns services that answer with p's providers in place of
 // s's, where p sets them, and share s's job registry, flow user state,
-// object store, dispatcher and result cache: a run that chose its own
+// object store, dispatcher, result cache and resource store: a run that chose its own
 // providers (H13) is still one of the runtime's runs, whose jobs s's
 // registry knows. Fields of s set later are not seen.
 func (s *Services) WithProviders(p Providers) *Services {
@@ -260,6 +260,7 @@ func (s *Services) WithProviders(p Providers) *Services {
 	v := &Services{
 		Resources: s.Resources, Variables: s.Variables, Secrets: s.Secrets, Resolvers: s.Resolvers,
 		Jobs: s.jobs(), UserState: s.userState(), Objects: s.Objects, Dispatcher: s.Dispatcher, Results: s.ResultCache(),
+		ResourceStore: s.ResourceStore, Workspace: s.Workspace,
 	}
 	if p.Resources != nil {
 		v.Resources = p.Resources
@@ -305,6 +306,16 @@ type Services struct {
 	Dispatcher Dispatcher
 
 	Results ResultCache
+
+	// ResourceStore keeps the resources that steps write (WA-13): reads
+	// answer from the providers first, then from it, never cached, and the
+	// facade's resource writes change it. nil means no store: no read finds
+	// an entry there, and the facade answers the writes 501.
+	ResourceStore ResourceStore
+	// Workspace is the workspace the store keys the services' entries
+	// under: the runtime's WM_WORKSPACE, the one workspace its jobs run in
+	// and the facade answers; empty means DefaultHost's.
+	Workspace string
 
 	localOnce   sync.Once
 	local       *Registry
@@ -381,11 +392,28 @@ func (s *Services) userState() FlowUserState {
 	return s.defaultStates()
 }
 
+// resource reads the resource at path: from the providers first, then from
+// the resource store, whose entries are never cached, so another runtime's
+// write to a shared store shows at the next read (WA-13). A provider's
+// resource shadows a stored one at the same path. A store that fails gives
+// a storeFailure.
 func (s *Services) resource(ctx context.Context, path string) (Resource, bool, error) {
-	if s == nil || s.Resources == nil {
+	if s == nil {
 		return Resource{}, false, nil
 	}
-	return s.Resources.Resource(ctx, path)
+	if s.Resources != nil {
+		if r, ok, err := s.Resources.Resource(ctx, path); err != nil || ok {
+			return r, ok, err
+		}
+	}
+	if s.ResourceStore == nil {
+		return Resource{}, false, nil
+	}
+	r, ok, err := s.ResourceStore.Get(ctx, s.storeWorkspace(), path)
+	if err != nil {
+		return Resource{}, false, storeFailure{err}
+	}
+	return r, ok, nil
 }
 
 func (s *Services) variable(ctx context.Context, path string) (Variable, bool, error) {

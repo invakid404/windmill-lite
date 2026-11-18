@@ -73,7 +73,7 @@ func (s *Services) RawResource(ctx context.Context, path string) ([]byte, error)
 	r, ok, err := s.resource(ctx, path)
 	switch {
 	case err != nil:
-		return nil, internal("%v", err)
+		return nil, readError(err)
 	case !ok:
 		return nil, notFound("Resource %s not found", path)
 	}
@@ -135,7 +135,7 @@ func (s *Services) InterpolatedResourceOf(ctx context.Context, path string, job 
 func (s *Services) ResourceExists(ctx context.Context, path string) (bool, error) {
 	_, ok, err := s.resource(ctx, path)
 	if err != nil {
-		return false, internal("%v", err)
+		return false, readError(err)
 	}
 	return ok, nil
 }
@@ -289,7 +289,7 @@ func (w *apiWalk) resource(path string, depth int, nested bool) (*node, *Error) 
 	r, ok, err := w.s.resource(w.ctx, path)
 	switch {
 	case err != nil:
-		return nil, internal("%v", err)
+		return nil, readError(err)
 	case !ok && nested:
 		return nil, notFound("Resource not found at name %s", path)
 	case !ok:

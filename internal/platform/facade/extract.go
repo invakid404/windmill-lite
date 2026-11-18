@@ -79,14 +79,17 @@ func queryUUID(c *Call, name string) (string, *Reply) {
 // and for a body that does not parse, an empty one included, 400 "Failed
 // to parse the request body as JSON: <message>", the message in the
 // backend JSON library's words.
-func jsonBody(c *Call) *Reply {
+func jsonBody(c *Call) *Reply { return checkedJSONBody(c, platform.JSONSyntaxError) }
+
+// checkedJSONBody is jsonBody with check as the body's syntax check.
+func checkedJSONBody(c *Call, check func([]byte) error) *Reply {
 	mt, _, err := mime.ParseMediaType(c.Headers["content-type"])
 	typ, sub, _ := strings.Cut(mt, "/")
 	if err != nil || typ != "application" || sub != "json" && !strings.HasSuffix(sub, "+json") {
 		r := plainText(415, "Expected request with `Content-Type: application/json`")
 		return &r
 	}
-	if err := platform.JSONSyntaxError(c.Body); err != nil {
+	if err := check(c.Body); err != nil {
 		r := plainText(400, "Failed to parse the request body as JSON: "+err.Error())
 		return &r
 	}
