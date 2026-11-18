@@ -216,8 +216,12 @@ of [wl/redisstore](../../wl/redisstore/README.md), on the Redis that
 `WL_REDIS_URL` names, under a key prefix of its own, `wltest-<random>:`.
 Each fixture so starts with no state, as on the default memory store. The
 CI job `Redis` checks `client-api/state` this way in each mode.
-`TestFixtureStoresAreApart` (`store_test.go`, with `WL_TEST_REDIS_URL`)
-checks that two fixtures' stores keep one workspace and path apart.
+
+`store_test.go` checks it with `WL_TEST_REDIS_URL`:
+`TestFixtureStoresAreApart` keeps one workspace and path apart in two
+fixtures' stores, and `TestFixtureStateOnRedis` runs the synthetic fixture
+`testdata/state-isolation` twice. Its runs share a counter, each fixture
+starts at zero, and Redis holds one counter per fixture.
 
 ### Step cases
 
