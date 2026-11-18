@@ -16,7 +16,7 @@ resources first, and the store's entries after them
 |---|---|---|
 | Where the entries live | The engine's memory | One Redis, or a master that Sentinel manages |
 | Who sees them | The one runtime, or the runtimes of one Go process that share the store | Every engine on that Redis and key prefix |
-| How long they last | Until the runtime closes: one `windmill-lite run`, or one host connection | As long as Redis keeps its data |
+| How long they last | A runtime's own store: until the runtime closes, one `windmill-lite run` or one host connection. A store a Go host makes: as long as the host holds it. | As long as Redis keeps its data |
 | As on Windmill | No: deviation D24 of [ADR 0001](design/0001-equivalence-contract.md) | Yes, except that durability is Redis's configuration |
 | Setup | None: it is the default | A Redis server and its URL |
 
@@ -28,8 +28,8 @@ when each run starts from nothing anyway.
 ## Use the memory store
 
 It is the default: leave `wl.Options.ResourceStore` nil, leave out
-`-resource-store`, or leave out the Bun SDK's `resourceStore`. Every run on
-it lists D24 in its trace.
+`-resource-store`, or leave out the Bun SDK's `resourceStore`. Every flow
+run on it lists D24 in its trace; a root script's run has no trace.
 
 ## Use Redis
 
@@ -37,9 +37,11 @@ it lists D24 in its trace.
    Turn on persistence, for example the append-only file
    (`appendonly yes`), and set `maxmemory-policy` to `noeviction` or a
    `volatile-*` policy, which never evicts a key without an expiry.
-2. **Put the URL in `WL_REDIS_URL`.** The URL holds the password, so the
-   command and the SDK take it only from the environment, never from a flag:
-   a command line shows in `ps`. The [URL forms](#url-forms) follow.
+2. **Keep the URL off command lines.** The URL holds the password, and a
+   command line shows in `ps`. The command takes it only from the
+   environment variable `WL_REDIS_URL`; the Bun SDK takes it as
+   `resourceStore.url` and passes it to the engine as `WL_REDIS_URL`. The
+   [URL forms](#url-forms) follow.
 3. **Start windmill-lite on it.**
    - The command: `WL_REDIS_URL=redis://... windmill-lite run f/my/flow --bundle b.wlb -resource-store redis`,
      and the same flag for `windmill-lite host`
@@ -89,6 +91,10 @@ is `windmill-lite:` by default. Engines on the same Redis and prefix share
 their entries. Give each deployment that must not see another's state its
 own prefix: `-redis-prefix`, or the SDK's `prefix`.
 
+A prefix is one or more characters without a colon, then a colon, such as
+`app-1:`. The start refuses any other prefix, such as `app:prod:`: two
+such prefixes could name one key for different workspaces and paths.
+
 ## Atomicity
 
 Each call of the job API is atomic on both stores: a read finds a whole
@@ -122,4 +128,5 @@ To accumulate values across runs, such as a cache that a flow fills:
   A retried create or update reports its result once. A retried delete
   whose first attempt was applied answers that the resource does not exist;
   it is gone either way.
-- **Each call** waits at most 10 s for Redis, retries included.
+- **Each call** waits at most 10 s for Redis, retries included, by
+  default. A Go host sets another bound with `OperationTimeout`.
