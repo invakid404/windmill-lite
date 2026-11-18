@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -110,6 +111,9 @@ func TestRunCommand(t *testing.T) {
 			t.Fatalf("-resource-store memory, run %d: exit code %d, stdout %s, stderr %s", i+1, code, stdout.String(), stderr.String())
 		}
 	}
+	// Each refusal runs in an engine process of its own, so that its whole
+	// standard error, go-redis's log included, is checked for the URL's
+	// marker.
 	for _, c := range []struct {
 		kind, url, want string
 	}{
@@ -118,16 +122,23 @@ func TestRunCommand(t *testing.T) {
 		// No server listens on port 1: the run does not start, and the
 		// error names the address and not the password.
 		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0", "-resource-store redis: redisstore: cannot reach Redis at 127.0.0.1:1 (database 0)"},
-		// A URL that does not parse: the error names no part of it, here
-		// a credential pasted as a Sentinel address.
+		// No Sentinel listens either; go-redis logs its failed lookups of
+		// the master by name.
+		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0?master_name=main&password=s3cr3t-pw", "-resource-store redis: redisstore: cannot reach Redis at the master of the Sentinels 127.0.0.1:1 (database 0)"},
+		// URLs that do not parse: the error names no part of them, here a
+		// credential pasted as a Sentinel address and as the master's name.
 		{"redis", "redis://127.0.0.1:26379/0?master_name=m&addr=redis://u:s3cr3t-pw@host2:26379", "-resource-store redis: redisstore: the Redis URL does not parse"},
+		{"redis", "redis://127.0.0.1:26379/0?master_name=redis://u:s3cr3t-pw@host2:6379", "-resource-store redis: redisstore: the Redis URL does not parse"},
 	} {
-		stdout.Reset()
-		stderr.Reset()
-		t.Setenv("WL_REDIS_URL", c.url)
-		if code := run([]string{"run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", c.kind}, &stdout, &stderr); code != 1 || stdout.Len() != 0 ||
-			!strings.Contains(stderr.String(), c.want) || strings.Contains(stderr.String(), "s3cr3t") {
-			t.Errorf("-resource-store %s: exit code %d, stdout %q, stderr %q", c.kind, code, stdout.String(), stderr.String())
+		cmd := exec.Command(os.Args[0], "run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", c.kind)
+		cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL="+c.url)
+		var out, errOut bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errOut
+		err := cmd.Run()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), c.want) || strings.Contains(errOut.String(), "s3cr3t") {
+			t.Errorf("-resource-store %s (case %q): %v, stdout %d bytes, stderr holds the marker %v, want %q",
+				c.kind, c.want, err, out.Len(), strings.Contains(errOut.String(), "s3cr3t"), c.want)
 		}
 	}
 	if url := os.Getenv("WL_TEST_REDIS_URL"); url != "" {

@@ -1057,6 +1057,8 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"a Redis store without WL_REDIS_URL", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", ""},
 		{"a Redis URL that does not parse", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://127.0.0.1:26379/0?master_name=m&addr=user:s3cr3t-marker@host2"},
 		{"an unreachable Redis", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0"},
+		{"an unreachable Sentinel", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0?master_name=main&password=s3cr3t-marker"},
+		{"a URL as the master's name", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://127.0.0.1:1/0?master_name=redis://user:s3cr3t-marker@host2:6379"},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`, ""},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`, ""},
 	} {
