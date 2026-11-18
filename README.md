@@ -212,6 +212,7 @@ use.
 | [internal/yamlx](internal/yamlx/README.md) | How windmill-lite parses sync-folder YAML as the `wmill` CLI does | Contributors to the compiler |
 | [internal/syncfolder](internal/syncfolder/README.md) | How windmill-lite reads a sync folder | Contributors to the compiler |
 | [internal/ir](internal/ir/README.md) | How a folder and a host contract compile to a program | Contributors to the compiler |
+| [internal/racebuild](internal/racebuild/README.md) | Why a `-race` build stretches the flow suite's run limit and the harness watchdog, and by how much | Contributors who run the tests with `-race` |
 | [internal/bundle](internal/bundle/README.md) | The bundle format, its build and its verification | Contributors to the build |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | How the Bun build helper bundles scripts and reads their signatures | Contributors to the build |
 | [internal/engine](internal/engine/README.md) | How the engine runs a flow | Contributors to the engine |

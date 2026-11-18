@@ -505,8 +505,9 @@ a few at a time (`flows.go`):
    `/tmp`, but a windmill-lite run would leave them in the host's.
 
 **The run limit.** A run that has not ended after 150 s fails. A binary
-built with `-race` allows 450 s: its race runtime slows a run that moves
-values of tens of MiB about tenfold. Sleeps and retry delays are waited for on the real
+built with `-race` allows 450 s, and its harness watchdog 90 s for 30 s:
+large values are about ten times slower there
+([internal/racebuild](../../internal/racebuild/README.md)). Sleeps and retry delays are waited for on the real
 clock, and the monitor of flows that hang between steps ends a runaway
 expression's run after 60 s, as on the oracle after a first step
 ([JE-2](../../docs/semantics/expressions.md#je-2)).

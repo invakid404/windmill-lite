@@ -23,6 +23,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/oracle"
+	"github.com/invakid404/windmill-lite/internal/racebuild"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 	"github.com/invakid404/windmill-lite/wl"
 )
@@ -85,8 +86,8 @@ type runResult struct {
 // fails. The slowest runs wait for real: an expression at a flow's first
 // module whose three attempts time out, about 70 s (JE-2/a), and retry
 // delays that add up to 26 s (FX-26/a). A binary built with -race triples
-// it (runLimitFactor). Tests replace it.
-var flowRunTimeout = 150 * time.Second * runLimitFactor
+// it (racebuild.Factor). Tests replace it.
+var flowRunTimeout = 150 * time.Second * racebuild.Factor
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
 // its runs' results.

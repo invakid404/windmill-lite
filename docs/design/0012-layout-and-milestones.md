@@ -43,6 +43,7 @@ internal/gen/               typed client generation (0009)
 internal/conformance/       fixture loading, observation, comparison, identity encoding (0003, 0011)
 internal/oracle/            the oracle harness (0011)
 internal/bench/             what the benchmarks share: payloads, percentiles, concurrent workers (0005)
+internal/racebuild/         whether the binary was built with -race, and the factor for race-sensitive time limits
 harnesses/                  the npm package windmill-lite (0009): package.json, one subpath per runtime
                             and the Bun SDK's test entry; npm/ (its build and packaging test)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
