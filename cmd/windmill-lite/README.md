@@ -186,7 +186,7 @@ starts. SIGINT and SIGTERM cancel the run.
 | `-variables` | A file | None | The host's variables, keyed by path (below). Secrets go here: a bundle never holds a secret's value. |
 | `-resources` | A file | None | The host's resources, keyed by path (below) |
 | `-resource-store` | `memory` or `redis` | `memory` | The store of the resources that steps write, such as the stock client's state. `memory` keeps them for the run only, a named [deviation](../../docs/design/0001-equivalence-contract.md#5-named-deviations) of the equivalence contract. `redis` keeps them on the Redis that the environment variable `WL_REDIS_URL` names ([Choosing a resource store](../../docs/resource-stores.md)). |
-| `-redis-prefix` | A prefix | `windmill-lite:` | The prefix of the Redis store's keys, so deployments can share one Redis |
+| `-redis-prefix` | A prefix | `windmill-lite:` | The prefix of the Redis store's keys, so deployments can share one Redis: one or more characters without a colon, then a colon, such as `app-1:` |
 | `-redis-allow-eviction` | None | Off | Starts on a Redis whose `maxmemory-policy` is `allkeys-*`, which can evict the store's entries, with a warning |
 | `-trace` | None | Off | Adds a summary of the [trace](../../docs/glossary.md#trace) to the outcome |
 | `-quickjs-only` | None | Off | Turns the Go evaluator of [expressions](../../docs/glossary.md#expression) off: every expression that the shortcuts and member paths do not answer runs in QuickJS-ng |

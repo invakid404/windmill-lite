@@ -70,10 +70,19 @@ type flowChecker struct {
 	// (TestRunWaitOutcomes).
 	runWaitOutcome bool
 	// redisURL, when set, gives each fixture's runtime a Redis resource
-	// store (wl/redisstore) on that URL, under a prefix of its own,
-	// wltest:<random>:, so a fixture starts with no state as on the
-	// memory store; empty gives each runtime its own memory store.
+	// store (wl/redisstore) on that URL, under a prefix of its own
+	// (fixtureStore); empty gives each runtime its own memory store.
 	redisURL string
+}
+
+// fixtureStore returns a new Redis store on fc.redisURL for one fixture's
+// runtime, under a key prefix of its own, wltest-<16 hex digits>:, so that
+// the fixture starts with no state, as on a memory store, and its runs
+// share what they write.
+func (fc *flowChecker) fixtureStore(ctx context.Context) (*redisstore.Store, error) {
+	var id [8]byte
+	rand.Read(id[:])
+	return redisstore.New(ctx, redisstore.Options{URL: fc.redisURL, Prefix: "wltest-" + hex.EncodeToString(id[:]) + ":"})
 }
 
 // quickJSOnlyAll sets every flowChecker's quickJSOnly (testmode_test.go).
@@ -234,9 +243,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			Providers: fixtureProviders(f), QuickJSOnly: fc.quickJSOnly || quickJSOnlyAll,
 		}
 		if fc.redisURL != "" {
-			var id [8]byte
-			rand.Read(id[:])
-			store, err := redisstore.New(ctx, redisstore.Options{URL: fc.redisURL, Prefix: "wltest:" + hex.EncodeToString(id[:]) + ":"})
+			store, err := fc.fixtureStore(ctx)
 			if err != nil {
 				return failRuns(results, "resource store: "+err.Error())
 			}

@@ -118,6 +118,9 @@ func TestRunCommand(t *testing.T) {
 		// No server listens on port 1: the run does not start, and the
 		// error names the address and not the password.
 		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0", "-resource-store redis: redisstore: cannot reach Redis at 127.0.0.1:1 (database 0)"},
+		// A URL that does not parse: the error names no part of it, here
+		// a credential pasted as a Sentinel address.
+		{"redis", "redis://127.0.0.1:26379/0?master_name=m&addr=redis://u:s3cr3t-pw@host2:26379", "-resource-store redis: redisstore: the Redis URL does not parse"},
 	} {
 		stdout.Reset()
 		stderr.Reset()
@@ -133,11 +136,12 @@ func TestRunCommand(t *testing.T) {
 		// the state the first created: its create is refused as taken and
 		// its $res: argument reads the first's value. A third, on another
 		// prefix, sees none of it.
-		prefix := fmt.Sprintf("wl-test-run:%d:", time.Now().UnixNano())
+		id := time.Now().UnixNano()
+		prefix, other := fmt.Sprintf("wl-test-run-%d:", id), fmt.Sprintf("wl-test-run-%d-other:", id)
 		for i, c := range []struct{ prefix, want string }{
 			{prefix, `{"x":{"k":1},"created":"resource f/t/kept created"}`},
 			{prefix, `{"x":{"k":1},"created":"Bad request: Resource f/t/kept already exists"}`},
-			{prefix + "other:", `{"x":{"k":1},"created":"resource f/t/kept created"}`},
+			{other, `{"x":{"k":1},"created":"resource f/t/kept created"}`},
 		} {
 			want := c.want
 			cmd := exec.Command(os.Args[0], "run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "redis", "-redis-prefix", c.prefix)

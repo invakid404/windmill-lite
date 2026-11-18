@@ -213,9 +213,11 @@ fixture, case and recording passes with the evaluator on and with it off.
 
 `-resource-store redis` gives each flow fixture's runtime the Redis store
 of [wl/redisstore](../../wl/redisstore/README.md), on the Redis that
-`WL_REDIS_URL` names, under a key prefix of its own, `wltest:<random>:`.
+`WL_REDIS_URL` names, under a key prefix of its own, `wltest-<random>:`.
 Each fixture so starts with no state, as on the default memory store. The
 CI job `Redis` checks `client-api/state` this way in each mode.
+`TestFixtureStoresAreApart` (`store_test.go`, with `WL_TEST_REDIS_URL`)
+checks that two fixtures' stores keep one workspace and path apart.
 
 ### Step cases
 

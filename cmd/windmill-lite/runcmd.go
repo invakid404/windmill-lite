@@ -124,7 +124,7 @@ func storeFlags(fs *flag.FlagSet) storeOptions {
 	return storeOptions{
 		kind: fs.String("resource-store", "memory", "the `store` of the resources steps write, the state of the stock client's setState: "+
 			"memory, kept for the run (run) or the connection (host), as deviation D24 of ADR 0001 says; or redis, on the Redis that $WL_REDIS_URL names"),
-		prefix:        fs.String("redis-prefix", redisstore.DefaultPrefix, "the `prefix` of the Redis store's keys, so deployments can share one Redis"),
+		prefix:        fs.String("redis-prefix", redisstore.DefaultPrefix, "the `prefix` of the Redis store's keys, so deployments can share one Redis: one or more characters without a colon, then a colon"),
 		allowEviction: fs.Bool("redis-allow-eviction", false, "start on a Redis whose maxmemory-policy is allkeys-*, which can evict the store's entries"),
 	}
 }

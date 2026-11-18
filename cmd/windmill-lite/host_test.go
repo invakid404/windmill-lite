@@ -1047,15 +1047,18 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		flags    []string
 		code     string
 		plugin   string // the host plugin declaration of the hello (F2c)
+		redisURL string // the engine's WL_REDIS_URL
 	}{
-		{"its own working directory", false, false, nil, "", ""},
-		{"another directory", false, true, nil, harness.RejectWorkdirMismatch, ""},
-		{"read-only", true, false, nil, harness.RejectWorkdirNotWritable, ""},
-		{"a bundle that does not open", false, false, []string{"-digest", "sha256:0000"}, harness.RejectEngine, ""},
-		{"a resource store that is not memory or redis", false, false, []string{"-resource-store", "bogus"}, harness.RejectEngine, ""},
-		{"a Redis store without WL_REDIS_URL", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, ""},
-		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`},
-		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`},
+		{"its own working directory", false, false, nil, "", "", ""},
+		{"another directory", false, true, nil, harness.RejectWorkdirMismatch, "", ""},
+		{"read-only", true, false, nil, harness.RejectWorkdirNotWritable, "", ""},
+		{"a bundle that does not open", false, false, []string{"-digest", "sha256:0000"}, harness.RejectEngine, "", ""},
+		{"a resource store that is not memory or redis", false, false, []string{"-resource-store", "bogus"}, harness.RejectEngine, "", ""},
+		{"a Redis store without WL_REDIS_URL", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", ""},
+		{"a Redis URL that does not parse", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://127.0.0.1:26379/0?master_name=m&addr=user:s3cr3t-marker@host2"},
+		{"an unreachable Redis", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0"},
+		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`, ""},
+		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.readOnly && os.Geteuid() == 0 {
@@ -1094,7 +1097,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(engineBin, append([]string{"host", "--bundle", hostBundle, "--workdir", workdir, "--kill-after", "0"}, tc.flags...)...)
-			cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL=")
+			cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL="+tc.redisURL)
 			cmd.ExtraFiles = []*os.File{theirs}
 			var stderr syncBuffer
 			cmd.Stderr = &stderr
@@ -1153,6 +1156,9 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 			}
 			if w.Reject == nil || w.Reject.Code != tc.code {
 				t.Fatalf("welcome %+v; want a reject with %s; stderr:\n%s", w, tc.code, stderr.String())
+			}
+			if strings.Contains(w.Reject.Message, "s3cr3t-marker") || strings.Contains(stderr.String(), "s3cr3t-marker") {
+				t.Fatal("the refusal or the engine's output holds the Redis URL's marker")
 			}
 			t.Logf("refused: %s: %s", w.Reject.Code, w.Reject.Message)
 		})
