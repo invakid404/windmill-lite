@@ -219,9 +219,10 @@ CI job `Redis` checks `client-api/state` this way in each mode.
 
 `store_test.go` checks it with `WL_TEST_REDIS_URL`:
 `TestFixtureStoresAreApart` keeps one workspace and path apart in two
-fixtures' stores, and `TestFixtureStateOnRedis` runs the synthetic fixture
-`testdata/state-isolation` twice. Its runs share a counter, each fixture
-starts at zero, and Redis holds one counter per fixture.
+fixtures' stores, and `TestFixtureStateOnRedis` runs a copy of the
+synthetic fixture `testdata/state-isolation`, with a state path of its
+own, twice. Its runs share a counter, each fixture starts at zero, and
+Redis holds one counter per fixture; the test deletes only its own keys.
 
 ### Step cases
 
