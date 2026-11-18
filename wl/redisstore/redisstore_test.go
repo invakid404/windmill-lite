@@ -46,7 +46,8 @@ func direct(t *testing.T) *redis.Client {
 	t.Helper()
 	o, err := redis.ParseURL(envOrSkip(t, urlEnv))
 	if err != nil {
-		t.Fatal(err)
+		// The parser's error may quote the URL.
+		t.Fatalf("%s does not parse", urlEnv)
 	}
 	c := redis.NewClient(o)
 	t.Cleanup(func() { c.Close() })
@@ -125,6 +126,11 @@ func TestURLErrorsHideThePassword(t *testing.T) {
 		"redis://host:26379/0?master_name=m&route_by_latency=true&password=" + secret,
 		"redis://host:26379/0?master_name=m&route_randomly=true&password=" + secret,
 		"redis://host:26379/0?master_name=m&use_disconnected_replicas=true&password=" + secret,
+		// A credential-bearing endpoint pasted as the master's name,
+		// which go-redis would write to its log.
+		"redis://host:26379/0?master_name=redis://user:" + secret + "@host2:6379",
+		"redis://host:26379/0?master_name=user:" + secret,
+		"unix://user:" + secret + "@/tmp/redis.sock",
 		"",
 	} {
 		s, err := New(context.Background(), Options{URL: u, OperationTimeout: time.Second})
@@ -183,6 +189,48 @@ func TestSentinelReplicaOptions(t *testing.T) {
 		_, err := New(context.Background(), Options{URL: "redis://127.0.0.1:1/0?master_name=m&" + opt + "=true", OperationTimeout: time.Second})
 		if err == nil || !strings.Contains(err.Error(), "asks for replicas") {
 			t.Errorf("%s: %v, want the refusal", opt, err)
+		}
+	}
+}
+
+// TestURLForms: the store takes redis:// and rediss:// with an explicit
+// host, alone or with a Sentinel master name of letters, digits, '.', '_'
+// and '-', and refuses before any connection the forms go-redis's parsers
+// would also take: unix://, and a URL without a host, which they would
+// dial on localhost. A client option that the parser accepts but its
+// constructor panics on, a pipeline_pool_size beyond the pool's int32,
+// is an error of New in both forms. None needs a server.
+func TestURLForms(t *testing.T) {
+	for _, u := range []string{
+		"redis://127.0.0.1:1/0", "rediss://127.0.0.1:1/0", "redis://127.0.0.1:1",
+		"redis://127.0.0.1:1/0?master_name=main-1.a_b", "rediss://127.0.0.1:1/0?master_name=m&addr=127.0.0.2:1",
+	} {
+		c, _, err := connect(u)
+		if err != nil {
+			t.Errorf("connect(%q): %v", u, err)
+			continue
+		}
+		c.Close()
+	}
+	for _, u := range []string{
+		"unix:///tmp/redis.sock", "unix:///tmp/redis.sock?db=1", "redis:///0", "redis://:6379/0", "rediss://", "redis://",
+		"redis:///0?master_name=m", "http://127.0.0.1:1/0", "redis://127.0.0.1:1/0?master_name=m%20n",
+		"redis://127.0.0.1:1/0?master_name=a/b", "redis://127.0.0.1:1/0?master_name=a@b",
+	} {
+		if c, _, err := connect(u); err == nil || err.Error() != badURL {
+			if c != nil {
+				c.Close()
+			}
+			t.Errorf("connect(%q): %v, want the URL refused", u, err)
+		}
+	}
+	for _, u := range []string{
+		"redis://127.0.0.1:1/0?pipeline_pool_size=4294967296",
+		"redis://127.0.0.1:1/0?master_name=m&pipeline_pool_size=4294967296",
+	} {
+		_, err := New(context.Background(), Options{URL: u, OperationTimeout: time.Second})
+		if err == nil || err.Error() != "redisstore: go-redis refused the Redis URL's client options" {
+			t.Errorf("New(%q): %v, want the options refused", u, err)
 		}
 	}
 }

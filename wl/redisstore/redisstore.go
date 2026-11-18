@@ -39,6 +39,7 @@ const DefaultPrefix = "windmill-lite:"
 // Options.OperationTimeout is zero: an operation, its connection's dial
 // included, returns an error after 10 s. It stays well under the 30 s
 // after which a host-mode engine's watchdog gives up on a silent host.
+const DefaultOperationTimeout = 10 * time.Second
 
 // noRetries is go-redis's MaxRetries for no retries, which the store sets
 // on every client, whatever the URL's max_retries says. go-redis would
@@ -48,20 +49,20 @@ const DefaultPrefix = "windmill-lite:"
 // store's contract allows a failed write that may or may not have been
 // applied. go-redis's retries of a dial, before any command is sent, stay.
 const noRetries = -1
-const DefaultOperationTimeout = 10 * time.Second
 
 // Options configures New.
 type Options struct {
 	// URL names the Redis server, and is parsed by go-redis:
 	//
-	//   - redis://[user:password@]host:port/db, or rediss:// for TLS: one
-	//     server, parsed by go-redis's ParseURL.
-	//   - The same form with the query parameter master_name: host:port
-	//     and each addr query parameter name a Sentinel, which gives the
-	//     current master of that name, parsed by go-redis's
-	//     ParseFailoverURL. The user and password of the URL are the
-	//     Sentinels'; the query parameters username and password are the
-	//     master's.
+	//   - redis://[user:password@]host[:port][/db], or rediss:// for TLS,
+	//     with an explicit host: one server, parsed by go-redis's ParseURL.
+	//     Other schemes, unix:// among them, are refused.
+	//   - The same form with the query parameter master_name, a name of
+	//     letters, digits, '.', '_' and '-': host:port and each addr query
+	//     parameter name a Sentinel, which gives the current master of that
+	//     name, parsed by go-redis's ParseFailoverURL. The user and password
+	//     of the URL are the Sentinels'; the query parameters username and
+	//     password are the master's.
 	//
 	// Other query parameters set go-redis's options, such as dial_timeout,
 	// read_timeout or pool_size; max_retries is ignored, since the store
@@ -94,7 +95,8 @@ type Store struct {
 	prefix  string
 	timeout time.Duration
 	// Target names the server for messages: its address and database, or
-	// the master's name and the Sentinels. It never holds a password.
+	// the Sentinels' addresses and the database. It never holds a
+	// password.
 	target string
 }
 
@@ -143,12 +145,21 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 		return nil, "", errors.New("redisstore: no Redis URL")
 	}
 	u, err := url.Parse(raw)
-	if err != nil {
+	// go-redis's parsers would also take unix:// and a URL without a host,
+	// for which they dial localhost: the store takes the forms it
+	// documents, with an explicit host.
+	if err != nil || u.Scheme != "redis" && u.Scheme != "rediss" || u.Hostname() == "" {
 		return nil, "", errors.New(badURL)
 	}
 	if u.Query().Has("master_name") {
 		fo, err := redis.ParseFailoverURL(raw)
 		if err != nil {
+			return nil, "", errors.New(badURL)
+		}
+		// go-redis writes the master's name to its log when it cannot find
+		// the master, so a name is a plain identifier, never something
+		// that could hold a pasted URL or password.
+		if !plainName(fo.MasterName) {
 			return nil, "", errors.New(badURL)
 		}
 		// go-redis takes each addr parameter as written: one that is not
@@ -169,7 +180,8 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 		fo.ContextTimeoutEnabled = true
 		fo.MaxRetries = noRetries
 		target := fmt.Sprintf("the master of the Sentinels %s (database %d)", strings.Join(fo.SentinelAddrs, ", "), fo.DB)
-		return redis.NewFailoverClient(fo), target, nil
+		c, err := construct(func() redis.UniversalClient { return redis.NewFailoverClient(fo) })
+		return c, target, err
 	}
 	o, err := redis.ParseURL(raw)
 	if err != nil {
@@ -177,11 +189,38 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 	}
 	o.ContextTimeoutEnabled = true
 	o.MaxRetries = noRetries
-	return redis.NewClient(o), fmt.Sprintf("%s (database %d)", o.Addr, o.DB), nil
+	c, err := construct(func() redis.UniversalClient { return redis.NewClient(o) })
+	return c, fmt.Sprintf("%s (database %d)", o.Addr, o.DB), err
+}
+
+// construct calls a go-redis constructor, which panics on some settings
+// its parser accepts, such as a pipeline_pool_size too large for its pool:
+// such a panic becomes New's error, whose text holds nothing of the URL.
+func construct(f func() redis.UniversalClient) (c redis.UniversalClient, err error) {
+	defer func() {
+		if recover() != nil {
+			c, err = nil, errors.New("redisstore: go-redis refused the Redis URL's client options")
+		}
+	}()
+	return f(), nil
+}
+
+// plainName reports whether a Sentinel master name is one or more ASCII
+// letters, digits, '.', '_' or '-'.
+func plainName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // badURL is the error of a URL that no go-redis parser accepts.
-const badURL = "redisstore: the Redis URL does not parse: it must be redis:// or rediss://, with a host, an optional port, an optional database number and query parameters that go-redis knows, or a Sentinel URL with master_name"
+const badURL = "redisstore: the Redis URL does not parse: it must be redis:// or rediss://, with a host, an optional port, an optional database number and query parameters that go-redis knows, or a Sentinel URL whose master_name is letters, digits, '.', '_' and '-'"
 
 // plainAddr reports whether addr is a host, with no user information or
 // path, and a numeric port.

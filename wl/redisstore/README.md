@@ -44,7 +44,9 @@ store that the host gave it.
 
 `New` gives the URL to one of go-redis's own parsers. A URL with the
 query parameter `master_name` goes to `ParseFailoverURL`, any other URL to
-`ParseURL`.
+`ParseURL`. The scheme must be `redis` or `rediss` and the host explicit:
+go-redis's parsers also take `unix://`, and dial localhost for a URL
+without a host, which `New` refuses instead.
 
 | Form | Example |
 |---|---|
@@ -65,8 +67,12 @@ query parameter `master_name` goes to `ParseFailoverURL`, any other URL to
 - **Replicas.** A Sentinel URL that asks for replicas (`route_by_latency`,
   `route_randomly`, `replica_only`, `use_disconnected_replicas`) fails
   `New`: the store reads and writes the master only.
-- **Sentinel addresses.** Each `addr` parameter must be a plain host and a
-  numeric port.
+- **Sentinel addresses and name.** Each `addr` parameter must be a plain
+  host and a numeric port, and `master_name` letters, digits, `.`, `_` and
+  `-`: go-redis writes the master's name to its log.
+- **Client options** that go-redis's parser accepts but its constructor
+  panics on, such as a `pipeline_pool_size` too large for its pool, are an
+  error of `New`.
 
 A URL holds the password. A URL that does not parse gets one fixed error,
 which names no part of it. Otherwise the store names the server by its
@@ -141,12 +147,15 @@ expiry can drop them, so `New` reads the policy with
 
 ## Errors
 
-Every error of the store starts with `redisstore: ` and names the
-operation, for example
-`redisstore: get: dial tcp 10.0.0.5:6379: connect: connection refused`.
-An operation whose context is canceled returns the context's error
-unchanged. A URL that does not parse gets an error that names no part of
-it.
+The store's errors take these forms:
+
+| Case | Error |
+|---|---|
+| Redis or the connection fails during an operation | `redisstore: <operation>: <cause>`, for example `redisstore: get: dial tcp 10.0.0.5:6379: connect: connection refused`, wrapping go-redis's error. A context canceled or past its deadline while the command runs is such a cause: `errors.Is` finds it. |
+| The context is already canceled when the operation starts | The context's error itself, before any command |
+| A workspace id with a colon | `redisstore: the workspace id … contains a colon …`, before any command, naming no operation |
+| `New`: a URL that does not parse, or client options go-redis refuses | A fixed `redisstore: ` message that names no part of the URL |
+| `New`: an unreachable server, refused scripts, an evicting policy | `redisstore: ` and the server's address, or the Sentinels' |
 The facade answers such an error with a 500 and the step's `getState`
 throws ([internal/platform](../../internal/platform/README.md#the-resource-store)).
 
@@ -166,7 +175,7 @@ by digest, on a Docker network of their own, and prints the variables;
 
 | File | What it checks |
 |---|---|
-| `redisstore_test.go` | The contract suite on one server and through Sentinel, and `MaxRetries` -1 on both clients whatever the URL says. The hash layout and its lack of expiry; two stores on one prefix, and one on another. Each branch of the eviction check, and a user that may not run `CONFIG`. URL errors, Sentinel addresses and an unreachable server, which never show a synthetic secret, the refused replica options and prefixes, and a workspace id with a colon. |
+| `redisstore_test.go` | The contract suite on one server and through Sentinel, and no retries on either client (go-redis keeps the -1 as 0). The hash layout without expiry, and prefixes shared or apart. The eviction check's branches, and a user without `CONFIG`. The URL forms, errors that never show a synthetic secret, refused options and prefixes, and a colon in a workspace id. |
 | `fault_test.go` | The fault tests below |
 
 `fault_test.go` cuts the store's connection through
