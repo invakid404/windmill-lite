@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
@@ -116,5 +117,48 @@ func TestResourceStoreOnBun(t *testing.T) {
 	}
 	if slices.Contains(res.Trace.Deviations, "D24") {
 		t.Errorf("a run on a store that is not the memory store lists D24: %v", res.Trace.Deviations)
+	}
+	// A $res: argument the engine resolves, which no platform call makes:
+	// the step fails with the store's error, not a missing resource, and
+	// the run's warnings name it.
+	res = run(failing, "f/s/read", `{}`)
+	const engineMessage = "engine read: Internal: windmill-lite: the resource store failed: store offline"
+	if res.Status != StatusFailure || !strings.Contains(string(res.Result), "the resource store failed: store offline") || strings.Contains(string(res.Result), "not found") {
+		t.Errorf("a $res: argument on a failing store: %s %s, want a failure naming the store's error", res.Status, res.Result)
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == code && w.Message == engineMessage }) {
+		t.Errorf("warnings %+v, want %s %q among them", res.Warnings, code, engineMessage)
+	}
+}
+
+// TestCloseReleasesItsOwnStore checks that Close drops the memory store
+// that Open made, and keeps a store that the host gave, with its entries.
+func TestCloseReleasesItsOwnStore(t *testing.T) {
+	dir := writeTestBundle(t, Version(), nil, nil)
+	own, err := Open(dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own.services.ResourceStore == nil {
+		t.Fatal("Open made no resource store")
+	}
+	own.Close()
+	if own.services.ResourceStore != nil {
+		t.Error("a closed runtime still holds the memory store that Open made")
+	}
+	given := NewMemoryResourceStore()
+	if _, err := given.Create(context.Background(), "ws", "f/x/kept", Resource{Type: "state", Value: json.RawMessage(`1`)}); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(dir, Options{ResourceStore: given})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.Close()
+	if rt.services.ResourceStore != given {
+		t.Error("Close dropped a store that the host gave")
+	}
+	if _, ok, _ := given.Get(context.Background(), "ws", "f/x/kept"); !ok {
+		t.Error("Close changed a store that the host gave")
 	}
 }

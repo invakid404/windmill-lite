@@ -173,9 +173,10 @@ first, then the store's entries, without a cache. A step cannot change or
 delete a resource that the host or the bundle provides: that call answers
 501.
 
-- `NewMemoryResourceStore` returns a memory store. Its entries live until
-  the runtime closes, and only the runtimes given the same store see
-  them. The trace of each run on a memory store lists `D24`, a
+- With `ResourceStore` left nil, each runtime makes a memory store, which
+  `Close` releases with its entries. `NewMemoryResourceStore` returns one
+  that the host keeps: its entries live as long as the host holds it, and
+  only the runtimes given it see them. The trace of each run on a memory store lists `D24`, a
   [deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations):
   Windmill keeps them in its database.
 - A host's own store implements `ResourceStore`, whose doc comment is its
@@ -184,7 +185,8 @@ delete a resource that the host or the bundle provides: that call answers
   `storetest.Run` runs them on a store.
 - When a store fails, the call answers 500, `Internal: windmill-lite: the
   resource store failed: <err>`, and the run's warnings get one with the
-  code `resource_store_failed`. A missing state is never what a failure
+  code `resource_store_failed`. So does a read of the run's own, such as a
+  `$res:` argument, whose step then fails with the same error. A missing state is never what a failure
   reads as.
 
 ## Run

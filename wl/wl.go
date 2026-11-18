@@ -212,6 +212,9 @@ type Runtime struct {
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
+	// ownStore says that Open made the resource store, which Close
+	// releases; a store the host gave is the host's to keep.
+	ownStore bool
 
 	// plugin is the host plugin, once its harness declared it (F2c);
 	// providers are the Go host's and the plugin's named providers, and
@@ -408,7 +411,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	rt.store = store
 	resourceStore := opts.ResourceStore
 	if resourceStore == nil {
-		resourceStore = platform.NewMemoryResourceStore()
+		resourceStore, rt.ownStore = platform.NewMemoryResourceStore(), true
 	}
 	_, rt.memoryStore = resourceStore.(*platform.MemoryResourceStore)
 	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results, ResourceStore: resourceStore}
@@ -646,6 +649,12 @@ func (rt *Runtime) Close() error {
 		}
 		if rt.fac != nil {
 			errs = append(errs, rt.fac.Close())
+		}
+		if rt.ownStore {
+			// The runs have ended and the facade is closed: nothing reads
+			// the store, whose entries a closed runtime would otherwise
+			// keep for as long as the host keeps the runtime.
+			rt.services.ResourceStore = nil
 		}
 		if rt.js != nil {
 			errs = append(errs, rt.js.Close())

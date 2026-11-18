@@ -322,7 +322,11 @@ func respellNumber(t string, create bool) string {
 // power exp is, and false when it is not whole.
 func wholeText(mant, exp string) (string, bool) {
 	e, err := strconv.Atoi(exp)
-	if err != nil {
+	// An exponent beyond ±65536 makes no whole number this rule writes out:
+	// a large one would spell too many digits, and a very negative one,
+	// however long its mantissa, leaves a fraction (and could not be
+	// negated at the smallest int).
+	if err != nil || e > 1<<16 || e < -(1<<16) {
 		return "", false
 	}
 	neg := strings.HasPrefix(mant, "-")
@@ -332,9 +336,6 @@ func wholeText(mant, exp string) (string, bool) {
 	}
 	switch {
 	case e >= 0:
-		if e > 1<<16 {
-			return "", false
-		}
 		digits += strings.Repeat("0", e)
 	case len(digits) > -e && strings.Trim(digits[len(digits)+e:], "0") == "":
 		digits = digits[:len(digits)+e]
@@ -393,4 +394,33 @@ func floatText(t string) string {
 func WriteBodySyntaxError(text []byte) error {
 	_, err := (&parser{src: text, rawMember: "value"}).document()
 	return err
+}
+
+// storeReportKey keys the function that WithStoreFailureReport installs.
+type storeReportKey struct{}
+
+// WithStoreFailureReport returns ctx with report, which each read of the
+// resource store under it calls with the store's failure: a run's own
+// reads, its steps' $res: arguments, flow_env and resource(), whose
+// failures no platform call records. A job API call answers its own
+// failure, and its record carries it (WithoutStoreFailureReport).
+func WithStoreFailureReport(ctx context.Context, report func(err error)) context.Context {
+	return context.WithValue(ctx, storeReportKey{}, report)
+}
+
+// WithoutStoreFailureReport returns ctx without the report function, for a
+// job API call, which answers a store failure itself.
+func WithoutStoreFailureReport(ctx context.Context) context.Context {
+	if ctx.Value(storeReportKey{}) == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, storeReportKey{}, (func(error))(nil))
+}
+
+// reportStoreFailure passes a failure of the store to ctx's report
+// function, when it has one.
+func reportStoreFailure(ctx context.Context, err error) {
+	if report, _ := ctx.Value(storeReportKey{}).(func(error)); report != nil {
+		report(err)
+	}
 }

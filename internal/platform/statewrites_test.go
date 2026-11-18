@@ -10,7 +10,7 @@ import (
 // The stored form of WA-13/i: state run values of
 // conformance/flows/client-api/state sends this text through create and
 // through update_value, and reads back the recorded spellings.
-const sentNumbers = `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"A",-0,1E-2],"x":null},"":true}`
+const sentNumbers = `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"\u0041",-0,1E-2],"x":null},"":true}`
 
 // TestStoredValueSpellsRecordedNumbers checks both routes' number rules on
 // every spelling the recordings hold (state values: stored and
@@ -51,6 +51,12 @@ func TestRespellNumber(t *testing.T) {
 		{"120e-1", "12", "12.0"},
 		{"-0.0", "0.0", "0.0"},
 		{"18446744073709551616", "18446744073709551616", "18446744073709552000"},
+		// Exponents at and beyond the integer limits: a route answer, never
+		// a panic.
+		{"1e-9223372036854775808", "0.0", "0.0"},
+		{"1e-9223372036854775809", "0.0", "0.0"},
+		{"1e9223372036854775807", "1e9223372036854775807", "1e9223372036854775807"},
+		{"5e-65536", "0.0", "0.0"},
 	} {
 		if got := respellNumber(c.in, true); got != c.create {
 			t.Errorf("create %s = %s, want %s", c.in, got, c.create)

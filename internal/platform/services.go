@@ -411,7 +411,9 @@ func (s *Services) resource(ctx context.Context, path string) (Resource, bool, e
 	}
 	r, ok, err := s.ResourceStore.Get(ctx, s.storeWorkspace(), path)
 	if err != nil {
-		return Resource{}, false, storeFailure{err}
+		err = storeFailure{err}
+		reportStoreFailure(ctx, err)
+		return Resource{}, false, err
 	}
 	return r, ok, nil
 }

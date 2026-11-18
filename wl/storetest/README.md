@@ -28,6 +28,7 @@ as for wrong answers.
 | `RoundTripIsByteExact` | A value comes back byte for byte: spacing, key order and number spelling. |
 | `CreateAtTakenPath` | A create at a taken path reports `false` and changes nothing. |
 | `UpdateKeepsTheType` | An update replaces the value and keeps the type. |
+| `OtherTypesAreKept` | An entry of a type other than `state` keeps that type through a round trip and an update. |
 | `UpdateMissingCreatesNothing` | An update of a missing path reports `false` and creates nothing. |
 | `Delete` | A delete removes the entry once; the path can then be created again. |
 | `WorkspacesAreApart` | One path in two workspaces names two entries. |
@@ -35,7 +36,7 @@ as for wrong answers.
 | `Values` | `null`, `{}` and a 32 MiB value are kept whole. |
 | `ReturnedBytesAreTheCallers` | Changing the bytes passed in or returned changes no entry. |
 | `CanceledContext` | With a canceled context, every operation returns an error and changes nothing. |
-| `NoTornRead` | 8 writers and 8 readers on one path for 5 s: every read is missing or one whole value of 1 MiB that a writer wrote, checked by its SHA-256. |
+| `NoTornRead` | 8 writers and 8 readers on one path for 5 s: every update reports `true`, and every read finds the entry and one whole value of 1 MiB that a writer wrote, checked by its SHA-256. |
 | `CreateRace` | Of 64 creates at one path at once, exactly one reports `true`, and the entry holds its value. |
 | `InterleavedWritesEndLegal` | Creates, updates, deletes and reads of one path in any order leave it missing or holding one whole written value. |
 
@@ -48,6 +49,6 @@ without `-short`.
 |---|---|
 | `storetest.go` | `Run`, `Names` and the tests |
 | `storetest_test.go` | The suite on `wl.NewMemoryResourceStore` |
-| `broken_test.go` | A store that writes an update in two steps and creates under two locks; the atomicity tests must fail on it |
+| `broken_test.go` | Stores that break the contract: an update written in two steps, a create under two locks, an update that deletes and creates, and a store that keeps every entry as `state`; the tests must fail on each |
 
 Run `go test -race ./wl/storetest`. No test needs Bun.

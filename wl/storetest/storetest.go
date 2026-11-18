@@ -56,6 +56,7 @@ var cases = []struct {
 	{"RoundTripIsByteExact", roundTrip},
 	{"CreateAtTakenPath", createTaken},
 	{"UpdateKeepsTheType", updateKeepsType},
+	{"OtherTypesAreKept", otherTypes},
 	{"UpdateMissingCreatesNothing", updateMissing},
 	{"Delete", deleteEntry},
 	{"WorkspacesAreApart", workspaces},
@@ -139,6 +140,33 @@ func updateKeepsType(t *testing.T, s wl.ResourceStore) {
 		t.Fatalf("UpdateValue = %v, %v; want true, nil", ok, err)
 	}
 	wantEntry(t, s, ws, "f/st/upd", wl.Resource{Type: "state", Value: json.RawMessage(`{"n":2}`)})
+}
+
+// otherTypes: an entry of a type other than state keeps that type through
+// a round trip and an update; a store that keeps no type fails.
+func otherTypes(t *testing.T, s wl.ResourceStore) {
+	for _, p := range typeProblems(s) {
+		t.Error(p)
+	}
+}
+
+// typeProblems runs otherTypes' checks and returns what it found wrong.
+func typeProblems(s wl.ResourceStore) (problems []string) {
+	ctx := context.Background()
+	r := wl.Resource{Type: "wl_other", Value: json.RawMessage(`{"k":"v"}`)}
+	if ok, err := s.Create(ctx, ws, "f/st/other", r); err != nil || !ok {
+		return []string{fmt.Sprintf("Create = %v, %v; want true, nil", ok, err)}
+	}
+	if got, ok, err := s.Get(ctx, ws, "f/st/other"); err != nil || !ok || got.Type != "wl_other" {
+		problems = append(problems, fmt.Sprintf("after Create, Get = type %q, %v, %v; want type wl_other", got.Type, ok, err))
+	}
+	if ok, err := s.UpdateValue(ctx, ws, "f/st/other", json.RawMessage(`2`)); err != nil || !ok {
+		return append(problems, fmt.Sprintf("UpdateValue = %v, %v; want true, nil", ok, err))
+	}
+	if got, ok, err := s.Get(ctx, ws, "f/st/other"); err != nil || !ok || got.Type != "wl_other" || string(got.Value) != "2" {
+		problems = append(problems, fmt.Sprintf("after UpdateValue, Get = type %q value %s, %v, %v; want type wl_other value 2", got.Type, got.Value, ok, err))
+	}
+	return problems
 }
 
 // updateMissing: an update of a missing path reports false and creates
@@ -289,8 +317,9 @@ func writerOf(v json.RawMessage) (string, bool) {
 }
 
 // noTornRead: 8 writers update one path with 1 MiB self-validating values
-// while 8 readers read it; every read is missing or one whole value that a
-// writer wrote, with the type the create gave.
+// while 8 readers read it; every update reports true, and every read is one
+// whole value that a writer wrote, with the type the create gave, never a
+// missing entry.
 func noTornRead(t *testing.T, s wl.ResourceStore) {
 	problems, reads, writes := tornReads(s, duration())
 	for _, p := range problems {
@@ -312,8 +341,8 @@ func tornReads(s wl.ResourceStore, d time.Duration) (problems []string, reads, w
 		id := fmt.Sprintf("w%d.", i)
 		vals[i], known[id] = selfValidating(id, size), true
 	}
-	if _, err := s.Create(context.Background(), ws, "f/st/torn", wl.Resource{Type: "state", Value: vals[0]}); err != nil {
-		return []string{"Create: " + err.Error()}, 0, 0
+	if ok, err := s.Create(context.Background(), ws, "f/st/torn", wl.Resource{Type: "state", Value: vals[0]}); err != nil || !ok {
+		return []string{fmt.Sprintf("the seeding Create = %v, %v; want true, nil", ok, err)}, 0, 0
 	}
 	deadline := time.Now().Add(d)
 	var wg sync.WaitGroup
@@ -322,8 +351,9 @@ func tornReads(s wl.ResourceStore, d time.Duration) (problems []string, reads, w
 	for i := range writers {
 		wg.Go(func() {
 			for time.Now().Before(deadline) {
-				if _, err := s.UpdateValue(context.Background(), ws, "f/st/torn", vals[i]); err != nil {
-					errs <- "UpdateValue: " + err.Error()
+				ok, err := s.UpdateValue(context.Background(), ws, "f/st/torn", vals[i])
+				if err != nil || !ok {
+					errs <- fmt.Sprintf("UpdateValue of the seeded path = %v, %v; want true, nil", ok, err)
 					return
 				}
 				nw.Add(1)
@@ -340,7 +370,10 @@ func tornReads(s wl.ResourceStore, d time.Duration) (problems []string, reads, w
 					errs <- "Get: " + err.Error()
 					return
 				case !ok:
-					continue
+					// Nothing deletes the path in this phase: an update
+					// that removes the entry for a moment is a torn write.
+					errs <- "a read found no entry while updates replaced it"
+					return
 				case r.Type != "state":
 					errs <- "a read has type " + r.Type
 					return

@@ -539,7 +539,9 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 			f.mu.Unlock()
 			answered()
 		}()
-		return h(ctx, call)
+		// The call's record carries a store failure; the run's own report
+		// of one is for reads no call records.
+		return h(platform.WithoutStoreFailureReport(ctx), call)
 	}
 }
 

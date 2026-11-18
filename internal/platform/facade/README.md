@@ -202,7 +202,8 @@ Each route runs the web framework's checks first
 - **The body:** a create without `path` or `resource_type` answers `422`
   `Failed to deserialize the JSON body into the target type: missing
   field` with the member's name and the position after the body's
-  closing brace, as the web framework gives it.
+  closing brace, as the web framework gives it. One that is not a JSON
+  string, `null` included, answers `422` too.
 - **Not served:** another resource type, `update_if_exists`, and the
   options the stock client never sends (`description`, `labels`,
   `ws_specific`, `preserve_on_behalf_of`) answer 501, as does an update

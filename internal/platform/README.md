@@ -262,6 +262,9 @@ store serves no writes, and the facade answers them 501.
 - **A failure** of the store fails the read or write with `Internal:
   windmill-lite: the resource store failed: <err>`, an `*Error` marked
   `StoreFailure`, which the facade answers 500 and records as a warning.
+  A `$res:` argument keeps that error rather than a missing resource. A
+  read under `WithStoreFailureReport`'s context, a run's own, also calls
+  its report function; the facade's calls do not.
 
 `MemoryResourceStore` holds its entries in one map under one mutex. An
 entry is never changed in place, and bytes are copied in and out, so a

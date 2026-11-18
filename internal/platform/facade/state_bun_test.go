@@ -68,7 +68,11 @@ func TestStateOnTheClient(t *testing.T) {
 				{"f/t/one", `{"op":"set","path":"f/t/unset"}`, `{"value":"undefined"}`},
 				{"f/t/two", `{"op":"get","path":"f/t/unset"}`, `{"value":null}`},
 				{"f/t/two", `{"op":"get","path":"f/t/never"}`, `{"value":"undefined"}`},
-				{"f/t/one", `{"op":"create","path":"f/t/explicit","value":1}`, `{"thrown":"Bad Request","status":400,"body":"Bad request: Resource f/t/explicit already exists"}`},
+				{"f/t/one", `{"op":"create","path":"f/t/explicit","value":1}`, `{"thrown":"Bad Request","name":"ApiError","status":400,"body":"Bad request: Resource f/t/explicit already exists"}`},
+				// The recorded race (state-client run race): the loser's
+				// setState rejects with ApiError, Bad Request, 400 and the
+				// conflict's body.
+				{"f/t/one", `{"op":"race","path":"f/t/raced"}`, `[{"thrown":"Bad Request","name":"ApiError","status":400,"body":"Bad request: Resource f/t/raced already exists"},{"value":"undefined"}]`},
 				{"f/t/one", `{"op":"delete","path":"f/t/explicit"}`, `{"value":"resource f/t/explicit deleted"}`},
 				{"f/t/two", `{"op":"get","path":"f/t/explicit"}`, `{"value":"undefined"}`},
 			} {
@@ -117,6 +121,10 @@ func TestConcurrentStateOnTheClient(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	submitted := map[string]bool{}
+	for i := range n {
+		submitted[fmt.Sprintf("w%02d.", i)] = true
+	}
 	conflicts := 0
 	for i := range n {
 		var res struct {
@@ -124,8 +132,9 @@ func TestConcurrentStateOnTheClient(t *testing.T) {
 				ID, Body string
 				N        int
 			}
-			Thrown string
-			Body   string
+			Thrown, Name string
+			Status       int
+			Body         string
 		}
 		if kinds[i] != engine.OutcomeOK || json.Unmarshal([]byte(got[i]), &res) != nil {
 			t.Errorf("invocation %d: %s %.200s\n%s", i, kinds[i], got[i], r.diag)
@@ -135,15 +144,15 @@ func TestConcurrentStateOnTheClient(t *testing.T) {
 			// Creates that race: the stock client's setState checks, then
 			// creates, so of those that saw no state one creates and the
 			// others reject with the recorded conflict (state-client race).
-			if res.Body != "Bad request: Resource f/t/conc already exists" {
+			if res.Thrown != "Bad Request" || res.Name != "ApiError" || res.Status != 400 || res.Body != "Bad request: Resource f/t/conc already exists" {
 				t.Errorf("invocation %d: %.200s", i, got[i])
 			}
 			conflicts++
 			continue
 		}
 		v := res.Value
-		if len(v.ID) != 4 || !strings.HasPrefix(v.ID, "w") || v.Body != strings.Repeat(v.ID, v.N) {
-			t.Errorf("invocation %d read a value that is not one whole written value: id %q, %d bytes", i, v.ID, len(v.Body))
+		if !submitted[v.ID] || v.N != size/len(v.ID) || v.Body != strings.Repeat(v.ID, size/len(v.ID)) {
+			t.Errorf("invocation %d read a value that is not one whole submitted value: id %q, n %d, %d bytes", i, v.ID, v.N, len(v.Body))
 		}
 	}
 	if conflicts == n {

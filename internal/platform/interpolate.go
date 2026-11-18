@@ -515,6 +515,10 @@ func (w *workerWalk) walk(name string, n *node, depth int) (*node, *Error) {
 				return nil, internal("Argument `%s` is an invalid resource path: %s", name, p)
 			}
 			r, e := (&apiWalk{s: w.s, ctx: w.ctx, job: heldJob(w.apiEnv)}).resource(p, 0, false)
+			if e != nil && e.StoreFailure {
+				// An outage of the store is not a missing resource.
+				return nil, e
+			}
 			if e != nil {
 				return nil, notFound("Resource %s not found for `%s`: %s", p, name, e.Body())
 			}

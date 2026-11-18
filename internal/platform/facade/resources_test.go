@@ -133,13 +133,18 @@ func TestStateValuesAndPaths(t *testing.T) {
 	check("update_nul", call(f, "POST", "resources/update_value/f/wl_state/nul", j, `{"value":{"s":"a\u0000b"}}`), nul)
 	check("after_update_nul", get("get_value", "f/wl_state/nul"), wantReply{200, appJSON, `{"s":"ok"}`})
 
-	odd := `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"A",-0,1E-2],"x":null},"":true}`
+	odd := `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"\u0041",-0,1E-2],"x":null},"":true}`
 	check("create_stored", create(`{"path":"f/wl_state/stored","value":`+odd+`,"resource_type":"state"}`), wantReply{201, textUTF8Type, "resource f/wl_state/stored created"})
 	created := wantReply{200, appJSON, `{"":true,"a":1.0,"b":1,"c":{"x":null,"y":[1.5,"A",0,0.01]},"ab":1000}`}
 	check("stored get_value", get("get_value", "f/wl_state/stored"), created)
 	check("stored get_interpolated", get("get_value_interpolated", "f/wl_state/stored"), created)
 	check("update_stored", call(f, "POST", "resources/update_value/f/wl_state/stored", j, `{"value":`+odd+`}`), wantReply{200, textUTF8Type, "value of resource f/wl_state/stored updated"})
 	check("stored_updated get_value", get("get_value", "f/wl_state/stored"), wantReply{200, appJSON, `{"":true,"a":1.0,"b":1,"c":{"x":null,"y":[1.5,"A",0.0,0.01]},"ab":1000.0}`})
+
+	// An exponent at the integer limit is a number like any other, not a
+	// handler's panic (a 502).
+	check("create_min_exponent", create(`{"path":"f/wl_state/tiny","value":1e-9223372036854775808,"resource_type":"state"}`), wantReply{201, textUTF8Type, "resource f/wl_state/tiny created"})
+	check("tiny get_value", get("get_value", "f/wl_state/tiny"), wantReply{200, appJSON, "0.0"})
 
 	invalid := wantReply{400, textPlain, "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"}
 	for path, ok := range map[string]bool{
@@ -212,10 +217,15 @@ func TestStateWriteRefusals(t *testing.T) {
 	if got := call(f, "POST", "resources/create", j, multi); got != want {
 		t.Errorf("a multi-line body: %+v, want %+v", got, want)
 	}
-	for _, body := range []string{`[1]`, `"x"`, `{"path":1,"resource_type":"state"}`} {
+	for _, body := range []string{`[1]`, `"x"`, `{"path":1,"resource_type":"state"}`,
+		`{"path":null,"value":1,"resource_type":"state"}`, `{"path":"f/x/n","value":1,"resource_type":null}`} {
 		if got := call(f, "POST", "resources/create", j, body); got.status != 422 || !strings.HasPrefix(got.body, "Failed to deserialize the JSON body into the target type: ") {
 			t.Errorf("create %s: %+v, want a 422", body, got)
 		}
+	}
+	// A null value is a value: it is stored.
+	if got := call(f, "POST", "resources/create", j, `{"path":"f/x/nullvalue","value":null,"resource_type":"state"}`); got.status != 201 {
+		t.Errorf("create with a null value: %+v, want a 201", got)
 	}
 	if got := call(f, "POST", "resources/update_value/f/x/obj", j, `[1]`); got.status != 422 {
 		t.Errorf("update with an array body: %+v, want a 422", got)

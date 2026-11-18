@@ -76,3 +76,49 @@ func TestAtomicityTestsCanFail(t *testing.T) {
 		t.Errorf("the create race found %v winning on a store that checks and adds under two locks", winners)
 	}
 }
+
+// gapStore replaces an entry on update by deleting it and creating it again,
+// each under the lock: a reader between the two finds no entry. Its updates
+// take turns (wmu), so each finds the entry and reports true: only the gap
+// is wrong.
+type gapStore struct {
+	brokenStore
+	wmu sync.Mutex
+}
+
+func (s *gapStore) UpdateValue(_ context.Context, ws, path string, v json.RawMessage) (bool, error) {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	s.mu.Lock()
+	r, ok := s.entries[ws+"\x00"+path]
+	delete(s.entries, ws+"\x00"+path)
+	s.mu.Unlock()
+	if !ok {
+		return false, nil
+	}
+	time.Sleep(time.Microsecond)
+	s.mu.Lock()
+	s.entries[ws+"\x00"+path] = wl.Resource{Type: r.Type, Value: append(json.RawMessage(nil), v...)}
+	s.mu.Unlock()
+	return true, nil
+}
+
+// stateOnlyStore keeps every entry as type state, whatever type it was
+// created with.
+type stateOnlyStore struct{ brokenStore }
+
+func (s *stateOnlyStore) Create(ctx context.Context, ws, path string, r wl.Resource) (bool, error) {
+	return s.brokenStore.Create(ctx, ws, path, wl.Resource{Type: "state", Value: r.Value})
+}
+
+// TestContractCatchesGapsAndLostTypes checks that the torn-read test finds
+// an update that leaves the path empty for a moment, and the type test a
+// store that keeps no type.
+func TestContractCatchesGapsAndLostTypes(t *testing.T) {
+	if problems, reads, _ := tornReads(&gapStore{brokenStore: brokenStore{entries: map[string]wl.Resource{}}}, time.Second); len(problems) == 0 {
+		t.Errorf("the torn-read test found nothing wrong in %d reads of a store that deletes and creates on update", reads)
+	}
+	if problems := typeProblems(&stateOnlyStore{brokenStore{entries: map[string]wl.Resource{}}}); len(problems) == 0 {
+		t.Error("the type test found nothing wrong in a store that keeps every entry as state")
+	}
+}

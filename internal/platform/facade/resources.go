@@ -54,7 +54,7 @@ func (f *Facade) resourceCreate(ctx context.Context, c *Call) Reply {
 		}
 	}
 	var path, typ string
-	if json.Unmarshal(fields["path"], &path) != nil || json.Unmarshal(fields["resource_type"], &typ) != nil {
+	if !stringMember(fields["path"], &path) || !stringMember(fields["resource_type"], &typ) {
 		return plainText(422, "Failed to deserialize the JSON body into the target type: windmill-lite: path and resource_type must be strings")
 	}
 	if typ != platform.StateType || c.Query.Has("update_if_exists") {
@@ -156,4 +156,11 @@ func missingField(body []byte, name string) Reply {
 		}
 	}
 	return plainText(422, fmt.Sprintf("Failed to deserialize the JSON body into the target type: missing field `%s` at line %d column %d", name, line, at-start))
+}
+
+// stringMember reads raw, a member's JSON text, into out when it is a JSON
+// string. Null is not one: Go would read it as the empty string, where the
+// backend's String field refuses it.
+func stringMember(raw json.RawMessage, out *string) bool {
+	return len(raw) > 0 && raw[0] == '"' && json.Unmarshal(raw, out) == nil
 }

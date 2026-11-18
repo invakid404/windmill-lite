@@ -128,7 +128,7 @@ func TestStringFastPathMatchesPerChar(t *testing.T) {
 		`"abc"`, `""`, `"` + long + `"`, `"` + long + `é"`, `["ü€😀 mixed ascii é", "日本"]`,
 		`{"k\"ey":"a\"b\\c\/d\b\f\n\r\t e"}`, `"aAé😀z"`,
 		`"a\u0000b"`, "\"a\x00b\"", "\"ab\x01cd\"", "\"tab\there\"",
-		`"\ud800"`, `"x\udc00y"`, `"\ud800A"`, `{"value":{"s":"\ud800 tail"},"path":"f/x/a"}`,
+		`"\ud800"`, `"x\udc00y"`, `"\ud800\u0041"`, `{"value":{"s":"\ud800 tail"},"path":"f/x/a"}`,
 		`{"value":"\udfff","path":"\ud800"}`, "\"bad \xff utf8\"", "\"bad \xc3\"", `"unterminated`, `"ends in escape\`,
 		`"bad \x escape"`, "{\n  \"a\": \"line two\",\n  \"b\": \"\x02\"\n}", `{"a":"x"} trailing`,
 	}

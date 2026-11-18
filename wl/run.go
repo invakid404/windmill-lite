@@ -258,6 +258,13 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		req.Hooks = settledHooks{Hooks: req.Hooks, settled: settled}
 	}
+	// A failure of the resource store in a read no platform call makes
+	// (a $res: argument, flow_env, resource()) is a warning of the run too.
+	ctx = platform.WithStoreFailureReport(ctx, func(err error) {
+		calls.mu.Lock()
+		defer calls.mu.Unlock()
+		calls.warnings = append(calls.warnings, Warning{Code: "resource_store_failed", Message: "engine read: Internal: " + err.Error()})
+	})
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
 		return nil, err
@@ -378,8 +385,10 @@ func (l *callLog) taken() []PlatformCall {
 	return append([]PlatformCall(nil), l.calls...)
 }
 
-// warned is the warnings the facade's answers asked for: a failure of the
-// resource store (WA-13), one for each call it failed.
+// warned is the run's warnings of a failure of the resource store: one for
+// each platform call it failed, which the facade's answer asked for, and
+// one for each read of the run's own ($res: arguments, flow_env,
+// resource()) that it failed.
 func (l *callLog) warned() []Warning {
 	l.mu.Lock()
 	defer l.mu.Unlock()

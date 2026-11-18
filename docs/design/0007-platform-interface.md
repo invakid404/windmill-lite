@@ -384,10 +384,11 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     A job's resolved arguments are its trace's O3 however the job then
     ends.
   - **Not yet:** the writes (`createResource`, `updateResourceValue`,
-    `createVariable`, `updateVariable`) and so `setState` are `later` and
-    answer 501 (milestone F1 has since served `updateVariable`, except
-    with `already_encrypted=true`, a rename or a read-only variable
-    service); a secret's plaintext is not registered for log masking
+    `createVariable`, `updateVariable`) were `later` and answered 501.
+    Milestone F1 has since served `updateVariable`, except with
+    `already_encrypted=true`, a rename or a read-only variable service.
+    The resource store serves the writes of state, and so `setState`
+    (below). A secret's plaintext is not registered for log masking
     ([Q-WA-9](../semantics/client-api.md#q-wa-9), `later`); per-run
     providers (H13) are F2a's.
 

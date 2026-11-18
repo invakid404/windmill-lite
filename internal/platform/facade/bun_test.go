@@ -537,7 +537,7 @@ export async function main(op, path, value) {
       const v = await f();
       return { value: v === undefined ? "undefined" : v };
     } catch (err) {
-      return { thrown: String(err.message ?? err), status: err.status ?? null, body: err.body ?? null };
+      return { thrown: String(err.message ?? err), name: err.name ?? null, status: err.status ?? null, body: err.body ?? null };
     }
   };
   const workspace = process.env.WM_WORKSPACE;
@@ -563,6 +563,29 @@ export async function main(op, path, value) {
       return attempt(() => wmill.ResourceService.updateResourceValue({ workspace, path, requestBody: { value } }));
     case "delete":
       return attempt(() => wmill.ResourceService.deleteResource({ workspace, path }));
+    case "race": {
+      // Two setState calls race for a state never written, as the
+      // recorded race does: each create waits until both exists checks
+      // have answered false, so one create wins and the other rejects.
+      const real = globalThis.fetch;
+      let release;
+      const bothChecked = new Promise((r) => (release = r));
+      let checked = 0;
+      globalThis.fetch = async (input, init) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/resources/create")) await bothChecked;
+        const r = await real(input, init);
+        if (url.includes("/resources/exists/") && ++checked === 2) release();
+        return r;
+      };
+      try {
+        const both = await Promise.all([attempt(() => wmill.setState({ w: "a" }, path)), attempt(() => wmill.setState({ w: "b" }, path))]);
+        both.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        return both;
+      } finally {
+        globalThis.fetch = real;
+      }
+    }
   }
   throw new Error("no op " + op);
 }
