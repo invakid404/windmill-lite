@@ -20,8 +20,9 @@
 // default), WL_PLUGIN_CASES (a JSON file
 // of plugin cases, whose case plugin the host connects with, milestone
 // F2c), WL_PLUGIN_REPORT (the file that plugin's onRunSettled reports to)
-// WL_ENGINE_FLAGS (flags for the engine, space-separated) and
-// WL_READ_CACHE (1 connects with the SDK's readCache).
+// WL_ENGINE_FLAGS (flags for the engine, space-separated),
+// WL_READ_CACHE (1 connects with the SDK's readCache) and
+// WL_RESOURCE_STORE (a kind connects with the SDK's resourceStore of it).
 
 import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
@@ -75,6 +76,7 @@ try {
     plugin,
     engineFlags: env.WL_ENGINE_FLAGS ? env.WL_ENGINE_FLAGS.split(" ") : undefined,
     readCache: env.WL_READ_CACHE === "1",
+    resourceStore: env.WL_RESOURCE_STORE ? { kind: env.WL_RESOURCE_STORE as "memory" } : undefined,
     skipArgsFile: env.WL_SKIP_ARGS_FILE === "1",
   });
 } catch (e) {

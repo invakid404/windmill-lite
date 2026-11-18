@@ -122,6 +122,38 @@ test("connect extracts the bundle's codebase assets into the working directory b
   }
 });
 
+// resourceStore: the engine is started with -resource-store and the kind,
+// and without the flag when the option is left out; any kind but "memory"
+// is refused before the engine starts (deviation D24 of ADR 0001).
+test("resourceStore passes the store's kind to the engine, and refuses any kind but memory", async () => {
+  const dir = tempDir("wl-host-store-");
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  const file = join(dir, "args.json");
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_ARGS_FILE = file;
+  try {
+    const start = (o: Partial<ConnectOptions>) =>
+      code(connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "argsengine.ts")], bundle: dir, workdir: dir, diag: () => {}, ...o }));
+    for (const [o, want] of [
+      [{ resourceStore: { kind: "memory" } }, ["-resource-store", "memory"]],
+      [{}, []],
+    ] as [Partial<ConnectOptions>, string[]][]) {
+      rmSync(file, { force: true });
+      expect(await start(o)).toBe("rejected");
+      const args = JSON.parse(await Bun.file(file).text()) as string[];
+      const at = args.indexOf("-resource-store");
+      expect(at < 0 ? [] : args.slice(at, at + 2)).toEqual(want);
+    }
+    rmSync(file, { force: true });
+    expect(await start({ resourceStore: { kind: "redis" } as unknown as ConnectOptions["resourceStore"] })).toBe("options");
+    expect(await Bun.file(file).exists()).toBe(false);
+  } finally {
+    delete process.env.WL_TEST_ARGS_FILE;
+    process.chdir(back);
+  }
+});
+
 // Review round 1, finding 3: a run's onSettled runs in the scope the run
 // was submitted in (H11), outside every invocation, after its run_done has
 // removed it from the runs in flight; concurrent runs keep their own.
