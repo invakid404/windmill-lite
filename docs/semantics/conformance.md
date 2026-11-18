@@ -61,10 +61,10 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 203 | 131 | 70 | 0 | 2 | 189 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 217 | 132 | 85 | 0 | 0 | 96 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 121 | 70 | 46 | 5 | 0 | 45 | 0 | 6 |
+| [The wmill client API and the platform interface](#client-api) | 135 | 70 | 60 | 5 | 0 | 59 | 0 | 6 |
 | [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1093 | 750 | 325 | 9 | 9 | 701 | 0 | 7 |
+| **Total** | 1107 | 750 | 339 | 9 | 9 | 715 | 0 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -7510,6 +7510,236 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Given:** both `WM_STATE_PATH_NEW` and `WM_STATE_PATH` unset; Python
     `wmill.get_state()`.
   - **Expect:** raises `Exception("State path not found")` before any request.
+- **WA-13/c** · oracle-observed · reads of a state never written
+  - **Given:** no resource at `f/wl_state/a`; a Bun step that calls, with
+    its own token, `GET …/resources/exists/f/wl_state/a`, then
+    `get_value_interpolated` and `get_value` at the same path.
+  - **Expect:** `exists` answers HTTP 200 `application/json` `false`. Both
+    reads answer HTTP 404 `text/plain`
+    `Not found: Resource f/wl_state/a not found`.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `answers`, on CE v1.862.0.
+- **WA-13/d** · oracle-observed · create, and the conflict at a taken path
+  - **Given:** `POST …/resources/create` with
+    `{"path":"f/wl_state/a","value":{"n":1},"resource_type":"state"}`; the
+    same create with another value; a create of type `state` at
+    `f/wl_state/r`, which a resource of type `wl_state_obj` holds with the
+    value `{"a":1}`.
+  - **Expect:** HTTP 201 `text/plain; charset=utf-8`
+    `resource f/wl_state/a created`, after which `exists` answers `true` and
+    the interpolating read answers HTTP 200 `application/json` `{"n":1}`.
+    Each later create answers HTTP 400 `text/plain`
+    `Bad request: Resource <path> already exists`, and the entry's value
+    reads back as before: `{"n":1}` and `{"a":1}`.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `answers`, on CE v1.862.0.
+- **WA-13/e** · oracle-observed · `update_value`
+  - **Given:** the state of WA-13/d; `POST …/resources/update_value/f/wl_state/a`
+    with `{"value":{"n":2}}`, then with `{}` (what `setState(undefined)`
+    sends), then with `{"value":null}`; then an `update_value` at
+    `f/wl_state/none`, where no resource is.
+  - **Expect:** each update answers HTTP 200 `text/plain; charset=utf-8`
+    `value of resource f/wl_state/a updated`. The value reads `{"n":2}`
+    after the first, and `null` after `{}` and after `null`: a missing
+    `value` stores `null`, and the resource still exists. The update at the
+    missing path answers HTTP 404 `text/plain`
+    `Not found: Resource f/wl_state/none not found` and creates nothing.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `answers`, on CE v1.862.0.
+- **WA-13/f** · oracle-observed · delete, a create without a value, and the request's own rejections
+  - **Given:** `DELETE …/resources/delete/f/wl_state/a`, twice. A create
+    with no `value` (`{"path":"f/wl_state/a","resource_type":"state"}`, what
+    `setState(undefined)` sends for a missing state). The creates
+    `{"path":"f/wl_state/a","value":1}` and
+    `{"value":1,"resource_type":"state"}`; a create and an `update_value`
+    whose body is `{`. A create and an `update_value` with a JSON body,
+    each sent once as bytes with no `Content-Type` header (the request
+    carries none) and once as `text/plain`.
+  - **Expect, delete:** the first delete answers HTTP 200
+    `text/plain; charset=utf-8` `resource f/wl_state/a deleted`, and
+    `exists` then answers `false`. The second answers HTTP 404 `text/plain`
+    `Not found: Resource not found at name f/wl_state/a`, followed on
+    CE v1.862.0 by the location ` (resources.rs:1525)`.
+  - **Expect, create without a value:** HTTP 201
+    `resource f/wl_state/a created`, and the value is `null`.
+  - **Expect, rejections:** the missing fields answer HTTP 422
+    `text/plain; charset=utf-8`
+    ``Failed to deserialize the JSON body into the target type: missing field `resource_type` at line 1 column 33``
+    and ``Failed to deserialize the JSON body into the target type: missing field `path` at line 1 column 35``.
+    The body `{` answers HTTP 400
+    `Failed to parse the request body as JSON: EOF while parsing an object at line 1 column 1`,
+    and each of the four bodies without `application/json` HTTP 415
+    ``Expected request with `Content-Type: application/json` ``, both
+    `text/plain; charset=utf-8`, on both routes.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `answers`, on CE v1.862.0. The step drops the trailing location
+    from a body, as windmill-lite gives none
+    ([D14](../design/0001-equivalence-contract.md#5-named-deviations)).
+- **WA-13/g** · oracle-observed · a counter at the default state path, across loop iterations and across runs, and an explicit path
+  - **Given, loop:** flow `f/wl_state/counter`: step `reset` deletes
+    `f/wl_state/counter/l_user`; a sequential loop `l` over `[1, 2, 3]`
+    whose simple body step reads its `WM_STATE_PATH` with the interpolating
+    read, then makes `setState(n + 1)`'s calls; step `done` reads the count,
+    deletes it and calls `exists`.
+  - **Given, runs:** flow `f/wl_state/pair`, one step `x` run three times
+    as separate runs, in this order: `first` deletes its state, then
+    counts; `second` counts, then writes the count it read back; `cleanup`
+    deletes the state and calls `exists`.
+  - **Given, explicit:** flow `f/wl_state/explicit`: step `a` writes
+    `{"from":"a"}` at `f/wl_state/explicit` with `setState`'s calls, and
+    step `b` reads it, updates it and reads it again.
+  - **Expect, loop:** the iterations share the state path
+    `f/wl_state/counter/l_user` ([WA-6](client-api.md#wa-6)/a). The first
+    reads 404, so 0, finds `exists` `false` and creates (201); the second
+    and third read 1 and 2 and update (200). `done` reads `3`, and `exists`
+    then answers `false`.
+  - **Expect, runs:** both runs use `f/wl_state/pair/x_user`. `first` reads
+    404, so 0, and creates 1 (201); `second`, a later run, reads 1 and
+    updates to 2 (200); after `cleanup`, `exists` answers `false`.
+  - **Expect, explicit:** step `b` reads `{"from":"a"}`, finds `exists`
+    `true`, updates (200) and reads `{"from":"b","saw":{"from":"a"}}`.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    runs `counter`, `pair_1_first`, `pair_2_second`, `pair_3_cleanup` and
+    `explicit`, on CE v1.862.0.
+- **WA-13/h** · oracle-observed · values jsonb refuses
+  - **Given:** a create of type `state` whose value is `{"s":"a\u0000b"}`
+    (a NUL character), an `update_value` of an existing state to the same
+    value, and a create whose value is `{"s":"\ud800"}` (a lone surrogate).
+  - **Expect:** each answers HTTP 400 `text/plain`. The NUL gives
+    `SqlErr: error returned from database: unsupported Unicode escape sequence`
+    and the surrogate
+    `SqlErr: error returned from database: invalid input syntax for type json`,
+    each followed on CE v1.862.0 by locations: ` @utils.rs:322:14` on
+    create and ` @resources.rs:2650:19` on `update_value`. After each
+    refused create `exists` answers `false`, and the refused update leaves
+    the old value.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `values`, on CE v1.862.0. The step drops the locations
+    ([D14](../design/0001-equivalence-contract.md#5-named-deviations)).
+- **WA-13/i** · oracle-observed · the stored form, and interpolation on read
+  - **Given:** a create whose value, as sent, is
+    `{"b":1,"a":1.0,"ab":1e3,"c":{"y":[1.50,"\u0041",-0,1E-2],"x":null},"":true}`,
+    then an `update_value` with the same text; a state
+    `{"v":"$var:f/wl_state/v","r":"$res:f/wl_state/r","o":{"v":"$var:f/wl_state/v","l":["$var:f/wl_state/v"]},"plain":"x $var:f/wl_state/v"}`,
+    with the variable `f/wl_state/v` = `hello` and the resource
+    `f/wl_state/r` = `{"a":1}`; a state whose whole value is
+    `"$var:f/wl_state/v"`; a state `{"v":"$var:f/wl_state/none"}`.
+  - **Expect, stored form:** the create and the update answer as in
+    WA-13/d and WA-13/e. Both read routes give the created value as
+    `{"":true,"a":1.0,"b":1,"c":{"x":null,"y":[1.5,"A",0,0.01]},"ab":1000}`
+    and the updated one as
+    `{"":true,"a":1.0,"b":1,"c":{"x":null,"y":[1.5,"A",0.0,0.01]},"ab":1000.0}`,
+    HTTP 200 `application/json`: keys in jsonb's order, and numbers
+    respelled, differently by the two routes.
+  - **Expect, interpolation:** `get_value` gives the `$var:` and `$res:`
+    strings as stored. `get_value_interpolated` gives
+    `{"o":{"l":["hello"],"v":"hello"},"r":{"a":1},"v":"hello","plain":"x $var:f/wl_state/v"}`
+    and `"hello"`: it resolves a string that is wholly a reference, at the
+    top level, in a nested object and in an array inside it. With a missing
+    variable it answers HTTP 404 `text/plain`
+    `Not found: Variable f/wl_state/none not found`.
+    [WA-12](client-api.md#wa-12) gives the general traversal rule.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `values`, on CE v1.862.0.
+- **WA-13/j** · oracle-observed · which paths a superadmin's create accepts
+  - **Given:** a superadmin's job creates states at `x/wl_state/bad`,
+    `wl_state_bad`, `f/wl_state`, `f/wl_state/slash/`, `f/wl_state/a.b`,
+    `f/wl_state/a b`, `f/wl_state_nofolder/x` (no such folder),
+    `u/<user>/wl_state_own` (the caller's), `u/wl_state_nobody/x` (no such
+    user), `g/wl_state_group/x`, `f/wl_state/deep/er/path`,
+    `f/wl_state/a-b_C9` and `f/wl_state/ü`, each read back and deleted.
+  - **Expect:** the first six answer HTTP 400 `text/plain`
+    `Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'`.
+    The other seven are created (201), read back and deleted (200).
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `paths`, on CE v1.862.0. Other characters and other callers are not
+    recorded.
+- **WA-13/k** · oracle-observed · two creates race for one path
+  - **Given:** no resource at `f/wl_state/race`; two creates of type
+    `state` with different values, in flight together.
+  - **Expect:** one answers HTTP 201 and the other HTTP 400
+    `Bad request: Resource f/wl_state/race already exists`; the stored
+    value is the winner's.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `race`, on CE v1.862.0, the same in each repetition.
+- **WA-13/l** · oracle-observed · state through the stock client
+  - **Given:** a flow step `a` of `f/wl_state_client/client`, with
+    `windmill-client` 1.862.0 and its state never written: `getState()`;
+    `setState({n:1})`; `getState()`; `setState({n:2})`; `getState()`;
+    `setState(undefined)`; `getState()`; `setInternalState({n:3})`;
+    `getInternalState()`; `getState()`; the same with the explicit path
+    `f/wl_state_client/explicit`; then, with the state deleted,
+    `setState(undefined)` and `getState()`.
+  - **Expect:** the state path is `f/wl_state_client/client/a_user`. Every
+    `setState` resolves to `undefined`, and `getState()` resolves to
+    `undefined`, `{"n":1}`, `{"n":2}`, `null`, `{"n":3}` in turn; the
+    internal helpers use the same path. The explicit path reads `undefined`,
+    then `{"x":1}`. On a missing state `setState(undefined)` resolves too,
+    and `getState()` then gives `null`.
+  - **Recorded:** [`flows/client-api/state-client`](../../conformance/flows/client-api/state-client)
+    run `client`, on CE v1.862.0.
+- **WA-13/m** · oracle-observed · two `setState` calls race for a state never written
+  - **Given:** `Promise.all` of `setState({w:"a"}, p)` and
+    `setState({w:"b"}, p)` with the stock client, at a path `p` with no
+    resource. The step holds each create request until both `exists`
+    checks have answered.
+  - **Expect:** both checks answer `false`, and both calls create. One
+    resolves, and the other rejects with the generated client's error:
+    `name` `ApiError`, `message` `Bad Request`, `status` 400, `body`
+    `Bad request: Resource f/wl_state_client/race already exists`. The
+    stored value is one of the two.
+  - **Recorded:** [`flows/client-api/state-client`](../../conformance/flows/client-api/state-client)
+    run `race`, on CE v1.862.0, the same in each repetition.
+- **WA-13/n** · oracle-observed · resource writes beside state, and the Python client's probe
+  - **Given:** creates of type `wl_writes_obj` (a type of the workspace)
+    and `wl_writes_none` (no such type). `update_value` and `delete` of an
+    entry of type `wl_writes_obj`, one created by the step and one by the
+    workspace's setup. Creates of type `state` with `description`,
+    `labels`, `ws_specific` or `preserve_on_behalf_of`; creates with
+    `?update_if_exists=true` at a taken and at a free path. `GET
+    …/resources/get/<p>` at a path with no resource, and after an
+    `update_value` of a `state` entry and of a `wl_writes_obj` entry.
+  - **Expect:** every write listed succeeds with the texts of WA-13/d to
+    WA-13/f: HTTP 201 `resource <path> created`, HTTP 200
+    `value of resource <path> updated`, HTTP 200 `resource <path> deleted`.
+    A type that does not exist is accepted by create. With `update_if_exists`, a
+    create at a taken path answers 201 `resource <path> created` and
+    replaces the value.
+  - **Expect, `get`:** a path with no resource answers HTTP 404
+    `text/plain` `Not found: Resource f/wl_writes/none not found`. After
+    an update, HTTP 200 `application/json` gives `resource_type` `state`
+    and `wl_writes_obj` as created, with the new value.
+  - **Recorded:** [`flows/client-api/resource-writes`](../../conformance/flows/client-api/resource-writes)
+    run `answers`, on CE v1.862.0.
+- **WA-13/o** · oracle-observed · parallel writers and readers on two workers
+  - **Given:** two workers, a state at `f/wl_state_par/p`, and a parallel
+    loop whose two iterations run at once. One reads the state with the
+    interpolating read from 4 concurrent loops for 8 s. The other updates
+    it from 4 concurrent loops for 6 s, each loop with its own value (its
+    id `w0.` to `w3.` repeated to 256 KiB, a bar, then the SHA-256 of that
+    text), then once more to `final.`'s value. A later step reads the
+    state.
+  - **Expect:** every read equals one of the values the run wrote:
+    `init.` before the loop, `w0.` to `w3.`, `final.`. The reader sees the
+    values of at least two of `w0.` to `w3.`, every update answers 200, and
+    the later step reads `final.`'s value.
+  - **Recorded:** [`flows/client-api/state-parallel`](../../conformance/flows/client-api/state-parallel)
+    run `parallel`, on CE v1.862.0 with two workers.
+- **WA-13/p** · oracle-observed · large values
+  - **Given:** creates of type `state` whose value is `{"s":"<n bytes>"}`,
+    with `n` from 1 MiB doubling to 32 MiB, each read back and compared by
+    SHA-256. Then an `update_value` of a state to the 32 MiB value, read
+    back the same way.
+  - **Expect:** every create answers HTTP 201 `text/plain; charset=utf-8`
+    `resource f/wl_state/size created` and reads back whole; the update
+    answers HTTP 200 `value of resource f/wl_state/size updated` and reads
+    back whole. None of these sizes is refused.
+  - **Recorded:** [`flows/client-api/state`](../../conformance/flows/client-api/state)
+    run `size`, on CE v1.862.0. Once, with other work loading the same
+    machine, the 32 MiB create answered HTTP 400
+    `SqlErr: error communicating with database: expected to read 5 bytes, got 0 bytes at EOF`:
+    a failed connection to the database, not a size limit, since the same
+    size was accepted in every other repetition.
 
 <a id="wa-14"></a>
 ### WA-14 · Flow user state: a key/value map on the root flow job, live while it runs

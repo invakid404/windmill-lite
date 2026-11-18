@@ -1,0 +1,16 @@
+# Atomicity of state's routes under parallel writers and readers, recorded
+# on the oracle with two workers (WA-13/o): the iterations of a parallel
+# loop run on both workers at once, one reading the state from four
+# concurrent loops while the other updates it from four, each writer with
+# its own self-validating value (its id repeated to 256 KiB, then the
+# SHA-256 of that text). Every read must be one whole value a writer
+# wrote, and after both iterations the state holds the last completed
+# write. The steps call the API with fetch at BASE_URL and their own
+# token. Synthetic, written for this repository from
+# docs/semantics/client-api.md#wa-13. Deployed with oracle.deploy api.
+id: client-api/state-parallel
+spec: [WA-13/o]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2, deploy: api}

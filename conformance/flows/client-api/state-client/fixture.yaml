@@ -1,0 +1,16 @@
+# State through the stock client windmill-client 1.862.0, recorded on the
+# oracle: what a step observes when it calls getState, setState and the
+# deprecated getInternalState and setInternalState (WA-13/l), and when two
+# setState calls race for a state never written (WA-13/m). The routes'
+# own answers are fixture client-api/state's. The steps import the client
+# at its version, which the oracle's worker installs; a windmill-lite
+# build installs a package only from a lock, which this fixture has none
+# of, so its scope is later. Synthetic, written for this repository from
+# docs/semantics/client-api.md#wa-13 and the stock client. Deployed with
+# oracle.deploy api.
+id: client-api/state-client
+spec: [WA-13/l, WA-13/m]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

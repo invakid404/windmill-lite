@@ -1,0 +1,12 @@
+# Created after the deployment (OR-31): what the values run's state
+# interpolates on read.
+resource_types:
+  - name: wl_state_obj
+    schema: {type: object}
+variables:
+  - path: f/wl_state/v
+    value: hello
+resources:
+  - path: f/wl_state/r
+    resource_type: wl_state_obj
+    value: {a: 1}
