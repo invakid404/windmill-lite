@@ -1,0 +1,52 @@
+# Written from the stock client's code and the state fixture's predictions
+# before the oracle ran it: getState of a state never written resolves to
+# undefined (WA-41), setState resolves to undefined, the deprecated helpers
+# use the same state path, setState(undefined) on an existing state stores
+# null, and on a missing state its create without a value is refused, so the
+# helper rejects with the generated client's error (WA-41, WA-V8).
+#
+# Recorded on the oracle, which corrected the prediction:
+# setState(undefined) on a missing state resolves, since its create without
+# a value stores null.
+spec: [WA-13/l]
+target: f/wl_state_client/client
+expect:
+  status: success
+  result:
+    path: f/wl_state_client/client/a_user
+    set_create: {value: "<undefined>"}
+    set_update: {value: "<undefined>"}
+    get_created: {value: {"n": 1}}
+    get_missing: {value: "<undefined>"}
+    get_updated: {value: {"n": 2}}
+    explicit_get: {value: {x: 1}}
+    explicit_set: {value: "<undefined>"}
+    get_internal: {value: {"n": 3}}
+    set_internal: {value: "<undefined>"}
+    set_undefined: {value: "<undefined>"}
+    explicit_missing: {value: "<undefined>"}
+    get_after_internal: {value: {"n": 3}}
+    get_after_undefined: {value: null}
+    set_undefined_missing: {value: "<undefined>"}
+    get_after_undefined_missing: {value: null}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        path: f/wl_state_client/client/a_user
+        set_create: {value: "<undefined>"}
+        set_update: {value: "<undefined>"}
+        get_created: {value: {"n": 1}}
+        get_missing: {value: "<undefined>"}
+        get_updated: {value: {"n": 2}}
+        explicit_get: {value: {x: 1}}
+        explicit_set: {value: "<undefined>"}
+        get_internal: {value: {"n": 3}}
+        set_internal: {value: "<undefined>"}
+        set_undefined: {value: "<undefined>"}
+        explicit_missing: {value: "<undefined>"}
+        get_after_internal: {value: {"n": 3}}
+        get_after_undefined: {value: null}
+        set_undefined_missing: {value: "<undefined>"}
+        get_after_undefined_missing: {value: null}

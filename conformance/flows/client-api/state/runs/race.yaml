@@ -1,0 +1,21 @@
+# Written before the oracle ran it: of two creates racing for one path, one
+# succeeds and the other gets the conflict of the answers run, and the
+# stored value is the winner's.
+spec: [WA-13/k]
+target: f/wl_state/race
+expect:
+  status: success
+  result:
+    statuses: [201, 400]
+    won: {status: 201, type: "text/plain; charset=utf-8", body: "resource f/wl_state/race created"}
+    lost: {status: 400, type: text/plain, body: "Bad request: Resource f/wl_state/race already exists"}
+    stored_is_winner: true
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        statuses: [201, 400]
+        won: {status: 201, type: "text/plain; charset=utf-8", body: "resource f/wl_state/race created"}
+        lost: {status: 400, type: text/plain, body: "Bad request: Resource f/wl_state/race already exists"}
+        stored_is_winner: true

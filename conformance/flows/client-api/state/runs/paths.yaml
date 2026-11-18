@@ -1,0 +1,186 @@
+# Written from the reference before the oracle ran it: a resource path is
+# u/<user>/... or f/<folder>/... with a name (WA-12); the folder's existence
+# and the user are predicted not to be checked for a superadmin's token, and
+# a path without a name or with another prefix to be refused with 400.
+#
+# Recorded on the oracle, which confirmed that neither the folder's
+# existence nor the user of a u/ path is checked, and corrected the rest:
+# g/<group>/ paths are accepted; a malformed path (another prefix, no name,
+# a trailing slash, a dot or a space in a segment) is refused with 400 and
+# the text below; a non-ASCII letter such as ü is accepted.
+spec: [WA-13/j]
+target: f/wl_state/paths
+expect:
+  status: success
+  result:
+    dot:
+      read: {body: "Not found: Resource f/wl_state/a.b not found", type: text/plain, status: 404}
+      exists: {body: "false", type: application/json, status: 200}
+      created:
+        body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+        type: text/plain
+        status: 400
+      deleted: {body: "Not found: Resource not found at name f/wl_state/a.b", type: text/plain, status: 404}
+    group:
+      read: {body: "{\"k\":\"group\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource g/wl_state_group/x created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource g/wl_state_group/x deleted", type: "text/plain; charset=utf-8", status: 200}
+    space:
+      read: {body: "Not found: Resource f/wl_state/a b not found", type: text/plain, status: 404}
+      exists: {body: "false", type: application/json, status: 200}
+      created:
+        body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+        type: text/plain
+        status: 400
+      deleted: {body: "Not found: Resource not found at name f/wl_state/a b", type: text/plain, status: 404}
+    nested:
+      read: {body: "{\"k\":\"nested\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource f/wl_state/deep/er/path created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource f/wl_state/deep/er/path deleted", type: "text/plain; charset=utf-8", status: 200}
+    unicode:
+      read: {body: "{\"k\":\"unicode\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource f/wl_state/ü created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource f/wl_state/ü deleted", type: "text/plain; charset=utf-8", status: 200}
+    own_user:
+      read: {body: "{\"k\":\"own_user\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource u/<user>/wl_state_own created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource u/<user>/wl_state_own deleted", type: "text/plain; charset=utf-8", status: 200}
+    no_prefix:
+      read: {body: "Not found: Resource wl_state_bad not found", type: text/plain, status: 404}
+      exists: {body: "false", type: application/json, status: 200}
+      created:
+        body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+        type: text/plain
+        status: 400
+      deleted: {body: "Not found: Resource not found at name wl_state_bad", type: text/plain, status: 404}
+    bad_prefix:
+      read: {body: "Not found: Resource x/wl_state/bad not found", type: text/plain, status: 404}
+      exists: {body: "false", type: application/json, status: 200}
+      created:
+        body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+        type: text/plain
+        status: 400
+      deleted: {body: "Not found: Resource not found at name x/wl_state/bad", type: text/plain, status: 404}
+    other_user:
+      read: {body: "{\"k\":\"other_user\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource u/wl_state_nobody/x created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource u/wl_state_nobody/x deleted", type: "text/plain; charset=utf-8", status: 200}
+    folder_only:
+      read: {body: "Not found: Resource f/wl_state not found", type: text/plain, status: 404}
+      exists: {body: "false", type: application/json, status: 200}
+      created:
+        body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+        type: text/plain
+        status: 400
+      deleted: {body: "Not found: Resource not found at name f/wl_state", type: text/plain, status: 404}
+    missing_folder:
+      read: {body: "{\"k\":\"missing_folder\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource f/wl_state_nofolder/x created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource f/wl_state_nofolder/x deleted", type: "text/plain; charset=utf-8", status: 200}
+    trailing_slash:
+      read: {body: "Not found: Resource f/wl_state/slash/ not found", type: text/plain, status: 404}
+      exists: {body: "false", type: application/json, status: 200}
+      created:
+        body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+        type: text/plain
+        status: 400
+      deleted: {body: "Not found: Resource not found at name f/wl_state/slash/", type: text/plain, status: 404}
+    dash_underscore:
+      read: {body: "{\"k\":\"dash_underscore\"}", type: application/json, status: 200}
+      exists: {body: "true", type: application/json, status: 200}
+      created: {body: "resource f/wl_state/a-b_C9 created", type: "text/plain; charset=utf-8", status: 201}
+      deleted: {body: "resource f/wl_state/a-b_C9 deleted", type: "text/plain; charset=utf-8", status: 200}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        dot:
+          read: {body: "Not found: Resource f/wl_state/a.b not found", type: text/plain, status: 404}
+          exists: {body: "false", type: application/json, status: 200}
+          created:
+            body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+            type: text/plain
+            status: 400
+          deleted: {body: "Not found: Resource not found at name f/wl_state/a.b", type: text/plain, status: 404}
+        group:
+          read: {body: "{\"k\":\"group\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource g/wl_state_group/x created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource g/wl_state_group/x deleted", type: "text/plain; charset=utf-8", status: 200}
+        space:
+          read: {body: "Not found: Resource f/wl_state/a b not found", type: text/plain, status: 404}
+          exists: {body: "false", type: application/json, status: 200}
+          created:
+            body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+            type: text/plain
+            status: 400
+          deleted: {body: "Not found: Resource not found at name f/wl_state/a b", type: text/plain, status: 404}
+        nested:
+          read: {body: "{\"k\":\"nested\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource f/wl_state/deep/er/path created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource f/wl_state/deep/er/path deleted", type: "text/plain; charset=utf-8", status: 200}
+        unicode:
+          read: {body: "{\"k\":\"unicode\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource f/wl_state/ü created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource f/wl_state/ü deleted", type: "text/plain; charset=utf-8", status: 200}
+        own_user:
+          read: {body: "{\"k\":\"own_user\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource u/<user>/wl_state_own created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource u/<user>/wl_state_own deleted", type: "text/plain; charset=utf-8", status: 200}
+        no_prefix:
+          read: {body: "Not found: Resource wl_state_bad not found", type: text/plain, status: 404}
+          exists: {body: "false", type: application/json, status: 200}
+          created:
+            body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+            type: text/plain
+            status: 400
+          deleted: {body: "Not found: Resource not found at name wl_state_bad", type: text/plain, status: 404}
+        bad_prefix:
+          read: {body: "Not found: Resource x/wl_state/bad not found", type: text/plain, status: 404}
+          exists: {body: "false", type: application/json, status: 200}
+          created:
+            body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+            type: text/plain
+            status: 400
+          deleted: {body: "Not found: Resource not found at name x/wl_state/bad", type: text/plain, status: 404}
+        other_user:
+          read: {body: "{\"k\":\"other_user\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource u/wl_state_nobody/x created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource u/wl_state_nobody/x deleted", type: "text/plain; charset=utf-8", status: 200}
+        folder_only:
+          read: {body: "Not found: Resource f/wl_state not found", type: text/plain, status: 404}
+          exists: {body: "false", type: application/json, status: 200}
+          created:
+            body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+            type: text/plain
+            status: 400
+          deleted: {body: "Not found: Resource not found at name f/wl_state", type: text/plain, status: 404}
+        missing_folder:
+          read: {body: "{\"k\":\"missing_folder\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource f/wl_state_nofolder/x created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource f/wl_state_nofolder/x deleted", type: "text/plain; charset=utf-8", status: 200}
+        trailing_slash:
+          read: {body: "Not found: Resource f/wl_state/slash/ not found", type: text/plain, status: 404}
+          exists: {body: "false", type: application/json, status: 200}
+          created:
+            body: "Bad request: Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or g/<group>/<name>, where every segment contains only alphanumeric characters, '_' or '-'"
+            type: text/plain
+            status: 400
+          deleted: {body: "Not found: Resource not found at name f/wl_state/slash/", type: text/plain, status: 404}
+        dash_underscore:
+          read: {body: "{\"k\":\"dash_underscore\"}", type: application/json, status: 200}
+          exists: {body: "true", type: application/json, status: 200}
+          created: {body: "resource f/wl_state/a-b_C9 created", type: "text/plain; charset=utf-8", status: 201}
+          deleted: {body: "resource f/wl_state/a-b_C9 deleted", type: "text/plain; charset=utf-8", status: 200}

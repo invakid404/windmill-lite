@@ -1,0 +1,134 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "path": "f/wl_state/pair/x_user",
+      "phase": "cleanup",
+      "exists": false
+    },
+    "steps": {
+      "m:x": {
+        "status": "success",
+        "args": {
+          "phase": "cleanup"
+        },
+        "result": {
+          "path": "f/wl_state/pair/x_user",
+          "phase": "cleanup",
+          "exists": false
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.876.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.2.1-0.20261117205337-7f6f3ad42f8d",
+      "revision": "7f6f3ad42f8d4bc4d8952d7858fc04dbb5dc85fc",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64"
+    },
+    "recorded_at": "2026-11-17T20:58:18Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:35787"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 2312,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-17T20:58:14.724256Z",
+          "started_at": "2026-11-17T20:58:14.789600Z",
+          "completed_at": "2026-11-17T20:58:16.651413Z",
+          "duration_ms": 1862
+        },
+        "m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T20:58:14.795125Z",
+          "started_at": "2026-11-17T20:58:14.801441Z",
+          "completed_at": "2026-11-17T20:58:15.966965Z",
+          "duration_ms": 1132
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "x",
+            "value": {
+              "content": "// A counter at the default state path across separate runs of the flow,\n// with the calls the stock client's getState and setState make: the\n// interpolating read (404 is a state never written), then exists, then\n// create with type state or update_value. The fixture's runs take the\n// phases in name order:\n// - \"first\" deletes the state, then counts: it reads nothing (0) and\n//   creates 1;\n// - \"second\" counts: it reads 1, written by the earlier run, and updates\n//   to 2; it then puts 1 back, so that the oracle's repetition of this run\n//   reads 1 again;\n// - \"cleanup\" deletes the state and checks that it is gone.\nexport async function main(phase: string) {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const json = { ...auth, \"Content-Type\": \"application/json\" };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = e.WM_STATE_PATH!;\n  const del = async () => { await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text(); };\n  const exists = async () => await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  if (phase === \"cleanup\") {\n    await del();\n    return { phase, path: p, exists: await exists() };\n  }\n  if (phase === \"first\") await del();\n  const got = await fetch(`${api}/get_value_interpolated/${encodeURI(p)}`, { headers: auth });\n  const text = await got.text();\n  const n: number = got.status === 404 ? 0 : JSON.parse(text);\n  const found = await exists();\n  const w = found\n    ? await fetch(`${api}/update_value/${encodeURI(p)}`, { method: \"POST\", headers: json, body: JSON.stringify({ value: n + 1 }) })\n    : await fetch(`${api}/create`, { method: \"POST\", headers: json, body: JSON.stringify({ path: p, value: n + 1, resource_type: \"state\" }) });\n  const out: Record<string, unknown> = { phase, path: p, read: got.status, n, exists: found, write: w.status, written: await w.text() };\n  if (phase === \"second\") {\n    const back = await fetch(`${api}/update_value/${encodeURI(p)}`, { method: \"POST\", headers: json, body: JSON.stringify({ value: n }) });\n    await back.text();\n    out.put_back = back.status;\n  }\n  return out;\n}\n",
+              "input_transforms": {
+                "phase": {
+                  "expr": "flow_input.phase",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "x",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// A counter at the default state path across separate runs of the flow,\n// with the calls the stock client's getState and setState make: the\n// interpolating read (404 is a state never written), then exists, then\n// create with type state or update_value. The fixture's runs take the\n// phases in name order:\n// - \"first\" deletes the state, then counts: it reads nothing (0) and\n//   creates 1;\n// - \"second\" counts: it reads 1, written by the earlier run, and updates\n//   to 2; it then puts 1 back, so that the oracle's repetition of this run\n//   reads 1 again;\n// - \"cleanup\" deletes the state and checks that it is gone.\nexport async function main(phase: string) {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const json = { ...auth, \"Content-Type\": \"application/json\" };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = e.WM_STATE_PATH!;\n  const del = async () => { await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text(); };\n  const exists = async () => await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  if (phase === \"cleanup\") {\n    await del();\n    return { phase, path: p, exists: await exists() };\n  }\n  if (phase === \"first\") await del();\n  const got = await fetch(`${api}/get_value_interpolated/${encodeURI(p)}`, { headers: auth });\n  const text = await got.text();\n  const n: number = got.status === 404 ? 0 : JSON.parse(text);\n  const found = await exists();\n  const w = found\n    ? await fetch(`${api}/update_value/${encodeURI(p)}`, { method: \"POST\", headers: json, body: JSON.stringify({ value: n + 1 }) })\n    : await fetch(`${api}/create`, { method: \"POST\", headers: json, body: JSON.stringify({ path: p, value: n + 1, resource_type: \"state\" }) });\n  const out: Record<string, unknown> = { phase, path: p, read: got.status, n, exists: found, write: w.status, written: await w.text() };\n  if (phase === \"second\") {\n    const back = await fetch(`${api}/update_value/${encodeURI(p)}`, { method: \"POST\", headers: json, body: JSON.stringify({ value: n }) });\n    await back.text();\n    out.put_back = back.status;\n  }\n  return out;\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "phase": {
+                  "expr": "flow_input.phase",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "x",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline x.ts",
+              "input_transforms": {
+                "phase": {
+                  "type": "javascript",
+                  "expr": "flow_input.phase"
+                }
+              },
+              "lock": "!inline x.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

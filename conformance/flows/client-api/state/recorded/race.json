@@ -1,0 +1,141 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "won": {
+        "body": "resource f/wl_state/race created",
+        "type": "text/plain; charset=utf-8",
+        "status": 201
+      },
+      "lost": {
+        "body": "Bad request: Resource f/wl_state/race already exists",
+        "type": "text/plain",
+        "status": 400
+      },
+      "statuses": [
+        201,
+        400
+      ],
+      "stored_is_winner": true
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "won": {
+            "body": "resource f/wl_state/race created",
+            "type": "text/plain; charset=utf-8",
+            "status": 201
+          },
+          "lost": {
+            "body": "Bad request: Resource f/wl_state/race already exists",
+            "type": "text/plain",
+            "status": 400
+          },
+          "statuses": [
+            201,
+            400
+          ],
+          "stored_is_winner": true
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.876.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.2.1-0.20261117181200-fa5d2fd832b2",
+      "revision": "fa5d2fd832b2f0d18d1d8b6c45e9f124befce5af",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64"
+    },
+    "recorded_at": "2026-11-17T18:22:06Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34683"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 792,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-17T18:22:05.765009Z",
+          "started_at": "2026-11-17T18:22:05.817978Z",
+          "completed_at": "2026-11-17T18:22:06.375692Z",
+          "duration_ms": 558
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:22:05.889375Z",
+          "started_at": "2026-11-17T18:22:05.959503Z",
+          "completed_at": "2026-11-17T18:22:06.347074Z",
+          "duration_ms": 335
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "// The create race: calls made with fetch at BASE_URL and the step's own\n// token.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst user = process.env.WM_USERNAME ?? \"\";\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nconst scrub = (s: string) => s.replaceAll(ws, \"<ws>\").replaceAll(`u/${user}/`, \"u/<user>/\");\nasync function call(method: string, route: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${route}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\nconst at = (p: string) => encodeURI(p);\nconst del = (p: string) => call(\"DELETE\", `/resources/delete/${at(p)}`);\n\n// Two first writes race: both creates are in flight together, as when two\n// setState calls both saw exists answer false.\nexport async function main() {\n  const p = \"f/wl_state/race\";\n  await del(p);\n  const body = (w: string) => JSON.stringify({ path: p, value: { w }, resource_type: \"state\" });\n  const [a, b] = await Promise.all([\n    call(\"POST\", \"/resources/create\", body(\"a\")),\n    call(\"POST\", \"/resources/create\", body(\"b\")),\n  ]);\n  const won = a.status < 300 ? a : b;\n  const lost = a.status < 300 ? b : a;\n  const winner = a.status < 300 ? \"a\" : \"b\";\n  const read = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  await del(p);\n  return {\n    statuses: [a.status, b.status].sort(),\n    won,\n    lost,\n    stored_is_winner: read.status === 200 && JSON.parse(read.body).w === winner,\n  };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// The create race: calls made with fetch at BASE_URL and the step's own\n// token.\nconst base = process.env.BASE_INTERNAL_URL ?? process.env.BASE_URL;\nconst ws = process.env.WM_WORKSPACE!;\nconst user = process.env.WM_USERNAME ?? \"\";\nconst auth = { Authorization: `Bearer ${process.env.WM_TOKEN}` };\ntype Answer = { status: number; type: string | null; body: string };\nconst scrub = (s: string) => s.replaceAll(ws, \"<ws>\").replaceAll(`u/${user}/`, \"u/<user>/\");\nasync function call(method: string, route: string, body?: string, type: string | null = \"application/json\"): Promise<Answer> {\n  const headers: Record<string, string> = { ...auth };\n  if (body !== undefined && type !== null) headers[\"Content-Type\"] = type;\n  const r = await fetch(`${base}/api/w/${ws}${route}`, { method, headers, body });\n  return { status: r.status, type: r.headers.get(\"content-type\"), body: scrub(await r.text()) };\n}\nconst at = (p: string) => encodeURI(p);\nconst del = (p: string) => call(\"DELETE\", `/resources/delete/${at(p)}`);\n\n// Two first writes race: both creates are in flight together, as when two\n// setState calls both saw exists answer false.\nexport async function main() {\n  const p = \"f/wl_state/race\";\n  await del(p);\n  const body = (w: string) => JSON.stringify({ path: p, value: { w }, resource_type: \"state\" });\n  const [a, b] = await Promise.all([\n    call(\"POST\", \"/resources/create\", body(\"a\")),\n    call(\"POST\", \"/resources/create\", body(\"b\")),\n  ]);\n  const won = a.status < 300 ? a : b;\n  const lost = a.status < 300 ? b : a;\n  const winner = a.status < 300 ? \"a\" : \"b\";\n  const read = await call(\"GET\", `/resources/get_value/${at(p)}`);\n  await del(p);\n  return {\n    statuses: [a.status, b.status].sort(),\n    won,\n    lost,\n    stored_is_winner: read.status === 200 && JSON.parse(read.body).w === winner,\n  };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

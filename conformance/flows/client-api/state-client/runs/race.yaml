@@ -1,0 +1,35 @@
+# Written before the oracle ran it, from the client's two calls (WA-13):
+# both calls see exists answer false, one create wins and the other's
+# setState rejects with the conflict.
+#
+# The step now holds both creates until both exists checks have answered, so
+# both calls see false in every run (exists_seen), and records the error's
+# name; predicted: ApiError, the generated client's error class.
+spec: [WA-13/m]
+target: f/wl_state_client/race
+expect:
+  status: success
+  result:
+    outcomes:
+      - error:
+          body: "Bad request: Resource f/wl_state_client/race already exists"
+          status: 400
+          message: "Bad Request"
+          name: ApiError
+      - {ok: true}
+    stored_is_one: true
+    exists_seen: [false, false]
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        outcomes:
+          - error:
+              body: "Bad request: Resource f/wl_state_client/race already exists"
+              status: 400
+              message: "Bad Request"
+              name: ApiError
+          - {ok: true}
+        stored_is_one: true
+        exists_seen: [false, false]

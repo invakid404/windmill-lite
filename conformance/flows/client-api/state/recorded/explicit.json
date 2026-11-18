@@ -1,0 +1,178 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "after": {
+        "saw": {
+          "from": "a"
+        },
+        "from": "b"
+      },
+      "before": {
+        "from": "a"
+      },
+      "exists": true,
+      "update": 200
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "create": 201,
+          "exists": false,
+          "own_path_differs": true
+        }
+      },
+      "m:b": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "after": {
+            "saw": {
+              "from": "a"
+            },
+            "from": "b"
+          },
+          "before": {
+            "from": "a"
+          },
+          "exists": true,
+          "update": 200
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.876.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.2.1-0.20261117181200-fa5d2fd832b2",
+      "revision": "fa5d2fd832b2f0d18d1d8b6c45e9f124befce5af",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64"
+    },
+    "recorded_at": "2026-11-17T18:22:01Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34683"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 1125,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-17T18:21:59.808117Z",
+          "started_at": "2026-11-17T18:21:59.822214Z",
+          "completed_at": "2026-11-17T18:22:00.638534Z",
+          "duration_ms": 816
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:21:59.833528Z",
+          "started_at": "2026-11-17T18:21:59.871019Z",
+          "completed_at": "2026-11-17T18:22:00.049108Z",
+          "duration_ms": 127
+        },
+        "m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-11-17T18:22:00.061202Z",
+          "started_at": "2026-11-17T18:22:00.106407Z",
+          "completed_at": "2026-11-17T18:22:00.551772Z",
+          "duration_ms": 421
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "content": "// An explicit state path that two steps share: step a deletes it, writes\n// it with the calls setState(v, path) makes (exists, then create with type\n// state), and step b reads it with getState(path)'s call, then updates it.\nexport async function main() {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = \"f/wl_state/explicit\";\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const exists = await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  const w = await fetch(`${api}/create`, {\n    method: \"POST\",\n    headers: { ...auth, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ path: p, value: { from: \"a\" }, resource_type: \"state\" }),\n  });\n  return { exists, create: w.status, own_path_differs: e.WM_STATE_PATH !== p };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "content": "// Reads the explicit path step a wrote, updates it and reads it again.\nexport async function main() {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = \"f/wl_state/explicit\";\n  const before = await (await fetch(`${api}/get_value_interpolated/${encodeURI(p)}`, { headers: auth })).json();\n  const exists = await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  const u = await fetch(`${api}/update_value/${encodeURI(p)}`, {\n    method: \"POST\",\n    headers: { ...auth, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ value: { from: \"b\", saw: before } }),\n  });\n  await u.text();\n  const after = await (await fetch(`${api}/get_value_interpolated/${encodeURI(p)}`, { headers: auth })).json();\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  return { before, exists, update: u.status, after };\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// An explicit state path that two steps share: step a deletes it, writes\n// it with the calls setState(v, path) makes (exists, then create with type\n// state), and step b reads it with getState(path)'s call, then updates it.\nexport async function main() {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = \"f/wl_state/explicit\";\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  const exists = await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  const w = await fetch(`${api}/create`, {\n    method: \"POST\",\n    headers: { ...auth, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ path: p, value: { from: \"a\" }, resource_type: \"state\" }),\n  });\n  return { exists, create: w.status, own_path_differs: e.WM_STATE_PATH !== p };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// Reads the explicit path step a wrote, updates it and reads it again.\nexport async function main() {\n  const e = process.env;\n  const auth = { Authorization: `Bearer ${e.WM_TOKEN}` };\n  const api = `${e.BASE_INTERNAL_URL ?? e.BASE_URL}/api/w/${e.WM_WORKSPACE}/resources`;\n  const p = \"f/wl_state/explicit\";\n  const before = await (await fetch(`${api}/get_value_interpolated/${encodeURI(p)}`, { headers: auth })).json();\n  const exists = await (await fetch(`${api}/exists/${encodeURI(p)}`, { headers: auth })).json();\n  const u = await fetch(`${api}/update_value/${encodeURI(p)}`, {\n    method: \"POST\",\n    headers: { ...auth, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ value: { from: \"b\", saw: before } }),\n  });\n  await u.text();\n  const after = await (await fetch(`${api}/get_value_interpolated/${encodeURI(p)}`, { headers: auth })).json();\n  await (await fetch(`${api}/delete/${encodeURI(p)}`, { method: \"DELETE\", headers: auth })).text();\n  return { before, exists, update: u.status, after };\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "a",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline a.ts",
+              "input_transforms": {},
+              "lock": "!inline a.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "b",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline b.ts",
+              "input_transforms": {},
+              "lock": "!inline b.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

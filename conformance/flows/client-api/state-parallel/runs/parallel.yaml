@@ -1,0 +1,21 @@
+# Written before the oracle ran it: each route call reads or writes one
+# whole value, so no read is torn, and the last completed update is what the
+# state holds afterwards.
+spec: [WA-13/o]
+target: f/wl_state_par/parallel
+expect:
+  status: success
+  result: {status: 200, last: final}
+  steps:
+    "m:reset": {status: success, args: {}, result: 201}
+    "m:l":
+      status: success
+      result:
+        - {role: r, torn: 0, failed: 0, every_read_whole: true, saw_writers: true}
+        - {role: w, failed: 0, final: 200, final_read_back: true}
+    "m:l/i:0/m:x":
+      status: success
+      args: {role: r}
+      result: {role: r, torn: 0, failed: 0, every_read_whole: true, saw_writers: true}
+    "m:l/i:1/m:x": {status: success, args: {role: w}, result: {role: w, failed: 0, final: 200, final_read_back: true}}
+    "m:after": {status: success, args: {}, result: {status: 200, last: final}}

@@ -1,0 +1,74 @@
+# Written from the reference before the oracle ran it (WA-13/a's counter, in
+# a flow): the simple loop body's iterations share the state path
+# <flow>/l_user (WA-5, WA-6/a), so the first reads a state never written
+# (404, 0) and creates it, and each later one reads the count and updates
+# it. Texts as predicted in the answers run.
+#
+# Added before a second recording, and predicted: a last step reads the
+# count the loop left (3), deletes it and finds that it no longer exists, so
+# the run leaves nothing behind; the flow's result is that step's.
+spec: [WA-13/g]
+target: f/wl_state/counter
+expect:
+  status: success
+  result: {before: "3", exists: false}
+  steps:
+    "m:l":
+      status: success
+      result:
+        - i: 1
+          "n": 0
+          path: f/wl_state/counter/l_user
+          read: 404
+          write: 201
+          exists: false
+          written: "resource f/wl_state/counter/l_user created"
+        - i: 2
+          "n": 1
+          path: f/wl_state/counter/l_user
+          read: 200
+          write: 200
+          exists: true
+          written: "value of resource f/wl_state/counter/l_user updated"
+        - i: 3
+          "n": 2
+          path: f/wl_state/counter/l_user
+          read: 200
+          write: 200
+          exists: true
+          written: "value of resource f/wl_state/counter/l_user updated"
+    "m:l/i:0/m:x":
+      status: success
+      args: {i: 1}
+      result:
+        i: 1
+        "n": 0
+        path: f/wl_state/counter/l_user
+        read: 404
+        write: 201
+        exists: false
+        written: "resource f/wl_state/counter/l_user created"
+    "m:l/i:1/m:x":
+      status: success
+      args: {i: 2}
+      result:
+        i: 2
+        "n": 1
+        path: f/wl_state/counter/l_user
+        read: 200
+        write: 200
+        exists: true
+        written: "value of resource f/wl_state/counter/l_user updated"
+    "m:l/i:2/m:x":
+      status: success
+      args: {i: 3}
+      result:
+        i: 3
+        "n": 2
+        path: f/wl_state/counter/l_user
+        read: 200
+        write: 200
+        exists: true
+        written: "value of resource f/wl_state/counter/l_user updated"
+    "m:reset": {status: success, args: {}, result: f/wl_state/counter/l_user}
+    "m:done": {status: success, args: {}, result: {before: "3", exists: false}}
