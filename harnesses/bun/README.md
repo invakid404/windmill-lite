@@ -295,13 +295,33 @@ sees them.
 | `plugin` | `Plugin` | None | The host's plugin ([Host plugins](#host-plugins)) |
 | `watchdog` | `{ killAfter: number }` | `{ killAfter: 30000 }` | The engine kills this process when no frame has come from it for `killAfter` ms. `0` turns the watchdog off. |
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
-| `resourceStore` | `{ kind: "memory" }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state. `memory` keeps them in the engine for this connection only, a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). `connect()` refuses any other kind with `options`. Available from version 0.4.0. |
+| `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
 | `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |
 | `onEngineExit` | `(status: { code: number \| null; signal: string \| null }) => void` | Exit with code 1 | Called when the connection to the engine ends other than by `close()` |
 | `diag` | `(line: string) => void` | Write to stderr | Receives each diagnostic line |
+
+### The resource store
+
+The option `resourceStore` chooses where the engine keeps the resources
+that steps write, such as the stock client's state
+([Choosing a resource store](../../docs/resource-stores.md)):
+
+- **`{ kind: "memory" }`** keeps them in the engine for this connection
+  only, a named deviation of the
+  [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations).
+- **`{ kind: "redis", url, prefix, allowEviction }`** keeps them on the
+  Redis that `url` names, under `prefix` (default `windmill-lite:`). Every
+  engine on that Redis and prefix shares them.
+- **The URL** reaches the engine only in its environment, as
+  `WL_REDIS_URL`: a command line shows in `ps`. `prefix` and
+  `allowEviction` become the engine's flags `-redis-prefix` and
+  `-redis-allow-eviction`.
+- **Refusals:** `connect()` refuses any other kind, and a `redis` store
+  without a `url`, with `options`. An engine that cannot start the store
+  refuses the host with `engine_refused`, and the message gives the reason.
 
 ### The Host
 
@@ -1404,7 +1424,7 @@ cd harnesses/bun && bun test
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
-| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts. `test/argsengine.ts`, a stand-in engine, records the flag that `resourceStore` passes. |
+| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes and the `WL_REDIS_URL` of its environment, which the URL reaches and its arguments never do. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |

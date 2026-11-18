@@ -123,33 +123,74 @@ test("connect extracts the bundle's codebase assets into the working directory b
 });
 
 // resourceStore: the engine is started with -resource-store and the kind,
-// and without the flag when the option is left out; any kind but "memory"
-// is refused before the engine starts (deviation D24 of ADR 0001).
-test("resourceStore passes the store's kind to the engine, and refuses any kind but memory", async () => {
+// and without the flag when the option is left out; kind "redis" adds
+// -redis-prefix and -redis-allow-eviction when given, and passes the URL
+// as WL_REDIS_URL in the engine's environment, never in its arguments; any
+// other kind, and a redis store without a URL, is refused before the
+// engine starts.
+test("resourceStore passes the store to the engine, the Redis URL in its environment only", async () => {
   const dir = tempDir("wl-host-store-");
   writeFileSync(join(dir, "manifest.json"), "{}");
   const file = join(dir, "args.json");
+  const envFile = join(dir, "env.json");
   const back = process.cwd();
   process.chdir(dir);
   process.env.WL_TEST_ARGS_FILE = file;
+  process.env.WL_TEST_ENV_FILE = envFile;
+  const url = "redis://user:s3cr3t-pw@redis.invalid:6379/2";
   try {
     const start = (o: Partial<ConnectOptions>) =>
       code(connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "argsengine.ts")], bundle: dir, workdir: dir, diag: () => {}, ...o }));
-    for (const [o, want] of [
-      [{ resourceStore: { kind: "memory" } }, ["-resource-store", "memory"]],
-      [{}, []],
-    ] as [Partial<ConnectOptions>, string[]][]) {
+    for (const [o, want, wantURL] of [
+      [{ resourceStore: { kind: "memory" } }, ["-resource-store", "memory"], null],
+      [{}, [], null],
+      [{ resourceStore: { kind: "redis", url } }, ["-resource-store", "redis"], url],
+      [
+        { resourceStore: { kind: "redis", url, prefix: "app-1:", allowEviction: true } },
+        ["-resource-store", "redis", "-redis-prefix", "app-1:", "-redis-allow-eviction"],
+        url,
+      ],
+      [{ resourceStore: { kind: "redis", url, allowEviction: false } }, ["-resource-store", "redis"], url],
+    ] as [Partial<ConnectOptions>, string[], string | null][]) {
       rmSync(file, { force: true });
+      rmSync(envFile, { force: true });
       expect(await start(o)).toBe("rejected");
       const args = JSON.parse(await Bun.file(file).text()) as string[];
       const at = args.indexOf("-resource-store");
-      expect(at < 0 ? [] : args.slice(at, at + 2)).toEqual(want);
+      expect(at < 0 ? [] : args.slice(at, at + want.length)).toEqual(want);
+      expect(args.some((a) => a.includes("s3cr3t"))).toBe(false);
+      expect(JSON.parse(await Bun.file(envFile).text())).toBe(wantURL);
     }
-    rmSync(file, { force: true });
-    expect(await start({ resourceStore: { kind: "redis" } as unknown as ConnectOptions["resourceStore"] })).toBe("options");
-    expect(await Bun.file(file).exists()).toBe(false);
+    for (const bad of [
+      { kind: "postgres" },
+      { kind: "redis" },
+      { kind: "redis", url: "" },
+      { kind: "redis", url, prefix: 1 },
+      { kind: "redis", url, allowEviction: "yes" },
+    ]) {
+      rmSync(file, { force: true });
+      let message = "";
+      const got = await connect({
+        engine: process.execPath,
+        engineArgs: [join(import.meta.dir, "argsengine.ts")],
+        bundle: dir,
+        workdir: dir,
+        diag: () => {},
+        resourceStore: bad as unknown as ConnectOptions["resourceStore"],
+      }).then(
+        () => "connected",
+        (e) => {
+          message = (e as Error).message;
+          return (e as { code?: string }).code;
+        },
+      );
+      expect(got).toBe("options");
+      expect(message.includes("s3cr3t")).toBe(false);
+      expect(await Bun.file(file).exists()).toBe(false);
+    }
   } finally {
     delete process.env.WL_TEST_ARGS_FILE;
+    delete process.env.WL_TEST_ENV_FILE;
     process.chdir(back);
   }
 });
