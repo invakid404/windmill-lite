@@ -250,3 +250,26 @@ func TestStoreFailure(t *testing.T) {
 	check("update_value", s.UpdateStateResource(ctx, "f/x/s", json.RawMessage(`1`)))
 	check("delete", s.DeleteStateResource(ctx, "f/x/s"))
 }
+
+// TestWithProvidersSharesTheStore checks that services with a run's own
+// providers (H13) keep the runtime's resource store and workspace: the
+// run's writes reach the store that the runtime's other runs read, and a
+// state the runtime holds reads through the run's services.
+func TestWithProvidersSharesTheStore(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryResourceStore()
+	runtime := &Services{ResourceStore: store, Workspace: "ws"}
+	if err := runtime.CreateStateResource(ctx, "f/x/before", json.RawMessage(`1`)); err != nil {
+		t.Fatal(err)
+	}
+	run := runtime.WithProviders(Providers{Resources: NewStore()})
+	if raw, err := run.RawResource(ctx, "f/x/before"); err != nil || string(raw) != "1" {
+		t.Errorf("the run reads the runtime's state as %s, %v; want 1", raw, err)
+	}
+	if err := run.CreateStateResource(ctx, "f/x/run", json.RawMessage(`2`)); err != nil {
+		t.Fatal(err)
+	}
+	if r, ok, err := store.Get(ctx, "ws", "f/x/run"); err != nil || !ok || string(r.Value) != "2" {
+		t.Errorf("the runtime's store holds %+v %v %v after the run's write; want 2 in workspace ws", r, ok, err)
+	}
+}

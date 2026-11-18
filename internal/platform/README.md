@@ -487,8 +487,8 @@ One walker implements resolution for the three contracts of
   routes' number spellings, on every recorded number and on others, and
   the path check on every recorded path. It checks the recorded answers
   of create, update and delete, a provider's path and an entry of another
-  type. It checks the read order behind the read cache, and a failing
-  store on every read and write.
+  type. It checks the read order behind the read cache, the store that a
+  run's own providers share, and a failing store on every read and write.
 
 - `readcache_test.go` checks the read cache. Each path is one provider
   read, through the walker, a variable read or a missing path; an error is
