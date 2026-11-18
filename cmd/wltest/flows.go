@@ -84,8 +84,9 @@ type runResult struct {
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
 // fails. The slowest runs wait for real: an expression at a flow's first
 // module whose three attempts time out, about 70 s (JE-2/a), and retry
-// delays that add up to 26 s (FX-26/a). Tests replace it.
-var flowRunTimeout = 150 * time.Second
+// delays that add up to 26 s (FX-26/a). A binary built with -race triples
+// it (runLimitFactor). Tests replace it.
+var flowRunTimeout = 150 * time.Second * runLimitFactor
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
 // its runs' results.

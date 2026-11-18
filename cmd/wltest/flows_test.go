@@ -1335,3 +1335,15 @@ func TestRemoveCounters(t *testing.T) {
 		t.Fatalf("left %v, want %v", left, want)
 	}
 }
+
+// TestFlowRunTimeout checks the per-run limit: 150 s in a plain build, and
+// three times that, 450 s, in a binary built with -race.
+func TestFlowRunTimeout(t *testing.T) {
+	want := 150 * time.Second
+	if raceBuild {
+		want = 450 * time.Second
+	}
+	if flowRunTimeout != want {
+		t.Errorf("flowRunTimeout = %s, want %s (race build %v)", flowRunTimeout, want, raceBuild)
+	}
+}
