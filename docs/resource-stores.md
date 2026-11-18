@@ -124,9 +124,11 @@ To accumulate values across runs, such as a cache that a flow fills:
   500 with `windmill-lite: the resource store failed: <err>`. `getState`
   then throws, so a step never takes an outage for a missing state, and
   the run's warnings name the failure.
-- **Retries.** The Redis client retries a command whose connection broke.
-  A retried create or update reports its result once. A retried delete
-  whose first attempt was applied answers that the resource does not exist;
-  it is gone either way.
-- **Each call** waits at most 10 s for Redis, retries included, by
+- **No retries.** A command is not sent again after its connection broke,
+  since a replay could misreport or overwrite a later write. A cut call
+  answers the 500 above; a write that failed so may or may not have been
+  applied, and its entry is whole either way.
+- **A Sentinel failover** shows as such errors for its duration. A step that
+  must survive one uses the flow's own retry of that step.
+- **Each call** waits at most 10 s for Redis, its connection included, by
   default. A Go host sets another bound with `OperationTimeout`.
