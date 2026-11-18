@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -118,6 +119,11 @@ func SeededJitter(seed uint64) Jitter { return engine.SeededJitter(seed) }
 // context.DeadlineExceeded.
 var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
+// ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
+// runtime in flight already has. Nothing runs; the id can be used again
+// once that run has returned.
+var ErrRunInFlight = errors.New("wl: a run with this id is in flight")
+
 // RunPlatform is a run's own platform providers (H13, ADR 0008). The run's
 // argument resolution, flow_env, expression helpers and its steps' API
 // reads answer from them; its job registry, flow user state, object store
@@ -196,7 +202,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		// The script's job is its invocation's run: its platform calls,
 		// and the store failures they or its own argument reads meet,
 		// warn as a flow run's do.
-		calls := rt.exec.begin(id)
+		calls, ok := rt.exec.begin(id)
+		if !ok {
+			return nil, ErrRunInFlight
+		}
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
 		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
@@ -232,6 +241,11 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if id == "" {
 		id = newUUID()
 	}
+	calls, ok := rt.exec.begin(id)
+	if !ok {
+		return nil, ErrRunInFlight
+	}
+	defer rt.exec.end(id)
 	h, err := engineHooks(rt.withPlugin(opts.Hooks), rt.prog)
 	if err != nil {
 		return nil, err
@@ -243,8 +257,6 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			return nil, err
 		}
 	}
-	calls := rt.exec.begin(id)
-	defer rt.exec.end(id)
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
 		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started}
 	if rt.readCache {
@@ -410,12 +422,18 @@ func (l *callLog) reportStoreFailures(ctx context.Context) context.Context {
 	})
 }
 
-func (x *recorder) begin(run string) *callLog {
-	l := &callLog{}
+// begin registers the call log of run, and returns false, registering
+// nothing, while a run of that id is in flight: its log, and the calls and
+// warnings it collects, stay its own.
+func (x *recorder) begin(run string) (*callLog, bool) {
 	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.runs[run] != nil {
+		return nil, false
+	}
+	l := &callLog{}
 	x.runs[run] = l
-	x.mu.Unlock()
-	return l
+	return l, true
 }
 
 func (x *recorder) end(run string) {

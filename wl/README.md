@@ -201,6 +201,8 @@ platform services and its expression engine.
 `Run` returns an error only when the run could not start:
 
 - the runtime is closing (`ErrClosed`);
+- a run of the runtime with the same `opts.ID` is in flight
+  (`ErrRunInFlight`); the id is free again once that run returns;
 - the bundle has no such flow or root script;
 - `args` is not a JSON object, or cannot be stored;
 - a [selector](../docs/glossary.md#selector) of `opts.Hooks` is not well
@@ -370,6 +372,7 @@ as a missing `HarnessRuntime` or one of another digest.
 | `ErrUnsupported` | `Open` | A flow uses a feature that the engine does not run yet. The error names it. | Change the flow, or run it on Windmill. |
 | `ErrMissingProvider` (`missing_provider`) | `Open` | The host contract names a provider that neither `Options.Providers` nor the host plugin has. | Register the provider. |
 | `ErrClosed` | `Run` | `Close` has begun. | Open a new runtime. |
+| `ErrRunInFlight` | `Run` | A run of the runtime with the same `RunOptions.ID` is in flight. Nothing ran. | Use another id, or wait for that run to return. |
 | `ErrSelector` | `Run` | A selector does not name exactly one of a module and a script, or a script selector has `Occurrence`, `Iterations` or `Branches`. | Fix the selector. |
 | `ErrAmbiguousSelector` (`ambiguous_selector`) | `Run` | A module selector names an id that a module list repeats. | Add `Occurrence`. |
 | `ErrProviderDeclined` (`provider_declined`) | `Result.Latched` | A provider declined. | Make the provider answer every call. |
@@ -510,7 +513,7 @@ This section is for contributors who change `wl`.
 | File | Contents |
 |---|---|
 | `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
-| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
+| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
 | `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |

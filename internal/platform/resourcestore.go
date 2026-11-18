@@ -71,15 +71,19 @@ type MemoryResourceStore struct {
 	released bool
 }
 
-// ErrStoreReleased is the error of every operation on a memory store that
-// its runtime released at Close: a read that outlives the runtime fails as
-// an outage of the store, never as a missing entry.
+// ErrStoreReleased is the error of an operation on a memory store that its
+// runtime released at Close, when the operation takes the store's lock
+// after the release: a read that outlives the runtime fails as an outage of
+// the store, never as a missing entry. A canceled ctx's error comes first.
 var ErrStoreReleased = errors.New("the memory resource store was released when its runtime closed")
 
 // ReleaseMemoryResourceStore drops m's entries under its lock, so that a
 // closed runtime that still holds m holds none of them, and makes every
-// later operation fail with ErrStoreReleased. Operations in flight finish
-// first: they hold the lock. Only the runtime that made m calls it.
+// operation that takes the lock afterwards fail with ErrStoreReleased (one
+// whose ctx is canceled fails with ctx's error first). An operation that
+// took the lock before the release completes as usual: a Get that read its
+// entry then returns a copy of it, made after it let the lock go. Only the
+// runtime that made m calls it.
 func ReleaseMemoryResourceStore(m *MemoryResourceStore) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

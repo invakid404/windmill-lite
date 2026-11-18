@@ -219,3 +219,54 @@ func TestCloseReleasesItsOwnStore(t *testing.T) {
 		t.Errorf("Close changed a store that the host gave: %v, %v", ok, err)
 	}
 }
+
+// TestRunIDInFlight checks that a run whose id a run in flight has is
+// refused before it registers anything: the run in flight keeps its call
+// log, so a store failure it meets afterwards still warns, and the id is
+// free again once that run has returned.
+func TestRunIDInFlight(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBunBundle(t, bun, storeFiles)
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ResourceStore: offlineStore{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	const id = "22222222-2222-4222-8222-222222222222"
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	type outcome struct {
+		res *Result
+		err error
+	}
+	first := make(chan outcome, 1)
+	go func() {
+		res, err := rt.Run(context.Background(), "f/s/read", json.RawMessage(`{}`), RunOptions{ID: id, Hooks: &Hooks{
+			OnModuleStart: func(context.Context, RunHandle, Site) error {
+				once.Do(func() { close(started) })
+				<-release
+				return nil
+			},
+		}})
+		first <- outcome{res, err}
+	}()
+	<-started
+	for _, c := range []struct{ path, kind string }{
+		{"f/s/none", KindScript}, {"f/s/write", KindScript}, {"f/s/read", KindFlow},
+	} {
+		if res, err := rt.Run(context.Background(), c.path, json.RawMessage(`{"value":1}`), RunOptions{ID: id, Kind: c.kind}); !errors.Is(err, ErrRunInFlight) {
+			t.Errorf("a %s run of %s with the id in flight = %+v, %v; want ErrRunInFlight", c.kind, c.path, res, err)
+		}
+	}
+	close(release)
+	o := <-first
+	const engineMessage = "engine read: Internal: windmill-lite: the resource store failed: store offline"
+	if o.err != nil || o.res.Status != StatusFailure || !slices.ContainsFunc(o.res.Warnings, func(w Warning) bool { return w.Message == engineMessage }) {
+		t.Errorf("the run in flight = %+v, %v; want a failure warning %q", o.res, o.err, engineMessage)
+	}
+	// The id is free again.
+	res, err := rt.Run(context.Background(), "f/s/write", json.RawMessage(`{"value":1}`), RunOptions{ID: id, Kind: KindScript})
+	if err != nil || res.Status != StatusFailure || len(res.Warnings) == 0 {
+		t.Errorf("a run reusing the id after the first ended = %+v, %v; want a failure with its warning", res, err)
+	}
+}

@@ -354,3 +354,42 @@ func TestStateWritesNeverChangeAReplacement(t *testing.T) {
 		}
 	}
 }
+
+// TestReleaseDropsTheEntries checks that ReleaseMemoryResourceStore drops a
+// populated store's entries, the map itself included, so that a closed
+// runtime that still holds the store holds none of their bytes; and that
+// every later operation with a live context fails with ErrStoreReleased.
+func TestReleaseDropsTheEntries(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryResourceStore()
+	for _, p := range []string{"f/x/a", "f/x/b"} {
+		if _, err := m.Create(ctx, "ws", p, Resource{Type: StateType, Value: json.RawMessage(`"` + strings.Repeat("x", 1<<20) + `"`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ReleaseMemoryResourceStore(m)
+	m.mu.Lock()
+	entries, released := m.entries, m.released
+	m.mu.Unlock()
+	if entries != nil || !released {
+		t.Errorf("after release: %d entries (map nil %v), released %v; want no map and released", len(entries), entries == nil, released)
+	}
+	if _, _, err := m.Get(ctx, "ws", "f/x/a"); !errors.Is(err, ErrStoreReleased) {
+		t.Errorf("Get = %v, want ErrStoreReleased", err)
+	}
+	if _, err := m.Create(ctx, "ws", "f/x/c", Resource{Type: StateType, Value: json.RawMessage(`1`)}); !errors.Is(err, ErrStoreReleased) {
+		t.Errorf("Create = %v, want ErrStoreReleased", err)
+	}
+	if _, err := m.UpdateValue(ctx, "ws", "f/x/a", StateType, json.RawMessage(`1`)); !errors.Is(err, ErrStoreReleased) {
+		t.Errorf("UpdateValue = %v, want ErrStoreReleased", err)
+	}
+	if _, err := m.Delete(ctx, "ws", "f/x/a", StateType); !errors.Is(err, ErrStoreReleased) {
+		t.Errorf("Delete = %v, want ErrStoreReleased", err)
+	}
+	// A canceled context's error comes first.
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, _, err := m.Get(canceled, "ws", "f/x/a"); !errors.Is(err, context.Canceled) {
+		t.Errorf("Get with a canceled context = %v, want context.Canceled", err)
+	}
+}

@@ -420,7 +420,7 @@ func TestRecorderAnswerAfterRelease(t *testing.T) {
 	// The step's job id is a UUID, as the root lookup's route takes one.
 	const jobID = "00000000-0000-4000-8000-0000000000a1"
 	x := &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
-	calls := x.begin("run")
+	calls, _ := x.begin("run")
 	answering, answer := make(chan struct{}), make(chan struct{})
 	fac, err := facade.New(facade.Config{Recorded: x.released, Answered: func(inv string, c facade.Record) {
 		// The answer is decided; its delivery waits until the invocation
