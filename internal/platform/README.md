@@ -257,8 +257,11 @@ store serves no writes, and the facade answers them 501.
   ([its README](../../wl/storetest/README.md)).
 - **The writes** check the path, store the value as jsonb would, and
   refuse what jsonb refuses (`statewrites.go`). An update or a delete
-  reads the entry first, so a path that the store does not hold as a
-  state is refused before anything is written.
+  passes the type `state` to the store, which writes only an entry of
+  that type, in one atomic step with its check. So a host that shares the
+  store and puts another type at the path is never overwritten. When the
+  store reports no state, the route reads again to answer 404 or the
+  other type's 501.
 - **A failure** of the store fails the read or write with `Internal:
   windmill-lite: the resource store failed: <err>`, an `*Error` marked
   `StoreFailure`, which the facade answers 500 and records as a warning.

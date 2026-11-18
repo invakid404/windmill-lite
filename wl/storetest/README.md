@@ -29,6 +29,8 @@ as for wrong answers.
 | `CreateAtTakenPath` | A create at a taken path reports `false` and changes nothing. |
 | `UpdateKeepsTheType` | An update replaces the value and keeps the type. |
 | `OtherTypesAreKept` | An entry of a type other than `state` keeps that type through a round trip and an update. |
+| `WritesCheckTheType` | An update or a delete for one type reports `false` on an entry of another type and changes nothing. |
+| `TypedWritesAreAtomic` | While one writer turns a path from a `state` entry into one of another type and back, eight others update and delete it as a `state`: the other type's entry is never changed or removed. |
 | `UpdateMissingCreatesNothing` | An update of a missing path reports `false` and creates nothing. |
 | `Delete` | A delete removes the entry once; the path can then be created again. |
 | `WorkspacesAreApart` | One path in two workspaces names two entries. |
@@ -49,6 +51,6 @@ without `-short`.
 |---|---|
 | `storetest.go` | `Run`, `Names` and the tests |
 | `storetest_test.go` | The suite on `wl.NewMemoryResourceStore` |
-| `broken_test.go` | Stores that break the contract: an update written in two steps, a create under two locks, an update that deletes and creates, and a store that keeps every entry as `state`; the tests must fail on each |
+| `broken_test.go` | Stores that break the contract, on each of which a test must fail: an update written in two steps, a create under two locks, and an update that deletes and creates. Also a store that keeps every entry as `state`, and one that checks the type and writes in two steps. |
 
 Run `go test -race ./wl/storetest`. No test needs Bun.

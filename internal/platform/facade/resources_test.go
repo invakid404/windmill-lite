@@ -255,10 +255,10 @@ func (brokenStore) Get(context.Context, string, string) (platform.Resource, bool
 func (brokenStore) Create(context.Context, string, string, platform.Resource) (bool, error) {
 	return false, errors.New("i/o timeout")
 }
-func (brokenStore) UpdateValue(context.Context, string, string, json.RawMessage) (bool, error) {
+func (brokenStore) UpdateValue(context.Context, string, string, string, json.RawMessage) (bool, error) {
 	return false, errors.New("i/o timeout")
 }
-func (brokenStore) Delete(context.Context, string, string) (bool, error) {
+func (brokenStore) Delete(context.Context, string, string, string) (bool, error) {
 	return false, errors.New("i/o timeout")
 }
 

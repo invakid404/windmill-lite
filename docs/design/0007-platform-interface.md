@@ -685,6 +685,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   store keeps them in memory, one per runtime
   ([0001](0001-equivalence-contract.md) D24), and other stores implement
   the interface.
+- `UpdateValue` and `Delete` take the type they may change and act only
+  on an entry of it, in one atomic step, since a host may share the store
+  and write it directly.
 - `createResource` of type `state`, and `updateResourceValue` and
   `deleteResource` of a stored state, answer as the recordings of
   `conformance/flows/client-api/state` do. Another type and the options

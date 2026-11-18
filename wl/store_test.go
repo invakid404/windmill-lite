@@ -47,10 +47,12 @@ func (offlineStore) Get(context.Context, string, string) (Resource, bool, error)
 func (offlineStore) Create(context.Context, string, string, Resource) (bool, error) {
 	return false, errOffline
 }
-func (offlineStore) UpdateValue(context.Context, string, string, json.RawMessage) (bool, error) {
+func (offlineStore) UpdateValue(context.Context, string, string, string, json.RawMessage) (bool, error) {
 	return false, errOffline
 }
-func (offlineStore) Delete(context.Context, string, string) (bool, error) { return false, errOffline }
+func (offlineStore) Delete(context.Context, string, string, string) (bool, error) {
+	return false, errOffline
+}
 
 // TestResourceStoreOnBun checks Options.ResourceStore on real steps: two
 // runtimes given one memory store see each other's writes, through the job

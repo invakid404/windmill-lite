@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -41,11 +42,11 @@ func (s *brokenStore) Create(_ context.Context, ws, path string, r wl.Resource) 
 	return true, nil
 }
 
-func (s *brokenStore) UpdateValue(_ context.Context, ws, path string, v json.RawMessage) (bool, error) {
+func (s *brokenStore) UpdateValue(_ context.Context, ws, path, typ string, v json.RawMessage) (bool, error) {
 	for _, part := range []json.RawMessage{v[:len(v)/2], v} {
 		s.mu.Lock()
 		r, ok := s.entries[ws+"\x00"+path]
-		if !ok {
+		if !ok || r.Type != typ {
 			s.mu.Unlock()
 			return false, nil
 		}
@@ -55,12 +56,15 @@ func (s *brokenStore) UpdateValue(_ context.Context, ws, path string, v json.Raw
 	return true, nil
 }
 
-func (s *brokenStore) Delete(_ context.Context, ws, path string) (bool, error) {
+func (s *brokenStore) Delete(_ context.Context, ws, path, typ string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.entries[ws+"\x00"+path]
+	r, ok := s.entries[ws+"\x00"+path]
+	if !ok || r.Type != typ {
+		return false, nil
+	}
 	delete(s.entries, ws+"\x00"+path)
-	return ok, nil
+	return true, nil
 }
 
 // TestAtomicityTestsCanFail checks that the atomicity tests catch the
@@ -86,16 +90,17 @@ type gapStore struct {
 	wmu sync.Mutex
 }
 
-func (s *gapStore) UpdateValue(_ context.Context, ws, path string, v json.RawMessage) (bool, error) {
+func (s *gapStore) UpdateValue(_ context.Context, ws, path, typ string, v json.RawMessage) (bool, error) {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	s.mu.Lock()
 	r, ok := s.entries[ws+"\x00"+path]
-	delete(s.entries, ws+"\x00"+path)
-	s.mu.Unlock()
-	if !ok {
+	if !ok || r.Type != typ {
+		s.mu.Unlock()
 		return false, nil
 	}
+	delete(s.entries, ws+"\x00"+path)
+	s.mu.Unlock()
 	time.Sleep(time.Microsecond)
 	s.mu.Lock()
 	s.entries[ws+"\x00"+path] = wl.Resource{Type: r.Type, Value: append(json.RawMessage(nil), v...)}
@@ -120,5 +125,53 @@ func TestContractCatchesGapsAndLostTypes(t *testing.T) {
 	}
 	if problems := typeProblems(&stateOnlyStore{brokenStore{entries: map[string]wl.Resource{}}}); len(problems) == 0 {
 		t.Error("the type test found nothing wrong in a store that keeps every entry as state")
+	}
+}
+
+// twoStepStore checks an update's or a delete's type under the lock, then
+// writes under a second hold of it: an entry another writer put at the path
+// in between is changed or removed whatever its type.
+type twoStepStore struct{ brokenStore }
+
+func (s *twoStepStore) holds(ws, path, typ string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.entries[ws+"\x00"+path]
+	return ok && r.Type == typ
+}
+
+func (s *twoStepStore) UpdateValue(_ context.Context, ws, path, typ string, v json.RawMessage) (bool, error) {
+	if !s.holds(ws, path, typ) {
+		return false, nil
+	}
+	runtime.Gosched()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.entries[ws+"\x00"+path]
+	if !ok {
+		return false, nil
+	}
+	s.entries[ws+"\x00"+path] = wl.Resource{Type: r.Type, Value: append(json.RawMessage(nil), v...)}
+	return true, nil
+}
+
+func (s *twoStepStore) Delete(_ context.Context, ws, path, typ string) (bool, error) {
+	if !s.holds(ws, path, typ) {
+		return false, nil
+	}
+	runtime.Gosched()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.entries[ws+"\x00"+path]
+	delete(s.entries, ws+"\x00"+path)
+	return ok, nil
+}
+
+// TestTypedWriteTestCatchesTwoSteps checks that the typed-write test finds a
+// store that checks the type and writes in two steps.
+func TestTypedWriteTestCatchesTwoSteps(t *testing.T) {
+	problems, cycles := typedWriteProblems(&twoStepStore{brokenStore{entries: map[string]wl.Resource{}}}, time.Second)
+	if len(problems) == 0 {
+		t.Errorf("the typed-write test found nothing wrong in %d cycles of a store that checks and writes in two steps", cycles)
 	}
 }

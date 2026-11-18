@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,8 @@ var cases = []struct {
 	{"CreateAtTakenPath", createTaken},
 	{"UpdateKeepsTheType", updateKeepsType},
 	{"OtherTypesAreKept", otherTypes},
+	{"WritesCheckTheType", writesCheckType},
+	{"TypedWritesAreAtomic", typedWritesAtomic},
 	{"UpdateMissingCreatesNothing", updateMissing},
 	{"Delete", deleteEntry},
 	{"WorkspacesAreApart", workspaces},
@@ -135,7 +138,7 @@ func createTaken(t *testing.T, s wl.ResourceStore) {
 // updateKeepsType: an update replaces the value and keeps the type.
 func updateKeepsType(t *testing.T, s wl.ResourceStore) {
 	mustCreate(t, s, ws, "f/st/upd", wl.Resource{Type: "state", Value: json.RawMessage(`1`)})
-	ok, err := s.UpdateValue(context.Background(), ws, "f/st/upd", json.RawMessage(`{"n":2}`))
+	ok, err := s.UpdateValue(context.Background(), ws, "f/st/upd", "state", json.RawMessage(`{"n":2}`))
 	if err != nil || !ok {
 		t.Fatalf("UpdateValue = %v, %v; want true, nil", ok, err)
 	}
@@ -160,7 +163,7 @@ func typeProblems(s wl.ResourceStore) (problems []string) {
 	if got, ok, err := s.Get(ctx, ws, "f/st/other"); err != nil || !ok || got.Type != "wl_other" {
 		problems = append(problems, fmt.Sprintf("after Create, Get = type %q, %v, %v; want type wl_other", got.Type, ok, err))
 	}
-	if ok, err := s.UpdateValue(ctx, ws, "f/st/other", json.RawMessage(`2`)); err != nil || !ok {
+	if ok, err := s.UpdateValue(ctx, ws, "f/st/other", "wl_other", json.RawMessage(`2`)); err != nil || !ok {
 		return append(problems, fmt.Sprintf("UpdateValue = %v, %v; want true, nil", ok, err))
 	}
 	if got, ok, err := s.Get(ctx, ws, "f/st/other"); err != nil || !ok || got.Type != "wl_other" || string(got.Value) != "2" {
@@ -169,10 +172,111 @@ func typeProblems(s wl.ResourceStore) (problems []string) {
 	return problems
 }
 
+// writesCheckType: an update or a delete for a type acts only on an entry
+// of that type: for another type it reports false and changes nothing.
+func writesCheckType(t *testing.T, s wl.ResourceStore) {
+	ctx := context.Background()
+	st := wl.Resource{Type: "state", Value: json.RawMessage(`"s"`)}
+	other := wl.Resource{Type: "wl_other", Value: json.RawMessage(`"o"`)}
+	mustCreate(t, s, ws, "f/st/typed-s", st)
+	mustCreate(t, s, ws, "f/st/typed-o", other)
+	for _, c := range []struct {
+		path, typ string
+		want      wl.Resource
+	}{{"f/st/typed-s", "wl_other", st}, {"f/st/typed-o", "state", other}} {
+		if ok, err := s.UpdateValue(ctx, ws, c.path, c.typ, json.RawMessage(`"changed"`)); err != nil || ok {
+			t.Errorf("UpdateValue(%s) for type %s = %v, %v; want false, nil", c.path, c.typ, ok, err)
+		}
+		if ok, err := s.Delete(ctx, ws, c.path, c.typ); err != nil || ok {
+			t.Errorf("Delete(%s) for type %s = %v, %v; want false, nil", c.path, c.typ, ok, err)
+		}
+		wantEntry(t, s, ws, c.path, c.want)
+	}
+}
+
+// typedWritesAtomic: while one writer turns a path from a state into an
+// entry of another type and back, eight others update and delete it as a
+// state; the other type's entry is never changed or removed. A store that
+// checks the type and then writes in a second step fails.
+func typedWritesAtomic(t *testing.T, s wl.ResourceStore) {
+	problems, cycles := typedWriteProblems(s, duration())
+	for _, p := range problems {
+		t.Error(p)
+	}
+	if cycles == 0 {
+		t.Fatalf("no replacement cycle in %s", duration())
+	}
+	t.Logf("%d replacement cycles", cycles)
+}
+
+// typedWriteProblems runs typedWritesAtomic's writers for d, and returns
+// what the replacer found wrong, at most a few problems, and its cycles.
+func typedWriteProblems(s wl.ResourceStore, d time.Duration) (problems []string, cycles int) {
+	const path = "f/st/replaced"
+	ctx := context.Background()
+	other := wl.Resource{Type: "wl_other", Value: json.RawMessage(`"other"`)}
+	deadline := time.Now().Add(d)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				var err error
+				if i%2 == 0 {
+					_, err = s.UpdateValue(ctx, ws, path, "state", json.RawMessage(`"updated as state"`))
+				} else {
+					_, err = s.Delete(ctx, ws, path, "state")
+				}
+				if err != nil {
+					return
+				}
+			}
+		})
+	}
+	for time.Now().Before(deadline) && len(problems) < 5 {
+		if ok, err := s.Create(ctx, ws, path, wl.Resource{Type: "state", Value: json.RawMessage(`"seed"`)}); err != nil || !ok {
+			problems = append(problems, fmt.Sprintf("Create of the state = %v, %v; want true, nil (only the replacer creates)", ok, err))
+			break
+		}
+		if _, err := s.Delete(ctx, ws, path, "state"); err != nil {
+			problems = append(problems, "Delete of the state: "+err.Error())
+			break
+		}
+		if ok, err := s.Create(ctx, ws, path, other); err != nil || !ok {
+			problems = append(problems, fmt.Sprintf("Create of the other type = %v, %v; want true, nil", ok, err))
+			break
+		}
+		runtime.Gosched()
+		switch r, ok, err := s.Get(ctx, ws, path); {
+		case err != nil:
+			problems = append(problems, "Get: "+err.Error())
+		case !ok:
+			problems = append(problems, "a delete for type state removed an entry of type wl_other")
+		case r.Type != other.Type || !bytes.Equal(r.Value, other.Value):
+			problems = append(problems, fmt.Sprintf("an entry of type wl_other became type %q value %s", r.Type, r.Value))
+		}
+		if ok, err := s.Delete(ctx, ws, path, other.Type); err != nil {
+			problems = append(problems, "Delete of the other type: "+err.Error())
+			break
+		} else if !ok {
+			problems = append(problems, "the entry of type wl_other was gone before its own delete")
+		}
+		cycles++
+	}
+	close(stop)
+	wg.Wait()
+	return problems, cycles
+}
+
 // updateMissing: an update of a missing path reports false and creates
 // nothing.
 func updateMissing(t *testing.T, s wl.ResourceStore) {
-	ok, err := s.UpdateValue(context.Background(), ws, "f/st/none", json.RawMessage(`1`))
+	ok, err := s.UpdateValue(context.Background(), ws, "f/st/none", "state", json.RawMessage(`1`))
 	if err != nil || ok {
 		t.Fatalf("UpdateValue of a missing path = %v, %v; want false, nil", ok, err)
 	}
@@ -184,7 +288,7 @@ func updateMissing(t *testing.T, s wl.ResourceStore) {
 func deleteEntry(t *testing.T, s wl.ResourceStore) {
 	mustCreate(t, s, ws, "f/st/del", wl.Resource{Type: "state", Value: json.RawMessage(`1`)})
 	for i, want := range []bool{true, false} {
-		ok, err := s.Delete(context.Background(), ws, "f/st/del")
+		ok, err := s.Delete(context.Background(), ws, "f/st/del", "state")
 		if err != nil || ok != want {
 			t.Fatalf("Delete #%d = %v, %v; want %v, nil", i+1, ok, err, want)
 		}
@@ -205,11 +309,11 @@ func workspaces(t *testing.T, s wl.ResourceStore) {
 	if !mustCreate(t, s, "ws-b", "f/st/p", b) {
 		t.Fatal("Create in a second workspace reported false")
 	}
-	if ok, err := s.UpdateValue(context.Background(), "ws-b", "f/st/p", json.RawMessage(`"b2"`)); err != nil || !ok {
+	if ok, err := s.UpdateValue(context.Background(), "ws-b", "f/st/p", "state", json.RawMessage(`"b2"`)); err != nil || !ok {
 		t.Fatalf("UpdateValue = %v, %v", ok, err)
 	}
 	wantEntry(t, s, "ws-a", "f/st/p", a)
-	if ok, err := s.Delete(context.Background(), "ws-a", "f/st/p"); err != nil || !ok {
+	if ok, err := s.Delete(context.Background(), "ws-a", "f/st/p", "state"); err != nil || !ok {
 		t.Fatalf("Delete = %v, %v", ok, err)
 	}
 	wantEntry(t, s, "ws-b", "f/st/p", wl.Resource{Type: "state", Value: json.RawMessage(`"b2"`)})
@@ -250,7 +354,7 @@ func notAliased(t *testing.T, s wl.ResourceStore) {
 	got.Value[5] = '8'
 	wantEntry(t, s, ws, "f/st/alias", wl.Resource{Type: "state", Value: json.RawMessage(`{"n":1}`)})
 	upd := []byte(`{"n":2}`)
-	if ok, err := s.UpdateValue(context.Background(), ws, "f/st/alias", upd); err != nil || !ok {
+	if ok, err := s.UpdateValue(context.Background(), ws, "f/st/alias", "state", upd); err != nil || !ok {
 		t.Fatalf("UpdateValue = %v, %v", ok, err)
 	}
 	upd[5] = '7'
@@ -270,10 +374,10 @@ func canceled(t *testing.T, s wl.ResourceStore) {
 	if _, err := s.Create(ctx, ws, "f/st/new", wl.Resource{Type: "state", Value: json.RawMessage(`1`)}); err == nil {
 		t.Error("Create with a canceled context returned no error")
 	}
-	if _, err := s.UpdateValue(ctx, ws, "f/st/kept", json.RawMessage(`"changed"`)); err == nil {
+	if _, err := s.UpdateValue(ctx, ws, "f/st/kept", "state", json.RawMessage(`"changed"`)); err == nil {
 		t.Error("UpdateValue with a canceled context returned no error")
 	}
-	if _, err := s.Delete(ctx, ws, "f/st/kept"); err == nil {
+	if _, err := s.Delete(ctx, ws, "f/st/kept", "state"); err == nil {
 		t.Error("Delete with a canceled context returned no error")
 	}
 	wantNone(t, s, ws, "f/st/new")
@@ -351,7 +455,7 @@ func tornReads(s wl.ResourceStore, d time.Duration) (problems []string, reads, w
 	for i := range writers {
 		wg.Go(func() {
 			for time.Now().Before(deadline) {
-				ok, err := s.UpdateValue(context.Background(), ws, "f/st/torn", vals[i])
+				ok, err := s.UpdateValue(context.Background(), ws, "f/st/torn", "state", vals[i])
 				if err != nil || !ok {
 					errs <- fmt.Sprintf("UpdateValue of the seeded path = %v, %v; want true, nil", ok, err)
 					return
@@ -472,9 +576,9 @@ func interleaved(t *testing.T, s wl.ResourceStore) {
 				case 0:
 					_, err = s.Create(context.Background(), ws, "f/st/mix", wl.Resource{Type: "state", Value: vals[i]})
 				case 1:
-					_, err = s.UpdateValue(context.Background(), ws, "f/st/mix", vals[i])
+					_, err = s.UpdateValue(context.Background(), ws, "f/st/mix", "state", vals[i])
 				case 2:
-					_, err = s.Delete(context.Background(), ws, "f/st/mix")
+					_, err = s.Delete(context.Background(), ws, "f/st/mix", "state")
 				default:
 					var r wl.Resource
 					var ok bool

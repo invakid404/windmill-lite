@@ -171,9 +171,10 @@ func (s *Services) CreateStateResource(ctx context.Context, path string, value j
 // of another type with ErrNotStateResource; no entry answers 404
 // `Not found: Resource <path> not found` and creates nothing.
 //
-// The type is read before the update, in two operations of the store, so
-// an entry of another type that a host's own writer puts at the path in
-// between is updated; windmill-lite itself creates only state.
+// The store writes only an entry of type state, in the same atomic step as
+// its check, so an entry of another type that a host's own writer puts at
+// the path after the first check is never changed: the update then reads
+// the path again to answer as that entry calls for.
 //
 // [WA-13]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/conformance.md#wa-13
 func (s *Services) UpdateStateResource(ctx context.Context, path string, value json.RawMessage) error {
@@ -185,20 +186,20 @@ func (s *Services) UpdateStateResource(ctx context.Context, path string, value j
 	if e != nil {
 		return e
 	}
-	ok, err := s.ResourceStore.UpdateValue(ctx, s.storeWorkspace(), path, v)
+	ok, err := s.ResourceStore.UpdateValue(ctx, s.storeWorkspace(), path, StateType, v)
 	switch {
 	case err != nil:
 		return readError(storeFailure{err})
 	case !ok:
-		return missing
+		return s.notWritten(ctx, path, missing)
 	}
 	return nil
 }
 
 // DeleteStateResource answers deleteResource ([WA-13]/f): the stored state
 // at path is removed. As UpdateStateResource, a provider's resource and an
-// entry of another type are refused; no entry answers 404 `Not found:
-// Resource not found at name <path>`.
+// entry of another type are refused, the latter in the store's atomic step;
+// no entry answers 404 `Not found: Resource not found at name <path>`.
 //
 // [WA-13]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/conformance.md#wa-13
 func (s *Services) DeleteStateResource(ctx context.Context, path string) error {
@@ -206,14 +207,26 @@ func (s *Services) DeleteStateResource(ctx context.Context, path string) error {
 	if err := s.writableState(ctx, path, missing); err != nil {
 		return err
 	}
-	ok, err := s.ResourceStore.Delete(ctx, s.storeWorkspace(), path)
+	ok, err := s.ResourceStore.Delete(ctx, s.storeWorkspace(), path, StateType)
 	switch {
 	case err != nil:
 		return readError(storeFailure{err})
 	case !ok:
-		return missing
+		return s.notWritten(ctx, path, missing)
 	}
 	return nil
+}
+
+// notWritten answers a conditional write that found no state at path after
+// writableState had found one: the entry was deleted (missing) or replaced
+// by one of another type (ErrNotStateResource) in between.
+func (s *Services) notWritten(ctx context.Context, path string, missing *Error) error {
+	if err := s.writableState(ctx, path, missing); err != nil {
+		return err
+	}
+	// A state is back at the path: the write raced a delete and a create,
+	// and lost to the delete.
+	return missing
 }
 
 // writableState checks that path names a stored entry of type state that no

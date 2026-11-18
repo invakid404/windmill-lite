@@ -108,10 +108,12 @@ func (failingStore) Get(context.Context, string, string) (Resource, bool, error)
 func (failingStore) Create(context.Context, string, string, Resource) (bool, error) {
 	return false, errOutage
 }
-func (failingStore) UpdateValue(context.Context, string, string, json.RawMessage) (bool, error) {
+func (failingStore) UpdateValue(context.Context, string, string, string, json.RawMessage) (bool, error) {
 	return false, errOutage
 }
-func (failingStore) Delete(context.Context, string, string) (bool, error) { return false, errOutage }
+func (failingStore) Delete(context.Context, string, string, string) (bool, error) {
+	return false, errOutage
+}
 
 func wantError(t *testing.T, what string, err error, status int, body string) {
 	t.Helper()
@@ -214,13 +216,13 @@ func TestStoreReadOrder(t *testing.T) {
 			t.Errorf("get_value_interpolated %s = %s, %v; want %s", path, raw, err, want)
 		}
 	}
-	if _, err := store.UpdateValue(ctx, DefaultHost.Workspace, "f/x/s", json.RawMessage(`"changed"`)); err != nil {
+	if _, err := store.UpdateValue(ctx, DefaultHost.Workspace, "f/x/s", StateType, json.RawMessage(`"changed"`)); err != nil {
 		t.Fatal(err)
 	}
 	if raw, _ := s.RawResource(ctx, "f/x/s"); string(raw) != `"changed"` {
 		t.Errorf("a stored entry read again = %s, want the new value: the store is never cached", raw)
 	}
-	if _, err := store.Delete(ctx, DefaultHost.Workspace, "f/x/s"); err != nil {
+	if _, err := store.Delete(ctx, DefaultHost.Workspace, "f/x/s", StateType); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.ResourceExists(ctx, "f/x/s"); ok {
@@ -277,5 +279,72 @@ func TestWithProvidersSharesTheStore(t *testing.T) {
 	}
 	if r, ok, err := store.Get(ctx, "ws", "f/x/run"); err != nil || !ok || string(r.Value) != "2" {
 		t.Errorf("the runtime's store holds %+v %v %v after the run's write; want 2 in workspace ws", r, ok, err)
+	}
+}
+
+// replacingStore is a memory store whose host replaces the entry at a path
+// with one of another type just before each UpdateValue or Delete: after
+// the write rules' first check found a state there, before their write.
+type replacingStore struct {
+	*MemoryResourceStore
+	replace func()
+}
+
+func (s replacingStore) UpdateValue(ctx context.Context, ws, path, typ string, v json.RawMessage) (bool, error) {
+	s.replace()
+	return s.MemoryResourceStore.UpdateValue(ctx, ws, path, typ, v)
+}
+
+func (s replacingStore) Delete(ctx context.Context, ws, path, typ string) (bool, error) {
+	s.replace()
+	return s.MemoryResourceStore.Delete(ctx, ws, path, typ)
+}
+
+// TestStateWritesNeverChangeAReplacement checks that an update or a delete
+// of a state never changes an entry of another type that a host put at the
+// path after the write rules checked it: the store's conditional write
+// refuses it, and the route answers as for that entry (the other-type 501),
+// leaving it as the host wrote it. When the host deleted the state instead,
+// the answer is the recorded 404.
+func TestStateWritesNeverChangeAReplacement(t *testing.T) {
+	ctx := context.Background()
+	host := Resource{Type: "wl_host", Value: json.RawMessage(`{"host":true}`)}
+	for _, op := range []string{"update", "delete"} {
+		mem := NewMemoryResourceStore()
+		store := replacingStore{mem, func() {
+			if _, err := mem.Delete(ctx, "ws", "f/x/s", StateType); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := mem.Create(ctx, "ws", "f/x/s", host); err != nil {
+				t.Fatal(err)
+			}
+		}}
+		s := &Services{ResourceStore: store, Workspace: "ws"}
+		if err := s.CreateStateResource(ctx, "f/x/s", json.RawMessage(`1`)); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if op == "update" {
+			err = s.UpdateStateResource(ctx, "f/x/s", json.RawMessage(`2`))
+		} else {
+			err = s.DeleteStateResource(ctx, "f/x/s")
+		}
+		if !errors.Is(err, ErrNotStateResource) {
+			t.Errorf("%s across a replacement = %v, want ErrNotStateResource", op, err)
+		}
+		if r, ok, _ := mem.Get(ctx, "ws", "f/x/s"); !ok || r.Type != host.Type || string(r.Value) != string(host.Value) {
+			t.Errorf("%s across a replacement left %+v %v, want the host's entry unchanged", op, r, ok)
+		}
+
+		gone := NewMemoryResourceStore()
+		s = &Services{ResourceStore: replacingStore{gone, func() { gone.Delete(ctx, "ws", "f/x/s", StateType) }}, Workspace: "ws"}
+		if err := s.CreateStateResource(ctx, "f/x/s", json.RawMessage(`1`)); err != nil {
+			t.Fatal(err)
+		}
+		if op == "update" {
+			wantError(t, "an update across a delete", s.UpdateStateResource(ctx, "f/x/s", json.RawMessage(`2`)), 404, "Not found: Resource f/x/s not found")
+		} else {
+			wantError(t, "a delete across a delete", s.DeleteStateResource(ctx, "f/x/s"), 404, "Not found: Resource not found at name f/x/s")
+		}
 	}
 }
