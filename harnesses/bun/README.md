@@ -287,7 +287,7 @@ sees them.
 | Option | Type | Default | What it sets |
 |---|---|---|---|
 | `engine` | `string` | Required | The path of the `windmill-lite` engine binary |
-| `bundle` | `string` | Required | The bundle directory, which the engine and this process both load. Give an absolute path: in version 0.2.0, `connect()` fails on a relative one. |
+| `bundle` | `string` | Required | The bundle directory, which the engine and this process both load. Give an absolute path: in versions 0.2.0 and 0.3.0, `connect()` fails on a relative one. |
 | `workdir` | `string` | Required | A writable directory that is already this process's working directory. The assets go there, and the engine writes each step's `args.json` there. |
 | `engineArgs` | `string[]` | `[]` | Arguments before the engine's `host` command |
 | `engineFlags` | `string[]` | `[]` | Flags after the `host` command's own, such as `-variables`, `-resources` or `-cpuprofile` |
@@ -299,7 +299,7 @@ sees them.
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
-| `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Not in version 0.2.0. |
+| `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |
 | `onEngineExit` | `(status: { code: number \| null; signal: string \| null }) => void` | Exit with code 1 | Called when the connection to the engine ends other than by `close()` |
 | `diag` | `(line: string) => void` | Write to stderr | Receives each diagnostic line |
 
