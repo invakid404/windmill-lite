@@ -74,7 +74,10 @@ export type ConnectOptions = {
    * alike, from that read. Windmill reads them again for each job, so a
    * value that changes during a run reaches its later steps there, and
    * here only the next run. $WM_* strings still resolve for each job, and
-   * a variable a step updates is read again. */
+   * a variable a step updates is read again. The cache keeps only the
+   * host's and the bundle's answers: a state that steps wrote to the
+   * resource store is read again each time, so a run sees its latest
+   * value. */
   readCache?: boolean;
   /** The store of the resources that steps write through the job API: the
    * state of the stock client's setState (WA-13), which reads find after
