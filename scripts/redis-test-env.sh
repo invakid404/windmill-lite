@@ -7,7 +7,8 @@
 #
 #   scripts/redis-test-env.sh up    starts them and prints the variables
 #                                   the tests read, one NAME=value a line
-#   scripts/redis-test-env.sh down  removes the containers and the network
+#   scripts/redis-test-env.sh down  removes the containers, their anonymous
+#                                   volumes and the network
 #
 # WL_REDIS_TEST_NAME names the network and prefixes the containers'
 # names (default wl-redis-test). No server has a password.
@@ -60,8 +61,17 @@ up)
 	echo "WL_TEST_TOXIPROXY=$toxiproxy:8474"
 	;;
 down)
-	docker rm -f "$name-master" "$name-sentinel" "$name-toxiproxy" >/dev/null 2>&1 || true
-	docker network rm "$name" >/dev/null 2>&1 || true
+	# The containers that exist, with their anonymous volumes (the Redis
+	# image declares one for /data), then the network. A failure to remove
+	# one fails the command.
+	for c in master sentinel toxiproxy; do
+		if docker container inspect "$name-$c" >/dev/null 2>&1; then
+			docker rm -f -v "$name-$c" >/dev/null
+		fi
+	done
+	if docker network inspect "$name" >/dev/null 2>&1; then
+		docker network rm "$name" >/dev/null
+	fi
 	;;
 *)
 	echo "usage: scripts/redis-test-env.sh up|down" >&2
