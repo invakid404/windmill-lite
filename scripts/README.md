@@ -4,8 +4,9 @@
 warnings only. The [release helper](#release-helper) serves the release
 workflow and the npm package's packaging test. The
 [Renovate auto-ack](#renovate-auto-ack) scripts serve the auto-ack
-workflow, which is active. This README covers the scripts in this
-directory; none of them is part of windmill-lite itself.
+workflow, which is active, and `redis-test-env.sh` the Redis CI job.
+This README covers the scripts in this directory; none of them is part of
+windmill-lite itself.
 
 These are the repository's helper scripts, in Python and shell. CI runs
 their unit tests in the `Test repository scripts` step
@@ -18,6 +19,7 @@ their unit tests in the `Test repository scripts` step
 | `memoria-auto-ack.sh` | Acknowledges the README reviews that a safe Renovate bump makes pending | The [auto-ack workflow](../.github/workflows/memoria-auto-ack.yml) only |
 | `check-go-mod-diff.py` | Accepts a `go.mod` diff that only bumps versions | `memoria-auto-ack.sh` |
 | `check-workflow-yaml-diff.py` | Accepts a workflow diff that only bumps action pins | `memoria-auto-ack.sh` |
+| `redis-test-env.sh` | Starts the Redis, Sentinel and Toxiproxy containers that the Redis store's tests use, pinned by digest, and prints their variables (`up`); removes them (`down`) | The Redis job of the [CI workflow](../.github/workflows/ci.yml); contributors on Linux with Docker ([wl/redisstore](../wl/redisstore/README.md#tests)) |
 | `test_check_docs.py`, `test_release.py`, `test_check_go_mod_diff.py` | The unit tests | CI's `Test repository scripts` step; contributors |
 
 ## Documentation check
