@@ -72,8 +72,9 @@ run on it lists D24 in its trace; a root script's run has no trace.
 - **Client options.** Other query parameters set the go-redis client's
   options, such as `dial_timeout=3s` or `pool_size=20`.
 - **What the start refuses:** a scheme other than `redis://` or `rediss://`
-  (`unix://` included), a URL without a host, and a master name other than
-  letters, digits, `.`, `_` and `-`.
+  (`unix://` included), a URL without a host, and a malformed query pair.
+  It also refuses a master name other than letters, digits, `.`, `_` and
+  `-`, or one that holds one of the URL's passwords.
 - **Redis Cluster** is not supported yet. The store reaches one server or
   one Sentinel-managed master.
 
