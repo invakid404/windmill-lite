@@ -334,23 +334,28 @@ func respellNumber(t string, create bool) string {
 // wholeText is the integer that the integer mantissa mant times ten to the
 // power exp is, and false when it is not whole.
 func wholeText(mant, exp string) (string, bool) {
-	e, err := strconv.Atoi(exp)
-	// An exponent beyond ±65536 makes no whole number this rule writes out:
-	// a large one would spell too many digits, and a very negative one,
-	// however long its mantissa, leaves a fraction (and could not be
-	// negated at the smallest int).
-	if err != nil || e > 1<<16 || e < -(1<<16) {
-		return "", false
-	}
 	neg := strings.HasPrefix(mant, "-")
 	digits := strings.TrimLeft(strings.TrimPrefix(mant, "-"), "0")
 	if digits == "" {
+		// Zero, whatever its exponent.
 		return "0", true
 	}
+	e, err := strconv.Atoi(exp)
 	switch {
+	case err != nil:
+		// An exponent beyond int's range spells no whole number here: too
+		// many digits, or a fraction that no mantissa is long enough to
+		// cover.
+		return "", false
 	case e >= 0:
+		if e > 1<<16 {
+			// More than 65536 zeros: left to the float rule.
+			return "", false
+		}
 		digits += strings.Repeat("0", e)
-	case len(digits) > -e && strings.Trim(digits[len(digits)+e:], "0") == "":
+	case e > -len(digits) && strings.Trim(digits[len(digits)+e:], "0") == "":
+		// The mantissa's length is negated, never e, which the smallest
+		// int cannot be.
 		digits = digits[:len(digits)+e]
 	default:
 		return "", false

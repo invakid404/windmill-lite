@@ -174,7 +174,8 @@ delete a resource that the host or the bundle provides: that call answers
 501.
 
 - With `ResourceStore` left nil, each runtime makes a memory store, which
-  `Close` releases with its entries. `NewMemoryResourceStore` returns one
+  `Close` releases with its entries: a read that outlives the runtime
+  fails as an outage of the store. `NewMemoryResourceStore` returns one
   that the host keeps: its entries live as long as the host holds it, and
   only the runtimes given it see them. The trace of each run on a memory store lists `D24`, a
   [deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations):

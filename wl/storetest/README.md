@@ -30,7 +30,7 @@ as for wrong answers.
 | `UpdateKeepsTheType` | An update replaces the value and keeps the type. |
 | `OtherTypesAreKept` | An entry of a type other than `state` keeps that type through a round trip and an update. |
 | `WritesCheckTheType` | An update or a delete for one type reports `false` on an entry of another type and changes nothing. |
-| `TypedWritesAreAtomic` | While one writer turns a path from a `state` entry into one of another type and back, eight others update and delete it as a `state`: the other type's entry is never changed or removed. |
+| `TypedWritesAreAtomic` | While one writer turns a path from a `state` entry into one of another type and back, eight others update and delete it as a `state`. The other type's entry is never changed or removed, the competing writers return no error, and both their updates and their deletes run during the cycles. |
 | `UpdateMissingCreatesNothing` | An update of a missing path reports `false` and creates nothing. |
 | `Delete` | A delete removes the entry once; the path can then be created again. |
 | `WorkspacesAreApart` | One path in two workspaces names two entries. |
@@ -42,8 +42,9 @@ as for wrong answers.
 | `CreateRace` | Of 64 creates at one path at once, exactly one reports `true`, and the entry holds its value. |
 | `InterleavedWritesEndLegal` | Creates, updates, deletes and reads of one path in any order leave it missing or holding one whole written value. |
 
-With `-short`, the two timed tests run for 1 s each. CI runs the suite
-without `-short`.
+Three tests are timed: `NoTornRead`, `InterleavedWritesEndLegal` and
+`TypedWritesAreAtomic` run for 5 s each, or 1 s each with `-short`. CI
+runs the suite without `-short`.
 
 ## Work on storetest
 

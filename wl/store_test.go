@@ -6,7 +6,10 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
@@ -131,25 +134,77 @@ func TestResourceStoreOnBun(t *testing.T) {
 	if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == code && w.Message == engineMessage }) {
 		t.Errorf("warnings %+v, want %s %q among them", res.Warnings, code, engineMessage)
 	}
+	// A script root warns as a flow does, for its platform call and for an
+	// argument the engine resolves; its trace stays nil.
+	for _, c := range []struct{ args, message string }{
+		{`{"value":1}`, message},
+		{`{"value":"$res:f/s/st"}`, engineMessage},
+	} {
+		res, err := failing.Run(context.Background(), "f/s/write", json.RawMessage(c.args), RunOptions{Kind: KindScript})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusFailure || res.Trace != nil || !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == code && w.Message == c.message }) {
+			t.Errorf("script root with %s: %s %s, trace %v, warnings %+v; want a failure, no trace and %q", c.args, res.Status, res.Result, res.Trace != nil, res.Warnings, c.message)
+		}
+	}
 }
 
-// TestCloseReleasesItsOwnStore checks that Close drops the memory store
-// that Open made, and keeps a store that the host gave, with its entries.
+// TestCloseReleasesItsOwnStore checks that Close releases the memory store
+// that Open made, while readers still use it: every read overlapping the
+// teardown returns the entry or the store's failure, never a missing entry,
+// and every read after it fails. A store that the host gave keeps its
+// entries. Run it with -race.
 func TestCloseReleasesItsOwnStore(t *testing.T) {
 	dir := writeTestBundle(t, Version(), nil, nil)
 	own, err := Open(dir, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if own.services.ResourceStore == nil {
-		t.Fatal("Open made no resource store")
+	ctx := context.Background()
+	services := own.services
+	if err := services.CreateStateResource(ctx, "f/x/kept", json.RawMessage(`1`)); err != nil {
+		t.Fatal(err)
 	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	var reads, failures atomic.Int64
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				raw, err := services.RawResource(ctx, "f/x/kept")
+				reads.Add(1)
+				var pe *platform.Error
+				switch {
+				case err == nil && string(raw) == "1":
+				case errors.As(err, &pe) && pe.StoreFailure:
+					failures.Add(1)
+				default:
+					t.Errorf("a read during Close = %s, %v; want the entry or the store's failure", raw, err)
+					return
+				}
+			}
+		})
+	}
+	time.Sleep(20 * time.Millisecond)
 	own.Close()
-	if own.services.ResourceStore != nil {
-		t.Error("a closed runtime still holds the memory store that Open made")
+	time.Sleep(20 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+	if failures.Load() == 0 {
+		t.Errorf("no read after Close failed (%d reads): the store was not released", reads.Load())
 	}
+	if _, _, err := own.ownStore.Get(ctx, platform.DefaultHost.Workspace, "f/x/kept"); !errors.Is(err, platform.ErrStoreReleased) {
+		t.Errorf("Get on the released store = %v, want ErrStoreReleased", err)
+	}
+
 	given := NewMemoryResourceStore()
-	if _, err := given.Create(context.Background(), "ws", "f/x/kept", Resource{Type: "state", Value: json.RawMessage(`1`)}); err != nil {
+	if _, err := given.Create(ctx, "ws", "f/x/kept", Resource{Type: "state", Value: json.RawMessage(`1`)}); err != nil {
 		t.Fatal(err)
 	}
 	rt, err := Open(dir, Options{ResourceStore: given})
@@ -157,10 +212,10 @@ func TestCloseReleasesItsOwnStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt.Close()
-	if rt.services.ResourceStore != given {
-		t.Error("Close dropped a store that the host gave")
+	if rt.ownStore != nil {
+		t.Error("Open marked a store that the host gave as its own")
 	}
-	if _, ok, _ := given.Get(context.Background(), "ws", "f/x/kept"); !ok {
-		t.Error("Close changed a store that the host gave")
+	if _, ok, err := given.Get(ctx, "ws", "f/x/kept"); err != nil || !ok {
+		t.Errorf("Close changed a store that the host gave: %v, %v", ok, err)
 	}
 }

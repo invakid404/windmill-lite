@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"sync"
 )
@@ -59,12 +60,30 @@ type ResourceStore interface {
 // memory: one map behind one mutex, whose entries are never changed in
 // place, since every write installs a new entry with its own copy of the
 // bytes, and whose reads return copies. Its entries last as long as the
-// value; a runtime that makes its own loses them at Close (deviation D24
+// value; a runtime that makes its own releases it at Close (deviation D24
 // of ADR 0001). The zero value is not usable: NewMemoryResourceStore makes
 // one.
 type MemoryResourceStore struct {
 	mu      sync.Mutex
 	entries map[storeKey]Resource
+	// released says that ReleaseMemoryResourceStore dropped the entries:
+	// every operation then fails with ErrStoreReleased.
+	released bool
+}
+
+// ErrStoreReleased is the error of every operation on a memory store that
+// its runtime released at Close: a read that outlives the runtime fails as
+// an outage of the store, never as a missing entry.
+var ErrStoreReleased = errors.New("the memory resource store was released when its runtime closed")
+
+// ReleaseMemoryResourceStore drops m's entries under its lock, so that a
+// closed runtime that still holds m holds none of them, and makes every
+// later operation fail with ErrStoreReleased. Operations in flight finish
+// first: they hold the lock. Only the runtime that made m calls it.
+func ReleaseMemoryResourceStore(m *MemoryResourceStore) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries, m.released = nil, true
 }
 
 type storeKey struct{ workspace, path string }
@@ -81,7 +100,11 @@ func (m *MemoryResourceStore) Get(ctx context.Context, workspace, path string) (
 	}
 	m.mu.Lock()
 	r, ok := m.entries[storeKey{workspace, path}]
+	released := m.released
 	m.mu.Unlock()
+	if released {
+		return Resource{}, false, ErrStoreReleased
+	}
 	if !ok {
 		return Resource{}, false, nil
 	}
@@ -100,6 +123,9 @@ func (m *MemoryResourceStore) Create(ctx context.Context, workspace, path string
 	k := storeKey{workspace, path}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.released {
+		return false, ErrStoreReleased
+	}
 	if _, ok := m.entries[k]; ok {
 		return false, nil
 	}
@@ -118,6 +144,9 @@ func (m *MemoryResourceStore) UpdateValue(ctx context.Context, workspace, path, 
 	k := storeKey{workspace, path}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.released {
+		return false, ErrStoreReleased
+	}
 	old, ok := m.entries[k]
 	if !ok || old.Type != typ {
 		return false, nil
@@ -135,6 +164,9 @@ func (m *MemoryResourceStore) Delete(ctx context.Context, workspace, path, typ s
 	k := storeKey{workspace, path}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.released {
+		return false, ErrStoreReleased
+	}
 	if old, ok := m.entries[k]; !ok || old.Type != typ {
 		return false, nil
 	}

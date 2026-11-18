@@ -1390,8 +1390,9 @@ interface); `WA-Vn` findings were added during validation.
     the line and column after the closing brace for any layout.
   - **Numbers.** One rule per route fits every recorded spelling. After
     `update_value`, an integer without a fraction or an exponent that
-    fits 64 bits stays, and any other number becomes its shortest double
-    spelling, with `.0` after a whole value of at most 16 integer digits.
+    fits 64 bits stays, except `-0`, which becomes `0.0`; any other number
+    becomes its shortest double spelling, with `.0` after a whole value of
+    at most 16 integer digits.
     After a create, a whole number written without a `.` is that integer
     ([WA-13/i](conformance.md#wa-13)).
 

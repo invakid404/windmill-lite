@@ -210,7 +210,9 @@ func typedWritesAtomic(t *testing.T, s wl.ResourceStore) {
 }
 
 // typedWriteProblems runs typedWritesAtomic's writers for d, and returns
-// what the replacer found wrong, at most a few problems, and its cycles.
+// what the replacer found wrong (at most a few problems), the competing
+// writers' errors, a kind of competing write that never ran during the
+// cycles, and the replacer's cycles.
 func typedWriteProblems(s wl.ResourceStore, d time.Duration) (problems []string, cycles int) {
 	const path = "f/st/replaced"
 	ctx := context.Background()
@@ -218,6 +220,8 @@ func typedWriteProblems(s wl.ResourceStore, d time.Duration) (problems []string,
 	deadline := time.Now().Add(d)
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
+	var updates, deletes atomic.Int64
+	failed := make(chan string, 8)
 	for i := range 8 {
 		wg.Go(func() {
 			for {
@@ -226,18 +230,23 @@ func typedWriteProblems(s wl.ResourceStore, d time.Duration) (problems []string,
 					return
 				default:
 				}
-				var err error
 				if i%2 == 0 {
-					_, err = s.UpdateValue(ctx, ws, path, "state", json.RawMessage(`"updated as state"`))
+					if _, err := s.UpdateValue(ctx, ws, path, "state", json.RawMessage(`"updated as state"`)); err != nil {
+						failed <- "a competing UpdateValue: " + err.Error()
+						return
+					}
+					updates.Add(1)
 				} else {
-					_, err = s.Delete(ctx, ws, path, "state")
-				}
-				if err != nil {
-					return
+					if _, err := s.Delete(ctx, ws, path, "state"); err != nil {
+						failed <- "a competing Delete: " + err.Error()
+						return
+					}
+					deletes.Add(1)
 				}
 			}
 		})
 	}
+	updatesBefore, deletesBefore := updates.Load(), deletes.Load()
 	for time.Now().Before(deadline) && len(problems) < 5 {
 		if ok, err := s.Create(ctx, ws, path, wl.Resource{Type: "state", Value: json.RawMessage(`"seed"`)}); err != nil || !ok {
 			problems = append(problems, fmt.Sprintf("Create of the state = %v, %v; want true, nil (only the replacer creates)", ok, err))
@@ -268,8 +277,20 @@ func typedWriteProblems(s wl.ResourceStore, d time.Duration) (problems []string,
 		}
 		cycles++
 	}
+	// The competing writes must have run while the replacer cycled, or
+	// the cycles prove nothing.
+	if n := updates.Load() - updatesBefore; n == 0 {
+		problems = append(problems, "no competing UpdateValue ran during the replacement cycles")
+	}
+	if n := deletes.Load() - deletesBefore; n == 0 {
+		problems = append(problems, "no competing Delete ran during the replacement cycles")
+	}
 	close(stop)
 	wg.Wait()
+	close(failed)
+	for f := range failed {
+		problems = append(problems, f)
+	}
 	return problems, cycles
 }
 

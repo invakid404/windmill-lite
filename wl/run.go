@@ -189,7 +189,17 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
-		req := engine.ScriptRequest{ID: opts.ID, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
+		id := opts.ID
+		if id == "" {
+			id = newUUID()
+		}
+		// The script's job is its invocation's run: its platform calls,
+		// and the store failures they or its own argument reads meet,
+		// warn as a flow run's do.
+		calls := rt.exec.begin(id)
+		defer rt.exec.end(id)
+		ctx = calls.reportStoreFailures(ctx)
+		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -203,7 +213,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		if err != nil {
 			return nil, err
 		}
-		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result)}
+		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
 		switch {
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
@@ -258,13 +268,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		req.Hooks = settledHooks{Hooks: req.Hooks, settled: settled}
 	}
-	// A failure of the resource store in a read no platform call makes
-	// (a $res: argument, flow_env, resource()) is a warning of the run too.
-	ctx = platform.WithStoreFailureReport(ctx, func(err error) {
-		calls.mu.Lock()
-		defer calls.mu.Unlock()
-		calls.warnings = append(calls.warnings, Warning{Code: "resource_store_failed", Message: "engine read: Internal: " + err.Error()})
-	})
+	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
 		return nil, err
@@ -393,6 +397,17 @@ func (l *callLog) warned() []Warning {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]Warning(nil), l.warnings...)
+}
+
+// reportStoreFailures returns ctx with the report of the resource store's
+// failures in reads that no platform call makes (a $res: argument,
+// flow_env, resource()), which l keeps as warnings of the run.
+func (l *callLog) reportStoreFailures(ctx context.Context) context.Context {
+	return platform.WithStoreFailureReport(ctx, func(err error) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.warnings = append(l.warnings, Warning{Code: "resource_store_failed", Message: "engine read: Internal: " + err.Error()})
+	})
 }
 
 func (x *recorder) begin(run string) *callLog {

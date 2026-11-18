@@ -271,7 +271,9 @@ store serves no writes, and the facade answers them 501.
 
 `MemoryResourceStore` holds its entries in one map under one mutex. An
 entry is never changed in place, and bytes are copied in and out, so a
-read never holds the lock while it copies.
+read never holds the lock while it copies. `ReleaseMemoryResourceStore`,
+which a runtime calls at `Close` on the store it made, drops the entries
+under that lock; every later operation fails with `ErrStoreReleased`.
 
 ## The job registry and flow user state
 

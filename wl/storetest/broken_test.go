@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"runtime"
 	"sync"
 	"testing"
@@ -167,11 +168,25 @@ func (s *twoStepStore) Delete(_ context.Context, ws, path, typ string) (bool, er
 	return ok, nil
 }
 
+// refusingStore fails every UpdateValue, so the typed-write test's
+// competing updaters stop at once.
+type refusingStore struct{ brokenStore }
+
+func (s *refusingStore) UpdateValue(context.Context, string, string, string, json.RawMessage) (bool, error) {
+	return false, errors.New("update refused")
+}
+
 // TestTypedWriteTestCatchesTwoSteps checks that the typed-write test finds a
-// store that checks the type and writes in two steps.
+// store that checks the type and writes in two steps, and one whose
+// competing updates fail, which would otherwise leave the replacer
+// unopposed.
 func TestTypedWriteTestCatchesTwoSteps(t *testing.T) {
 	problems, cycles := typedWriteProblems(&twoStepStore{brokenStore{entries: map[string]wl.Resource{}}}, time.Second)
 	if len(problems) == 0 {
 		t.Errorf("the typed-write test found nothing wrong in %d cycles of a store that checks and writes in two steps", cycles)
+	}
+	problems, cycles = typedWriteProblems(&refusingStore{brokenStore{entries: map[string]wl.Resource{}}}, time.Second)
+	if len(problems) == 0 {
+		t.Errorf("the typed-write test found nothing wrong in %d cycles of a store whose competing updates all fail", cycles)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,11 @@ func TestRespellNumber(t *testing.T) {
 		{"1e-9223372036854775809", "0.0", "0.0"},
 		{"1e9223372036854775807", "1e9223372036854775807", "1e9223372036854775807"},
 		{"5e-65536", "0.0", "0.0"},
+		// Zero is whole whatever its exponent; a long mantissa covers a
+		// very negative exponent.
+		{"0e-65537", "0", "0.0"},
+		{"0e-9223372036854775809", "0", "0.0"},
+		{"1" + strings.Repeat("0", 65537) + "e-65537", "1", "1.0"},
 	} {
 		if got := respellNumber(c.in, true); got != c.create {
 			t.Errorf("create %s = %s, want %s", c.in, got, c.create)
