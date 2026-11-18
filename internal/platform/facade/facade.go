@@ -130,8 +130,9 @@ type Record struct {
 }
 
 // RegistrationKey is the key of a registration whose job token is token,
-// as Record.Registration gives it: an opaque digest, so that a record
-// never carries the token itself.
+// as Record.Registration gives it: an opaque digest, so that this field
+// never holds the token itself. The record's Headers are the request's as
+// sent, an Authorization header with its bearer token included.
 func RegistrationKey(token string) string {
 	if token == "" {
 		return ""

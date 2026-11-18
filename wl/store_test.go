@@ -304,8 +304,10 @@ func TestLateAnswerAcrossIDReuse(t *testing.T) {
 	}
 	defer fac.Close()
 	const id = "00000000-0000-4000-8000-0000000000b1"
-	read := func(inv engine.Invocation) {
-		serve := fac.Platform()(harness.PlatformRequest{ID: "p", Inv: inv.ID, Method: "GET", URL: fac.WarmOrigin() + "/api/w/ws/resources/get_value/f/x/s"})
+	// Each run reads its own path, so that a call in a log names the run
+	// that made it.
+	read := func(inv engine.Invocation, path string) {
+		serve := fac.Platform()(harness.PlatformRequest{ID: "p", Inv: inv.ID, Method: "GET", URL: fac.WarmOrigin() + "/api/w/ws/resources/get_value/" + path})
 		serve(context.Background())
 	}
 	run := func(token string, step func(engine.Invocation)) *callLog {
@@ -327,21 +329,27 @@ func TestLateAnswerAcrossIDReuse(t *testing.T) {
 	}
 	// The first run's step reads without awaiting the answer, and ends.
 	first := run("token-first", func(inv engine.Invocation) {
-		go read(inv)
+		go read(inv, "f/x/first")
 		<-arrived
 	})
-	// The id runs again; its step makes the same failing read, answered at
-	// once, after the first run's answer is let go.
+	// The id runs again; its step lets the first run's answer go, checks
+	// that its own log is still empty, then makes its own failing read.
 	second := run("token-second", func(inv engine.Invocation) {
 		close(gate)
 		<-delivered
-		read(inv)
+		x.mu.Lock()
+		l := x.runs[id]
+		x.mu.Unlock()
+		if calls, w := l.taken(), l.warned(); len(calls) != 0 || len(w) != 0 {
+			t.Errorf("the first run's late answer reached the second run: calls %+v, warnings %+v", calls, w)
+		}
+		read(inv, "f/x/second")
 	})
 	if w := first.warned(); len(w) != 0 {
 		t.Errorf("the first run, which had returned, got warnings %+v", w)
 	}
-	w := second.warned()
-	if len(w) != 1 || second.taken()[0].Job != id || len(second.taken()) != 1 {
-		t.Errorf("the second run's warnings %+v and calls %+v: want only its own call's warning", w, second.taken())
+	calls, w := second.taken(), second.warned()
+	if len(calls) != 1 || calls[0].Path != "/api/w/ws/resources/get_value/f/x/second" || len(w) != 1 {
+		t.Errorf("the second run's calls %+v and warnings %+v: want its own read of f/x/second and its warning", calls, w)
 	}
 }
