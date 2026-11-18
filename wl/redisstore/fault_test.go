@@ -34,61 +34,31 @@ type cut struct {
 	// after holds the reply back for 4 s, past go-redis's 2 s read
 	// timeout, which closes the connection: the command ran, and its reply
 	// is lost. After SCRIPT FLUSH it is EVALSHA's NOSCRIPT reply that is
-	// lost, so EVAL never runs.
+	// lost, so EVAL is never sent.
 	after bool
 	// mid lets half of the reply through, then closes the connection.
 	mid bool
-	// once lets go-redis's retry, on a new connection, through.
-	once bool
 }
 
 var cuts = []cut{
 	{name: "before", before: true},
 	{name: "after", after: true},
-	{name: "after-once", after: true, once: true},
 	{name: "mid-reply", mid: true},
-	{name: "mid-reply-once", mid: true, once: true},
 }
 
-// redial runs its armed function once, at the next dial of a connection:
-// it removes a cut before go-redis's retry connects again.
-type redial struct {
-	mu    sync.Mutex
-	armed func()
-	fired atomic.Bool
-}
+// dials counts the connections the store's client dials.
+type dials struct{ n atomic.Int64 }
 
-func (h *redial) arm(f func()) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.armed = f
-	h.fired.Store(false)
-}
-
-// disarm drops the armed function, keeping whether it fired.
-func (h *redial) disarm() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.armed = nil
-}
-
-func (h *redial) DialHook(next redis.DialHook) redis.DialHook {
+func (d *dials) DialHook(next redis.DialHook) redis.DialHook {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		h.mu.Lock()
-		f := h.armed
-		h.armed = nil
-		h.mu.Unlock()
-		if f != nil {
-			f()
-			h.fired.Store(true)
-		}
+		d.n.Add(1)
 		return next(ctx, network, addr)
 	}
 }
 
-func (h *redial) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
+func (d *dials) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
 
-func (h *redial) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+func (d *dials) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return next
 }
 
@@ -114,12 +84,12 @@ func newProxy(t *testing.T, c *redis.Client) (*toxiproxy.Proxy, string) {
 }
 
 // TestOperationTimeout: an operation whose reply Redis holds back ends
-// after OperationTimeout, though go-redis's own read timeout and retries
-// would wait longer.
+// after OperationTimeout, though go-redis's own read timeout would wait
+// longer.
 func TestOperationTimeout(t *testing.T) {
 	c := direct(t)
 	proxy, addr := newProxy(t, c)
-	s, _ := open(t, Options{URL: fmt.Sprintf("redis://%s/%d?read_timeout=5s&max_retries=3", addr, c.Options().DB), Prefix: testPrefix(t, c), OperationTimeout: time.Second})
+	s, _ := open(t, Options{URL: fmt.Sprintf("redis://%s/%d?read_timeout=5s", addr, c.Options().DB), Prefix: testPrefix(t, c), OperationTimeout: time.Second})
 	if _, err := proxy.AddToxic("slow", "latency", "downstream", 1, toxiproxy.Attributes{"latency": 4000}); err != nil {
 		t.Fatal(err)
 	}
@@ -132,27 +102,27 @@ func TestOperationTimeout(t *testing.T) {
 
 // TestFaults cuts the store's connection, through Toxiproxy, before each
 // operation's command reaches Redis, after Redis ran it, and in the middle
-// of its reply, once (go-redis's retry gets through) or on every attempt;
-// with the server's script cache as it is and emptied by SCRIPT FLUSH, so
-// that the cut also falls on go-redis's EVAL after the NOSCRIPT reply.
-// Throughout, readers on a direct connection check that the entry is
-// missing or one whole value a writer wrote. After each operation:
+// of its reply; with the server's script cache as it is and emptied by
+// SCRIPT FLUSH, so that the cut also falls on go-redis's EVAL after the
+// NOSCRIPT reply. Throughout, readers on a direct connection check that
+// the entry is in a state the operation can leave. After each operation:
 //
-//   - an operation that errored left the entry whole: the old value or
-//     the new one (or missing, for a create or a delete);
-//   - a cut before the command changed nothing;
-//   - a retried create reports true, and a competing create after it
-//     false: true exactly once;
-//   - a retried update and a retried get return as without the cut, and a
-//     retried delete leaves the entry gone.
+//   - the operation returns an error, and the store dialed no connection
+//     during it: nothing was sent again (noRetries);
+//   - a command that never ran, cut before it or after a NOSCRIPT reply
+//     that was lost, changed nothing;
+//   - a write cut in its reply was applied once: a create holds its value
+//     and a competing create after it reports false, an update holds its
+//     value, a delete left no entry;
+//   - the store's next operation, once the cut is gone, succeeds.
 func TestFaults(t *testing.T) {
 	c := direct(t)
 	proxy, addr := newProxy(t, c)
 	prefix := testPrefix(t, c)
 	// One connection, so the cut falls on the connection the operation
-	// uses; short timeouts and two retries keep the attempts quick.
-	through, _ := open(t, Options{URL: fmt.Sprintf("redis://%s/%d?pool_size=1&read_timeout=2s&max_retries=2", addr, c.Options().DB), Prefix: prefix})
-	hook := &redial{}
+	// uses; a short read timeout keeps the cut after the command quick.
+	through, _ := open(t, Options{URL: fmt.Sprintf("redis://%s/%d?pool_size=1&read_timeout=2s", addr, c.Options().DB), Prefix: prefix})
+	hook := &dials{}
 	through.client.AddHook(hook)
 	plain, _ := open(t, Options{URL: envOrSkip(t, urlEnv), Prefix: prefix})
 
@@ -199,7 +169,6 @@ func TestFaults(t *testing.T) {
 					t.Cleanup(func() {
 						stopOnce.Do(func() { close(stop) })
 						wg.Wait()
-						hook.disarm()
 						proxy.RemoveToxic("cut")
 					})
 					for range 2 {
@@ -238,7 +207,7 @@ func TestFaults(t *testing.T) {
 						}
 					}
 					// The store's one connection is open before the cut,
-					// so the operation's first attempt uses it.
+					// so the operation uses it.
 					if err := through.client.Ping(ctx).Err(); err != nil {
 						t.Fatal(err)
 					}
@@ -268,19 +237,15 @@ func TestFaults(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
-					if k.once {
-						hook.arm(func() { proxy.RemoveToxic("cut") })
-					}
 
+					dialsBefore := hook.n.Load()
 					var (
-						got   wl.Resource
-						found bool
-						ok    bool
-						opErr error
+						found, ok bool
+						opErr     error
 					)
 					switch op {
 					case "get":
-						got, found, opErr = through.Get(ctx, "ws", path)
+						_, found, opErr = through.Get(ctx, "ws", path)
 					case "create":
 						ok, opErr = through.Create(ctx, "ws", path, wl.Resource{Type: "state", Value: newValue})
 					case "update":
@@ -288,8 +253,8 @@ func TestFaults(t *testing.T) {
 					case "delete":
 						ok, opErr = through.Delete(ctx, "ws", path, "state")
 					}
+					redialed := hook.n.Load() - dialsBefore
 
-					hook.disarm()
 					proxy.RemoveToxic("cut")
 					time.Sleep(50 * time.Millisecond)
 					stopOnce.Do(func() { close(stop) })
@@ -300,6 +265,12 @@ func TestFaults(t *testing.T) {
 					if reads.Load() == 0 {
 						t.Fatal("no read finished")
 					}
+					if opErr == nil {
+						t.Fatalf("the operation succeeded through the cut: found %v ok %v", found, ok)
+					}
+					if redialed != 0 {
+						t.Fatalf("the store dialed %d connections during the operation: it sent the command again (%v)", redialed, opErr)
+					}
 
 					after, present, err := plain.Get(ctx, "ws", path)
 					if err != nil {
@@ -308,60 +279,38 @@ func TestFaults(t *testing.T) {
 					if present && after.Type != "state" || !legal(present, string(after.Value)) {
 						t.Fatalf("after the operation the entry is in a state it cannot leave: present %v, %.60s", present, after.Value)
 					}
-					if k.once && !hook.fired.Load() {
-						t.Fatalf("go-redis did not connect again after the cut: %v", opErr)
-					}
-					if !k.once {
-						if opErr == nil {
-							t.Fatalf("the operation succeeded through the cut: found %v ok %v", found, ok)
+					switch {
+					case k.before, k.after && flush:
+						// Nothing reached Redis, or only EVALSHA, whose
+						// NOSCRIPT reply was lost, so EVAL was never sent:
+						// the entry is as before.
+						wantPresent := op != "create"
+						if present != wantPresent || present && string(after.Value) != string(oldValue) {
+							t.Errorf("an operation that never ran changed the entry: present %v", present)
 						}
-						switch {
-						case k.before, k.after && flush:
-							// Nothing reached Redis, or only EVALSHA, whose
-							// NOSCRIPT reply was lost, so EVAL was never
-							// sent: the entry is as before.
-							wantPresent := op != "create"
-							if present != wantPresent || present && string(after.Value) != string(oldValue) {
-								t.Errorf("an operation that never ran changed the entry: present %v", present)
-							}
-						case op == "delete":
-							// The command ran before its reply was cut.
-							if present {
-								t.Errorf("a delete cut in its reply left the entry")
-							}
-						case op != "get":
-							if !present || string(after.Value) != string(newValue) {
-								t.Errorf("a %s cut in its reply did not apply: present %v", op, present)
-							}
-						}
-						t.Logf("error %v; entry present %v", opErr, present)
-						return
-					}
-					if opErr != nil {
-						t.Fatalf("the retried operation failed: %v", opErr)
-					}
-					switch op {
-					case "get":
-						if !found || string(got.Value) != string(oldValue) {
-							t.Errorf("the retried get read found %v, %d bytes", found, len(got.Value))
-						}
-					case "create":
-						if !ok || !present || string(after.Value) != string(newValue) {
-							t.Errorf("the retried create reported %v; entry present %v", ok, present)
+					case op == "create":
+						// Applied once, though the call reported an error.
+						if !present || string(after.Value) != string(newValue) {
+							t.Errorf("a create cut in its reply did not apply: present %v", present)
 						}
 						if again, err := plain.Create(ctx, "ws", path, wl.Resource{Type: "state", Value: oldValue}); err != nil || again {
 							t.Errorf("a competing create after it reported %v, %v, want false", again, err)
 						}
-					case "update":
-						if !ok || string(after.Value) != string(newValue) {
-							t.Errorf("the retried update reported %v; entry present %v", ok, present)
+					case op == "update":
+						if !present || string(after.Value) != string(newValue) {
+							t.Errorf("an update cut in its reply did not apply: present %v", present)
 						}
-					case "delete":
+					case op == "delete":
 						if present {
-							t.Errorf("the retried delete (reported %v) left the entry", ok)
+							t.Errorf("a delete cut in its reply left the entry")
 						}
-						t.Logf("the retried delete reported %v", ok)
 					}
+					// The cut is gone: the store's next operation, on a new
+					// connection, succeeds.
+					if _, _, err := through.Get(ctx, "ws", path); err != nil {
+						t.Errorf("the store's next operation failed: %v", err)
+					}
+					t.Logf("error %v; entry present %v", opErr, present)
 				})
 			}
 		}

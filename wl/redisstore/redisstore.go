@@ -4,12 +4,13 @@
 // keeps its data.
 //
 // It is built on go-redis (github.com/redis/go-redis/v9): its client, its
-// URL parsers, its connection pool, its retries and its script helper.
+// URL parsers, its connection pool and its script helper.
 // Each entry is one Redis hash at <prefix>res:<workspace>:<path>, with the
 // fields t (the type), v (the value's bytes) and w (the id of the write
 // that left them). Each operation is one command on that one key, or one
 // Lua script on it, so each is atomic: Redis runs a script with no other
-// command in between.
+// command in between. No command is sent again after its connection broke
+// (noRetries): an operation cut mid-flight returns an error.
 package redisstore
 
 import (
@@ -35,9 +36,18 @@ import (
 const DefaultPrefix = "windmill-lite:"
 
 // DefaultOperationTimeout bounds each operation when
-// Options.OperationTimeout is zero: go-redis's retries included, an
-// operation returns an error after 10 s. It stays well under the 30 s
+// Options.OperationTimeout is zero: an operation, its connection's dial
+// included, returns an error after 10 s. It stays well under the 30 s
 // after which a host-mode engine's watchdog gives up on a silent host.
+
+// noRetries is go-redis's MaxRetries for no retries, which the store sets
+// on every client, whatever the URL's max_retries says. go-redis would
+// send a command again after its connection broke, and Redis keeps no
+// history, so a replay could report a create that succeeded as a
+// conflict, or write over a later write. An honest error is better: the
+// store's contract allows a failed write that may or may not have been
+// applied. go-redis's retries of a dial, before any command is sent, stay.
+const noRetries = -1
 const DefaultOperationTimeout = 10 * time.Second
 
 // Options configures New.
@@ -54,7 +64,8 @@ type Options struct {
 	//     master's.
 	//
 	// Other query parameters set go-redis's options, such as dial_timeout,
-	// read_timeout, pool_size or max_retries. The Sentinel options that
+	// read_timeout or pool_size; max_retries is ignored, since the store
+	// never sends a command again (noRetries). The Sentinel options that
 	// route to replicas (route_by_latency, route_randomly, replica_only,
 	// use_disconnected_replicas) are refused: the store reads and writes the
 	// master. The URL carries the password: no error or warning of New
@@ -68,7 +79,7 @@ type Options struct {
 	// allkeys-*, which evicts keys that have no expiry, such as every
 	// entry of this store. New warns instead.
 	AllowEviction bool
-	// OperationTimeout bounds each operation, retries included, and New's
+	// OperationTimeout bounds each operation, its dial included, and New's
 	// own checks; zero means DefaultOperationTimeout.
 	OperationTimeout time.Duration
 	// Warn receives each warning of New, such as a maxmemory-policy that
@@ -154,8 +165,9 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 			return nil, "", errors.New("redisstore: the Sentinel URL asks for replicas (route_by_latency, route_randomly, replica_only or use_disconnected_replicas), and the store reads and writes the master only")
 		}
 		// Each operation's own deadline (Store.op) bounds go-redis's
-		// reads, writes and retries.
+		// dial, read and write.
 		fo.ContextTimeoutEnabled = true
+		fo.MaxRetries = noRetries
 		target := fmt.Sprintf("the master of the Sentinels %s (database %d)", strings.Join(fo.SentinelAddrs, ", "), fo.DB)
 		return redis.NewFailoverClient(fo), target, nil
 	}
@@ -164,6 +176,7 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 		return nil, "", errors.New(badURL)
 	}
 	o.ContextTimeoutEnabled = true
+	o.MaxRetries = noRetries
 	return redis.NewClient(o), fmt.Sprintf("%s (database %d)", o.Addr, o.DB), nil
 }
 
@@ -264,10 +277,9 @@ func (s *Store) Close() error {
 // The scripts each touch the one key KEYS[1], the entry's hash.
 var (
 	// createScript: ARGV is the type, the value and the write id. An
-	// existing key is a taken path, unless its write id is this write's,
-	// which means an earlier attempt of the same Create was applied and
-	// its reply lost (go-redis retried it): 1 then, as that attempt
-	// reported. Otherwise the hash is written whole: 1.
+	// existing key is a taken path, 0, unless its write id is this
+	// write's own; the store sends no command twice (noRetries), so that
+	// is only a guard. Otherwise the hash is written whole: 1.
 	createScript = redis.NewScript(`if redis.call('EXISTS', KEYS[1]) == 1 then
   if redis.call('HGET', KEYS[1], 'w') == ARGV[3] then return 1 end
   return 0
@@ -277,7 +289,7 @@ return 1`)
 	// updateScript: ARGV is the expected type, the value and the write id.
 	// No key, or a key of another type, is 0, creating and changing
 	// nothing. Otherwise the value and the write id are replaced, the type
-	// kept: 1. A retried attempt writes the same value again.
+	// kept: 1.
 	updateScript = redis.NewScript(`if redis.call('HGET', KEYS[1], 't') ~= ARGV[1] then return 0 end
 redis.call('HSET', KEYS[1], 'v', ARGV[2], 'w', ARGV[3])
 return 1`)
@@ -376,9 +388,6 @@ func (s *Store) UpdateValue(ctx context.Context, workspace, path, typ string, va
 }
 
 // Delete removes the entry of type typ at path in workspace: one script.
-// go-redis retries a command whose connection broke, so a Delete that was
-// applied and whose reply was lost reports false: the retry finds no
-// entry. The entry is gone either way.
 func (s *Store) Delete(ctx context.Context, workspace, path, typ string) (bool, error) {
 	key, err := s.key(workspace, path)
 	if err != nil {

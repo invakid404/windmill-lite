@@ -15,7 +15,7 @@ Redis up for it.
 
 The store is built on [go-redis](https://github.com/redis/go-redis)
 (`github.com/redis/go-redis/v9`, BSD-2-Clause): its client, its URL
-parsers, its connection pool, its retries and its script helper. A `wl`
+parsers, its connection pool and its script helper. A `wl`
 user who does not import this package does not compile go-redis.
 
 ## Use
@@ -37,7 +37,7 @@ store that the host gave it.
 | `URL` | none, required | The Redis server: [URL forms](#url-forms) |
 | `Prefix` | `windmill-lite:` (`DefaultPrefix`) | Starts every key, so deployments can share one Redis: one or more characters without a colon, then a colon ([Data model](#data-model)) |
 | `AllowEviction` | `false` | Lets `New` succeed on a server whose `maxmemory-policy` is `allkeys-*`, with a warning |
-| `OperationTimeout` | 10 s (`DefaultOperationTimeout`) | Bounds each operation, go-redis's retries included, and `New`'s own checks |
+| `OperationTimeout` | 10 s (`DefaultOperationTimeout`) | Bounds each operation, its connection's dial included, and `New`'s own checks |
 | `Warn` | the standard `log` package | Receives each warning of `New` |
 
 ## URL forms
@@ -101,21 +101,27 @@ atomic:
 `Script.Run`: `EVALSHA`, and `EVAL` when Redis answers that it does not
 hold the script, as after `SCRIPT FLUSH` or a failover.
 
-## Retries and timeouts
+## No retries, and timeouts
 
-go-redis retries a command whose connection broke, three times by default.
-The retries are safe:
+The store never sends a command again after its connection broke: `New`
+sets go-redis's `MaxRetries` to -1, for reads and writes alike, whatever
+the URL's `max_retries` says. Redis keeps no history, so a replay could
+report a create that succeeded as a conflict, or write over a later write.
 
-- **Create.** A retried create finds its own write id in the entry and
-  reports `true` again, never `false`.
-- **Update.** A retried update writes the same whole value again.
-- **Delete.** A retried delete whose first attempt was applied finds no
-  entry and reports `false`. The entry is gone either way.
+- **A cut command** returns an error. A write that errors may or may not
+  have been applied, as the store's contract allows; its entry is whole
+  either way. The facade answers 500, and the stock client's `getState` and
+  `setState` throw, as a cut call to Windmill's API does.
+- **A Sentinel failover** shows as errors for its duration, until go-redis
+  reaches the new master. A step that must survive one uses the flow's own
+  retry of that step.
+- **Dials** keep go-redis's own retries, which come before any command is
+  sent.
 
-Each operation ends after `OperationTimeout`, 10 s by default, retries
+Each operation ends after `OperationTimeout`, 10 s by default, its dial
 included. That is well under the 30 s of silence after which a host-mode
 engine's watchdog ends the connection (`-kill-after` of
-[windmill-lite host](../../cmd/windmill-lite/README.md)).
+[windmill-lite host](../../cmd/windmill-lite/README.md)), a margin of 20 s.
 
 ## The eviction check
 
@@ -160,15 +166,15 @@ by digest, on a Docker network of their own, and prints the variables;
 
 | File | What it checks |
 |---|---|
-| `redisstore_test.go` | The contract suite on one server and through Sentinel. The hash layout and its lack of expiry; two stores on one prefix, and one on another. Each branch of the eviction check, and a user that may not run `CONFIG`. URL errors, Sentinel addresses and an unreachable server, which never show a synthetic secret, the refused replica options and prefixes, and a workspace id with a colon. |
+| `redisstore_test.go` | The contract suite on one server and through Sentinel, and `MaxRetries` -1 on both clients whatever the URL says. The hash layout and its lack of expiry; two stores on one prefix, and one on another. Each branch of the eviction check, and a user that may not run `CONFIG`. URL errors, Sentinel addresses and an unreachable server, which never show a synthetic secret, the refused replica options and prefixes, and a workspace id with a colon. |
 | `fault_test.go` | The fault tests below |
 
 `fault_test.go` cuts the store's connection through
 [Toxiproxy](https://github.com/Shopify/toxiproxy) for each operation. With
 the script cache full and after `SCRIPT FLUSH`, it cuts:
 
-- **before the command:** nothing reaches Redis, on every attempt; the
-  operation errors and the entry is unchanged;
+- **before the command:** nothing reaches Redis, and the entry is
+  unchanged;
 - **after the command:** the reply comes after go-redis's read timeout. With
   the script cache full, the write is applied and its reply lost. After
   `SCRIPT FLUSH`, it is `EVALSHA`'s reply that is lost, so `EVAL` never
@@ -176,9 +182,9 @@ the script cache full and after `SCRIPT FLUSH`, it cuts:
 - **in the middle of the reply:** the connection closes after half of it.
   After `SCRIPT FLUSH`, the cut falls on `EVAL`'s reply.
 
-The cuts after the command and in the middle of the reply are made on every
-attempt, when the operation errors, and once, when go-redis's retry gets
-through. Readers on another connection check throughout that the entry is
-in a state the operation can leave: a seeded entry stays present for a get
-or an update. A retried create reports `true`, and a competing create after
-it `false`.
+Each cut operation returns an error, and the store dials no connection
+during it, so nothing is sent again. A write cut in its reply was applied
+once: a competing create after a cut create reports `false`. Readers on
+another connection check throughout that the entry is in a state the
+operation can leave: a seeded entry stays present for a get or an update.
+Once the cut is gone, the store's next operation succeeds.

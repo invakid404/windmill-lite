@@ -149,6 +149,32 @@ func TestURLErrorsHideThePassword(t *testing.T) {
 	}
 }
 
+// TestNoRetries: the store's client never sends a command again after its
+// connection broke, for one server and through Sentinel, whatever the
+// URL's max_retries says (noRetries). go-redis keeps the -1 the store sets
+// as 0 retries; its default is 3.
+func TestNoRetries(t *testing.T) {
+	for _, u := range []string{
+		"redis://127.0.0.1:1/0",
+		"redis://127.0.0.1:1/0?max_retries=5",
+		"redis://127.0.0.1:1/0?master_name=m",
+		"redis://127.0.0.1:1/0?master_name=m&max_retries=5",
+	} {
+		c, _, err := connect(u)
+		if err != nil {
+			t.Fatalf("%s: %v", u, err)
+		}
+		client, ok := c.(*redis.Client)
+		if !ok {
+			t.Fatalf("%s: a %T, want a *redis.Client", u, c)
+		}
+		if got := client.Options().MaxRetries; got != 0 {
+			t.Errorf("%s: %d retries, want 0", u, got)
+		}
+		c.Close()
+	}
+}
+
 // TestSentinelReplicaOptions: a Sentinel URL that asks for replicas is
 // refused before any connection, since the store reads and writes the
 // master only, and go-redis's NewFailoverClient panics on two of them.
