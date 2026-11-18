@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/wl"
+	"github.com/invakid404/windmill-lite/wl/redisstore"
 )
 
 // runRun is `windmill-lite run <path> --bundle <b> --args <json|@file>`
@@ -36,7 +38,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	trace := fs.Bool("trace", false, "print the run's steps and platform calls with the outcome")
 	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
 	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile of the engine to `file`, for go tool pprof")
-	store := fs.String("resource-store", "memory", resourceStoreUsage)
+	store := storeFlags(fs)
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
@@ -74,9 +76,13 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	if opts.Resources, err = hostResources(*resources); err != nil {
 		return fail(err)
 	}
-	if opts.ResourceStore, err = resourceStore(*store); err != nil {
+	resourceStore, closeStore, err := store.open(stderr)
+	if err != nil {
 		return fail(err)
 	}
+	// Deferred first, so it runs after the runtime's Close.
+	defer closeStore()
+	opts.ResourceStore = resourceStore
 	rt, err := wl.Open(*bundlePath, opts)
 	if err != nil {
 		return fail(err)
@@ -107,17 +113,50 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	return 1
 }
 
-// resourceStoreUsage is the usage of the -resource-store flag of run and
-// host.
-const resourceStoreUsage = "the `store` of the resources steps write, the state of the stock client's setState: memory, kept for the run (run) or the connection (host), as deviation D24 of ADR 0001 says"
+// storeOptions are the resource store's flags of run and host.
+type storeOptions struct {
+	kind, prefix  *string
+	allowEviction *bool
+}
 
-// resourceStore returns the resource store the -resource-store flag names.
-func resourceStore(kind string) (wl.ResourceStore, error) {
-	switch kind {
+// storeFlags defines the resource store's flags on fs.
+func storeFlags(fs *flag.FlagSet) storeOptions {
+	return storeOptions{
+		kind: fs.String("resource-store", "memory", "the `store` of the resources steps write, the state of the stock client's setState: "+
+			"memory, kept for the run (run) or the connection (host), as deviation D24 of ADR 0001 says; or redis, on the Redis that $WL_REDIS_URL names"),
+		prefix:        fs.String("redis-prefix", redisstore.DefaultPrefix, "the `prefix` of the Redis store's keys, so deployments can share one Redis"),
+		allowEviction: fs.Bool("redis-allow-eviction", false, "start on a Redis whose maxmemory-policy is allkeys-*, which can evict the store's entries"),
+	}
+}
+
+// redisURLEnv names the environment variable that holds the Redis URL. It
+// is never a flag: a command line shows in ps, and the URL holds the
+// password.
+const redisURLEnv = "WL_REDIS_URL"
+
+// open returns the resource store the flags name and the function that
+// closes it. The Redis store's warnings go to stderr.
+func (o storeOptions) open(stderr io.Writer) (wl.ResourceStore, func(), error) {
+	switch *o.kind {
 	case "memory":
-		return wl.NewMemoryResourceStore(), nil
+		return wl.NewMemoryResourceStore(), func() {}, nil
+	case "redis":
+		url := os.Getenv(redisURLEnv)
+		if url == "" {
+			return nil, nil, fmt.Errorf("-resource-store redis: %s is not set; it holds the Redis URL, which no flag takes", redisURLEnv)
+		}
+		// No child process inherits the URL.
+		os.Unsetenv(redisURLEnv)
+		s, err := redisstore.New(context.Background(), redisstore.Options{
+			URL: url, Prefix: *o.prefix, AllowEviction: *o.allowEviction,
+			Warn: func(m string) { fmt.Fprintln(stderr, "windmill-lite:", m) },
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("-resource-store redis: %w", err)
+		}
+		return s, func() { s.Close() }, nil
 	default:
-		return nil, fmt.Errorf("-resource-store %q: the resource store must be memory", kind)
+		return nil, nil, fmt.Errorf("-resource-store %q: the resource store must be memory or redis", *o.kind)
 	}
 }
 

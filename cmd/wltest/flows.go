@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/racebuild"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 	"github.com/invakid404/windmill-lite/wl"
+	"github.com/invakid404/windmill-lite/wl/redisstore"
 )
 
 // flowChecker runs flow fixtures (OR-15, the flow level of ADR 0003) on
@@ -67,6 +69,11 @@ type flowChecker struct {
 	// steps, which the response carries, are the engine's
 	// (TestRunWaitOutcomes).
 	runWaitOutcome bool
+	// redisURL, when set, gives each fixture's runtime a Redis resource
+	// store (wl/redisstore) on that URL, under a prefix of its own,
+	// wltest:<random>:, so a fixture starts with no state as on the
+	// memory store; empty gives each runtime its own memory store.
+	redisURL string
 }
 
 // quickJSOnlyAll sets every flowChecker's quickJSOnly (testmode_test.go).
@@ -225,6 +232,17 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
 			Providers: fixtureProviders(f), QuickJSOnly: fc.quickJSOnly || quickJSOnlyAll,
+		}
+		if fc.redisURL != "" {
+			var id [8]byte
+			rand.Read(id[:])
+			store, err := redisstore.New(ctx, redisstore.Options{URL: fc.redisURL, Prefix: "wltest:" + hex.EncodeToString(id[:]) + ":"})
+			if err != nil {
+				return failRuns(results, "resource store: "+err.Error())
+			}
+			// Deferred before the runtime's Close, so it runs after it.
+			defer store.Close()
+			opts.ResourceStore = store
 		}
 		if fc.mode == ModeHost {
 			if host, err = fc.openHost(b.out, work, opts, &diag); err != nil {

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRunCommand builds a synthetic folder and runs its flow as the command
@@ -108,11 +110,47 @@ func TestRunCommand(t *testing.T) {
 			t.Fatalf("-resource-store memory, run %d: exit code %d, stdout %s, stderr %s", i+1, code, stdout.String(), stderr.String())
 		}
 	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := run([]string{"run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "redis"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 ||
-		!strings.Contains(stderr.String(), `-resource-store "redis": the resource store must be memory`) {
-		t.Errorf("-resource-store redis: exit code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	for _, c := range []struct {
+		kind, url, want string
+	}{
+		{"bogus", "", `-resource-store "bogus": the resource store must be memory or redis`},
+		{"redis", "", "-resource-store redis: WL_REDIS_URL is not set; it holds the Redis URL, which no flag takes"},
+		// No server listens on port 1: the run does not start, and the
+		// error names the address and not the password.
+		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0", "-resource-store redis: redisstore: cannot reach Redis at 127.0.0.1:1 (database 0)"},
+	} {
+		stdout.Reset()
+		stderr.Reset()
+		t.Setenv("WL_REDIS_URL", c.url)
+		if code := run([]string{"run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", c.kind}, &stdout, &stderr); code != 1 || stdout.Len() != 0 ||
+			!strings.Contains(stderr.String(), c.want) || strings.Contains(stderr.String(), "s3cr3t") {
+			t.Errorf("-resource-store %s: exit code %d, stdout %q, stderr %q", c.kind, code, stdout.String(), stderr.String())
+		}
+	}
+	if url := os.Getenv("WL_TEST_REDIS_URL"); url != "" {
+		// -resource-store redis, cross-process: two engine processes, each
+		// with its own runtime, on one Redis and one prefix. The second sees
+		// the state the first created: its create is refused as taken and
+		// its $res: argument reads the first's value. A third, on another
+		// prefix, sees none of it.
+		prefix := fmt.Sprintf("wl-test-run:%d:", time.Now().UnixNano())
+		for i, c := range []struct{ prefix, want string }{
+			{prefix, `{"x":{"k":1},"created":"resource f/t/kept created"}`},
+			{prefix, `{"x":{"k":1},"created":"Bad request: Resource f/t/kept already exists"}`},
+			{prefix + "other:", `{"x":{"k":1},"created":"resource f/t/kept created"}`},
+		} {
+			want := c.want
+			cmd := exec.Command(os.Args[0], "run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "redis", "-redis-prefix", c.prefix)
+			cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL="+url)
+			var errOut bytes.Buffer
+			cmd.Stderr = &errOut
+			got, err := cmd.Output()
+			var out runOutput
+			var result bytes.Buffer
+			if err != nil || json.Unmarshal(got, &out) != nil || json.Compact(&result, out.Result) != nil || result.String() != want {
+				t.Fatalf("-resource-store redis, process %d: %v, stdout %s, stderr %s; want the result %s", i+1, err, got, errOut.String(), want)
+			}
+		}
 	}
 	// Without the harness runtime the bundle was built for, nothing runs.
 	stdout.Reset()

@@ -1052,7 +1052,8 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"another directory", false, true, nil, harness.RejectWorkdirMismatch, ""},
 		{"read-only", true, false, nil, harness.RejectWorkdirNotWritable, ""},
 		{"a bundle that does not open", false, false, []string{"-digest", "sha256:0000"}, harness.RejectEngine, ""},
-		{"a resource store that is not memory", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, ""},
+		{"a resource store that is not memory or redis", false, false, []string{"-resource-store", "bogus"}, harness.RejectEngine, ""},
+		{"a Redis store without WL_REDIS_URL", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, ""},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`},
 	} {
@@ -1093,7 +1094,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(engineBin, append([]string{"host", "--bundle", hostBundle, "--workdir", workdir, "--kill-after", "0"}, tc.flags...)...)
-			cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1")
+			cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL=")
 			cmd.ExtraFiles = []*os.File{theirs}
 			var stderr syncBuffer
 			cmd.Stderr = &stderr
