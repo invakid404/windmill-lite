@@ -255,6 +255,9 @@ store serves no writes, and the facade answers them 501.
   value comes back byte for byte, and an error is never reported as a
   missing entry. `wl/storetest` checks it
   ([its README](../../wl/storetest/README.md)).
+- **The stores:** `MemoryResourceStore` (below), the default, and the
+  Redis store of [wl/redisstore](../../wl/redisstore/README.md), which
+  runtimes in several processes share. A host can pass its own.
 - **The writes** check the path, store the value as jsonb would, and
   refuse what jsonb refuses (`statewrites.go`). An update or a delete
   passes the type `state` to the store, which writes only an entry of

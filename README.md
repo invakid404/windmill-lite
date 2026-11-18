@@ -187,6 +187,8 @@ use.
 |---|---|---|
 | [wl](wl/README.md) | How to open a bundle and run flows from Go, with hooks, budgets and host mode | Go hosts |
 | [wl/storetest](wl/storetest/README.md) | How to check that a resource store of your own meets the contract | Go hosts with their own resource store |
+| [wl/redisstore](wl/redisstore/README.md) | How to keep the state that steps write in Redis, from Go | Go hosts |
+| [docs/resource-stores.md](docs/resource-stores.md) | Which resource store to choose, memory or Redis, and how to set Redis up for it | Everyone who deploys windmill-lite |
 | [harnesses](harnesses/README.md) | How to install the npm package and test a host's process-level code | Bun hosts |
 | [harnesses/bun](harnesses/bun/README.md) | What `connect()` does, its options, host plugins, and how a step runs | Bun hosts |
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The commands and flags of `windmill-lite`, and its benchmarks | Everyone who builds or runs a bundle |
@@ -223,7 +225,7 @@ use.
 | [internal/platform](internal/platform/README.md) | Job identity and the platform services: resources, variables, the job registry | Contributors to the platform |
 | [internal/platform/facade](internal/platform/facade/README.md) | Which of Windmill's API routes the facade serves | Contributors to the platform |
 | [internal/bench](internal/bench/README.md) | What the benchmarks share | Contributors who measure |
-| [scripts](scripts/README.md) | The documentation check, the release helper and the auto-ack scripts | Every contributor |
+| [scripts](scripts/README.md) | The documentation check, the release helper, the auto-ack scripts and the Redis test containers | Every contributor |
 
 ## Compatibility
 
@@ -234,6 +236,7 @@ use.
 | Go, to build from source | 1.27.3 or later, with a C compiler |
 | Node, for the SDK's test entry `windmill-lite/bun/testing` | 22 or later |
 | Released engines | Linux amd64 and arm64, static binaries; macOS arm64 and amd64 |
+| Redis, for the [Redis resource store](docs/resource-stores.md) | Tested with Redis 7.2, alone and through Sentinel; Redis Cluster is not supported |
 
 ## Contributing
 

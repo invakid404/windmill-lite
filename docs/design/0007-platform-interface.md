@@ -49,7 +49,7 @@ them, per runtime or per run ([0008](0008-host-hooks.md)).
 | `Resources` | `resources/get_value_interpolated`, `get_value`, `exists`, `create`, `update_value`, `delete` | the bundle's resource files plus host overrides, then the resource store's entries | core (read; write of type `state`), later (write of other types) |
 | `Variables` | `variables/get_value`, `exists`, `create`, `update` | the bundle's variable files; secrets through `Secrets` | core (read), later (write) |
 | `Secrets` | used by the two above | plain-secret folders work; ciphertext without a host resolver fails as a value Windmill cannot decrypt | core |
-| `State` | the resource routes at the state path, type `state` | `ResourceStore`: a memory store per runtime, unless the host gives one (D24) | core |
+| `State` | the resource routes at the state path, type `state` | `ResourceStore`: a memory store per runtime (D24), unless the host gives one, such as the Redis store of `wl/redisstore` | core |
 | `FlowUserState` | `jobs_u/get_root_job_id`, `jobs/flow/user_states/{root}/{key}` | a map per effective root, discarded when the root run ends; `null` for a missing key | core |
 | `ObjectStore` | `job_helpers/download_s3_file`, `upload_s3_file`, `delete_s3_file` | a local directory keyed by (storage, key) | core (explicit keys), later (the rest) |
 | `Dispatcher` | `jobs/run/p`, `run/h`, `run/f`, `jobs_u/completed/get_result_maybe`, `get_result` | runs the target from the bundle as a detached run of the same runtime | core (interface) |
@@ -685,6 +685,10 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   store keeps them in memory, one per runtime
   ([0001](0001-equivalence-contract.md) D24), and other stores implement
   the interface.
+- `wl/redisstore` keeps them in Redis, shared by every runtime on the same
+  Redis and key prefix: one hash per entry, and each operation one command
+  or one Lua script on that one key, so each is atomic. It adds no
+  deviation beyond durability, which Redis's configuration sets.
 - `UpdateValue` and `Delete` take the type they may change and act only
   on an entry of it, in one atomic step, since a host may share the store
   and write it directly.
