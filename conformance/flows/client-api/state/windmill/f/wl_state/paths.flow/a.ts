@@ -11,7 +11,10 @@ type Answer = { status: number; type: string | null; body: string };
 // "(<file>.rs:<line>)" or "@<file>.rs:<line>:<col>" suffixes) is kept
 // without it, since windmill-lite gives no such location in its messages.
 const unlocated = (s: string) => s.replace(/ \([a-z_]+\.rs:\d+\)$/, "").replace(/( @[a-z_]+\.rs:\d+:\d+)+$/, "");
-const scrub = (s: string) => unlocated(s.replaceAll(ws, "<ws>").replaceAll(`u/${user}/`, "u/<user>/"));
+// The user's paths are scrubbed before the workspace: windmill-lite's
+// default user and workspace have one name, which would otherwise read as
+// u/<ws>/.
+const scrub = (s: string) => unlocated(s.replaceAll(`u/${user}/`, "u/<user>/").replaceAll(ws, "<ws>"));
 async function call(method: string, route: string, body?: string, type: string | null = "application/json"): Promise<Answer> {
   const headers: Record<string, string> = { ...auth };
   if (body !== undefined && type !== null) headers["Content-Type"] = type;
