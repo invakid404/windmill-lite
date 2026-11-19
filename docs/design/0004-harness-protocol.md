@@ -1,12 +1,23 @@
-# 0004 · Harness protocol
+# Harness protocol
 
-**Status:** proposed · **Topic:** the transport between the Go engine and a
+**Status:** Accepted · **Topic:** the transport between the Go engine and a
 language harness, the message shapes, process lifecycle, pooling, parallel
 loops, and how cancellation and deadlines reach every step and wait.
 
+The engine talks to each [harness](../glossary.md#harness) process over a
+socketpair, with length-prefixed canonical JSON frames and base64 part
+streams for large messages. In a shared process, errors, logs and platform
+calls raised in an [invocation](../glossary.md#invocation)'s context are
+attributed to that invocation, and a timed-out step is abandoned instead of
+killed; in [host mode](../glossary.md#host-mode) the harness is the host
+itself.
+
+**Not built yet:** `runner.proto`, whose JSON mapping the `run` frames'
+fields stand in for, and log limits in the welcome.
+
 ## Context
 
-[0003](0003-semantics-placement.md) makes the harness a step runner that the
+[Where semantics live](0003-semantics-placement.md) makes the harness a step runner that the
 engine drives once per step. The harness must reproduce what one Windmill
 job sees ([WR-1](../semantics/languages.md#wr-1) to
 [WR-22](../semantics/languages.md#wr-22),
@@ -26,7 +37,7 @@ step without failing the others.
   gRPC adds an HTTP/2 stack to Bun and buys nothing: payloads are JSON text
   either way. A Unix socket or a socketpair with length-prefixed frames
   measured 12.5 µs p50 for a small step and 18.4 µs for 3 KB
-  ([0003](0003-semantics-placement.md)). TCP loopback adds a port and an
+  ([where semantics live](0003-semantics-placement.md)). TCP loopback adds a port and an
   authentication problem.
 - **Encoding.** Protobuf would wrap JSON values in bytes fields and add a
   code generator to the harness. JSON envelopes with the values embedded raw
@@ -86,18 +97,18 @@ step without failing the others.
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7), `plugin` (raw: the declaration of the host plugin it loaded, §Host plugins) | handshake |
-| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`; facade origin and log limits with the milestones that use them) or `reject` (`code`, `message`) | handshake result |
-| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`), `around` (the host plugin's around wrappers for its site, by index, §Host plugins) | run one step |
+| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`, the facade origin; log limits once windmill-lite uses them) or `reject` (`code`, `message`) | handshake result |
+| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [differential testing](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`), `around` (the host plugin's around wrappers for its site, by index, §Host plugins) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
 | `child` | harness → engine | `id` (the invocation), `pid` (from 2 to 2^31 − 1, so that a negated kill target never narrows to `0`, `-1` or another pid), `token` (the group's guardian's, when it has one: letters, digits and dashes, at most 64) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on, on the socket of a spawned harness or on a host's child channel (fd 4); the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
-| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`; `plugin_error` and `latch`, which latch the run, §Host plugins), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
-| `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
+| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`; `plugin_error` and `latch`, which latch the run, §Host plugins), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too ([D5](0001-equivalence-contract.md#5-named-deviations), the native boundary mode) |
+| `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([platform interface](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
-| `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([0008](0008-host-hooks.md), §Host plugins) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`, then the run's budgets and latches (§Host plugins): `write_capable` (raw, an array of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`); `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), `latched` (a latched run's error), `deviations` (the run-time deviations of its trace), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
+| `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([host hooks](0008-host-hooks.md), §Host plugins) |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([host adapters](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`, then the run's budgets and latches (§Host plugins): `write_capable` (raw, an array of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`); `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), `latched` (a latched run's error), `deviations` (the run-time deviations of its trace), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
@@ -127,7 +138,7 @@ loads, as Windmill's worker fails the job before its process starts, with
 reported as an `error` outcome.
 
 The harness binds arguments with the signature the manifest records for that
-export ([0002](0002-ir-and-loader.md)), hydrates its `Date` parameters, and
+export ([IR, loader and validation](0002-ir-and-loader.md)), hydrates its `Date` parameters, and
 applies the [WR-V1](../semantics/languages.md#wr-v1) fallback when an
 override is present and the parsed parameter list is empty, which includes
 arrow-function exports, since the parser does not recognise them. Cases: a
@@ -274,7 +285,7 @@ with none.
    refuses to connect with `workdir_not_writable` or `workdir_mismatch`,
    and the engine checks them again (host mode item 7).
    Codebase assets are extracted into it before the first invocation
-   ([0002](0002-ir-and-loader.md)).
+   ([IR, loader and validation](0002-ir-and-loader.md)).
 6. **`process.exit`** is replaced per invocation. The call fixes the
    invocation's outcome (`empty` for code 0 with no result written,
    `escaped` otherwise) and throws a sentinel. `finally` blocks run and a
@@ -436,7 +447,7 @@ with none.
      id, which another process of the engine's may hold by then.
    - **No watchdog.**
 
-   See [0006](0006-module-state.md).
+   See [Module state](0006-module-state.md).
 
 Each of D9, D10 and D11 has a case that runs in `warm` and in `fresh` and
 expects the two to differ as stated.
@@ -471,7 +482,7 @@ step, never releases them.
   accessors, so a variable the process has moves out of it, into the view's
   own store, once an invocation claims it. Code the build does not rewrite,
   such as an unbundled dependency or a host's own module, is therefore
-  covered too; the build's define rewrite ([0010](0010-packaging.md))
+  covered too; the build's define rewrite ([packaging](0010-packaging.md))
   stays.
 - `console.*`, `process.stdout.write` and `process.stderr.write` are
   attributed to the current invocation. A console call is formatted by a
@@ -502,7 +513,7 @@ step, never releases them.
   because it captures its token at import
   ([WA-1](../semantics/client-api.md#wa-1), [WA-31](../semantics/client-api.md#wa-31)).
   In `fresh` mode the port does listen, because the process is the
-  invocation ([0007](0007-platform-interface.md)). Each process receives its
+  invocation ([platform interface](0007-platform-interface.md)). Each process receives its
   own `BASE_URL` at spawn, so a host that runs some scripts `fresh` and the
   rest `warm` gives the two kinds of process different facade origins: the
   listening one for `fresh` processes, the non-listening one for warm ones.
@@ -536,7 +547,7 @@ sequenceDiagram
 
 1. **Handshake.** The engine rejects a harness whose protocol version,
    runtime pin or bundle digest differs from the bundle manifest
-   ([0010](0010-packaging.md)).
+   ([packaging](0010-packaging.md)).
 2. **Loading.** In `warm` mode a script's module is evaluated on its first
    invocation, inside that invocation's context, so top-level code sees a
    job environment as it would in Windmill
@@ -549,9 +560,9 @@ sequenceDiagram
    settled, what that work writes goes to the process's own streams and it
    cannot reach the platform, as with work in a process scope; its errors
    are still attributed to the loading invocation, as `late`. Host-provided modules are
-   registered before that ([0010](0010-packaging.md)). A host may ask for
+   registered before that ([packaging](0010-packaging.md)). A host may ask for
    eager loading to move the cost off the first run.
-   [0006](0006-module-state.md) covers the modes.
+   The [module state](0006-module-state.md) record covers the modes.
 3. **Serving.** A process serves any number of concurrent invocations,
    unless the host sets a cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
@@ -574,14 +585,15 @@ one (failure model item 6, D11).
 ### Pooling (processes the engine spawns)
 
 A pool is keyed by **(harness class, runtime pin, dependency set,
-module-state mode)** ([0002](0002-ir-and-loader.md)). All bundled Bun scripts
+module-state mode)** ([IR, loader and validation](0002-ir-and-loader.md)). All bundled Bun scripts
 share one dependency set, so a Bun-only bundle normally needs one pool.
 
 - Default size is one process per pool: Bun steps are mostly asynchronous
   I/O and run concurrently on one event loop. A host can set a minimum and a
   maximum.
 - **No in-flight cap by default.** The reference for parallel containers is
-  a Windmill with enough workers ([0001](0001-equivalence-contract.md) §1),
+  a Windmill with enough workers
+  ([§1 of the equivalence contract](0001-equivalence-contract.md#1-the-reference-configuration)),
   and any cap changes outcomes, not only timing: children that wait on each
   other, or parents that wait on runs they dispatched locally, never finish
   if the cap keeps their partners from starting. A host may still set a cap
@@ -606,9 +618,9 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 
 ### Host mode
 
-In host mode ([0009](0009-host-adapters.md)) the only process that can run a
+In host mode ([host adapters](0009-host-adapters.md)) the only process that can run a
 host's steps is the host itself, because the host's scopes live there
-([0008](0008-host-hooks.md) H11). The rules for spawned processes therefore
+([host hooks](0008-host-hooks.md) H11). The rules for spawned processes therefore
 change:
 
 1. **No taint, no recycle.** The engine never stops routing to the host
@@ -687,7 +699,7 @@ change:
    released at `onRunEnd`. A host-mode run's outcome is its `run_done`; when
    it has settled, the engine sends `run_settled` after it, which the SDK
    reports to the run's `onSettled`, in the scope the run was submitted in
-   ([0008](0008-host-hooks.md) H11).
+   ([host hooks](0008-host-hooks.md) H11).
 6. **Losing the host.** If the host process exits, its in-flight runs are
    lost with it: their callers are the host's own callers. The engine fails
    them as `harness_lost` and does not try to move them, because their scopes
@@ -705,7 +717,7 @@ change:
    goes out, since the host may submit a run as soon as it reads it.
    Since the host was not spawned with the base environment, each
    invocation carries the facade's origin as `BASE_URL`.
-   - **Leaving the file out (PS1).** The file is one in the host's
+   - **Leaving the file out.** The file is one in the host's
      working directory: every in-flight script and the host's own code
      can read it, and it holds the latest invocation's arguments. So the
      engine leaves it out only when both (a) and (b) hold, and writes it
@@ -747,17 +759,18 @@ heartbeats a Go child every 100 ms and then spins forever was killed by the
 child 1.04 s after its last heartbeat, with a 1 s threshold; a supervisor
 that only restarts on exit then served a new call on the next generation.
 
-Validation (milestones W1 and F3b, with a public test supervisor that only
-restarts on exit): two concurrent host-mode runs, one of whose steps never
-settles: after that step's timeout, the other run's next step completes, a
-new run afterwards succeeds, and health reports one abandoned invocation.
-A step that spins forever, with a second run active: the engine kills the
-host within `watchdog.killAfter` plus one second, the second run's caller
-sees the host's exit, and a run on the restarted host succeeds. A resource
-held by an abandoned invocation is not released before `onRunSettled`.
+Validation, with a public test supervisor that only restarts on exit:
 
-**Case `watchdog/finite-cpu`** (C3b for `fresh` and `warm`, F3b for host
-mode): a step computes synchronously for 2 s and returns, with
+- Two concurrent host-mode runs, one of whose steps never settles. After
+  that step's timeout, the other run's next step completes, a new run
+  afterwards succeeds, and health reports one abandoned invocation.
+- A step that spins forever, with a second run active. The engine kills the
+  host within `watchdog.killAfter` plus one second, the second run's caller
+  sees the host's exit, and a run on the restarted host succeeds.
+- A resource held by an abandoned invocation is not released before
+  `onRunSettled`.
+
+**Case `watchdog/finite-cpu`** (in `fresh`, `warm` and host mode): a step computes synchronously for 2 s and returns, with
 `watchdog.killAfter` 1 s and a step `timeout` of 10 s.
 
 - **`fresh`:** the step completes with its result; the watchdog does not
@@ -773,7 +786,7 @@ mode): a step computes synchronously for 2 s and returns, with
 
 ### Host plugins
 
-A host plugin ([0008](0008-host-hooks.md)) is TypeScript the harness runs:
+A host plugin ([host hooks](0008-host-hooks.md)) is TypeScript the harness runs:
 the host's own in host mode, or a module the runtime names, which each
 `warm` process the engine spawns loads before its hello. Its hello carries
 the plugin's **declaration**: the hooks it answers, each with its
@@ -825,7 +838,7 @@ answered by a `host_reply`.
    field of the engine's, the arguments before and after H2 and after
    resolution, the carried value, timings, deviations and the platform
    calls of the run's steps included.
-   - **Run-end trace detail (PS1).** The declaration's `trace_detail` may
+   - **Run-end trace detail.** The declaration's `trace_detail` may
      ask less for `on_run_end` or `on_run_settled`. `summary` is the
      run's own fields, its warnings and deviations, without its result,
      records, child flows, spans or platform calls. `none` is the run's
@@ -834,7 +847,7 @@ answered by a `host_reply`.
      gets it. It costs about 3 µs per KB for every run, written by the
      engine and parsed by the host, and is 2 to 4 KB per step. The engine
      writes the stored texts it holds into the payload as they are
-     ([0008](0008-host-hooks.md), §Where hooks run).
+     ([host hooks](0008-host-hooks.md), §Where hooks run).
    - The engine refuses, with `plugin_mismatch`, a level for a hook the
      plugin does not declare, or a level other than `full`, `summary` or
      `none`.
@@ -851,7 +864,7 @@ answered by a `host_reply`.
    throwing, and an `around` wrapper, which runs inside the invocation,
    may call both. A native step's realm (D5) has no `wl`.
 6. **A host's budgets.** A host-mode `run` carries what a Go host gives in
-   its run options (F2b): the run's own write-capable selectors (H3) and
+   its run options: the run's own write-capable selectors (H3) and
    fatal error names (H7), ahead of the plugin's; its hard and pre-write
    deadlines (H4), in milliseconds from the engine's receipt; and its
    clock (H10). The hard deadline bounds the run until it has settled, so
@@ -869,7 +882,7 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 ### Cancellation and deadlines
 
 1. Every run has a Go context carrying the host's cancellation and
-   deadlines ([0008](0008-host-hooks.md)). The engine checks it at every
+   deadlines ([host hooks](0008-host-hooks.md)). The engine checks it at every
    module start and completion, every loop iteration and branch launch,
    every `sleep`, every retry delay and every expression evaluation.
    `sleep` and retry delays are timers on that context, so a cancellation
@@ -895,7 +908,7 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
    the flow, and what it asks for starts: a retry when one is due, the next
    module under `continue_on_error`, or else the failure module
    ([FX-19](../semantics/execution.md#fx-19); the precedence of
-   [0008](0008-host-hooks.md)).
+   [host hooks](0008-host-hooks.md)).
 4. **Abandonment (deviation D2).** The harness aborts the invocation's
    signal and later reports anything it produces as `late`. In a process the
    engine spawned, the process is marked **tainted**: it gets no new
@@ -924,48 +937,52 @@ flow's failure module still runs once, and the flow ends canceled.
   is still recovered, by the engine's watchdog and the host's supervisor.
 - The protocol is language-neutral; a Python harness implements the same
   frames.
-- Milestone K1 added the `settled` field and the settlement rule. Without
-  them the engine could not tell an abandoned call that ended from one that
-  only produced late output, so `onRunSettled` had no reliable trigger. An
-  outcome fixed before the call ends (D11, or an attributed error that
-  fails the invocation at once) does not settle it either.
-- Milestone K1 widened the FX-38 exception in §Cancellation and deadlines
-  item 3 from "the failure module" to whatever the continue decision asks
-  for, to match FX-19 and the precedence of [0008](0008-host-hooks.md).
-- Milestone C1 fixed the wire details the table had left open: canonical
-  envelopes, base64 part chunks with their own stream ids and the sender's
-  queueing rule, the protocol-error rule, `pid` in `hello` (host mode item
-  4 already relied on it), `exit_code` in an escaped `result` (the code of
-  an intercepted non-zero `process.exit`, D11, and Q-WR-2's 1 must reach the
-  engine), `heartbeat_ms` and `max_message` in the welcome, and the
-  harness's own heartbeat pings, so that the watchdog measures silence from
-  received frames (review item cl P4-3, which also asked for the pid
-  check above). It also fixed the decoding rules both sides share, the
-  ordering of messages about one invocation, and that a tainted process
-  does not count toward the pool's maximum and does not take it past the
-  maximum when it returns (§Pooling).
-- Milestone W1, the walking skeleton, fixed what platform calls and host
-  mode need on the wire. `platform` carries `headers` as an object of
-  strings and an optional `body`, the body's bytes in padded base64 so that
-  binary uploads and downloads stay exact, as does `platform_reply`, whose
-  `status` is a final HTTP status (200 to 599). The welcome's `facade` names the origin to intercept.
-  `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and an
-  optional raw `intercept` (H1's static form, [0008](0008-host-hooks.md)),
-  and `run_done` carries `status` and an optional raw `result`. These
-  fields stand in for the JSON mapping of `runner.proto` until F5 defines
-  it. A run's `id` is its id in the engine, so the host finds the scope of
-  each invocation by its `run`. W1 also recorded how host mode starts: the
-  SDK passes the engine a socketpair as fd 3 (Node's extra `"pipe"` stdio,
-  a socket on Bun 1.3.10), and since FU6 a second one as fd 4 for its
-  steps' `child` frames. A host-mode hello must offer the `host`
-  capability and name the engine's parent, and the watchdog signals only
-  while `getppid()` still names it (review item cl P4-3). A protocol error
-  from a host ends the connection, and with it the engine, rather than
-  signalling the host: the host-mode rules kill a host only through the
-  watchdog. It also recorded that the environment view covers `Bun.env` at
-  run time (§Per-invocation identity, logs and environment).
-- Milestone C3a implemented the step runtime's rules and fixed what they
-  left open:
+- The `settled` field and the settlement rule let the engine tell an
+  abandoned call that ended from one that only produced late output, so
+  `onRunSettled` has a reliable trigger. An outcome fixed before the call
+  ends ([D11](0001-equivalence-contract.md#5-named-deviations), or an attributed error that fails the invocation at once) does
+  not settle it either.
+- The [FX-38](../semantics/execution.md#fx-38) exception in §Cancellation and deadlines item 3 covers whatever
+  the continue decision asks for, not only "the failure module", to match
+  [FX-19](../semantics/execution.md#fx-19) and the precedence of [host hooks](0008-host-hooks.md).
+- The protocol fixes these wire details beyond the table:
+  - canonical envelopes, base64 part chunks with their own stream ids, and
+    the sender's queueing rule;
+  - the protocol-error rule;
+  - `pid` in `hello`, which host mode item 4 relies on;
+  - `exit_code` in an escaped `result`, since the code of an intercepted
+    non-zero `process.exit` ([D11](0001-equivalence-contract.md#5-named-deviations)) and [Q-WR-2](../semantics/languages.md#q-wr-2)'s 1 must reach the engine;
+  - `heartbeat_ms` and `max_message` in the welcome, and the harness's own
+    heartbeat pings, so that the watchdog measures silence from received
+    frames;
+  - the decoding rules both sides share, and the ordering of messages about
+    one invocation;
+  - a tainted process does not count toward the pool's maximum, and does
+    not take it past the maximum when it returns (§Pooling).
+- Platform calls and host mode on the wire:
+  - `platform` carries `headers` as an object of strings and an optional
+    `body`, the body's bytes in padded base64 so that binary uploads and
+    downloads stay exact, as does `platform_reply`, whose `status` is a
+    final HTTP status (200 to 599). The welcome's `facade` names the origin
+    to intercept.
+  - `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and
+    an optional raw `intercept` (H1's static form,
+    [host hooks](0008-host-hooks.md)), and `run_done` carries `status` and
+    an optional raw `result`. These fields stand in for the JSON mapping of
+    `runner.proto` until the go-plugin adapter defines it.
+  - A run's `id` is its id in the engine, so the host finds the scope of
+    each invocation by its `run`.
+  - The SDK passes the engine a socketpair as fd 3 (Node's extra `"pipe"`
+    stdio, a socket on Bun 1.3.10), and a second one as fd 4 for its steps'
+    `child` frames.
+  - A host-mode hello must offer the `host` capability. With the watchdog
+    on, it must also name the engine's parent, and the watchdog signals only
+    while `getppid()` still names it (host mode item 4). A protocol error from a host ends the connection, and with it
+    the engine, rather than signalling the host: the host-mode rules kill a
+    host only through the watchdog.
+  - The environment view covers `Bun.env` at run time (§Per-invocation
+    identity, logs and environment).
+- The Bun step runtime settles these points of its rules:
   - **`warning`**, a new message, carries an unattributed process-level
     error to each invocation in flight (failure model item 3), so the
     engine's `Reporter.Warning` hears of it; health's `errors` counts only
@@ -992,7 +1009,7 @@ flow's failure module still runs once, and the flow ends canceled.
     nothing.
   - **The per-invocation registry.** The store holds the invocation's
     resource registry, which the runtime settles with the invocation, so
-    the settle-time fence that milestone C3b adds to D9 (timers and
+    the settle-time fence of D9 (timers and
     `fetch` requests an invocation started) registers there and needs no
     global table. Its counts are the leak report: Bun's
     `process._getActiveHandles()` lists nothing (1.4.3, as 1.3.10).
@@ -1010,28 +1027,30 @@ flow's failure module still runs once, and the flow ends canceled.
   - **Host-provided modules in a spawned harness** are the bundle's copies,
     registered in the manifest's `host_modules` order before any step loads
     and before the harness's `hello`, once every process-wide hook (the
-    process scope included) is installed ([0010](0010-packaging.md), D12).
+    process scope included) is installed ([packaging](0010-packaging.md), D12).
   - **Signatures by name.** The build records the signature of every
     top-level function declaration, exported or not, beside every export's
-    ([0002](0002-ir-and-loader.md)), so an entrypoint whose declaration
-    does not parse fails before its module loads even when the module does
-    not export it ([WR-7](../semantics/languages.md#wr-7)). A codebase
-    script's callable export that its metadata does not sign (CommonJS
-    source has no static export list) is called with an empty parameter
-    list, as Windmill's parser gives a function it does not find in the
-    script's content (milestone C2b; [0010](0010-packaging.md)).
+    ([IR, loader and validation](0002-ir-and-loader.md)). So an entrypoint
+    whose declaration does not parse fails before its module loads even
+    when the module does not export it
+    ([WR-7](../semantics/languages.md#wr-7)).
+  - **Unsigned codebase exports.** A codebase script's callable export that
+    its metadata does not sign (CommonJS source has no static export list)
+    is called with an empty parameter list, as Windmill's parser gives a
+    function it does not find in the script's content
+    ([packaging](0010-packaging.md)).
   - **Results above `max_message`** stay a protocol refusal (an `escaped`
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the
     engine, not by the harness.
-- Milestone C3n added the native boundary. The Bun harness's `hello`
-  offers `native`, and the engine refuses a native invocation to a harness
-  whose `hello` does not.
+- For the native boundary, the Bun harness's `hello` offers `native`, and
+  the engine refuses a native invocation to a harness whose `hello` does
+  not.
   - **A realm per invocation.** An invocation with boundary `native` runs in
     a `node:vm` context of its own, with the native runtime's globals and
     rules ([WR-40](../semantics/languages.md#wr-40) to
-    [WR-45](../semantics/languages.md#wr-45); D5 in
-    [0001](0001-equivalence-contract.md)). Its timers and fetches are
+    [WR-45](../semantics/languages.md#wr-45); the native boundary mode,
+    [D5](0001-equivalence-contract.md#5-named-deviations)). Its timers and fetches are
     registered with the invocation and released when it settles.
   - **Outcomes.** A native invocation ends `ok` or `error`, never `escaped`
     or `empty`: a thrown value is the `{message, stack, name}` object, and a
@@ -1073,10 +1092,10 @@ flow's failure module still runs once, and the flow ends canceled.
     `Query timeout after (>Ns)` for native
     ([WR-44](../semantics/languages.md#wr-44); `engine.TimeoutError`).
 
-- Milestone C3b added the settle-time fence, per-invocation logs,
-  child-process wrapping and `fresh` mode, and fixed what they left open:
-  - **The fence** (failure model item 4) narrows D9 as the anchor decided
-    on 2026-10-28. It never touches sockets or shared objects, so a client
+- The settle-time fence, per-invocation logs, child-process wrapping and
+  `fresh` mode follow these rules:
+  - **The fence** (failure model item 4) narrows
+    [D9](0001-equivalence-contract.md#5-named-deviations). It never touches sockets or shared objects, so a client
     kept in module state keeps working; connections are a pooled layer's,
     made in its captured process scope.
   - **`left_behind`**, a new warning code with a `left` field, reports
@@ -1103,22 +1122,24 @@ flow's failure module still runs once, and the flow ends canceled.
     fresh process whose invocation it stops waiting for. Case
     `watchdog/finite-cpu` holds in `fresh` and `warm`
     (`TestBunWatchdogFiniteCPU`).
-- Milestone FU5 added `origin` to the `result` frame. An `error` outcome's
-  object is the step code's, except where the harness fails the step as
-  Windmill's worker does before or around running it: WR-37's signature
+- The `result` frame carries `origin`. An `error` outcome's object is the
+  step code's. The exception is where the harness fails the step as
+  Windmill's worker does before or around running it: [WR-37](../semantics/languages.md#wr-37)'s signature
   error, and a native job's transpile error, load failure and `//proxy`
-  refusal (WR-43's second form). Those are messages windmill-lite
-  generates in place of the worker's, so the engine must record them as
-  generated for [0001](0001-equivalence-contract.md) §2 to strip the
-  oracle's Rust location from them (D14). The harness knows which errors
-  it wrote, so it says so; the engine cannot tell a Bun step's generated
-  object from a user's throw of the same shape. The field is optional and
-  only an `error` outcome carries it, so a decoder that ignores it reads
-  the frame as before.
+  refusal ([WR-43](../semantics/languages.md#wr-43)'s second form).
+- Those are messages windmill-lite generates in place of the worker's, so
+  the engine must record them as generated for
+  [§2 of the equivalence contract](0001-equivalence-contract.md#2-what-is-matched-exactly)
+  to strip the oracle's Rust location from them
+  ([D14](0001-equivalence-contract.md#5-named-deviations)). The harness
+  knows which errors it wrote, so it says so; the engine cannot tell a Bun
+  step's generated object from a user's throw of the same shape.
+- The field is optional and only an `error` outcome carries it, so a
+  decoder that ignores it reads the frame as before.
 
-- Milestone PF1 wired the platform facade of
-  [0007](0007-platform-interface.md) to the protocol, and fixed what it
-  needed:
+- The platform facade of the
+  [platform interface](0007-platform-interface.md) record meets the protocol
+  in these points:
   - **Platform order.** A `platform` frame keeps its order with the
     messages about the invocation its `inv` names (§Transport and framing
     item 3), and the engine hands each one to the facade on the
@@ -1134,7 +1155,8 @@ flow's failure module still runs once, and the flow ends canceled.
   - **Intercepted replies** carry the reason phrase Go's `net/http` writes
     for their status as `statusText`, as the TCP transport's do.
 
-- Milestone FU6 followed the reference's revision of 2026-10-29 (SC2):
+- The harness follows the reference's rules on process groups and the base
+  environment:
   - **Process groups** ([WR-55](../semantics/languages.md#wr-55); failure
     model items 4, 7 and 8). Before, child processes were outside the
     fence and left running. A `fresh` process now leads its job's group,
@@ -1166,52 +1188,56 @@ flow's failure module still runs once, and the flow ends canceled.
     engine's `NODE_PATH` only when it has one; a script's own `NODE_PATH`
     entry then does not reach the step.
 
-- Milestone F2c defined `host_call` and `host_reply` (the table had them
-  "either way", with no `run`, reply form or errors): calls go from the
-  engine to the harness only, carry the run whose scope a host re-enters,
-  and are answered with a payload or an error. It added the hello's
-  `plugin`, the invoke's `around` and run_done's `latched`, and §Host
-  plugins. It also carried F2b's budgets and latches over the protocol:
-  the step API's `latch` warning, the `run`'s `write_capable`,
-  `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and
-  `clock`, and run_done's `deviations`, without which a host-mode run had
-  no write-capable site, deadline or record clock and never reported
-  `may_have_mutated`.
+- `host_call` goes from the engine to the harness only, and carries the run
+  whose scope a host re-enters. The harness answers each with a
+  `host_reply`: the call's `id`, then a payload or an error. The hello
+  carries `plugin`, the invoke `around`, and `run_done` `latched` (§Host
+  plugins).
+- The protocol carries a host's budgets and latches: the step API's `latch`
+  warning, the `run`'s `write_capable`, `fatal_error_names`, `deadline_ms`,
+  `pre_write_deadline_ms` and `clock`, and `run_done`'s `deviations`.
+  Without them a host-mode run would have no write-capable site, deadline or
+  record clock, and would never report `may_have_mutated`.
 - A `run` frame also carries the run's own halts, `halt_before` and
   `halt_after`: arrays of selectors, which both codecs check as they check
   `write_capable`, and which end that run alone `halted`
-  ([0008](0008-host-hooks.md) H8). The halts of a host plugin, in its
+  ([host hooks](0008-host-hooks.md) H8). The halts of a host plugin, in its
   hello, apply to every run of its host.
-- Milestone F3b gated host mode (ADR 0012): the flow suite runs on a Bun
-  host that embeds the SDK and runs the steps in its own process, the
+- Host mode is tested end to end. The flow suite runs on a Bun host that
+  embeds the SDK and runs the steps in its own process. The
   never-settling-step, watchdog, `watchdog/finite-cpu` and resource-release
   tests and the H11 policy case run on a compiled host under a supervisor
-  that only restarts it on exit. It made the handshake's parent check the
-  watchdog's only, added the `retired` recycle trigger, and made the
-  harness version the release a host's SDK shares with its engine
-  (`version_mismatch`, [0009](0009-host-adapters.md)); the hello's
-  `harness.version` is now that release, `dev` in the repository.
-- Milestone F3a completed host mode on the engine's `wl` library and real
-  bundles: `hello` gained `workdir` and the engine checks the host's
-  working directory (host mode item 7, with the `engine_refused` reject
-  for a bundle it cannot open); `run_done` gained `may_have_mutated`,
-  `warnings` and, for a run the engine did not start, `error` in place of
-  `status`; `run_settled` carries `onRunSettled` to the host (item 5); the
-  host drains its engine with `drain` and `bye` in the reverse direction
-  (item 3); a host-mode invocation carries `BASE_URL` and has its
-  `args.json` written; and on Linux the watchdog signals the host through
-  a pidfd (item 4). The recycle triggers are the host's (item 3).
+  that only restarts it on exit.
+- The handshake's parent check is the watchdog's only, `retired` is a
+  recycle trigger, and the harness version is the release that a host's SDK
+  shares with its engine (`version_mismatch`,
+  [host adapters](0009-host-adapters.md)). The hello's `harness.version` is
+  that release, `dev` in the repository.
+- Host mode runs on the engine's `wl` library and real bundles:
+  - `hello` carries `workdir`, and the engine checks the host's working
+    directory (host mode item 7, with the `engine_refused` reject for a
+    bundle it cannot open);
+  - `run_done` carries `may_have_mutated`, `warnings` and, for a run the
+    engine did not start, `error` in place of `status`;
+  - `run_settled` carries `onRunSettled` to the host (item 5), and the host
+    drains its engine with `drain` and `bye` in the reverse direction
+    (item 3);
+  - a host-mode invocation carries `BASE_URL`, and its `args.json` is
+    written unless the bundle has no reader of it and the host opts in
+    (host mode item 7);
+  - on Linux the watchdog signals the host through a pidfd (item 4), and
+    the recycle triggers are the host's (item 3).
 
 - The repository's benchmarks measure the transport alone: the engine's
   connection against the runtime's frame layer over a socketpair, with
   part streams above 1 MiB. On an Apple M4, a 26 B step's invoke and
   result round-trip in 14 µs at p50, a 32 KiB one in 123 µs and a 4 MiB
-  one in 33 ms, measured with the commands of
-  [0005](0005-json-step-boundaries.md#baseline).
+  one in 33 ms. The commands that measure it are those of the
+  [JSON at step boundaries](0005-json-step-boundaries.md#baseline) record.
 
 - Host mode leaves `args.json` out only for a bundle none of whose
   scripts can read it (the manifest's `no_args_file_reader`,
-  [0010](0010-packaging.md)) whose host opts in, in item 7 of host mode.
+  [packaging](0010-packaging.md)) whose host opts in, in item 7 of host mode.
   The file cost about 110 µs of a host-mode step's 200 µs floor on macOS.
   - The build's decision is conservative: one script that fetches, or
     reads any property by a built name, makes the bundle a reader. So the
