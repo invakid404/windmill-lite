@@ -6,7 +6,8 @@ contract suite ([wl/storetest](../storetest/README.md)) on both. Redis
 Cluster is not supported. This README covers `wl/redisstore/`.
 
 The resource store keeps the resources that steps write through the job
-API, such as the state of the stock client's `setState`
+API, such as the [state](../../docs/glossary.md#state) of the stock client's
+`setState`, which is not the flow user state of a flow run
 ([The resource store](../README.md#the-resource-store)). With this store,
 runtimes in several processes share those resources, and the resources
 last as long as Redis keeps its data. The guide
@@ -68,7 +69,7 @@ without a host, which `New` refuses instead.
   `route_randomly`, `replica_only`, `use_disconnected_replicas`) fails
   `New`: the store reads and writes the master only.
 - **Sentinel addresses and name.** Each `addr` parameter must be a plain
-  host and a numeric port. `master_name` must be letters, digits, `.`, `_`
+  host and a numeric port. `master_name` must be ASCII letters, digits, `.`, `_`
   and `-`, and hold none of the URL's passwords: go-redis writes the
   master's name to its log. A secret the URL does not carry cannot be told
   from a name, so any other name is logged as written.
@@ -123,21 +124,27 @@ report a create that succeeded as a conflict, or write over a later write.
   have been applied, as the store's contract allows; its entry is whole
   either way. The facade answers 500, and the stock client's `getState` and
   `setState` throw, as a cut call to Windmill's API does.
-- **A Sentinel failover** shows as errors for its duration, until go-redis
-  reaches the new master. A step that must survive one uses the flow's own
-  retry of that step.
+- **A Sentinel failover:** an operation during one may return an error, and
+  the facade then answers 500, or may succeed, depending on which master its
+  connection reaches and whether the reply comes back. A write that errors
+  may or may not have been applied. No command is sent again, so a step that
+  must survive a failover uses the flow's own retry of that step, which may
+  meet it again.
 - **Dials** keep go-redis's own retries, which come before any command is
   sent.
 
 Each operation ends after `OperationTimeout`, 10 s by default, its dial
-included. That is well under the 30 s of silence after which a host-mode
-engine's watchdog ends the connection (`-kill-after` of
-[windmill-lite host](../../cmd/windmill-lite/README.md)), a margin of 20 s.
+included. With the defaults, that is 20 s under the 30 s of silence after
+which a host-mode engine's watchdog ends the connection, in a plain build.
+That threshold is `-kill-after` of
+[windmill-lite host](../../cmd/windmill-lite/README.md), which a Bun host
+sets, and `0` turns it off; a race build triples the default. Keep
+`OperationTimeout` below the threshold you set.
 
-go-redis's socket read and write timeouts default to the same bound when the
-URL sets neither `read_timeout` nor `write_timeout`. go-redis takes the
-earlier of its own timeout, otherwise 5 s, and the operation's deadline, and
-a stalled command is not sent again.
+The store sets go-redis's socket read and write timeouts to
+`OperationTimeout` when the URL does not set them (`read_timeout`,
+`write_timeout`). go-redis takes the earlier of that timeout and the
+operation's deadline, and a stalled command is not sent again.
 
 ## The eviction check
 
@@ -152,7 +159,9 @@ expiry can drop them, so `New` reads the policy with
 | A policy it does not know | Succeeds with a warning |
 | Unreadable: `CONFIG` renamed or disabled, or an ACL that refuses it | Succeeds with a warning |
 
-`Evicts` classifies a policy name. A network error during the check fails
+`Evicts` classifies a policy name as an `Eviction`: `KeepsEntries`
+(`noeviction` and the `volatile-*` policies), `EvictsEntries` (the
+`allkeys-*` policies) or `UnknownPolicy`. A network error during the check fails
 `New`, as an unreachable server does.
 
 ## Errors
@@ -162,10 +171,11 @@ The store's errors take these forms:
 | Case | Error |
 |---|---|
 | Redis or the connection fails during an operation | `redisstore: <operation>: <cause>`, for example `redisstore: get: dial tcp 10.0.0.5:6379: connect: connection refused`, wrapping go-redis's error. When go-redis returns the context's own error for a context canceled or past its deadline in flight, `errors.Is` finds it; a deadline can also surface as a network timeout. |
+| A workspace id with a colon | `redisstore: the workspace id … contains a colon …`, before any command, naming no operation. The key is checked first, so this error comes even with a canceled context |
 | The context is already canceled when the operation starts | The context's error itself, before any command |
-| A workspace id with a colon | `redisstore: the workspace id … contains a colon …`, before any command, naming no operation |
 | `New`: a URL that does not parse, or client options go-redis refuses | A fixed `redisstore: ` message that names no part of the URL |
-| `New`: an unreachable server, refused scripts, an evicting policy | `redisstore: ` and the server's address, or the Sentinels' |
+| `New`: a non-empty key prefix that is not one or more characters without a colon, then a colon (an empty prefix takes `DefaultPrefix`); no URL; a Sentinel URL that asks for replicas | `redisstore: the key prefix "<prefix>" must be …`, `redisstore: no Redis URL`, `redisstore: the Sentinel URL asks for replicas …`, before any connection |
+| `New`: an unreachable server, refused scripts, an evicting policy without `AllowEviction` | `redisstore: ` and the server's address, or the Sentinels' |
 
 An error of an operation reaches the step through the facade, which
 answers 500, and the step's `getState` throws
@@ -191,7 +201,7 @@ by digest, on a Docker network of their own, and prints the variables;
 | File | What it checks |
 |---|---|
 | `redisstore_test.go` | The contract suite on one server and through Sentinel, and no retries on either client (go-redis keeps the -1 as 0) and socket timeouts that follow the operation timeout. The hash layout without expiry, and prefixes shared or apart. The eviction check's branches, and a user without `CONFIG`. The URL forms, errors that never show a synthetic secret, refused options and prefixes, and a colon in a workspace id. |
-| `fault_test.go` | The fault tests below |
+| `fault_test.go` | The fault tests below, and `TestOperationTimeout`: an operation whose reply is held back ends after `OperationTimeout`, though `read_timeout` is longer |
 
 `fault_test.go` cuts the store's connection through
 [Toxiproxy](https://github.com/Shopify/toxiproxy) for each operation. With

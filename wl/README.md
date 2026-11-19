@@ -147,7 +147,7 @@ The zero value of each field is its default.
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
-| `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
+| `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
 A `Variable` holds its `Value`, and `Secret` marks a secret. With
@@ -179,21 +179,24 @@ delete a resource that the host or the bundle provides: that call answers
   before returns it.
 - `NewMemoryResourceStore` returns a memory store that the host keeps:
   its entries live as long as the host holds it, and only the runtimes
-  given it see them. The trace of each run on a memory store lists `D24`, a
+  given it see them. The trace of each flow run on a memory store lists
+  `D24`, a
   [deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations):
-  Windmill keeps them in its database.
+  Windmill keeps them in its database. A root script's run has no trace.
 - The package [`wl/redisstore`](redisstore/README.md) is a store on
   Redis, which runtimes in several processes share and which lasts as long
   as Redis keeps its data; its runs list no `D24`. The guide
   [Choosing a resource store](../docs/resource-stores.md) compares the two
   stores and says how to set Redis up.
-- A host's own store implements `ResourceStore`, whose doc comment is its
-  contract. The package
+- A host's own store implements `ResourceStore`. Its contract is the doc
+  comment in
+  [internal/platform/resourcestore.go](../internal/platform/resourcestore.go),
+  which `wl.ResourceStore` aliases. The package
   [`wl/storetest`](storetest/README.md) holds the contract's tests, and
   `storetest.Run` runs them on a store.
-- When a store fails, the call answers 500, `Internal: windmill-lite: the
-  resource store failed: <err>`, and the run's warnings get one with the
-  code `resource_store_failed`. So does a read of the run's own, such as a
+- When a store fails, the step's call answers 500, `Internal: windmill-lite:
+  the resource store failed: <err>`, and the run's warnings also get one
+  with the code `resource_store_failed`. So does a read of the run's own, such as a
   `$res:` argument, whose step then fails with the same error. A missing state is never what a failure
   reads as.
 
@@ -648,5 +651,5 @@ build helper's dependencies, and skip without them unless
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
-| `store_test.go` | `Options.ResourceStore` on real steps: two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace | Yes |
+| `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `example_test.go` | Compiles the README's example | No |
