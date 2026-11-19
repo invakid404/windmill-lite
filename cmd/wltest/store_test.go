@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,9 +97,13 @@ func TestFixtureStateOnRedis(t *testing.T) {
 	t.Cleanup(func() { c.Close() })
 	ctx := context.Background()
 
-	var id [6]byte
-	rand.Read(id[:])
-	path := "f/wlt_iso/state_" + hex.EncodeToString(id[:])
+	var raw [6]byte
+	rand.Read(raw[:])
+	id := hex.EncodeToString(raw[:])
+	path, other, err := claimStateTest(t, ctx, c, id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Join(t.TempDir(), "state-isolation")
 	if err := oracle.CopyTree(filepath.Join("testdata", "state-isolation"), dir); err != nil {
 		t.Fatal(err)
@@ -113,15 +119,10 @@ func TestFixtureStateOnRedis(t *testing.T) {
 	if err := os.WriteFile(script, []byte(strings.ReplaceAll(string(src), `"f/wlt_iso/state"`, `"`+path+`"`)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	keys := func() []string {
 		t.Helper()
-		var found []string
-		iter := c.Scan(ctx, 0, "wltest-*:res:*:"+path, 100).Iterator()
-		for iter.Next(ctx) {
-			found = append(found, iter.Val())
-		}
-		if err := iter.Err(); err != nil {
+		found, err := stateKeys(ctx, c, path)
+		if err != nil {
 			t.Fatal(err)
 		}
 		return found
@@ -133,26 +134,8 @@ func TestFixtureStateOnRedis(t *testing.T) {
 			}
 		}
 	}
-	// The path is this test's own only if no key holds it yet: checked
-	// before any cleanup is registered, so a key found here is left alone.
-	if found := keys(); len(found) != 0 {
-		t.Fatalf("%d keys at this test's own path before it ran; it leaves them", len(found))
-	}
+	// The claim made the path this run's own.
 	t.Cleanup(clean)
-	// Another run's counter at the fixture's own path, created only where
-	// no key is, and removed only when this test created it.
-	other := "wltest-" + hex.EncodeToString(id[:]) + "0000:res:other-ws:f/wlt_iso/state"
-	if n, err := c.Exists(ctx, other).Result(); err != nil || n != 0 {
-		t.Fatalf("the witness key exists already (%d) or cannot be checked (%v); it is left alone", n, err)
-	}
-	if err := c.HSet(ctx, other, "t", "state", "v", "7", "w", "other").Err(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := c.Del(ctx, other).Err(); err != nil {
-			t.Errorf("deleting %s: %v", other, err)
-		}
-	})
 
 	fc := &flowChecker{bun: bun, repo: root, mode: conformance.ModeWarm, js: js, redisURL: url}
 	frs := fc.runFixtures(ctx, []string{dir, dir})
@@ -181,5 +164,106 @@ func TestFixtureStateOnRedis(t *testing.T) {
 	clean()
 	if v, err := c.HGet(ctx, other, "v").Result(); err != nil || v != "7" {
 		t.Errorf("another run's counter %s after the cleanup: %q, %v, want it kept", other, v, err)
+	}
+}
+
+// errClaimed is claimStateTest's error for an id another run holds.
+var errClaimed = errors.New("another run of the test holds this id")
+
+// stateKeys returns the keys of every fixture store at path.
+func stateKeys(ctx context.Context, c *redis.Client, path string) ([]string, error) {
+	var found []string
+	iter := c.Scan(ctx, 0, "wltest-*:res:*:"+path, 100).Iterator()
+	for iter.Next(ctx) {
+		found = append(found, iter.Val())
+	}
+	return found, iter.Err()
+}
+
+// claimStateTest claims id for one run of TestFixtureStateOnRedis with SET
+// NX, which one caller wins: the claim, the state path f/wlt_iso/state_<id>
+// and a witness key that stands for another run's counter at the fixture's
+// own path are then that run's, which deletes them when t ends. A caller
+// that loses, or finds a key at either name, gets an error and registers
+// no cleanup, so it leaves the holder's keys as they are.
+func claimStateTest(t *testing.T, ctx context.Context, c *redis.Client, id string) (path, other string, err error) {
+	claim := "wltest-claim:" + id
+	won, err := c.SetNX(ctx, claim, "1", 0).Result()
+	if err != nil {
+		return "", "", err
+	}
+	if !won {
+		return "", "", errClaimed
+	}
+	path = "f/wlt_iso/state_" + id
+	other = "wltest-" + id + "0000:res:other-ws:f/wlt_iso/state"
+	found, err := stateKeys(ctx, c, path)
+	if err == nil && len(found) == 0 {
+		var n int64
+		if n, err = c.Exists(ctx, other).Result(); err == nil && n != 0 {
+			err = fmt.Errorf("the witness key %s exists already", other)
+		}
+	} else if err == nil {
+		err = fmt.Errorf("%d keys at %s already", len(found), path)
+	}
+	if err != nil {
+		// Nothing of this run's but the claim, which it gives back.
+		c.Del(ctx, claim)
+		return "", "", err
+	}
+	if err := c.HSet(ctx, other, "t", "state", "v", "7", "w", "other").Err(); err != nil {
+		c.Del(ctx, claim)
+		return "", "", err
+	}
+	t.Cleanup(func() {
+		for _, k := range []string{other, claim} {
+			if err := c.Del(ctx, k).Err(); err != nil {
+				t.Errorf("deleting %s: %v", k, err)
+			}
+		}
+	})
+	return path, other, nil
+}
+
+// TestStateTestClaim: of two claims of one fixed id, the first wins and
+// the second is refused, and the refused one leaves the winner's counter,
+// witness and claim as they are. It needs WL_TEST_REDIS_URL, and skips
+// without it.
+func TestStateTestClaim(t *testing.T) {
+	url := os.Getenv("WL_TEST_REDIS_URL")
+	if url == "" {
+		t.Skip("WL_TEST_REDIS_URL is not set; scripts/redis-test-env.sh starts the servers and prints it")
+	}
+	o, err := redis.ParseURL(url)
+	if err != nil {
+		t.Fatal("WL_TEST_REDIS_URL does not parse")
+	}
+	c := redis.NewClient(o)
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	var raw [4]byte
+	rand.Read(raw[:])
+	id := "fixed" + hex.EncodeToString(raw[:])
+
+	path, other, err := claimStateTest(t, ctx, c, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counter := "wltest-" + id + "aaaa:res:ws:" + path
+	if err := c.HSet(ctx, counter, "t", "state", "v", "2", "w", "w").Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Del(ctx, counter) })
+
+	if _, _, err := claimStateTest(t, ctx, c, id); !errors.Is(err, errClaimed) {
+		t.Fatalf("the second claim of one id: %v, want errClaimed", err)
+	}
+	for k, want := range map[string]string{counter: "2", other: "7"} {
+		if v, err := c.HGet(ctx, k, "v").Result(); err != nil || v != want {
+			t.Errorf("after the refused claim, %s holds %q, %v, want %s", k, v, err, want)
+		}
+	}
+	if n, err := c.Exists(ctx, "wltest-claim:"+id).Result(); err != nil || n != 1 {
+		t.Errorf("after the refused claim, the winner's claim: %d, %v", n, err)
 	}
 }

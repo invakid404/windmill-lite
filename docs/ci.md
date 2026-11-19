@@ -178,9 +178,9 @@ variables it prints to its environment. Its steps:
    check and the fault tests.
 2. **Test the run command on Redis:** `TestRunCommand`, whose two engine
    processes share a state on the server.
-3. **Test wltest's fixture stores on Redis:** `TestFixtureStoresAreApart`
-   and `TestFixtureStateOnRedis` in `cmd/wltest`: each fixture's runtime
-   gets a Redis store of its own, which its runs share.
+3. **Test wltest's fixture stores on Redis:** `TestFixtureStoresAreApart`,
+   `TestFixtureStateOnRedis` and `TestStateTestClaim` in `cmd/wltest`: each
+   fixture's runtime gets a Redis store of its own, which its runs share.
 4. **Check client-api/state on the Redis store:** `wltest check
    -resource-store redis` of the fixture, in each mode of the flow suite.
 5. **Remove the containers**, whatever the steps before did.

@@ -222,7 +222,12 @@ CI job `Redis` checks `client-api/state` this way in each mode.
 fixtures' stores, and `TestFixtureStateOnRedis` runs a copy of the
 synthetic fixture `testdata/state-isolation`, with a state path of its
 own, twice. Its runs share a counter, each fixture starts at zero, and
-Redis holds one counter per fixture; the test deletes only its own keys.
+Redis holds one counter per fixture.
+
+The test first claims its random id with `SET NX`, and deletes only the
+keys of an id it won;
+`TestStateTestClaim` checks that a second claim of one id is refused and
+leaves the winner's keys alone.
 
 ### Step cases
 
