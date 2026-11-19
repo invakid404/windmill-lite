@@ -20,8 +20,27 @@ import (
 )
 
 // toxiproxyEnv names the address (host:port) of a Toxiproxy API whose
-// proxies listen on that host and reach the server of WL_TEST_REDIS_URL.
-const toxiproxyEnv = "WL_TEST_TOXIPROXY"
+// proxies listen on that host. faultsEnv names the Redis server the fault
+// tests proxy to, which no other test uses: they count the commands it
+// runs, so another client's commands would read as the store's.
+const (
+	toxiproxyEnv = "WL_TEST_TOXIPROXY"
+	faultsEnv    = "WL_TEST_REDIS_FAULTS_URL"
+)
+
+// faultsServer returns a go-redis client of the fault tests' own server,
+// closed when t ends, and its URL.
+func faultsServer(t *testing.T) (*redis.Client, string) {
+	t.Helper()
+	url := envOrSkip(t, faultsEnv)
+	o, err := redis.ParseURL(url)
+	if err != nil {
+		t.Fatalf("%s does not parse", faultsEnv)
+	}
+	c := redis.NewClient(o)
+	t.Cleanup(func() { c.Close() })
+	return c, url
+}
 
 // noScriptReply is the reply to an EVALSHA after SCRIPT FLUSH, which
 // go-redis answers with EVAL.
@@ -124,8 +143,9 @@ func dataCommand(name string) bool {
 
 // calls returns how many times Redis has run each data command (evalsha,
 // eval, hmget), from INFO commandstats: what the server executed, NOSCRIPT
-// replies included. During an operation of the fault test only the store
-// under test runs them; the readers use HGETALL.
+// replies included. Only the fault tests use their server (faultsEnv), and
+// during an operation only the store under test runs these commands there;
+// the readers use HGETALL.
 func calls(t *testing.T, c *redis.Client) map[string]int {
 	t.Helper()
 	info, err := c.Info(context.Background(), "commandstats").Result()
@@ -174,7 +194,7 @@ func newProxy(t *testing.T, c *redis.Client) (*toxiproxy.Proxy, string) {
 // after OperationTimeout, though go-redis's own read timeout would wait
 // longer.
 func TestOperationTimeout(t *testing.T) {
-	c := direct(t)
+	c, _ := faultsServer(t)
 	proxy, addr := newProxy(t, c)
 	s, _ := open(t, Options{URL: fmt.Sprintf("redis://%s/%d?read_timeout=5s", addr, c.Options().DB), Prefix: testPrefix(t, c), OperationTimeout: time.Second})
 	if _, err := proxy.AddToxic("slow", "latency", "downstream", 1, toxiproxy.Attributes{"latency": 4000}); err != nil {
@@ -206,7 +226,7 @@ func TestOperationTimeout(t *testing.T) {
 //     value, a delete left no entry;
 //   - the store's next operation, once the cut is gone, succeeds.
 func TestFaults(t *testing.T) {
-	c := direct(t)
+	c, url := faultsServer(t)
 	proxy, addr := newProxy(t, c)
 	prefix := testPrefix(t, c)
 	// One connection, so the cut falls on the connection the operation
@@ -226,7 +246,7 @@ func TestFaults(t *testing.T) {
 	if err := through.check(context.Background(), false, func(string) {}); err != nil {
 		t.Fatal(err)
 	}
-	plain, _ := open(t, Options{URL: envOrSkip(t, urlEnv), Prefix: prefix})
+	plain, _ := open(t, Options{URL: url, Prefix: prefix})
 
 	ctx := context.Background()
 	oldValue := json.RawMessage(`"old ` + strings.Repeat("o", 1<<20) + `"`)

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Starts, or removes, the containers that the Redis store's tests use
 # (wl/redisstore, and the Redis CI job): one Redis server, one Sentinel
-# that monitors it as the master wl-master, and one Toxiproxy, on a Docker
-# network of their own. The host reaches them at their container
+# that monitors it as the master wl-master, a second Redis server that only
+# the fault tests use, and one Toxiproxy, on a Docker network of their own. The host reaches them at their container
 # addresses, which a Linux Docker host routes.
 #
 #   scripts/redis-test-env.sh up    starts them and prints the variables
@@ -64,22 +64,29 @@ up)
 	master=$(address "$name-master")
 	docker run -d --name "$name-sentinel" --network "$name" -e MASTER="$master" "$redis_image" \
 		sh -c 'printf "port 26379\nsentinel monitor wl-master %s 6379 1\n" "$MASTER" > /tmp/sentinel.conf && exec redis-server /tmp/sentinel.conf --sentinel' >/dev/null
+	# A second server of the fault tests' own: they count the commands
+	# Redis runs, which no other test may add to.
+	docker run -d --name "$name-faults" --network "$name" "$redis_image" \
+		redis-server --save '' --appendonly no >/dev/null
+	faults=$(address "$name-faults")
 	docker run -d --name "$name-toxiproxy" --network "$name" "$toxiproxy_image" >/dev/null
 	sentinel=$(address "$name-sentinel")
 	toxiproxy=$(address "$name-toxiproxy")
 	wait_for "the Redis server" docker exec "$name-master" redis-cli ping
+	wait_for "the fault tests' Redis server" docker exec "$name-faults" redis-cli ping
 	wait_for "the Sentinel" sh -c "docker exec '$name-sentinel' redis-cli -p 26379 sentinel get-master-addr-by-name wl-master | grep -qx '$master'"
 	wait_for "Toxiproxy" curl -sf "http://$toxiproxy:8474/version"
 	echo "WL_TEST_REDIS_URL=redis://$master:6379/0"
 	echo "WL_TEST_REDIS_SENTINEL_URL=redis://$sentinel:26379/0?master_name=wl-master"
 	echo "WL_TEST_TOXIPROXY=$toxiproxy:8474"
+	echo "WL_TEST_REDIS_FAULTS_URL=redis://$faults:6379/0"
 	;;
 down)
 	# The containers that exist, with their anonymous volumes (the Redis
 	# image declares one for /data), then the network. An object that is
 	# absent, as after a partial start, is skipped; a failure to inspect or
 	# remove one fails the command.
-	for c in master sentinel toxiproxy; do
+	for c in master sentinel faults toxiproxy; do
 		if present container "$name-$c"; then
 			docker rm -f -v "$name-$c" >/dev/null
 		fi

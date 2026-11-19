@@ -185,7 +185,8 @@ by digest, on a Docker network of their own, and prints the variables;
 |---|---|
 | `WL_TEST_REDIS_URL` | A Redis 7.2 server, which the tests may reconfigure and then restore |
 | `WL_TEST_REDIS_SENTINEL_URL` | A Sentinel URL of that server as the master `wl-master` |
-| `WL_TEST_TOXIPROXY` | The API address of a Toxiproxy whose proxies reach that server |
+| `WL_TEST_TOXIPROXY` | The API address of a Toxiproxy, whose proxies the fault tests point at the server below |
+| `WL_TEST_REDIS_FAULTS_URL` | A second Redis 7.2 server that only the fault tests use: they count the commands it runs, which no other test may add to |
 
 | File | What it checks |
 |---|---|
@@ -213,8 +214,11 @@ Each cut operation returns an error. The store's client runs exactly the
 permitted data commands, as go-redis's process hook records them: one
 `HMGET`, or one `EVALSHA` and, only after a NOSCRIPT reply that arrived, one
 `EVAL`. Redis runs each of them once, or none when cut before them, as its
-`INFO commandstats` counts show; the readers use `HGETALL`, so those counts
-are the store's. A second run is a replay.
+`INFO commandstats` counts show.
+
+The counts are the store's: the fault
+tests run on a Redis server of their own (`WL_TEST_REDIS_FAULTS_URL`), and
+their readers use `HGETALL`. A second run is a replay.
 
 A write cut in its reply was applied once: a competing create after a cut
 create reports `false`. Readers on another connection check throughout that

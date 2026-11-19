@@ -170,7 +170,8 @@ image. On each image, it:
 The job checks the Redis resource store of
 [wl/redisstore](../wl/redisstore/README.md) against real servers.
 `scripts/redis-test-env.sh up` starts a Redis 7.2 server, a Sentinel that
-monitors it and a Toxiproxy, pinned by digest, and the job adds the
+monitors it, a second Redis 7.2 server for the fault tests alone and a
+Toxiproxy, pinned by digest, and the job adds the
 variables it prints to its environment. Its steps:
 
 1. **Test the Redis store:** `go test -race ./wl/redisstore`, which runs
