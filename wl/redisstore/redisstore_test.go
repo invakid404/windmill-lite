@@ -23,8 +23,12 @@ import (
 //   - WL_TEST_REDIS_URL: one server, which they may reconfigure
 //     (maxmemory-policy, an ACL user) and restore.
 //   - WL_TEST_REDIS_SENTINEL_URL: a Sentinel URL of that server's master.
-//   - WL_TEST_TOXIPROXY: the address of a Toxiproxy API that reaches the
-//     server (fault_test.go).
+//   - WL_TEST_REDIS_FAULTS_URL: a second server that only the fault tests
+//     (fault_test.go) use: TestFaults counts the commands it runs.
+//   - WL_TEST_TOXIPROXY: the address of a Toxiproxy API, whose proxies the
+//     fault tests point at that second server.
+//
+// The package README's table lists the same four.
 const (
 	urlEnv      = "WL_TEST_REDIS_URL"
 	sentinelEnv = "WL_TEST_REDIS_SENTINEL_URL"
