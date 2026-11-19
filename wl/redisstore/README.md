@@ -205,9 +205,16 @@ the script cache full and after `SCRIPT FLUSH`, it cuts:
 - **in the middle of the reply:** the connection closes after half of it.
   After `SCRIPT FLUSH`, the cut falls on `EVAL`'s reply.
 
-Each cut operation returns an error, and writes its command at most once:
-one `EVALSHA`, one `EVAL` after a NOSCRIPT reply, or one `HMGET`, as the
-test counts them on the store's connections. Nothing is sent again.
+The cuts after the command and in the middle of the reply are also made with
+the cut removed when the client dials again, so that a command sent again
+would reach Redis and show in its counts.
+
+Each cut operation returns an error. The store's client runs exactly the
+permitted data commands, as go-redis's process hook records them: one
+`HMGET`, or one `EVALSHA` and, only after a NOSCRIPT reply that arrived, one
+`EVAL`. Redis runs each of them once, or none when cut before them, as its
+`INFO commandstats` counts show; the readers use `HGETALL`, so those counts
+are the store's. A second run is a replay.
 
 A write cut in its reply was applied once: a competing create after a cut
 create reports `false`. Readers on another connection check throughout that
