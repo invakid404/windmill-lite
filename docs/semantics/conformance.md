@@ -7233,16 +7233,16 @@ Findings: [client-api.md](client-api.md).
 - Cases that run on the oracle assume its default configuration unless they say
   otherwise: no sandboxing (nsjail), no workspace custom env vars or worker
   `env_vars` overriding the names under test, and an empty `WHITELIST_ENVS`.
-- Cases are source-derived unless they say otherwise. Milestones E1 and PF1
-  to PF3 recorded some on the v1.767.0 CE oracle with the fixtures under
-  [`conformance/flows/client-api/`](../../conformance/flows/client-api);
-  those cases are `oracle-observed` with a **Recorded** line. Those fixtures
-  make, with `fetch` and the step's own token, the requests the stock clients
-  make, so a Recorded line names any part the client adds on its own (a
-  prefix it strips, its wrapping text, a default it returns on a failure)
-  that the recording did not run. The rest are tracked by
-  [Q-WA-13](client-api.md#q-wa-13); the S3 server cases by
-  [Q-WA-3](client-api.md#q-wa-3).
+- Cases are source-derived unless they say otherwise.
+  - Some were first recorded on CE `v1.767.0` with the fixtures under
+    [`conformance/flows/client-api/`](../../conformance/flows/client-api);
+    those cases are `oracle-observed` with a **Recorded** line.
+  - Those fixtures make, with `fetch` and the step's own token, the requests
+    the stock clients make. So a **Recorded** line names any part the client
+    adds on its own (a prefix it strips, its wrapping text, a default it
+    returns on a failure) that the recording did not run.
+  - The rest are tracked by [Q-WA-13](client-api.md#q-wa-13); the S3 server
+    cases by [Q-WA-3](client-api.md#q-wa-3).
 
 <a id="wa-1"></a>
 ### WA-1 · The TS client is a thin HTTP layer configured from env vars; token and base URL are captured at import
@@ -7316,16 +7316,17 @@ Findings: [client-api.md](client-api.md).
     400 `SqlErr: no rows returned by a query that expected to return at least one row<loc>`
     ([WA-19/b](#wa-19)); the lookup in `demo` answers 200 with the root id
     as a JSON string.
-  - **Not recorded (batch E3f):** kept deferred: the harness creates one
-    workspace per fixture, so no second workspace exists. The 401 halves do
-    not need one: a job token is refused on an authenticated route of any
-    other workspace name, existing or not, before the handler
-    ([WA-4](client-api.md#wa-4)), and the unauthenticated root lookup only
-    scopes its query by the path's workspace, so a name that holds no
-    workspace finds no row either. The SC5 request in the
-    [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
-    records the case with such a name in the reference session, and with a
-    real second workspace once the harness can create one.
+  - **Not recorded:** the harness creates one workspace per fixture, so no
+    second workspace exists. The design README's
+    [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+    ask for the case with a workspace name that holds no workspace, in the
+    reference session, and with a real second workspace once the harness
+    can create one.
+    - The 401 halves need no second workspace: a job token is refused on an
+      authenticated route of any other workspace name, existing or not,
+      before the handler ([WA-4](client-api.md#wa-4)).
+    - The unauthenticated root lookup only scopes its query by the path's
+      workspace, so a name that holds no workspace finds no row either.
 
 <a id="wa-5"></a>
 ### WA-5 · State path formula
@@ -7467,9 +7468,10 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     was kept. No stored ciphertext fails under every key, because the
     shape check of WA-11/d admits only whole 16-byte blocks; the
     key-independent failure is WA-11/d's `$vault:` value.
-  - **Correction 2026-10-29 (SC3 validation round 1):** the case said the
-    padding cause holds unless valid padding gives a UTF-8 message; it
-    missed outcome 3, in which the read succeeds.
+  - **Settled:** read from the source at `v1.767.0`: valid padding and valid
+    UTF-8 make the read succeed, outcome 2 above. The case before said the
+    padding cause holds unless valid padding gives a UTF-8 message, and
+    allowed no successful read.
   - **Recorded:** [`flows/client-api/facade-answers`](../../conformance/flows/client-api/facade-answers) runs `answers` and `secret_arg`, oracle run
     41000318656: outcome 1 with the first candidate, `AAAAAAAAAAAAAAAAAAAAAA==`
     (kept index 0). The create succeeded; the read answered 500,
@@ -7483,11 +7485,12 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     ` @variables.rs:519:9 @resolver.rs:311:17`; run `answers` gave outcome 1
     with the same candidate and locations on CE v1.862.0 (oracle run
     42243035193) and is recorded with [WA-12/h](#wa-12)'s change.
-  - **Correction 2026-11-06 (retarget to v1.862.0):** on CE v1.767.0 a
-    ciphertext with valid padding but bytes that are not UTF-8 failed with
-    a UTF-8 message as the cause, a third outcome; since Windmill 1.829.0
-    every decryption failure has the one text, so it is part of outcome 1
-    ([WA-11](client-api.md#wa-11)).
+  - **Settled:** re-checked at `v1.862.0`: since Windmill 1.829.0 every
+    decryption failure has the one text, so valid padding with bytes that
+    are not UTF-8 is part of outcome 1 ([WA-11](client-api.md#wa-11)).
+    - On CE `v1.767.0` that ciphertext failed with a UTF-8 message as the
+      cause. The case then allowed three outcomes: the padding cause, the
+      UTF-8 cause and a successful read.
 - **WA-11/d** · oracle-observed · later · the shape check on already-encrypted secrets
   - **Given:** `POST …/variables/create?already_encrypted=true` with
     `{"path":"u/x/p","value":<v>,"is_secret":true,"description":""}`, for
@@ -7505,10 +7508,10 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     (oracle run 42243035193) the same answers, the read with the one
     decryption text ending ` @variables.rs:519:9 @resolver.rs:311:17`; the
     run is recorded with [WA-12/h](#wa-12)'s change.
-  - **Correction 2026-11-06 (retarget to v1.862.0):** the read's cause was
-    the decoder's `Invalid byte 36, offset 0.` on CE v1.767.0; since Windmill
-    1.829.0 every decryption failure has the one text
-    ([WA-11](client-api.md#wa-11)).
+  - **Settled:** re-checked at `v1.862.0`: since Windmill 1.829.0 every
+    decryption failure has the one text ([WA-11](client-api.md#wa-11)). On
+    CE `v1.767.0` the read's cause was the decoder's
+    `Invalid byte 36, offset 0.`
 - **WA-11/e** · oracle-observed · later · the answers to a create and an update
   - **Given:** no variable at `u/x/w`; then, with a token of the
     workspace: `POST …/variables/create` with
@@ -7533,11 +7536,11 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     `application/json`); the client's existence probe and its `undefined`
     were not run. Re-recorded on CE v1.862.0, oracle run 42327335039,
     the same but for the 404's location, `(variables.rs:1487)`.
-  - **Correction 2026-10-30 (SC5, batch E3f):** the case said each body is
-    `text/plain`. The successes carry `; charset=utf-8`, the type the web
-    framework gives a handler's plain-text answer, while a refusal is
-    Windmill's error response, typed `text/plain` with no parameter
-    ([WA-42](client-api.md#wa-42)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the successes
+    carry `; charset=utf-8`, the type the web framework gives a handler's
+    plain-text answer, while a refusal is Windmill's error response, typed
+    `text/plain` with no parameter ([WA-42](client-api.md#wa-42)). The case
+    before said each body is `text/plain`.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
@@ -7601,21 +7604,20 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     and the client throws
     `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`.
     The raw read gives HTTP 404 `Not found: Resource CUSTOM_INSTANCE_DB/demo not found`.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
-    what CE v1.767.0 answered: the super admin's step got
-    `{"host":<h>,"user":<u>,"password":<p>,"port":<n>,"sslmode":<s>,"dbname":"demo","root_certificate_pem":null,"accept_invalid_certs":null,"use_iam_auth":null,"region":null}`,
-    read from Windmill's own database URL, and the other user's call threw
-    `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: This endpoint requires the caller to be a super admin`.
-    At v1.862.0 the route refuses a job's token first
-    ([WA-12](client-api.md#wa-12)); a user's own or an API token still
-    gets those answers.
+  - **Settled:** recorded on CE `v1.862.0`: the route refuses a job's token
+    first ([WA-12](client-api.md#wa-12)).
+    - The case expected what CE `v1.767.0` answered: the super admin's step got
+      `{"host":<h>,"user":<u>,"password":<p>,"port":<n>,"sslmode":<s>,"dbname":"demo","root_certificate_pem":null,"accept_invalid_certs":null,"use_iam_auth":null,"region":null}`,
+      read from Windmill's own database URL, and the other user's call threw
+      `Resource not found at CUSTOM_INSTANCE_DB/demo or not visible to you: Not authorized: This endpoint requires the caller to be a super admin`.
+    - A user's own or an API token still gets those answers.
   - **Recorded:** [`flows/client-api/facade-answers`](../../conformance/flows/client-api/facade-answers) run `answers`, oracle run 41000318656, the super
     admin's half: the oracle's admin, an instance super admin, read
     `GET …/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/demo` (the
     request `getResource` makes) and got 200 with `dbname` `demo` and the
     last four members `null` (the step masked the connection members), and
     the raw read 404, `text/plain`, with the text above. The other user's
-    call is not recorded: the harness has one user; the SC5 request in the
+    call is not recorded: the harness has one user; the request in the
     [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
     asks for a second. Re-recorded on CE v1.862.0, oracle run
     42327335039: the admin's step got the 401 above for the interpolated
@@ -7895,10 +7897,11 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     after the run the GET by id returns `null`, and a POST by id
     (`POST …/jobs/flow/user_states/<root>/k`, body `1`) answers 404
     `Not found: Flow job not found`.
-  - **Correction 2026-10-29 (SC3):** the POST after the run was excluded
-    until [Q-WA-10](client-api.md#q-wa-10) was settled; the source settles
-    it (the status row is deleted with the queue row when the root
-    completes, [WA-14](client-api.md#wa-14)).
+  - **Settled:** read from the source at `v1.767.0`
+    ([Q-WA-10](client-api.md#q-wa-10), answered): the status row is deleted
+    with the queue row when the root completes
+    ([WA-14](client-api.md#wa-14)), so the case includes the POST after the
+    run.
   - **Recorded:** [`flows/client-api/driven`](../../conformance/flows/client-api/driven) run `wa14c`, oracle run 41000318656, as
     expected: the value read during the run, then 200 `null` for the GET and
     404 `Not found: Flow job not found` for the POST after the root
@@ -7955,16 +7958,18 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     with exactly those three keys in that order: the polled error is the
     stored `jsonb` value, whose keys come shortest first
     ([FX-42](execution.md#fx-42)); `<id>` is the child's job id.
-  - **Correction 2026-10-29 (SC4):** the case expected `message` right after
-    `name` (`{"name":"Error","message":"boom",` …). The serialised value is
+  - **Settled:** read from the source at `v1.767.0`: the serialised value is
     the polled body's `result.error`, read back from `jsonb`, so `stack`
-    sits between them ([WA-15](client-api.md#wa-15)). Fixture
-    [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch)
-    (runs `wait` and `identity`, oracle runs 40839879047 and 40842413751)
-    recorded the polled answer of such a child, made with the requests
-    `runScriptByPath` and `waitJob` make: `success: false`, `name` `Error`,
-    `message` `boom` and the key set `message`, `name`, `stack`; it did not
-    capture the key order, so the case stays source-derived.
+    sits between `name` and `message` ([WA-15](client-api.md#wa-15)). The
+    case before expected `message` right after `name`
+    (`{"name":"Error","message":"boom",` …).
+    - Fixture [`flows/client-api/dispatch`](../../conformance/flows/client-api/dispatch)
+      (runs `wait` and `identity`, oracle runs 40839879047 and 40842413751)
+      recorded the polled answer of such a child on CE `v1.767.0`, made with
+      the requests `runScriptByPath` and `waitJob` make. It holds
+      `success: false`, `name` `Error`, `message` `boom` and the key set
+      `message`, `name`, `stack`.
+    - It did not capture the key order, so the case stays source-derived.
 - **WA-15/b** · source-derived · Python module vs instance null-result defaults
   - **Given:** script `u/t/null` that returns `null`.
   - **Expect:** Python `wmill.run_script_by_path("u/t/null")` raises
@@ -7999,12 +8004,12 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Given:** the CE oracle with workspace storage configured; a Bun step
     `const o = await writeS3File({s3:"t/a.txt"}, "hi"); return [o, new TextDecoder().decode(await loadS3File(o))]`.
   - **Expect:** `[{"s3":"t/a.txt"},"hi"]`.
-  - **Not recorded (batch E3f):** kept deferred: it needs workspace storage
-    pointed at an S3-compatible store started beside the oracle, which the
-    harness does not start, and the CE handlers are closed source, so the
-    source cannot settle it ([WA-16](client-api.md#wa-16)). The SC5 request
-    in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
-    repeats it.
+  - **Not recorded:** it needs workspace storage pointed at an
+    S3-compatible store started beside the oracle, which the harness does
+    not start, and the CE handlers are closed source, so the source cannot
+    settle it ([WA-16](client-api.md#wa-16)). The design README's
+    [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+    ask for it.
 - **WA-16/d** · oracle-observed · CE with no storage configured (observation, [Q-WA-3](client-api.md#q-wa-3))
   - **Given:** the same upload on the CE oracle with no workspace storage
     configured: a Bun step returning
@@ -8017,11 +8022,11 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     The body, CE's own text for a missing storage, is not known yet.
   - **Recorded:** [`flows/client-api/object-storage`](../../conformance/flows/client-api/object-storage) run `upload`,
     oracle run 40994947681: `{"error": "Internal Server Error"}`.
-  - **Correction 2026-10-30 (SC5, batch E3f):** the case had no
-    expectation ("record the status and body"). The message the client
-    threw fixes the status; the step did not return `e.body`, so the SC5
-    request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
-    asks for the body.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the message the
+    client threw fixes the status. The step did not return `e.body`, so the
+    design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+    ask for the body. The case before had no expectation ("record the
+    status and body").
 - **WA-16/e** · source-derived · later · a missing object (observation, pending [Q-WA-3](client-api.md#q-wa-3))
   - **Given:** the CE oracle with workspace storage configured; a Bun step
     `try { await loadS3File({s3:"t/none.txt"}); return "loaded" } catch (e) { return e.message }`,
@@ -8030,10 +8035,10 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     status, its status text, ` - ` and the server's body. The status and
     body are not in the public source (the CE handler is closed source,
     [WA-16](client-api.md#wa-16)); record them.
-  - **Not recorded (batch E3f):** kept deferred, as WA-16/c: it needs
-    workspace storage, which the harness does not start; the SC5 request in
-    the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
-    repeats it.
+  - **Not recorded:** as WA-16/c, it needs workspace storage, which the
+    harness does not start. The design README's
+    [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+    ask for it.
 
 <a id="wa-17"></a>
 ### WA-17 · `WM_MOCKED_API_FILE`: an upstream local-mode hook for resources and variables
@@ -8178,8 +8183,8 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     `is_flow_step: false` and no `parent_job`; the arguments `{}`.
   - **Recorded:** [`flows/client-api/job-reads-ended`](../../conformance/flows/client-api/job-reads-ended)
     run `ended`, oracle run 41774793150, as expected. windmill-lite answers
-    501 instead (deviation D22 of
-    [ADR 0001](../design/0001-equivalence-contract.md)).
+    501 instead (deviation D22 of the
+    [equivalence contract](../design/0001-equivalence-contract.md)).
 - **WA-19/j** · oracle-observed · the arguments of a step and of a flow
   - **Given:** a path script with the arguments `label` and `cfg`
     (`{"name": "n1", "deep": {"k": [1, 2.50], "s": "x"}}` from the flow
@@ -8597,16 +8602,16 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
     `Bad request: As a non logged in user, you can only see jobs ran by anonymous users`;
     the second answers 200 with
     `{"started":null,"success":null,"completed":false,"result":null}`.
-  - **Not recorded (batch E3f):** kept deferred: the first request needs a
-    token issued for another workspace, which only a job running in a
-    second workspace holds, and the harness creates one workspace per
-    fixture. The second request's outcome does not need one: a job token
-    sent to a workspace name it is not valid for, existing or not, also
-    makes the caller anonymous, and a job that is not in that workspace
-    reads as unknown. The SC5 request in the
-    [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
-    records that variant now and the case itself once a second workspace
-    exists.
+  - **Not recorded:** the first request needs a token issued for another
+    workspace, which only a job running in a second workspace holds, and the
+    harness creates one workspace per fixture. The design README's
+    [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+    ask for the variant below now, and for the case itself once a second
+    workspace exists.
+    - The second request's outcome needs no second workspace. A job token
+      sent to a workspace name it is not valid for, existing or not, also
+      makes the caller anonymous, and a job that is not in that workspace
+      reads as unknown.
 
 <a id="wa-v3"></a>
 ### WA-V3 · Shared interpolation needs separate resource and argument contexts
@@ -8778,40 +8783,51 @@ Findings: [oracle.md](oracle.md).
   `key_order: strict` and `unordered` (multiset equality) apply only where a
   case names them.
 - **Paths and placeholders.** Step keys are typed site paths (`m:a`,
-  `m:l/i:2/m:b`, `m:a/r:0`, `s:failure`; [OR-V8](oracle.md#or-v8)). Older
-  cases written with the drafted encoding (`a`, `l[2]`, `b#0`, `failure`),
-  replaced on 2026-10-30, read as `m:a`, `m:l/i:2`, `m:b/r:0` and
-  `s:failure`.
-  `<job:PATH>` is a walked job id, `<job:?N>` the N-th job id an error
-  object names that the walk does not reach ([OR-14](oracle.md#or-14)),
-  `<stack>` a masked runtime stack, `<loc>` the masked location of the
-  completion failure's `InternalErr` ([OR-27](oracle.md#or-27)), `<ws>`
-  the workspace. In raw
-  values, `<worker>`, `<job>`, `<uuid>` and `<64-hex>` elide volatile parts.
-  In an expected error message, `<loc>` also stands for one Rust location
-  suffix that Windmill appended, **including its leading space**
-  (` @<file>.rs:<line>:<col>`, or the parenthesised not-found form
-  ` (<file>.rs:<line>)`), which a recording keeps verbatim and a comparison
-  with windmill-lite strips ([OR-14](oracle.md#or-14)); two suffixes are
-  written `<loc><loc>`.
-  Recorded fixtures name their sites with the typed paths of design record
-  0011 (`m:<id>`, `i:<n>`, `b:<n>`, `s:failure`, `r:<k>`).
+  `m:l/i:2/m:b`, `m:a/r:0`, `s:failure`; [OR-V8](oracle.md#or-v8)).
+  - Older cases written with the drafted encoding (`a`, `l[2]`, `b#0`,
+    `failure`), which the typed paths replaced, read as `m:a`, `m:l/i:2`,
+    `m:b/r:0` and `s:failure`.
+  - `<job:PATH>` is a walked job id, `<job:?N>` the N-th job id an error
+    object names that the walk does not reach ([OR-14](oracle.md#or-14)),
+    `<stack>` a masked runtime stack, `<loc>` the masked location of the
+    completion failure's `InternalErr` ([OR-27](oracle.md#or-27)), `<ws>`
+    the workspace.
+  - In raw values, `<worker>`, `<job>`, `<uuid>` and `<64-hex>` elide
+    volatile parts.
+  - In an expected error message, `<loc>` also stands for one Rust location
+    suffix that Windmill appended, **including its leading space**
+    (` @<file>.rs:<line>:<col>`, or the parenthesised not-found form
+    ` (<file>.rs:<line>)`). A recording keeps it verbatim and a comparison
+    with windmill-lite strips it ([OR-14](oracle.md#or-14)); two suffixes
+    are written `<loc><loc>`.
+  - Recorded fixtures name their sites with the typed paths of the
+    [differential testing](../design/0011-differential-testing.md) design record (`m:<id>`,
+    `i:<n>`, `b:<n>`, `s:failure`, `r:<k>`).
 - **Probes** are named after the rows of the
   [Probe catalogue](oracle.md#probe-catalogue), which gives their recipes;
   `x→v` means input transform `x = <javascript v>`. Rows marked
   *reconstructed recipe* there did not spell their bindings as recorded;
-  batch E3e's fixture [`flows/oracle/probes`](../../conformance/flows/oracle/probes)
+  the fixture [`flows/oracle/probes`](../../conformance/flows/oracle/probes)
   spells them ([OR-V9](oracle.md#or-v9)).
-- **Provenance.** `oracle-observed` means recorded in oracle run 1 on CE
-  v1.767.0 (arm64, one standalone worker); the raw captures were not retained.
-  A case that also ends with a **Recorded:** line was recorded again, or
-  first, by a fixture committed under [`conformance/flows/`](../../conformance/flows)
-  in the oracle's public CI (amd64, one standalone worker) since milestone
-  E2; that recording, with its provenance, is the durable evidence
-  ([oracle.md, Conventions](oracle.md#conventions)).
-  `source-derived` means not yet recorded. A case whose description starts
-  with *Harness self-test* checks the harness's own logic and needs no oracle
-  recording.
+- **Provenance.** `oracle-observed` means recorded on the oracle
+  ([How to read a case](#how-to-read-a-case)). In this area the evidence is
+  oracle run 1 on CE v1.767.0 (arm64, one standalone worker, raw captures
+  not retained), the oracle's public CI, or both.
+  - A case that has a **Recorded:** line was recorded again, or first, in
+    the oracle's public CI: by a fixture committed under
+    [`conformance/flows/`](../../conformance/flows), or by a check that the
+    oracle workflow's sessions make themselves, such as [OR-19/a](#or-19)'s.
+  - Each case's **Recorded:** line gives the evidence it has, such as a run,
+    a fixture, a CI result or a raw capture; not every line gives every
+    detail ([How to read a case](#how-to-read-a-case)). A **Settled:** line
+    can follow it.
+  - A fixture's committed recording holds its provenance
+    ([oracle.md, Conventions](oracle.md#conventions)): the image digest, the
+    CLI version, the CI run, and every job's kind and timings. A fixture
+    that needs two workers declares `oracle: {workers: 2}`.
+  - `source-derived` means not yet recorded. A case whose description starts
+    with *Harness self-test* checks the harness's own logic. When a recording
+    is wanted, the case's note says so, as for [OR-14/c](#or-14).
 
 <a id="or-1"></a>
 ### OR-1 · Pin the oracle image by full version and digest
@@ -8857,7 +8873,7 @@ Findings: [oracle.md](oracle.md).
   - **Given:** the compose of the [Runbook](oracle.md#runbook), `docker compose up -d`.
   - **Expect:** within 180 s, `GET /api/health/status?force=true` returns
     `{"status":"healthy","database_healthy":true,"workers_alive":1,…}`
-    (observed at 6 s on arm64, and at 6.4 s on amd64 in E2's first CI
+    (observed at 6 s on arm64, and at 6.4 s on amd64 in the first CI
     session, oracle run 40649910412). The harness records boot time,
     container memory peaks and image sizes in provenance; every CI session
     checks this case live.
@@ -8880,8 +8896,6 @@ Findings: [oracle.md](oracle.md).
     (recorded: `{"child":7}`, from a step that runs the child script through
     `run_wait_result` and returns its answer).
   - **Recorded:** [`flows/oracle/workers2`](../../conformance/flows/oracle/workers2) run `blocking`, oracle run 40792040448 (the workflow's two-worker session).
-  - **Correction 2026-10-29:** this case was `source-derived` and pending
-    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 
 <a id="or-6"></a>
 ### OR-6 · Bootstrap: identity, token, workspace
@@ -8895,7 +8909,7 @@ Findings: [oracle.md](oracle.md).
     non-empty plain-text body that is not JSON; with it as bearer token,
     `POST /api/workspaces/create` with `{"id":"wl-smoke","name":"wl-smoke"}`
     returns 2xx, and `GET /api/w/wl-smoke/jobs/queue/count` returns
-    `{"database_length":0,…}`. Every CI session since E2 checks this live,
+    `{"database_length":0,…}`. Every CI session checks this live,
     creating one workspace per fixture and deleting it after the fixture's
     runs, because CE refuses a third workspace besides `admins`
     ([OR-6](oracle.md#or-6)).
@@ -8913,8 +8927,6 @@ Findings: [oracle.md](oracle.md).
     runs `ok` and `fail`, recorded at 1 s on one worker, stay `unchanged` in
     the oracle workflow's second session at 10 s on two workers, first in
     oracle run 40792040448 and in every run since.
-  - **Correction 2026-10-29:** this case was `source-derived` and pending
-    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 - **OR-7/b** · oracle-observed · The result-size limit is execution-observable.
   - **Given:** a profile with `MAX_RESULT_SIZE_MB=3` and a step returning a 4 MB
     result.
@@ -8928,10 +8940,9 @@ Findings: [oracle.md](oracle.md).
 - **OR-7/c** · oracle-observed · an oversized manual failure is refused too
   - **Given:** `MAX_RESULT_SIZE_MB=3`; a Bun step returning `{"wm_failure": "m", "pad": <a string of 4.5 MiB>}`.
   - **Expect:** the step fails with the `ResultTooLarge` error of OR-7/b (`… is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.…`), not with the `ManualFailure` object; the oversized result is not stored.
-  - **Correction 2026-10-29 (SC3):** the case left the error shape to be
-    recorded; the source gives it ([OR-7](oracle.md#or-7)). `4MB` assumes a
-    result text of at least 4 MiB and under 5 MiB, since the size is
-    truncated to whole MiB.
+  - **Settled:** read from the source at `v1.767.0`: the error shape
+    ([OR-7](oracle.md#or-7)). `4MB` assumes a result text of at least 4 MiB
+    and under 5 MiB, since the size is truncated to whole MiB.
   - **Recorded:** [`flows/oracle/result-size`](../../conformance/flows/oracle/result-size) run `big_manual`, oracle run 40994947681, in the same session: the `ResultTooLarge` error of OR-7/b, not the `ManualFailure` object.
 
 <a id="or-8"></a>
@@ -8960,8 +8971,6 @@ Findings: [oracle.md](oracle.md).
     oracle run 40649910412 and every session since: the harness checks
     each deployed flow's module ids against its tree after the deployment
     gate.
-  - **Correction 2026-10-28:** this case was `source-derived` and pending
-    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 - **OR-8/c** · source-derived · Harness self-test: metadata drift gate.
   - **Given:** a committed fixture tree; re-run `generate-metadata --yes` against
     the oracle.
@@ -9033,7 +9042,10 @@ Findings: [oracle.md](oracle.md).
   - **Recorded:** [`flows/oracle/smoke`](../../conformance/flows/oracle/smoke)
     run `ok`, oracle run 40649910412, with the same values under the typed
     keys `m:a` and `m:b`.
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The keys are the typed `m:a` and `m:b`, as recorded; the values are unchanged.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The keys are the typed
+    `m:a` and `m:b`, as recorded.
 - **OR-11/b** · oracle-observed · Empty for-loop.
   - **Given:** probe `loop_empty` (a `forloopflow` `l` with iterator `[]`).
   - **Expect:** step `m:l` is `{"status":"success","ran":false,"result":[]}`; its
@@ -9044,7 +9056,10 @@ Findings: [oracle.md](oracle.md).
     run `a`, oracle run 40685057858 (key `m:l`); and the probe itself,
     [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run
     `loop_empty`, oracle run 40794872025.
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The key is the typed `m:l`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The key is the typed
+    `m:l`.
 
 <a id="or-12"></a>
 ### OR-12 · Failure capture: the stored error envelope
@@ -9111,14 +9126,19 @@ Findings: [oracle.md](oracle.md).
     [`conformance/flows/`](../../conformance/flows) is repeated in its
     session (`--repeat 2`, the smoke runs first in oracle run 40649910412)
     and its normalised observations were equal, under the typed site paths
-    of design record 0011.
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The placeholders are `<job:PATH>` over the typed site paths.
+    of the [differential testing](../design/0011-differential-testing.md) design record.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The placeholders are
+    `<job:PATH>` over the typed site paths.
 - **OR-14/b** · oracle-observed · Harness self-test: a returned job id is rewritten.
   - **Given:** step `a` returns `process.env.WM_JOB_ID`.
   - **Expect:** `"<job:m:a>"`.
   - **Contested:** the exact placeholder spelling depends on the identity
     encoding still to be chosen ([Q-OR-17](oracle.md#q-or-17)).
-  - **Correction 2026-10-30 (SC5, batch E3f):** the drafted spelling was `"<job:a>"`; with the typed site paths the placeholder is `"<job:m:a>"` ([OR-V8](oracle.md#or-v8)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: with the typed
+    site paths the placeholder is `"<job:m:a>"` ([OR-V8](oracle.md#or-v8)).
+    The drafted spelling was `"<job:a>"`.
   - **Recorded:** a returned or interpolated job id is rewritten to its site's placeholder in every recording that carries one, for example [`flows/je/je-20-providers`](../../conformance/flows/je/je-20-providers) run `d`, oracle run 40990751153 (`"job": "<job:m:b>"`, the step's own job id).
 - **OR-14/c** · source-derived · Harness self-test: an unwalked job's `job_id` in an error object.
   - **Given:** step `d` of a flow starts three preview flows through the
@@ -9165,7 +9185,7 @@ Findings: [oracle.md](oracle.md).
     run, on the oracle and on windmill-lite. (Run 1 keyed runs by
     `WM_ROOT_FLOW_JOB_ID`; the current body posts `root`, `job` and `step`.)
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) runs `effects_1` and `effects_2`, oracle run 40794872025.
-  - **Recorded (native steps):** since batch E3f a native step posts to the sink too: [`flows/languages/native`](../../conformance/flows/languages/native) runs `fetch_nativets` and `fetch_bunnative` (the native session), oracle run 40989292429, each recording one effect of the run, grouped by its root.
+  - **Recorded (native steps):** a native step posts to the sink too: [`flows/languages/native`](../../conformance/flows/languages/native) runs `fetch_nativets` and `fetch_bunnative` (the native session), oracle run 40989292429, each recording one effect of the run, grouped by its root.
 - **OR-16/b** · oracle-observed · EE · `delete_after_use` blanks nothing on CE.
   - **Given:** probe `delete_after_use` with args `{"x":7}`.
   - **Expect:** root result `{"p":{"secret":7}}`; after completion, step `a`
@@ -9211,12 +9231,9 @@ Findings: [oracle.md](oracle.md).
     minimal compose and `record` for all fixtures.
   - **Expect:** every normalised observation projection equals the committed
     one; differences in dates, timings or other provenance do not fail the job.
-  - **Recorded:** the repository's oracle workflow since E2: for example
+  - **Recorded:** the repository's oracle workflow: for example
     oracle run 40706584607 reported all 131 committed runs `unchanged` with
     the metadata current, while timings and dates differed.
-  - **Correction 2026-10-28:** this case was `source-derived`, pending the
-    first CI recording ([Q-OR-2](oracle.md#q-or-2)); the expectation is
-    unchanged.
 
 <a id="or-20"></a>
 ### OR-20 · Smoke fixture: a two-step Bun flow with one input transform
@@ -9310,12 +9327,12 @@ schema:
     `{"secret":7}` are not blanked after the parent completes, and the root
     result is `{"p":{"secret":7}}`; windmill-lite matches CE by default.
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `subflow_dau`, oracle run 40794872025.
-  - **Correction 2026-10-29:** the case left the outcome to be recorded
-    ([Q-OR-18](oracle.md#q-or-18)); E3e recorded nothing blanked. The
-    committed subflow no longer carries the `delete_after_use` key: the
-    pinned CLI's `generate-metadata` drops it, and a deployment drops it
-    from the stored flow on any edition ([OR-21](oracle.md#or-21)), so the
-    option never reaches the worker for a deployed flow.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-18](oracle.md#q-or-18)): nothing blanked. The committed subflow
+    carries no `delete_after_use` key: the pinned CLI's `generate-metadata`
+    drops it, and a deployment drops it from the stored flow on any edition
+    ([OR-21](oracle.md#or-21)). So the option never reaches the worker for a
+    deployed flow.
 - **OR-21/b** · oracle-observed · a step whose script carries the flag
   - **Given:** a Bun script `f/demo/dau` (`main(x)` returns `{"secret": x}`)
     created through the scripts API (`POST /api/w/{w}/scripts/create`) with
@@ -9334,10 +9351,14 @@ schema:
     the script path, then its result, args and logs).
   - **Expect:** the response body is `{"secret": 7}`; afterwards the job's stored
     result is `{}`, its args `{}` and its logs `##DELETED##`.
-  - **Correction 2026-10-29 (SC3 validation round 1):** the setup now
-    names the absent `delete_after_secs`: an explicit value takes
-    precedence over the boolean ([OR-21](oracle.md#or-21), OR-21/d).
-  - **Correction 2026-10-30 (SC5, batch E3f):** the case gave the response as `{"secret":7}`. The route answers the completed job's stored result as PostgreSQL's `jsonb` text, unchanged, so the body is `{"secret": 7}` with a space after the colon ([OF-V3](openflow.md#of-v3)); the rest is unchanged.
+  - **Settled:** read from the source at `v1.767.0`: an explicit
+    `delete_after_secs` takes precedence over the boolean, so the setup
+    names its absence ([OR-21](oracle.md#or-21), OR-21/d).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the route answers
+    the completed job's stored result as PostgreSQL's `jsonb` text,
+    unchanged, so the body is `{"secret": 7}` with a space after the colon
+    ([OF-V3](openflow.md#of-v3)). The case before gave the response as
+    `{"secret":7}`.
   - **Recorded:** [`flows/client-api/driven`](../../conformance/flows/client-api/driven) run `or21`, oracle run 41000318656 (its `c` part): the response `{"secret": 7}`, then the job's result `{}`, args `{}` and logs `##DELETED##`.
 - **OR-21/d** · oracle-observed · out · a positive `delete_after_secs` only schedules, and CE never runs the schedule
   - **Given:** as OR-21/c, with the script created with
@@ -9347,7 +9368,11 @@ schema:
     logs: the deletion is only written to the schedule, whose processing
     is `enterprise`-gated. With `"delete_after_secs": 0` instead, the job is
     blanked at once as in OR-21/c, whatever `delete_after_use` says.
-  - **Correction 2026-10-30 (SC5, batch E3f):** the case gave the response as `{"secret":7}`. The route answers the completed job's stored result as PostgreSQL's `jsonb` text, unchanged, so the body is `{"secret": 7}` with a space after the colon ([OF-V3](openflow.md#of-v3)); the rest is unchanged.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the route answers
+    the completed job's stored result as PostgreSQL's `jsonb` text,
+    unchanged, so the body is `{"secret": 7}` with a space after the colon
+    ([OF-V3](openflow.md#of-v3)). The case before gave the response as
+    `{"secret":7}`.
   - **Recorded:** [`flows/client-api/driven`](../../conformance/flows/client-api/driven) run `or21`, oracle run 41000318656 (its `d` and `d_zero` part): with `delete_after_secs: 3600` the response `{"secret": 7}` and the job kept result, args and logs; with `0` the job was blanked at once (result `{}`, args `{}`, logs `##DELETED##`). The hour-later read is not part of the recording.
 
 <a id="or-22"></a>
@@ -9402,9 +9427,10 @@ schema:
     side (the in-memory predecessor) and the received object (jsonb order
     `2, a, 10`) both enumerate the integer-index keys first.
   - **Recorded:** [`flows/oracle/key-order`](../../conformance/flows/oracle/key-order) run `int_keys`, oracle run 40794872025.
-  - **Correction 2026-10-29:** the case set only the received side, from a
-    local JavaScript check, and left the transform side to be recorded
-    ([Q-OR-12](oracle.md#q-or-12)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-12](oracle.md#q-or-12)): the transform side and the received
+    side. The case before set only the received side, from a local
+    JavaScript check.
 - **OR-24/c** · oracle-observed · Retry restores the predecessor from storage.
   - **Given:** `a` returns `{"bbb":1,"a":2,"cc":3}`; `b` has one retry
     (`constant`, 1 attempt, 0 s) and its body throws `Error("b fails")`;
@@ -9420,32 +9446,33 @@ schema:
     with, at v1.862.0, the attempt's `job_id` and the flow's `flow_path` as
     well ([FX-12](execution.md#fx-12)).
   - **Recorded:** [`flows/oracle/key-order`](../../conformance/flows/oracle/key-order) run `retry_keys`, oracle run 40794872025 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Revision 2026-11-06 (v1.862.0):** the frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded columns 149 and 168 and `at <eval> (eval_script:1:175)`.
-  - **Correction 2026-10-29:** the case stated only that the diagnostic
-    holds `["a","cc","bbb"]` ([Q-OR-11](oracle.md#q-or-11) (a)); it now
-    states the whole outcome, the throwing retry predicate failing the flow
-    as a chaining error.
+  - **Settled:** recorded on CE `v1.862.0` (oracle run 42300319428): the
+    frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)). CE
+    `v1.767.0` recorded columns 149 and 168 and
+    `at <eval> (eval_script:1:175)`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-11](oracle.md#q-or-11) (a)): the whole outcome, the throwing retry
+    predicate failing the flow as a chaining error. The case before stated
+    only that the diagnostic holds `["a","cc","bbb"]`.
 - **OR-24/d** · oracle-observed · A loop aggregate comes from storage.
   - **Given:** a loop whose iterations return objects; the next step reports
     `Object.keys(previous_result[0])`.
   - **Expect:** jsonb key order: after a loop whose one iteration returned
     `{b:1,a:2}`, the aggregate reads `[{"a":2,"b":1}]`.
   - **Recorded:** [`flows/je/shortcut-texts`](../../conformance/flows/je/shortcut-texts) run `loop_prev`, oracle run 40794872025, through the text that `timeout: results.l` quotes rather than `Object.keys`.
-  - **Correction 2026-10-29:** the expectation was "per source"
-    ([Q-OR-11](oracle.md#q-or-11) (b)); it is unchanged.
 - **OR-24/e** · oracle-observed · Preprocessor-built args keep their order.
   - **Given:** a Bun script with a `preprocessor` that builds `{bbb,a,cc}` and
     reports `Object.keys` of the argument in `main`.
   - **Expect:** per source, the preprocessor's insertion order
     `["bbb","a","cc"]` (no re-sort). [Q-OR-11](oracle.md#q-or-11) (c).
-    Batch E3e recorded a flow's preprocessor instead (OR-24/f); batch E3f
-    recorded this case.
-  - **Correction 2026-10-29 (SC3):** the case said a script's own
-    preprocessor runs only for a trigger, which the harness does not fire.
-    A run of the script through the run API (by path or by hash, without
-    `skip_preprocessor=true`) requests it too ([OR-24](oracle.md#or-24)),
-    so the case is recordable with the harness as it is. The expectation
-    is unchanged.
+    A recording batch recorded a flow's preprocessor instead (OR-24/f); a later
+    batch recorded this case.
+  - **Settled:** read from the source at `v1.767.0`: a run of the script
+    through the run API (by path or by hash, without
+    `skip_preprocessor=true`) requests the preprocessor too
+    ([OR-24](oracle.md#or-24)), so the case is recordable with the harness as
+    it is. The case before said a script's own preprocessor runs only for a
+    trigger, which the harness does not fire.
   - **Recorded:** [`flows/oracle/preprocessor`](../../conformance/flows/oracle/preprocessor) run `script_keys`, oracle run 40994947681: the script was run through the run API by path, its preprocessor ran, and `main` reported `["bbb","a","cc"]`.
 - **OR-24/f** · oracle-observed · A flow preprocessor's object is read back
   in jsonb order.
@@ -9500,11 +9527,11 @@ schema:
     the root's result. `b`'s transforms read `a`'s in-memory text with the
     NUL; the arguments they give are stored without it when `b`'s job is
     pushed ([FX-48/e](#fx-48)).
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
-    `a` and the root to fail with
-    `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence<loc>"}}`
-    (no `step_id`) and `b` `not_run`, as CE v1.767.0 did. Windmill 1.768.0
-    removes the NUL before the completion insert ([OR-27](oracle.md#or-27)).
+  - **Settled:** recorded on CE `v1.862.0`: Windmill 1.768.0 removes the NUL
+    before the completion insert ([OR-27](oracle.md#or-27)).
+    - The case expected `a` and the root to fail with
+      `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence<loc>"}}`
+      (no `step_id`) and `b` `not_run`, as CE `v1.767.0` did.
   - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025 (the v1.767.0 failure, whose normalised message ends `… escape sequence <loc>`); re-recorded on CE v1.862.0, oracle run 42327335039, as expected.
 - **OR-27/b** · oracle-observed · Other NUL positions and languages.
   - **Given:** variants returning `{"k\u0000":1}` and `{"a":["x\u0000"]}`, a flow
@@ -9518,13 +9545,13 @@ schema:
     `{"p":"x null y","r":"x null y"}` ([WR-34](languages.md#wr-34)). The
     flow argument is accepted and stored without the NUL, so the run
     starts with `"x"` ([FX-48/d](#fx-48) records it through the run API).
-  - **Correction 2026-10-29:** the case set no expectation
-    ([Q-OR-6](oracle.md#q-or-6)); it now states the recorded outcomes.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** on CE v1.767.0 the
-    key and the nested value failed exactly as OR-27/a did then, and the
-    flow argument was refused at submission. Since Windmill 1.768.0 and
-    1.826.0 the NUL is removed from results and from job arguments
-    ([OR-27](oracle.md#or-27)); the Python outcome is unchanged.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-6](oracle.md#q-or-6)); the case before set no expectation.
+  - **Settled:** recorded on CE `v1.862.0`: since Windmill 1.768.0 and 1.826.0
+    the NUL is removed from results and from job arguments
+    ([OR-27](oracle.md#or-27)); the Python outcome is unchanged. On CE
+    `v1.767.0` the key and the nested value failed exactly as OR-27/a did
+    then, and the flow argument was refused at submission.
   - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) runs `nul_key`, `nul_nested` and `nul_python`, oracle run 40794872025; on CE v1.862.0 `nul_python` unchanged, and `nul_key` and `nul_nested` re-recorded as expected, oracle run 42327335039. The flow argument: [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests` ([FX-48/d](#fx-48)).
 
 <a id="or-28"></a>
@@ -9533,7 +9560,7 @@ schema:
 **Scope:** core · **Finding:** [OR-28](oracle.md#or-28)
 
 - **OR-28/a** · source-derived · Harness self-test: walker over recorded captures.
-  - **Given:** the raw API captures committed since E2
+  - **Given:** the raw API captures committed
     (`internal/oracle/testdata/captures/`; run 1's captures were not
     retained, [Q-OR-16](oracle.md#q-or-16)).
   - **Expect:** every child of kind `flownode`, `flowpreview` or `flow` (a
@@ -9542,10 +9569,10 @@ schema:
     preprocessor is a `preview` leaf, a by-path one a `script` leaf); and
     replaying the captures through the walker and the normaliser reproduces
     the committed recordings exactly.
-  - **Correction 2026-10-28:** the case named captures "from a future
-    recording run" and only the kinds of oracle run 1; the captures now
-    exist, and the recordings added `flow` and `script` jobs
-    ([OR-28](oracle.md#or-28)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the captures
+    exist, and the recordings show `flow` and `script` jobs too
+    ([OR-28](oracle.md#or-28)). The case before named captures "from a
+    future recording run" and only the kinds of oracle run 1.
 
 <a id="or-29"></a>
 ### OR-29 · Environment seen by a Bun step in a flow (CE, standalone)
@@ -9560,12 +9587,13 @@ schema:
     `{"env":{"WM_FLOW_STEP_ID":"a","WM_JOB_PATH":"f/wl_probe/env/a","WM_FLOW_PATH":"f/wl_probe/env","WM_STATE_PATH":"f/wl_probe/env/a_user","WM_WORKSPACE":"<ws>","WM_ROOT_WORKSPACE":"<ws>","WM_PERMISSIONED_AS":"u/admin","WM_END_USER_EMAIL":"admin@windmill.dev",…},"end_user_is_email":true,"root_workspace_is_workspace":true}`:
     22 `WM_` variables, among them `WM_ROOT_WORKSPACE`, and
     `WM_END_USER_EMAIL` set to the submitting user's address.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected the
-    21 variables of CE v1.767.0, with `WM_END_USER_EMAIL` `""`, and the
-    probe also returned `{"bun":"1.3.10"}`. Windmill 1.793.0 added
-    `WM_ROOT_WORKSPACE` and 1.829.0 sets `WM_END_USER_EMAIL` for a run
-    started through the run API ([WA-4](client-api.md#wa-4)); Bun's version
-    is now probe `bun_version` ([OR-2/a](#or-2)).
+  - **Settled:** recorded on CE `v1.862.0`: Windmill 1.793.0 added
+    `WM_ROOT_WORKSPACE`, and 1.829.0 sets `WM_END_USER_EMAIL` for a run
+    started through the run API ([WA-4](client-api.md#wa-4)).
+    - Bun's version is in the probe `bun_version` ([OR-2/a](#or-2)).
+    - The case expected the 21 variables of CE `v1.767.0`, with
+      `WM_END_USER_EMAIL` `""`, and the probe also returned
+      `{"bun":"1.3.10"}`.
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155: all 21 `WM_` variables, with the workspace, object path, scheduled time and runnable id masked by the fixture, and `WM_USERNAME` `admin` under the harness's login token; re-recorded on CE v1.862.0, oracle run 42327335039, as expected, the root workspace and the end user masked with the workspace and the user, and both equalities `true`.
 
 <a id="or-30"></a>
@@ -9601,14 +9629,12 @@ schema:
     `setup.yaml` post-push.
   - **Expect:** after the push, `GET /api/w/<ws>/variables/get/<path>` returns
     404; after `setup.yaml`, 200.
-  - **Recorded:** checked live by every oracle session since batch E3e,
-    first in oracle run 40794872025: the harness reads each `setup.yaml`
+  - **Recorded:** checked live by every oracle session from the first
+    in oracle run 40794872025: the harness reads each `setup.yaml`
     variable back after the push, requiring 404 for
     [`flows/oracle/seeded`](../../conformance/flows/oracle/seeded)
     (`oracle.setup: before_push`) and 200 once `setup.yaml` was applied
     after the push.
-  - **Correction 2026-10-29:** this case was `source-derived` and pending
-    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 
 <a id="or-v1"></a>
 ### OR-V1 · Full argument and result capture needs dedicated endpoints
@@ -9668,9 +9694,12 @@ schema:
     and no `step_id`.
   - **Recorded:** [`flows/je/branches`](../../conformance/flows/je/branches)
     run `je31-a`, oracle run 40687124625 (v1.767.0) and oracle run 42243035193 (v1.862.0).
-  - **Revision 2026-11-06 (v1.862.0):** the frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded `at <anonymous> (eval_script:1:35)` and `at <eval> (eval_script:1:42)`.
-  - **Correction 2026-10-28:** the case left the root shape to be recorded
-    ([Q-OR-8](oracle.md#q-or-8)); E3a recorded it.
+  - **Settled:** recorded on CE `v1.862.0` (oracle run 42243035193): the
+    frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)). CE
+    `v1.767.0` recorded `at <anonymous> (eval_script:1:35)` and
+    `at <eval> (eval_script:1:42)`.
+  - **Settled:** the root shape is recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-8](oracle.md#q-or-8)); the case before left it to be recorded.
 
 <a id="or-v3"></a>
 ### OR-V3 · Normalisation must preserve negative comparisons
@@ -9694,7 +9723,10 @@ harness checks derived from the rule, with no Windmill recording of their own.
   - **Expect:** both normalise to the same placeholder for that step.
   - **Contested:** the placeholder's spelling; as drafted `<job:PATH>` over the
     drafted paths, which the correction rejects as non-injective.
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The placeholder is `<job:PATH>` over the typed site path, for example `<job:m:a>`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The placeholder is
+    `<job:PATH>` over the typed site path, for example `<job:m:a>`.
   - **Recorded:** every recorded fixture is repeated in its session (`--repeat 2`), and the repeats' different job ids normalise to the same placeholders ([OR-14/a](#or-14)).
 - **OR-V3/d** · source-derived · Handler-returned data is not masked as a stack.
   - **Given:** a failing step triggers a failure handler that succeeds without
@@ -9754,8 +9786,6 @@ harness checks derived from the rule, with no Windmill recording of their own.
     40689406044: each effect's `root` is its own run's root job, its
     `root_flow` and `flow` are the subflow's job inside S and the
     iteration's job inside I0 and I1.
-  - **Correction 2026-10-28:** this case was `source-derived`, pending
-    [Q-OR-10](oracle.md#q-or-10); the expectation is unchanged.
 
 <a id="or-v7"></a>
 ### OR-V7 · Generated virtual steps require an explicit capture policy
@@ -9799,21 +9829,37 @@ harness checks derived from the rule, with no Windmill recording of their own.
     comparison.
   - **Contested:** under the drafted encoding both map to `failure`
     ([Q-OR-17](oracle.md#q-or-17)).
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The step is `m:failure`, the slot `s:failure`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The step is `m:failure`,
+    the slot `s:failure`.
   - **Recorded:** [`flows/oracle/colliding-ids`](../../conformance/flows/oracle/colliding-ids) run `slot_failure`, oracle run 41000318656 (the flow created through the flows API, which checks no module id): `m:failure` failed with its own error and `s:failure` (the handler `recover`) succeeded with `1`, the flow failing with that result, two records.
 - **OR-V8/b** · oracle-observed · An ordinary module named `preprocessor`.
   - **Given:** an ordinary step `preprocessor` and a separately named actual
     preprocessor.
   - **Expect:** two distinct records and placeholders.
   - **Contested:** as for OR-V8/a.
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The step is `m:preprocessor`, the slot `s:preprocessor`. Windmill itself treats the two apart in its status, but not in one place: when a job whose step id is `preprocessor` succeeds, Windmill replaces its stored args with `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}`, so the ordinary step named `preprocessor` loses its stored args, while the real preprocessor, named `pre`, keeps its own ([OR-V8](oracle.md#or-v8)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The step is
+    `m:preprocessor`, the slot `s:preprocessor`.
+    - Windmill itself treats the two apart in its status, but not in one
+      place: when a job whose step id is `preprocessor` succeeds, Windmill
+      replaces its stored args with
+      `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}`.
+    - So the ordinary step named `preprocessor` loses its stored args, while
+      the real preprocessor, named `pre`, keeps its own
+      ([OR-V8](oracle.md#or-v8)).
   - **Recorded:** [`flows/oracle/colliding-ids`](../../conformance/flows/oracle/colliding-ids) run `slot_pre`, oracle run 41007241030: `m:preprocessor` succeeded with `1`, its stored args `{"reason": "PREPROCESSOR_ARGS_ARE_DISCARDED"}`; `s:preprocessor` succeeded with `{}`, its stored args the trigger event (headers masked).
 - **OR-V8/c** · oracle-observed · Literal ids that differ only by escaping.
   - **Given:** if Windmill admits them, modules `a/b` and `a%2Fb`.
   - **Expect:** Windmill admits both (the flows API checks no module id), and
     they stay distinct: `m:a%2Fb` and `m:a%252Fb`.
   - **Contested:** the drafted escaping maps both to `a%2Fb`.
-  - **Settled 2026-10-30 (SC5, batch E3f):** the identity encoding is no longer disputed ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths keep every colliding pair apart on the oracle ([OR-V8](oracle.md#or-v8)). The escaping escapes `%` itself.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-17](oracle.md#q-or-17), answered): the harness's typed site paths
+    keep every colliding pair apart ([OR-V8](oracle.md#or-v8)). The escaping escapes `%`
+    itself.
   - **Recorded:** [`flows/oracle/colliding-ids`](../../conformance/flows/oracle/colliding-ids) run `slash`, oracle run 41000318656: `m:a%2Fb` returned `1` and `m:a%252Fb` returned `2`, two records.
 
 <a id="or-v9"></a>
@@ -9828,10 +9874,10 @@ harness checks derived from the rule, with no Windmill recording of their own.
   - **Expect:** result `["a12","b12"]`; the iterations are two-step child flows
     (`flownode`).
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_seq_multi`, oracle run 40794872025.
-  - **Correction 2026-10-29:** the case was `disputed` while the recorded
-    recipe's bare `iter.value` contradicted its result
-    ([Q-OR-16](oracle.md#q-or-16)); the rebuilt recipe reproduces the result,
-    and the expectation is unchanged.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-16](oracle.md#q-or-16), answered): the rebuilt recipe reproduces
+    the result. The case was `disputed` while the recorded recipe's bare
+    `iter.value` contradicted its result.
 - **OR-V9/b** · oracle-observed · Literal bare-`iter` variant.
   - **Given:** the same loop with `v = iter.value`.
   - **Expect:** `x1` of iteration 0 fails before it runs, with empty args and
@@ -9839,10 +9885,14 @@ harness checks derived from the rule, with no Windmill recording of their own.
     (no `step_id`); `x2` of that iteration is `not_run`; the loop and the
     flow fail with `[<that error>]`.
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_seq_multi_bare`, oracle run 40794872025 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Revision 2026-11-06 (v1.862.0):** the second frame follows the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded `at <eval> (eval_script:1:39)`.
-  - **Correction 2026-10-29:** the case expected an evaluation failure with
-    its text left to the recording ([OR-V9](oracle.md#or-v9)); run 1's
-    recipe had been reported as succeeding.
+  - **Settled:** recorded on CE `v1.862.0` (oracle run 42300319428): the
+    second frame follows the v1.862.0 wrapper
+    ([JE-21](expressions.md#je-21)). CE `v1.767.0` recorded
+    `at <eval> (eval_script:1:39)`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the failure's text
+    ([OR-V9](oracle.md#or-v9)). The case before expected an evaluation
+    failure with its text left to the recording; run 1's recipe had been
+    reported as succeeding.
 - **OR-V9/c** · oracle-observed · `branchone` with explicit bindings.
   - **Given:** `br` with predicates `flow_input.n > 10` → `big` returns `'big'`,
     `flow_input.n > 0` → `pos` returns `'pos'`, default `def` returns
@@ -9850,16 +9900,18 @@ harness checks derived from the rule, with no Windmill recording of their own.
   - **Expect:** `"pos"` (branch 1), `"big"` (branch 0), `"default"` (type
     default), reproducing the recorded results.
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) runs `branchone_5`, `branchone_50` and `branchone_m1`, oracle run 40794872025 (each body a `flowpreview` child).
-  - **Correction 2026-10-29:** the case was `disputed` because the recorded
-    recipe used the shorthand `n`; the expectation is unchanged.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-16](oracle.md#q-or-16), answered). The case was `disputed`
+    because the recorded recipe used the shorthand `n`.
 - **OR-V9/d** · oracle-observed · `loop_par` with an explicit transform.
   - **Given:** a parallel for-loop over `[1,2,3]`; body `x` with
     `v = flow_input.iter.value` returning `v*10`.
   - **Expect:** `[10,20,30]`; `flowpreview` iterations, reproducing the
     recorded result.
   - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_par`, oracle run 40794872025.
-  - **Correction 2026-10-29:** the case was `disputed` because the recorded
-    recipe omitted the transform for `v`; the expectation is unchanged.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`
+    ([Q-OR-16](oracle.md#q-or-16), answered). The case was `disputed`
+    because the recorded recipe omitted the transform for `v`.
 
 <a id="licensing"></a>
 ## Licensing and the clean room
