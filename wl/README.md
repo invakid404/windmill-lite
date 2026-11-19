@@ -182,6 +182,11 @@ delete a resource that the host or the bundle provides: that call answers
   given it see them. The trace of each run on a memory store lists `D24`, a
   [deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations):
   Windmill keeps them in its database.
+- The package [`wl/redisstore`](redisstore/README.md) is a store on
+  Redis, which runtimes in several processes share and which lasts as long
+  as Redis keeps its data; its runs list no `D24`. The guide
+  [Choosing a resource store](../docs/resource-stores.md) compares the two
+  stores and says how to set Redis up.
 - A host's own store implements `ResourceStore`, whose doc comment is its
   contract. The package
   [`wl/storetest`](storetest/README.md) holds the contract's tests, and
@@ -522,6 +527,7 @@ This section is for contributors who change `wl`.
 | `payload.go` | The encoding of the payloads that the runtime sends to a host plugin |
 | `example_test.go` | The README's example, compiled by `go test` |
 | `storetest/` | The contract suite of `ResourceStore` ([its README](storetest/README.md)) |
+| `redisstore/` | The resource store on Redis ([its README](redisstore/README.md)) |
 
 ### How Open works
 

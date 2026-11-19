@@ -1,0 +1,12 @@
+# A counter at one state path, which a flow's step reads and writes
+# through the job API, across two runs of the fixture. Synthetic, written
+# for this repository; it is test data of cmd/wltest, outside conformance/,
+# so no oracle session records it. TestFixtureStateOnRedis runs it twice
+# on one Redis: the runs of one fixture share the state, and each fixture
+# starts without it, as on the memory store.
+id: wltest/state-isolation
+spec: [WA-13/g]
+scope: core
+provenance: policy
+languages: [bun]
+oracle: {workers: 1}

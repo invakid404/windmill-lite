@@ -81,11 +81,19 @@ export type ConnectOptions = {
   readCache?: boolean;
   /** The store of the resources that steps write through the job API: the
    * state of the stock client's setState (WA-13), which reads find after
-   * the bundle's and the host's resources. kind "memory", the only store
-   * and the default, keeps them in the engine's memory for this connection:
-   * a reconnect, another host process and another engine never see them
-   * (deviation D24 of ADR 0001). */
-  resourceStore?: { kind: "memory" };
+   * the bundle's and the host's resources.
+   *
+   * - kind "memory", the default, keeps them in the engine's memory for
+   *   this connection: a reconnect, another host process and another
+   *   engine never see them (deviation D24 of ADR 0001).
+   * - kind "redis" keeps them on the Redis that url names (a redis:// or
+   *   rediss:// URL, or a Sentinel URL with master_name), under prefix
+   *   (default "windmill-lite:"), shared by every engine on that Redis and
+   *   prefix. The engine gets the URL in its environment as WL_REDIS_URL,
+   *   never on its command line, and refuses to start on a Redis it cannot
+   *   reach, or whose maxmemory-policy is allkeys-* unless allowEviction
+   *   is set. */
+  resourceStore?: { kind: "memory" } | { kind: "redis"; url: string; prefix?: string; allowEviction?: boolean };
   /** Off by default. Set, it states that this host's own code, its
    * plugin's hooks included, never reads args.json in the working
    * directory; the engine then writes no args.json for a bundle none of
@@ -343,8 +351,21 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   if (collect !== undefined && !(quiet >= 0 && Number.isFinite(quiet))) {
     throw new HostError("options", `collect's quiet period is 0 ms or more; got ${String(collect.quiet)}`);
   }
-  if (o.resourceStore !== undefined && o.resourceStore?.kind !== "memory") {
-    throw new HostError("options", `resourceStore's kind is "memory"; got ${JSON.stringify(o.resourceStore?.kind)}`);
+  const store = o.resourceStore;
+  if (store !== undefined && store?.kind !== "memory" && store?.kind !== "redis") {
+    throw new HostError("options", `resourceStore's kind is "memory" or "redis"; got ${JSON.stringify((store as { kind?: unknown } | null)?.kind)}`);
+  }
+  if (store?.kind === "redis") {
+    // The URL holds the password: it is never put in a message.
+    if (typeof store.url !== "string" || store.url === "") {
+      throw new HostError("options", "resourceStore of kind redis needs url, a Redis URL");
+    }
+    if (store.prefix !== undefined && typeof store.prefix !== "string") {
+      throw new HostError("options", `resourceStore's prefix is a string; got ${typeof store.prefix}`);
+    }
+    if (store.allowEviction !== undefined && typeof store.allowEviction !== "boolean") {
+      throw new HostError("options", `resourceStore's allowEviction is a boolean; got ${typeof store.allowEviction}`);
+    }
   }
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
@@ -390,10 +411,17 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
       ...(o.readCache ? ["-read-cache"] : []),
       ...(o.skipArgsFile ? ["-skip-args-file"] : []),
-      ...(o.resourceStore ? ["-resource-store", o.resourceStore.kind] : []),
+      ...(store ? ["-resource-store", store.kind] : []),
+      ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
+      ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
       ...(o.engineFlags ?? []),
     ],
-    { stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"] },
+    {
+      stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
+      // The Redis URL reaches the engine only in its environment: a
+      // command line shows in ps.
+      ...(store?.kind === "redis" ? { env: { ...process.env, WL_REDIS_URL: store.url } } : {}),
+    },
   );
   let settle: { resolve: () => void; reject: (e: Error) => void };
   const ready = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));

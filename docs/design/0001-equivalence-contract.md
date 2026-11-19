@@ -273,6 +273,13 @@ a runtime with its own store sees none of them. `TestRunCommand`
 (cmd/windmill-lite) shows a state that one `windmill-lite run` writes
 missing from the next.
 
+The Redis store (`wl/redisstore`, `-resource-store redis`, the host SDK's
+`resourceStore: { kind: "redis", url }`) adds no deviation beyond
+durability, which Redis's configuration sets. Its entries outlive the
+runtime, and every runtime on the same Redis and key prefix sees them, so
+its runs do not list D24. `TestRunCommand` shows a state that one
+`windmill-lite run` writes on Redis read by the next, another process.
+
 **D5, the native boundary mode** (milestone C3n). A native invocation runs
 in a `node:vm` context of the harness process, made for it and released
 when it settles, so its module state and globals never survive it, in any

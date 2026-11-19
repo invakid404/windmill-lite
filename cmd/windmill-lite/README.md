@@ -185,7 +185,9 @@ starts. SIGINT and SIGTERM cancel the run.
 | `-digest` | A digest | None | The digest that the bundle must have |
 | `-variables` | A file | None | The host's variables, keyed by path (below). Secrets go here: a bundle never holds a secret's value. |
 | `-resources` | A file | None | The host's resources, keyed by path (below) |
-| `-resource-store` | `memory` | `memory` | The store of the resources that steps write, such as the stock client's state. `memory` keeps them for the run only, a named [deviation](../../docs/design/0001-equivalence-contract.md#5-named-deviations) of the equivalence contract. |
+| `-resource-store` | `memory` or `redis` | `memory` | The store of the resources that steps write, such as the stock client's state. `memory` keeps them for the run only, a named [deviation](../../docs/design/0001-equivalence-contract.md#5-named-deviations) of the equivalence contract. `redis` keeps them on the Redis that the environment variable `WL_REDIS_URL` names ([Choosing a resource store](../../docs/resource-stores.md)). |
+| `-redis-prefix` | A prefix | `windmill-lite:` | The prefix of the Redis store's keys, so deployments can share one Redis: one or more characters without a colon, then a colon, such as `app-1:` |
+| `-redis-allow-eviction` | None | Off | Starts on a Redis whose `maxmemory-policy` is `allkeys-*`, which can evict the store's entries, with a warning |
 | `-trace` | None | Off | Adds a summary of the [trace](../../docs/glossary.md#trace) to the outcome |
 | `-quickjs-only` | None | Off | Turns the Go evaluator of [expressions](../../docs/glossary.md#expression) off: every expression that the shortcuts and member paths do not answer runs in QuickJS-ng |
 | `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
@@ -236,7 +238,11 @@ A resources file maps each path to the resource's `resource_type` and
   runtime with another digest than the bundle's.
 - `--args`, `-variables` or `-resources` does not read as JSON, or `<path>`
   names no flow or root script of the bundle.
-- `-resource-store` names a store other than `memory`.
+- `-resource-store` names a store other than `memory` or `redis`.
+- `-resource-store redis`, and `WL_REDIS_URL` is not set or does not parse,
+  Redis cannot be reached, or its `maxmemory-policy` is `allkeys-*` without
+  `-redis-allow-eviction`. The error names the server by its address,
+  never by the URL, which holds the password.
 
 With the bundle of the `build` example, from the root of the same
 checkout:
@@ -321,7 +327,8 @@ The host that starts it passes:
 | `-digest` | A digest | None | The digest that the bundle must have |
 | `-variables`, `-resources` | A file | None | The host's variables and resources, as for [`run`](#variables-and-resources-files) |
 | `-plugin-timeout` | A duration | `1m` | How long a call to the host's [host plugin](../../docs/glossary.md#host-plugin) waits for its reply |
-| `-resource-store` | `memory` | `memory` | The store of the resources that steps write, as for `run`. `memory` keeps them while the host's connection lasts, for every run of the host. |
+| `-resource-store` | `memory` or `redis` | `memory` | The store of the resources that steps write, as for `run`. `memory` keeps them while the host's connection lasts, for every run of the host. `redis` keeps them on the Redis that `WL_REDIS_URL` names. |
+| `-redis-prefix`, `-redis-allow-eviction` | As for `run` | As for `run` | The Redis store's key prefix, and its start on an evicting policy |
 | `-read-cache` | None | Off | Each run keeps the answer of its first read of a host's or bundle's resource or variable, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads each time, so this is a named [deviation](../../docs/glossary.md#deviation) of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `-skip-args-file` | None | Off | The host states that its own code never reads `args.json`. Then, for a bundle none of whose scripts can read it, the engine writes no `args.json` for a step. |
 | `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
@@ -333,7 +340,7 @@ The engine refuses the host in the handshake, with one of these codes:
 |---|---|
 | `workdir_not_writable` | `--workdir` is not a directory that the engine can write. |
 | `workdir_mismatch` | `--workdir` is not the directory that the host's hello names. |
-| `engine_refused` | The bundle does not open, another engine version built it, a file of `-variables`, `-resources` or `-cpuprofile` does not open, or `-resource-store` names a store other than `memory`. The message gives the reason. |
+| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. The message gives the reason. |
 
 The other codes of the handshake, such as `version_mismatch`, are the
 host SDK's errors
@@ -427,7 +434,7 @@ benchmarks.
 |---|---|
 | `main.go` | The subcommand switch, the version, the flag parser that takes flags after the positional argument, and `-cpuprofile` |
 | `build.go` | `build` and `verify`, through [internal/bundle](../../internal/bundle/README.md) |
-| `runcmd.go` | `run`, through [wl](../../wl/README.md), and the outcome's JSON form |
+| `runcmd.go` | `run`, through [wl](../../wl/README.md), and the outcome's JSON form; the resource store's flags, which `host` shares, and the store they open |
 | `selfcheck.go` | `selfcheck` and its three probes |
 | `host.go` | `host`, through `wl` in host mode |
 | `*_test.go` | The tests and the benchmarks ([Tests](#tests), [Benchmarks](#benchmarks)) |
@@ -444,6 +451,7 @@ gives the setup.
 |---|---|
 | `main_test.go` | The version output, the link-time version, the usage errors and `selfcheck`. `build` and `verify` end to end: the fixture of `internal/bundle`, built as a directory and as an archive, gives one digest. `verify` confirms it against the release manifest, a changed file fails verification, and `build` does not overwrite an archive. |
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
+| `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
@@ -488,7 +496,7 @@ How these tests run:
 | `TestHostScopesThroughAnOutsideModule` | `f/hostout/read.ts`, a codebase script, reads the host's scope through `../hostlib/tenant.ts`, a host-provided module outside the sync folder, in 16 of 16 concurrent runs. |
 | `TestHostCodebaseAsset` | The codebase script `f/hostcb/cb_asset.ts` reads its asset, which the SDK extracted into the host's working directory, by a relative path and beside its module. It also reads the `args.json` that the engine wrote there. |
 | `TestHostWorkdirRefusedBySDK` | The SDK refuses to connect with `workdir_mismatch` for a directory other than the host's own, and with `workdir_not_writable` for a read-only one. |
-| `TestHostWorkdirRefusedByEngine` | The test plays the host: it starts `windmill-lite host` with a socket pair as file descriptor 3, and none as 4. The engine welcomes a host in its own working directory, and refuses `workdir_mismatch`, `workdir_not_writable`, and `engine_refused` for a bundle that does not open. A plugin declaration with a malformed selector gets `plugin_mismatch`, and a usable one is welcomed. |
+| `TestHostWorkdirRefusedByEngine` | The test plays the host: it starts `windmill-lite host` with a socket pair as file descriptor 3, and none as 4. It checks the welcome in the host's own working directory and the refusals `workdir_mismatch` and `workdir_not_writable`. It checks `engine_refused` for a bad bundle or store: an unknown store, or Redis without `WL_REDIS_URL`, unreachable, or with a bad URL, never showing its password. A malformed plugin selector gets `plugin_mismatch`; a usable one is welcomed. |
 | `TestHostDrain` | `drain` refuses a new run (`draining`), and waits for the run in flight, which completes. The host lives on. |
 | `TestHostDrainAfterALargeOutcome` | A drain that starts while a run with a 3 MiB outcome is in flight (`f/host/big`) ends only after that run's caller has its whole outcome. |
 | `TestHostRunSettled` | A step that its timeout abandons runs on: the run's outcome comes at about 1 s, and its `onSettled` at about 1.5 s, in the run's own tenant scope. A run that abandons nothing settles with its outcome. |

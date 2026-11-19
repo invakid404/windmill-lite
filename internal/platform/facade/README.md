@@ -213,7 +213,9 @@ Each route runs the web framework's checks first
 - **A failing store** answers `500` `text/plain` `Internal: windmill-lite:
   the resource store failed: <err>` on every read and write that reaches
   it, and the call's `Record.Warning` carries the text for the run's
-  trace. A failure never reads as a missing state.
+  trace. A failure never reads as a missing state. On the Redis store
+  ([wl/redisstore](../../../wl/redisstore/README.md)), `<err>` is the
+  store's error, such as a refused connection, and never holds the URL.
 
 **Flow user state** ([WA-14](../../../docs/semantics/client-api.md#wa-14),
 PF3) answers from `platform.Services`:

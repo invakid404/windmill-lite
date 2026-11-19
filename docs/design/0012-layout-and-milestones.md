@@ -24,6 +24,7 @@ cmd/wltest/                 conformance and oracle runner: check, record, diff, 
 wl/                         the public Go library API (0009); the only exported engine package
 wl/plugin/                  go-plugin client and server helpers for hosts (0009)
 wl/storetest/               the contract suite of wl.ResourceStore, which every resource store runs (0007)
+wl/redisstore/              the resource store on Redis, over go-redis (0007)
 internal/jsonval/           JSON text values, jsonb canonicaliser, NUL checks (0005)
 internal/yamlx/             YAML 1.2 core scalar resolution over a node parser (0002)
 internal/openflow/          OpenFlow types, effective decoder, vendored schema, coverage test (0002)
@@ -52,7 +53,7 @@ proto/windmill_lite/v1/     runner.proto (0009)
 conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/, build/: the shared cases (0003)
 ```
 
-Everything except `wl/`, `wl/plugin/` and `wl/storetest/` is internal, so the engine can change
+Everything except `wl/`, `wl/plugin/`, `wl/storetest/` and `wl/redisstore/` is internal, so the engine can change
 without breaking hosts. The Bun host SDK is published to npm as the package
 `windmill-lite`, whose root is `harnesses/`
 ([0009](0009-host-adapters.md#the-npm-package)); a host can also vendor it

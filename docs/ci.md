@@ -71,6 +71,7 @@ does by default
 | `Static Linux engine (amd64)`, `Static Linux engine (arm64)` | `ubuntu-24.04`, `ubuntu-24.04-arm` | Always | [The static Linux engine](#the-static-linux-engine) | No |
 | `Expression engine (ubuntu-24.04)`, `Expression engine (ubuntu-26.04)` | Each image by name | Always | [The expression engine jobs](#the-expression-engine-jobs) | Yes |
 | `jsonb (PostgreSQL)` | `ubuntu-latest` | Always | The jsonb canonicaliser of [internal/jsonval](../internal/jsonval/README.md) against PostgreSQL 16 in the oracle's pinned image, and the bound on a value's stored size that the job reads use | No |
+| `Redis` | `ubuntu-latest` | Always | The Redis resource store against Redis 7.2, Sentinel and Toxiproxy containers ([The Redis job](#the-redis-job)) | No |
 | `Bun harness checks` | `ubuntu-latest` | Always | `bun test` in `harnesses/bun`, after the build helper's dependencies: the harness's codec against the frames that the Go tests write, and the [build helper](../harnesses/bun/build/README.md)'s scans | No |
 | `Bun SDK types` | `ubuntu-latest` | Always | A type check of the Bun host SDK and the harness runtime as a host that vendors them does it, with the newest and the oldest supported `@types/node` ([type check](../harnesses/bun/README.md#type-check)) | No |
 | `Docs (report only)` | `ubuntu-latest` | Always; the annotations on pull requests only | The countable writing rules ([Docs (report only)](#docs-report-only)) | No |
@@ -163,6 +164,29 @@ image. On each image, it:
 4. builds the engine with the image's C compiler, and runs
    `windmill-lite selfcheck`;
 5. builds the static Linux engine, and runs `windmill-lite selfcheck`.
+
+### The Redis job
+
+The job checks the Redis resource store of
+[wl/redisstore](../wl/redisstore/README.md) against real servers.
+`scripts/redis-test-env.sh up` starts a Redis 7.2 server, a Sentinel that
+monitors it, a second Redis 7.2 server for the fault tests alone and a
+Toxiproxy, pinned by digest, and the job adds the
+variables it prints to its environment. Its steps:
+
+1. **Test the Redis store:** `go test -race ./wl/redisstore`, which runs
+   the contract suite on the server and through Sentinel, the eviction
+   check and the fault tests.
+2. **Test the run command on Redis:** `TestRunCommand`, whose two engine
+   processes share a state on the server.
+3. **Test wltest's fixture stores on Redis:** `TestFixtureStoresAreApart`,
+   `TestFixtureStateOnRedis` and `TestStateTestClaim` in `cmd/wltest`: each
+   fixture's runtime gets a Redis store of its own, which its runs share.
+4. **Check client-api/state on the Redis store:** `wltest check
+   -resource-store redis` of the fixture, in each mode of the flow suite.
+5. **Remove the containers**, whatever the steps before did.
+
+Without the variables, as in the other jobs, these tests skip.
 
 ### Docs (report only)
 
@@ -346,6 +370,7 @@ Neither check is required.
 | `Expression engine (<image>)`, step `Start the engine built with the image's compiler` | `go build -o windmill-lite ./cmd/windmill-lite`, then `./windmill-lite selfcheck` |
 | `Expression engine (<image>)`, step `Start the static Linux engine`, or `Static Linux engine (<arch>)` | On Linux with `zig` 0.15.2 only: the step's commands in `.github/workflows/ci.yml`. The static engine's image test also needs Docker. Elsewhere, read the job's log |
 | `jsonb (PostgreSQL)` | The three tests of the step, with `WL_JSONB_PSQL` set to a `psql` command for PostgreSQL 16 ([internal/jsonval](../internal/jsonval/README.md#run-the-tests)) |
+| `Redis` | On Linux with Docker: `eval "$(scripts/redis-test-env.sh up | sed 's/^/export /')"`, then the failing step's command from `.github/workflows/ci.yml`, then `scripts/redis-test-env.sh down` ([wl/redisstore](../wl/redisstore/README.md#tests)) |
 | `Bun SDK types` | `bun install --frozen-lockfile` in `harnesses/bun/test/typecheck` and in its `oldest/`, then `harnesses/bun/test/typecheck/check.sh` ([type check](../harnesses/bun/README.md#type-check)) |
 | `Codebase parity (windmill-cli 1.862.0)` | `WL_WMILL_CLI='npx --yes windmill-cli@1.862.0' go test -count=1 -run '^TestCLIParity$' -v ./internal/bundle`, with Node 22 and network access |
 | `Secret scan`, step `Check the rules` | The step's script in `.github/workflows/ci.yml` (a sample bearer token must be found, the tree must be clean), with gitleaks 8.30.1 |

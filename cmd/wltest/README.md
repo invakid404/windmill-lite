@@ -173,7 +173,7 @@ and exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.4.3/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.4.3/bun bin/wltest check [--mode warm|fresh|host] [-shared-code] [-quickjs-only] [-resource-store memory|redis] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of
@@ -210,6 +210,24 @@ do not answer on QuickJS-ng, without the pipeline's Go evaluator
 The package's tests run every flow fixture and expression case so when
 `WL_TEST_QUICKJS_ONLY=1`, and one CI part runs them that way. Every
 fixture, case and recording passes with the evaluator on and with it off.
+
+`-resource-store redis` gives each flow fixture's runtime the Redis store
+of [wl/redisstore](../../wl/redisstore/README.md), on the Redis that
+`WL_REDIS_URL` names, under a key prefix of its own, `wltest-<random>:`.
+Each fixture so starts with no state, as on the default memory store. The
+CI job `Redis` checks `client-api/state` this way in each mode.
+
+`store_test.go` checks it with `WL_TEST_REDIS_URL`:
+`TestFixtureStoresAreApart` keeps one workspace and path apart in two
+fixtures' stores, and `TestFixtureStateOnRedis` runs a copy of the
+synthetic fixture `testdata/state-isolation`, with a state path of its
+own, twice. Its runs share a counter, each fixture starts at zero, and
+Redis holds one counter per fixture.
+
+The test first claims its random id with `SET NX`, and deletes only the
+keys of an id it won;
+`TestStateTestClaim` checks that a second claim of one id is refused and
+leaves the winner's keys alone.
 
 ### Step cases
 

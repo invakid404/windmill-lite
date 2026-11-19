@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRunCommand builds a synthetic folder and runs its flow as the command
@@ -108,11 +111,64 @@ func TestRunCommand(t *testing.T) {
 			t.Fatalf("-resource-store memory, run %d: exit code %d, stdout %s, stderr %s", i+1, code, stdout.String(), stderr.String())
 		}
 	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := run([]string{"run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "redis"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 ||
-		!strings.Contains(stderr.String(), `-resource-store "redis": the resource store must be memory`) {
-		t.Errorf("-resource-store redis: exit code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	// Each refusal runs in an engine process of its own, so that its whole
+	// standard error, go-redis's log included, is checked for the URL's
+	// marker.
+	for _, c := range []struct {
+		kind, url, want string
+	}{
+		{"bogus", "", `-resource-store "bogus": the resource store must be memory or redis`},
+		{"redis", "", "-resource-store redis: WL_REDIS_URL is not set; it holds the Redis URL, which no flag takes"},
+		// No server listens on port 1: the run does not start, and the
+		// error names the address and not the password.
+		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0", "-resource-store redis: redisstore: cannot reach Redis at 127.0.0.1:1 (database 0)"},
+		// No Sentinel listens either; go-redis logs its failed lookups of
+		// the master by name.
+		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0?master_name=main&password=s3cr3t-pw", "-resource-store redis: redisstore: cannot reach Redis at the master of the Sentinels 127.0.0.1:1 (database 0)"},
+		// URLs that do not parse: the error names no part of them, here a
+		// credential pasted as a Sentinel address and as the master's name.
+		{"redis", "redis://127.0.0.1:26379/0?master_name=m&addr=redis://u:s3cr3t-pw@host2:26379", "-resource-store redis: redisstore: the Redis URL does not parse"},
+		{"redis", "redis://127.0.0.1:26379/0?master_name=redis://u:s3cr3t-pw@host2:6379", "-resource-store redis: redisstore: the Redis URL does not parse"},
+		// The password itself given as the master's name, which go-redis
+		// would log.
+		{"redis", "redis://u:s3cr3t-pw@127.0.0.1:1/0?master_name=s3cr3t-pw", "-resource-store redis: redisstore: the Redis URL does not parse"},
+	} {
+		cmd := exec.Command(os.Args[0], "run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", c.kind)
+		cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL="+c.url)
+		var out, errOut bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errOut
+		err := cmd.Run()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), c.want) || strings.Contains(errOut.String(), "s3cr3t") {
+			t.Errorf("-resource-store %s (case %q): %v, stdout %d bytes, stderr holds the marker %v, want %q",
+				c.kind, c.want, err, out.Len(), strings.Contains(errOut.String(), "s3cr3t"), c.want)
+		}
+	}
+	if url := os.Getenv("WL_TEST_REDIS_URL"); url != "" {
+		// -resource-store redis, cross-process: two engine processes, each
+		// with its own runtime, on one Redis and one prefix. The second sees
+		// the state the first created: its create is refused as taken and
+		// its $res: argument reads the first's value. A third, on another
+		// prefix, sees none of it.
+		id := time.Now().UnixNano()
+		prefix, other := fmt.Sprintf("wl-test-run-%d:", id), fmt.Sprintf("wl-test-run-%d-other:", id)
+		for i, c := range []struct{ prefix, want string }{
+			{prefix, `{"x":{"k":1},"created":"resource f/t/kept created"}`},
+			{prefix, `{"x":{"k":1},"created":"Bad request: Resource f/t/kept already exists"}`},
+			{other, `{"x":{"k":1},"created":"resource f/t/kept created"}`},
+		} {
+			want := c.want
+			cmd := exec.Command(os.Args[0], "run", "f/t/keep", "--bundle", b, "-bun", bun, "-harness-runtime", runtime, "-resource-store", "redis", "-redis-prefix", c.prefix)
+			cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_REDIS_URL="+url)
+			var errOut bytes.Buffer
+			cmd.Stderr = &errOut
+			got, err := cmd.Output()
+			var out runOutput
+			var result bytes.Buffer
+			if err != nil || json.Unmarshal(got, &out) != nil || json.Compact(&result, out.Result) != nil || result.String() != want {
+				t.Fatalf("-resource-store redis, process %d: %v, stdout %s, stderr %s; want the result %s", i+1, err, got, errOut.String(), want)
+			}
+		}
 	}
 	// Without the harness runtime the bundle was built for, nothing runs.
 	stdout.Reset()

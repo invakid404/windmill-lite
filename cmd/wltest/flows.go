@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/racebuild"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 	"github.com/invakid404/windmill-lite/wl"
+	"github.com/invakid404/windmill-lite/wl/redisstore"
 )
 
 // flowChecker runs flow fixtures (OR-15, the flow level of ADR 0003) on
@@ -67,6 +69,20 @@ type flowChecker struct {
 	// steps, which the response carries, are the engine's
 	// (TestRunWaitOutcomes).
 	runWaitOutcome bool
+	// redisURL, when set, gives each fixture's runtime a Redis resource
+	// store (wl/redisstore) on that URL, under a prefix of its own
+	// (fixtureStore); empty gives each runtime its own memory store.
+	redisURL string
+}
+
+// fixtureStore returns a new Redis store on fc.redisURL for one fixture's
+// runtime, under a key prefix of its own, wltest-<16 hex digits>:, so that
+// the fixture starts with no state, as on a memory store, and its runs
+// share what they write.
+func (fc *flowChecker) fixtureStore(ctx context.Context) (*redisstore.Store, error) {
+	var id [8]byte
+	rand.Read(id[:])
+	return redisstore.New(ctx, redisstore.Options{URL: fc.redisURL, Prefix: "wltest-" + hex.EncodeToString(id[:]) + ":"})
 }
 
 // quickJSOnlyAll sets every flowChecker's quickJSOnly (testmode_test.go).
@@ -225,6 +241,15 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
 			Providers: fixtureProviders(f), QuickJSOnly: fc.quickJSOnly || quickJSOnlyAll,
+		}
+		if fc.redisURL != "" {
+			store, err := fc.fixtureStore(ctx)
+			if err != nil {
+				return failRuns(results, "resource store: "+err.Error())
+			}
+			// Deferred before the runtime's Close, so it runs after it.
+			defer store.Close()
+			opts.ResourceStore = store
 		}
 		if fc.mode == ModeHost {
 			if host, err = fc.openHost(b.out, work, opts, &diag); err != nil {

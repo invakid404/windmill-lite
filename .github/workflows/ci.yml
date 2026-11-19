@@ -584,6 +584,87 @@ jobs:
           WL_JSONB_PSQL: docker exec -i ${{ job.services.postgres.id }} psql -U postgres
         run: go test -count=1 -v -run '^(TestStoredMatchesPostgreSQL|TestStoredBoundAbovePostgreSQL|TestToastedSizeMatchesPostgreSQL)$' ./internal/jsonval
 
+  redis:
+    # The Redis resource store (wl/redisstore) against real servers: the
+    # contract suite (wl/storetest) on one Redis and through Sentinel, the
+    # fault tests through Toxiproxy, the eviction check, the run command's
+    # cross-process test, and wltest check of client-api/state on the
+    # Redis store in each mode of the flow suite.
+    # scripts/redis-test-env.sh starts the containers, pinned by digest,
+    # and prints the variables the tests read; without them the tests
+    # skip, as they do in the jobs above. The containers need a Linux
+    # runner, whose host reaches their addresses. Branch protection does
+    # not require this job.
+    name: Redis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Bun
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Fetch windmill-client 1.862.0
+        # As in the Go job: client-api/state runs the stock client.
+        run: |
+          dir="$RUNNER_TEMP/windmill-client"
+          mkdir -p "$dir/node_modules/windmill-client"
+          curl -sSfL --retry 3 -o "$dir/client.tgz" https://registry.npmjs.org/windmill-client/-/windmill-client-1.862.0.tgz
+          echo "5ebad9cf352597fb2475e80267bf411b562b108c8eeea66a84a5d5a2ff12df68d8000ef8d2acef130a3acb77be9b22fb9ad5056314adf0695aee3533eef68811  $dir/client.tgz" | shasum -a 512 -c -
+          tar -xzf "$dir/client.tgz" -C "$dir/node_modules/windmill-client" --strip-components=1
+          echo "WL_WINDMILL_CLIENT=$dir" >> "$GITHUB_ENV"
+
+      - name: Install the build helper's dependencies
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+
+      - name: Start Redis, Sentinel and Toxiproxy
+        run: scripts/redis-test-env.sh up >> "$GITHUB_ENV"
+
+      - name: Test the Redis store
+        run: go test -race -count=1 -v ./wl/redisstore
+
+      - name: Test the run command on Redis
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_REQUIRE_BUN: "1"
+        run: go test -race -count=1 -v -run '^TestRunCommand$' ./cmd/windmill-lite
+
+      - name: Test wltest's fixture stores on Redis
+        # Each fixture's runtime gets a Redis store of its own, which its
+        # runs share.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_REQUIRE_BUN: "1"
+        run: go test -race -count=1 -v -run '^(TestFixtureStoresAreApart|TestFixtureStateOnRedis|TestStateTestClaim)$' ./cmd/wltest
+
+      - name: Check client-api/state on the Redis store
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+        run: |
+          go build -o "$RUNNER_TEMP/wltest" ./cmd/wltest
+          export WL_REDIS_URL="$WL_TEST_REDIS_URL"
+          for mode in "-mode warm" "-mode fresh" "-mode host" "-mode warm -shared-code" "-mode host -shared-code"; do
+            # shellcheck disable=SC2086 # $mode holds the flags
+            "$RUNNER_TEMP/wltest" check -resource-store redis $mode conformance/flows/client-api/state
+          done
+
+      - name: Remove the containers
+        if: always()
+        run: scripts/redis-test-env.sh down
+
   bun:
     # The Bun harness's own developer checks (ADR 0003): its codec against
     # the golden frames the Go tests write, and the build helper's scans.
