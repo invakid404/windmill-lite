@@ -1,16 +1,26 @@
 # Conformance catalogue
 
-**Current state:** a catalogue of the conformance case of every finding in
-this reference, grouped by area. The executable fixtures that encode these
-cases live under [`conformance/`](../../conformance) at the repository root,
-in the format the design chose; [OR-15](oracle.md#or-15) describes the
-language-neutral format first proposed for oracle recordings. Recording
-batches E3a to E3f (design record 0012) and the fixtures the build
-milestones committed with their own recordings recorded many cases on the
-oracle, and the cases they recorded name their recording. A case batch E3f
-could not record says why in a **Not recorded (batch E3f)** line: the
-question is answered, the case re-scoped to what the oracle can show, or it
-stays deferred until a recording the design README requests.
+**Current state:** the catalogue of the conformance cases of the findings
+in this reference that have cases: 1,107 cases, grouped by area. The
+[oracle](../glossary.md#oracle) has recorded 715 of them, 385 are
+source-derived, and 7 are windmill-lite policy checks
+([Summary](#summary)). No case is `disputed`.
+
+The executable fixtures that encode these cases live under
+[`conformance/`](../../conformance) at the repository root, in the format
+the design chose; [OR-15](oracle.md#or-15) describes the language-neutral
+format first proposed for oracle recordings.
+
+A recorded case's evidence is in its **Recorded:** line, in its group's
+opening or in its area's notation. It gives the details that it has, such as
+the fixture, the run, the oracle's CI run or the Windmill version.
+
+Where an unrecorded case waits on a recording, its `Not recorded:` line or
+the area's open question says so, and the design README's
+[recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+ask for it. Some unrecorded cases need no recording: an optional
+corroboration, a case that cannot be recorded on the Community Edition, or
+a check of windmill-lite's own repository.
 
 ## How to read a case
 
@@ -18,26 +28,36 @@ Each area lists, in ID order, the findings that have at least one case. An
 entry names the finding's primary scope and links to the finding; each case
 below it has:
 
-- **A case ID**, `<finding>/<letter>` (for example `FX-12/a`). Cite it from
-  tests as `// spec: FX-12/a`. Case IDs are stable like finding IDs.
+- **A case ID**, `<finding>/<letter>` (for example `FX-12/a`). Case IDs are
+  stable like finding IDs. A fixture cites a case in its `spec` field
+  ([Citing findings and cases](README.md#citing-findings-and-cases)).
 - **A provenance tag:**
-  - `source-derived`: the expected output was derived from the pinned source
-    and has not been recorded on a running Windmill yet. An open question in
-    the area file tracks the recording.
+  - `source-derived`: the case has not been recorded on a running
+    Windmill. Its expected output usually comes from Windmill's pinned
+    source. It can also come from windmill-ts at its pinned commit, from
+    both, or from a rule of windmill-lite or of the oracle harness, such as
+    a harness self-test; the case, its finding and the area's notation say
+    which. When a recording is wanted, the case's note or the area's open
+    question says so.
   - `oracle-observed`: recorded on Windmill CE `v1.767.0`, or on CE
     `v1.862.0` for recordings made since 2026-11-06 (see
     [oracle.md](oracle.md) and the index's
-    [Pinned version](README.md#pinned-version)). A case recorded by a committed fixture ends
-    with a **Recorded:** line naming the fixture under
-    [`conformance/`](../../conformance), the run, and the CI run of the
-    oracle that recorded it. A text it quotes is the text that run
-    recorded, so a v1.767.0 run's text can differ from the v1.862.0
-    recording committed since: the expression wrapper's frames and columns
-    ([JE-21](expressions.md#je-21)) and the location suffixes
-    ([FX-50](execution.md#fx-50)) moved. Where the recording differed from the
-    expectation derived from the source, **Expect** holds what the oracle
-    did, and a dated **Correction** line says what the case expected before
-    and which rule explains the difference.
+    [Pinned version](README.md#pinned-version)).
+    - For the recording's details, such as its fixture under
+      [`conformance/`](../../conformance), its run, the oracle's CI run or
+      the Windmill version, check the case's **Recorded:** line, its group's
+      opening and its area's notation. Not every case gives every detail.
+    - A case that checks the oracle session itself may have a **Recorded:**
+      line, such as [OR-19/a](#or-19), or rely on the oracle area's
+      notation, such as [OR-1/a](#or-1).
+    - A text it quotes is the text that run recorded, so a v1.767.0 run's
+      text can differ from the v1.862.0 recording committed since: the
+      expression wrapper's frames and columns ([JE-21](expressions.md#je-21))
+      and the location suffixes ([FX-50](execution.md#fx-50)) moved.
+    - Where the recording differed from the expectation derived from the
+      source, **Expect** holds what the oracle did, and a `Settled:` line
+      says what the case expected before and which rule explains the
+      difference.
   - `disputed`: the finding is `DISPUTED`, `needs-evidence` or `open`. The case
     states the contested expectation and both claims; do not encode either
     as a passing test until the open question is closed.
@@ -48,6 +68,17 @@ below it has:
 - **A scope tag**, only when the case's scope differs from the entry's.
 - **Given** (the input: flow, scripts, arguments, state) and **Expect** (the
   exact result, or the exact error shape).
+- **Notes**, only where something was settled or cannot be recorded, in one
+  of two forms with no date and no work history:
+  - `Settled:` what a re-check or a recording settled, and how, such as
+    "recorded on CE `v1.862.0`" or "read from the pinned source". It keeps
+    what the case expected before, where the recording differed.
+  - `Not recorded:` why the oracle cannot record the case and, when a
+    future recording is requested, where the request lives.
+
+  Some areas still give such notes a dated label, such as
+  `Correction <date> (…)` or `Not recorded (…)`; such a note says the same
+  kind of thing.
 
 Fixtures here are synthetic: written for this reference to exercise one
 behaviour each. Paths such as `f/demo/...` are invented.
@@ -61,10 +92,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Loops, branches and subflows](#control-flow) | 124 | 84 | 36 | 0 | 4 | 114 | 0 | 0 |
 | [Expressions](#expressions) | 203 | 131 | 70 | 0 | 2 | 189 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 217 | 132 | 85 | 0 | 0 | 96 | 0 | 0 |
-| [The wmill client API and the platform interface](#client-api) | 135 | 70 | 60 | 5 | 0 | 59 | 0 | 6 |
+| [The wmill client API and the platform interface](#client-api) | 135 | 86 | 44 | 5 | 0 | 59 | 0 | 6 |
 | [The oracle](#oracle) | 89 | 78 | 6 | 2 | 3 | 68 | 0 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1107 | 750 | 339 | 9 | 9 | 715 | 0 | 7 |
+| **Total** | 1107 | 766 | 323 | 9 | 9 | 715 | 0 | 7 |
+
+A case counts under its own scope tag, or else under its entry's primary
+scope: the first tag of the entry's **Scope**. The cases that are neither
+`oracle-observed`, `disputed` nor `policy` are `source-derived`.
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -91,11 +126,10 @@ Findings: [openflow.md](openflow.md).
 - **Status ids** are the projected list of step ids in the flow status.
 - A case marked **windmill-lite policy** states the proposed windmill-lite
   behaviour next to Windmill's, not a Windmill error string.
-- Batch E3e recorded SY-6/c, and batch E3f the cases of
-  [Q-OF-1](openflow.md#q-of-1) and OF-V5/b; the other cases are
-  source-derived. Since the SC3 revision of 2026-10-29 settled OF-3 and
-  OF-V5 from the source, no case of this area is `disputed`. The sync-tree
-  cases still pending are listed in [Q-OF-13](openflow.md#q-of-13).
+- The oracle has recorded 22 of this area's 156 cases: each says
+  `oracle-observed` and names its recording. The other cases are
+  source-derived, and none is `disputed`. The sync-tree cases still pending
+  are listed in [Q-OF-13](openflow.md#q-of-13).
 
 <a id="of-2"></a>
 ### OF-2 · Deploy-time validation: a typed decode plus two checks
@@ -163,11 +197,11 @@ Findings: [openflow.md](openflow.md).
     `a-v`; the flow result equals `a`'s result. With `DISABLE_FLOW_SCRIPT=true`
     at enqueue the status ids are `["a"]` and no final sleep is scheduled,
     with the same result (OF-V5/a–b).
-  - **Correction 2026-10-29 (SC3):** the case was `disputed` between the
-    drafted `[a, a-v]` and OF-V5's enqueue-dependent reading. The source
-    settles it for OF-V5 ([Q-OF-11](openflow.md#q-of-11), answered): "after
-    deploy" fixes the list only together with the enqueue form, which the
-    reference configuration makes lite.
+  - **Settled:** read from the pinned source
+    ([Q-OF-11](openflow.md#q-of-11), answered): "after deploy" fixes the
+    list only together with the enqueue form, which the reference
+    configuration makes lite. The case was `disputed` between the drafted
+    `[a, a-v]` and OF-V5's enqueue-dependent reading.
   - **Recorded:** [`flows/execution/fx-18-rest`](../../conformance/flows/execution/fx-18-rest) run `fx4_ids`, oracle run 41000318656: a driver step read the status ids `["a", "a-v"]` of a run by path it started, at enqueue, and then canceled the run, so the final sleep's scheduling and the result are not part of this recording. The `DISABLE_FLOW_SCRIPT=true` half is OF-V5/b's recording.
 - **OF-3/e** · source-derived · harmless canonicalisation
   - **Given:** a kept module value `{"type":"identity","extra":7}`.
@@ -223,7 +257,7 @@ Findings: [openflow.md](openflow.md).
     `{"type":"branchall","branches":[{"expr":"","modules":[],"skip_failure":false,"parallel":true}],"parallel":true}`
     (key order not significant). For-loop defaults: see OF-3/a.
   - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `ba_shape`, oracle run 42299716256 (CE v1.862.0): `flows/get` after the dependency job returned exactly the value above (deployment evidence, checked by the batch manifest), and the flow then returned `1`.
-  - **Correction 2026-11-06 (CE v1.862.0):** the branch's `skip_failure` was `true` at v1.767.0 (oracle run 41000318656); since 1.852.0 an absent branch flag is stored `false` ([OF-6](openflow.md#of-6)).
+  - **Settled:** recorded on CE `v1.862.0`: the branch's `skip_failure` was `true` at v1.767.0 (oracle run 41000318656); since 1.852.0 an absent branch flag is stored `false` ([OF-6](openflow.md#of-6)).
 - **OF-6/b** · oracle-observed · deployed `branchone` branch shape
   - **Given:** a module value `{type: branchone, branches: [{summary: pick, expr: "true", modules: [x]}], default: []}`, where `x` returns `3`, deployed.
   - **Expect:** after deploy the branch holds `"summary":"pick"`, `"expr":"true"`, `"skip_failure":false` and `"parallel":true` (`skip_failure` was `true` at v1.767.0); the flow returns `3`.
@@ -262,7 +296,7 @@ preview for the raw case ([Q-OF-1](openflow.md#q-of-1)).
     `r` returns `2`; no `skip_failure` on either branch.
   - **Expect:** deployed → failure, `[ERR("b")]`; preview → failure,
     `[ERR("b")]` (branch 2 never runs in either).
-  - **Correction 2026-11-06 (CE v1.862.0):** deployed, the case expected
+  - **Settled:** recorded on CE `v1.862.0`: deployed, the case expected
     success with `[ERR("b"), 2]`, which v1.767.0 gave (oracle run
     41000318656, the stored flag `true`). Since 1.852.0 deployment stores
     an absent branch flag as `false` ([OF-7](openflow.md#of-7)).
@@ -385,7 +419,7 @@ preview for the raw case ([Q-OF-1](openflow.md#q-of-1)).
   - **Expect:** the deploy and its dependency job succeed. The run fails
     without a job for `a`; the error message contains
     `script not found at name 81985529216486895`.
-  - **Not recorded (batch E3f):** re-scoped: batch E3f deferred this case with the sync trees of [Q-OF-13](openflow.md#q-of-13), but it needs no push of a tree: the flows API accepts any well-formed pin ([OF-14](openflow.md#of-14)), so a fixture deployed through the API (`oracle.deploy api`) in the reference session records it. Requested in the design README (SC5).
+  - **Not recorded:** this case needs no push of a tree, unlike the sync-tree cases of [Q-OF-13](openflow.md#q-of-13): the flows API accepts any well-formed pin ([OF-14](openflow.md#of-14)), so a fixture deployed through the API (`oracle.deploy api`) in the reference session can record it. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="of-15"></a>
 ### OF-15 · Inline-script locks on deploy
@@ -456,9 +490,10 @@ Common setup for OF-15/a–c: a Bun module `a` with a non-empty lock, a matching
     run's per-step list is `[a, a-v]`; with a full-built status (for
     example `DISABLE_FLOW_SCRIPT=true` at enqueue) it is `["a"]`. The flow
     result equals `a`'s result in both.
-  - **Correction 2026-10-29 (SC3):** the case was `disputed`; the source
-    settles that the expectation depends on the enqueue form, as the
-    OF-V5 correction said ([Q-OF-11](openflow.md#q-of-11), answered).
+  - **Settled:** read from the pinned source
+    ([Q-OF-11](openflow.md#q-of-11), answered): the expectation depends on
+    the enqueue form, as [OF-V5](openflow.md#of-v5) traces it. The case was
+    `disputed` before.
   - **Recorded:** the initial-lite list: [`flows/execution/fx-18-rest`](../../conformance/flows/execution/fx-18-rest) run `fx4_ids`, oracle run 41000318656 (`["a", "a-v"]`), and [`flows/client-api/driven`](../../conformance/flows/client-api/driven) run `orv7c`, oracle run 40994947681 (the completed run's raw status ends with `a-v`, and the result is `7`, OR-V7/c); the full-built list: [`flows/openflow/flow-script-off`](../../conformance/flows/openflow/flow-script-off) run `enqueue`, oracle run 40994947681, in a session with `DISABLE_FLOW_SCRIPT=true` (`["a"]`), whose run `trailing` returned `a`'s `7`.
 
 <a id="of-18"></a>
@@ -558,7 +593,7 @@ semantics: [FX-7](execution.md#fx-7) and [expressions.md](expressions.md).
   - **Expect:** the wait-for-result response is 200 with the body text `{"stage": "a"}` (`jsonb`'s spacing); completion and
     result inspection eventually yield `{"stage":"b"}`. The recording must wait
     for `b` to prove continued execution.
-  - **Correction 2026-10-30 (SC5, batch E3f):** the case expected the response `{"stage":"a"}`. The response body is the node's stored result as PostgreSQL's `jsonb` text, passed through unchanged, so it has a space after each `:` and `,` ([OF-V3](openflow.md#of-v3)); compare it as text only with that spacing, or as JSON.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case expected the response `{"stage":"a"}`. The response body is the node's stored result as PostgreSQL's `jsonb` text, passed through unchanged, so it has a space after each `:` and `,` ([OF-V3](openflow.md#of-v3)); compare it as text only with that spacing, or as JSON.
   - **Recorded:** [`flows/openflow/of-deployed`](../../conformance/flows/openflow/of-deployed) run `early`, oracle run 41003988171: run-and-wait answered 200, `application/json`, `{"stage": "a"}`, and the flow then completed with `{"stage":"b"}`.
 - **OF-V3/b** · oracle-observed · never evaluated
   - **Given:** `early_return: "1+1"`.
@@ -696,7 +731,7 @@ assert that arbitrary Bun source yields an empty resolver body.
     not the skeleton
     `{"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {}, "required": []}`
     and not `{}`.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the files the push writes back into the tree and the deployed schema (`scripts/get`). Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the files the push writes back into the tree and the deployed schema (`scripts/get`). The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-5"></a>
 ### SY-5 · Script locks
@@ -714,7 +749,7 @@ assert that arbitrary Bun source yields an empty resolver body.
     and `f/a/x.script.lock` = `L`.
   - **Expect:** the deployed lock is the literal text
     ` !inline f/a/x.script.lock`, not `L` and not `""`.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the deployed lock (`scripts/get`). Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the deployed lock (`scripts/get`). The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 - **SY-5/d** · source-derived · the warning for a missing lock file
   - **Given:** `f/a/x.ts` with `f/a/x.script.yaml` holding
     `lock: '!inline f/a/x.script.lock'`, the lock file absent; `wmill sync push`
@@ -722,7 +757,7 @@ assert that arbitrary Bun source yields an empty resolver body.
   - **Expect:** the push goes on and sends the lock `""`; standard output
     carries the warning
     `Error reading inline path: f/a/x.script.lock, Error: ENOENT: no such file or directory, open 'f/a/x.script.lock'`.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's standard output and the deployed lock. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the push's standard output and the deployed lock. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-6"></a>
 ### SY-6 · Flow folders and what a pulled `flow.yaml` contains
@@ -786,7 +821,7 @@ value:
     `export function main() { return 1 }`.
   - **Expect:** the content is the text of `f/x.flow/a.`; the push does not
     fail.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the deployed module content (`flows/get`). Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the deployed module content (`flows/get`). The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-8"></a>
 ### SY-8 · Codebase scripts
@@ -807,7 +842,7 @@ value:
   - **Given:** `codebases: [{relative_path: ../lib, includes: []}, {relative_path: ../shared}]`;
     `defaultTs: bun`.
   - **Expect:** `f/a/x.ts` uses the second entry (`../shared`).
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records which codebase the deployed script was bundled from (the bundle `scripts/get` reports). Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records which codebase the deployed script was bundled from (the bundle `scripts/get` reports). The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-9"></a>
 ### SY-9 · YAML dialect
@@ -848,7 +883,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     and no `value`; `wmill sync push` into an empty workspace.
   - **Expect:** the push fails at that item with a `TypeError` whose message
     contains `reading 'content'`; no resource `f/a/cfg` is created.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's error and the absence of the resource (`resources/get`). Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the push's error and the absence of the resource (`resources/get`). The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-11"></a>
 ### SY-11 · Variables and secrets
@@ -866,7 +901,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
   - **Expect:** the push fails; the server's refusal contains
     ``missing field `value` ``; no variable `f/a/v` is created (it does not
     read as `""`).
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's error and the absence of the variable (`variables/get`). Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the push's error and the absence of the variable (`variables/get`). The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-12"></a>
 ### SY-12 · Other files a loader must recognise (and may ignore)
@@ -894,7 +929,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `No wmill.yaml found. Use 'wmill init' to bootstrap it.` and pushes all
     three items, unfiltered: `f/a/x` and `f/b/y` as `bun` scripts, and the
     dotted `.flow` folder as flow `f/a/fl`.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the CLI's warning and the three deployed items. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the CLI's warning and the three deployed items. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-14"></a>
 ### SY-14 · `wmill-lock.yaml` is a CLI cache, not part of the model
@@ -924,7 +959,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
 - **SY-16/a** · source-derived · default options
   - **Given / Expect** (`includes` pattern, file path, whether the file
     passes):
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records which item each pattern deploys. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records which item each pattern deploys. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
     | Pattern | Path | Passes |
     |---|---|---|
@@ -947,7 +982,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
   - **Expect:** with `**/*.ts`, script `f/a/x` (with its metadata) and flow
     `f/a/fl` (with its `flow.yaml`) are both deployed. With `**/*.yaml`, flow
     `f/a/fl` is deployed and script `f/a/x` is not.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records which items each `includes` deploys. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records which items each `includes` deploys. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 - **SY-17/b** · source-derived · a new lock file selects nothing
   - **Given:** a valid new flow folder `f/a/fl.flow/` with `flow.yaml`,
     `a.inline_script.ts` and its lock `a.inline_script.lock`;
@@ -955,7 +990,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `--auto-metadata`) into an empty workspace.
   - **Expect:** nothing is deployed: the only passing file is a new lock
     file, which is skipped, so flow `f/a/fl` is not pushed.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records that nothing is deployed. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records that nothing is deployed. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 - **SY-17/c** · source-derived · an unreferenced file in the folder selects the flow
   - **Given:** a valid new flow folder `f/a/fl.flow/` with `flow.yaml` and
     its inline content files, plus `extra.yaml` holding `{}`, which the flow
@@ -964,7 +999,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
   - **Expect:** flow `f/a/fl` is pushed, with the value of its own
     `flow.yaml` and its inline scripts, although neither `flow.yaml` nor any
     referenced file passes the filter.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the deployed flow. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the deployed flow. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
@@ -977,12 +1012,12 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `f/a/fl.flow/flow.yaml`; no filter.
   - **Expect:** the push succeeds and deploys exactly script `f/a/x` and flow
     `f/a/fl`; none of the other files is read as an item.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records exactly which items are deployed. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records exactly which items are deployed. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 - **SY-18/b** · source-derived · a stray `.js` file fails the push
   - **Given:** an ordinary script `f/a/x.ts` and `f/a/helper.js`; no filter.
   - **Expect:** the push fails with
     `The item f/a/helper.js has an unrecognized type ending script`.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's error. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the push's error. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-19"></a>
 ### SY-19 · Text files: a UTF-8 byte order mark is stripped, UTF-16 and UTF-32 are refused
@@ -994,12 +1029,12 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `export function main() { return 1 }`.
   - **Expect:** the deployed content starts with `export`; it holds no
     U+FEFF.
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the deployed content's first bytes. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the deployed content's first bytes. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 - **SY-19/b** · source-derived · UTF-16 byte order mark
   - **Given:** `f/a/x.ts` whose bytes start with `FF FE` (UTF-16 LE text).
   - **Expect:** the push fails; the message contains
     `is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.`
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's error. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the push's error. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 - **SY-19/c** · source-derived · a refused lock reached only as a reference
   - **Given:** an ordinary UTF-8 `f/a/x.ts` with existing `f/a/x.script.yaml`
     holding `lock: '!inline f/a/x.script.lock'`, where `f/a/x.script.lock`
@@ -1029,7 +1064,7 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     lock `""`, and standard error carries
     `Lock file a.inline_script.lock not found, treating as empty` (the
     missing-file text, not the decoder's message).
-  - **Not recorded (batch E3f):** kept deferred: a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output; this case needs a session that pushes the tree as a run and records the push's standard error and the deployed lock. Requested in the design README (SC5).
+  - **Not recorded:** a CLI push case of [Q-OF-13](openflow.md#q-of-13). The harness pushes a fixture's tree once, before its runs, fails the fixture when that push fails, and keeps neither the push's error nor the CLI's output. This case needs a session that pushes the tree as a run and records the push's standard error and the deployed lock. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
 <a id="sy-20"></a>
 ### SY-20 · Shared lock files (`dedupeLockfiles`)

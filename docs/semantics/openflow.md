@@ -20,8 +20,23 @@ defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `OF-` OpenFlow model and validation; `SY-`
 sync-folder layout; `PA-` prior art (windmill-ts). `OF-Vn` and `SY-Vn` findings
-were added during validation. Licence findings (`LIC-`) are in
+come from the independent check of the draft. Licence findings (`LIC-`) are in
 [licensing.md](licensing.md).
+
+**Cases:** a finding's **Conformance** line links its cases in
+[conformance.md](conformance.md#openflow), or says that it has none of its
+own. The oracle has recorded 22 of this area's 156 cases.
+
+The other 134 cases are source-derived. Most come from Windmill's pinned
+source, and the prior-art cases from windmill-ts at its pinned commit or
+from both. A few state windmill-lite's own rule: resolving an encrypted
+secret without a resolver fails with a clear error
+([SY-11/a](conformance.md#sy-11)). The case and its finding give the basis.
+
+The sync-folder cases that wait on a recording are listed in
+[Q-OF-13](#q-of-13), and the design README's
+[recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+ask for them.
 
 Conventions used below:
 
@@ -62,14 +77,14 @@ Conventions used below:
    picks the form that builds the initial status list; the worker
    independently looks up lite first. A status list built from the full form
    does not acquire a trailing virtual slot because the worker later fetches
-   lite. OF-3's one-stage sentence is disputed ([Q-OF-11](#q-of-11)), and the
-   `[a, a-v]` virtual-step fixture holds for an initial-lite status.
+   lite. [OF-3](#of-3) states both selections ([Q-OF-11](#q-of-11), answered),
+   and the `[a, a-v]` virtual-step fixture holds for an initial-lite status.
 4. **Skip flags** ([OF-7](#of-7)): an absent for-loop `skip_failures`
    behaves as `true` after a successful deploy and as `false` in preview
    runs, during the deploy race and after a failed lock. An absent
    `branchall` branch `skip_failure` behaves as `false` in every state at
    v1.862.0 (at v1.767.0 it followed the for-loop flag). While-loops are
-   unaffected. Recorded by batch E3f and again on CE v1.862.0
+   unaffected. Recorded on CE v1.767.0 and again on CE v1.862.0
    ([Q-OF-1](#q-of-1)).
 5. **Server validation is minimal** ([OF-2](#of-2), [OF-18](#of-18)): a typed
    decode with two error prefixes (`Invalid flow value:` for the outer decode,
@@ -192,7 +207,7 @@ the effective decoder decides acceptance (OF-1).
       flow value inside a body that parses is complete. The serde messages
       for cut-short texts, including an object that ends right after a comma
       (`{"a":1,` gives `EOF while parsing a value at line 1 column 7`), are
-      listed in [JE-42](expressions.md#je-42) (added 2026-10-30, SC5).
+      listed in [JE-42](expressions.md#je-42) (added 2026-10-30).
   - The submitted JSON is stored as given until the dependency job rewrites
     it ([OF-3](#of-3)).
 - **Evidence:** `backend/windmill-types/src/flows.rs:199-207` (retry check),
@@ -208,8 +223,8 @@ the effective decoder decides acceptance (OF-1).
   time: [JE-18/e](conformance.md#je-18)
 - **Design note (not Windmill behaviour):** windmill-lite should reproduce the
   accept/reject decision, not necessarily the HTTP envelope.
-- **Revision 2026-10-29 (source re-check, chain N1a):** what a repeated
-  module id does at run time. A re-check confirms that nothing refuses it,
+- **Settled:** read from the pinned source: what a repeated module id does
+  at run time. Nothing refuses it,
   neither the API nor the pinned CLI. Execution is positional: the flow
   status holds one entry per module in list order, each module runs as its
   own step, and only lookups by id are affected. They do not agree on which
@@ -226,36 +241,42 @@ the effective decoder decides acceptance (OF-1).
   | a step job's path (`<flow path>/<id>`) | shared by every module with that id |
   | restarting a completed run from step `<id>` (`later`; windmill-lite has no restart) | the **first** module of that id in list order: it and every module after it are reset to wait, and the modules before it keep their old status; when the restart also changes the flow version, every module before the restart point that repeats an id gets a copy of the first such module's old status |
 
-  Evidence: `backend/windmill-worker/src/worker_flow.rs:6155-6171` (the
-  step map is collected from the status entries in list order, so a later
-  entry with a job replaces an earlier one), `:1459-1474` (the scoped map
-  written at each completion), `:5076-5086` (job path);
-  `backend/windmill-types/src/flow_status.rs:406-425`, `:454-458` (which
-  entries have a job); `backend/windmill-queue/src/jobs.rs:4559-4611`
-  (scoped lookup), `:4612-4659` (top-down search stopping at the first
-  matching id), `:4463-4540` (`early_return`'s lookup and success query);
-  `backend/windmill-api-jobs/src/execution.rs:294-364` (the poll). The
-  oracle harness names steps by id, so repeated ids also collide in an
-  observation ([OR-11](oracle.md#or-11)). Milestone N1a read step 2 as the
-  first entry; the source gives the last entry with a job.
-- **Revision 2026-10-29 (SC3, source re-check, chain N1b):** milestone N1b
-  kept N1a's reading ("the first entry") and left the question open. A
-  re-check of every lookup by id confirms the table above as written and
-  adds two rows: the API's result-by-id route, which follows the scoped map
-  like the direct lookup because the evaluator calls it, and a restart from
-  a step, which picks the first module of the id
-  (`backend/windmill-api/src/jobs.rs:346-347`, `:439-463`;
-  `backend/windmill-queue/src/jobs.rs:7009`, `:7080-7124` (version change:
-  old status matched by the first entry with the id), `:7125-7166` (same
-  version: the first status entry with the id starts the reset)). Nothing
-  else reads the status by id: completion, retries, the failure module's
-  error and the iteration and branch bookkeeping are positional or keyed by
-  job id. For windmill-lite, which has no restart, the rows that matter are
-  the first three and `early_return`: a `results.<id>` read that the engine
-  answers (step 2) finds the last started module of the id, and a read that
-  goes through the scoped map finds the one that completed most recently.
-  No answer is "the first module of the id" except the fallbacks and the
-  restart.
+  An oracle observation that names steps by id alone lets repeated ids
+  collide; [OR-11](oracle.md#or-11) gives the observation's site paths,
+  which add an occurrence suffix when an id repeats in one list. The reading this replaces took
+  step 2 to find the first entry; the source gives the last entry with a job.
+
+  Evidence:
+
+  - `backend/windmill-worker/src/worker_flow.rs:6155-6171`: the step map is
+    collected from the status entries in list order, so a later entry with
+    a job replaces an earlier one; `:1459-1474`: the scoped map written at
+    each completion; `:5076-5086`: the job path.
+  - `backend/windmill-types/src/flow_status.rs:406-425`, `:454-458`: which
+    entries have a job.
+  - `backend/windmill-queue/src/jobs.rs:4559-4611`: the scoped lookup;
+    `:4612-4659`: the top-down search, stopping at the first matching id;
+    `:4463-4540`: `early_return`'s lookup and success query.
+  - `backend/windmill-api-jobs/src/execution.rs:294-364`: the poll.
+- **Settled:** read from the pinned source: a re-check of every lookup by id
+  confirms the table above.
+  - Its result-by-id row: the API's route follows the scoped map like the
+    direct lookup, because the evaluator calls it
+    (`backend/windmill-api/src/jobs.rs:346-347`, `:439-463`).
+  - Its restart row: a restart from a step picks the first module of the id
+    (`backend/windmill-queue/src/jobs.rs:7009`). On a version change, the
+    old status is matched by the first entry with the id (`:7080-7124`). In
+    the same version, the first status entry with the id starts the reset
+    (`:7125-7166`).
+  - Nothing else reads the status by id: completion, retries, the failure
+    module's error and the iteration and branch bookkeeping are positional
+    or keyed by job id.
+  - For windmill-lite, which has no restart, the rows that matter are the
+    first three and `early_return`. A `results.<id>` read that the engine
+    answers (step 2) finds the last started module of the id. A read that
+    goes through the scoped map finds the one that completed most recently.
+  - No answer is "the first module of the id" except the fallbacks and the
+    restart.
 
 <a id="of-3"></a>
 ### OF-3 · Raw, full and lite forms of a flow value
@@ -333,20 +354,6 @@ the effective decoder decides acceptance (OF-1).
   - Validation confirmed the three-form description and the list of
     differences. Only the "which form a run reads" sentence was disputed;
     the source settles it as above.
-- **Correction (validation):** the sentence assigns enqueue's choice to the
-  worker. Per [OF-V5](#of-v5), form selection has two independent phases.
-  Enqueue chooses full when `DISABLE_FLOW_SCRIPT` is set or the
-  minimum-worker gate fails, and otherwise tries lite and falls back to full;
-  that choice builds the initial status list. On modern workers with a normal
-  version id, the run's execution-data lookup independently tries lite first
-  and then full, without consulting `DISABLE_FLOW_SCRIPT`; completion performs
-  the same lookup. A status list built from full and lite execution data can
-  therefore coexist, so "the run reads full when lite is disabled" does not
-  describe both phases. Evidence: `backend/windmill-queue/src/jobs.rs:5914-5965`;
-  `backend/windmill-common/src/cache.rs:890-910`;
-  `backend/windmill-worker/src/worker.rs:3731-3749, 3815-3824`;
-  `backend/windmill-worker/src/worker_flow.rs:487-495, 1394-1397, 1734-1750, 3666-3698`.
-- **Settled:** [Q-OF-11](#q-of-11), answered 2026-10-29.
 - **Evidence:** `backend/windmill-api-flows/src/flows.rs:592-640` (raw insert
   and dependency job); `backend/windmill-worker/src/worker_lockfiles.rs:369`
   (flow dependency job), `:606-641` (lock errors return before the
@@ -368,20 +375,42 @@ the effective decoder decides acceptance (OF-1).
   [SY-V3](#sy-v3)), a lock policy ([OF-15](#of-15)) and the virtual-step rule
   ([OF-17](#of-17)). Container defaults alone are not enough. It does not need
   to reproduce the byte form of any stage.
-- **Revision 2026-10-29 (SC3, source re-check, Q-OF-11):** the dispute is
-  settled for [OF-V5](#of-v5)'s account. The drafted sentence read "lite
-  when it exists; full when lite is disabled (`DISABLE_FLOW_SCRIPT`, or
-  workers older than 1.432) or not yet written", as one selection. That
-  holds for enqueue only: enqueue picks the form that builds the status
-  list by exactly that rule (`backend/windmill-queue/src/jobs.rs:5912-5927`,
-  the status built from the chosen value at `:5950`), but the worker's own
-  lookup, at pickup (`backend/windmill-worker/src/worker.rs:3815-3822`) and
-  at each transition (`backend/windmill-worker/src/worker_flow.rs:487-489`),
-  goes through one helper that tries lite and then full and never reads the
-  flag (`backend/windmill-common/src/cache.rs:890-907`). The validation
-  correction above was right; the rule now states both selections, and
-  OF-3/d is no longer disputed.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** recorded as stated. [OF-3/a](conformance.md#of-3) (the deployed shape: `extra` kept, no `input_transforms` added, the loop's defaults materialised; fixture `conformance/flows/openflow/of-deployed`, run `storage`, oracle run 41000318656), OF-3/b (a failed first lock keeps the raw value; `openflow/of-drivers` run `nolock`, oracle run 41003988171), OF-3/c (a `bun` rawscript with `//native` stored as `bunnative`; `openflow/of-3-native` run `relock` in the native session) and OF-3/d (status ids `["a", "a-v"]` at enqueue in the reference configuration; `execution/fx-18-rest` run `fx4_ids`). With the full-built half recorded in a `DISABLE_FLOW_SCRIPT=true` session ([OF-V5](#of-v5), OF-V5/b), both selections of "which form a run reads" are now oracle-observed, so that part leaves the drafted list. Only the lite node's own language (OF-3/c) is not observable through the API. The rule is unchanged.
+- **Settled:** read from the pinned source ([Q-OF-11](#q-of-11), answered):
+  which form a run reads is two independent selections, as
+  [OF-V5](#of-v5) traces them.
+  - The reading this replaces was one selection: "lite when it exists; full
+    when lite is disabled (`DISABLE_FLOW_SCRIPT`, or workers older than
+    1.432) or not yet written". That holds for enqueue only.
+  - Enqueue picks the form that builds the status list by exactly that rule
+    (`backend/windmill-queue/src/jobs.rs:5912-5927`, the status built from
+    the chosen value at `:5950`).
+  - On modern workers with a normal version id, the worker's own lookup, at
+    pickup (`backend/windmill-worker/src/worker.rs:3815-3822`) and at each
+    transition (`backend/windmill-worker/src/worker_flow.rs:487-489`), goes
+    through one helper that tries lite and then full and never reads the
+    flag (`backend/windmill-common/src/cache.rs:890-907`). Completion
+    performs the same lookup.
+  - A status list built from full and lite execution data can therefore
+    coexist.
+  - Further pointers: `backend/windmill-queue/src/jobs.rs:5914-5965`;
+    `backend/windmill-common/src/cache.rs:890-910`;
+    `backend/windmill-worker/src/worker.rs:3731-3749, 3815-3824`;
+    `backend/windmill-worker/src/worker_flow.rs:487-495, 1394-1397, 1734-1750, 3666-3698`.
+- **Settled:** recorded on the oracle as stated, on CE `v1.767.0`:
+  - [OF-3/a](conformance.md#of-3), the deployed shape: `extra` kept, no
+    `input_transforms` added, the loop's defaults materialised (fixture
+    `conformance/flows/openflow/of-deployed`, run `storage`, oracle run
+    41000318656).
+  - OF-3/b: a failed first lock keeps the raw value (`openflow/of-drivers`
+    run `nolock`, oracle run 41003988171).
+  - OF-3/c: a `bun` rawscript with `//native` is stored as `bunnative`
+    (`openflow/of-3-native` run `relock`, in the native session). Only the
+    lite node's own language is not observable through the API.
+  - OF-3/d: the status ids are `["a", "a-v"]` at enqueue in the reference
+    configuration (`execution/fx-18-rest` run `fx4_ids`).
+  - With the full-built half recorded in a `DISABLE_FLOW_SCRIPT=true`
+    session ([OF-V5](#of-v5), OF-V5/b), both selections of "which form a
+    run reads" are oracle-observed.
 
 <a id="of-4"></a>
 ### OF-4 · Unknown fields are ignored; `notes` and `groups` are editor-only
@@ -474,9 +503,19 @@ the effective decoder decides acceptance (OF-1).
   (the loops' defaults, unchanged).
 - **Conformance:** [OF-6/a–b](conformance.md#of-6); the for-loop defaults are
   covered by [OF-3/a](conformance.md#of-3).
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** the deployed `branchall` shape of [OF-6/a](conformance.md#of-6) is recorded exactly: `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":true}],"parallel":true}` for a submitted `{type: branchall, branches: [{modules: []}]}` (fixture `conformance/flows/openflow/of-deployed`, run `ba_shape`, oracle run 41000318656). The rule is unchanged.
-- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):** the typed `Branch` now defaults an absent `skip_failure` to `false`, the value the worker reads for an absent flag, so a round trip through it no longer turns the flag `true` (1.852.0, "keep retry and branch settings intact when a flow is reserialized"). Re-recorded on CE v1.862.0 ([OF-6/a](conformance.md#of-6), run `ba_shape`, oracle run 42299716256): `flows/get` after the dependency job returned `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":false}],"parallel":true}`. The loop defaults are re-verified unchanged; the rest of the table is verified at v1.767.0 only.
-- **Revision 2026-11-09 (retarget to v1.862.0, oracle):** a deployed `branchone` goes through the same typed `Branch`, so its branches gain `skip_failure: false` and `parallel: true`. Nothing reads either for a `branchone`, so only the stored shape shows it. The `branchone` row says so, and [OF-6/b](conformance.md#of-6) records it on CE v1.862.0 (run `branchone_shape` of `conformance/flows/openflow/of-deployed`, oracle run 42605323019).
+- **Settled:** recorded on the oracle on CE `v1.767.0`: the deployed `branchall` shape of [OF-6/a](conformance.md#of-6) is exactly what `flows/get` returned after the dependency job, `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":true}],"parallel":true}`, for a submitted `{type: branchall, branches: [{modules: []}]}` (fixture `conformance/flows/openflow/of-deployed`, run `ba_shape`, oracle run 41000318656).
+- **Settled:** re-checked in the source at `v1.862.0` and recorded on CE
+  `v1.862.0`: the typed `Branch` defaults an absent `skip_failure` to
+  `false`, the value the worker reads for an absent flag.
+  - So a round trip through it no longer turns the flag `true`. The change
+    is Windmill 1.852.0's "keep retry and branch settings intact when a
+    flow is reserialized".
+  - [OF-6/a](conformance.md#of-6) (run `ba_shape`, oracle run 42299716256):
+    `flows/get` after the dependency job returned
+    `{"type":"branchall","branches":[{"expr":"","modules":[],"parallel":true,"skip_failure":false}],"parallel":true}`.
+  - The loop defaults are unchanged at `v1.862.0`; the rest of the table is
+    verified at v1.767.0 only.
+- **Settled:** recorded on CE `v1.862.0`: a deployed `branchone` goes through the same typed `Branch`, so its branches gain `skip_failure: false` and `parallel: true`. Nothing reads either for a `branchone`, so only the stored shape shows it ([OF-6/b](conformance.md#of-6), run `branchone_shape` of `conformance/flows/openflow/of-deployed`, oracle run 42605323019).
 
 <a id="of-7"></a>
 ### OF-7 · Skip-flag defaults differ between raw and deployed values
@@ -525,12 +564,22 @@ the effective decoder decides acceptance (OF-1).
 - **Note:** recording protocol for the oracle ([oracle.md](oracle.md)): wait
   for the version's dependency job to succeed before the by-path run; record
   `flows/get` to show the stored loop or branch carries the explicit flag; use
-  preview for the raw case. Recorded by batch E3f ([Q-OF-1](#q-of-1), answered).
+  preview for the raw case. Recorded on the oracle ([Q-OF-1](#q-of-1), answered).
 - **Design note (not Windmill behaviour):** windmill-lite applies the
   successful-deploy defaults at load time, consistent with
   [CF-6](control-flow.md#cf-6).
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** every result array of [OF-7/a–d](conformance.md#of-7) is recorded as predicted. Deployed (fixture `conformance/flows/openflow/of-deployed`, oracle run 41000318656): with the flag absent or `true` each container keeps the failure as a value and succeeds with `[ERR, 2]`, and `flows/get` shows the stored flag `true`; with it `false` the sequential loop and the `branchall` fail with `[ERR]` and the parallel loop with `[ERR, 2]`. Preview (`openflow/of-drivers`, a driver step on two workers, oracle run 41003988171): absent and `false` give the failures, `true` gives the deployed results. The errors carry `step_id`, which `ERR` does not compare. The medium confidence on the arrays is lifted; the rule is unchanged.
-- **Revision 2026-11-06 (retarget to v1.862.0, source re-check and oracle):** a deployed `branchall` now stores an absent branch flag as `false` (1.852.0, [OF-6](#of-6)), so the split is the for-loop's alone. Re-recorded on CE v1.862.0 (fixture `conformance/flows/openflow/of-deployed`, run `f7_ba`, oracle run 42299716256): with the flag absent, `flows/get` shows `skip_failure: false` on both branches and the deployed run fails with `[ERR("b")]`, as the preview and `f7_ba_false` do ([OF-7/c](conformance.md#of-7)). The for-loop runs `f7_seq` and `f7_par` and the explicit controls are unchanged at v1.862.0. The rule is re-verified at v1.862.0.
+- **Settled:** recorded on the oracle as predicted, on CE `v1.767.0`: every
+  result array of [OF-7/a–d](conformance.md#of-7).
+  - Deployed (fixture `conformance/flows/openflow/of-deployed`, oracle run
+    41000318656): with the flag absent or `true`, each container keeps the
+    failure as a value and succeeds with `[ERR, 2]`, and `flows/get` shows
+    the stored flag `true`. With it `false`, the sequential loop and the
+    `branchall` fail with `[ERR]`, and the parallel loop with `[ERR, 2]`.
+  - Preview (`openflow/of-drivers`, a driver step on two workers, oracle run
+    41003988171): absent and `false` give the failures, `true` gives the
+    deployed results.
+  - The errors carry `step_id`, which `ERR` does not compare.
+- **Settled:** re-checked in the source at `v1.862.0` and recorded on CE `v1.862.0`: a deployed `branchall` stores an absent branch flag as `false` (since 1.852.0, [OF-6](#of-6)), so the split is the for-loop's alone. In fixture `conformance/flows/openflow/of-deployed`, run `f7_ba` (oracle run 42299716256), with the flag absent, `flows/get` shows `skip_failure: false` on both branches and the deployed run fails with `[ERR("b")]`, as the preview and `f7_ba_false` do ([OF-7/c](conformance.md#of-7)). The for-loop runs `f7_seq` and `f7_par` and the explicit controls are unchanged at `v1.862.0`.
 
 <a id="of-8"></a>
 ### OF-8 · `whileloopflow.parallel` is lost on deploy
@@ -554,7 +603,7 @@ the effective decoder decides acceptance (OF-1).
 - **Conformance:** [OF-8/a](conformance.md#of-8)
 - **Design note (not Windmill behaviour):** windmill-lite ignores these fields
   and may warn.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OF-8/a](conformance.md#of-8) is recorded: a while loop submitted with `parallel: true` and `parallelism: 2` reads back from `flows/get` with neither field, and runs sequentially (fixture `conformance/flows/openflow/of-deployed`, run `while_shape`, oracle run 41000318656). The rule is unchanged.
+- **Settled:** recorded on the oracle on CE `v1.767.0`: in [OF-8/a](conformance.md#of-8), a while loop submitted with `parallel: true` and `parallelism: 2` reads back from `flows/get` with neither field, and runs sequentially (fixture `conformance/flows/openflow/of-deployed`, run `while_shape`, oracle run 41000318656).
 
 <a id="of-9"></a>
 ### OF-9 · Module value kinds (`value.type`)
@@ -659,12 +708,12 @@ the effective decoder decides acceptance (OF-1).
   `flows.rs:499-510 @ v1.767.0`; the dependency job's rebuild
   `backend/windmill-worker/src/worker_lockfiles.rs:1217`, `:1282-1298 @ v1.862.0`.
 - **Conformance:** [OF-11/a–d](conformance.md#of-11)
-- **Revision 2026-11-09 (retarget to v1.862.0, source re-check and oracle):**
-  the write-back half of 1.852.0's note is the retry's `random_factor`, now
-  left out when unset; the branch half is [OF-6](#of-6)'s. Recorded on CE
-  v1.862.0 by [OF-11/d](conformance.md#of-11) (run `retry_shape` of
-  `conformance/flows/openflow/of-deployed`, oracle run 42605323019). The rest of the finding is
-  verified at v1.767.0 only.
+- **Settled:** re-checked in the source at `v1.862.0` and recorded on CE
+  `v1.862.0`: the write-back half of the 1.852.0 release note is the retry's
+  `random_factor`, left out when unset; the branch half is [OF-6](#of-6)'s.
+  [OF-11/d](conformance.md#of-11) records it (run `retry_shape` of
+  `conformance/flows/openflow/of-deployed`, oracle run 42605323019). The rest
+  of the finding is verified at v1.767.0 only.
 
 <a id="of-12"></a>
 ### OF-12 · `delete_after_use` is accepted but not persisted
@@ -760,12 +809,7 @@ the effective decoder decides acceptance (OF-1).
   either, so it cannot honour a pin from the folder alone ([SY-15](#sy-15)).
   It needs a policy: refuse the step, or take the hash from a host that
   knows the target workspace.
-- **Revision 2026-10-28 (source re-check):** added where hashes come from,
-  that deploy accepts any well-formed pin, and how a pin resolves at run
-  time. The design note said a loader could honour a hash by checking it
-  against the folder's script; it cannot, since the hash depends on the
-  deploy history and an unspecified hasher. The format rules are unchanged.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OF-14/f](conformance.md#of-14) was not recorded: batch E3f deferred it with the sync trees of [Q-OF-13](#q-of-13). It needs no push of a tree, since the flows API accepts any well-formed pin, so it is re-scoped to an API-deployed fixture in the reference session (requested in the design README, SC5). Batch E3f did record pinned steps whose hash exists, deployed through the API ([WR-11](languages.md#wr-11), [FX-40](execution.md#fx-40)). The rule is unchanged.
+- **Not recorded:** [OF-14/f](conformance.md#of-14) needs no push of a tree, since the flows API accepts any well-formed pin, so it waits on an API-deployed fixture in the reference session, which the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for. Pinned steps whose hash exists, deployed through the API, are recorded on CE `v1.767.0` ([WR-11](languages.md#wr-11), [FX-40](execution.md#fx-40)).
 
 <a id="of-15"></a>
 ### OF-15 · Inline-script locks on deploy
@@ -908,8 +952,19 @@ the effective decoder decides acceptance (OF-1).
 - **Conformance:** [OF-16/a–e](conformance.md#of-16); `early_return` cases are
   under [OF-V3](conformance.md#of-v3); the flow-level `timeout`'s runs are
   [FX-52](conformance.md#fx-52)'s.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** the `same_worker` pair is recorded ([OF-16/c, OF-16/d](conformance.md#of-16); fixture `conformance/flows/openflow/of-deployed`, runs `same_one` and `same_two`, oracle run 41000318656): one child succeeds with `[5]`; two children fail the root flow at pickup with name `Anyhow` and `Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:3822:13`, the form [CF-7](control-flow.md#cf-7) gives for a loop at step 0. The `early_return` fixture is recorded under [OF-V3](#of-v3).
-- **Revision 2026-11-07 (retarget to v1.862.0, the flow-level `timeout` and `concurrent_limit` re-checked):** `FlowValue` gained `timeout`, the flow run's enforced wall-clock limit (1.861.0, [FX-52](execution.md#fx-52)); the metadata `timeout` beside `value` is stored but reaches no run (recorded on CE v1.862.0: `conformance/flows/execution/fx-24` run `flow_timeout` completes its 3 s step under a metadata `timeout: 1`). A `concurrent_limit` of 0 or less is unset with its time window (1.768.0): recorded as [OF-16/e](conformance.md#of-16), whose deployed value, read back after the dependency job, holds neither field at the flow level or on the step. The rest of the finding is verified at v1.767.0 only.
+- **Settled:** recorded on the oracle on CE `v1.767.0`: the `same_worker` pair ([OF-16/c, OF-16/d](conformance.md#of-16); fixture `conformance/flows/openflow/of-deployed`, runs `same_one` and `same_two`, oracle run 41000318656). One child succeeds with `[5]`; two children fail the root flow at pickup with name `Anyhow` and `Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:3822:13`, the form [CF-7](control-flow.md#cf-7) gives for a loop at step 0. The `early_return` fixture is recorded under [OF-V3](#of-v3).
+- **Settled:** re-checked at `v1.862.0` for the flow-level `timeout` and
+  `concurrent_limit`.
+  - `FlowValue` has `timeout` since 1.861.0: the flow run's enforced
+    wall-clock limit ([FX-52](execution.md#fx-52)). The metadata `timeout`
+    beside `value` is stored but reaches no run. Recorded on CE v1.862.0:
+    `conformance/flows/execution/fx-24` run `flow_timeout` completes its
+    3 s step under a metadata `timeout: 1`.
+  - Since 1.768.0, a `concurrent_limit` of 0 or less is unset with its time
+    window. [OF-16/e](conformance.md#of-16) records it: its deployed value,
+    read back after the dependency job, holds neither field at the flow
+    level or on the step.
+  - The rest of the finding is verified at v1.767.0 only.
 
 <a id="of-17"></a>
 ### OF-17 · Virtual trailing identity for a final sleep or suspend
@@ -942,7 +997,7 @@ the effective decoder decides acceptance (OF-1).
     path whose last module has an invalid `sleep` expression fails when
     that `sleep` is evaluated, so a step after the last module was
     scheduled: the virtual step exists in the reference configuration
-    (batch E3a, fixture `conformance/flows/je/waits`, run `je28-c`, oracle
+    (fixture `conformance/flows/je/waits`, run `je28-c`, oracle
     run 40687124625; [JE-28](expressions.md#je-28)). The recording does not
     list the virtual step among the walked steps.
   - **Only module lists.** The flow's `failure_module` and
@@ -957,20 +1012,23 @@ the effective decoder decides acceptance (OF-1).
   `backend/windmill-worker/src/worker_flow.rs:3919-3927, 5141`,
   `backend/windmill-worker/src/worker.rs:4032-4039`.
 - **Conformance:** [OF-17/a](conformance.md#of-17)
-- **Revision 2026-10-28 (oracle, batch E3a; source re-check):** two bullets
-  are added: the deployed-run recording, which shows the initial-lite
-  branch of the third bullet, and the rule that the failure and
-  preprocessor modules never get a virtual step (a question asked by
-  windmill-lite's IR compiler). The `[a, a-v]` status list itself is still
-  not recorded, so OF-17/a and [Q-OF-11](#q-of-11) are unchanged.
-- **Revision 2026-10-29 (SC3, source re-check, Q-OF-11):** the third
-  bullet's dependence on the enqueue form is confirmed and no longer
-  contested ([OF-V5](#of-v5) is `confirmed`). OF-17/a is now an ordinary
-  source-derived case: `[a, a-v]` for an initial-lite status, which the
-  reference configuration gives a deployed run, and `["a"]` for a
-  full-built one. The deployed value that `flows/get` returns never shows
-  `a-v`, since only the lite form carries it ([OR-V7](oracle.md#or-v7)).
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OF-17/a](conformance.md#of-17) is recorded both ways: in the reference configuration a run by path starts with the status ids `["a", "a-v"]` (fixture `conformance/flows/execution/fx-18-rest`, run `fx4_ids`, oracle run 41000318656), and the completed run's raw status ends with a `Success` entry `a-v` whose job is an identity job about 1 s after `a`, with `a`'s result `7` (`client-api/driven`, run `orv7c`, oracle run 40994947681, [OR-V7/c](conformance.md#or-v7)); with `DISABLE_FLOW_SCRIPT=true` at enqueue the ids are `["a"]` and the flow still returns `a`'s `7` (`openflow/flow-script-off`, runs `enqueue` and `trailing`, oracle run 40994947681). The drafted part on inline bodies is not recorded and stays drafted.
+- **Settled:** read from the pinned source ([Q-OF-11](#q-of-11), answered):
+  the third bullet's dependence on the enqueue form holds ([OF-V5](#of-v5)).
+  The deployed value that `flows/get` returns never shows `a-v`, since only
+  the lite form carries it ([OR-V7](oracle.md#or-v7)).
+- **Settled:** recorded on the oracle on CE `v1.767.0`, both ways:
+  [OF-17/a](conformance.md#of-17).
+  - In the reference configuration, a run by path starts with the status
+    ids `["a", "a-v"]` (fixture `conformance/flows/execution/fx-18-rest`,
+    run `fx4_ids`, oracle run 41000318656).
+  - The completed run's raw status ends with a `Success` entry `a-v` whose
+    job is an identity job about 1 s after `a`, with `a`'s result `7`
+    (`client-api/driven`, run `orv7c`, oracle run 40994947681,
+    [OR-V7/c](conformance.md#or-v7)).
+  - With `DISABLE_FLOW_SCRIPT=true` at enqueue, the ids are `["a"]` and the
+    flow still returns `a`'s `7` (`openflow/flow-script-off`, runs `enqueue`
+    and `trailing`, oracle run 40994947681).
+  - The drafted part on inline bodies is not recorded.
 
 <a id="of-18"></a>
 ### OF-18 · The flow `schema` has no server-side execution semantics
@@ -995,7 +1053,11 @@ the effective decoder decides acceptance (OF-1).
   input schema); `backend/windmill-common/src/schema.rs:479-482` (script
   opt-in).
 - **Conformance:** [OF-18/a–b](conformance.md#of-18)
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** [OF-18/a, OF-18/b](conformance.md#of-18) are recorded: a run by path with body `{}` reached the step without the schema's default (`{"hasX": false}`), and with `{"x": 1}` it gave `{"hasX": true}` (fixture `conformance/flows/openflow/of-deployed`, runs `of18a` and `of18b`, oracle run 41000318656). The rule is unchanged.
+- **Settled:** recorded on the oracle on CE `v1.767.0` (fixture
+  `conformance/flows/openflow/of-deployed`, oracle run 41000318656). In
+  [OF-18/a, OF-18/b](conformance.md#of-18), a run by path with body `{}`
+  reached the step without the schema's default (`{"hasX": false}`, run
+  `of18a`), and with `{"x": 1}` it gave `{"hasX": true}` (run `of18b`).
 
 <a id="of-19"></a>
 ### OF-19 · Client-side validation is optional and schema-based
@@ -1095,7 +1157,7 @@ the effective decoder decides acceptance (OF-1).
   `backend/windmill-worker/src/common.rs:1916-1940, 1989-2008`;
   [FX-37](execution.md#fx-37).
 - **Conformance:** [OF-V3/a–b](conformance.md#of-v3)
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** both cases are recorded (fixture `conformance/flows/openflow/of-deployed`). OF-V3/a (run `early`, oracle run 41003988171): run-and-wait answered 200 with the body text `{"stage": "a"}` while the flow went on and completed with `{"stage":"b"}`. The case had predicted the compact text `{"stage":"a"}`; the body is `jsonb`'s text, so the response-body bullet above is added and OF-V3/a corrected. OF-V3/b (run `early_expr`, oracle run 41000318656): `early_return: "1+1"` matched no step, and the response was the final result `3`. The rest of the rule is unchanged.
+- **Settled:** recorded on the oracle on CE `v1.767.0`, fixture `conformance/flows/openflow/of-deployed`. OF-V3/a (run `early`, oracle run 41003988171): run-and-wait answered 200 with the body text `{"stage": "a"}` while the flow went on and completed with `{"stage":"b"}`. The source-derived prediction was the compact text `{"stage":"a"}`; the body is `jsonb`'s text, as the response-body bullet above says. OF-V3/b (run `early_expr`, oracle run 41000318656): `early_return: "1+1"` matched no step, and the response was the final result `3`.
 
 <a id="of-v4"></a>
 ### OF-V4 · `pass_flow_input_directly` means different things by location
@@ -1163,20 +1225,30 @@ the effective decoder decides acceptance (OF-1).
 - **Note:** this finding is the correction to the formerly disputed OF-3
   sentence ([Q-OF-11](#q-of-11), answered) and bounds the [OF-17](#of-17)
   fixture.
-- **Revision 2026-10-29 (SC3, source re-check, Q-OF-11):** every pointer
-  above was re-read at the pin and holds (enqueue
-  `backend/windmill-queue/src/jobs.rs:5912-5927`, status `:5950`; pickup
-  `backend/windmill-worker/src/worker.rs:3815-3822`; transitions
-  `backend/windmill-worker/src/worker_flow.rs:487-489`; the lite-first
-  helper `backend/windmill-common/src/cache.rs:890-907`, which takes no
-  flag; the last-step test `worker_flow.rs:1393-1396`; the sleep read from
-  the previous module when the next one starts `:3666-3690`). Status
-  `open` → `confirmed`; OF-V5/a and OF-V5/b are no longer disputed.
+- **Settled:** read from the pinned source ([Q-OF-11](#q-of-11), answered):
+  every pointer above holds.
+  - Enqueue: `backend/windmill-queue/src/jobs.rs:5912-5927`, the status at
+    `:5950`.
+  - Pickup: `backend/windmill-worker/src/worker.rs:3815-3822`.
+  - Transitions: `backend/windmill-worker/src/worker_flow.rs:487-489`.
+  - The lite-first helper, which takes no flag:
+    `backend/windmill-common/src/cache.rs:890-907`.
+  - The last-step test, `worker_flow.rs:1393-1396`, and the sleep read from
+    the previous module when the next one starts, `:3666-3690`.
 - **Design note (not Windmill behaviour):** this is an upstream distinction
   between deployed forms, not a proposal to drop final sleeps from
   windmill-lite's target, which remains the successful lite deployment
   (virtual step and final sleep included).
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** the optional corroboration is recorded. In a session whose server and worker run with `DISABLE_FLOW_SCRIPT=true`, a run by path of the trailing-sleep flow started with the status ids `["a"]` and succeeded with `7` (fixture `conformance/flows/openflow/flow-script-off`, runs `enqueue` and `trailing`, oracle run 40994947681), while the reference configuration gives `["a", "a-v"]` ([OF-3/d](conformance.md#of-3)). OF-V5/b is `oracle-observed`; OF-V5/a stays source-derived (its own run is not recorded, but [OF-17/a](conformance.md#of-17)'s initial-lite half is).
+- **Settled:** the optional corroboration is recorded on the oracle on CE
+  `v1.767.0`. In a session whose server and worker run with
+  `DISABLE_FLOW_SCRIPT=true`, a run by path of the trailing-sleep flow
+  started with the status ids `["a"]` and succeeded with `7`. The fixture
+  is `conformance/flows/openflow/flow-script-off`, runs `enqueue` and
+  `trailing`, oracle run 40994947681. The reference configuration gives
+  `["a", "a-v"]` instead ([OF-3/d](conformance.md#of-3)).
+  - OF-V5/b is `oracle-observed`. OF-V5/a stays source-derived: its own run
+    is not recorded, but [OF-17/a](conformance.md#of-17)'s initial-lite half
+    is.
 
 <a id="of-v6"></a>
 ### OF-V6 · Workspace-dependency lock header and the PHP early return
@@ -1278,9 +1350,6 @@ differ, the CLI's on-disk form is what a loader sees.
   suffixes stay valid). It also proposes to always take the directory of the
   discovered `wmill.yaml` as the sync root, which differs from the CLI under
   `noCdToRoot` ([SY-V4](#sy-v4)).
-- **Revision 2026-10-28 (source re-check):** the walk's file list, cited
-  before without being enumerated, is now [SY-18](#sy-18), and the case of no
-  `wmill.yaml` is [SY-13](#sy-13). The rule above is unchanged.
 
 <a id="sy-2"></a>
 ### SY-2 · Script files
@@ -1304,9 +1373,9 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/commands/script/script.ts:632-695, 838-876`;
   `cli/src/utils/resource_folders.ts:505`.
 - **Conformance:** [SY-2/a](conformance.md#sy-2)
-- **Revision 2026-11-09 (retarget to v1.862.0):** a script that reads a
-  shared lock file under `locks/` has no `P.script.lock` ([SY-20](#sy-20),
-  CLI 1.793.0). The rest of the finding is verified at v1.767.0 only.
+- **Settled:** re-checked at `v1.862.0`: a script that reads a shared lock
+  file under `locks/` has no `P.script.lock` ([SY-20](#sy-20), since CLI
+  1.793.0). The rest of the finding is verified at v1.767.0 only.
 
 <a id="sy-3"></a>
 ### SY-3 · Script language comes from the file extension
@@ -1405,11 +1474,6 @@ differ, the CLI's on-disk form is what a loader sees.
 - **Conformance:** [SY-4/a–b](conformance.md#sy-4)
 - **Design note (not Windmill behaviour):** a loader should ignore, not
   reject, extra hand-written keys.
-- **Revision 2026-10-28 (source re-check):** the rule said a script without
-  metadata gets "an empty schema" on push, without giving its text. The
-  default file holds the skeleton above, not `{}`, and on `wmill sync push`
-  that default is regenerated from the script's signature before it is sent,
-  so the deployed schema is the inferred one. The key list is unchanged.
 
 <a id="sy-5"></a>
 ### SY-5 · Script locks
@@ -1462,25 +1526,17 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/utils/script_common.ts:37-57`;
   `backend/windmill-types/src/scripts.rs:623-650` (string-or-array lock).
 - **Conformance:** [SY-5/a–d](conformance.md#sy-5)
-- **Revision 2026-10-28 (source re-check):** added how a `.script.yaml` lock
-  reference is recognised and resolved. A reference needs the exact
-  `!inline ` prefix, so the leading-whitespace tolerance of flow inline locks
-  ([SY-V1](#sy-v1)) does not apply to script locks; JSON-mode metadata leaves
-  the reference unresolved. The three forms and the missing-file rule are
-  unchanged.
-- **Revision 2026-10-29 (SC3, source re-check, chain FU4):** step 3 now
-  gives the warning's exact text, which milestone FU4 asked for. The
+- **Settled:** read from the pinned source: step 3's warning text. The
   reference reader catches every read failure itself and prints the
   warning (`cli/src/utils/utils.ts:179-186`, the logger
   `cli/src/core/log.ts:32-35`); the lock resolver's own fallback message
   (`Failed to read lockfile, doing as if it was empty: …`,
   `cli/src/utils/metadata.ts:1071-1084`) is therefore never printed. The
   published package is built for Node (`cli/build-npm.ts:30-38`, `:47-50`).
-  New case SY-5/d.
-- **Revision 2026-11-09 (retarget to v1.862.0, source re-check):** the CLI
-  can now write a second form, a shared `!inline locks/<file>.lock`
-  reference ([SY-20](#sy-20)); the resolution steps are unchanged, so it
-  resolves like any root-relative reference
+- **Settled:** re-checked in the source at `v1.862.0`: the CLI can write a
+  second form, a shared `!inline locks/<file>.lock` reference
+  ([SY-20](#sy-20)). The resolution steps are unchanged, so it resolves like
+  any root-relative reference
   (`cli/src/utils/metadata.ts:1034-1048 @ v1.862.0`). The rest of the
   finding is verified at v1.767.0 only.
 
@@ -1514,18 +1570,19 @@ differ, the CLI's on-disk form is what a loader sees.
   `backend/windmill-api/src/workspaces_export.rs:360-379, 832-845`;
   `backend/windmill-types/src/flows.rs:26` (flow value kept as raw JSON).
 - **Conformance:** [SY-6/a–c](conformance.md#sy-6)
-- **Revision 2026-10-29 (oracle, batch E3e):** the pull round trip is
-  recorded (SY-6/c, fixture `conformance/flows/control-flow/pull`, oracle
-  run 40794872025). A flow created through the API with an identity module
-  carrying `extra: 7` and a forloop without `skip_failures` comes back from
-  `wmill sync pull`, after its dependency job, with the identity exactly as
-  submitted and the forloop carrying `skip_failures: true` and
-  `parallel: false`. That matches the source: the dependency job rewrites
-  container values through the typed model and leaves `identity`, `script`
-  and `flow` values untouched
-  (`backend/windmill-worker/src/worker_lockfiles.rs:1048-1222` containers
-  rebuilt, `:1224-1247` and `:1308` other values kept). The confidence now
-  covers the recording; no rule changed.
+- **Settled:** recorded on the oracle on CE `v1.767.0`: the pull round trip
+  (SY-6/c, fixture `conformance/flows/control-flow/pull`, oracle run
+  40794872025).
+  - A flow created through the API with an identity module carrying
+    `extra: 7` and a forloop without `skip_failures` comes back from
+    `wmill sync pull`, after its dependency job, with the identity exactly
+    as submitted and the forloop carrying `skip_failures: true` and
+    `parallel: false`.
+  - That matches the source: the dependency job rewrites container values
+    through the typed model and leaves `identity`, `script` and `flow`
+    values untouched
+    (`backend/windmill-worker/src/worker_lockfiles.rs:1048-1222` containers
+    rebuilt, `:1224-1247` and `:1308` other values kept).
 
 <a id="sy-7"></a>
 ### SY-7 · Inline scripts inside a flow folder
@@ -1620,17 +1677,11 @@ differ, the CLI's on-disk form is what a loader sees.
 - **Design note (not Windmill behaviour):** windmill-lite should accept any
   path inside the flow folder and reject paths that escape the sync root (a
   labelled divergence: the CLI would read them).
-- **Revision 2026-10-28 (source re-check):** added how the fallback name is
-  formed: from the text after the first dot of the whole reference, so a
-  reference without a dot falls back to `<id>.`, and a dot in a directory
-  name shifts the fallback. The fallback was described before only for names
-  with a dot.
-- **Revision 2026-10-29 (SC3, source re-check, chain FU4):** added the
-  messages the push logs for a missing content file and for a missing or
-  unreadable lock file (`cli/windmill-utils-internal/src/inline-scripts/replacer.ts:27-36`,
+- **Settled:** read from the pinned source: the messages the push logs for
+  a missing content file and for a missing or unreadable lock file
+  (`cli/windmill-utils-internal/src/inline-scripts/replacer.ts:27-36`,
   `:46-53`; the logger the flow push passes, `cli/src/commands/flow/flow.ts:190-203`,
-  writes errors to standard error, `cli/src/core/log.ts:44-46`). The
-  outcomes are unchanged.
+  writes errors to standard error, `cli/src/core/log.ts:44-46`).
 
 <a id="sy-8"></a>
 ### SY-8 · Codebase scripts
@@ -1668,10 +1719,6 @@ differ, the CLI's on-disk form is what a loader sees.
   `backend/windmill-worker/src/worker.rs:5381-5398` (Bun and Bunnative pass the
   codebase to the Bun executor).
 - **Conformance:** [SY-8/a–c](conformance.md#sy-8)
-- **Revision 2026-10-28 (source re-check):** stated what `includes: []` does
-  (the entry never matches), that a string counts as a one-element list, and
-  which glob options apply ([SY-16](#sy-16)). The rule said only that an
-  entry without `includes` matches everything.
 
 <a id="sy-9"></a>
 ### SY-9 · YAML dialect
@@ -1746,9 +1793,6 @@ differ, the CLI's on-disk form is what a loader sees.
   optional, `resource_type` required), `:1059-1060` (an absent value is
   stored as `null`).
 - **Conformance:** [SY-10/a–b](conformance.md#sy-10)
-- **Revision 2026-10-28 (source re-check):** added what a resource file
-  without `value` does. It fails the CLI push; it does not deploy a resource
-  whose value is `null`. The rest of the rule is unchanged.
 
 <a id="sy-11"></a>
 ### SY-11 · Variables and secrets
@@ -1789,9 +1833,6 @@ differ, the CLI's on-disk form is what a loader sees.
   "secret not available" error is a windmill-lite policy, not an upstream
   string. Whether windmill-lite ever decrypts exported ciphertext is a design
   decision; this area specifies no cipher.
-- **Revision 2026-10-28 (source re-check):** added the fields a new variable
-  must carry. A variable file without `value` fails the push; it does not
-  read as `""`. The rest of the rule is unchanged.
 
 <a id="sy-12"></a>
 ### SY-12 · Other files a loader must recognise (and may ignore)
@@ -1894,9 +1935,6 @@ differ, the CLI's on-disk form is what a loader sees.
   starts `false`).
 - **Conformance:** [SY-13/a–b](conformance.md#sy-13); filter edge cases under
   [SY-V2](conformance.md#sy-v2).
-- **Revision 2026-10-28 (source re-check):** added the case of no
-  `wmill.yaml`, which runs with defaults rather than failing, and pointers to
-  the glob and per-file rules. The keys and filter rules are unchanged.
 
 <a id="sy-14"></a>
 ### SY-14 · `wmill-lock.yaml` is a CLI cache, not part of the model
@@ -1945,11 +1983,6 @@ differ, the CLI's on-disk form is what a loader sees.
 - **Conformance:** [SY-15/a](conformance.md#sy-15)
 - **Design note (not Windmill behaviour):** each needs a windmill-lite policy:
   an error, a host-supplied value, or delegation.
-- **Revision 2026-10-28 (source re-check):** the hash bullet said only a hash
-  "other than the folder version" was unresolvable, implying a folder could
-  recognise its own version's hash. It cannot: hashes depend on the deploy
-  history ([OF-14](#of-14)), so every `hash` pin is outside what a folder can
-  supply.
 
 <a id="sy-16"></a>
 ### SY-16 · Globs are minimatch 10 with default options, over the root-relative file path
@@ -2038,21 +2071,6 @@ differ, the CLI's on-disk form is what a loader sees.
   handed to the item push); `cli/src/commands/flow/flow.ts:188-206` (the
   folder's own `flow.yaml` is loaded).
 - **Conformance:** [SY-17/a–c](conformance.md#sy-17)
-- **Revision 2026-10-28 (validation round 1):** the table said any new file
-  in a flow folder selects the flow. A new lock file never does, inline
-  locks included, because every new `.lock` file is skipped before item
-  selection, like new metadata files. The exclusions are now stated before
-  the table, and SY-17/b covers a flow whose only passing file is its lock.
-- **Revision 2026-10-28 (validation round 2):** round 1 narrowed the new-file
-  column to `flow.yaml` and inline content files. Any kept file in the flow
-  folder that the exclusions do not skip selects the flow, including a file
-  the flow never refers to; the push then loads the real `flow.yaml`.
-  SY-17/c covers an unreferenced `extra.yaml`.
-- **Revision 2026-10-28 (validation round 3):** the summary after the table
-  still said any kept file "other than a lock" selects a new flow. It now
-  refers to all of the added-file exclusions, as the table does, so a new
-  `extra.script.yaml` (or `.script.json` in JSON mode) inside the folder
-  does not select it either (`sync.ts:4618-4625`). No case changes.
 
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
@@ -2157,26 +2175,13 @@ differ, the CLI's on-disk form is what a loader sees.
   fallback name; a file is listed missing only when the fallback also
   fails), `:46-53` (inline lock).
 - **Conformance:** [SY-19/a–e](conformance.md#sy-19)
-- **Revision 2026-10-28 (validation round 1):** the rule said a UTF-16 or
-  UTF-32 byte order mark fails the read "and with it the push" for every
-  file, lock and resource references included. The decoder refuses the
-  file, but the reference reader catches the refusal and gives `""`, as
-  [SY-5](#sy-5) states for an unreadable lock. The outcome is now given per
-  caller, and SY-19/c covers a refused lock reached only as a reference.
-- **Revision 2026-10-28 (validation round 2):** the inline-content and
-  metadata rows said the push fails after a refusal. Both readers try a
-  fallback first: the inline fallback name `<id>.<rest>`, and the `__mod`
-  metadata candidates. The push fails only when the fallback is also
-  unreadable. The rows and the summary sentence now say so, and SY-19/d
-  covers a refused inline file with a readable fallback.
-- **Revision 2026-10-29 (SC3, source re-check, chain FU4):** the two lock
-  rows now give the exact texts milestone FU4 asked for. A refused flow
-  inline lock is reported with the missing-file text, `Lock file <lockfile>
-  not found, treating as empty`, because the inline replacer catches any
-  read failure without looking at it
+- **Settled:** read from the pinned source: a refused flow inline lock is
+  reported with the missing-file text, `Lock file <lockfile> not found,
+  treating as empty`, because the inline replacer catches any read failure
+  without looking at it
   (`cli/windmill-utils-internal/src/inline-scripts/replacer.ts:46-53`). A
   refused script lock reference prints the reference reader's warning
-  around the decoder's message ([SY-5](#sy-5)). New case SY-19/e.
+  around the decoder's message ([SY-5](#sy-5)).
 
 <a id="sy-20"></a>
 ### SY-20 · Shared lock files (`dedupeLockfiles`)
@@ -2451,18 +2456,18 @@ its licence status is the one given there.
   native-switch and virtual-step cases (OF-3/c–d); the `same_worker` pair
   (OF-16/c–d); the `early_return` fixture (OF-V3/a–b); and the deploy-shape
   cases OF-6/a and OF-8/a. *Settled by:* harness runs against the pinned CE
-  image ([oracle.md](oracle.md)). *2026-10-29:* batch E3e recorded the pull
+  image ([oracle.md](oracle.md)). *2026-10-29:* a recording batch on the oracle recorded the pull
   round trip, so SY-6/c is `oracle-observed` (fixture
   `conformance/flows/control-flow/pull`, oracle run 40794872025). It also
   recorded the `early_return` behaviour of OF-V3/a under FX-37/a's values
   (fixture `conformance/flows/execution/fx-36-http`, run `early`, oracle run
   40794872025: run-and-wait answered `1` after 164 ms and the flow completed
   with `2`), but not OF-V3/a's own fixture or OF-V3/b. The other fixtures of
-  this list were not recorded; still open. *2026-10-29 (SC3):* nothing
+  this list were not recorded; still open. *2026-10-29:* nothing
   here can be settled from the source beyond the expectations the cases
   already state (OF-3/d and OF-17/a are now ordinary source-derived cases,
-  [Q-OF-11](#q-of-11)); oracle only, requested from recording batch E3f.
-  **Answered 2026-10-30 (SC5).** Batch E3f recorded every fixture of this
+  [Q-OF-11](#q-of-11)); oracle only (requested from a future recording batch).
+  **Answered 2026-10-30**. A recording batch recorded every fixture of this
   list ([OF-3](#of-3), [OF-6](#of-6), [OF-7](#of-7), [OF-8](#of-8),
   [OF-16](#of-16), [OF-18](#of-18), [OF-V3](#of-v3); fixtures
   `conformance/flows/openflow/of-deployed`, `of-drivers` (the previews and
@@ -2532,9 +2537,9 @@ its licence status is the one given there.
   and optionally an oracle run: a fresh, successfully deployed one-step flow
   with a final sleep on modern workers, comparing the flag off and on and
   recording status ids and sleep scheduling, without assuming the flag forces
-  full worker data (OF-V5/a–b, OF-3/d, OF-17/a). *2026-10-29:* batch E3e did
+  full worker data (OF-V5/a–b, OF-3/d, OF-17/a). *2026-10-29:* a recording batch on the oracle did
   not record this (the oracle runs with `DISABLE_FLOW_SCRIPT` unset, and no
-  E3e fixture compares the flag); still open. **Answered 2026-10-29 (SC3)**
+  fixture of that batch compares the flag); still open. **Answered 2026-10-29**
   from the source: OF-V5's account holds. Enqueue alone consults the flag
   and the worker-version gate; the worker's lookups try lite first and then
   full whatever the flag says ([OF-3](#of-3), [OF-V5](#of-v5), both now
@@ -2544,7 +2549,7 @@ its licence status is the one given there.
   of the flag off and on would corroborate, not settle; it needs a session
   with `DISABLE_FLOW_SCRIPT=true`, which changes the oracle's configuration
   for that session only.
-  *2026-10-30 (SC5):* the optional comparison is recorded: in a session
+  *2026-10-30:* the optional comparison is recorded: in a session
   with `DISABLE_FLOW_SCRIPT=true`, a run by path of the trailing-sleep flow
   started with the status ids `["a"]` and succeeded with `7`
   (`conformance/flows/openflow/flow-script-off`, runs `enqueue` and
@@ -2569,22 +2574,22 @@ its licence status is the one given there.
   SY-7/f, SY-8/c, SY-10/b, SY-11/b, SY-13/b and SY-16/a to SY-19/b with the
   pinned CLI and read back what was deployed (`scripts/get`, `flows/get`,
   `resources/get`, `variables/get`) or the push's error, plus a run of
-  OF-14/f. *2026-10-29:* batch E3e did not record these trees. Its one sync
+  OF-14/f. *2026-10-29:* a recording batch on the oracle did not record these trees. Its one sync
   fixture, `conformance/flows/control-flow/pull`, records the pull read-back
   of [SY-6](#sy-6) (SY-6/c); its other fixtures push ordinary trees with
   the pinned CLI (or create them through the API) and exercise none of the
-  edge cases listed. Still open. *2026-10-29 (SC3):* oracle only; requested
-  from recording batch E3f, which should also capture the push's standard
+  edge cases listed. Still open. *2026-10-29:* oracle only; requested
+  from a future oracle recording, which should also capture the push's standard
   output and standard error, so that the new warning cases
   [SY-5/d](conformance.md#sy-5) and [SY-19/e](conformance.md#sy-19) are
   recorded with them.
-  *2026-10-30 (SC5):* batch E3f did not record these either. It deferred
+  *2026-10-30:* the next recording batch on the oracle did not record these either. It deferred
   the 17 sync-tree cases and OF-14/f with one reason: the harness pushes a
   fixture's tree once, before its runs, fails the fixture when that push
   fails, and keeps neither the push's error nor the CLI's standard output
-  and error. Each case now says so in the catalogue ("Not recorded (batch
-  E3f)"). OF-14/f is re-scoped out of this question: it needs no push of a
+  and error. Each case now says so in the catalogue ("Not recorded"). OF-14/f is re-scoped out of this question: it needs no push of a
   tree, only a flow deployed through the API with an unknown pin
   ([OF-14](#of-14)). Nothing here can be settled from the source beyond
-  what the findings state. Still open; the design README's SC5 section asks
-  for a push-as-run session and lists what to observe per case.
+  what the findings state. Still open; the design README's
+  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+  ask for a push-as-run session and list what to observe per case.
