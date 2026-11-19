@@ -1220,14 +1220,15 @@ Findings: [execution.md](execution.md).
   ([FX-50](execution.md#fx-50)), or the parenthesised not-found form
   ` (<file>.rs:<line>)`. Nothing else separates it from the text before it,
   and two suffixes are written `<loc><loc>`. The location text is the source position at
-  the pin, so cases never assert it ([0001](../design/0001-equivalence-contract.md)
+  the pin, so cases never assert it (the
+  [equivalence contract](../design/0001-equivalence-contract.md#7-policy-questions-the-reference-left-to-the-design)
   §7 matches error text except location suffixes and stacks).
-- Cases recorded by batches E3b, E3c, E3d and E3e (design record 0012) are
-  `oracle-observed` and name their recording; the others are still
-  source-derived, and the open questions in
+- Cases recorded on the oracle are `oracle-observed` and name their
+  recording in a **Recorded:** line. The others are source-derived or a
+  `policy` check, and the open questions in
   [execution.md](execution.md#open-questions) say which recording settles
-  each. Run-and-wait cases give the HTTP status, the content type when one
-  is sent, and the body.
+  each source-derived case that waits on one. Run-and-wait cases give the
+  HTTP status, the content type when one is sent, and the body.
 
 <a id="fx-1"></a>
 ### FX-1 · Flow run state: a cursor plus one status per module
@@ -1319,12 +1320,14 @@ Findings: [execution.md](execution.md).
     ``{"error": {"name": "ExecutionErr", "message": "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <anonymous> (eval_script:1:64)\n"}}``;
     the flow fails with the same value.
   - **Recorded:** [`flows/execution/fx-7`](../../conformance/flows/execution/fx-7) run `result_unbound`, oracle run 40686049913 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Correction 2026-10-28:** the case asserted the prefix and an engine
-    `ReferenceError`, leaving the engine text open. The message names no
-    class: the embedding renders every engine exception as `Error:` plus its
-    message and stack ([FX-7](execution.md#fx-7),
-    [JE-21](expressions.md#je-21)).
-  - **Revision 2026-11-06 (v1.862.0):** the second frame follows the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded `at <eval> (eval_script:1:35)`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case asserted
+    the prefix and an engine `ReferenceError`, leaving the engine text open.
+    The message names no class: the embedding renders every engine
+    exception as `Error:` plus its message and stack
+    ([FX-7](execution.md#fx-7), [JE-21](expressions.md#je-21)).
+  - **Settled:** recorded on CE `v1.862.0`: the second frame follows the
+    v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded
+    `at <eval> (eval_script:1:35)`.
 
 <a id="fx-8"></a>
 ### FX-8 · Scope of each flow-level expression
@@ -1346,11 +1349,14 @@ Findings: [execution.md](execution.md).
     ``{"error": {"name": "InternalError", "message": "Expected a number value, had error instead: ExecutionErr(\"Error during evaluation of expression `results.a`:\\nQuickJS evaluation error: Error: results is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <anonymous> (eval_script:1:67)\\n\")"}}``,
     with no `Error: ` prefix and no `<loc>`.
   - **Recorded:** [`flows/execution/fx-8`](../../conformance/flows/execution/fx-8) run `sleep_no_results`, oracle run 40686049913 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Correction 2026-10-28:** the case named the chaining error without its
-    text. The recorded message wraps the debug form of the typed evaluation
-    error ([FX-8](execution.md#fx-8) evidence), so it has neither the
-    `Error: ` prefix nor the location an untyped chaining error carries.
-  - **Revision 2026-11-06 (v1.862.0):** the second frame follows the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded `at <eval> (eval_script:1:46)`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case named the
+    chaining error without its text. The recorded message wraps the debug
+    form of the typed evaluation error ([FX-8](execution.md#fx-8)
+    evidence), so it has neither the `Error: ` prefix nor the location an
+    untyped chaining error carries.
+  - **Settled:** recorded on CE `v1.862.0`: the second frame follows the
+    v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded
+    `at <eval> (eval_script:1:46)`.
 
 <a id="fx-9"></a>
 ### FX-9 · Boolean predicates use JavaScript truthiness
@@ -1416,7 +1422,15 @@ Findings: [execution.md](execution.md).
     `{"x": "$var:u/x/missing"}` and fails before its script runs, and so
     does the flow, with
     ``{"error": {"name": "ExecutionErr", "message": "execution error:\nNot found: Variable u/x/missing not found for `x`: Not found: Variable u/x/missing not found", "step_id": "a"}}``.
-  - **Correction 2026-10-30 (SC5, batch E3f):** the case expected the literal to reach the script and the flow not to fail. The fallback to the literal happens where the flow resolves `flow_env` ([FX-11](execution.md#fx-11)), but the literal then reaches `a`'s arguments as the string `"$var:u/x/missing"`, and a leaf step resolves `$var:` strings in its own arguments before its script starts ([JE-42](expressions.md#je-42)); that second resolution has no fallback, so the step fails with the not-found error, named after its argument `x`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case expected
+    the literal to reach the script and the flow not to fail.
+    - The fallback to the literal happens where the flow resolves
+      `flow_env` ([FX-11](execution.md#fx-11)). The literal then reaches
+      `a`'s arguments as the string `"$var:u/x/missing"`.
+    - A leaf step resolves `$var:` strings in its own arguments before its
+      script starts ([JE-42](expressions.md#je-42)). That second resolution
+      has no fallback, so the step fails with the not-found error, named
+      after its argument `x`.
   - **Recorded:** [`flows/execution/fx-18-rest`](../../conformance/flows/execution/fx-18-rest) run `fx11b`, oracle run 41003988171 (first recorded by oracle run 41000318656).
 
 <a id="fx-12"></a>
@@ -1450,9 +1464,9 @@ Findings: [execution.md](execution.md).
   - **Expect:** the error object has no `extra`.
   - **Recorded:** fixture `conformance/flows/execution/fx-12-deno`, run
     `error_extra`, oracle run 40685766017 (CE v1.767.0).
-  - **Not recorded on CE v1.862.0:** the standard image ships no Deno
-    (Windmill 1.830.0), so the fixture's lock job failed, and the fixture was
-    removed on 2026-11-06. The case stays as recorded on v1.767.0
+  - **Not recorded:** on CE `v1.862.0`, the standard image ships no Deno
+    (Windmill 1.830.0), so the fixture's lock job failed, and the fixture
+    was removed. The case stays as recorded on v1.767.0
     ([FX-12](execution.md#fx-12)); windmill-lite has no Deno.
 - **FX-12/d** · oracle-observed · A failed flow's result is not wrapped.
   - **Given:** a flow with a failing step and a handler `bun: return "H"`.
@@ -1548,7 +1562,9 @@ Findings: [execution.md](execution.md).
     ([FX-50](execution.md#fx-50)).
   - **Recorded:** [`flows/execution/fx-15`](../../conformance/flows/execution/fx-15)
     run `later_transition`, oracle run 40685766017 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Revision 2026-11-06 (v1.862.0):** the frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded `at <anonymous> (eval_script:1:35)` and `at <eval> (eval_script:1:44)`.
+  - **Settled:** recorded on CE `v1.862.0`: the frames follow the v1.862.0
+    wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded
+    `at <anonymous> (eval_script:1:35)` and `at <eval> (eval_script:1:44)`.
 - **FX-15/b** · oracle-observed · Root pickup: an `Anyhow` module failure that
   reaches the handler.
   - **Given:** `[a: bun: return 1 (timeout: {type: javascript, expr: "'5'"})]`
@@ -1558,11 +1574,10 @@ Findings: [execution.md](execution.md).
     "Error: Error parsing result as i32">}}`. The recorded message is
     `Error: Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"<loc>`;
     `a`'s status entry is a `Failure` with no job.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case was given
-    a `timeout` of `-1`, whose message was `Error: Timeout value cannot be
+  - **Settled:** recorded on CE `v1.862.0`: the case was given a `timeout`
+    of `-1`, whose message was `Error: Timeout value cannot be
     negative<loc>`. CE v1.862.0 treats a negative timeout as unset
-    ([FX-24/b](#fx-24)), so the case now uses a `timeout` that is not an
-    i32.
+    ([FX-24/b](#fx-24)), so the case uses a `timeout` that is not an i32.
   - **Recorded:** [`flows/execution/fx-15`](../../conformance/flows/execution/fx-15)
     run `root_pickup_i32`, oracle run 42334222423 (CE v1.862.0); at v1.767.0 run
     `root_pickup` with the negative timeout, oracle run 40685766017.
@@ -1664,9 +1679,10 @@ present, is `bun: return "H"`.
     `failed_retries`, and so does the handler's `Success` status, beside
     `parent_module: "a"` ([FX-27](execution.md#fx-27)).
   - **Recorded:** [`flows/execution/fx-19`](../../conformance/flows/execution/fx-19) run `retry_then_handler`, oracle run 40686049913.
-  - **Correction 2026-10-28:** the case did not mention the handler's
-    `failed_retries`. The list is flow-wide and is cleared only after a
-    module succeeds, so the handler's status repeats `a`'s attempt.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case did not
+    mention the handler's `failed_retries`. The list is flow-wide and is
+    cleared only after a module succeeds, so the handler's status repeats
+    `a`'s attempt.
 - **FX-19/e** · oracle-observed · A tolerated error-stop advances to the next
   step.
   - **Given:** `[a (continue_on_error: true), b: bun: return 4]` plus the
@@ -1721,11 +1737,14 @@ present, is `bun: return "H"`.
   - **Expect:** `{success: false, result: {"error": "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n<loc>"}}`;
     `b` never runs; `a`'s stored job result stays `1`.
   - **Recorded:** [`flows/execution/fx-21`](../../conformance/flows/execution/fx-21) run `throwing_stop`, oracle run 40686049913 (v1.767.0), where the raw `<loc>` was ` @worker_flow.rs:2451:11`, and oracle run 42300319428 (v1.862.0), where it is ` @worker_flow.rs:2666:11`.
-  - **Correction 2026-10-28:** the case asserted only a string. The string is
-    the untyped error's display ([FX-21](execution.md#fx-21)): `Error: `, the
-    evaluation error with the engine's `TypeError` shown as `Error:`, the
-    stack, then a location, written `<loc>` so that a comparison can strip it.
-  - **Revision 2026-11-06 (v1.862.0):** the frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded `at <anonymous> (eval_script:1:35)` and `at <eval> (eval_script:1:44)`.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case asserted
+    only a string. The string is the untyped error's display
+    ([FX-21](execution.md#fx-21)): `Error: `, the evaluation error with the
+    engine's `TypeError` shown as `Error:`, the stack, then a location,
+    written `<loc>` so that a comparison can strip it.
+  - **Settled:** recorded on CE `v1.862.0`: the frames follow the v1.862.0
+    wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded
+    `at <anonymous> (eval_script:1:35)` and `at <eval> (eval_script:1:44)`.
 
 <a id="fx-22"></a>
 ### FX-22 · Flow-level `skip_expr`
@@ -1776,24 +1795,24 @@ present, is `bun: return "H"`.
   - **Given:** `[a: bun: return 1 (timeout: {type: javascript, expr: "-1"})]`.
   - **Expect:** `a` runs with no custom timeout (under the instance
     default or maximum) and the flow succeeds with `1`.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected an
-    `Anyhow` failure of `a` (as FX-15/b then did), the v1.767.0 behaviour,
-    which was recorded only for a collapsed loop at step 0
-    ([`flows/control-flow/waits`](../../conformance/flows/control-flow/waits)
-    run `loop_timeout_negative_root`, oracle run 40852609901:
-    `Error: Timeout value cannot be negative @worker.rs:3822:13`). CE
+  - **Settled:** recorded on CE `v1.862.0`: the case expected an `Anyhow`
+    failure of `a` (as FX-15/b then did), the v1.767.0 behaviour. CE
     v1.862.0 treats a timeout of 0 or less as unset (1.768.0).
+    - At v1.767.0 that failure was recorded only for a collapsed loop at
+      step 0
+      ([`flows/control-flow/waits`](../../conformance/flows/control-flow/waits)
+      run `loop_timeout_negative_root`, oracle run 40852609901:
+      `Error: Timeout value cannot be negative @worker.rs:3822:13`).
   - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_root` (a script step by path returning its input `1`), and [`flows/execution/fx-15`](../../conformance/flows/execution/fx-15) run `root_pickup` (with a failure module, which does not run), oracle run 42334222423 (CE v1.862.0); the collapsed loop of `flows/control-flow/waits` run `loop_timeout_negative_root` completes with `[1]`.
 - **FX-24/c** · oracle-observed · A negative timeout at a later transition is unset.
   - **Given:** `[x: bun: return 1, a: bun: return 2 (timeout: {type:
     javascript, expr: "-1"})]`.
   - **Expect:** `a` runs with no custom timeout (under the instance
     default or maximum) and the flow succeeds with `2`.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** at v1.767.0 the flow
-    failed at once with the `InternalError` `"Timeout value cannot be
-    negative"`, and `a` never got a job (oracle run 40818457347). CE
-    v1.862.0 treats it as unset (1.768.0); a static `-1` and a `0` do the
-    same.
+  - **Settled:** recorded on CE `v1.862.0`: at v1.767.0 the flow failed at
+    once with the `InternalError` `"Timeout value cannot be negative"`, and
+    `a` never got a job (oracle run 40818457347). CE v1.862.0 treats it as
+    unset (1.768.0); a static `-1` and a `0` do the same.
   - **Recorded:** [`flows/execution/fx-24`](../../conformance/flows/execution/fx-24) run `negative_later`, with runs `negative_static` and `zero`, oracle run 42334222423 (CE v1.862.0); inside containers, [`flows/control-flow/waits`](../../conformance/flows/control-flow/waits) runs `body_timeout_negative_later`, `body_timeout_negative_pickup` and `loop_timeout_negative_later`.
 - **FX-24/d** · oracle-observed · A loop body with its own timeout is not
   collapsed, so the loop's timeout times nothing; a preview does not
@@ -1804,11 +1823,10 @@ present, is `bun: return "H"`.
   - **Expect:** deployed, the iteration is a child flow; the body job runs
     3 s under its own 10 s timeout and the loop succeeds with `[3000]`. As
     a preview, likewise.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** at v1.767.0 the
-    deployed loop collapsed and its timeout cut the body job after about
-    1 s, with the loop's id as `step_id` (oracle run 40852609901). Since
-    1.852.0 a body module's `timeout` prevents collapsing
-    ([FX-46](execution.md#fx-46)).
+  - **Settled:** recorded on CE `v1.862.0`: at v1.767.0 the deployed loop
+    collapsed, and its timeout cut the body job after about 1 s, with the
+    loop's id as `step_id` (oracle run 40852609901). Since 1.852.0 a body
+    module's `timeout` prevents collapsing ([FX-46](execution.md#fx-46)).
   - **Recorded:** the deployed half, [`flows/control-flow/cf-27`](../../conformance/flows/control-flow/cf-27) run `fx24_d`, oracle run 42334222423 (CE v1.862.0): the iteration a `flownode` job, completed after about 3 s. The preview half is outside the reference configuration and is not recorded.
 - **FX-24/e** · oracle-observed · A parallel loop's timeout is not enforced.
   - **Given:** `[l: forloopflow(iterator: [1], parallel: true, timeout: 1,
@@ -1896,14 +1914,15 @@ present, is `bun: return "H"`.
     0}}`; it fails once, then succeeds.
   - **Expect:** `expect.result` is the value of `flow_input.n`; the step has
     1 failed retry; a `skip_if`, if present, was evaluated twice.
-  - **Correction 2026-10-29 (SC3):** the second `skip_if` evaluation has no
-    effect of its own and shows only through a value that differs between
-    the two evaluations ([FX-27](execution.md#fx-27)); a predicate that
-    reads the predecessor's key order, as in
-    [OR-24/c](#or-24), is how the oracle recorded one. A recording of this
-    case checks the args reuse and the failed retry; it needs a step whose
-    first attempt fails and whose retry succeeds, for example one that
-    flips a workspace variable as [FX-49/a](#fx-49) does.
+  - **Settled:** read from the pinned source: the second `skip_if`
+    evaluation has no effect of its own, and shows only through a value
+    that differs between the two evaluations ([FX-27](execution.md#fx-27)).
+    A predicate that reads the predecessor's key order, as in
+    [OR-24/c](#or-24), is how the oracle recorded one.
+    - A recording of this case checks the args reuse and the failed retry.
+      It needs a step whose first attempt fails and whose retry succeeds,
+      for example one that flips a workspace variable as
+      [FX-49/a](#fx-49) does.
   - **Recorded:** [`flows/execution/fx-27`](../../conformance/flows/execution/fx-27) run `reuses_args`, oracle run 40818457347, with a step that throws on its first attempt and returns whether its `x` equals the first attempt's: one failed retry listed, the retry's args equal to the first attempt's, and the result `true`. The `skip_if` half is [OR-24/c](#or-24)'s.
 
 <a id="fx-28"></a>
@@ -1923,12 +1942,18 @@ present, is `bun: return "H"`.
     "null.x"}}` on a step that throws, with a handler.
   - **Expect:** the handler runs and sees `{"error": <string>}`.
   - **Recorded:** [`flows/execution/fx-28`](../../conformance/flows/execution/fx-28) run `throw_handler`, oracle run 40818457347: the handler received a string and the flow failed with its result.
-  - **Correction 2026-10-29 (SC4):** the recorded string is FX-21's converted twice: `Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n <loc> <loc>`, two leading `Error: ` and two location suffixes, where FX-21 has one of each ([FX-28](execution.md#fx-28)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the recorded
+    string is FX-21's converted twice,
+    `Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n <loc> <loc>`.
+    It has two leading `Error: ` and two location suffixes, where FX-21 has
+    one of each ([FX-28](execution.md#fx-28)).
 - **FX-28/c** · oracle-observed · The same without a handler.
   - **Given:** FX-28/b without a handler.
   - **Expect:** the flow fails with `{"error": <string>}`.
   - **Recorded:** [`flows/execution/fx-28`](../../conformance/flows/execution/fx-28) run `throw_no_handler`, oracle run 40819992740: the flow failed with `{"error": "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}`. At v1.862.0 (oracle run 42300319428) the string is `Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:64)\n    at <anonymous> (eval_script:1:73)\n @worker_flow.rs:2666:11 @worker_flow.rs:1781:32` ([JE-21](expressions.md#je-21)).
-  - **Correction 2026-10-29 (SC4):** as FX-28/b, the string has two leading `Error: ` and two location suffixes ([FX-28](execution.md#fx-28)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: as FX-28/b, the
+    string has two leading `Error: ` and two location suffixes
+    ([FX-28](execution.md#fx-28)).
 
 <a id="fx-29"></a>
 ### FX-29 · Quirk: the retry counter carries over after a tolerated failure
@@ -2081,10 +2106,10 @@ array recovers.
     the failure, and the failure ends it, so the root completes
     `{status: "success", result: {"v": 1, "recover": true}}`.
   - **Recorded:** [`flows/execution/fx-33`](../../conformance/flows/execution/fx-33) run `parent_view`, oracle run 42299716256 (CE v1.862.0).
-  - **Correction 2026-11-06 (CE v1.862.0):** at v1.767.0 the root failed
-    with the same result (oracle run 40685766017, the finding's parent
-    view); since 1.827.0 the failure carries a recovered mark that turns a
-    root flow it ends green ([FX-33](execution.md#fx-33)).
+  - **Settled:** recorded on CE `v1.862.0`: at v1.767.0 the root failed with
+    the same result (oracle run 40685766017, the finding's parent view).
+    Since 1.827.0 the failure carries a recovered mark that turns a root
+    flow it ends green ([FX-33](execution.md#fx-33)).
 
 <a id="fx-34"></a>
 ### FX-34 · `failure_module` inside inline bodies runs at the innermost level
@@ -2103,9 +2128,11 @@ array recovers.
     run `loop`, oracle run 40685766017; the handler's id by run `step_id`
     (loop at cursor 1, both iterations failing: both copies report
     `WM_FLOW_STEP_ID` `failure`), oracle run 40689442792.
-  - **Correction 2026-10-28:** the case said the handler ran as
-    `failure-0-0`. A deployed body is a stored flow node whose copy keeps its
-    own id; only bodies built from raw modules get the suffix
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case said the
+    handler ran as `failure-0-0`. A body under a deployed flow's `modules`
+    list is a stored flow node whose copy keeps its own id. Only bodies
+    built from raw modules get the suffix, the bodies of a container in the
+    failure-module or preprocessor slot among them
     ([FX-34](execution.md#fx-34), [CF-V4](control-flow.md#cf-v4)).
 
 <a id="fx-35"></a>
@@ -2127,7 +2154,7 @@ array recovers.
 
 **Scope:** core · **Finding:** [FX-36](execution.md#fx-36)
 
-These cases are FX-36's HTTP part, recorded by batch E3e with run-and-wait
+These cases are FX-36's HTTP part, recorded on the oracle with run-and-wait
 in [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http),
 which also polls each run to completion. The executor part, which no case
 here states, is recorded by
@@ -2145,10 +2172,11 @@ each `:` and `,`, keys shorter first, then by bytes.
     text `{"error": {"name": "Error", "stack": <stack>, "job_id": <a's job>, "message": "z", "step_id": "a", "flow_path": <the flow's path>}}`,
     the members in that order.
   - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `failed`, oracle run 40798097155; re-recorded on CE v1.862.0 with the step context keys, oracle run 42299510925.
-  - **Correction 2026-10-29:** the case wrote the members as `message`,
-    `name`, `stack`, `step_id`. The handler sends the stored result's
-    `jsonb` text, so they come in `jsonb` key order ([FX-36](execution.md#fx-36),
-    [FX-42](execution.md#fx-42)); compared as JSON values the two agree.
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case wrote the
+    members as `message`, `name`, `stack`, `step_id`. The handler sends the
+    stored result's `jsonb` text, so they come in `jsonb` key order
+    ([FX-36](execution.md#fx-36), [FX-42](execution.md#fx-42)); compared as
+    JSON values the two agree.
 - **FX-36/c** · oracle-observed · later · A status code and nested result.
   - **Given:** `[a: bun: return {windmill_status_code: 201, result: {ok:
     true}}]`.
@@ -2181,7 +2209,7 @@ each `:` and `,`, keys shorter first, then by bytes.
     run-and-wait answers HTTP 200, content type `application/json`, with
     the whole array as the body, `[201, null, null, null, 7]` (the stored
     value's `jsonb` text): only an object is read as response metadata.
-  - **Correction 2026-11-06 (CE v1.862.0):** at v1.767.0 the array was read
+  - **Settled:** recorded on CE `v1.862.0`: at v1.767.0 the array was read
     by position, and run-and-wait answered HTTP 201 with the body `7`
     (oracle run 40798097155). Since 1.813.0 an array is never decoded
     ([FX-36](execution.md#fx-36)).
@@ -2303,7 +2331,12 @@ each `:` and `,`, keys shorter first, then by bytes.
     `b`'s module status is `Failure`. With `b` a Bun step: its `script` job
     ends the same way without running.
   - **Recorded:** [`flows/execution/fx-38-pickup`](../../conformance/flows/execution/fx-38-pickup) runs `subflow`, `bun` and `retried`, oracle run 40994947681, each canceled 4.5 s after submission by the harness (canceler `admin`, its own reason): as expected in `subflow` and `bun`. `subflow`'s `b` job still holds its own flow status with `c` listed and no job, which a walker of the run reports as not run ([OR-11](oracle.md#or-11)). `retried`, a `flow` step `b` with a 30 s retry delay canceled while the delay runs, ends the same way: the second subflow job fails at pickup with the `Canceled` value and starts nothing, and the failed first attempt stays listed. Re-recorded on CE v1.862.0, oracle run 42299716256, with the same outcome except `b`'s job status.
-  - **Correction 2026-11-06 (CE v1.862.0):** `b`'s job was stored `failure` at v1.767.0 (oracle run 40994947681); at v1.862.0 the completion keeps the cascade's cancel flag, and the job is stored `canceled` ([FX-38](execution.md#fx-38)). The same holds for `b` in [`flows/execution/fx-23`](../../conformance/flows/execution/fx-23) run `canceled_sleep`, a Bun step waiting on a 60 s sleep.
+  - **Settled:** recorded on CE `v1.862.0`: `b`'s job was stored `failure`
+    at v1.767.0 (oracle run 40994947681). At v1.862.0 the completion keeps
+    the cascade's cancel flag, and the job is stored `canceled`
+    ([FX-38](execution.md#fx-38)). The same holds for `b` in
+    [`flows/execution/fx-23`](../../conformance/flows/execution/fx-23) run
+    `canceled_sleep`, a Bun step waiting on a 60 s sleep.
 
 <a id="fx-39"></a>
 ### FX-39 · `suspend` / approval
@@ -2356,11 +2389,12 @@ each `:` and `,`, keys shorter first, then by bytes.
     result. A hash-pinned script with its own `cache_ttl` and no loop TTL is
     not cached: its own TTL is dropped.
   - **Recorded:** [`flows/execution/fx-40-hash`](../../conformance/flows/execution/fx-40-hash) runs `d-hash` and `d-hash-script-ttl`, oracle run 40692334073; [`flows/execution/fx-40`](../../conformance/flows/execution/fx-40) runs `d-raw`, `d-raw-path` and `d-script`, oracle run 40686532046.
-  - **Correction 2026-10-28:** the case was `disputed`. As drafted, no variant
-    shared; the correction expected the hash-pinned body to share and the
-    rawscript without a path not to. The rawscript shares too: on a deployed
-    flow it runs as `flowscript` jobs that carry one flow-node id, and the
-    cache key uses that id instead of the path ([FX-40](execution.md#fx-40)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case was
+    `disputed`. As drafted, no variant shared; the correction expected the
+    hash-pinned body to share and the rawscript without a path not to. The
+    rawscript shares too: on a deployed flow it runs as `flowscript` jobs
+    that carry one flow-node id, and the cache key uses that id instead of
+    the path ([FX-40](execution.md#fx-40)).
 - **FX-40/e** · oracle-observed · A failure tolerated at the last module is
   stored.
   - **Given:** a flow with `cache_ttl: 60` and `[a: bun: throw new
@@ -2405,10 +2439,10 @@ each `:` and `,`, keys shorter first, then by bytes.
   - **Expect:** with `skip_failures: false` both runs fail with `l`'s array
     and both run their iterations. With `true`, run 2's result equals run
     1's (`[{"error": {…"message": "one"…}}, r]`) and no iteration runs.
-  - **Correction 2026-10-29 (SC4 validation round 2):** the first variant
-    was described as "without `skip_failures`"; on a deployed flow an
-    omitted flag is stored as `true`, so that variant succeeds and is
-    cached like the second. It now says `skip_failures: false`.
+  - **Settled:** read from the pinned source: on a deployed flow an omitted
+    `skip_failures` is stored as `true`, so a first variant "without
+    `skip_failures`" succeeds and is cached like the second. The case says
+    `skip_failures: false`.
   - **Recorded:** [`flows/execution/fx-40-cases`](../../conformance/flows/execution/fx-40-cases) runs `h_strict` and `h_skip`, oracle run 40994947681.
 - **FX-40/i** · oracle-observed · Arguments match as `jsonb` values.
   - **Given:** a deployed flow with `cache_ttl: 60` and `[a: bun: return
@@ -2481,7 +2515,7 @@ All three cases use `same_worker: true`.
 
 **Scope:** core · **Finding:** [FX-42](execution.md#fx-42)
 
-The finding was `DISPUTED` until batch E3b recorded FX-42/h for the
+The finding was `DISPUTED` until the oracle recorded FX-42/h for the
 correction ([Q-FX-16](execution.md#q-fx-16)); FX-42/a to FX-42/g were never
 contested and now carry their own provenance.
 
@@ -2534,10 +2568,11 @@ contested and now carry their own provenance.
     the keys `["zz", "b", "aaa", "big", "n", "s"]` and the doubles
     `1000`, `1e21`, `12345678901234567000`, `1.2345678901234568e29`, `1500`.
   - **Recorded:** [`flows/execution/fx-42`](../../conformance/flows/execution/fx-42) runs `args_file` (oracle run 40686049913) and `javascript` (oracle run 40690630818).
-  - **Correction 2026-10-28:** the case was `disputed` between the drafted
-    "spelling survives" and the correction "re-serialised, exact output to be
-    recorded". The oracle chose the correction; the exact spelling is the
-    backend JSON library's ([FX-42](execution.md#fx-42) rule 2).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case was
+    `disputed` between the drafted "spelling survives" and the correction
+    "re-serialised, exact output to be recorded". The oracle chose the
+    correction; the exact spelling is the backend JSON library's
+    ([FX-42](execution.md#fx-42) rule 2).
 - **FX-42/i** · oracle-observed · later · Where the backend's notation turns
   to exponent form.
   - **Given:** a variable with the text
@@ -2602,9 +2637,9 @@ contested and now carry their own provenance.
     The same holds with `parallel: true` and for a `branchall`
     whose one branch is `[x: identity]` (its child's stored result is the
     flow input, `{"n": 1e400}`).
-  - **Correction 2026-10-29 (SC4 validation round 1):** expected the flow
-    to fail at once with `InternalErr`; that route needs the children to
-    be the flow's own leaf jobs ([FX-42/o](#fx-42)).
+  - **Settled:** read from the pinned source: the case expected the flow to
+    fail at once with `InternalErr`; that route needs the children to be
+    the flow's own leaf jobs ([FX-42/o](#fx-42)).
   - **Recorded:** [`flows/execution/fx-42-monitor`](../../conformance/flows/execution/fx-42-monitor) runs `m_seq`, `m_par` and `m_branchall`, oracle run 41020447570 (the long session), with the input sent to the run API as the JSON number `1e400`: each flow ended `canceled` with canceler `monitor`, `l` still in progress, and neither `b` nor the failure module run. The fixture masks the message and reason, which carry timestamps and the worker's name; they start ``Flow <id> (<base url>/run/<id>?workspace=<w>) was cancelled because it was hanging in between 2 steps.`` ([FX-42](execution.md#fx-42) rule 9).
 - **FX-42/n** · oracle-observed · later · Nesting past the library's limit
   in a child flow's result leaves the flow waiting the same way.
@@ -2615,7 +2650,10 @@ contested and now carry their own provenance.
     depth 128 inside the stored object), no job carries that text, and the
     monitor eventually cancels the flow; with 126 nested arrays
     the loop succeeds.
-  - **Correction 2026-10-29 (SC4 validation round 1):** as FX-42/m.
+  - **Settled:** read from the pinned source, as for FX-42/m: the case
+    expected the flow to fail at once with `InternalErr`. That route needs
+    the children to be the flow's own leaf jobs ([FX-42/o](#fx-42)); here
+    they are child flows, so the flow is left waiting.
   - **Recorded:** [`flows/execution/fx-42-monitor`](../../conformance/flows/execution/fx-42-monitor) runs `n_127`, `n_127_par` and `n_127_branchall` (oracle runs 41000318656 and 41020447570, the long session), each canceled by the monitor as FX-42/m; and the 126-level controls [`flows/execution/fx-42-decode`](../../conformance/flows/execution/fx-42-decode) runs `n_126`, `n_126_par` and `n_126_branchall` (oracle runs 40994947681 and 41020447570), each succeeding with `1`.
 - **FX-42/o** · oracle-observed · later · A collapsed body's result fails
   the flow job directly.
@@ -2767,12 +2805,12 @@ contested and now carry their own provenance.
     the job API and every reader of storage get. The next step's
     transforms read the in-memory text, which still holds the NUL
     ([FX-48/e](#fx-48)).
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected,
-    after the insert retries (up to 10 × 3 s), `{success: false, result:
+  - **Settled:** recorded on CE `v1.862.0`: the case expected, after the
+    insert retries (up to 10 × 3 s), `{success: false, result:
     {"error": {"name": "InternalErr", "message": <starts "Internal: Could
     not add completed job ">}}}`, as CE v1.767.0 did. Windmill 1.768.0
-    removes the NUL before the completion insert ([FX-48](execution.md#fx-48)
-    case 1).
+    removes the NUL before the completion insert
+    ([FX-48](execution.md#fx-48) case 1).
   - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025 (with a second step `b`, which
     did not run): the message ended `error returned from database: unsupported Unicode escape sequence<loc>`,
     and the step job ran for about 30 s. Re-recorded on CE v1.862.0,
@@ -2783,16 +2821,16 @@ contested and now carry their own provenance.
   - **Given:** `[a: bun(s): return s]` with `s = "String.fromCharCode(0)"`.
   - **Expect:** `a`'s job is pushed with `{"s": ""}`; `a` and the flow
     succeed with `""`.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected an
-    `Anyhow` failure of `a`, as CE v1.767.0 gave. Windmill 1.826.0 removes
-    the NUL from a job's arguments before the push stores them.
+  - **Settled:** recorded on CE `v1.862.0`: the case expected an `Anyhow`
+    failure of `a`, as CE v1.767.0 gave. Windmill 1.826.0 removes the NUL
+    from a job's arguments before the push stores them.
   - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_root`, oracle run 40994947681: the flow failed with ``{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5 @worker.rs:3822:13"}}``; `a`'s module was `Failure` with no job. Re-recorded on CE v1.862.0, oracle run 42327335039, as expected.
 - **FX-48/c** · oracle-observed · The same at a later transition.
   - **Given:** the transform of FX-48/b on a second step, after
     `x: bun: return 1`.
   - **Expect:** as FX-48/b: `a` receives `{"s": ""}`, and `a` and the flow
     succeed with `""`.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected an
+  - **Settled:** recorded on CE `v1.862.0`: the case expected an
     `InternalError` chaining failure, as CE v1.767.0 gave.
   - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) run `nul_later`, oracle run 40994947681: ``{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6417:5"}}`` after `x` succeeded; `a` had no job. Re-recorded on CE v1.862.0, oracle run 42327335039, as expected.
 - **FX-48/d** · oracle-observed · A NUL in the incoming input is removed
@@ -2805,8 +2843,8 @@ contested and now carry their own provenance.
     text/plain; charset=utf-8` and its new flow job's id as the body; a
     flow job is created for each, and its stored arguments read back as
     `{"s": "xy"}` and `{"k": 1}`.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case expected
-    each request to answer HTTP 400, `text/plain`, with
+  - **Settled:** recorded on CE `v1.862.0`: the case expected each request
+    to answer HTTP 400, `text/plain`, with
     `SqlErr: error returned from database: unsupported Unicode escape sequence<loc>`,
     and no job, as CE v1.767.0 did. Windmill 1.826.0 removes the NUL from
     a job's arguments before the job row is stored.
@@ -2858,16 +2896,16 @@ contested and now carry their own provenance.
     `number out of range at line 1 column 11` for the second, where `<loc>`
     is the one location suffix. The name is
     `ExecutionErr`, not the completion insert's `InternalErr` of FX-51/a.
-  - **Correction 2026-10-28:** the case expected the resolver's inner
-    `InternalErr`. The executor converts it into the execution envelope
-    before storing it ([FX-51](execution.md#fx-51) rule 5), as the E3a
-    recordings `je42-h` and `je42-e` of
-    [`flows/je/providers`](../../conformance/flows/je/providers) show for
-    other resolver failures.
-  - **Correction 2026-10-29 (SC3):** the case left the column as `C`, "the
-    parser's column". It is now pinned: 14 and 11, counted in bytes up to
-    the byte where the parser stopped ([JE-42](expressions.md#je-42); checked
-    against serde_json 1.0.151).
+  - **Settled:** read from the pinned source: the case expected the
+    resolver's inner `InternalErr`. The executor converts it into the
+    execution envelope before storing it ([FX-51](execution.md#fx-51) rule
+    5), as the recordings `je42-h` and `je42-e` of
+    [`flows/je/providers`](../../conformance/flows/je/providers) show on CE
+    `v1.767.0` for other resolver failures.
+  - **Settled:** read from the pinned source: the case left the column as
+    `C`, "the parser's column". The columns are 14 and 11, counted in bytes
+    up to the byte where the parser stopped ([JE-42](expressions.md#je-42);
+    checked against serde_json 1.0.151).
   - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) runs `jsonvar_surrogate` and `jsonvar_range`, oracle run 40994947681, with `<loc>` = `@common.rs:299:17`; re-recorded on CE v1.862.0, oracle run 42297591675, with `<loc>` = `@common.rs:319:17`.
 - **FX-51/d** · oracle-observed · later · A number outside `numeric`'s range in
   the flow input.
@@ -2876,12 +2914,11 @@ contested and now carry their own provenance.
     PostgreSQL's `value overflows numeric format`; no flow job runs (low
     confidence; HTTP status and body to be recorded,
     [Q-FX-20](execution.md#q-fx-20)).
-  - **Correction 2026-10-29 (SC3):** the response is now traced: HTTP 400,
+  - **Settled:** read from the pinned source: HTTP 400,
     `Content-Type: text/plain`, body
     `SqlErr: error returned from database: value overflows numeric format<loc>`;
     no job is created ([FX-51](execution.md#fx-51) rule 4). The run API
-    only checks the number's syntax. Confidence medium; PostgreSQL's text
-    is still to be recorded through Windmill.
+    only checks the number's syntax.
   - **Recorded:** [`flows/client-api/raw-requests`](../../conformance/flows/client-api/raw-requests) run `requests`, oracle run 41003988171: 400, `text/plain`, body `SqlErr: error returned from database: value overflows numeric format @jobs.rs:6417:5`; no job. Re-recorded on CE v1.862.0, oracle run 42327335039, with the location `@jobs.rs:7908:5`.
 - **FX-51/e** · oracle-observed · later · An unpaired surrogate in the
   incoming input.
@@ -2910,10 +2947,11 @@ contested and now carry their own provenance.
     loop result `[1]` and an ordinary successful completion with `[1]`.
   - **Recorded:** [`flows/execution/fx-49`](../../conformance/flows/execution/fx-49) runs `flip` and `flip_body` (a two-step body), oracle run
     40794872025.
-  - **Correction 2026-10-29:** the case was `disputed` between the drafted
-    three evaluations with the outcome open and the correction above. The
-    oracle chose the correction: inside a sequential loop a stop only breaks
-    the loop ([FX-49](execution.md#fx-49)).
+  - **Settled:** recorded on the oracle on CE `v1.767.0`: the case was
+    `disputed` between the drafted three evaluations with the outcome open
+    and the correction above. The oracle chose the correction: inside a
+    sequential loop a stop only breaks the loop
+    ([FX-49](execution.md#fx-49)).
 - **FX-49/b** · oracle-observed · A `skip_expr` that throws during a loop at
   module 0.
   - **Given:** FX-49/a with `skip_expr: "variable('u/t/throw') === 'yes' ?
@@ -2925,7 +2963,9 @@ contested and now carry their own provenance.
     no failure module applies; the loop's status entry stays in progress
     with `[1]`.
   - **Recorded:** [`flows/execution/fx-49`](../../conformance/flows/execution/fx-49) run `throws`, oracle run 40794872025 (v1.767.0) and oracle run 42300319428 (v1.862.0).
-  - **Revision 2026-11-06 (v1.862.0):** the frames follow the v1.862.0 wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded columns 102 and 116.
+  - **Settled:** recorded on CE `v1.862.0`: the frames follow the v1.862.0
+    wrapper ([JE-21](expressions.md#je-21)); v1.767.0 recorded columns 102
+    and 116.
 
 <a id="fx-50"></a>
 ### FX-50 · How error messages gain an `Error: ` prefix and location suffixes
@@ -2948,11 +2988,11 @@ The recorded shapes are cases of [FX-15](#fx-15), [FX-14](#fx-14) and
     with
     `{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: invalid input syntax for type json<loc><loc>"}}`:
     one `Error: ` prefix, two suffixes.
-  - **Correction 2026-11-07 (retarget to v1.862.0):** the case's transform
-    was `String.fromCharCode(0)`, a NUL, whose push failed the same way
-    with `unsupported Unicode escape sequence` on CE v1.767.0. Windmill
-    1.826.0 removes a NUL before the push ([FX-48](execution.md#fx-48)), so
-    the case now uses an unpaired surrogate, which still fails it.
+  - **Settled:** recorded on CE `v1.862.0`: the case's transform was
+    `String.fromCharCode(0)`, a NUL, whose push failed the same way with
+    `unsupported Unicode escape sequence` on CE v1.767.0. Windmill 1.826.0
+    removes a NUL before the push ([FX-48](execution.md#fx-48)), so the
+    case uses an unpaired surrogate, which still fails it.
   - **Recorded:** [`flows/execution/fx-48-jsonb`](../../conformance/flows/execution/fx-48-jsonb) runs `nul_later` and `nul_root`, oracle run 40994947681, with the texts of FX-48/c and FX-48/b (`<loc>` is `@jobs.rs:6417:5`, then `@worker.rs:3822:13`); on CE v1.862.0 runs `surrogate_later` and `surrogate_root`, oracle run 42243035193, with the texts of [FX-51/b](#fx-51) (`<loc>` is `@jobs.rs:7908:5`, then `@worker.rs:5065:13`).
 - **FX-50/b** · source-derived · Which suffixes are generated.
   - **Given:** these messages, as Windmill writes them:
