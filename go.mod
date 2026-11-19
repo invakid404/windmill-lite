@@ -7,7 +7,7 @@ require (
 	github.com/evanw/esbuild v0.28.2
 	github.com/redis/go-redis/v9 v9.23.0
 	go.yaml.in/yaml/v3 v3.0.6
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
