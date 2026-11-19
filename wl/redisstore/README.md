@@ -134,6 +134,11 @@ included. That is well under the 30 s of silence after which a host-mode
 engine's watchdog ends the connection (`-kill-after` of
 [windmill-lite host](../../cmd/windmill-lite/README.md)), a margin of 20 s.
 
+go-redis's socket read and write timeouts default to the same bound when the
+URL sets neither `read_timeout` nor `write_timeout`. go-redis takes the
+earlier of its own timeout, otherwise 5 s, and the operation's deadline, and
+a stalled command is not sent again.
+
 ## The eviction check
 
 Entries have no expiry. A `maxmemory-policy` that evicts keys without an
@@ -184,7 +189,7 @@ by digest, on a Docker network of their own, and prints the variables;
 
 | File | What it checks |
 |---|---|
-| `redisstore_test.go` | The contract suite on one server and through Sentinel, and no retries on either client (go-redis keeps the -1 as 0). The hash layout without expiry, and prefixes shared or apart. The eviction check's branches, and a user without `CONFIG`. The URL forms, errors that never show a synthetic secret, refused options and prefixes, and a colon in a workspace id. |
+| `redisstore_test.go` | The contract suite on one server and through Sentinel, and no retries on either client (go-redis keeps the -1 as 0) and socket timeouts that follow the operation timeout. The hash layout without expiry, and prefixes shared or apart. The eviction check's branches, and a user without `CONFIG`. The URL forms, errors that never show a synthetic secret, refused options and prefixes, and a colon in a workspace id. |
 | `fault_test.go` | The fault tests below |
 
 `fault_test.go` cuts the store's connection through
@@ -200,9 +205,12 @@ the script cache full and after `SCRIPT FLUSH`, it cuts:
 - **in the middle of the reply:** the connection closes after half of it.
   After `SCRIPT FLUSH`, the cut falls on `EVAL`'s reply.
 
-Each cut operation returns an error, and the store dials no connection
-during it, so nothing is sent again. A write cut in its reply was applied
-once: a competing create after a cut create reports `false`. Readers on
-another connection check throughout that the entry is in a state the
-operation can leave: a seeded entry stays present for a get or an update.
-Once the cut is gone, the store's next operation succeeds.
+Each cut operation returns an error, and writes its command at most once:
+one `EVALSHA`, one `EVAL` after a NOSCRIPT reply, or one `HMGET`, as the
+test counts them on the store's connections. Nothing is sent again.
+
+A write cut in its reply was applied once: a competing create after a cut
+create reports `false`. Readers on another connection check throughout that
+the entry is in a state the operation can leave: a seeded entry stays
+present for a get or an update. Once the cut is gone, the store's next
+operation succeeds.

@@ -68,7 +68,8 @@ type Options struct {
 	//
 	// Other query parameters set go-redis's options, such as dial_timeout,
 	// read_timeout or pool_size; max_retries is ignored, since the store
-	// never sends a command again (noRetries). The Sentinel options that
+	// never sends a command again (noRetries). read_timeout and
+	// write_timeout default to OperationTimeout. The Sentinel options that
 	// route to replicas (route_by_latency, route_randomly, replica_only,
 	// use_disconnected_replicas) are refused: the store reads and writes the
 	// master. The URL carries the password: no error or warning of New
@@ -118,14 +119,15 @@ func New(ctx context.Context, o Options) (*Store, error) {
 	if !validPrefix(prefix) {
 		return nil, fmt.Errorf("redisstore: the key prefix %q must be one or more characters without a colon, then a colon, such as %q", prefix, DefaultPrefix)
 	}
-	client, target, err := connect(o.URL)
+	timeout := o.OperationTimeout
+	if timeout <= 0 {
+		timeout = DefaultOperationTimeout
+	}
+	client, target, err := connect(o.URL, timeout)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{client: client, prefix: prefix, timeout: o.OperationTimeout, target: target}
-	if s.timeout <= 0 {
-		s.timeout = DefaultOperationTimeout
-	}
+	s := &Store{client: client, prefix: prefix, timeout: timeout, target: target}
 	warn := o.Warn
 	if warn == nil {
 		warn = func(m string) { log.Print(m) }
@@ -142,7 +144,7 @@ func New(ctx context.Context, o Options) (*Store, error) {
 // address and database, or the Sentinels' addresses and the database, as
 // go-redis parsed them. A URL that does not parse gets an error that names
 // no part of it, since any part may be a secret pasted in the wrong place.
-func connect(raw string) (redis.UniversalClient, string, error) {
+func connect(raw string, timeout time.Duration) (redis.UniversalClient, string, error) {
 	if raw == "" {
 		return nil, "", errors.New("redisstore: no Redis URL")
 	}
@@ -189,6 +191,7 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 		// dial, read and write.
 		fo.ContextTimeoutEnabled = true
 		fo.MaxRetries = noRetries
+		socketTimeouts(&fo.ReadTimeout, &fo.WriteTimeout, timeout)
 		target := fmt.Sprintf("the master of the Sentinels %s (database %d)", strings.Join(fo.SentinelAddrs, ", "), fo.DB)
 		c, err := construct(func() redis.UniversalClient { return redis.NewFailoverClient(fo) })
 		return c, target, err
@@ -199,8 +202,23 @@ func connect(raw string) (redis.UniversalClient, string, error) {
 	}
 	o.ContextTimeoutEnabled = true
 	o.MaxRetries = noRetries
+	socketTimeouts(&o.ReadTimeout, &o.WriteTimeout, timeout)
 	c, err := construct(func() redis.UniversalClient { return redis.NewClient(o) })
 	return c, fmt.Sprintf("%s (database %d)", o.Addr, o.DB), err
+}
+
+// socketTimeouts sets go-redis's read and write timeouts that the URL left
+// unset (read_timeout, write_timeout) to the operation timeout. go-redis
+// takes the earlier of its own timeout, 5 s by default, and the context's
+// deadline; with no command sent twice, a slow socket would otherwise fail
+// an operation well before the operation timeout that bounds it.
+func socketTimeouts(read, write *time.Duration, timeout time.Duration) {
+	if *read == 0 {
+		*read = timeout
+	}
+	if *write == 0 {
+		*write = timeout
+	}
 }
 
 // construct calls a go-redis constructor, which panics on some settings

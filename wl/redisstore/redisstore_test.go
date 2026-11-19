@@ -63,7 +63,12 @@ func testPrefix(t *testing.T, c *redis.Client) string {
 		ctx := context.Background()
 		iter := c.Scan(ctx, 0, prefix+"*", 100).Iterator()
 		for iter.Next(ctx) {
-			c.Del(ctx, iter.Val())
+			if err := c.Del(ctx, iter.Val()).Err(); err != nil {
+				t.Errorf("cleanup: deleting %s: %v", iter.Val(), err)
+			}
+		}
+		if err := iter.Err(); err != nil {
+			t.Errorf("cleanup: scanning %s*: %v", prefix, err)
 		}
 	})
 	return prefix
@@ -164,24 +169,49 @@ func TestURLErrorsHideThePassword(t *testing.T) {
 // URL's max_retries says (noRetries). go-redis keeps the -1 the store sets
 // as 0 retries; its default is 3.
 func TestNoRetries(t *testing.T) {
-	for _, u := range []string{
+	for i, u := range []string{
 		"redis://127.0.0.1:1/0",
 		"redis://127.0.0.1:1/0?max_retries=5",
 		"redis://127.0.0.1:1/0?master_name=m",
 		"redis://127.0.0.1:1/0?master_name=m&max_retries=5",
 	} {
-		c, _, err := connect(u)
+		c, _, err := connect(u, time.Second)
 		if err != nil {
-			t.Fatalf("%s: %v", u, err)
+			t.Fatalf("URL case %d: connect failed", i)
 		}
 		client, ok := c.(*redis.Client)
 		if !ok {
-			t.Fatalf("%s: a %T, want a *redis.Client", u, c)
+			t.Fatalf("URL case %d: a %T, want a *redis.Client", i, c)
 		}
 		if got := client.Options().MaxRetries; got != 0 {
-			t.Errorf("%s: %d retries, want 0", u, got)
+			t.Errorf("URL case %d: %d retries, want 0", i, got)
 		}
 		c.Close()
+	}
+}
+
+// TestSocketTimeouts: go-redis's read and write timeouts follow the
+// operation timeout when the URL sets neither, and keep the URL's own
+// values when it does, for one server and through Sentinel.
+func TestSocketTimeouts(t *testing.T) {
+	for i, c := range []struct {
+		url         string
+		read, write time.Duration
+	}{
+		{"redis://127.0.0.1:1/0", 7 * time.Second, 7 * time.Second},
+		{"redis://127.0.0.1:1/0?master_name=m", 7 * time.Second, 7 * time.Second},
+		{"redis://127.0.0.1:1/0?read_timeout=2s", 2 * time.Second, 7 * time.Second},
+		{"redis://127.0.0.1:1/0?master_name=m&read_timeout=2s&write_timeout=3s", 2 * time.Second, 3 * time.Second},
+	} {
+		uc, _, err := connect(c.url, 7*time.Second)
+		if err != nil {
+			t.Fatalf("URL case %d: connect failed", i)
+		}
+		o := uc.(*redis.Client).Options()
+		if o.ReadTimeout != c.read || o.WriteTimeout != c.write {
+			t.Errorf("URL case %d: read %v, write %v, want %v, %v", i, o.ReadTimeout, o.WriteTimeout, c.read, c.write)
+		}
+		uc.Close()
 	}
 }
 
@@ -205,18 +235,18 @@ func TestSentinelReplicaOptions(t *testing.T) {
 // constructor panics on, a pipeline_pool_size beyond the pool's int32,
 // is an error of New in both forms. None needs a server.
 func TestURLForms(t *testing.T) {
-	for _, u := range []string{
+	for i, u := range []string{
 		"redis://127.0.0.1:1/0", "rediss://127.0.0.1:1/0", "redis://127.0.0.1:1",
 		"redis://127.0.0.1:1/0?master_name=main-1.a_b", "rediss://127.0.0.1:1/0?master_name=m&addr=127.0.0.2:1",
 	} {
-		c, _, err := connect(u)
+		c, _, err := connect(u, time.Second)
 		if err != nil {
-			t.Errorf("connect(%q): %v", u, err)
+			t.Errorf("accepted URL case %d: connect failed", i)
 			continue
 		}
 		c.Close()
 	}
-	for _, u := range []string{
+	for i, u := range []string{
 		"unix:///tmp/redis.sock", "unix:///tmp/redis.sock?db=1", "redis:///0", "redis://:6379/0", "rediss://", "redis://",
 		"redis:///0?master_name=m", "http://127.0.0.1:1/0", "redis://127.0.0.1:1/0?master_name=m%20n",
 		"redis://127.0.0.1:1/0?master_name=a/b", "redis://127.0.0.1:1/0?master_name=a@b",
@@ -227,20 +257,20 @@ func TestURLForms(t *testing.T) {
 		// A master name equal to the Sentinels' or the master's password.
 		"redis://u:pw-1@127.0.0.1:1/0?master_name=pw-1", "redis://127.0.0.1:1/0?master_name=main&password=main",
 	} {
-		if c, _, err := connect(u); err == nil || err.Error() != badURL {
+		if c, _, err := connect(u, time.Second); err == nil || err.Error() != badURL {
 			if c != nil {
 				c.Close()
 			}
-			t.Errorf("connect(%q): %v, want the URL refused", u, err)
+			t.Errorf("refused URL case %d: connect returned no error or another one, want the fixed URL error", i)
 		}
 	}
-	for _, u := range []string{
+	for i, u := range []string{
 		"redis://127.0.0.1:1/0?pipeline_pool_size=4294967296",
 		"redis://127.0.0.1:1/0?master_name=m&pipeline_pool_size=4294967296",
 	} {
 		_, err := New(context.Background(), Options{URL: u, OperationTimeout: time.Second})
 		if err == nil || err.Error() != "redisstore: go-redis refused the Redis URL's client options" {
-			t.Errorf("New(%q): %v, want the options refused", u, err)
+			t.Errorf("options case %d: New returned no error or another one, want the options refused", i)
 		}
 	}
 }
@@ -397,7 +427,11 @@ func TestEvictionCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { c.ConfigSet(ctx, "maxmemory-policy", was["maxmemory-policy"]) })
+	t.Cleanup(func() {
+		if err := c.ConfigSet(ctx, "maxmemory-policy", was["maxmemory-policy"]).Err(); err != nil {
+			t.Errorf("cleanup: restoring maxmemory-policy %s: %v", was["maxmemory-policy"], err)
+		}
+	})
 	url := os.Getenv(urlEnv)
 	for _, policy := range []string{"allkeys-lru", "allkeys-lfu", "allkeys-random", "noeviction", "volatile-lru", "volatile-ttl"} {
 		if err := c.ConfigSet(ctx, "maxmemory-policy", policy).Err(); err != nil {
@@ -449,7 +483,7 @@ func TestUnreadablePolicy(t *testing.T) {
 	addr := c.Options().Addr
 	s, warnings := open(t, Options{URL: fmt.Sprintf("redis://%s:%s@%s/%d", user, secret, addr, c.Options().DB), Prefix: testPrefix(t, c)})
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "cannot read the maxmemory-policy of Redis at "+addr) || !strings.Contains(warnings[0], "NOPERM") || strings.Contains(warnings[0], secret) {
-		t.Errorf("warnings %q, want one about the unreadable policy", warnings)
+		t.Errorf("%d warnings, the first holding the marker %v, want one about the unreadable policy without it", len(warnings), len(warnings) > 0 && strings.Contains(warnings[0], secret))
 	}
 	if ok, err := s.Create(ctx, "ws", "f/u/p", wl.Resource{Type: "state", Value: json.RawMessage(`1`)}); err != nil || !ok {
 		t.Errorf("Create = %v, %v", ok, err)
@@ -457,9 +491,9 @@ func TestUnreadablePolicy(t *testing.T) {
 	// A wrong password fails New without the password in the error.
 	_, err := New(ctx, Options{URL: fmt.Sprintf("redis://%s:wrong-%s@%s", user, secret, addr)})
 	if err == nil || strings.Contains(err.Error(), secret) {
-		t.Errorf("a wrong password: %v", err)
+		t.Errorf("a wrong password: an error %v, holding the marker %v; want an error without it", err != nil, err != nil && strings.Contains(err.Error(), secret))
 	}
 	if !slices.ContainsFunc([]string{"WRONGPASS", "invalid"}, func(s string) bool { return err != nil && strings.Contains(err.Error(), s) }) {
-		t.Errorf("a wrong password: %v, want the server's refusal", err)
+		t.Error("a wrong password: the error is not the server's refusal")
 	}
 }

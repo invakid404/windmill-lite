@@ -1,10 +1,13 @@
 package redisstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,20 +49,59 @@ var cuts = []cut{
 	{name: "mid-reply", mid: true},
 }
 
-// dials counts the connections the store's client dials.
-type dials struct{ n atomic.Int64 }
+// sends counts the commands the store's client writes to its connections,
+// by name: a command sent again after its connection broke shows as a
+// second EVALSHA, EVAL or HMGET. A new connection that go-redis dials in
+// place of a dead idle one, before anything is sent, does not.
+type sends struct {
+	mu sync.Mutex
+	n  map[string]int
+}
 
-func (d *dials) DialHook(next redis.DialHook) redis.DialHook {
+func (h *sends) reset() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.n = map[string]int{}
+}
+
+func (h *sends) counts() map[string]int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return maps.Clone(h.n)
+}
+
+func (h *sends) DialHook(next redis.DialHook) redis.DialHook {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		d.n.Add(1)
-		return next(ctx, network, addr)
+		c, err := next(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &countingConn{Conn: c, h: h}, nil
 	}
 }
 
-func (d *dials) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
+func (h *sends) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
 
-func (d *dials) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+func (h *sends) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return next
+}
+
+// countingConn counts, in each write, the RESP command names it holds.
+type countingConn struct {
+	net.Conn
+	h *sends
+}
+
+func (c *countingConn) Write(b []byte) (int, error) {
+	c.h.mu.Lock()
+	// go-redis writes command names in lower case; either case counts.
+	for _, name := range []string{"EVALSHA", "EVAL", "HMGET"} {
+		for _, spelled := range []string{name, strings.ToLower(name)} {
+			c.h.n[name] += bytes.Count(b, []byte("$"+strconv.Itoa(len(name))+"\r\n"+spelled+"\r\n"))
+		}
+	}
+	c.h.mu.Unlock()
+	return c.Conn.Write(b)
 }
 
 // newProxy returns a Toxiproxy proxy to the server of c, deleted when t
@@ -107,8 +149,9 @@ func TestOperationTimeout(t *testing.T) {
 // NOSCRIPT reply. Throughout, readers on a direct connection check that
 // the entry is in a state the operation can leave. After each operation:
 //
-//   - the operation returns an error, and the store dialed no connection
-//     during it: nothing was sent again (noRetries);
+//   - the operation returns an error, and sent its command at most once
+//     (EVALSHA, and EVAL after a NOSCRIPT reply, or HMGET): nothing was
+//     sent again (noRetries);
 //   - a command that never ran, cut before it or after a NOSCRIPT reply
 //     that was lost, changed nothing;
 //   - a write cut in its reply was applied once: a create holds its value
@@ -121,9 +164,20 @@ func TestFaults(t *testing.T) {
 	prefix := testPrefix(t, c)
 	// One connection, so the cut falls on the connection the operation
 	// uses; a short read timeout keeps the cut after the command quick.
-	through, _ := open(t, Options{URL: fmt.Sprintf("redis://%s/%d?pool_size=1&read_timeout=2s", addr, c.Options().DB), Prefix: prefix})
-	hook := &dials{}
-	through.client.AddHook(hook)
+	// The hook goes on before the first dial, so that every connection
+	// the store uses is one it counts.
+	hook := &sends{}
+	hook.reset()
+	client, target, err := connect(fmt.Sprintf("redis://%s/%d?pool_size=1&read_timeout=2s", addr, c.Options().DB), DefaultOperationTimeout)
+	if err != nil {
+		t.Fatal("the proxy's URL does not connect")
+	}
+	client.AddHook(hook)
+	t.Cleanup(func() { client.Close() })
+	through := &Store{client: client, prefix: prefix, timeout: DefaultOperationTimeout, target: target}
+	if err := through.check(context.Background(), false, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
 	plain, _ := open(t, Options{URL: envOrSkip(t, urlEnv), Prefix: prefix})
 
 	ctx := context.Background()
@@ -213,7 +267,9 @@ func TestFaults(t *testing.T) {
 					}
 					switch {
 					case k.before:
-						if _, err := proxy.AddToxic("cut", "timeout", "upstream", 1, toxiproxy.Attributes{"timeout": 100}); err != nil {
+						// The connection closes 2 s after the cut, well after
+						// the operation has written its command into it.
+						if _, err := proxy.AddToxic("cut", "timeout", "upstream", 1, toxiproxy.Attributes{"timeout": 2000}); err != nil {
 							t.Fatal(err)
 						}
 					case k.after:
@@ -238,7 +294,7 @@ func TestFaults(t *testing.T) {
 						}
 					}
 
-					dialsBefore := hook.n.Load()
+					hook.reset()
 					var (
 						found, ok bool
 						opErr     error
@@ -253,7 +309,7 @@ func TestFaults(t *testing.T) {
 					case "delete":
 						ok, opErr = through.Delete(ctx, "ws", path, "state")
 					}
-					redialed := hook.n.Load() - dialsBefore
+					sent := hook.counts()
 
 					proxy.RemoveToxic("cut")
 					time.Sleep(50 * time.Millisecond)
@@ -268,8 +324,13 @@ func TestFaults(t *testing.T) {
 					if opErr == nil {
 						t.Fatalf("the operation succeeded through the cut: found %v ok %v", found, ok)
 					}
-					if redialed != 0 {
-						t.Fatalf("the store dialed %d connections during the operation: it sent the command again (%v)", redialed, opErr)
+					// Script.Run sends EVALSHA once, and EVAL once after a
+					// NOSCRIPT reply; a get sends one HMGET. More is a replay.
+					if sent["EVALSHA"] > 1 || sent["EVAL"] > 1 || sent["HMGET"] > 1 {
+						t.Fatalf("the store sent a command again during the operation: %v (%v)", sent, opErr)
+					}
+					if sent["EVALSHA"]+sent["EVAL"]+sent["HMGET"] == 0 && !k.before {
+						t.Fatalf("the operation sent no command: %v", sent)
 					}
 
 					after, present, err := plain.Get(ctx, "ws", path)
