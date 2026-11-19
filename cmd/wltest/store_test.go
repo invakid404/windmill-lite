@@ -133,9 +133,18 @@ func TestFixtureStateOnRedis(t *testing.T) {
 			}
 		}
 	}
+	// The path is this test's own only if no key holds it yet: checked
+	// before any cleanup is registered, so a key found here is left alone.
+	if found := keys(); len(found) != 0 {
+		t.Fatalf("%d keys at this test's own path before it ran; it leaves them", len(found))
+	}
 	t.Cleanup(clean)
-	// Another run's counter at the fixture's own path.
+	// Another run's counter at the fixture's own path, created only where
+	// no key is, and removed only when this test created it.
 	other := "wltest-" + hex.EncodeToString(id[:]) + "0000:res:other-ws:f/wlt_iso/state"
+	if n, err := c.Exists(ctx, other).Result(); err != nil || n != 0 {
+		t.Fatalf("the witness key exists already (%d) or cannot be checked (%v); it is left alone", n, err)
+	}
 	if err := c.HSet(ctx, other, "t", "state", "v", "7", "w", "other").Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -144,9 +153,6 @@ func TestFixtureStateOnRedis(t *testing.T) {
 			t.Errorf("deleting %s: %v", other, err)
 		}
 	})
-	if found := keys(); len(found) != 0 {
-		t.Fatalf("keys at this test's own path before it ran: %v", found)
-	}
 
 	fc := &flowChecker{bun: bun, repo: root, mode: conformance.ModeWarm, js: js, redisURL: url}
 	frs := fc.runFixtures(ctx, []string{dir, dir})
