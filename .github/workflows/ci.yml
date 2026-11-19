@@ -258,7 +258,7 @@ jobs:
             TestBunWaitAllChild TestBunFreshChildHoldsTheJob TestBunFreshTimeoutKillsTheGroup
             TestBunWarmChildren TestBunWarmCancelKillsChildren TestBunWarmStalledChildren
             TestBunFreshKilledHeldResult)
-          if [ "$RUNNER_OS" = Linux ]; then harness+=(TestReapAdoptedOrphans); fi
+          if [ "$RUNNER_OS" = Linux ]; then harness+=(TestReapAdoptedOrphans TestFreshLandedKillReapsALaterOrphan); fi
           pattern() { local IFS='|'; echo "^($*)\$"; }
           go test -count=1 -v -run "$(pattern "${cmd[@]}")" ./cmd/windmill-lite | tee "$log"
           go test -count=1 -v -run "$(pattern "${harness[@]}")" ./internal/harness | tee -a "$log"

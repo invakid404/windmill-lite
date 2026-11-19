@@ -42,6 +42,12 @@ const (
 	// almost nothing from it, so what the process wrote before it exited
 	// is read however long that takes.
 	exitReadGrace = time.Second
+	// endExitWait is how long the engine waits for a spawned process to
+	// exit once its stream has ended. The Bun runtime ends its socket and
+	// then exits, after waiting up to a second for the socket to close, and
+	// the exit can take seconds more to observe on a loaded machine, so the
+	// bound is generous; past it the process is killed (readerDone).
+	endExitWait = 10 * time.Second
 	// rejectGrace is how long a rejected harness gets to exit by itself.
 	rejectGrace = 2 * time.Second
 )
@@ -236,6 +242,9 @@ type Process struct {
 	// exitGrace bounds the reader once the process has exited
 	// (conn.endReads): exitReadGrace, which a test lengthens. p.mu guards it.
 	exitGrace time.Duration
+	// endWait bounds the wait for the exit once the stream has ended:
+	// endExitWait, which a test shortens. p.mu guards it.
+	endWait time.Duration
 
 	waitDone chan struct{} // closed when cmd.Wait has returned
 	outR     *os.File      // the read ends of stdout and stderr
@@ -265,8 +274,15 @@ type Process struct {
 	holding    bool      // a fresh result waits for the process group (WR-55)
 	exitAt     time.Time // when cmd.Wait returned
 	killReason string
-	readErr    error
-	status     ExitStatus
+	// groupKilled is set when a kill of the process's group is requested,
+	// before anything is sent (in host mode, where only the connection
+	// closes, too); aloneKilled when the kill of the process alone, because
+	// it had not exited endWait after its stream ended (readerDone), was
+	// sent without error.
+	groupKilled bool
+	aloneKilled bool
+	readErr     error
+	status      ExitStatus
 
 	// hostCalls are the host_calls waiting for their replies, by id, under
 	// mu (milestone F2c); lateHostCalls those the engine stopped waiting
@@ -309,6 +325,12 @@ type invocation struct {
 	// Reporter neither stalls the frames of other invocations nor looks
 	// like silence to the watchdog.
 	calls serial
+	// ctxDone is the caller's context's Done channel, on a fresh process,
+	// whose wait for its group reads it: once it is closed, the caller no
+	// longer waits for the outcome. Nil when that context cannot end, and
+	// on other processes. The context itself is not kept, since a settled
+	// invocation stays in recent, with whatever values the context carries.
+	ctxDone <-chan struct{}
 	// drive, buffered, receives one value when the reader hands the calls
 	// that end with the outcome's delivery to the goroutine waiting for it
 	// in exec (await), which runs them itself: one goroutine fewer to
@@ -324,7 +346,8 @@ type invocation struct {
 	// process to exit and its process group to empty (WR-55).
 	held *engine.StepOutcome
 	// heldKilled is set when the held outcome was dropped because the
-	// job's group was killed, or the connection failed, before it emptied.
+	// job's group was killed, the process was killed while it still ran,
+	// or the connection failed, before the group emptied.
 	heldKilled bool
 	// children are the process groups of the child processes the
 	// invocation started in a warm or host process (Child frames), which
@@ -370,6 +393,7 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 		heartbeat:  cfg.Heartbeat,
 		maxMessage: cfg.MaxMessage,
 		exitGrace:  exitReadGrace,
+		endWait:    endExitWait,
 		waitDone:   make(chan struct{}),
 		exited:     make(chan struct{}),
 		helloCh:    make(chan Hello, 1),
@@ -507,6 +531,9 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	p.conn = newConn(nc, connConfig{maxMessage: p.maxMessage, onMessage: p.handle, onClose: p.readerDone})
 	go func() {
 		cmd.Wait()
+		if f := exitObserved.Load(); f != nil {
+			(*f)(p)
+		}
 		p.mu.Lock()
 		p.status = exitStatus(cmd.ProcessState)
 		p.exitAt = time.Now()
@@ -1324,56 +1351,98 @@ func (p *Process) readerDone(err error) {
 		}
 		p.kill("connection failed")
 	}
+	p.mu.Lock()
+	wait := p.endWait
+	p.mu.Unlock()
 	select {
 	case <-p.waitDone:
-	case <-time.After(exitReadGrace):
-		// The socket ended but the process lives on: it can no longer be
-		// spoken to, so it is ended.
-		p.kill("connection closed")
+	case <-time.After(wait):
+		// The stream ended but the process lives on: it can no longer be
+		// spoken to, so it is ended. Only the process is killed: what it
+		// left in its group is waited for, or killed, as after any exit.
+		p.killAlone(fmt.Sprintf("no exit within %s of the end of its connection", wait))
 		<-p.waitDone
 	}
+	p.mu.Lock()
+	landed := killLanded(p.aloneKilled, p.status)
+	reason := p.killReason
+	p.mu.Unlock()
+	if landed {
+		// The kill ended the process, so the job has failed: what the
+		// process left in its group is killed too, as by any kill of the
+		// job.
+		p.kill(reason)
+	}
 	p.conn.close()
+	// settle settles the invocations still in flight, once: as the job's
+	// group is done with, or as soon as a landed kill's deadline passes.
+	var once sync.Once
+	// taken are the invocations the settlement took, in their states then:
+	// those still pending got its outcome, as exec found them no longer in
+	// flight.
+	var taken map[string]*invocation
+	settle := func(drained bool) {
+		once.Do(func() {
+			status := p.endInvocations()
+			p.mu.Lock()
+			// The process's end was the engine's doing when the connection
+			// failed, a kill of its group was requested, or the kill of the
+			// process alone is what ended it (killLanded).
+			drained = drained && !landed
+			clean := p.readErr == nil && !p.groupKilled && !landed
+			if !drained {
+				// A held result is released only when the job's group emptied by
+				// itself: a kill or a failed connection before that fails the job,
+				// although its script returned (WR-55).
+				for _, inv := range p.invs {
+					if inv.held != nil {
+						inv.held, inv.heldKilled = nil, true
+					}
+				}
+			}
+			p.mu.Unlock()
+			// A process that dies fails its in-flight invocations as escaped, with
+			// its real exit code or the signal that ended it (ADR 0004, WR-4). A
+			// fresh process is its invocation's job process: when it exits 0
+			// before a result, over a connection that never failed, the job's
+			// result is empty (WR-19, WR-V2), as after process.exit(0). One whose
+			// result was held for its group, which was killed, ended by SIGKILL,
+			// whatever the harness itself exited with.
+			taken = p.failInvocations(func(inv *invocation) execResult {
+				if inv.heldKilled {
+					return execResult{out: engine.StepOutcome{Kind: engine.OutcomeEscaped, Tail: inv.tail.String(), ExitCode: -1, Signal: "SIGKILL"}}
+				}
+				if p.cfg.ModuleState == engine.ModuleStateFresh && clean && status.Signal == "" && status.Code == 0 {
+					return execResult{out: engine.StepOutcome{Kind: engine.OutcomeEmpty}}
+				}
+				return execResult{out: engine.StepOutcome{
+					Kind:     engine.OutcomeEscaped,
+					Tail:     inv.tail.String(),
+					ExitCode: status.Code,
+					Signal:   status.Signal,
+				}}
+			})
+		})
+	}
 	drained := false
 	if p.cfg.ModuleState == engine.ModuleStateFresh {
-		drained = p.awaitGroup()
+		// After a landed kill the job's outcome is decided, so it is
+		// settled at most the same bound later, whatever is left in its
+		// group; the group is still waited for and reaped as before.
+		var until time.Time
+		var early func() (bool, func() bool)
+		if landed {
+			until = time.Now().Add(wait)
+			early = func() (bool, func() bool) {
+				settle(false)
+				return pendingCallers(taken)
+			}
+		}
+		drained = p.awaitGroup(until, early)
 	} else {
 		p.endGroup()
 	}
-	status := p.endInvocations()
-	p.mu.Lock()
-	clean := p.readErr == nil && p.killReason == ""
-	if !drained {
-		// A held result is released only when the job's group emptied by
-		// itself: a kill or a failed connection before that fails the job,
-		// although its script returned (WR-55).
-		for _, inv := range p.invs {
-			if inv.held != nil {
-				inv.held, inv.heldKilled = nil, true
-			}
-		}
-	}
-	p.mu.Unlock()
-	// A process that dies fails its in-flight invocations as escaped, with
-	// its real exit code or the signal that ended it (ADR 0004, WR-4). A
-	// fresh process is its invocation's job process: when it exits 0
-	// before a result, over a connection that never failed, the job's
-	// result is empty (WR-19, WR-V2), as after process.exit(0). One whose
-	// result was held for its group, which was killed, ended by SIGKILL,
-	// whatever the harness itself exited with.
-	p.failInvocations(func(inv *invocation) execResult {
-		if inv.heldKilled {
-			return execResult{out: engine.StepOutcome{Kind: engine.OutcomeEscaped, Tail: inv.tail.String(), ExitCode: -1, Signal: "SIGKILL"}}
-		}
-		if p.cfg.ModuleState == engine.ModuleStateFresh && clean && status.Signal == "" && status.Code == 0 {
-			return execResult{out: engine.StepOutcome{Kind: engine.OutcomeEmpty}}
-		}
-		return execResult{out: engine.StepOutcome{
-			Kind:     engine.OutcomeEscaped,
-			Tail:     inv.tail.String(),
-			ExitCode: status.Code,
-			Signal:   status.Signal,
-		}}
-	})
+	settle(drained)
 	p.closeStdio()
 	os.RemoveAll(p.dir)
 	p.finishExit()
@@ -1397,8 +1466,23 @@ const groupPoll = 20 * time.Millisecond
 // session of its own is in no group of the engine's and is not waited for.
 // A timeout or a cancellation meanwhile abandons the invocation and kills
 // the group (exec), and any other kill (Kill, a pool's close, a protocol
-// failure) kills it too, which ends the wait undrained.
-func (p *Process) awaitGroup() (drained bool) {
+// failure) kills it too, which ends the wait undrained. With until set,
+// once the exit bound's kill has ended the process (readerDone), it calls
+// early at until, which settles the job with that kill's outcome and
+// reports whether an invocation was still pending then, and how to tell
+// that its caller no longer waits (pendingCallers). If none was, a
+// cancellation or a timeout had abandoned it, and the wait ends there, as
+// it does once nothing waits. Otherwise the wait goes on, and the group's
+// members are reaped, for as long as that caller would still have waited
+// for the outcome: until its context ends, whether by a cancellation, a
+// timeout or the caller's own release of it, or for good if it cannot.
+// When it ends so, with members still in the group at the last look, the
+// group is killed as exec kills it when a fresh invocation's context ends
+// while it waits, and the wait ends there; whatever the group leaves
+// afterwards is not waited for.
+func (p *Process) awaitGroup(until time.Time, early func() (bool, func() bool)) (drained bool) {
+	settled := false
+	var gone func() bool
 	for {
 		p.mu.Lock()
 		waiting := false
@@ -1414,16 +1498,32 @@ func (p *Process) awaitGroup() (drained bool) {
 			}
 		}
 		empty := !groupAlive(p.pid)
-		// A kill sets killReason before it signals, so one that emptied
-		// the group is seen here.
+		// A kill of the group is recorded before it signals, so one that
+		// emptied the group is seen here.
 		p.mu.Lock()
-		forced := p.killReason != "" || p.readErr != nil
+		forced := p.groupKilled || p.readErr != nil
 		p.mu.Unlock()
 		if empty {
 			p.groupGone.Store(true)
 			return !forced
 		}
-		if !waiting {
+		if !settled && !until.IsZero() && time.Now().After(until) {
+			if f := settleSeen.Load(); f != nil {
+				(*f)(p)
+			}
+			pending, g := early()
+			if !pending {
+				return false
+			}
+			settled, gone = true, g
+		}
+		if settled && gone != nil && gone() {
+			// The bound's kill has named the kill already (killReason),
+			// so this reason is not recorded.
+			p.kill("invocation: its caller stopped waiting")
+			return false
+		}
+		if !waiting && !settled {
 			return false
 		}
 		time.Sleep(groupPoll)
@@ -1472,7 +1572,9 @@ func (p *Process) endInvocations() ExitStatus {
 // (WR-55) gets that result instead, settled completed. It runs after
 // endInvocations, and tells the pool of the exit before it queues any
 // Reporter call.
-func (p *Process) failInvocations(result func(*invocation) execResult) {
+//
+// It returns the invocations it took, in their states then.
+func (p *Process) failInvocations(result func(*invocation) execResult) map[string]*invocation {
 	p.mu.Lock()
 	invs := p.invs
 	p.invs = map[string]*invocation{}
@@ -1518,6 +1620,7 @@ func (p *Process) failInvocations(result func(*invocation) execResult) {
 		}
 		inv.calls.do(calls...)
 	}
+	return invs
 }
 
 // finishExit ends the process's life: its runs and platform handlers see
@@ -1680,6 +1783,9 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q is already in flight", inv.ID)
 	}
 	fresh := p.cfg.ModuleState == engine.ModuleStateFresh
+	if fresh {
+		e.ctxDone = ctx.Done()
+	}
 	if fresh && p.served {
 		p.mu.Unlock()
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q: a fresh process serves one invocation", inv.ID)
@@ -1879,11 +1985,71 @@ func (p *Process) Kill() { p.kill("killed by the engine") }
 // In host mode the engine signals the host only from its watchdog
 // (killHost); kill then only ends the connection, which ends the engine's
 // side of it.
-func (p *Process) kill(reason string) {
+func (p *Process) kill(reason string) { p.end(reason, true) }
+
+// killAlone sends SIGKILL to the process alone, through its handle, as
+// kill does, and not to its group.
+func (p *Process) killAlone(reason string) { p.end(reason, false) }
+
+// pendingCallers reports whether any of taken was still pending when the
+// settlement took it, and a function that reports whether all of their
+// callers' contexts have ended; the function is nil when one of them
+// cannot end.
+func pendingCallers(taken map[string]*invocation) (bool, func() bool) {
+	pending := false
+	var dones []<-chan struct{}
+	for _, inv := range taken {
+		if inv.state != invPending {
+			continue
+		}
+		if inv.ctxDone == nil {
+			return true, nil
+		}
+		pending = true
+		dones = append(dones, inv.ctxDone)
+	}
+	return pending, func() bool {
+		if len(dones) == 0 {
+			return false
+		}
+		for _, d := range dones {
+			select {
+			case <-d:
+			default:
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// settleSeen, when set, is called with the process as a landed kill's
+// deadline passes, before the settlement; a test sets it.
+var settleSeen atomic.Pointer[func(*Process)]
+
+// exitObserved, when set, is called with the process once its wait has
+// returned and before its exit status is published; a test sets it.
+var exitObserved atomic.Pointer[func(*Process)]
+
+// killLanded reports whether the kill of the process alone, which was sent
+// (alone), is what ended it: the process ended by SIGKILL. One that exited
+// with a code, or by another signal, ended by itself, and the kill found
+// it gone. A SIGKILL sent by something else at that moment looks the same.
+func killLanded(alone bool, st ExitStatus) bool {
+	return alone && st.Signal == "SIGKILL"
+}
+
+// end is kill, and with group false killAlone.
+func (p *Process) end(reason string, group bool) {
 	p.mu.Lock()
 	first := p.killReason == ""
 	if first {
 		p.killReason = reason
+	}
+	if group {
+		// Recorded before the signal, so that awaitGroup sees a kill
+		// that emptied the group.
+		p.groupKilled = true
 	}
 	p.mu.Unlock()
 	defer func() {
@@ -1904,8 +2070,14 @@ func (p *Process) kill(reason string) {
 		return
 	}
 	if p.cmd != nil {
-		p.cmd.Process.Signal(syscall.SIGKILL)
-		if p.group && !p.groupGone.Load() {
+		if err := p.cmd.Process.Signal(syscall.SIGKILL); err == nil && !group {
+			// Sent: the process had not been reaped. Whether the kill is
+			// what ended it, the exit status says (killLanded).
+			p.mu.Lock()
+			p.aloneKilled = true
+			p.mu.Unlock()
+		}
+		if group && p.group && !p.groupGone.Load() {
 			// The kill reaches the process's whole group (WR-55, WR-37): a
 			// fresh job's children, or what a warm process's synchronous
 			// child calls left in it; the announced groups of a warm

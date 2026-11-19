@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -339,4 +340,89 @@ func children() []int {
 		}
 	}
 	return out
+}
+
+// After the exit bound's kill has ended a fresh harness, its job settles
+// within the bound, and the engine goes on reaping the group as it does
+// while a job waits: here a killed member's parent, outside the group,
+// exits without waiting for it once the job has settled, and the engine,
+// a subreaper, adopts the zombie and reaps it. The test runs in a
+// subprocess of this test binary, which makes itself a child subreaper.
+func TestFreshLandedKillReapsALaterOrphan(t *testing.T) {
+	if os.Getenv("WL_SUBREAPER") != "" {
+		t.Skip("the subprocess runs TestFreshLandedKillReapsALaterOrphanAsSubreaper")
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFreshLandedKillReapsALaterOrphanAsSubreaper$", "-test.v", "-test.count=1", "-test.timeout=120s")
+	cmd.Env = append(os.Environ(), "WL_SUBREAPER=1")
+	out, err := cmd.CombinedOutput()
+	if bytes.Contains(out, []byte("--- SKIP: TestFreshLandedKillReapsALaterOrphanAsSubreaper")) {
+		t.Skipf("the subprocess skipped:\n%s", out)
+	}
+	if err != nil || !bytes.Contains(out, []byte("--- PASS: TestFreshLandedKillReapsALaterOrphanAsSubreaper")) {
+		t.Fatalf("the subreaper run failed: %v\n%s", err, out)
+	}
+}
+
+// TestFreshLandedKillReapsALaterOrphanAsSubreaper is
+// TestFreshLandedKillReapsALaterOrphan's subprocess.
+func TestFreshLandedKillReapsALaterOrphanAsSubreaper(t *testing.T) {
+	if os.Getenv("WL_SUBREAPER") == "" {
+		t.Skip("run by TestFreshLandedKillReapsALaterOrphan, in a subprocess")
+	}
+	if err := unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0); err != nil {
+		t.Skipf("prctl(PR_SET_CHILD_SUBREAPER): %v", err)
+	}
+	cfg, diag := fakeConfig(t, "fresh-no-exit-stray")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	// The caller waits until the end, as at main, where Execute returns
+	// only once the group is empty.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	child, then, done := startHeldChild(t, p, ctx)
+	if then.pgid != p.pid || then.ppid == p.pid || then.ppid == os.Getpid() {
+		t.Fatalf("child %d: %+v, want a member of group %d whose parent is neither", child, then, p.pid)
+	}
+	r := <-done
+	if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.Signal != "SIGKILL" {
+		t.Fatalf("got %+v, %v; diagnostics %q", r.out, r.err, diag.String())
+	}
+	if d := time.Since(r.start); d > 10*time.Second {
+		t.Fatalf("the outcome took %s", d)
+	}
+	parent := waitPID(t, then.pidFile+".parent")
+	waitFor(t, "the child to be killed with the group", func() bool {
+		now, ok := statOf(child)
+		return ok && now.start == then.start && now.zombie && now.ppid == parent
+	})
+	// The group is not empty, and the caller's context has not ended: the
+	// process has not ended either.
+	select {
+	case <-p.Done():
+		t.Fatal("the process ended while its group still held the zombie")
+	default:
+	}
+	// The job has settled; now the parent exits without reaping the child.
+	if err := os.WriteFile(then.pidFile+".orphan", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The parent, adopted by this process when the harness died, is the
+	// test's to reap; the child, still in the group, is the engine's.
+	waitFor(t, "the parent to exit", func() bool {
+		var ws syscall.WaitStatus
+		got, err := syscall.Wait4(parent, &ws, syscall.WNOHANG, nil)
+		return got == parent || err == syscall.ECHILD
+	})
+	waitFor(t, "the engine to reap the orphaned child", func() bool {
+		now, ok := statOf(child)
+		return !ok || now.start != then.start
+	})
+	select {
+	case <-p.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process did not end once its group was empty")
+	}
 }

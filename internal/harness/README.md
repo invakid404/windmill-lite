@@ -542,6 +542,22 @@ its exit code or the signal that ended it
   waits for more bytes at most `exitReadGrace` (1 s), in one read and in
   all (`conn.endReads`). Reading bytes already in the socket takes almost
   nothing from that second.
+- **Waiting for the exit.** The Bun runtime ends its socket before it
+  exits, so once the stream has ended the engine waits up to `endExitWait`
+  (10 s) for the exit. A process still running then is killed alone,
+  through its handle. When that kill is what ended it (`SIGKILL`), its
+  invocations fail as escaped by `SIGKILL`, and its group is killed too.
+- **After that kill**, a fresh job settles at most the same bound later.
+  Its group is still waited for and reaped as before, until it is empty or
+  the caller's context ends, as at `main`. A cancellation or a timeout
+  before the settlement ends the wait too, as without the kill.
+- **When the caller's context ends first**, the group is killed, as a
+  cancellation kills it at `main`, and is no longer waited for. A caller
+  that ends its context, even by releasing it once `Execute` has returned,
+  so gives up the reaping of a later orphan.
+- **A process that exited by itself** before that kill keeps its own exit
+  status, and so does a fresh result held for its group. A `SIGKILL` sent
+  by something else at that moment cannot be told from the engine's.
 - **Why one grace, not a deadline at the exit.** The frames that the
   harness wrote before it exited are read however long the reader takes. A
   single deadline at the exit would cut off those still in the socket's
@@ -834,7 +850,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
-| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `reap_linux_test.go`, `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
+| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_REQUIRE_BUN` | Any non-empty value | All of the above | Missing tools skip their tests |
 | `WL_FAKE_HARNESS`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing | `fake_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
@@ -851,7 +867,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `exchange_test.go` | The engine's side of every transcript in `conformance/protocol/exchanges/`, against the real Bun harness: the protocol's golden tests on Bun 1.4.3 | `WL_BUN` |
 | `bun_test.go` | `Process` and `Pool` against the real Bun harness ([below](#what-the-bun-tests-check)) | `WL_BUN` |
 | `children_test.go` | The bundle of `testdata/children`: the base environment as a step sees it, and process groups in `fresh` and `warm` mode ([below](#what-the-bun-tests-check)) | `WL_BUN` |
-| `reap_linux_test.go` | Reaping, with the test binary as a child subreaper, on Linux ([below](#what-the-bun-tests-check)) | `WL_BUN`, Linux |
+| `reap_linux_test.go` | Reaping, with the test binary as a child subreaper, on Linux ([below](#what-the-bun-tests-check)) | Linux; `WL_BUN` for all but `TestFreshLandedKillReapsALaterOrphan` |
 | `childgroup_test.go` | Child groups on a fake process table: their identity, the guardian and its tokens (`hasGuardArg`), undecided looks, ending once, release, `groupMembersOf`; the reaping rules (`TestReapChildGroups`); a real guardian, the test's own child, reaped once the watcher releases its group (`TestReviewOwnedGuardianReaped`) | `WL_BUN` for `TestBunWarm*` |
 | `fake_test.go` | A fake harness, for what Bun cannot be made to do on demand ([below](#what-the-fake-harness-tests-check)) | |
 | `qwa4_test.go` | That concurrent invocations each see their own `WM_*` environment variables ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4), [WA-31](../../docs/semantics/client-api.md#wa-31)) | `WL_BUN`, `WL_WINDMILL_CLIENT` |
@@ -950,6 +966,11 @@ unattributed warning, and a signature that did not parse. Others hold:
   descendant that exits while its group still runs (`spawn-shell`). Others
   are a cancellation of a stalled step, the process's end with a child
   group or a synchronous child, and a fresh job's orphan.
+- **`TestFreshLandedKillReapsALaterOrphan`** (its own subprocess, a child
+  subreaper too): after the exit bound's kill, a member that another
+  process leaves as an orphan once the job has settled is still reaped. It
+  runs the fake harness, so it needs no Bun, and skips only where the
+  kernel refuses `prctl`.
 - **What `reap_linux_test.go` asserts:** each guardian and child that the
   engine adopted is reaped, the descendant before its group ends, and no
   zombie of the test process is left.
@@ -966,6 +987,24 @@ unattributed warning, and a signature that did not parse. Others hold:
 - a fresh process that exits right after its result with a `pong` still
   unread (`TestFreshExitWithAnUnreadPong`, which fails on Linux when
   `ECONNRESET` is taken for a failed connection);
+- a fresh process that ends its stream and exits late
+  (`TestFreshSlowExitKeepsItsResult`) or by its own signal
+  (`TestFreshSignalledExitIsItsOwn`);
+- one that never exits (`TestFreshNoExitIsEnded`), with a child in its
+  group (`TestFreshNoExitWithAChildIsBounded`) or a zombie that its group
+  keeps (`TestFreshNoExitWithAStrayZombieIsBounded`);
+- an exit seen only after the bound's kill
+  (`TestFreshExitSeenAfterTheBoundKeepsItsResult`), and when that kill
+  counts as what ended it (`TestKillLanded`);
+- after that kill, a cancellation that came before the settlement
+  (`TestFreshCancellationBeforeTheSettlementEndsTheWait`), one after it
+  (`TestFreshCallersContextEndEndsTheWait`) and the caller's deadline
+  (`TestFreshSettledJobEndsByItsCallersDeadline`) each end the wait for a
+  group that a zombie keeps;
+- the end of the caller's context then kills a member that joined the
+  group later (`TestFreshCallersContextEndKillsALateMember`);
+- that a settled invocation, kept among the recent ones, holds nothing of
+  its caller's context (`TestSettledInvocationKeepsNoCallerContext`);
 - that the pool hears of an abandonment and of a death before any Reporter
   does;
 - that a kill is named (`TestKillIsNamed`) without waiting for a blocked
