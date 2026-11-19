@@ -226,8 +226,9 @@ func claimStateTest(t *testing.T, ctx context.Context, c *redis.Client, id strin
 }
 
 // TestStateTestClaim: of two claims of one fixed id, the first wins and
-// the second is refused, and the refused one leaves the winner's counter,
-// witness and claim as they are. It needs WL_TEST_REDIS_URL, and skips
+// the second, in a subtest of its own, is refused; once that subtest and
+// its cleanups have ended, the winner's counter, witness and claim are as
+// they were. It needs WL_TEST_REDIS_URL, and skips
 // without it.
 func TestStateTestClaim(t *testing.T) {
 	url := os.Getenv("WL_TEST_REDIS_URL")
@@ -253,17 +254,26 @@ func TestStateTestClaim(t *testing.T) {
 	if err := c.HSet(ctx, counter, "t", "state", "v", "2", "w", "w").Err(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { c.Del(ctx, counter) })
+	t.Cleanup(func() {
+		if err := c.Del(ctx, counter).Err(); err != nil {
+			t.Errorf("deleting %s: %v", counter, err)
+		}
+	})
 
-	if _, _, err := claimStateTest(t, ctx, c, id); !errors.Is(err, errClaimed) {
-		t.Fatalf("the second claim of one id: %v, want errClaimed", err)
-	}
+	// The losing claim runs as a subtest of its own, so that any cleanup
+	// it registered has run when the checks below read the winner's keys;
+	// the winner's own cleanups run only after them, when this test ends.
+	t.Run("loser", func(t *testing.T) {
+		if _, _, err := claimStateTest(t, ctx, c, id); !errors.Is(err, errClaimed) {
+			t.Errorf("the second claim of one id: %v, want errClaimed", err)
+		}
+	})
 	for k, want := range map[string]string{counter: "2", other: "7"} {
 		if v, err := c.HGet(ctx, k, "v").Result(); err != nil || v != want {
-			t.Errorf("after the refused claim, %s holds %q, %v, want %s", k, v, err, want)
+			t.Errorf("after the refused claim and its cleanups, %s holds %q, %v, want %s", k, v, err, want)
 		}
 	}
 	if n, err := c.Exists(ctx, "wltest-claim:"+id).Result(); err != nil || n != 1 {
-		t.Errorf("after the refused claim, the winner's claim: %d, %v", n, err)
+		t.Errorf("after the refused claim and its cleanups, the winner's claim: %d, %v", n, err)
 	}
 }
