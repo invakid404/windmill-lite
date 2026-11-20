@@ -19,10 +19,10 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// This file is the default dispatcher of ADR 0007 (milestone PF3): the
-// runs a step dispatches with runScript*Async or runFlowAsync, which the
-// engine runs from its own program as separate runs of the same runtime,
-// and a root script's run as a script job.
+// This file is the default dispatcher of ADR 0007: the runs a step
+// dispatches with runScript*Async or runFlowAsync, which the engine runs
+// from its own program as separate runs of the same runtime, and a root
+// script's run as a script job.
 
 // ScriptRequest is one run of a root script as a script job (WA-4): a job
 // outside any flow, its own effective root unless the links of a dispatch
@@ -63,9 +63,9 @@ type ScriptResult struct {
 	// ordinary failed job. Its record is not served, as a canceled
 	// step's is not (ADR 0007).
 	Canceled bool
-	// Latched, when not nil, is the error the job's step latched on its
-	// run (H5, milestone F2c): its own wl.latch, or an around wrapper's
-	// failure. A latched job has failed, with no result.
+	// Latched, when not nil, is the error the job's step latched on its run
+	// (H5): its own wl.latch, or an around wrapper's failure. A latched job
+	// has failed, with no result.
 	Latched error
 }
 

@@ -10,15 +10,15 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// Branches (milestone N3b): a branchone runs the first branch whose
-// predicate holds, or its default (CF-14, JE-31), and a branchall runs every
-// branch, sequentially or in parallel (CF-15). A branch that runs is a child
-// flow (CF-1), even an empty branchall branch, whose result is then its
-// input (CF-15). Its input is its flow's input, unchanged (JE-37), which is
-// also its first module's previous_result (CF-9, JE-36), and it writes into
-// its flow's results scope (CF-19). A stop in a branchone's branch or in a
-// sequential branchall's propagates to the flow the branch is in; a
-// parallel branchall ignores it (CF-12, FX-20).
+// Branches: a branchone runs the first branch whose predicate holds, or its
+// default (CF-14, JE-31), and a branchall runs every branch, sequentially
+// or in parallel (CF-15). A branch that runs is a child flow (CF-1), even
+// an empty branchall branch, whose result is then its input (CF-15). Its
+// input is its flow's input, unchanged (JE-37), which is also its first
+// module's previous_result (CF-9, JE-36), and it writes into its flow's
+// results scope (CF-19). A stop in a branchone's branch or in a sequential
+// branchall's propagates to the flow the branch is in; a parallel branchall
+// ignores it (CF-12, FX-20).
 
 // jsonObjectString is the JSON string "{}", Windmill's fallback for a
 // previous result it does not have (OR-25, JE-36 rule 4).
@@ -280,7 +280,7 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 // sequentialBranchEnd is how a sequential branchall ends when a stop ended
 // one of its branches, of skip_failure skip, as e: a clean stop is the
 // module's, with its skipped flag (CF-12 item 2); a stop of a failed branch,
-// with no failure module (N3c), stops the flow with the branch's
+// with no failure module, stops the flow with the branch's
 // skip_failure deciding the status, success or failure (item 4).
 func sequentialBranchEnd(e flowEnd, skip bool) moduleEnd {
 	switch {

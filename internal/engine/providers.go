@@ -7,11 +7,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// This file is where a run reads the platform providers of ADR 0007
-// (milestones PF2 and PF3): the expression helpers variable(), resource()
-// and flow_user_state() (JE-20), flow_env's resolution on every transition
-// (JE-38), and a leaf job's argument resolution before its script runs
-// (JE-41, JE-42, WR-5), all through the engine's platform.Services.
+// This file is where a run reads the platform providers of ADR 0007: the
+// expression helpers variable(), resource() and flow_user_state() (JE-20),
+// flow_env's resolution on every transition (JE-38), and a leaf job's
+// argument resolution before its script runs (JE-41, JE-42, WR-5), all
+// through the engine's platform.Services.
 
 // helpers answers the expression helpers of JE-20 for one run, whose
 // effective root is root: the run, or for a run dispatched tracked in its

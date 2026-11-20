@@ -12,11 +12,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// Milestone N1b's tests: continue_on_error, the failure module and
-// recovery, the error stops and the unrecoverable stop, chaining errors
-// with a failure module, the final result and the cancellation outcome,
-// on the same synthetic folders and the real QuickJS-ng engine as
-// engine_test.go.
+// The tests of the failure machinery: continue_on_error, the failure
+// module and recovery, the error stops and the unrecoverable stop,
+// chaining errors with a failure module, the final result and the
+// cancellation outcome, on the same synthetic folders and the real
+// QuickJS-ng engine as engine_test.go.
 
 // withFailure writes a flow value with modules and a failure module.
 func withFailure(failure string, mods ...string) string {

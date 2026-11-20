@@ -10,9 +10,9 @@ import (
 )
 
 // StepExecutor runs leaf invocations in language harnesses: the engine side
-// of the harness protocol (ADR 0004; internal/harness implements it,
-// milestone C1). It is safe for concurrent use: invocations run at once
-// unless a host set a cap (deviation D15).
+// of the harness protocol (ADR 0004; internal/harness implements it). It is
+// safe for concurrent use: invocations run at once unless a host set a cap
+// (deviation D15).
 //
 // Execute runs inv and returns its outcome. When ctx ends first (the step's
 // timeout, the run's cancellation, the run's end), Execute sends the
@@ -89,7 +89,7 @@ type Invocation struct {
 	Platform *platform.Services
 	// Around lists the host plugin's around wrappers whose selectors match
 	// the site, by their index in the plugin's declaration, outermost
-	// first (ADR 0008 H1, milestone F2c): the harness runs the step inside
+	// first (ADR 0008 H1): the harness runs the step inside
 	// them. Empty for none (RunRequest.Around).
 	Around []int
 }

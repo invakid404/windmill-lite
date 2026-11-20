@@ -2,16 +2,17 @@
 // implementation of Windmill's decision list, containers, retries, waits,
 // failure modules and cancellation.
 //
-// Engine runs the flows of a compiled program (ir.Program): milestone N1a's
-// engine core runs a flow's top-level modules in sequence, with input
-// transforms, the results routes of expressions, skip_if, mock, identity,
-// stop_after_if and a static step timeout, and milestone N1b's failure
-// machinery: continue_on_error, the failure module and recovery, chaining
-// errors and the cancellation outcome. Later milestones add waits and
-// retries (N2), containers (N3) and subflows (N3c); until then New refuses
-// what they implement, with ErrUnsupported.
+// Engine runs the flows of a compiled program (ir.Program). Its core runs
+// a flow's top-level modules in sequence, with input transforms, the
+// results routes of expressions, skip_if, mock, identity, stop_after_if and
+// the step timeout. Its failure machinery covers continue_on_error, the
+// failure module and recovery, chaining errors and the cancellation
+// outcome. It also runs waits and retries, containers and subflows. New
+// refuses, with ErrUnsupported, a program that uses a construct the engine
+// does not run, such as a preprocessor module; a few settings, such as a
+// flow's metadata timeout, it accepts and ignores.
 //
-// The contracts it is built against (milestone K1):
+// The contracts it is built against:
 //
 //   - StepExecutor, Invocation and StepOutcome: how the interpreter runs a
 //     leaf step in a language harness (ADR 0004);

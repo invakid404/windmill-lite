@@ -16,10 +16,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The for-loop tests (milestone N3a) run synthetic flows on the real
-// QuickJS-ng engine, with steps answered in Go; the E3d and E3a for-loop
-// fixtures of conformance/flows run the same loops on the real Bun harness
-// (cmd/wltest, TestFlowSuite).
+// The for-loop tests run synthetic flows on the real QuickJS-ng engine,
+// with steps answered in Go; the for-loop fixtures of conformance/flows run
+// the same loops on the real Bun harness (cmd/wltest, TestFlowSuite).
 
 // loopOf writes a for loop module: its body modules and its fields, as
 // JSON, with envelope fields after them.

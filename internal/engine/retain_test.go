@@ -60,14 +60,15 @@ type settledTrace struct {
 
 func (h settledTrace) OnRunSettled(t *Trace) { h.ch <- t }
 
-// TestSettledRunLetsGoOfItsValues is lever J5's proof. The executor keeps
-// every invocation's Reporter, as the harness's table of settled
-// invocations does. Once a run has settled, its step results are
-// unreachable however long the Reporters are kept, and a late call on one
-// of them goes nowhere. While a run that has ended still has an invocation
-// open, late output reaches it, in the trace that OnRunSettled receives,
-// from that invocation or from one that has already settled, in order; its
-// values stay reachable until it settles.
+// TestSettledRunLetsGoOfItsValues checks what the engine keeps of a run
+// once the run has settled. The executor keeps every invocation's Reporter,
+// as the harness's table of settled invocations does. Once a run has
+// settled and its returned trace is dropped, its step results are not
+// reachable through those Reporters, however long they are kept, and a late
+// call on one of them goes nowhere. While a run that has ended still has an
+// invocation open, late output reaches it, in the trace that OnRunSettled
+// receives, from that invocation or from one that has already settled, in
+// order; its values stay reachable until it settles.
 func TestSettledRunLetsGoOfItsValues(t *testing.T) {
 	flows := map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""), mod("b", "echo", "", ""))}
 

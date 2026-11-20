@@ -18,12 +18,12 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// Milestone N2's engine tests: sleep, the step timeout's values and texts,
-// retry and retry_if with the flow-wide retry state, the restored
-// previous_result, the clock and the jitter source (H10), the monitor of
-// flows that hang between steps (JE-2) and the pre-write deadline (H4), on
-// the same synthetic folders and the real QuickJS-ng engine as
-// engine_test.go.
+// The engine tests of waits and retries: sleep, the step timeout's values
+// and texts, retry and retry_if with the flow-wide retry state, the
+// restored previous_result, the clock and the jitter source (H10), the
+// monitor of flows that hang between steps (JE-2) and the pre-write
+// deadline (H4), on the same synthetic folders and the real QuickJS-ng
+// engine as engine_test.go.
 
 // flaky answers f/t/flaky: it fails its first invocation at each site of
 // each run, then returns its arguments; it answers every other script as

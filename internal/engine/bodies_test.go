@@ -7,9 +7,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
-// The tests of failure modules in container bodies (milestone N3c): every
-// child flow carries a copy of its enclosing flow's failure module (CF-1,
-// CF-16, FX-34).
+// The tests of failure modules in container bodies: every child flow
+// carries a copy of its enclosing flow's failure module (CF-1, CF-16,
+// FX-34).
 
 // CF-16, FX-34, FX-32, CF-8: in a flow with a failure module, a loop never
 // collapses and each iteration's child flow runs its copy of the failure

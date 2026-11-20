@@ -15,7 +15,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The cache_ttl result cache (milestone N4, FX-40): before a job with a
+// The cache_ttl result cache (FX-40): before a job with a
 // cache_ttl runs, the engine looks its key up in the result cache of the
 // run's platform services (platform.ResultCache, ADR 0007, D4); a hit
 // completes the job successfully at once with the cached result, and a job
@@ -329,7 +329,7 @@ func (r *run) leafCache(ctx context.Context, fr *frame, m *ir.Module, args jsonv
 // nothing is invoked and no argument is resolved; the module's own
 // stop_after_if then applies as after any success. The job has an id and
 // an identity of its own, and the job registry knows it as it knows every
-// job of the run's tree while its root lives (ADR 0007, PF3), so a root
+// job of the run's tree while its root lives (ADR 0007), so a root
 // lookup by its id answers as for a job that ran.
 func (r *run) cachedJob(ctx context.Context, fr *frame, i, idx int, site conformance.SitePath, o outcome, c cacheEntry) outcome {
 	v := c.value()
@@ -351,7 +351,7 @@ func (r *run) cachedJob(ctx context.Context, fr *frame, i, idx int, site conform
 // cache completed without running, in the job registry, and ends it at
 // once: a job that ran is registered by the facade's executor for as long
 // as it runs (facade.Register), with the same fields, and is then known
-// while its root lives (ADR 0007, PF3). run is the run that holds the job,
+// while its root lives (ADR 0007). run is the run that holds the job,
 // and view, when not nil, the view that renders it (WA-19).
 func (e *Engine) registerHit(env map[string]string, run string, view platform.JobView) {
 	end := e.platform.JobRegistry().Begin(platform.Job{ID: env["WM_JOB_ID"], Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, View: view})
