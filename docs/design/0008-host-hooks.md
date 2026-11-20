@@ -1,10 +1,24 @@
-# 0008 · Host hooks
+# Host hooks
 
-**Status:** proposed · **Topic:** the generic ways a host changes or observes
-a run beyond what the flow says: per-step interception and overrides,
-injected inputs, a signal before the first write-capable step, cancellation
-and budgets, run-fatal latches, skipping Windmill-only permits, replay
-support, and host scopes.
+**Status:** Accepted · **Topic:** the generic ways a host changes or observes
+a run beyond what the flow says. They cover per-step interception and
+overrides, injected inputs, a signal before the first write-capable step,
+cancellation and budgets, run-fatal latches, skipping Windmill-only permits,
+replay support, and host scopes.
+
+A host changes or observes a run through thirteen [hooks](../glossary.md#hook),
+H1 to H13, as Go callbacks or in a TypeScript
+[host plugin](../glossary.md#host-plugin): hooks at the call sites that a
+[selector](../glossary.md#selector) names, run-wide observers and settings,
+and signals from step code. A host's signals reach a run as a
+[latch](../glossary.md#latch) or a cancellation, never as an error value that
+the flow could turn into data.
+
+**Not built yet:** bundling host plugins into a bundle's `plugins/`
+directory, and run data that a host attaches for plugins to read as
+`wl.run.data` (H11). Platform calls that a plugin hook makes outside an
+[invocation](../glossary.md#invocation) are refused, not attributed to its
+site.
 
 ## Context
 
@@ -61,14 +75,15 @@ sites; that is intended for optional hooks, which often want all of them. A
 every match becomes opaque to the loader; one that matches more fails at load
 with `ambiguous_selector`.
 
-Sites themselves are typed paths ([0011](0011-differential-testing.md)).
+Sites themselves are typed paths
+([differential testing](0011-differential-testing.md#step-identity-encoding-answers-q-or-17)).
 Hooks declare their selectors up front, so the engine asks a host plugin only
 for matching sites and pays nothing elsewhere.
 
 ### Mandatory host-provided call sites
 
 A selector listed in the build's **host contract** as `mandatory`
-([0002](0002-ir-and-loader.md)) is a different kind of hook from optional
+([IR, loader and validation](0002-ir-and-loader.md)) is a different kind of hook from optional
 interception: its target is opaque to the loader (not loaded, validated or
 bundled), so a target windmill-lite could not run, such as a subflow that
 suspends, does not block the bundle. The engine treats the site as H1 with
@@ -83,7 +98,7 @@ store them, with one exception. That step would seal a value computed from a
 secret `flow_env` entry under the run's root job
 ([JE-38](../semantics/expressions.md#je-38)), and the provided site stores
 it in clear, since a sealed value opens only inside the engine's process
-([0007](0007-platform-interface.md)).
+([platform interface](0007-platform-interface.md)).
 
 An interception (H1) at a real step gets the step's stored arguments,
 sealed values included, since the step runs with them when the hook
@@ -92,22 +107,22 @@ declines.
 ### Where hooks run
 
 - **Go callbacks**, for hosts that embed the Go library
-  ([0009](0009-host-adapters.md)).
+  ([host adapters](0009-host-adapters.md)).
 - **Host plugins**: TypeScript run by the Bun harness: in host mode the
   host's own (the host SDK's `plugin`), elsewhere a module the runtime
   names, which each `warm` harness process loads. The engine calls it with
-  `host_call` frames ([0004](0004-harness-protocol.md), §Host plugins).
+  `host_call` frames ([harness protocol](0004-harness-protocol.md#host-plugins)).
   It declares its hooks and their selectors up front, and the engine turns
   the declaration into the same hooks a Go host passes, so a TypeScript
   hook takes the Go hook's path through the engine. A plugin runs in the
   run's host scope and can call any code in the bundle. Platform calls it
   makes are attributed to the site it is serving
-  ([0007](0007-platform-interface.md)).
+  ([platform interface](0007-platform-interface.md)).
 - **The payload of a `host_call`** (amendment) is JSON whose escapes may
   differ from `encoding/json`'s; the values a plugin's `JSON.parse` reads
   are the same.
   - Arguments, results and carried values are their stored texts
-    ([0005](0005-json-step-boundaries.md)). The engine writes them into
+    ([JSON at step boundaries](0005-json-step-boundaries.md)). The engine writes them into
     the payload as they are, without checking, compacting or escaping
     them again.
   - Inside a stored text, `<`, `>`, `&`, U+2028 and U+2029 are therefore
@@ -116,11 +131,11 @@ declines.
     `jsonb` refuses), is written as `encoding/json` writes it, map keys
     sorted.
 
-**Where the seams live.** The contracts milestone K1 and the first engine
-milestone N1a define the internal hook interface with no-op defaults, the
-precedence below, and the `latched` and `halted` statuses, so every engine
-milestone after them implements the decision list with the seams in place. The hook milestones only expose those
-seams to hosts ([0012](0012-layout-and-milestones.md)).
+**Where the seams live.** The engine (`internal/engine`) defines the
+internal hook interface with no-op defaults, the precedence below, and the
+`latched` and `halted` statuses, so its decision list runs with the seams in
+place whether or not a host sets a hook. The Go library and host plugins
+only expose those seams to hosts.
 
 ### The hooks
 
@@ -196,41 +211,46 @@ Two further rules complete it:
 - The hooks that change semantics (H1, H2, H7, H8, H10 in `record` mode, and
   latching) are visible in the trace, so a comparison against the oracle can
   exclude or account for them.
-- Milestone F2c exposed H1, H2, H6, H8, H9, H12 and H13, mandatory
-  provided sites and `around` to host plugins. It settled what the table
-  left open. A plugin hook's error, or a `host_call` whose reply does not
-  come within the plugin timeout (`host_call_timeout`), latches the run,
-  as a Go hook's error does, and at a provided site fails it closed; a
-  failed `onRunEnd` can only add a warning. An `around` wrapper calls
-  `next()` once, the step's outcome stays its own whatever the wrapper
-  returns, and a wrapper that throws, or never runs the step, latches the
-  run. A run's own hooks come before its plugin's: the first matching
-  interception answers, rewrites apply in order, and both sets of
-  observers run. Platform calls a plugin makes outside an invocation are
-  not attributed yet: the harness refuses a facade request outside every
-  invocation, so only an `around` wrapper's calls, made in the
-  invocation, reach the facade. A later milestone gives plugin calls the
-  site's identity. F2c also gave step code `wl.latch` and `wl.signal`
-  (on `globalThis`, [0004](0004-harness-protocol.md) §Host plugins): a
-  step's latch latches its run, a script job's included, and its signal
-  is the invocation's, which aborts when the engine abandons the step.
-  Plugin hooks get no signal of their own: a hook runs outside every
-  invocation, and the run's end only stops the engine waiting for it. A
-  host-mode run carries its own hooks and budgets (H3, H4, H7, H8, H10)
-  in its `run` frame, and `onRunEnd` runs for a canceled run too, with the
-  plugin timeout alone. Review round 1 settled four more points: a
-  TypeScript H13 provider's failure or timeout latches the run, through
-  the job API and reference resolution alike; a hook holds the run's
-  settlement from the moment it is called until it has finished, even
-  after the engine stopped waiting for it, so a run's resources outlive
-  its hooks (review round 2: a provider call a step started, whose step
-  settled first, included); an `around` wrapper's `next()` is
-  closed once the wrapper returns; and a TypeScript hook's records and
-  traces carry every field a Go hook's do.
+- **Host plugins** expose H1, H2, H6, H8, H9, H12 and H13, mandatory
+  provided sites and `around`. These rules settle what the table leaves
+  open:
+  - **Errors and timeouts.** A plugin hook's error, or a `host_call` whose
+    reply does not come within the plugin timeout (`host_call_timeout`),
+    latches the run, as a Go hook's error does, and at a provided site
+    fails it closed. A failed `onRunEnd` can only add a warning. A
+    TypeScript H13 provider's failure or timeout latches the run, through
+    the job API and reference resolution alike.
+  - **`around`.** An `around` wrapper calls `next()` once, and the step's
+    outcome stays its own whatever the wrapper returns. A wrapper that
+    throws, or never runs the step, latches the run. The wrapper's
+    `next()` is closed once the wrapper returns.
+  - **Order.** A run's own hooks come before its plugin's: the first
+    matching interception answers, rewrites apply in order, and both sets
+    of observers run.
+  - **Platform calls.** Platform calls a plugin makes outside an
+    invocation are not attributed yet: the harness refuses a facade
+    request outside every invocation. So only an `around` wrapper's calls,
+    made in the invocation, reach the facade. Giving plugin calls the
+    site's identity is planned.
+  - **Step code** has `wl.latch` and `wl.signal` (on `globalThis`,
+    [harness protocol](0004-harness-protocol.md#host-plugins)). A step's
+    latch latches its run, a script job's included. Its signal is the
+    invocation's, which aborts when the engine abandons the step.
+  - **No signal for plugin hooks.** A hook runs outside every invocation,
+    and the run's end only stops the engine waiting for it.
+  - **Settlement.** A hook holds the run's settlement from the moment it
+    is called until it has finished, even after the engine stopped waiting
+    for it, so a run's resources outlive its hooks. That includes a
+    provider call that a step started, whose step settled first.
+  - **Host mode.** A host-mode run carries its own hooks and budgets (H3,
+    H4, H7, H8, H10) in its `run` frame. `onRunEnd` runs for a canceled run
+    too, with the plugin timeout alone.
+  - **Records.** A TypeScript hook's records and traces carry every field
+    a Go hook's do.
 - **Halts are carried per run.** A Go host gives a run's halts in that
   run's hooks, and a host-mode host in that run's `run` frame
   (`halt_before`, `halt_after`), which the engine decodes into the run's
-  own hooks ahead of its plugin's ([0004](0004-harness-protocol.md)). The
+  own hooks ahead of its plugin's ([harness protocol](0004-harness-protocol.md)). The
   engine checks a frame's selectors as it checks a plugin's, and refuses
   the run when one fails. A plugin's halts, declared once for its host,
   apply to every run of that host.
@@ -240,14 +260,16 @@ Two further rules complete it:
   signal, and a completion that ends the run keeps its status. The
   `run_halt_*` cases of `conformance/plugins/hooks.yaml` show it through
   Go callbacks, a TypeScript plugin, and in host mode.
-- Milestone K1 added the two rules after the precedence paragraph, and
-  widened H4's FX-38 exception from "the failure module" to whatever the
-  continue decision asks for, which FX-19 shows can be a retry or the next
-  module. The paragraph named neither how that exception passes the next
-  start check nor where halting applies, and the engine needs both to
-  implement one order.
+- **The two rules after the precedence paragraph** say how the
+  cancellation's exception passes the next start check and where halting
+  applies. The engine needs both to implement one order. H4's exception
+  to the cancellation rule of [FX-38](../semantics/execution.md#fx-38)
+  covers whatever the continue decision asks for, not only the failure
+  module, since [FX-19](../semantics/execution.md#fx-19) shows that it can
+  be a retry or the next module.
 
 ## Spec IDs relied on
 
 FX-2, FX-19, FX-23, FX-26, FX-28, FX-30, FX-38, FX-39, OF-2, CF-5, CF-7, and the
-identity encoding of [0011](0011-differential-testing.md).
+identity encoding of
+[differential testing](0011-differential-testing.md#step-identity-encoding-answers-q-or-17).
