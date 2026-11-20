@@ -778,10 +778,13 @@ and `expect.error`. An error match needs a `name`, `message`, `prefix` or
 substring, and cannot combine `message` with `prefix` or `contains`.
 
 The oracle's test checks that `expr` is the flow's expression at the site,
-that `previous_id` is the module before it, and the `flow_input`; it refuses
-slot sites. It also checks three things:
+and that `previous_id` is the module before it; it refuses slot sites. It
+also checks these things:
 
-- the stored forms of the context's texts are the recorded results;
+- the stored forms of `flow_input`, and of `previous_result` at a top-level
+  flow's first module, are the run's arguments;
+- the stored forms of `previous_result` after another module, and of the
+  texts in `results`, are the recorded results;
 - at an input transform, the stored form of the expected text is the
   recorded argument, and an expected error matches the recorded error;
 - at a `timeout` site, the expected text is exactly the value that the
@@ -907,9 +910,10 @@ windmill-lite's trace. `scripts` are the jobs that executed a script.
   call, so the replay service does not count it. That puts a failed attempt
   `k` at `<site>/r:<k>`, and the last job at `<site>` with `k` the number of
   failed attempts before it.
-- **Below a retried flow step**, each attempt's subflow is walked below the
-  step's `r:<k>`. So a subflow step's jobs are ordered by the flow step's
-  attempt first, then by their own.
+- **Below a retried flow step**, each failed attempt's subflow is walked
+  below the step's `r:<k>`, and the last attempt's below the step's own
+  site. So a subflow step's jobs are ordered by the flow step's attempt
+  first, then by their own.
 - **A script job that never called** fails the run with `stub_not_called`
   and the sorted sites.
 

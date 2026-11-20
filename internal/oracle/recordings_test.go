@@ -277,10 +277,12 @@ func sameStored(text string, recorded []byte) error {
 // TestUnitCasesMatchRecordings ties each unit case of a flow fixture to
 // its flow and its recording, so that package expr's tests check the
 // pipeline with the context the oracle's run had: the expression is the
-// one at the site, the previous id is the module before it, the previous
-// result's and the database reads' stored forms are the recorded results,
-// and, at an input transform, the expected text's stored form is the
-// recorded argument and an expected error is the recorded one.
+// one at the site; the previous id is the module before it; the flow
+// input's stored form, and the previous result's at a top-level flow's
+// first module, are the run's arguments; the previous result's after
+// another module and the database reads' stored forms are the recorded
+// results; and, at an input transform, the expected text's stored form is
+// the recorded argument and an expected error is the recorded one.
 func TestUnitCasesMatchRecordings(t *testing.T) {
 	dirs, err := conformance.FindFixtures(flowsDir)
 	if err != nil {
