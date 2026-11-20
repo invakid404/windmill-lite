@@ -1222,9 +1222,18 @@ func TestOutputPipesCloseAfterExit(t *testing.T) {
 	if d := time.Since(start); d > 2500*time.Millisecond {
 		t.Fatalf("Done after %s, as late as the child's exit", d)
 	}
+	// A reader marks itself done in a deferred call, so for a moment after
+	// Done it can still be on its way out of copyLines. Look again for a
+	// short while: one still reading would stay until the child's exit,
+	// about 2 s from now.
 	b := make([]byte, 1<<20)
-	if stack := string(b[:runtime.Stack(b, true)]); strings.Contains(stack, "harness.(*Process).copyLines") {
-		t.Fatal("an output pipe is still being read after Done")
+	reading := func() bool {
+		return strings.Contains(string(b[:runtime.Stack(b, true)]), "harness.(*Process).copyLines")
+	}
+	for deadline := time.Now().Add(250 * time.Millisecond); reading(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("an output pipe is still being read after Done")
+		}
 	}
 	if _, err := p.outR.Stat(); err == nil {
 		t.Fatal("the stdout read end is still open")
