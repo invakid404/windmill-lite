@@ -371,7 +371,7 @@ func transformError(err error, collapsed bool) jsonval.Value {
 }
 
 // evalText is an evaluation's error text: the evaluator's message, with
-// Windmill's texts (B2b).
+// Windmill's texts.
 func evalText(err error) string {
 	var ee *expr.EvalError
 	if errors.As(err, &ee) {

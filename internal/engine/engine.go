@@ -20,25 +20,27 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// Engine runs the flows of one compiled program (ir.Program, ADR 0002):
-// the flow interpreter of ADR 0003, milestone N1a's engine core with
-// N1b's errors, N2's waits and time, N3a's for loops and N3b's while
-// loops and branches. It runs a flow's top-level modules in sequence,
-// through Windmill's decision list (FX-2): input transforms and the
-// argument pipeline (FX-7, ADR 0005), the results routes of expressions
-// (FX-10, JE-18), skip_if (FX-17), mock (FX-18), identity (FX-16),
-// stop_after_if and its stops (FX-19, FX-21), sleep (FX-23), the step
-// timeout (FX-24, FX-25), retry and retry_if (FX-26 to FX-29),
-// continue_on_error (FX-30), the failure module and recovery (FX-31 to
-// FX-33), chaining errors (FX-15), the final result (FX-36), the
+// Engine runs the flows of one compiled program (ir.Program, ADR 0002): the
+// flow interpreter of ADR 0003, containers and subflows included. It runs a
+// flow's top-level modules in sequence, through Windmill's decision list
+// (FX-2): input transforms and the argument pipeline (FX-7, ADR 0005), the
+// results routes of expressions (FX-10, JE-18), skip_if (FX-17), mock
+// (FX-18), identity (FX-16), stop_after_if and its stops (FX-19, FX-21),
+// sleep (FX-23), the step timeout (FX-24, FX-25), retry and retry_if (FX-26
+// to FX-29), continue_on_error (FX-30), the failure module and recovery
+// (FX-31 to FX-33), chaining errors (FX-15), the final result (FX-36), the
 // cancellation outcome (FX-38), the monitor of flows that hang between
-// steps (JE-2), and the host hooks of K1 with their precedence (ADR 0008).
-// Features that later milestones implement are refused when the engine
-// opens, with ErrUnsupported, never midway through a run (ADR 0001 §3's
-// rule).
+// steps (JE-2), and the host hooks with their precedence (ADR 0008).
+// A construct that the engine does not run, such as a preprocessor module,
+// is refused when the engine opens, with ErrUnsupported, never midway
+// through a run (ADR 0001 §3's rule); a few settings, such as a flow's
+// metadata timeout and a loop's squash, are accepted and ignored.
 //
-// An Engine is safe for concurrent use: runs share nothing but the program,
-// the expression pipeline and the step executor.
+// An Engine is safe for concurrent use. Its runs share the program, the
+// expression pipeline, the step executor (unless RunRequest.Exec gives a
+// run its own), the platform services (unless RunRequest.Platform does)
+// and the result cache; each run has its own trace, latch and scheduling
+// state.
 type Engine struct {
 	prog   *ir.Program
 	bundle string
@@ -50,9 +52,9 @@ type Engine struct {
 	// evaluating expressions before the monitor cancels it (JE-2); zero
 	// disables the monitor.
 	transition time.Duration
-	// platform is the platform providers the run reads (PF2).
+	// platform is the platform providers the run reads.
 	platform *platform.Services
-	// results is the result cache of cache_ttl (N4): the platform's, or
+	// results is the result cache of cache_ttl: the platform's, or
 	// the engine's own when it has none.
 	results platform.ResultCache
 	// moduleState is the module-state mode every invocation runs in;
@@ -93,13 +95,13 @@ type Config struct {
 	TransitionTimeout time.Duration
 	// Platform holds the platform services runs use (ADR 0007): the
 	// resources, variables and secrets read through a leaf's argument
-	// resolution, flow_env and the expression helpers (milestone PF2), and
-	// the job registry each run is registered with and the flow user state
-	// flow_user_state() reads (milestone PF3). nil means none, so every
-	// read is a not-found and no run is registered. A host gives the
-	// facade the same services. Its result cache holds the results of the
-	// jobs that run with a cache_ttl (milestone N4, FX-40); with no
-	// services, the engine keeps one of its own.
+	// resolution, flow_env and the expression helpers, and the job registry
+	// each run is registered with and the flow user state flow_user_state()
+	// reads. nil means none: a resource or variable read is a not-found,
+	// flow_user_state() gives null, and no run is registered. A host gives
+	// the facade the same services. Its result cache holds the results of
+	// the jobs that run with a cache_ttl (FX-40); with no services, the
+	// engine keeps one of its own.
 	Platform *platform.Services
 	// ModuleState is the module-state mode the engine's invocations run in
 	// (ADR 0006), which its Exec must serve: ModuleStateWarm, the default,
@@ -137,7 +139,7 @@ type ProvideFunc func(ctx context.Context, r Run, s Site, provider string, args 
 var ErrProviderDeclined = errors.New("provider_declined")
 
 // ErrUnsupported marks a program that uses a feature the engine does not
-// run yet, because a later milestone of ADR 0012 implements it.
+// run, such as a preprocessor module or a container as the failure module.
 var ErrUnsupported = errors.New("not supported by the engine yet")
 
 // New opens a program: it checks that every flow stays within what the
@@ -289,12 +291,11 @@ func flowModules(f *ir.Flow) []*ir.Module {
 }
 
 // supported checks that f uses only what the engine runs, scripts being
-// the program's inventory. Each refusal names the milestone of ADR 0012
-// that implements the feature. A flow's metadata timeout (OF-16) is
-// accepted and enforces nothing; its value.timeout is the flow's
-// wall-clock limit, which the run enforces (FX-52). N2's waits and retries
-// run on every module, containers and their bodies included (milestone
-// NI).
+// the program's inventory. Each refusal names the feature. A flow's
+// metadata timeout (OF-16) is accepted and enforces nothing; its
+// value.timeout is the flow's wall-clock limit, which the run enforces
+// (FX-52). Waits and retries run on every module, containers and their
+// bodies included.
 func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	switch {
 	case f.PreprocessorModule != nil:
@@ -518,13 +519,13 @@ type RunRequest struct {
 	// none.
 	PreWriteDeadline time.Time
 	// Around, when set, gives the around wrappers of a host plugin that
-	// apply at a leaf's site (ADR 0008 H1, milestone F2c), which the
-	// engine puts on the leaf's invocation (Invocation.Around); the
-	// harness runs the step inside them. It is called once per
-	// invocation, from the goroutine that launches it.
+	// apply at a leaf's site (ADR 0008 H1), which the engine puts on the
+	// leaf's invocation (Invocation.Around); the harness runs the step
+	// inside them. It is called once per invocation, from the goroutine
+	// that launches it.
 	Around func(Site) []int
 	// Started, when not nil, is called once the run exists, before it
-	// starts anything, with the run's context and handle (milestone F2c):
+	// starts anything, with the run's context and handle:
 	// what serves the run outside its hooks, such as its own platform
 	// providers, latches it through the handle (H5) and holds its
 	// settlement through the context (HoldSettlement). The context ends

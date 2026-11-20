@@ -38,10 +38,10 @@ var budgetBounds = []struct {
 // It runs only with WL_EXPR_BUDGET set: "gate" fails a paced row past its
 // bounds, which holds on the benchmark machine only; "report" prints the
 // table, as CI does from its shared runners and from the static musl
-// engine (review item cl R3-2). Back-to-back load, and the paced load with
-// fetch_order as the previous step (its value then bound twice, as
-// previous_result and from memory), are reported beside the gate.
-// WL_EXPR_BUDGET_SECONDS sets the length of each row (default 3).
+// engine. Back-to-back load, and the paced load with fetch_order as the
+// previous step (its value then bound twice, as previous_result and from
+// memory), are reported beside the gate. WL_EXPR_BUDGET_SECONDS sets the
+// length of each row (default 3).
 func TestBudgetGate(t *testing.T) {
 	mode := os.Getenv("WL_EXPR_BUDGET")
 	if mode != "gate" && mode != "report" {

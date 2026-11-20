@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// ResultCache is the result cache service of ADR 0007 (milestone N4): the
+// ResultCache is the result cache service of ADR 0007: the
 // results of the jobs that run with a cache_ttl, a step's or a whole flow's,
 // kept under the key the engine computes from the job and its arguments,
 // each until its expiry (FX-40). The engine owns the key, the TTL rules and
@@ -83,8 +83,7 @@ func (m *MemoryResults) Put(_ context.Context, key string, value []byte, expires
 	if n := m.byExpiry.Len(); n > minResultRebuild && n > 2*len(m.entries) {
 		// Most of the heap is older expiries of keys stored again: keep
 		// only the live entries' own, in the same backing array, and
-		// clear the slots past them, so that their keys can be collected
-		// (N4 review, P3).
+		// clear the slots past them, so that their keys can be collected.
 		old := m.byExpiry
 		m.byExpiry = old[:0]
 		for k, e := range m.entries {

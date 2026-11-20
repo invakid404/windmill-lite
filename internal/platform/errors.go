@@ -26,8 +26,8 @@ type Error struct {
 // location (SqlErr, the error kinds, InternalErrLoc, Anyhow) are written
 // without it, as every message windmill-lite generates in place of
 // Windmill's is (D14); JsonErr's payload rendering and the fixed sentences
-// of WorkersAreBehind, MigrationNeeded and FeatureUnavailable are left to
-// the milestone that first answers them.
+// of WorkersAreBehind, MigrationNeeded and FeatureUnavailable are left
+// out, as nothing in windmill-lite answers with those variants.
 var errorVariants = map[string]struct {
 	status int
 	format string

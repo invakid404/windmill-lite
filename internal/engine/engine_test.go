@@ -892,8 +892,9 @@ func TestEngineTimeouts(t *testing.T) {
 	wantStatus(t, runIt(t, e, `{"x":1}`, nil), conformance.RunSuccess, `{"x":1}`)
 }
 
-// The engine refuses at open what later milestones implement, naming the
-// milestone, never midway through a run.
+// TestEngineRefusesWhatItDoesNotRun checks that the engine refuses at open
+// the constructs it does not run, never midway through a run, and opens
+// the ones it runs.
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
 		"failure module branchone": `{"modules":[],"failure_module":{"id":"f","value":{"type":"branchone","branches":[],"default":[]}}}`,
@@ -905,13 +906,13 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	// What milestones N2 and NI run opens: retries, sleeps, javascript and
+	// What the engine runs opens: retries, sleeps, javascript and
 	// negative timeouts (a negative one is unset, FX-24),
 	// a static timeout of null, a failure module's retry, a loop's static
 	// timeout and a loop's body's, and all of them in and on containers.
 	for name, value := range map[string]string{
 		"failure module retry": `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"},"retry":{"constant":{"attempts":1,"seconds":0}}}}`,
-		// A retry on a flow step (milestone N5).
+		// The caller's retry applies to a failed subflow, as on Windmill.
 		"retry on a subflow step": flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}},"retry":{"constant":{"attempts":1,"seconds":1},"retry_if":{"expr":"true"}}}`),
 		"retry":                   flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1},"retry_if":{"expr":"true"}}`)),
 		"sleep":                   flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
@@ -920,10 +921,10 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"null timeout":            flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":0,"seconds":1}},"timeout":{"type":"static","value":null}`)),
 		"loop timeouts":           flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":5}`) + `]},"timeout":{"type":"static","value":3}}`),
 		"a sleep after a loop":    flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`, mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
-		// N2's waits and retries in or on a container, or delaying one
-		// (milestone NI), and a squashed loop, whose squash is accepted
-		// and ignored: it runs unsquashed, which gives the results the
-		// CE image recorded (CF-25/d, the cf-25 fixture).
+		// Waits and retries in or on a container, or delaying one, and a
+		// squashed loop, whose squash is accepted and ignored: it runs
+		// unsquashed, which gives the results the CE image recorded
+		// (CF-25/d, the cf-25 fixture).
 		"loop body retry":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
 		"loop body sleep":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}}`),
 		"loop body js timeout":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`) + `]}}`),

@@ -95,7 +95,7 @@ func TestScriptEnvs(t *testing.T) {
 			t.Errorf("a Bun step's environment has %q = %q", k, v)
 		}
 	}
-	// The job identity sets WM_TOKEN (PF1), and the script's entry never
+	// The job identity sets WM_TOKEN, and the script's entry never
 	// replaces it.
 	if bun["WM_TOKEN"] == "mine" {
 		t.Error("a Bun step's WM_TOKEN is the script's envs entry")

@@ -17,8 +17,9 @@ import (
 
 // TestPoolUnderLoad measures the native pool under the loads of ADR 0003's
 // pool table and budget gate, and prints the latencies. It asserts nothing
-// about them: the budget gate is B2b's. It runs only with WL_QUICKJS_LOAD=1;
-// WL_QUICKJS_LOAD_SECONDS sets the length of each row (default 2).
+// about them: the budget gate is package expr's (TestBudgetGate). It runs
+// only with WL_QUICKJS_LOAD=1; WL_QUICKJS_LOAD_SECONDS sets the length of
+// each row (default 2).
 //
 // The program stands in for an engine-evaluated predicate: it binds a
 // synthetic results value of the row's size and a small flow input as host

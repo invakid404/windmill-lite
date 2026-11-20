@@ -78,13 +78,13 @@ func (s *RunSettlement) fire() {
 	}
 }
 
-// Hold counts work of the run's own that is not an invocation, a host
-// plugin's hook from the moment its host_call is sent until it has
-// finished, which may be after the engine stopped waiting for it
-// (milestone F2c), and returns its release: the run does not settle while
-// it is held. Unlike Track it is allowed after End. Once the run has
-// settled it holds nothing and ok is false: the work must not start, as
-// the run's resources may be gone. Release may be called more than once.
+// Hold counts work of the run's own that is not an invocation, such as a
+// host plugin's hook, held from before its host_call is sent until the hook
+// has finished, which may be after the engine stopped waiting for it, and
+// returns its release: the run does not settle while it is held. Unlike
+// Track it is allowed after End. Once the run has settled it holds nothing
+// and ok is false: the work must not start, as the run's resources may be
+// gone. Release may be called more than once.
 func (s *RunSettlement) Hold() (release func(), ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

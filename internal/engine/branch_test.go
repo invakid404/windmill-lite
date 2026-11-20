@@ -15,10 +15,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The branch tests (milestone N3b) run synthetic flows on the real
-// QuickJS-ng engine, with steps answered in Go; the E3d, E3a and E3b branch
-// fixtures of conformance/flows run the same branches on the real Bun
-// harness (cmd/wltest, TestFlowSuite).
+// The branch tests run synthetic flows on the real QuickJS-ng engine, with
+// steps answered in Go; the branch fixtures of conformance/flows run the
+// same branches on the real Bun harness (cmd/wltest, TestFlowSuite).
 
 // branch writes one branch of a branchone (with a predicate) or of a
 // branchall (with a skip_failure).

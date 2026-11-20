@@ -9,8 +9,7 @@ import (
 
 // Engine is the JavaScript engine that runs expression programs: QuickJS-ng
 // at revision be664ca1 embedded natively (ADR 0003; implemented by
-// internal/expr/quickjs, milestone B1a). The interface keeps the backend
-// replaceable.
+// internal/expr/quickjs). The interface keeps the backend replaceable.
 //
 // An Engine is safe for concurrent use. It knows nothing about flows: the
 // meaning of an expression is in the program source that the pipeline
@@ -126,7 +125,7 @@ const (
 
 // Exception is a value a program threw, or with which its Promise rejected.
 // It carries the engine's own texts and what it knows of the value; the
-// messages written from them are the pipeline's (B2b).
+// messages written from them are the pipeline's.
 //
 // Texts are as the engine converts them to UTF-8, so an unpaired surrogate
 // comes back in its three-byte form, which is not UTF-8 (JE-52).

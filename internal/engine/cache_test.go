@@ -16,8 +16,8 @@ import (
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
-// The result cache tests (milestone N4, FX-40) run synthetic flows on the
-// real QuickJS-ng engine, with steps answered in Go; the E3d fixtures of
+// The result cache tests (FX-40) run synthetic flows on the real QuickJS-ng
+// engine, with steps answered in Go; the fixtures of
 // conformance/flows/execution/fx-40 run the recorded cases on the real Bun
 // harness (cmd/wltest, TestFlowSuite and TestCacheFixturesFreshAndWarm).
 

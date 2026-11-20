@@ -163,7 +163,7 @@ func TestTCPAttribution(t *testing.T) {
 	}
 	// A token two live invocations carry names neither, and goes on naming
 	// none while either is live; once both have ended, a later invocation
-	// is its sole owner (pf1 review 1, P3-3).
+	// is its sole owner.
 	c := f.Register("inv-c", "run-c", env("job-c", "root-c", "shared"))
 	d := f.Register("inv-d", "run-d", env("job-d", "root-d", "shared"))
 	if code, _ := get(t, url, "shared"); code != 401 {
@@ -190,10 +190,10 @@ func TestTCPAttribution(t *testing.T) {
 	}
 }
 
-// A handler that panics, or answers a status no response can carry, gets
-// a 502 in its place on both transports, the record keeps that status, and
-// the call stops counting as in flight, so the 501 policy does not wait
-// for it (pf1 review 1, P2-1).
+// TestHandlerFailuresBothTransports checks that a handler that panics, or
+// answers a status no response can carry, gets a 502 in its place on both
+// transports, the record keeps that status, and the call stops counting as
+// in flight, so the 501 policy does not wait for it.
 func TestHandlerFailuresBothTransports(t *testing.T) {
 	f := newFacade(t, Config{})
 	f.Handle("getJob", func(context.Context, *Call) Reply { panic("boom") })
@@ -226,9 +226,10 @@ func TestHandlerFailuresBothTransports(t *testing.T) {
 	}
 }
 
-// The answer to HEAD, and one with a null-body status, has no body on
-// either transport, so the two give a client the same response; the
-// status and the unsupported call's record stay (pf1 review 1, P2-2).
+// TestBodylessReplies checks that the answer to HEAD, and one with a
+// null-body status, has no body on either transport, so the two give a
+// client the same response; the status and the unsupported call's record
+// stay.
 func TestBodylessReplies(t *testing.T) {
 	f := newFacade(t, Config{})
 	f.Handle("getVariableValue", func(context.Context, *Call) Reply {

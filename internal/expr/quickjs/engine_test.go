@@ -273,7 +273,7 @@ func TestExceptions(t *testing.T) {
 		{`(() => { throw new Proxy({}, {}) })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindProxy}}},
 		{`(() => { throw {message: "m", name: "Error"} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}}},
 		// Nothing converts an object or a symbol: its toString would be the
-		// program's code (review round 1, R1-1).
+		// program's code.
 		{`(() => { throw {toString() { throw new Error("called") }} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}}},
 		{`Promise.reject(null)`, expr.Exception{Thrown: expr.ThrownNull, Text: "null"}},
 		{`(() => { throw undefined })()`, expr.Exception{Thrown: expr.ThrownUndefined, Text: "undefined"}},

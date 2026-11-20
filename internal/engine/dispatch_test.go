@@ -35,13 +35,13 @@ func waitResult(t *testing.T, d *Dispatcher, id string) platform.JobResult {
 	return platform.JobResult{}
 }
 
-// The default dispatcher (ADR 0007, milestone PF3) runs a root of the
-// program as a separate run: a script root as a script job, its own root,
-// with its arguments stored and resolved as a step's (WA-4, WA-5, JE-41);
-// a flow root as a flow run. Each completes with its success and stored
-// result, a failure's value included (WA-15/a); a target that is not a
-// root of the right kind, and a hash, are not in the bundle (ADR 0001
-// §5a); arguments that are not an object are refused.
+// TestDispatcherRunsRoots checks that the default dispatcher (ADR 0007)
+// runs a root of the program as a separate run: a script root as a script
+// job, its own root, with its arguments stored and resolved as a step's
+// (WA-4, WA-5, JE-41); a flow root as a flow run. Each completes with its
+// success and stored result, a failure's value included (WA-15/a); a target
+// that is not a root of the right kind, and a hash, are not in the bundle
+// (ADR 0001 §5a); arguments that are not an object are refused.
 func TestDispatcherRunsRoots(t *testing.T) {
 	s := &scripts{}
 	services := testServices(t)
@@ -625,11 +625,11 @@ func TestDispatchedFlowUserState(t *testing.T) {
 	}
 }
 
-// pf3 review round 1, P2-3: a dispatch's links are taken when it is
-// accepted, so a run that starts after the dispatching job and its run
-// have ended, after a delay or at once, still gets the parent's path. A
-// script's flow path and state path are the parent's; a flow's own job
-// carries them too, which its flow_env's $WM_FLOW_PATH reads (JE-38).
+// TestDispatchedLinksOutliveTheParent checks that a dispatch's links are
+// taken when it is accepted, so a run that starts after the dispatching job
+// and its run have ended, after a delay or at once, still gets the parent's
+// path. A script's flow path and state path are the parent's; a flow's own
+// job carries them too, which its flow_env's $WM_FLOW_PATH reads (JE-38).
 func TestDispatchedLinksOutliveTheParent(t *testing.T) {
 	s := &scripts{}
 	services := testServices(t)

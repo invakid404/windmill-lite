@@ -8,7 +8,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// Milestone N5's engine tests: a retry on a flow step that runs a flow by
+// The engine tests of a retry on a flow step that runs a flow by
 // path (CF-17: the caller's retry applies to a failed subflow), on the
 // synthetic folders and the real QuickJS-ng engine of engine_test.go; the
 // control-flow/subflow-retry fixture runs the same shapes on the real Bun

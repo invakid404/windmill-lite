@@ -57,9 +57,10 @@ const (
 	KindScript = "script"
 )
 
-// RunOptions configure one run. The zero value of every field is a
-// default; the hooks, per-run providers and budgets of later milestones
-// (F2a, F2b) are added here.
+// RunOptions configure one run. A script run reads only Kind and ID; the
+// other fields, among them the hooks, the run's own providers and the
+// pre-write deadline, configure a flow run. The zero value of every field
+// is a default.
 type RunOptions struct {
 	// Kind is KindFlow, the default, or KindScript: a root script of the
 	// bundle, run as a script job (WA-4).
@@ -305,7 +306,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 
 // runServices are the services of a run with its own providers (H13): its
 // resources and variables, when p is not nil, then the host plugin's
-// (F2c), which reach the run through run, over the runtime's, and its
+// which reach the run through run, over the runtime's, and its
 // resolver; behind the run's read cache when the runtime has one
 // (Options.ReadCache).
 func (rt *Runtime) runServices(p *RunPlatform, run *runBinding) (*platform.Services, error) {

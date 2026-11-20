@@ -9,7 +9,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// fakeEngine is the Engine the pipeline's tests run on (ADR 0012, B2a): it
+// fakeEngine is the Engine the pipeline's tests run on (ADR 0012): it
 // records what it compiles and the inputs of each evaluation, and answers
 // with eval when set, or with fakeAnswer.
 type fakeEngine struct {

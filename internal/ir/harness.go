@@ -9,8 +9,8 @@ import (
 // decided per leaf by the pool key, of which the class is a part (0004).
 type Class string
 
-// The harness classes of 0002's table. Only Bun exists in the first
-// release; the others are the later harnesses of milestone L1.
+// The harness classes of 0002's table. Only the Bun harness exists; the
+// others are planned harnesses.
 const (
 	ClassBun     Class = "bun"
 	ClassPython3 Class = "python3"

@@ -12,8 +12,8 @@ import (
 // notation, as rquickjs prints a thrown value's payload (JE-21), on the
 // expected texts of testdata/debugform.json, which rustc printed. The
 // floats include values whose two shortest digit strings tie, which Rust
-// breaks upward and Go's own shortest formatting does not (review round 1,
-// R1-2); the strings include characters escaped for every reason Rust has.
+// breaks upward and Go's own shortest formatting does not; the strings
+// include characters escaped for every reason Rust has.
 func TestDebugFormMatchesRust(t *testing.T) {
 	data, err := os.ReadFile("testdata/debugform.json")
 	if err != nil {

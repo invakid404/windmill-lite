@@ -12,10 +12,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The while-loop tests (milestone N3b) run synthetic flows on the real
-// QuickJS-ng engine, with steps answered in Go; the E3d and E3a while-loop
-// fixtures of conformance/flows run the same loops on the real Bun harness
-// (cmd/wltest, TestFlowSuite).
+// The while-loop tests run synthetic flows on the real QuickJS-ng engine,
+// with steps answered in Go; the while-loop fixtures of conformance/flows
+// run the same loops on the real Bun harness (cmd/wltest, TestFlowSuite).
 
 // whileOf writes a while loop module: its body modules and its
 // skip_failures, with envelope fields after them.

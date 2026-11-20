@@ -17,8 +17,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// A host plugin needs a warm harness: a fresh runtime refuses one, and in
-// host mode the plugin is the host's, not Options.Plugin (F2c).
+// TestPluginRefusedWhereItCannotRun checks that a host plugin needs a warm
+// harness: a fresh runtime refuses one, and in host mode the plugin is the
+// host's, not Options.Plugin.
 func TestPluginRefusedWhereItCannotRun(t *testing.T) {
 	dir := writeTestBundle(t, "test-engine", nil, nil)
 	if _, err := Open(dir, Options{EngineVersion: "test-engine", ModuleState: ModuleStateFresh, Plugin: "/nonexistent/plugin.ts"}); err == nil || !strings.Contains(err.Error(), "warm") {
@@ -85,9 +86,10 @@ func TestPluginProviders(t *testing.T) {
 	}
 }
 
-// The declaration becomes Go hooks whose callbacks send host_calls: each
-// with its hook, run, site and payload, an interception by its index; a
-// reply's decline, an error and a timeout are what F2a's seams take.
+// TestPluginHooksAsHostCalls checks that the declaration becomes Go hooks
+// whose callbacks send host_calls: each with its hook, run, site and
+// payload, an interception by its index; a reply's decline, an error and a
+// timeout become what a Go host's hook would return.
 func TestPluginHooksAsHostCalls(t *testing.T) {
 	type sent struct {
 		hook, run, site string
@@ -167,10 +169,10 @@ type runID string
 func (r runID) ID() string    { return string(r) }
 func (runID) Latch(err error) {}
 
-// A plugin's hook holds its run's settlement while the host_call is in
-// flight, from before it is sent (F2c review R2-1): the run does not
-// settle while the hook runs; and a hook of a run that has settled is not
-// called at all, its resources being gone.
+// TestPluginCallsHoldSettlement checks that a plugin's hook holds its run's
+// settlement while the host_call is in flight, from before it is sent: the
+// run does not settle while the hook runs; and a hook of a run that has
+// settled is not called at all, its resources being gone.
 func TestPluginCallsHoldSettlement(t *testing.T) {
 	rt := openHooks(t)
 	inCall := make(chan struct{})

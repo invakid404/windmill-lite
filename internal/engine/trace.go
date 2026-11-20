@@ -9,8 +9,8 @@ import (
 
 // Trace is what every run returns besides its result (H9): per site, what
 // happened and why, with the provenance and timings that comparisons and
-// replay need. Its wire form belongs to the adapters (runner.proto,
-// milestone F5).
+// replay need. Its wire form belongs to the host adapters (ADR 0009), such
+// as the go-plugin adapter's runner.proto, which is not built yet.
 //
 // One run builds its trace, and the trace it returns when it ends is a
 // snapshot that nothing changes afterwards, so hosts read it without
@@ -67,9 +67,8 @@ type Trace struct {
 	// Spans are the run's timings (ADR 0011, run spans).
 	Spans []Span
 	// PlatformCalls are the platform calls the run's steps made, as the
-	// platform facade recorded them (ADR 0007). The runtime that serves
-	// the facade fills them (wl, milestone F1); the engine itself does
-	// not see the facade.
+	// platform facade recorded them (ADR 0007). The runtime that serves the
+	// facade fills them (wl); the engine itself does not see the facade.
 	PlatformCalls []PlatformCall
 }
 
@@ -106,10 +105,10 @@ func (t *Trace) Step(p conformance.SitePath) (StepRecord, bool) {
 // module's attempts after a tolerated failure (FX-29).
 type StepRecord struct {
 	Site conformance.SitePath
-	// Superseded marks a record that Windmill's job tree no longer reaches
-	// (milestone NI): what a container's failed attempt ran besides the job
-	// its retry records (CF-22), and the job a collapsed iteration never
-	// pushed. Trace.Step and observations leave it out.
+	// Superseded marks a record that Windmill's job tree no longer reaches:
+	// what a container's failed attempt ran besides the job its retry
+	// records (CF-22), and the job a collapsed iteration never pushed.
+	// Trace.Step and observations leave it out.
 	Superseded bool
 	// Attempt is the module's attempt the record is of: 0 for its first
 	// run, n for its nth retry.

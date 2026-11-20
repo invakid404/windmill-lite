@@ -16,14 +16,19 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The expression suite on the real engine (milestone B2b, ADR 0012): every
-// expression that recording batch E3a recorded, a context-free case of
-// conformance/exprs or a unit case of a flow fixture, runs through the
-// pipeline on QuickJS-ng with the context its recording gives, at unit
-// level as in B2a. The evaluator is held to the case's whole expectation,
-// and an error to the text the oracle recorded, byte for byte.
+// The expression suite on the real engine (ADR 0012): every recorded
+// expression, a context-free case of conformance/exprs or a unit case of a
+// flow fixture, runs through the pipeline on QuickJS-ng with the context
+// its recording gives, at unit level as in the pipeline cases
+// (conformance_test.go). The evaluator is held to the case's whole
+// expectation, and an error's text must be held whole by one of the
+// messages the oracle recorded (holdsText). The cases of engineSkipped do
+// not run, a case of engineDeviations gives its deviation's value instead,
+// and the transcendental Math cases may differ in the last place on another
+// libm (mathCheck).
 
-// engineSkipped are the E3a cases the suite does not run, with the reason.
+// engineSkipped are the recorded cases the suite does not run, with the
+// reason.
 var engineSkipped = map[string]string{
 	// The evaluation takes Windmill's three 20 s attempts and two 5 s
 	// pauses, about 70 s, before the recorded timeout error surfaces.
@@ -36,7 +41,7 @@ var engineSkipped = map[string]string{
 	"JE-11/e": "the recording masks the panic report's message",
 }
 
-// engineDeviations are the E3a cases whose recorded outcome windmill-lite
+// engineDeviations are the cases whose recorded outcome windmill-lite
 // does not give, by a named deviation of ADR 0001, with the evaluator text
 // it gives instead.
 var engineDeviations = map[string]struct{ deviation, text string }{
@@ -46,9 +51,12 @@ var engineDeviations = map[string]struct{ deviation, text string }{
 	"JE-48/a": {"D17", "null"},
 }
 
-// TestE3aOnEngine is the exit gate of B2b: each E3a case gives the value,
-// the text or the error its recording expects, and each error that the
-// oracle recorded holds the evaluator's text exactly.
+// TestE3aOnEngine checks each recorded case outside engineSkipped against
+// its recording, by engineCheck's rules: the value, the text or the error
+// the recording expects, where a transcendental Math case may differ in
+// the last place (mathCheck), or for a case of engineDeviations the
+// deviation's value. It also checks that one of the messages the oracle
+// recorded holds each evaluator error's text whole.
 func TestE3aOnEngine(t *testing.T) {
 	e3a := loadE3a(t)
 	p := NewPipeline(realEngine(t, DefaultLimits(), 0))
@@ -88,8 +96,8 @@ func TestE3aOnEngine(t *testing.T) {
 			exact++
 		})
 	}
-	// The suite cannot pass empty: E3a recorded over a hundred expressions,
-	// and over ten of them fail with an engine text.
+	// The suite cannot pass empty: the oracle recorded over a hundred
+	// expressions, and over ten of them fail with an engine text.
 	if ran < 100 || exact < 10 {
 		t.Errorf("%d cases ran and %d recorded texts matched; the suite has gone empty", ran, exact)
 	}
@@ -239,12 +247,11 @@ func sameStored(got, want string) error {
 	return nil
 }
 
-// mathCheck compares the transcendental Math cases of JE-1 (review item
-// cl R3-2), whose values come from the C library's libm. Only the glibc of
-// Windmill's image is sure to give the oracle's digits: another libm, or
-// another release of glibc, may give a value one unit in the last place
-// apart, which deviation D16 of ADR 0001 names. Each difference is logged;
-// a larger one fails.
+// mathCheck compares the transcendental Math cases of JE-1, whose values
+// come from the C library's libm. Only the glibc of Windmill's image is
+// sure to give the oracle's digits: another libm, or another release of
+// glibc, may give a value one unit in the last place apart, which deviation
+// D16 of ADR 0001 names. Each difference is logged; a larger one fails.
 func mathCheck(key, got, want string, deviations map[string][]string) error {
 	var g, w []string
 	if err := json.Unmarshal([]byte(got), &g); err != nil {

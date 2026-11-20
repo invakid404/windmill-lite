@@ -214,11 +214,11 @@ func (x *failingExec) Execute(ctx context.Context, inv Invocation) (StepOutcome,
 	return StepOutcome{}, context.Cause(ctx)
 }
 
-// JE-V3, ADR 0005 item 5 (pf2 review 1, P2-2): a job whose arguments
-// resolved records them as O3 however its execution ends, after a timeout,
-// a cancellation or an executor's error, as the executor received them,
-// while O2 keeps the markers; a job whose resolution failed has no
-// resolved arguments, and its O3 stays its O2.
+// TestEngineResolvedArgsOnExecutionError checks that a job whose arguments
+// resolved records them as O3 (JE-V3, ADR 0005 item 5) however its
+// execution ends, after a timeout, a cancellation or an executor's error,
+// as the executor received them, while O2 keeps the markers; a job whose
+// resolution failed has no resolved arguments, and its O3 stays its O2.
 func TestEngineResolvedArgsOnExecutionError(t *testing.T) {
 	const recorded, resolved = `{"v":"$var:u/t/v"}`, `{"v":"s3cr3t"}`
 	in := inputs("v", static(`"$var:u/t/v"`))

@@ -37,9 +37,9 @@ type Run interface {
 
 // Hooks are the engine's internal hook seams (ADR 0008). The engine calls
 // them at the points each method names, with the precedence of Start,
-// Completion and AfterContinue. The hook milestones (F2a, F2b, F2c) expose
-// them to hosts as Go callbacks and TypeScript plugins; selector matching
-// happens behind this interface.
+// Completion and AfterContinue. Hosts reach them as Go callbacks (package
+// wl) and as TypeScript host plugins; selector matching happens behind
+// this interface.
 //
 // A non-nil error returned by any method latches the run with that error
 // (H5), unless it is the run's own cancellation (see HookLatchError). A hook

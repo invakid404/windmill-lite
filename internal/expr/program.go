@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 )
 
-// The program an evaluation runs on the engine (milestone B2b), around an
+// The program an evaluation runs on the engine, around an
 // expression's Source. An evaluation runs these scripts on one fresh
 // context, in order, each a strict-mode global script named eval_script
 // (JE-21, JE-50):
@@ -109,7 +109,7 @@ func prefetch(e *Expr, results bool) string {
 // then too, so replacements do not reach them; Error, which the helpers
 // construct, is looked up when they throw.
 // The conversion functions come after the helpers, so that the helpers'
-// lines are the ones E3a's stacks show.
+// lines are the ones the recorded stacks show.
 var preludeContext = `{
   const parse = JSON.parse, hasOwn = Object.hasOwn, apply = Reflect.apply, then = Promise.prototype.then, rebuilt = hasOwn(globalThis, "` + hostRebuild + `") ? parse(globalThis.` + hostRebuild + `) : [];
   delete globalThis.` + hostRebuild + `; for (const name of ` + mustJSON(hostStringNames) + `) if (hasOwn(globalThis, name)) globalThis[name] = convert(name, globalThis[name]);

@@ -17,8 +17,9 @@ import (
 
 // The engine-level cases of testdata/engine: each encodes a catalogue case
 // (docs/semantics/conformance.md) or a rule of its finding, as the outcome
-// the engine itself produces. Messages are not compared: Windmill's texts
-// wrap these outcomes in the pipeline (B2b).
+// the engine itself produces. The pipeline's Windmill-formatted messages
+// are not compared, as the pipeline writes them around these outcomes; the
+// exception's own message is compared when a case gives one.
 
 type caseFile struct {
 	Finding string       `json:"finding"`
@@ -83,7 +84,7 @@ type exceptionExpect struct {
 }
 
 // caseWrapper turns a case's expr into a program: a stand-in for the
-// pipeline's wrapper (B2b) that awaits the value and serialises it as JE-15
+// pipeline's wrapper that awaits the value and serialises it as JE-15
 // says.
 func caseWrapper(e string) string {
 	return "(async () => { const v = await (async () => (" + e + "))(); return JSON.stringify(v ?? null); })()"
@@ -254,8 +255,8 @@ func checkException(t *testing.T, ex *expr.Exception, want *exceptionExpect) {
 	}
 }
 
-// The catalogue cases of the findings whose limits B1a checks at the engine
-// level must all be encoded, with the catalogue's provenance.
+// The catalogue cases of the findings whose limits this package checks at
+// the engine level must all be encoded, with the catalogue's provenance.
 var engineFindings = regexp.MustCompile(`^- \*\*(JE-(?:1|2|3|48)/[a-z]+)\*\* · ([a-z-]+) ·`)
 
 func TestEngineCasesCoverTheCatalogue(t *testing.T) {

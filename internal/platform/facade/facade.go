@@ -1,11 +1,10 @@
-// Package facade is the platform facade of ADR 0007 (milestones PF1 to
-// PF3): the Go router behind the stock client's platform calls, attributed
-// to the invocation that made each one, over the harness's intercepted
-// fetch in warm and host-mode processes and over loopback TCP in fresh
-// ones, with Windmill's status codes and text/plain error bodies, the 501
-// policy for the routes windmill-lite does not serve, the resource and
-// variable reads (PF2), and the job registry's lookups, flow user state,
-// the object store and dispatch (PF3).
+// Package facade is the platform facade of ADR 0007: the Go router behind
+// the stock client's platform calls, attributed to the invocation that
+// made each one, over the harness's intercepted fetch in warm and
+// host-mode processes and over loopback TCP in fresh ones, with Windmill's
+// status codes and text/plain error bodies, the 501 policy for the routes
+// windmill-lite does not serve, the resource and variable reads, and the
+// job registry's lookups, flow user state, the object store and dispatch.
 package facade
 
 import (
@@ -168,13 +167,13 @@ type Config struct {
 	// calls of an invocation that is abandoned and never released.
 	Answered func(inv string, call Record)
 	// Platform holds the services the facade's routes answer from: the
-	// resources, variables and secrets of milestone PF2, and the job
-	// registry, flow user state, object store and dispatcher of milestone
-	// PF3. The engine that runs the steps takes the same *Services, so
-	// that the runs it registers are the ones the facade looks up. nil
-	// means empty services of the facade's own: every read is a
-	// not-found, the registry knows only the facade's invocations, and no
-	// dispatch target is in the bundle.
+	// resources, variables and secrets, and the job registry, flow user
+	// state, object store and dispatcher. The engine that runs the steps
+	// takes the same *Services, so that the runs it registers are the ones
+	// the facade looks up. nil means empty services of the facade's own,
+	// each field at its default (platform.Services): no resource or
+	// variable is found, the registry knows only the facade's invocations,
+	// an object call answers 500, and no dispatch target is in the bundle.
 	Platform *platform.Services
 }
 

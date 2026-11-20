@@ -296,7 +296,7 @@ func TestRunSettlementIgnoresDuplicatesAndLateOutput(t *testing.T) {
 		t.Fatalf("a duplicate Settled changed the run: fired %d, open %d", fired.Load(), run.Open())
 	}
 	// Once the run has settled, nothing reads its trace (OnRunSettled has
-	// had it), and its Reporters let go of it (lever J5): the duplicate is
+	// had it), and its Reporters let go of it: the duplicate is
 	// dropped, and so is later output.
 	want := []string{"settled completed"}
 	if got := rec.get(); fmt.Sprint(got) != fmt.Sprint(want) {
@@ -314,10 +314,10 @@ func TestRunWithNoInvocationsSettlesAtEnd(t *testing.T) {
 	}
 }
 
-// A hold (a host plugin's hook, milestone F2c) keeps an ended run from
-// settling until it is released, once however often; one asked for after
-// the run settled holds nothing and says so; and HoldSettlement finds the
-// settlement in a run's context only.
+// TestRunSettlementHolds checks that a hold (a host plugin's hook) keeps an
+// ended run from settling until it is released, once however often; one
+// asked for after the run settled holds nothing and says so; and
+// HoldSettlement finds the settlement in a run's context only.
 func TestRunSettlementHolds(t *testing.T) {
 	var fired atomic.Int32
 	run := NewRunSettlement(func() { fired.Add(1) })

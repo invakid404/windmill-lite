@@ -13,10 +13,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The subflow tests (milestone N3c) run synthetic flows on the real
-// QuickJS-ng engine, with steps answered in Go; the E3a, E3c and N3c
-// fixtures of conformance/flows run the same subflows on the real Bun
-// harness (cmd/wltest, TestFlowSuite).
+// The subflow tests run synthetic flows on the real QuickJS-ng engine,
+// with steps answered in Go; the subflow fixtures of conformance/flows run
+// the same subflows on the real Bun harness (cmd/wltest, TestFlowSuite).
 
 // subflowOf writes a flow step that runs the flow at path, with input
 // transforms and envelope fields.

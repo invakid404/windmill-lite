@@ -10,7 +10,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/ir"
 )
 
-// Milestone N2's arithmetic and texts: the values of sleep (FX-23, JE-28)
+// The arithmetic and texts of waits: the values of sleep (FX-23, JE-28)
 // and timeout (JE-29), and the retry schedule (FX-26), as pure functions.
 // The engine-level tests are in retry_test.go; the flow fixtures
 // conformance/flows/execution/fx-23 to fx-29 run them on the real Bun

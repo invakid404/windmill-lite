@@ -18,23 +18,24 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The pipeline level (ADR 0012, B2a): testdata/pipeline/<finding>.json
-// holds the cases of the textual pipeline for one finding. A case gives an
-// expression at a site and what Compile makes of it, and either restates a
-// case that recording batch E3a recorded (recorded), whose context the test
-// rebuilds from the recording's case, or gives its own context. With the
-// fake engine, a case checks which route answers: a shortcut's exact text,
-// or the engine's call (what it binds). The engine's value is B2b's, on the
-// real engine.
+// The pipeline level (ADR 0012): testdata/pipeline/<finding>.json holds the
+// cases of the textual pipeline for one finding. A case gives an expression
+// at a site and what Compile makes of it. It restates a recorded case
+// (recorded), whose context the test rebuilds from the recording's case;
+// or it gives its own context; or it gives neither and checks only Compile.
+// With the fake engine, a case with a context checks which route answers: a
+// shortcut's exact text, or the engine's call (what it binds). The engine's
+// value is checked on the real engine.
 
 const (
 	pipelineDir     = "testdata/pipeline"
 	conformanceRoot = "../../conformance"
 )
 
-// gateFindings are the findings of the B2a exit gate: JE-5 to JE-14 (ADR
-// 0012), with JE-V6 and CF-V6, whose cases are spellings of JE-8 and JE-9
-// (0001 §6 gates CF-V6 on B2a). Every E3a case of these findings has a
+// gateFindings are the findings whose recorded cases the pipeline cases
+// must all restate: JE-5 to JE-14 (ADR 0012), with JE-V6 and CF-V6, whose
+// cases are spellings of JE-8 and JE-9 (0001 §6 gates CF-V6 on the textual
+// expression pipeline). Every recorded case of these findings has a
 // pipeline case.
 var gateFindings = []string{"JE-5", "JE-6", "JE-7", "JE-8", "JE-9", "JE-10", "JE-11", "JE-12", "JE-13", "JE-14", "JE-V6", "CF-V6"}
 
@@ -51,7 +52,7 @@ type pipelineCase struct {
 	Provenance string `json:"provenance"`
 	Title      string `json:"title"`
 	Note       string `json:"note,omitempty"`
-	// Recorded names the E3a case the case restates.
+	// Recorded names the recording's case that the case restates.
 	Recorded *recordedRef `json:"recorded,omitempty"`
 	Site     SiteKind     `json:"site"`
 	Text     string       `json:"text"`
@@ -130,9 +131,9 @@ type engineExpect struct {
 	ErrorPrefix *string `json:"error_prefix,omitempty"`
 }
 
-// e3aCase is one case that recording batch E3a recorded, as the pipeline
-// sees it: the expression at its site, the scope its recorded context
-// gives, and what its recorded expectation says of a shortcut's answer.
+// e3aCase is one recorded case, as the pipeline sees it: the expression at
+// its site, the scope its recorded context gives, and what its recorded
+// expectation says of a shortcut's answer.
 type e3aCase struct {
 	key        string
 	spec       string
@@ -143,7 +144,7 @@ type e3aCase struct {
 	// check judges a shortcut's answer against the recorded expectation.
 	check func(out jsonval.Value) error
 	// exprs is the context-free case, or unit the flow fixture's unit case,
-	// whose whole expectation the real engine is held to (B2b).
+	// whose whole expectation the real engine is held to.
 	exprs *conformance.ExprCase
 	unit  *conformance.UnitCase
 	// recorded are the error messages the oracle recorded where the case's
@@ -245,9 +246,9 @@ func unitSite(input string) SiteKind {
 	return SiteInputTransform
 }
 
-// loadE3a returns every expression that recording batch E3a recorded: the
-// cases of conformance/exprs (static values aside, which are not
-// expressions) and the unit cases of the flow fixtures.
+// loadE3a returns every recorded expression: the cases of conformance/exprs
+// (static values aside, which are not expressions) and the unit cases of
+// the flow fixtures.
 func loadE3a(t testing.TB) map[string]*e3aCase {
 	t.Helper()
 	out := map[string]*e3aCase{}
@@ -473,7 +474,7 @@ func (c *pipelineCase) name() string {
 
 // TestPipelineCases runs every pipeline case: Compile's output, and, on the
 // fake engine, the route that answers, a shortcut's text and the engine's
-// bindings. A case that restates an E3a case takes its expression, site,
+// bindings. A case that restates a recorded case takes its expression, site,
 // spec, provenance and context from the recording's case, and a shortcut's
 // answer is also judged against the recorded expectation.
 func TestPipelineCases(t *testing.T) {
@@ -595,10 +596,10 @@ func TestPipelineCases(t *testing.T) {
 }
 
 // TestPipelineCasesOnEngine runs the pipeline cases that say what the real
-// engine gives (expect.engine), each in its own context, and holds the
-// evaluation to it: the cases of the findings whose program the semantics
-// reference corrected after B2b (JE-10, JE-15 to JE-17, JE-21, JE-50 to
-// JE-52), among them catalogue cases no recording holds yet.
+// engine gives (expect.engine) and holds the evaluation to that text, error
+// or error prefix, among them the cases of JE-10, JE-15 to JE-17, JE-21
+// and JE-50 to JE-52. Each such case gives its own context: it is a case
+// of the pipeline's own, not a restated recording.
 func TestPipelineCasesOnEngine(t *testing.T) {
 	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
 	n := 0
@@ -689,12 +690,12 @@ func checkCompiled(t *testing.T, e *Expr, w pipelineExpect) {
 	}
 }
 
-// TestPipelineCoverage holds the exit gate: every case of the gate's
-// findings that E3a recorded, as a context-free case or a unit case of a
-// flow fixture, is restated by exactly one pipeline case; every catalogue
-// case of those findings that an E3a fixture, run or case cites is the spec
-// of a restatement, so a run without its unit case cannot drop out of the
-// gate; and every gate finding has a restatement.
+// TestPipelineCoverage checks that the pipeline cases cover gateFindings:
+// every recorded case of those findings, as a context-free case or a unit
+// case of a flow fixture, is restated by exactly one pipeline case; every
+// catalogue case of those findings that a fixture, run or case cites is
+// the spec of a restatement, so a run without its unit case cannot drop
+// out of the check; and every finding of gateFindings has a restatement.
 func TestPipelineCoverage(t *testing.T) {
 	e3a := loadE3a(t)
 	restated := map[string]string{}
@@ -762,8 +763,8 @@ func TestPipelineCoverage(t *testing.T) {
 	t.Logf("%d E3a cases of the gate's findings, %d restated", n, len(restated))
 }
 
-// TestRecordedCasesThroughPipeline runs every context-free case and every
-// unit case that E3a recorded, of every finding, through the pipeline on
+// TestRecordedCasesThroughPipeline runs every recorded context-free case
+// and unit case, of every finding, through the pipeline on
 // the fake engine: whenever a shortcut answers, its answer must be what the
 // oracle recorded, so no shortcut fires where Windmill ran JavaScript or
 // failed. A flow fixture's expressions that no unit case restates are not
@@ -799,13 +800,13 @@ func TestRecordedCasesThroughPipeline(t *testing.T) {
 }
 
 // TestJE8KeyOrderExample keeps the raw-text assertion of ADR 0003's JE-8
-// example (review item cx R16). Step p returns {"b":1,"a":2}; the next
-// step's results.p is the previous-step shortcut, which answers p's
-// producer text byte for byte, not its stored jsonb order. The recorded
-// argument cannot tell the two apart, since the job API stores it as jsonb;
-// the timeout site's parse error quotes the evaluated text, so the oracle
-// shows the producer's order there, and the jsonb text of the database
-// route when a step sits in between.
+// example. Step p returns {"b":1,"a":2}; the next step's results.p is the
+// previous-step shortcut, which answers p's producer text byte for byte,
+// not its stored jsonb order. The recorded argument cannot tell the two
+// apart, since the job API stores it as jsonb; the timeout site's parse
+// error quotes the evaluated text, so the oracle shows the producer's order
+// there, and the jsonb text of the database route when a step sits in
+// between.
 func TestJE8KeyOrderExample(t *testing.T) {
 	fx, err := conformance.LoadFixture(filepath.Join(conformanceRoot, "flows", "je", "shortcuts"))
 	if err != nil {

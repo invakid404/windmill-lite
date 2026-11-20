@@ -17,9 +17,8 @@ import (
 	"github.com/invakid404/windmill-lite/internal/ir"
 )
 
-// The values of a module's sleep and timeout and the retry delay
-// (milestone N2): the texts Windmill's worker reads them with, and the
-// arithmetic it applies.
+// The values of a module's sleep and timeout and the retry delay: the texts
+// Windmill's worker reads them with, and the arithmetic it applies.
 
 // maxDelay is the longest wait windmill-lite schedules: a sleep beyond it
 // waits this long (about 292 years), where Windmill's scheduled time would

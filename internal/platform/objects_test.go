@@ -73,10 +73,10 @@ func TestDirObjects(t *testing.T) {
 	}
 }
 
-// pf3 review round 1, P2-2: concurrent writers and readers of one object
-// only ever see a version some Put wrote, its content and metadata
-// together, and once the writers are done the object is the last version
-// one of them wrote, whole.
+// TestDirObjectsConcurrentVersions checks that concurrent writers and
+// readers of one object only ever see a version some Put wrote, its content
+// and metadata together, and once the writers are done the object is the
+// last version one of them wrote, whole.
 func TestDirObjectsConcurrentVersions(t *testing.T) {
 	ctx := context.Background()
 	d, err := NewDirObjects(t.TempDir())

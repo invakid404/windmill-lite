@@ -1238,7 +1238,7 @@ func retryBase(o outcome) *childJob {
 // failed attempts, so the walker reaches none (recorded by the
 // cf-22-retried fixture). A flow step's job is its
 // subflow's (CF-17), which moves to the attempt's site with everything it
-// ran, its own retried modules' attempts included (milestone N5, recorded
+// ran, its own retried modules' attempts included (recorded
 // by the control-flow/subflow-retry fixture), even when its input
 // transform failed and the subflow ran nothing (FX-14). A container that
 // failed before any child, a flow step with no job of its own (one the
@@ -2649,7 +2649,7 @@ func (p *runReporter) Warning(w Warning) {
 	r.trace.Warnings = append(r.trace.Warnings, w)
 	r.mu.Unlock()
 	// A host plugin's around wrapper that failed latches the run, as any
-	// failed hook does, and so does a step's wl.latch (H5, milestone F2c);
+	// failed hook does, and so does a step's wl.latch (H5);
 	// the harness reports either ahead of the frame that settles the
 	// invocation, so the latch outranks the step's outcome.
 	r.Latch(LatchOf(w))
@@ -2678,15 +2678,15 @@ func LatchOf(w Warning) error {
 }
 
 // WarningPluginError is the code of a warning that a host plugin's around
-// wrapper failed (milestone F2c); it latches the run.
+// wrapper failed; it latches the run.
 const WarningPluginError = "plugin_error"
 
 // WarningLatch is the code of a warning by which a step latched its run
-// with wl.latch(error) (H5, milestone F2c); it latches the run.
+// with wl.latch(error) (H5); it latches the run.
 const WarningLatch = "latch"
 
 // StepLatch is the latch of a run whose step latched it with
-// wl.latch(error) (H5, milestone F2c); Message is the step's error as the
+// wl.latch(error) (H5); Message is the step's error as the
 // harness describes it.
 type StepLatch struct {
 	Message string
@@ -2695,7 +2695,7 @@ type StepLatch struct {
 func (e *StepLatch) Error() string { return e.Message }
 
 // PluginError is the latch of a run whose host plugin failed in a hook
-// the harness runs itself, an around wrapper (milestone F2c).
+// the harness runs itself, an around wrapper.
 type PluginError struct {
 	Message string
 }

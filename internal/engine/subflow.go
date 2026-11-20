@@ -8,12 +8,12 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// Subflows by path (milestone N3c): a flow step runs the flow at its path,
+// Subflows by path: a flow step runs the flow at its path,
 // which the compiler put in the program, as a child flow of its own
 // (CF-17). Its input is the step's evaluated arguments, as a script step's
 // are, read back from storage (JE-44, JE-37); it is its own results scope,
 // whose lookups still walk up to its caller's (CF-19, Q-CF-12 in ADR 0001
-// §6), and its own innermost flow scope (WA-V1); it has its own failure
+// §7), and its own innermost flow scope (WA-V1); it has its own failure
 // module and its own flow_env, or its caller's when it defines none (CF-1,
 // JE-38). Its steps see its job id and its path (WA-6). A stop inside it
 // ends only the subflow (CF-12, FX-20). Its flow job runs under the flow

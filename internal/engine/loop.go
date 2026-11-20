@@ -16,13 +16,15 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// A for loop (milestone N3a) runs as a container: it evaluates its iterator
-// once, then runs its body once per element, sequentially or in parallel,
-// and its result is the array of its iterations' results in index order
-// (CF-2 to CF-13). A while loop (N3b) runs its body sequentially until
-// something ends it (CF-10). A sequential loop whose body is one plain step
-// collapses (CF-8): each iteration runs that step as a job of the loop's
-// own flow. Every other iteration runs its body as a child flow (CF-1).
+// A for loop runs as a container: it evaluates its iterator once, then runs
+// its body once per element, sequentially or in parallel, and its result is
+// the array of its iterations' results in index order (CF-2 to CF-13). A
+// for loop with no body returns [] without evaluating its iterator.
+// A while loop runs its body sequentially until something ends it (CF-10).
+// A loop that the compiler marks Collapse (CF-8: a sequential loop whose
+// body is one plain step, in a flow with no failure module) runs each
+// iteration as a job of the loop's own flow. Every other iteration runs its
+// body as a child flow (CF-1).
 
 // errIterator marks an iterator or parallelism that fails the loop's start;
 // its text is the chaining error's (CF-23).

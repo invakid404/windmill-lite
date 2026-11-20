@@ -325,11 +325,12 @@ func TestContainerSquash(t *testing.T) {
 	}
 }
 
-// FX-23, FX-26, FX-27, OF-17, CF-26: N2's waits and retries inside a
-// container's child flows: each flow keeps its own retry state, so a
-// parallel loop's iterations retry independently; a sleep between body
-// modules waits; a body whose last module sleeps ends in the virtual
-// identity, which the trace marks so that observations leave it out.
+// TestContainerBodyWaits checks waits and retries inside a container's
+// child flows (FX-23, FX-26, FX-27, OF-17, CF-26): each flow keeps its own
+// retry state, so a parallel loop's iterations retry independently; a sleep
+// between body modules waits; a body whose last module sleeps ends in the
+// virtual identity, which the trace marks so that observations leave it
+// out.
 func TestContainerBodyWaits(t *testing.T) {
 	f := &flaky{}
 	body := []string{mod("b", "flaky", inputs("x", js("flow_input.iter.value")), retryOnce), mod("c", "value", inputs("v", js("results.b.x")), "")}
