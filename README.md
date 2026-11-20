@@ -206,7 +206,7 @@ use.
 | [docs/benchmarks.md](docs/benchmarks.md) | How to run the benchmarks, what each one measures, and how to compare two builds | Contributors who measure |
 | [RELEASING.md](RELEASING.md) | How to release a version | The maintainer |
 | [docs/design](docs/design/README.md) | The architecture decision records and why the design is what it is | Designers and reviewers |
-| [cmd/wltest](cmd/wltest/README.md) | The runner of the [conformance cases](docs/glossary.md#conformance-case) and of the oracle: `record`, `stub`, `check` | Contributors to conformance |
+| [cmd/wltest](cmd/wltest/README.md) | The runner of the [conformance cases](docs/glossary.md#conformance-case) and of the oracle: `record`, `stub`, `check` and `ledger` | Contributors to conformance |
 | [conformance](conformance/README.md) | The shared conformance cases and their [recordings](docs/glossary.md#recording) | Contributors to conformance |
 | [internal/conformance](internal/conformance/README.md) | The case formats, the normaliser and the comparator | Contributors to conformance |
 | [internal/oracle](internal/oracle/README.md) | How the oracle records fixtures on Windmill | Contributors to conformance |
