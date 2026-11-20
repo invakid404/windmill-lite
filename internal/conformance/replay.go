@@ -396,10 +396,11 @@ func (s *ReplayService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //     so that an identity job (a skipped step's) takes no place. For a module's own attempts,
 //     that puts a failed attempt k at <site>/r:<k> and the module's last
 //     job at <site> itself, with k the number of failed attempts before
-//     it. Below a retried flow step (milestone N5), each attempt's
-//     subflow is walked whole below the step's r:<k>, so the jobs of one
-//     of its modules are ordered by the step's attempt first, then by
-//     their own;
+//     it. Below a retried flow step, each failed attempt's subflow is
+//     walked whole below the step's r:<k> and the last attempt's below the
+//     step's own site, while the service resolves a job of the subflow at
+//     its site without attempt segments, so the jobs of one of its modules
+//     are ordered by the step's attempt first, then by their own;
 //   - every job that executed a script called the service, so no original
 //     body ran (stub_not_called).
 //

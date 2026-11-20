@@ -74,10 +74,10 @@ type StepCase struct {
 	Scope      string `json:"scope,omitempty"`
 	Title      string `json:"title"`
 	Note       string `json:"note,omitempty"`
-	// Deviation names the deviation of ADR 0001 §5 whose two readings a
-	// run's by_mode gives (D1, D11 and the like), or 5a for the
-	// restriction of §5a that a warm process reaches the platform only
-	// through fetch, where a fresh one uses loopback TCP (milestone PF1).
+	// Deviation names the deviation of ADR 0001 §5 whose two readings a run's
+	// by_mode gives (D1, D11 and the like), or 5a for the restriction of §5a
+	// that a warm process reaches the platform only through fetch, where a
+	// fresh one uses loopback TCP.
 	Deviation string `json:"deviation,omitempty"`
 	// Script is the script's source, a TypeScript file.
 	Script string `json:"script"`
@@ -102,10 +102,10 @@ type StepCase struct {
 	// HostModules are scripts registered as host-provided modules (D12),
 	// which the script imports by their path.
 	HostModules []StepHostModule `json:"host_modules,omitempty"`
-	// Codebase makes the script a codebase script, which esbuild bundles
-	// (milestone C2b): the settings of its codebases entry as wmill.yaml
-	// gives them (format, define, inject, loader, banner, external,
-	// assets). Its runs of a CommonJS bundle also run on Node (D13).
+	// Codebase makes the script a codebase script, which esbuild bundles: the
+	// settings of its codebases entry as wmill.yaml gives them (format, define,
+	// inject, loader, banner, external, assets). Its runs of a CommonJS bundle
+	// in the Bun boundary also run on Node when the runner has one (D13).
 	Codebase json.RawMessage `json:"codebase,omitempty"`
 	// Files are other files of the folder, by path from the sync root,
 	// that a codebase build reads: modules the script imports, inject
@@ -119,9 +119,8 @@ type StepCase struct {
 	// two scripts that share a dependency module see (ADR 0013).
 	Scripts map[string]string `json:"scripts,omitempty"`
 	// Setup holds the variables and resources the case's platform facade
-	// serves (milestone PF2), in setup.yaml's format; a secret's value is
-	// its plaintext, which the runner passes to the facade as a host
-	// would.
+	// serves, in setup.yaml's format; a secret's value is its plaintext, which
+	// the runner passes to the facade as a host would.
 	Setup   *Setup      `json:"setup,omitempty"`
 	Compare StepCompare `json:"compare,omitempty"`
 	Runs    []StepRun   `json:"runs"`
@@ -225,13 +224,14 @@ type StepCheck struct {
 	// Warnings.
 	Untracked map[string]int `json:"untracked,omitempty"`
 	// Calls lists the platform calls the facade recorded against the
-	// invocation, in order, each as "<status> <METHOD> <route template>"
-	// with the workspace written {ws} ("501 POST /w/{ws}/jobs/run/p/{path}"),
-	// or with the path as sent where no route of the API matched
-	// (ADR 0007, milestone PF1). It is compared when given; an empty list
-	// says the invocation made none. A call the facade could attribute to
-	// no invocation (refused by the kernel, or a token it does not know)
-	// is never listed.
+	// invocation, in order, each as "<status> <METHOD> <route template>" with
+	// the workspace written {ws} ("501 POST /w/{ws}/jobs/run/p/{path}"), or,
+	// where no route of the API matched, as "<status> <METHOD> <path>" with
+	// the request's escaped path without its leading /api and without the
+	// query ("501 GET /w/wl_step/not_a_route") (ADR 0007). It is compared
+	// when given; an empty list says the invocation made none. A call
+	// the facade could attribute to no invocation (refused by the kernel, or a
+	// token it does not know) is never listed.
 	Calls []string `json:"calls,omitempty"`
 }
 

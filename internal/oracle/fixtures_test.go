@@ -54,9 +54,9 @@ func treeScripts(dir string) (map[string]bool, error) {
 	return out, nil
 }
 
-// TestTreeScriptsAreSources: only a script's source file makes a script;
-// a flow directory, a resource or a script's metadata of the same name
-// does not (E3a review R1-2).
+// TestTreeScriptsAreSources checks that only a script's source file makes
+// a script; a flow directory, a resource or a script's metadata of the
+// same name does not.
 func TestTreeScriptsAreSources(t *testing.T) {
 	dir := t.TempDir()
 	for name, text := range map[string]string{

@@ -108,11 +108,11 @@ names it, such as "recorded on CE `v1.767.0`".
 | [execution.md](execution.md) | 58 | 47 | 9 | 2 | 0 | 0 | 7 | 0 | 54 | 21 | 180 |
 | [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 11 | 0 | 36 | 19 | 124 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 18 | 0 | 54 | 17 | 203 |
-| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 3 | 14 | 0 | 62 | 28 | 217 |
+| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 3 | 13 | 0 | 62 | 28 | 217 |
 | [client-api.md](client-api.md) | 41 | 29 | 10 | 1 | 1 | 0 | 8 | 0 | 41 | 13 | 135 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 0 | 3 | 0 | 39 | 18 | 89 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 1 | 3 |
-| **Total** | **352** | **273** | **67** | **7** | **5** | **17** | **63** | **0** | **340** | **130** | **1107** |
+| **Total** | **352** | **273** | **67** | **7** | **5** | **17** | **62** | **0** | **340** | **130** | **1107** |
 
 How to read the columns:
 

@@ -1,14 +1,13 @@
 name: Codebase parity
 
-# The CLI parity check of milestone C2b (ADR 0002, decision 4; Q-WR-24):
-# the unmodified windmill-cli@1.862.0, the oracle's CLI pin, run with npx
-# as a black-box tool (OR-8), pushes synthetic codebase scripts to a
-# recording HTTP stub, and windmill-lite's esbuild reproduction of the
-# CLI's settings (esbuild 0.28.2, WR-47) must give the bundle bytes the CLI
-# uploads (TestCLIParity in internal/bundle). The CLI
-# is used, never depended on: no manifest names it and nothing of it is
-# read. Branch protection does not require this job; the check's fallback,
-# TestCLIOptionsFollowWR47, runs in the Go jobs.
+# The CLI parity check (ADR 0002, decision 4; Q-WR-24): the unmodified
+# windmill-cli@1.862.0, the oracle's CLI pin, run with npx as a black-box
+# tool (OR-8), pushes synthetic codebase scripts to a recording HTTP stub,
+# and windmill-lite's esbuild reproduction of the CLI's settings (esbuild
+# 0.28.2, WR-47) must give the bundle bytes the CLI uploads (TestCLIParity
+# in internal/bundle). The CLI is used, never depended on: no manifest names
+# it and nothing of it is read. Branch protection does not require this job;
+# the check's fallback, TestCLIOptionsFollowWR47, runs in the Go jobs.
 
 on:
   push:

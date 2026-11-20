@@ -12,15 +12,20 @@ import (
 // evaluator output (point O1 of docs/semantics/expressions.md) that the
 // catalogue expects. A run lists them in runs/<name>.yaml under unit.
 //
-// The oracle cannot observe O1: an argument is stored as jsonb before the
-// job API returns it, which reorders keys and respells numbers (JE-44), so a
-// recording cannot tell a verbatim producer text from its stored form. The
-// expression milestones (B2a, B2b) check the pipeline against these cases
-// with the context supplied directly, and a test of the recording batch ties
-// each case to its run's recording through stored forms: the context's
-// producer and stored texts must be what the recording holds, and, at an
-// input transform, the expected text's stored form must be the recorded
-// argument.
+// The oracle cannot observe O1 in general: an argument is stored as jsonb
+// before the job API returns it, which reorders keys and respells numbers
+// (JE-44), so a recording cannot tell a verbatim producer text from its
+// stored form. Package expr's tests check the pipeline against these cases
+// with the context supplied directly, and a test of package oracle
+// (TestUnitCasesMatchRecordings) ties each case to its run:
+//   - the jsonb stored forms of the flow input and of a top-level first
+//     module's previous result must be the run's arguments';
+//   - those of another previous result and of the database reads' results
+//     must be the recorded step results;
+//   - at an input transform, the expected text's stored form must be the
+//     recorded argument, and an expected error must match the recorded one;
+//   - at a timeout, whose parse failure quotes the evaluator's text as it
+//     is (JE-29), the expected text must equal that quote byte for byte.
 type UnitCase struct {
 	// Spec is the catalogue case, or the finding for a case beyond the
 	// catalogue.

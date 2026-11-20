@@ -101,8 +101,8 @@ func TestSY9Cases(t *testing.T) {
 	}
 }
 
-// The catalogue's SY-9 cases are the milestone's exit gate; this keeps
-// them in the case file.
+// TestSY9CatalogueCovered keeps the catalogue's SY-9 cases in the case
+// file.
 func TestSY9CatalogueCovered(t *testing.T) {
 	got := map[string]int{}
 	for _, c := range loadCases(t) {

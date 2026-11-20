@@ -8,12 +8,12 @@ import (
 
 // Claim is one assertion about a run's observation, written in the
 // catalogue's terms: a JSON Pointer into the observation and what the value
-// there must be. Claims state what a catalogue case says (an exact value, or
-// a message's prefix and substrings, as docs/semantics/conformance.md
+// there must be. Claims state what a catalogue case says (an exact value,
+// or a message's prefix and substrings, as docs/semantics/conformance.md
 // compares engine messages) without stating the whole observation, which
-// the committed recording does (milestone E3a). A claim holds exactly one
-// of Equals, Prefix, Contains or NotContains (which may be combined, for a
-// string), Length or Absent.
+// the committed recording does. A claim holds exactly one of Equals,
+// Prefix, Contains or NotContains (which may be combined, for a string),
+// Length or Absent.
 //
 // The observation is read in its canonical encoding, so a step field left
 // to its canonical absence (ran, module, skipped, carried, resolved_args)

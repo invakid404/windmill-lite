@@ -125,8 +125,8 @@ cases:
 	}
 }
 
-// A successful result is data: an error.stack field in it is compared,
-// not masked (c3a review 1, finding 4).
+// TestCompareStepMasksOnlyAFailuresStack checks that a successful result is
+// data: an error.stack field in it is compared, not masked.
 func TestCompareStepMasksOnlyAFailuresStack(t *testing.T) {
 	f, err := LoadStepFile(writeStepFile(t, "wr-13.yaml", `finding: WR-13
 scope: core

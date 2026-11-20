@@ -248,8 +248,8 @@ runs.
 | `Status` | How the run ended (table below) |
 | `Result` | The final result as Windmill stores it: the flow's result, or the script's result or failure value |
 | `MayHaveMutated` | `true` once the run's first write was approved ([Budgets](#budgets)), in a failed run too. The approval counts even when what prepares the launch after it, such as `InvocationEnv`, stops the job. |
-| `Trace` | For a flow, the [trace](../docs/glossary.md#trace): for each call site what happened and why, with timings, and the platform calls that the steps made before the run ended. `nil` for a script. |
-| `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled |
+| `Trace` | For a flow, the [trace](../docs/glossary.md#trace): for each call site what happened and why, with timings, and the platform calls that the steps made before the run ended. Each call is a `PlatformCall`: the step's site; the request's method, path and query, without its headers or body; the route that it matched, empty when none did; and the answer's status. `nil` for a script. |
+| `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled. Each is a `Warning` with a code and a message, and no warning changes the run's status. |
 | `Latched` | For a `latched` run, the error that was latched |
 
 | Status | Constant | Meaning |
@@ -277,8 +277,8 @@ their full rules and the reasons for them.
 
 | Field | When the engine calls it | What it can do |
 |---|---|---|
-| `Intercept` | When a matching site would launch its job, after `skip_if`, `mock`, its arguments and its timeout are decided | Answer for the job with a `Static` result, or with the `Outcome` of `Func`, which can also decline. The first matching interceptor answers. |
-| `RewriteArgs` | When a matching site launches its own job | Return the arguments that the step runs with. Every matching rewriter runs, in order, and the trace keeps the arguments before and after. |
+| `Intercept` | When a matching site would launch its job, after `skip_if`, `mock`, its arguments and its timeout are decided | Answer for the job. Each `Interceptor` holds a `Selector`, and either a `Static` result or a `Func` that returns the `Outcome` or declines. Only the first matching interceptor is asked: when it declines, the real job runs, and no later interceptor is tried. |
+| `RewriteArgs` | When a matching site launches its own job | Return the arguments, a JSON object, that the step runs with. Each `ArgRewriter` holds a `Selector` and the `Func` that returns them. Every matching rewriter runs, in order, on what the one before returned, and an error stops the chain and latches the run. When the arguments change, the trace keeps them as they were before and after. |
 | `OnModuleStart`, `OnModuleEnd` | At the start and end of every module, nested ones and iterations included | Observe. `OnModuleEnd` gets the site's `StepRecord`. |
 | `HaltBefore`, `HaltAfter` | Before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module | End the run with status `halted` |
 | `InvocationEnv` | Before each [invocation](../docs/glossary.md#invocation) runs | Set or delete variables of the invocation's job environment |
@@ -308,6 +308,12 @@ contract's type) names the call sites that a hook applies to.
   list. Without it, `Run` fails with `ErrAmbiguousSelector`.
 - `Iterations` or `Branches` limit a module selector to those iterations
   or branches of the innermost loop or branch around the site.
+
+A hook gets the call site that it acts on as a `Site`. A `Site` holds the
+site's typed path, a `SitePath` such as `m:a/i:2/m:b`
+([site paths](../internal/conformance/README.md#site-paths)); the flow
+whose module list holds the module; the module's id; and, for a leaf, its
+script's path.
 
 ### Providers
 

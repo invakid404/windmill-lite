@@ -20,7 +20,7 @@ import (
 const effectSinkVar = "WL_EFFECT_SINK"
 
 // effectServer is one fixture's effect sink on windmill-lite and, below
-// it, the replay service of stub mode (milestone E4b): the same server
+// it, the replay service of stub mode: the same server
 // wltest record runs for the oracle (oracle.Sink, routing
 // conformance.ReplayPath to the conformance.ReplayService), here on the
 // loopback interface, which a step's fetch reaches directly. Effects are
@@ -73,7 +73,7 @@ func (s *effectServer) closeRun(root string) ([]json.RawMessage, []conformance.R
 // job while the run is in progress: windmill-lite's side of the oracle's
 // job-tree walk (ADR 0011, the replay service). It uses the engine's
 // invocation-environment hook (H12), which a host gives a run as
-// wl.Hooks.InvocationEnv (milestone F2a), as this runner does.
+// wl.Hooks.InvocationEnv, as this runner does.
 type runEffects struct {
 	url   string
 	mu    sync.Mutex

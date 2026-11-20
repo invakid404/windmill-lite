@@ -43,13 +43,14 @@ import (
 // in warm mode, or to one process each in fresh mode, and each outcome is
 // mapped to the value Windmill stores (engine.StoreOutcome) and compared
 // with the case's expectation (conformance.CompareStep). With Node, each
-// run of a CommonJS codebase bundle also runs on Node, as on Windmill, and
-// is compared with its node check (D13). For a flow fixture, each run's
-// flow runs on the engine (flowChecker) and its observation is compared
-// with the run's expect or recording (milestones E1 and N1a). An
-// expression-case file runs as the generated one-step flow fixture that
-// wltest record lifts it into, compared with its recordings (milestone
-// N1a).
+// run of a CommonJS codebase bundle in the Bun boundary also runs on Node,
+// as on Windmill, and is compared with its node check, or, without one,
+// with the expect and claims of its mode's check (D13). For a flow
+// fixture, each run's flow runs on the engine (flowChecker) and its
+// observation is compared with the run's expect or recording, and checked
+// against its claims, which may be all that a run has. An expression-case
+// file runs as the generated one-step flow fixture that wltest record lifts
+// it into: each case's claims, and its recording where there is one.
 func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -331,10 +332,16 @@ func otherID(f *conformance.StepFile, c *conformance.StepCase, path string) stri
 }
 
 // build writes f's scripts into a sync folder below work and builds them
-// with the Bun build helper into a bundle: scripts/bun/<id>.mjs and
-// <id>.meta.json for each case, and its host-provided modules. Its
-// manifest lists those modules in registration order, which is all the
-// harness reads of it besides its digest; the bundle format is F4's.
+// into a bundle: the Bun build helper builds the Bun scripts and the
+// host-provided modules, and esbuild (bundle.BuildCodebase) the codebase
+// scripts, with their assets. Under scripts/bun, a script's metadata is
+// <id>.meta.json, and the module that its build emits, when it emits one,
+// is <id>.mjs for a Bun script, <id>.cjs or <id>.mjs for a codebase script
+// by its format, and <id>.native.js for a native script on either path (a
+// nativets script that does not transpile has none). Its manifest lists the
+// host-provided modules in registration order, which is all the harness
+// reads of it besides its digest; it is not internal/bundle's bundle
+// format.
 // problems holds the build problem of each case's script, by id.
 func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work string) (out, digest string, problems map[string]string, err error) {
 	folder, out := filepath.Join(work, "folder"), filepath.Join(work, "bundle")
@@ -460,12 +467,11 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 // the D9 fence must stop, is seen.
 func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out, digest string, id func(path string) string) ([]string, string) {
 	var diag syncBuffer
-	// The case's own platform facade (ADR 0007, milestone PF1), in its
-	// default fail mode: a warm process reaches it through the intercepted
-	// fetch, at an origin where nothing listens; a fresh one over TCP. It
-	// serves the case's setup (milestone PF2), and an object store in a
-	// directory of the case's own (milestone PF3); it has no dispatcher, so
-	// no dispatch target is in the bundle.
+	// The case's own platform facade (ADR 0007), in its default fail mode:
+	// a warm process reaches it through the intercepted fetch, at an origin
+	// where nothing listens; a fresh one over TCP. It serves the case's
+	// setup, and an object store in a directory of the case's own; it has
+	// no dispatcher, so no dispatch target is in the bundle.
 	calls := &callLog{byInv: map[string][]facade.Record{}}
 	objects, err := os.MkdirTemp("", "wltest-objects-")
 	if err != nil {
@@ -509,7 +515,7 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 	if c.ModuleID() != "" {
 		// A flow step's runs are steps of the flow run runID, a live flow
 		// job of the job registry while the case runs, so their flow user
-		// state lives from one run to the next (milestone PF3).
+		// state lives from one run to the next.
 		end := services.JobRegistry().Begin(platform.Job{ID: runID, Kind: platform.JobFlow, Root: runID, Path: conformance.StepFolder + "/flow"})
 		defer end()
 	}
@@ -552,10 +558,10 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 }
 
 // spawn starts a harness process on the bundle in out, in the checker's
-// module state, with f's origin for that mode (milestone PF1): a warm
-// process intercepts its fetches to an origin where nothing listens, and a
-// fresh one reaches the listening origin over TCP. A native step reads the
-// same origin as BASE_URL and BASE_INTERNAL_URL (WR-45).
+// module state, with f's origin for that mode: a warm process intercepts
+// its fetches to an origin where nothing listens, and a fresh one reaches
+// the listening origin over TCP. A native step reads the same origin as
+// BASE_URL and BASE_INTERNAL_URL (WR-45).
 func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Writer, f *facade.Facade) (*harness.Process, error) {
 	origin := f.WarmOrigin()
 	if sc.mode == conformance.ModeFresh {
@@ -794,8 +800,7 @@ func (sc *stepChecker) runNode(ctx context.Context, c *conformance.StepCase, r *
 	// package.json first, then the bundle as main.js and the entry's
 	// assets at their paths, as a tar unpacks, so an asset named
 	// package.json replaces the placeholder and its type decides how Node
-	// loads main.js (c2b review 1, finding 3). The runner's own files come
-	// last.
+	// loads main.js. The runner's own files come last.
 	scripts := filepath.Join(out, "scripts", "bun", filepath.FromSlash(id))
 	if err := writeJobFile(job, "package.json", []byte("{}\n")); err != nil {
 		return conformance.Observation{}, err

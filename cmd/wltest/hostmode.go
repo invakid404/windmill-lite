@@ -16,7 +16,7 @@ import (
 	"github.com/invakid404/windmill-lite/wl"
 )
 
-// Host mode (milestone F3b, ADR 0004 host mode): the flow suite's runs on
+// Host mode (ADR 0004 host mode): the flow suite's runs on
 // a Bun host that embeds the host SDK (testdata/flowhost/host.ts), whose
 // steps run in the host's own process, over the host-mode transport, as
 // every host's do. The checker keeps the engine in its own process, as

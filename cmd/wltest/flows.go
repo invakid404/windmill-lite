@@ -31,7 +31,7 @@ import (
 )
 
 // flowChecker runs flow fixtures (OR-15, the flow level of ADR 0003) on
-// windmill-lite through package wl (milestone F1), in one module state:
+// windmill-lite through package wl, in one module state:
 // warm, where module state and globalThis survive from one invocation to
 // the next (D1), or fresh, one harness process per invocation. For each
 // fixture it compiles every run's target flow from the fixture's sync tree
@@ -43,13 +43,16 @@ import (
 // the order of conformance.RunBatches, with Runtime.Run. Each run's trace
 // becomes an observation (observeTrace), compared with the run's expect,
 // or with its recording when it has none (ADR 0011), and checked against
-// its claims.
+// its claims; a run with claims alone is checked against them alone.
 //
-// A run whose flow needs what windmill-lite cannot run yet is reported as
-// unsupported, with the reason, and never compared: a feature the
-// compiler or the engine refuses (engine.ErrUnsupported names the
-// milestone that implements it), another harness, stub mode, setup.yaml
-// or the effect sink.
+// A run that windmill-lite cannot run yet is reported as unsupported, with
+// the reason, and never compared: a flow with a feature that the compiler
+// refuses, or that the engine refuses when it opens the program (an error
+// that wraps engine.ErrUnsupported and names the feature); a script in
+// another harness or boundary; a script run (kind: script); a run-and-wait
+// run, unless runWaitOutcome is set; and every run of a fixture with other
+// roots in stub mode or with effects, whose dispatched runs would get no
+// effect sink.
 type flowChecker struct {
 	bun, repo, mode string
 	// sharedCode builds each fixture's bundle with shared code (ADR 0013):
@@ -64,9 +67,10 @@ type flowChecker struct {
 	// have ended, before its host's teardown (tests: hostmode_test.go).
 	afterRuns func(*hostRuntime)
 	// runWaitOutcome runs a run-and-wait run (submit: run_wait_result) as
-	// an ordinary submission and checks it without its response, which is
-	// the HTTP adapter's (milestone F7b): the flow's status, result and
-	// steps, which the response carries, are the engine's
+	// an ordinary submission and checks its observation without the
+	// response (withoutResponse): the flow's status, result and steps are
+	// the engine's, while the response, its HTTP status, content type and
+	// body, belongs to the HTTP adapter, which is not built yet
 	// (TestRunWaitOutcomes).
 	runWaitOutcome bool
 	// redisURL, when set, gives each fixture's runtime a Redis resource
@@ -174,9 +178,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		results[i] = runResult{fixture: f.Dir, run: r.Name}
 	}
 	if len(f.Roots) > 0 && (f.Stub || f.Oracle.Effects) {
-		// The default dispatcher's runs (milestone PF3) run without a
-		// run's hooks, so their jobs would get no WL_EFFECT_SINK, while on
-		// the oracle every job gets it.
+		// The default dispatcher's runs run without a run's hooks, so
+		// their jobs would get no WL_EFFECT_SINK, while on the oracle every
+		// job gets it.
 		for i := range results {
 			results[i].unsupported = "a fixture with roots gets no effect sink in its dispatched runs yet (ADR 0011, Effects)"
 		}
@@ -234,9 +238,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		// The runtime owns the fixture's platform services (ADR 0007): the
 		// bundle's resources and variables with the host's, its secrets
 		// and setup; the facade its steps reach, which attributes their
-		// calls; and the default dispatcher (milestone PF3) over the
-		// bundle's program, which runs the fixture's other roots. In host
-		// mode it serves the fixture's own host (openHost).
+		// calls; and the default dispatcher over the bundle's program,
+		// which runs the fixture's other roots. In host mode it serves the
+		// fixture's own host (openHost).
 		opts := wl.Options{
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
@@ -507,8 +511,8 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 	if len(f.Roots) > 0 {
 		// The bundle's other roots (the targets its steps dispatch, which
 		// a host contract lists, ADR 0002), which the default dispatcher
-		// runs (milestone PF3); a problem of theirs fails no run, only the
-		// dispatches that would reach them.
+		// runs; a problem of theirs fails no run, only the dispatches that
+		// would reach them.
 		t := &target{}
 		b.targets[rootsTarget] = t
 		flows := folder.Paths(syncfolder.KindFlow)
@@ -650,7 +654,7 @@ func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, 
 	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
 		s := prog.Scripts[id]
 		// The Bun harness runs both its boundaries, and the engine invokes
-		// each step with its own (C3n); other harnesses are L1's.
+		// each step with its own; other harnesses are planned.
 		if s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative) {
 			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which windmill-lite does not have yet", s.Path, s.Boundary, s.Harness)
 			return false
@@ -922,7 +926,7 @@ var counterDir = "/tmp"
 // count their attempts across retries, which the fixtures name
 // wl-<fixture>-<job id>-<tag> after a job of the run (its root, a child
 // flow, or a step's own job): on Windmill they live in the worker's /tmp,
-// but a windmill-lite run would leave them in the host's (N5's follow-up).
+// but a windmill-lite run would leave them in the host's.
 // Files named after other runs' jobs are left alone.
 func removeCounters(t *engine.Trace) {
 	ids := []string{t.RunID}

@@ -16,7 +16,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/openflow"
 )
 
-// The recording batches (ADR 0012, E3a to E3e) commit oracle recordings of
+// The recording batches (ADR 0012) commit oracle recordings of
 // the expression cases under conformance/exprs and of the flow fixtures
 // under conformance/flows. These tests hold the committed recordings to
 // what the cases say.
@@ -275,7 +275,7 @@ func sameStored(text string, recorded []byte) error {
 }
 
 // TestUnitCasesMatchRecordings ties each unit case of a flow fixture to
-// its flow and its recording, so that the expression milestones check the
+// its flow and its recording, so that package expr's tests check the
 // pipeline with the context the oracle's run had: the expression is the
 // one at the site, the previous id is the module before it, the previous
 // result's and the database reads' stored forms are the recorded results,
@@ -556,10 +556,10 @@ func expressionAt(m openflow.Module, input string) (string, bool, error) {
 }
 
 // TestBatchCoverage accounts for every JE case of the conformance
-// catalogue and every CF-19 and CF-V6 case (the batch of ADR 0012's E3a):
-// each is the spec of an expression case or of a flow fixture's run, or is
-// deferred with a reason and the milestone that checks it
-// (conformance/exprs/deferred.yaml).
+// catalogue and every CF-19 and CF-V6 case, the scope of their recording
+// batch in ADR 0012: each is the spec of an expression case or of a flow
+// fixture's run, or is deferred with a reason and where it is checked, or
+// none (checked_in in conformance/exprs/deferred.yaml).
 func TestBatchCoverage(t *testing.T) {
 	root := repoRoot(t)
 	catalogue, err := os.ReadFile(filepath.Join(root, "docs/semantics/conformance.md"))

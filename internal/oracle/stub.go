@@ -52,19 +52,19 @@ func ErrStubUnsupported(file, step, reason string) *Refusal {
 // tree before it is pushed; CheckStubSignatures confirms afterwards that
 // the stub kept every script's schema.
 //
-// It refuses (stub_unsupported) a tree in which some executed script
-// would not be stubbed: a script in another language, a Bun script with
-// the native annotation, a rawscript whose content is written in
-// flow.yaml rather than in a file, a step whose target is a hub path or
-// is not in the tree, a script step pinned by hash, a flowscript step,
-// and AI-agent steps; a retry on a loop or branch step, whose failed
-// attempt the walk keeps as its last failed child alone, under r:<k>
-// without the child's i: or b: segment, so that none of its calls matches
-// the site the replay service resolved, and a loop's other children are
-// not walked (CF-22); and a source StubSource refuses. A retry on a flow step is accepted (milestone N5):
-// each attempt's subflow is walked whole below the step's r:<k>, and the
-// replay service counts its steps' jobs across the attempts
-// (conformance.CheckReplay).
+// It refuses (stub_unsupported) a tree in which some executed script would
+// not be stubbed: a script in another language, a Bun script with the
+// native annotation, a rawscript whose content is written in flow.yaml
+// rather than in a file, a step whose target is a hub path or is not in the
+// tree, a script step pinned by hash, a flowscript step, and AI-agent
+// steps; a retry on a loop or branch step, whose failed attempt the walk
+// keeps as its last failed child alone, under r:<k> without the child's i:
+// or b: segment, so that none of its calls matches the site the replay
+// service resolved, and a loop's other children are not walked (CF-22); and
+// a source StubSource refuses. A retry on a flow step is accepted: each
+// failed attempt's subflow is walked whole below the step's r:<k>, and the
+// last attempt's below the step's own site, and the replay service counts
+// its steps' jobs across the attempts (conformance.CheckReplay).
 func StubTree(src, dst string) (*StubReport, error) {
 	if _, err := os.Stat(filepath.Join(src, "wmill.yaml")); err != nil {
 		return nil, fmt.Errorf("oracle: %s is not a sync tree root (no wmill.yaml): %w", src, err)

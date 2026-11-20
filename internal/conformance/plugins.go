@@ -11,11 +11,14 @@ import (
 	"strings"
 )
 
-// The plugins level (milestone F2c): conformance/plugins/hooks.yaml holds
-// the host-plugin cases, each one synthetic flow and a declarative host
-// plugin that answers its hooks, run through a TypeScript plugin over
-// host_call in warm harness processes and in host mode, and through Go
-// callbacks built from the same plugin, with one expected outcome.
+// The plugins level: conformance/plugins/hooks.yaml holds the host-plugin
+// cases. A case is one synthetic flow, a declarative host plugin that
+// answers its hooks, and one or more runs of the flow, each with its own
+// hooks, budgets and expected outcome. Every case runs through a TypeScript
+// plugin in warm harness processes and in host mode: its callbacks over
+// host_call, and its around wrappers around each invocation, in the process
+// that runs it. Unless the case sets go: false, it also runs through Go
+// callbacks built from the same plugin, with the same expectations.
 
 // PluginFile is a plugin case file.
 type PluginFile struct {
