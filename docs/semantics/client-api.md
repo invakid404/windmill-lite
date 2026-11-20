@@ -34,7 +34,7 @@ interface); `WA-Vn` findings come from the independent check of the draft.
 - [Q-WA-13](#q-wa-13) tracks the server-side expectations still to record,
   and [Q-WA-3](#q-wa-3) the object-store server cases.
 - The design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+  [recording requests](../design/README.md#recording-requests)
   ask for the runs that need what the oracle harness does not set up, such
   as a second workspace, a second user or workspace storage.
 
@@ -1252,7 +1252,7 @@ interface); `WA-Vn` findings come from the independent check of the draft.
     from a job's token answers 401.
 - **Not recorded:** the 401 for a caller who is not a super admin, because
   the harness has one user, so it stays drafted. The design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
+  [recording requests](../design/README.md#recording-requests) ask for it.
 
 - **Settled:** re-checked at `v1.862.0` for `CUSTOM_INSTANCE_DB/` and the
   job lookup, and recorded on CE `v1.862.0`
@@ -1700,7 +1700,7 @@ interface); `WA-Vn` findings come from the independent check of the draft.
   41000318656).
 - **Not recorded:** [WA-V2/d](conformance.md#wa-v2), because its first
   request needs a token of a second workspace, which the harness does not
-  create. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for
+  create. The design README's [recording requests](../design/README.md#recording-requests) ask for
   it.
   - Its first half cannot arise in a runtime whose tokens all belong to one
     workspace, as windmill-lite noted; the bullet above states that on
@@ -2946,7 +2946,7 @@ interface); `WA-Vn` findings come from the independent check of the draft.
   because the harness starts no S3-compatible store. **Re-scoped
   2026-10-30**. Still open: the no-storage body, the explicit-key
   round trip, the auto-generated key, a missing object and the quota
-  boundary; the request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) lists them.
+  boundary; the request in the [design README](../design/README.md#recording-requests) lists them.
 <a id="q-wa-4"></a>
 - **Q-WA-4** · affects [WA-31](#wa-31) · Does the per-invocation isolation
   mechanism hold on the pinned Bun, `1.4.3`, with the real client? (build gate)
@@ -3076,7 +3076,7 @@ interface); `WA-Vn` findings come from the independent check of the draft.
   [WA-V2/d](conformance.md#wa-v2) (a second workspace),
   WA-12/h's other half (a second user), and
   [WA-16/c, WA-16/e](conformance.md#wa-16) (workspace storage,
-  [Q-WA-3](#q-wa-3)). The request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) asks for
+  [Q-WA-3](#q-wa-3)). The request in the [design README](../design/README.md#recording-requests) asks for
   them; WA-4/b's 401s and WA-V2/d's second outcome can be recorded in the
   reference session with a workspace name that holds no workspace. The
   other server-side expectations listed above that no fixture records stay

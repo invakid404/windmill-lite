@@ -264,7 +264,7 @@ lost.
 
 - **Recording requests.** What only a running Windmill can show is
   requested from the oracle in the design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5).
+  [recording requests](../design/README.md#recording-requests).
   A case that waits on one says so in a `Not recorded:` line, or in the
   open question that tracks it.
 - **Requests to the semantics team.** The build team asks for a behaviour
