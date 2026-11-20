@@ -30,7 +30,7 @@ type testHost struct {
 	conn net.Conn
 	r    *bufio.Reader
 	// plugin, when not empty, is the host plugin declaration its hello
-	// carries (F2c).
+	// carries.
 	plugin string
 }
 
@@ -114,7 +114,7 @@ func openHost(t *testing.T, dir string, opts Options, hostCwd string) (*Runtime,
 }
 
 // openPluginHost is openHost for a host whose hello declares the plugin
-// plugin (F2c).
+// plugin.
 func openPluginHost(t *testing.T, dir string, opts Options, hostCwd, plugin string) (*Runtime, error, *testHost, harness.Welcome) {
 	t.Helper()
 	conn, h := newTestHost(t)
@@ -165,11 +165,11 @@ func bundleDigest(dir string) (string, error) {
 	return bundle.Digest(b), nil
 }
 
-// Host mode on the wl runtime (F3a): Open completes the handshake with the
-// host, checks its working directory, and serves the runs it submits:
-// run_done carries each outcome, run_settled follows once the run has
-// settled, a run that cannot start is answered with its reason, and a
-// drain is answered bye once no run is in flight. Close ends the
+// TestHostMode checks host mode on the wl runtime: Open completes the
+// handshake with the host, checks its working directory, and serves the
+// runs it submits: run_done carries each outcome, run_settled follows once
+// the run has settled, a run that cannot start is answered with its reason,
+// and a drain is answered bye once no run is in flight. Close ends the
 // connection, and Done closes.
 func TestHostMode(t *testing.T) {
 	dir := writeTestBundle(t, "test-engine", nil, nil)

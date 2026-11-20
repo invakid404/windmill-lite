@@ -50,8 +50,8 @@ const hookCaseFlow = "f/hooks/case"
 // errHostLatch is the error a case's hooks latch (H5).
 var errHostLatch = errors.New("host latch")
 
-// TestHookCases runs conformance/hooks (milestone F2b's latch-precedence
-// cases) through wl: each case's flow, as a bundle of its own, with the
+// TestHookCases runs conformance/hooks (the latch-precedence cases)
+// through wl: each case's flow, as a bundle of its own, with the
 // host signals it names as public hooks and run options.
 func TestHookCases(t *testing.T) {
 	files, err := filepath.Glob("../conformance/hooks/*.yaml")

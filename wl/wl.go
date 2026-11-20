@@ -40,11 +40,13 @@ const (
 	ModuleStateFresh = string(engine.ModuleStateFresh)
 )
 
-// Options configure Open. The zero value of every field is a default, so a
-// later milestone adds fields without breaking a host: the hooks and
-// per-run providers of F2a and the budgets of F2b come as run options,
-// host mode (F3a) is Host, and the go-plugin adapter of F5 is a runtime
-// over the same calls.
+// Options configure Open. The zero value of every field but HarnessRuntime
+// is a default, so a new field does not break a host; HarnessRuntime is
+// needed when the bundle has a step to run, outside host mode. The hooks,
+// the per-run providers and the pre-write deadline of a flow run come with
+// that run (RunOptions), and every run's hard deadline is its context's.
+// Host mode is Host, and the go-plugin adapter, which is not built yet, is
+// planned as a runtime over the same calls.
 type Options struct {
 	// Bun is the Bun executable that harness processes run on; it must be
 	// the pinned Bun 1.4.3, which the harness's handshake checks. Empty
@@ -73,7 +75,7 @@ type Options struct {
 	Resources map[string]Resource
 	Variables map[string]Variable
 	// Results is the result cache that keeps the results of the jobs that
-	// run with a cache_ttl (FX-40, milestone N4), which a host can share
+	// run with a cache_ttl (FX-40), which a host can share
 	// between runtimes; nil means one in memory for the runtime's runs
 	// (D4).
 	Results ResultCache
@@ -105,14 +107,15 @@ type Options struct {
 	// that is not here; a static provided site needs none.
 	Providers map[string]Provider
 	// Plugin, when set, is the path of a host plugin module (ADR 0008,
-	// milestone F2c) that every warm harness process loads: TypeScript
-	// hooks for the runtime's runs, around wrappers and providers, which
-	// the engine calls over host_call (harnesses/bun/runtime/plugin.ts).
-	// Open starts the first process to read the plugin's declaration, and
-	// fails when the declaration is not usable (a malformed or ambiguous
-	// selector, a provider the host contract names that neither
-	// Providers nor the plugin has). A fresh runtime takes none: its
-	// processes live for one step. In host mode the plugin is the host's.
+	// harnesses/bun/runtime/plugin.ts) that every warm harness process
+	// loads: TypeScript hooks and providers for the runtime's runs, which
+	// the engine calls over host_call, and around wrappers, which the
+	// harness runs around a step in its own process. Open starts the first
+	// process to read the plugin's declaration, and fails when the
+	// declaration is not usable (a malformed or ambiguous selector, a
+	// provider the host contract names that neither Providers nor the
+	// plugin has). A fresh runtime takes none: its processes live for one
+	// step. In host mode the plugin is the host's.
 	Plugin string
 	// PluginTimeout bounds each host_call: a hook whose reply does not come
 	// within it fails with ErrHostCallTimeout, which latches the run. Zero
@@ -168,14 +171,14 @@ type MemoryResourceStore = platform.MemoryResourceStore
 // pass as Options.ResourceStore to several runtimes so that they share it.
 func NewMemoryResourceStore() *MemoryResourceStore { return platform.NewMemoryResourceStore() }
 
-// ResultCache is a store of cached job results (ADR 0007, N4): the engine
+// ResultCache is a store of cached job results (ADR 0007): the engine
 // computes the keys, the expiries and the bytes it stores, and a store
 // keeps opaque bytes until their expiry, compared with the time a Get is
 // given, never its own clock.
 type ResultCache = platform.ResultCache
 
 // ErrUnsupported marks a bundle that uses a feature the engine does not
-// run yet; the error names the milestone of ADR 0012 that implements it.
+// run; the error names the feature.
 var ErrUnsupported = engine.ErrUnsupported
 
 // ErrEngineVersion marks a bundle that another engine version built.
@@ -216,7 +219,7 @@ type Runtime struct {
 	// nil when the host gave one, which is the host's to keep.
 	ownStore *platform.MemoryResourceStore
 
-	// plugin is the host plugin, once its harness declared it (F2c);
+	// plugin is the host plugin, once its harness declared it;
 	// providers are the Go host's and the plugin's named providers, and
 	// goProviders the Go host's alone.
 	plugin      atomic.Pointer[plugin]
@@ -439,8 +442,8 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		return nil, err
 	}
 	// The default dispatcher runs the bundle's roots as runs of their own
-	// (milestone PF3), through the facade, so their calls are attributed;
-	// it is in the services before any run starts.
+	// through the facade, so their calls are attributed; it is in the
+	// services before any run starts.
 	rt.dispatch = engine.NewDispatcher(rt.eng, rt.fac.Executor(inner))
 	rt.services.Dispatcher = rt.dispatch
 	if opts.Plugin != "" {

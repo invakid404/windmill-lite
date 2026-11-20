@@ -17,12 +17,12 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
-// The plugin cases of conformance/plugins/hooks.yaml (milestone F2c), run
-// through a TypeScript host plugin in warm harness processes
-// (Options.Plugin, over host_call), and through Go callbacks built from the
-// same declarative plugins (F2a's path): every case must give its expected
-// outcome both ways. cmd/windmill-lite runs them in host mode. They need
-// the pinned Bun (WL_BUN) and the build helper's dependencies.
+// The plugin cases of conformance/plugins/hooks.yaml, run through a
+// TypeScript host plugin in warm harness processes (Options.Plugin, over
+// host_call), and through Go callbacks built from the same declarative
+// plugins (the path a Go host's hooks take): every case must give its
+// expected outcome both ways. cmd/windmill-lite runs them in host mode.
+// They need the pinned Bun (WL_BUN) and the build helper's dependencies.
 
 func loadPluginCases(t *testing.T) *conformance.PluginFile {
 	t.Helper()

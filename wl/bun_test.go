@@ -74,13 +74,13 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"f/t/subs.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
 			`{"id":"one","value":{"type":"flow","path":"f/t/env","input_transforms":{}}},` +
 			`{"id":"two","value":{"type":"flow","path":"f/t/env","input_transforms":{}}}]}}`,
-		// The trace a TypeScript hook gets (F2c): a step that reads and
+		// The trace a TypeScript hook gets: a step that reads and
 		// updates a variable through the job API, then one whose argument
 		// a $var reference resolves, after H2 rewrote it.
 		"f/t/trace.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
 			`{"id":"a","value":{"type":"script","path":"f/t/set","input_transforms":{"v":{"type":"static","value":"u/t/v"}}}},` +
 			`{"id":"b","value":{"type":"rawscript","language":"bun","content":"export async function main(x: string) { return x }","input_transforms":{"x":{"type":"static","value":"$var:u/t/v"}}}}]}}`,
-		// The step API (F2c): a script root that latches its run, and a
+		// The step API: a script root that latches its run, and a
 		// step that waits for its signal, with no timer of its own.
 		"f/t/latch.ts": `export async function main() { (globalThis as any).wl.latch(new TypeError("the script latched")); return 1 }`,
 		"f/t/wait.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
@@ -183,9 +183,10 @@ func (c *countingCache) Put(ctx context.Context, key string, value []byte, expir
 	return c.ResultCache.Put(ctx, key, value, expires)
 }
 
-// A host's result cache (Options.Results, N4) keeps a cache_ttl step's
-// result for the runs of every runtime that shares it (FX-40, D4): a second
-// runtime of the bundle reads the first one's result, and stores nothing.
+// TestRunSharedResultCache checks that a host's result cache
+// (Options.Results) keeps a cache_ttl step's result for the runs of every
+// runtime that shares it (FX-40, D4): a second runtime of the bundle reads
+// the first one's result, and stores nothing.
 func TestRunSharedResultCache(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildBundle(t, bun)
@@ -479,7 +480,7 @@ func TestWritesAndDeadlines(t *testing.T) {
 	}
 }
 
-// TestStepAPI runs the step API of milestone F2c on the pinned Bun:
+// TestStepAPI runs the step API on the pinned Bun:
 // wl.latch latches a script run as it latches a flow's (H5), and so does a
 // failed around wrapper of the host plugin; wl.signal aborts when the
 // run's deadline abandons the step (H4), so a step that waits for nothing
@@ -549,11 +550,11 @@ func TestStepAPI(t *testing.T) {
 }
 
 // TestPluginTraceParity checks that a TypeScript plugin's hooks get the
-// evidence Go hooks get (F2c review R1-5): on one run, a Go OnRunEnd and
-// OnModuleEnd and the plugin's onRunEnd and onModuleEnd see the same
-// trace and records, the platform calls of a job-API read and update, the
-// arguments before and after H2 and after a $var reference's resolution,
-// the carried values, timings and deviations included.
+// evidence Go hooks get: on one run, a Go OnRunEnd and OnModuleEnd and the
+// plugin's onRunEnd and onModuleEnd see the same trace and records, the
+// platform calls of a job-API read and update, the arguments before and
+// after H2 and after a $var reference's resolution, the carried values,
+// timings and deviations included.
 func TestPluginTraceParity(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildBundle(t, bun)
@@ -651,7 +652,7 @@ export default {
 // TestAroundLateNextStartsNothing checks that an around wrapper that
 // returns without calling next(), and calls it later from a continuation,
 // starts no step after its failure settled the invocation and latched the
-// run (F2c review R1-3): the step's side effect never happens.
+// run: the step's side effect never happens.
 func TestAroundLateNextStartsNothing(t *testing.T) {
 	bun := bunOrSkip(t)
 	marker := filepath.Join(t.TempDir(), "step-ran.txt")

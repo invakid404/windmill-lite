@@ -10,11 +10,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/bundle"
 )
 
-// A bundle whose host contract lists modules outside the sync folder
-// (milestone F3h) runs on the Bun harness without a host: the harness
-// registers each module's bundled copy, by the key the contract gives it,
-// so a codebase script that imports it from outside the folder finds no
-// host scope, and two step bundles share the one copy.
+// TestRunOutsideHostModulesOnBun checks that a bundle whose host contract
+// lists modules outside the sync folder runs on the Bun harness without a
+// host: the harness registers each module's bundled copy, by the key the
+// contract gives it, so a codebase script that imports it from outside the
+// folder finds no host scope, and two step bundles share the one copy.
 func TestRunOutsideHostModulesOnBun(t *testing.T) {
 	bun := bunOrSkip(t)
 	repo, err := filepath.Abs("..")

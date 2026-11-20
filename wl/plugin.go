@@ -21,11 +21,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// Host plugins (ADR 0008, milestone F2c): hooks written in TypeScript and
+// Host plugins (ADR 0008): hooks written in TypeScript and
 // run in the Bun harness, which the engine calls over host_call frames
 // (ADR 0004). A plugin declares its hooks and their selectors up front, in
 // its harness's hello; the runtime turns that declaration into the same
-// Hooks and Providers a Go host passes (F2a), whose callbacks send a
+// Hooks and Providers a Go host passes, whose callbacks send a
 // host_call and wait for its reply. So both kinds of host take one path
 // through the engine's seams, and selectors match in Go only. In host
 // mode the plugin is the host's (the host SDK's connect option plugin);
@@ -799,7 +799,7 @@ func (rt *Runtime) loadPlugin(opts Options) error {
 	return rt.usePlugin(decl, rt.pool.HostCall, opts.PluginTimeout, rt.diagLine(opts.Diagnostics))
 }
 
-// hostCheck is host mode's check of the host's hello (F2c): the plugin it
+// hostCheck is host mode's check of the host's hello: the plugin it
 // declares, or, when it declares none, the Go providers alone, must cover
 // the host contract's named providers.
 func (rt *Runtime) hostCheck(opts Options) func(h harness.Hello) *harness.Reject {
