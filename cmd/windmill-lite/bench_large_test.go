@@ -1,21 +1,23 @@
 package main
 
 // The large-payload benchmarks (ADR 0005's benchmark plan,
-// "Large values"): the size-dependent cost of the step path, from the
-// JSON-library study's benchmarks and the workload brief's shapes, all
-// synthetic.
+// "Large values"): the size-dependent cost of the step path, on synthetic
+// values shaped like a real workload's large ones. The values come in two
+// families, which f/bench/big makes by its kind argument: F1, one wide
+// object with a markup string and its plain-text form, and F2, an array of
+// wide records with one text field each.
 //
 //   - WL_BENCH_SIZES (labels such as 26B,1KiB,16MiB) replaces
 //     BenchmarkStepBoundary's sizes, so that it reaches 16 MiB;
 //   - BenchmarkHostShapes gains four shapes whose steps return 256 KiB to
 //     16 MiB (largeShapes);
-//   - BenchmarkPassThrough is the brief's pass-through chain: an array of
-//     wide records (its F2 family) returned unchanged through 0 to 4 nested
+//   - BenchmarkPassThrough is the pass-through chain: an F2 array of wide
+//     records returned unchanged through 0 to 4 nested
 //     sub-flows, then forwarded whole into 1 to 5 steps' arguments and
 //     mapped to its ids by an expression; on the plugin host its onRunEnd
 //     hook takes the whole trace;
-//   - BenchmarkExpressions reads short fields out of a wide object with long
-//     strings (the brief's F1 family) of 96 KiB and 2 MiB, each step's
+//   - BenchmarkExpressions reads short fields out of an F1 object of 96 KiB
+//     and 2 MiB, each step's
 //     expression timed on its own;
 //   - BenchmarkRunPeaks is the peak resident memory of the engine and of the
 //     Bun host over one run of 16 and 32 MiB (Linux only).
@@ -92,9 +94,9 @@ var largeShapes = []benchShape{
 
 func init() { benchShapes = append(benchShapes, largeShapes...) }
 
-// benchBig is the step that makes the brief's F1 and F2 values in the host,
-// once per kind and size, kept in the module's state (a warm process).
-const benchBig = `// The large values of the large-payload benchmarks, from the workload brief's
+// benchBig is the step that makes the F1 and F2 values in the host, once
+// per kind and size, kept in the module's state (a warm process).
+const benchBig = `// The large values of the large-payload benchmarks, in two
 // families: F1, one wide object with a markup string and its plain-text
 // form, and F2, an array of wide records with one text field each, of
 // about size bytes. Synthetic text only.
@@ -178,13 +180,15 @@ const passDepths = 4
 // depth forwarding into 3 steps, and depth 4 into 1 and 5.
 var passVariants = [][2]int{{0, 3}, {1, 3}, {2, 3}, {3, 3}, {4, 3}, {4, 1}, {4, 5}}
 
-// passSizes are the pass-through chain's F2 sizes: the brief's p90 and its
-// worst, about 2.1 MB.
+// passSizes are the pass-through chain's F2 sizes: a typical large value,
+// 64 KiB, and a worst case of about 2.1 MB.
 var passSizes = []int{64 << 10, 2150 << 10}
 
 // benchExprs are the expressions of f/bench/expr, by step, on the F1 result
 // r (not the previous step, so each read is the results lookup's) and the
-// flow input's F1 value v: the brief's access patterns (its pattern 5).
+// flow input's F1 value v: a constant for reference, then the reads a flow
+// makes of a large value (a field, an optional chain, a null test, an
+// object of three fields and a map over an array).
 var benchExprs = []struct{ id, expr string }{
 	{"e0", `1 + 1`},
 	{"e1", `results.r.subject`},
@@ -196,8 +200,8 @@ var benchExprs = []struct{ id, expr string }{
 	{"e7", `({ id: flow_input.v.id, subject: flow_input.v.subject, text: flow_input.v.text })`},
 }
 
-// exprSizes are BenchmarkExpressions' F1 sizes: the brief's typical and
-// its worst.
+// exprSizes are BenchmarkExpressions' F1 sizes: a typical large value and
+// a worst case.
 var exprSizes = []int{96 << 10, 2 << 20}
 
 // largeFolder holds the large-payload benchmarks' scripts and flows.
@@ -332,8 +336,8 @@ func traceSpans(tr *wl.Trace, site map[string]time.Duration) (int, time.Duration
 	return len(mods), expr
 }
 
-// BenchmarkPassThrough is the pass-through chain at F2's p90 and worst
-// sizes, from 0 to 4 sub-flow levels and forwarded into 1 to 5 steps, on
+// BenchmarkPassThrough is the pass-through chain at both passSizes, from 0
+// to 4 sub-flow levels and forwarded into 1 to 5 steps, on
 // the host and on the plugin host, whose onRunEnd takes the whole trace.
 // The difference between depths is what one level costs.
 func BenchmarkPassThrough(b *testing.B) {
@@ -354,7 +358,7 @@ func BenchmarkPassThrough(b *testing.B) {
 }
 
 // BenchmarkExpressions is f/bench/expr with an F1 result and the same F1
-// value as the flow input's v, at the brief's typical and worst sizes. Each
+// value as the flow input's v, at both exprSizes. Each
 // expression's time per run is reported as expr-<id>-ns.
 func BenchmarkExpressions(b *testing.B) {
 	bun := benchSetup(b)
@@ -371,7 +375,7 @@ func BenchmarkExpressions(b *testing.B) {
 	}
 }
 
-// f1Value is the brief's F1 value of about size bytes, as f/bench/big makes
+// f1Value is the F1 value of about size bytes, as f/bench/big makes
 // it: the same keys, the same text, in Go.
 func f1Value(size int) []byte {
 	const plain = "Hello Ana,\n\nThanks for the update on the quarterly figures — the café meeting moved to Thursday. " +
