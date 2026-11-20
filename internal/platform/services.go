@@ -45,10 +45,10 @@ type Variables interface {
 	Variable(ctx context.Context, path string) (Variable, bool, error)
 }
 
-// VariableUpdater is a variable service that also takes writes: the
-// update of an existing variable's value through the job API (WA-11,
-// milestone F1). A variable service that does not implement it is
-// read-only, and the facade answers its update route 501.
+// VariableUpdater is a variable service that also takes writes: the update
+// of an existing variable's value through the job API (WA-11). A variable
+// service that does not implement it is read-only, and the facade answers
+// its update route 501.
 type VariableUpdater interface {
 	// UpdateVariable sets the value of the variable at path when value is
 	// not nil, and its secrecy when secret is not nil, and reports false
@@ -277,23 +277,23 @@ func (s *Services) WithProviders(p Providers) *Services {
 	return v
 }
 
-// Services are the platform services of ADR 0007: the resources,
-// variables and secrets of milestone PF2, with the host's value resolvers,
-// and the job registry, flow user state, object store and dispatcher of
-// milestone PF3, and the result cache of milestone N4, which only the
-// engine uses. They are what the facade answers its routes from, and
-// what the engine resolves a leaf's arguments, flow_env and the
-// expression helpers through and registers its runs with; a host gives
-// both the same *Services. A nil field takes its default: no resources,
-// no variables, LocalSecrets, no resolvers; for Jobs one Registry per
-// Services, and for UserState one UserStates per Services over whichever
-// Jobs it holds, each made when first needed, so the facade and the
-// engine that share a *Services share them; no object store, whose calls
-// answer 501; no dispatcher, so that no target is in the bundle; and for
-// Results one MemoryResults per Services, made when first needed. A nil
-// *Services has no registry either: it keeps no job. Services are
-// safe for concurrent use when their services are; a field is set before
-// any run starts, and never after.
+// Services are the platform services of ADR 0007: the resources, variables
+// and secrets, with the host's value resolvers, and the resource store of
+// the resources that steps write; the job registry, flow user state, object
+// store and dispatcher; and the result cache, which only the engine uses.
+// They are what the facade answers its routes from, and what the engine
+// resolves a leaf's arguments, flow_env and the expression helpers through
+// and registers its runs with; a host gives both the same *Services. A nil
+// field takes its default: no resource provider (a read then finds only the
+// resource store's entries), no variables, LocalSecrets, no resolvers; for
+// Jobs one Registry per Services, and for UserState one UserStates per
+// Services over whichever Jobs it holds, each made when first needed, so
+// the facade and the engine that share a *Services share them; no object
+// store, whose calls answer 500 (InternalErr); no dispatcher, so that no
+// target is in the bundle; and for Results one MemoryResults per Services,
+// made when first needed. A nil *Services has no registry either: it keeps
+// no job. Services are safe for concurrent use when their services are; a
+// field is set before any run starts, and never after.
 type Services struct {
 	Resources Resources
 	Variables Variables

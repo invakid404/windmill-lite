@@ -101,10 +101,10 @@ func TestMemoryResultsReclaim(t *testing.T) {
 	}
 }
 
-// The expiry heap keeps no key it has given up in its backing array, which
-// Go still scans: a popped slot is cleared, a rebuild clears the slots
-// past the live entries' expiries, and a heap that a drain empties gives
-// its array up (N4 review, P3).
+// TestMemoryResultsReleasesKeys checks that the expiry heap keeps no key it
+// has given up in its backing array, which Go still scans: a popped slot is
+// cleared, a rebuild clears the slots past the live entries' expiries, and
+// a heap that a drain empties gives its array up.
 func TestMemoryResultsReleasesKeys(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)

@@ -267,10 +267,10 @@ func tcpPost(t *testing.T, url, token, ctype, body string) (int, string) {
 	return res.StatusCode, string(b)
 }
 
-// H13, milestone F2a: an invocation of a run that chose its own providers
-// (engine.Invocation.Platform) reads and updates variables and reads
-// resources from them; another invocation reads the facade's, and the root
-// lookup answers from the job registry the services share.
+// TestCallerPlatform checks that an invocation of a run that chose its own
+// providers (H13, engine.Invocation.Platform) reads and updates variables
+// and reads resources from them; another invocation reads the facade's, and
+// the root lookup answers from the job registry the services share.
 func TestCallerPlatform(t *testing.T) {
 	base := platform.NewStore()
 	base.SetVariable("u/x/v", platform.Variable{Value: "base"})

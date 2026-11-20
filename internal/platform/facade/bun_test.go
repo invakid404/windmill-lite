@@ -20,8 +20,8 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The attribution test of ADR 0007, milestone PF1's exit gate, on the
-// pinned Bun 1.4.3 with the stock windmill-client@1.862.0:
+// TestAttribution is the attribution test of ADR 0007, on the pinned Bun
+// 1.4.3 with the stock windmill-client@1.862.0:
 //
 //   - two runs at once, in one warm process, with the client first
 //     imported during the first run's module load: every call of each run
@@ -212,24 +212,25 @@ func TestTransportsAgree(t *testing.T) {
 	if !slices.Equal(calls["warm"], calls["fresh"]) || len(calls["warm"]) != 6 {
 		t.Errorf("recorded calls differ:\nwarm:  %q\nfresh: %q", calls["warm"], calls["fresh"])
 	}
-	// HEAD has no body on either transport (pf1 review 1, P2-2).
+	// HEAD has no body on either transport.
 	if !strings.Contains(results["warm"], `"head":[{"status":501,"body":""},{"status":501,"body":""}]`) {
 		t.Errorf("HEAD answers: %s", results["warm"])
 	}
 	t.Logf("WA-30/a: result %s; calls %q", results["warm"], calls["warm"])
 }
 
-// The 501 policy on the stock client (WA-41/a–b, WA-V5): runScriptByPathAsync
-// resolves to the 501's body as a job id (WA-V5/a), setFlowUserState
-// swallows its 501 (WA-V5/b), the strict setFlowUserState rejects with it
-// (WA-V5/c), and getIdToken and JobService.getJobLogs reject with an ApiError
-// whose status is 501, statusText the facade's, message the generator's
-// "Not Implemented" and body the 501's (WA-41/a). In fail mode the step
-// fails with UnsupportedPlatformCall though the script returned normally,
-// in both transports; in observe mode the stock behaviour stands. Since
-// milestone PF3 serves dispatch and flow user state, WA-V5's recording
-// facade is had by answering those two routes 501 here, as the facade
-// answers a route it does not serve.
+// TestUnsupportedPolicyOnTheClient checks the 501 policy on the stock
+// client (WA-41/a–b, WA-V5): runScriptByPathAsync resolves to the 501's
+// body as a job id (WA-V5/a), setFlowUserState swallows its 501 (WA-V5/b),
+// the strict setFlowUserState rejects with it (WA-V5/c), and getIdToken and
+// JobService.getJobLogs reject with an ApiError whose status is 501,
+// statusText the facade's, message the generator's "Not Implemented" and
+// body the 501's (WA-41/a). In fail mode the step fails with
+// UnsupportedPlatformCall though the script returned normally, in both
+// transports; in observe mode the stock behaviour stands. Since the facade
+// serves dispatch and flow user state, WA-V5's recording facade is had by
+// answering those two routes 501 here, as the facade answers a route it
+// does not serve.
 func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 	r := newBunRig(t)
 	const observed = `{"async":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","state":null,"strict":"Error setting flow user state at k: Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}","token":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: POST /w/{ws}/oidc/token/{audience}"},"job":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_logs/{id}"}}`
@@ -257,10 +258,10 @@ func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 }
 
 // TestProvidersOnTheClient: the stock client's resource and variable
-// helpers against the facade's reads (milestone PF2), in warm and fresh
-// mode, in the default fail mode: none of the reads is unsupported, so
-// the step's own result stands (WA-41/b), and getState() returns
-// undefined only because the state was never written.
+// helpers against the facade's reads, in warm and fresh mode, in the
+// default fail mode: none of the reads is unsupported, so the step's own
+// result stands (WA-41/b), and getState() returns undefined only because
+// the state was never written.
 func TestProvidersOnTheClient(t *testing.T) {
 	r := newBunRig(t)
 	store := platform.NewStore()
@@ -320,10 +321,10 @@ func TestUnawaitedUnsupportedCall(t *testing.T) {
 	}
 }
 
-// A handler that panics while a step awaits its answer: the step gets the
-// 502 and ends, and its invocation's outcome is returned at once, not when
-// its context ends, through the intercepted fetch (warm) and over TCP
-// (fresh); the record keeps the 502 (pf1 review 1, P2-1).
+// TestHandlerPanicReleasesTheStep checks a handler that panics while a step
+// awaits its answer: the step gets the 502 and ends, and its invocation's
+// outcome is returned at once, not when its context ends, through the
+// intercepted fetch (warm) and over TCP (fresh); the record keeps the 502.
 func TestHandlerPanicReleasesTheStep(t *testing.T) {
 	r := newBunRig(t)
 	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
@@ -495,10 +496,10 @@ export async function main() {
   return 1;
 }
 `,
-	// The resource and variable reads of milestone PF2 through the stock
-	// client: its prefixes and error wrapping (WA-10/a, WA-11/a, WA-12/c,
-	// WA-42/c), $WM_* left literal by its read (WA-V3/a), and getState()
-	// on a state never written (WA-41/b).
+	// The resource and variable reads through the stock client: its
+	// prefixes and error wrapping (WA-10/a, WA-11/a, WA-12/c, WA-42/c),
+	// $WM_* left literal by its read (WA-V3/a), and getState() on a state
+	// never written (WA-41/b).
 	"providers": `import * as wmill from "windmill-client";
 
 export async function main() {

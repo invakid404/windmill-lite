@@ -285,12 +285,12 @@ func (f *fakeJobs) Job(id string) (Job, bool, bool) {
 	return j, f.live[id] > 0, ok
 }
 
-// pf3 review round 1, P2-1: the default flow user state works with a
-// host's Jobs service, not only with the services' own registry. Two
-// flow jobs of a run (the run and a dispatched flow in its tree) write and
-// read their maps through it, and the step helpers' reads share them; once
-// the run's registration through the services ends, the maps are
-// forgotten and a read is null.
+// TestFlowUserStateWithAHostsJobs checks that the default flow user state
+// works with a host's Jobs service, not only with the services' own
+// registry. Two flow jobs of a run (the run and a dispatched flow in its
+// tree) write and read their maps through it, and the step helpers' reads
+// share them; once the run's registration through the services ends, the
+// maps are forgotten and a read is null.
 func TestFlowUserStateWithAHostsJobs(t *testing.T) {
 	ctx := context.Background()
 	jobs := newFakeJobs()
