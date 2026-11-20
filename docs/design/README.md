@@ -32,19 +32,22 @@ milestones. They build on the
   boundary, whose benchmarks have their baseline in
   [JSON at step boundaries](0005-json-step-boundaries.md#baseline).
 
-## The architecture in one paragraph
+## The architecture in brief
 
 A Go **engine** loads a **bundle** built from a `wmill sync` folder and is the
-only flow interpreter: it runs Windmill's decision list, containers, retries,
-waits, failure modules and cancellation, and evaluates every expression in
+only flow interpreter. It runs Windmill's decision list, containers, retries,
+waits, failure modules and cancellation. It evaluates every expression in
 QuickJS-ng (the engine Windmill uses), embedded natively.
-Steps run in warm **language harnesses** ([Bun](../glossary.md#bun) first), which are step runners:
-they bind arguments, hydrate, call the entrypoint, and serialise results and
-errors with the language's rules, one framed message per step over a
-socketpair. Step code reaches the platform through the stock `windmill-client`,
-which talks to a Go facade, intercepted in-process for Bun. Hosts drive the
-engine through a Go library and thin adapters (go-plugin, a Bun [host mode](../glossary.md#host-mode),
-gRPC, HTTP, a CLI) and change runs through a fixed set of hooks.
+
+Steps run in warm **language harnesses** ([Bun](../glossary.md#bun) first),
+which are step runners. They bind arguments, hydrate, call the entrypoint, and
+serialise results and errors with the language's rules, one framed message per
+step over a socketpair. Step code reaches the platform through the stock
+`windmill-client`, which talks to a Go facade, intercepted in-process for Bun.
+
+Hosts drive the engine through a Go library and thin adapters (go-plugin, a
+Bun [host mode](../glossary.md#host-mode), gRPC, HTTP, a CLI) and change runs
+through a fixed set of hooks.
 
 ```mermaid
 flowchart LR

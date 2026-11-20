@@ -739,8 +739,9 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
 
 - **The handshake.** `ProcessConfig.ExpectPlugin` holds a process to a
   declaration, byte for byte, else `plugin_mismatch` (`RejectPlugin`). A
-  `Pool` holds each process that it spawns after its first to the first
-  one's declaration.
+  `Pool` records the declaration of the first process that starts with
+  one. It holds each spawn that begins after that to the recorded
+  declaration, and does not compare spawns already under way.
 - **Host mode.** `HostConfig.Check` is the engine's own check of the hello,
   before the welcome. The runtime refuses there a host whose declaration it
   cannot use.
