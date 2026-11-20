@@ -255,10 +255,9 @@ func elemsText(elems []*jnode) string {
 
 // BenchmarkCompareUnordered compares arrays at an unordered pointer
 // (OR-23): repeated scalars, the worst case of a complete matching of the
-// elements (E2 review item P3-7), and distinct objects in reverse order.
-// Exact comparisons count the elements' canonical texts; subset
-// comparisons match groups of equal elements, and the actual objects carry
-// a member the expected ones lack.
+// elements, and distinct objects in reverse order. Exact comparisons count
+// the elements' canonical texts; subset comparisons match groups of equal
+// elements, and the actual objects carry a member the expected ones lack.
 func BenchmarkCompareUnordered(b *testing.B) {
 	repeated := func(n int) string { return "[" + strings.Repeat("0,", n-1) + "0]" }
 	repeatedObjects := func(n int, extra string) string {

@@ -150,9 +150,9 @@ func TestLoadFixtureRejects(t *testing.T) {
 	}
 }
 
-// TestFixtureOptionChecks loads fixtures that combine the E3e options
-// (oracle.setup, oracle.pull, a run's submit) and requires each invalid
-// combination to be refused with its reason.
+// TestFixtureOptionChecks loads fixtures that combine the oracle session
+// options (oracle.setup, oracle.pull, a run's submit) and requires each
+// invalid combination to be refused with its reason.
 func TestFixtureOptionChecks(t *testing.T) {
 	const setup = "variables:\n  - path: f/x/v\n    value: v\n"
 	for _, c := range []struct {
@@ -211,10 +211,10 @@ func TestFixtureOptionChecks(t *testing.T) {
 	}
 }
 
-// A fixture's provided sites and providers (F2a): each named provider
-// gives exactly one of a result, an error object and a decline, and
-// providers come with provided sites; the sites are read as the host
-// contract writes them, which wltest check validates.
+// TestFixtureProviders checks a fixture's provided sites and providers:
+// each named provider gives exactly one of a result, an error object and a
+// decline, and providers come with provided sites; the sites are read as
+// the host contract writes them, which wltest check validates.
 func TestFixtureProviders(t *testing.T) {
 	const site = "provided:\n  - {selector: {flow: f/x/y, module: a}, provider: p, mandatory: true}\n"
 	for _, c := range []struct {

@@ -426,11 +426,13 @@ func TestCheckReplay(t *testing.T) {
 	}
 }
 
-// Below a retried flow step (milestone N5), each attempt's subflow is
-// walked below the step's r:<k>: the replay service resolves a step of
-// the subflow at its site without the attempt and counts its jobs across
-// the attempts, which CheckReplay holds to the walk's order, the step's
-// attempt first, then the inner module's own.
+// TestCheckReplayAcrossFlowStepAttempts checks CheckReplay on a walk,
+// given as input, below a retried flow step: each failed attempt's subflow
+// is walked below the step's r:<k> and the last attempt's below the step's
+// own site. The replay service resolves a step of the subflow at its site
+// without the attempt and counts its jobs across the attempts, which
+// CheckReplay holds to the walk's order, the step's attempt first, then the
+// inner module's own.
 func TestCheckReplayAcrossFlowStepAttempts(t *testing.T) {
 	site := func(s string) SitePath {
 		p, err := ParseSitePath(s)
