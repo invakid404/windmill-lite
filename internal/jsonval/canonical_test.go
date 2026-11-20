@@ -486,10 +486,10 @@ func TestSyntheticStored(t *testing.T) {
 	}
 }
 
-// BenchmarkStored is item 1 of ADR 0005's benchmark plan (milestone G1):
-// the canonicaliser against the test implementation's decode, sort and
-// encode, on the step-result-shaped payloads of bench.Synthetic from 26 B
-// to 4 MiB. Both compute the stored text (TestSyntheticStored).
+// BenchmarkStored is item 1 of ADR 0005's benchmark plan: the canonicaliser
+// against the test implementation's decode, sort and encode, on the
+// step-result-shaped payloads of bench.Synthetic from 26 B to 4 MiB. Both
+// compute the stored text (TestSyntheticStored).
 func BenchmarkStored(b *testing.B) {
 	for _, n := range bench.SyntheticSizes {
 		text := bench.Synthetic(n)
