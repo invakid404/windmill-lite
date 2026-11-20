@@ -1,4 +1,4 @@
-// Developer checks of host plugins (runtime/plugin.ts, milestone F2c): the
+// Developer checks of host plugins (runtime/plugin.ts): the
 // declaration, the dispatch of each hook, and the runtime answering
 // host_call frames. The gate runs in Go: wl (warm) and cmd/windmill-lite
 // (host mode) run conformance/plugins/hooks.yaml through the real harness.

@@ -112,7 +112,7 @@ function readPieces(bytes: Uint8Array, size: number, maxFrame = MAX_FRAME, maxMe
 
 // The reader keeps what a push leaves of a frame and the next completes,
 // so a stream read in pieces gives the messages, or the error, it gives
-// read whole, however it is cut (FU7: the reader's buffer).
+// read whole, however it is cut.
 describe("conformance/protocol/frames.json read in pieces", () => {
   for (const c of cases.filter((c) => c.error || c.messages)) {
     for (const size of [1, 3, 4096]) {

@@ -1,6 +1,6 @@
-// The Bun host SDK (ADR 0009, host mode; milestones W1 and F3a of
-// ADR 0012): for a host that is itself a Bun program and whose per-run
-// state lives in AsyncLocalStorage. The host process is also the Bun
+// The Bun host SDK (ADR 0009, host mode; ADR 0012, the layout): for a
+// host that is itself a Bun program and whose per-run state lives in
+// AsyncLocalStorage. The host process is also the Bun
 // harness. connect() checks the host's working directory, registers the
 // host's instances of the bundle's host-provided modules, extracts the
 // bundle's codebase assets, starts the engine binary as a child, with one
@@ -56,13 +56,19 @@ export type ConnectOptions = {
   /** The host's own instances of the bundle's host-provided modules, by
    * module path. */
   hostModules?: Record<string, object>;
-  /** The host's plugin (ADR 0008, milestone F2c): TypeScript hooks for the
-   * host's runs (H1, H2, H6, H8, H9, H12, H13), around wrappers, and the
-   * providers of the bundle's host-provided sites, which the engine calls
-   * over host_call, each in the scope of the run it serves (H11). The
-   * engine checks its declaration in the handshake and refuses the host
-   * (plugin_mismatch) when a selector is malformed or ambiguous, or a
-   * provider the host contract names is missing. */
+  /** The host's plugin (ADR 0008): hooks for the host's runs (H1, H2, H6,
+   * H8, H9, H12, H13) and the providers of the bundle's host-provided
+   * sites. Its declaration goes to the engine in the hello. The engine
+   * applies what the declaration holds as values itself, such as a static
+   * interception and the halts of H8, and calls the TypeScript callbacks
+   * over host_call: the interceptions with a function, the argument
+   * rewrites, the gate before a run's first write, the module observers,
+   * the environment and run-end hooks, the providers of named sites, and
+   * the resource and variable callbacks. The harness runs the around
+   * wrappers around a step. Each callback runs in the scope of the run it
+   * serves (H11). The engine checks the declaration in the handshake and
+   * refuses the host (plugin_mismatch) when a selector is malformed or
+   * ambiguous, or a provider the host contract names is missing. */
   plugin?: Plugin;
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */

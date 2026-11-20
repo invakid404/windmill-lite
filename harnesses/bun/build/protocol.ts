@@ -15,9 +15,10 @@ export type HostModuleRequest = {
   // A package module: the specifier and the dependency set it installs from.
   package?: string;
   deps?: string;
-  // A module outside the folder, a file of a codebase entry's
-  // relative_path, by its absolute path (parse only): the helper checks its
-  // source, and the Go build bundles it with esbuild (milestone F3h).
+  // A module that esbuild bundles, by its absolute path (parse only): a
+  // file of a codebase entry's relative_path outside the folder, or a
+  // listed codebase script of the folder. The helper checks its source,
+  // and the Go build bundles it with esbuild.
   source?: string;
   // The esbuild loader that bundles the source (parse only, with source):
   // its extension's, or its codebase entry's loader override. ts, tsx, js
@@ -62,7 +63,8 @@ export type Request = {
   version: 1;
   // scan: the host-provided modules' exports; build: every module; parse:
   // only what the source of each entry records, for codebase scripts,
-  // which esbuild bundles in Go (C2b).
+  // which esbuild bundles in Go, and the source of each host-provided
+  // module that esbuild bundles.
   op: "scan" | "build" | "parse" | "native" | "kept" | "namespaces" | "lazy";
   require_bun?: string;
   folder: string;

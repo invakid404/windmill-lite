@@ -1,6 +1,6 @@
-// The host plugin of the plugin cases (conformance/plugins/hooks.yaml,
-// milestone F2c): one plugin that answers every case's declarative plugin,
-// each for the sites of its own flow, which the Go tests load in warm
+// The host plugin of the plugin cases (conformance/plugins/hooks.yaml):
+// one plugin that answers every case's declarative plugin, each for the
+// sites of its own flow, which the Go tests load in warm
 // harness processes (wl, wl.Options.Plugin) and in a compiled host
 // (cmd/windmill-lite, the host SDK's plugin option). It keeps a log of
 // each run, which onRunEnd reports in the warning plugin_log. Its

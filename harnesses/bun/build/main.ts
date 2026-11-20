@@ -119,7 +119,8 @@ if (req.op === "lazy") {
 for (const hm of req.op === "native" ? [] : req.host_modules) {
   try {
     if (req.op === "parse") {
-      // Only a module outside the folder is parsed (milestone F3h).
+      // Only a module that esbuild bundles carries its source, and only
+      // such a module is parsed.
       if (hm.source !== undefined) response.host_modules[hm.id] = builder.parseHostSource(hm);
       continue;
     }

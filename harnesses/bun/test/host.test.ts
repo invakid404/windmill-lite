@@ -72,7 +72,7 @@ describe("conformance/protocol/host/workdir.json", () => {
 
 // The shared cases of the SDK–engine version pairing, which the engine runs
 // too (internal/harness, TestVersionPairingCases): the SDK refuses a
-// welcome from an engine of another release (ADR 0009, milestone F3b).
+// welcome from an engine of another release (ADR 0009).
 type VersionCase = { case: string; title: string; sdk: string; engine: string; pairs: boolean };
 const versions = (await Bun.file(new URL("../../../conformance/protocol/host/versions.json", import.meta.url)).json()) as { cases: VersionCase[] };
 
@@ -209,9 +209,9 @@ test("resourceStore passes the store to the engine, the Redis URL in its environ
   }
 });
 
-// Review round 1, finding 3: a run's onSettled runs in the scope the run
-// was submitted in (H11), outside every invocation, after its run_done has
-// removed it from the runs in flight; concurrent runs keep their own.
+// A run's onSettled runs in the scope the run was submitted in (H11),
+// outside every invocation, after its run_done has removed it from the runs
+// in flight; concurrent runs keep their own.
 test("onSettled runs in its run's submission scope", async () => {
   const { AsyncLocalStorage } = await import("node:async_hooks");
   const { Runtime } = await import("../runtime/runtime.ts");

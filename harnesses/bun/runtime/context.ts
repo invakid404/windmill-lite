@@ -268,7 +268,7 @@ export function current(): InvocationContext | undefined {
  * process out of the invocation that happens to trigger it. A step module
  * evaluates inside its first invocation's context, and a pool's first
  * client is often created inside a step, so without it the pool's
- * maintenance timers would be that invocation's, and C3b's settle-time
+ * maintenance timers would be that invocation's, and the settle-time
  * fence would clear them. Code that the harness does not bundle reaches it
  * through the symbol, as shims reach the host-provided modules:
  *
@@ -314,7 +314,7 @@ export function installProcessScope() {
 
 installProcessScope();
 
-/** The step API (ADR 0008 H4 and H5, milestone F2c): `wl` on globalThis,
+/** The step API (ADR 0008 H4 and H5): `wl` on globalThis,
  * which step code calls without importing anything, so a script that
  * guards it (`globalThis.wl?.latch(e)`) still runs on Windmill.
  *
@@ -455,8 +455,7 @@ export function installEnvView() {
         c.env[k] = envString(v);
         c.unset?.delete(k);
         // Bun.env reads a variable the process has as its own property:
-        // move it, so it answers with the written value there too (W1
-        // review, finding 1).
+        // move it, so it answers with the written value there too.
         shadow({ [k]: "" });
         return true;
       }
@@ -1164,15 +1163,14 @@ export function setChildAnnouncer(fn: (id: string, pid: number, token?: string) 
  * pid, stdio and place, so child.pid, its streams and its exit status are
  * the command's. The guardian's parent is gone before the command starts,
  * so it is no child of the command: a command that waits for all its
- * children (wait(), waitpid(-1)) does not wait for it (review round 4,
- * finding 2). The guardian closes the descriptors a spawn gives a child (0
- * to 9), so it holds none of the child's pipes, and sleeps for 999999999.<token>
- * seconds: the token, digits, is in its arguments, by which the engine
- * knows it (macOS gives another process's arguments, not its
- * environment). While it lives, the group's
- * id cannot be given to another process, so the engine's kill can only
- * reach the original group; once only the guardian is left, the engine
- * forgets the group and then kills the guardian. */
+ * children (wait(), waitpid(-1)) does not wait for it. The guardian
+ * closes the descriptors a spawn gives a child (0 to 9), so it holds none
+ * of the child's pipes, and sleeps for 999999999.<token> seconds: the
+ * token, digits, is in its arguments, by which the engine knows it (macOS
+ * gives another process's arguments, not its environment). While it
+ * lives, the group's id cannot be given to another process, so the
+ * engine's kill can only reach the original group; once only the guardian
+ * is left, the engine kills the guardian and then forgets the group. */
 export function guardedCommand(token: string, cmd: string[]): string[] {
   // Descriptors 3 to 9 are the ones a spawn's extra stdio and IPC pipes
   // take; dash, Linux's /bin/sh, names no descriptor above 9.
