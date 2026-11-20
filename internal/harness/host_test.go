@@ -174,10 +174,11 @@ func echoRun(ctx context.Context, p *Process, r RunRequest) RunDone {
 	return RunDone{Status: "success", Result: out.Body}
 }
 
-// ADR 0004 host mode item 4: in host mode the engine is the host's child,
-// so the process that greets it must be its parent, which its watchdog
-// would signal; with the watchdog off (F3b) that check, the watchdog's,
-// does not apply. A host must offer the host capability.
+// TestHostHandshake checks ADR 0004 host mode item 4: in host mode the
+// engine is the host's child, so the process that greets it must be its
+// parent, which its watchdog would signal; with the watchdog off that
+// check, the watchdog's, does not apply. A host must offer the host
+// capability.
 func TestHostHandshake(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -262,12 +263,13 @@ func TestHostRunCancel(t *testing.T) {
 	}
 }
 
-// Host mode item 6: when the host's connection ends, its runs are lost
-// with it: an invocation in flight fails with ErrHostLost and settles with
-// the process, the run's context ends, and the engine is done. The run's
-// context has its cause before the invocation is failed, so a run reads
-// it whichever wakes it first, here also with a gap between the two
-// (FU7: the run read a nil cause when the outcome came first).
+// TestHostLost checks host mode item 6: when the host's connection ends,
+// its runs are lost with it: an invocation in flight fails with
+// ErrHostLost and settles with the process, the run's context ends, and
+// the engine is done. The run's context has its cause before the
+// invocation is failed, so a run reads it whichever wakes it first, here
+// also with a gap between the two (in the other order, a run could read a
+// nil cause after its Execute returned the outcome).
 func TestHostLost(t *testing.T) {
 	for _, gap := range []time.Duration{0, 20 * time.Millisecond} {
 		t.Run(fmt.Sprint("gap ", gap), func(t *testing.T) {
@@ -308,7 +310,7 @@ func testHostLost(t *testing.T) {
 	}
 }
 
-// The watchdog of host mode (item 4, review item cl P4-3): when no frame
+// TestHostWatchdog checks the watchdog of host mode (item 4): when no frame
 // has come from the host for killAfter, the engine names the runs in
 // flight, sends SIGKILL to the host's pid only while the host is still its
 // parent, and ends.

@@ -113,10 +113,10 @@ type ProcessConfig struct {
 	Platform PlatformHandler
 
 	// ExpectPlugin, when not nil, is the host plugin declaration the
-	// harness's hello must carry, byte for byte (milestone F2c): a pool
-	// whose first process loaded a plugin holds every later one to it, so
-	// all of them answer the same hooks. Another is refused with
-	// RejectPlugin.
+	// harness's hello must carry, byte for byte: a pool sets it for the
+	// spawns that begin after it has recorded the declaration of a process
+	// that started with a plugin, so that they answer the same hooks.
+	// Another is refused with RejectPlugin.
 	ExpectPlugin []byte
 
 	// notify is called, outside every lock, after an invocation is
@@ -155,11 +155,11 @@ func BunCommand(bun, runtimeMain, bundleDir string) (string, []string) {
 }
 
 // BaseEnv returns the part of a Bun job's base environment (WR-22, WA-2)
-// that needs no other milestone: PATH, HOME (the engine's, or /tmp), TZ
-// when the engine has one, FORCE_COLOR=1, DO_NOT_TRACK=1,
-// BUN_INSTALL_CACHE_DIR, BUN_RUNTIME_TRANSPILER_CACHE_PATH=0, and NODE_PATH
-// when the engine has one. BASE_URL comes from ProcessConfig.Facade
-// (milestone PF1).
+// that depends only on the engine's own environment: PATH, HOME (the
+// engine's, or /tmp), TZ when the engine has one, FORCE_COLOR=1,
+// DO_NOT_TRACK=1, BUN_INSTALL_CACHE_DIR, BUN_RUNTIME_TRANSPILER_CACHE_PATH=0,
+// and NODE_PATH when the engine has one. BASE_URL comes from
+// ProcessConfig.Facade.
 //
 // The engine stands in for the worker (WR-22/b): BUN_INSTALL_CACHE_DIR is
 // <WINDMILL_DIR>/cache_nomount/bun, with WINDMILL_DIR read from the
@@ -285,7 +285,7 @@ type Process struct {
 	status      ExitStatus
 
 	// hostCalls are the host_calls waiting for their replies, by id, under
-	// mu (milestone F2c); lateHostCalls those the engine stopped waiting
+	// mu; lateHostCalls those the engine stopped waiting
 	// for, until their replies come, each with what closes then.
 	hostCalls     map[string]chan HostReply
 	hostCallSeq   uint64
@@ -623,11 +623,12 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		// failure model, item 5).
 		reject = CheckWorkdir(p.host.workdir, h.Workdir)
 	case p.cfg.ExpectPlugin != nil && string(h.Plugin.Producer()) != string(p.cfg.ExpectPlugin):
-		// Every process of a pool answers the same hooks (F2c).
+		// The declaration the pool recorded, so that this process
+		// answers the same hooks as the process it was recorded from.
 		reject = &Reject{RejectPlugin, "the harness's host plugin declaration differs from the pool's"}
 	case p.host != nil && p.host.check != nil:
 		// The engine's own checks of the host, such as its plugin's
-		// declaration (F2c).
+		// declaration.
 		reject = p.host.check(h)
 	}
 	if reject != nil {
@@ -976,7 +977,7 @@ func guardArg(token string) string { return "999999999." + token }
 // prologue's script holds it, which every process of the prologue carries
 // until it execs (guardedCommand): the guardian among them, from its fork
 // until its exec, so a step's command that exits at once cannot leave the
-// engine a group in which it knows no process (review round 5's CI).
+// engine a group in which it knows no process.
 func hasGuardArg(args []byte, token string, script bool) bool {
 	w := []byte(guardArg(token))
 	for i := 0; i < len(args); {
@@ -1017,8 +1018,7 @@ var (
 // meanwhile, the leader exiting before it is read and the guardian forked
 // after the listing started, so that it shows neither. An empty listing is
 // taken again: once the first has ended without the leader, the step's
-// command has run, so the guardian, forked before it, is in the second
-// (review round 5's CI).
+// command has run, so the guardian, forked before it, is in the second.
 func newChildGroup(pid int, token string) (g *childGroup, ok bool) {
 	g = &childGroup{pgid: pid, token: token, since: time.Now()}
 	now := groupMembers([]int{pid})[pid]
@@ -1068,7 +1068,7 @@ const (
 	// undecided: the look could not tell, since a member's arguments read
 	// empty while it runs, as they do while it execs, and it may be the
 	// guardian in its exec of sleep. The group is kept as it was, and
-	// looked at again (review round 5's CI).
+	// looked at again.
 	undecided
 )
 
@@ -1163,13 +1163,13 @@ var (
 // only its guardian is left. A look left undecided is taken again, a few
 // milliseconds later, for a while (endTries); a group still undecided
 // then is given up. A group it kills is ended for good, so that
-// no other path, holding a look from before the kill, signals its id
-// again: the kill ends the guardian that kept the id reserved (review
-// round 4, finding 1). The kill follows the look at once; a group that
-// still has a member it had cannot be replaced in that instant. The
-// members it killed go to the reaper, which reaps those the engine is the
-// parent of as they exit (reapLater; review round 5, finding 1). ended
-// reports whether the group is ended or given up.
+// no other path of the engine, holding a look from before the kill,
+// signals its id again (g.mu orders those paths): the kill ends the
+// guardian that kept the id reserved. The kill follows a fresh look at
+// once: as long as a member that look saw is still alive, the id still
+// names the same group. The members it killed go to the reaper,
+// which reaps those the engine is the parent of as they exit (reapLater).
+// ended reports whether the group is ended or given up.
 func (g *childGroup) end(release bool) (ended bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1202,7 +1202,7 @@ func (g *childGroup) end(release bool) (ended bool) {
 // it saw at two looks running, prev and its last, and that have exited
 // since with the engine as their parent: a descendant a member left, which
 // the engine adopted, does not stay a zombie in the group until the group
-// ends (reapMember; review round 5, finding 1).
+// ends (reapMember).
 func (g *childGroup) reapAdopted(prev []groupMember) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1730,7 +1730,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	}
 	if len(inv.Around) > 0 && p.Hello().Plugin.IsZero() {
 		// The wrappers are the plugin's: a harness without one cannot run
-		// the step inside them (F2c).
+		// the step inside them.
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q: around wrappers %v, and the harness loaded no host plugin", inv.ID, inv.Around)
 	}
 	// The script receives, and args.json holds, the arguments without the

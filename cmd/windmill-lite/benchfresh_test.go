@@ -16,12 +16,13 @@ import (
 	"testing"
 )
 
-// benchFreshEnv selects G1's per-process mode: with WL_BENCH_FRESH=1, each
-// shape of BenchmarkHostShapes and each configuration of
-// BenchmarkStepBoundary runs in a test process of its own. In one process,
-// a shape runs on the heap the earlier ones left, so the Go collector's
-// pace, and with it the engine's CPU, depends on which shapes ran before.
-// The child, marked by benchFreshChildEnv, runs the benchmark as usual.
+// benchFreshEnv selects the benchmarks' per-process mode: with
+// WL_BENCH_FRESH=1, each shape of BenchmarkHostShapes and each
+// configuration of BenchmarkStepBoundary runs in a test process of its own.
+// In one process, a shape runs on the heap the earlier ones left, so the Go
+// collector's pace, and with it the engine's CPU, depends on which shapes
+// ran before. The child, marked by benchFreshChildEnv, runs the benchmark
+// as usual.
 const (
 	benchFreshEnv      = "WL_BENCH_FRESH"
 	benchFreshChildEnv = "WL_BENCH_FRESH_CHILD"

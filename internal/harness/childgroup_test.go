@@ -168,13 +168,12 @@ func (f *fakeProcs) took() []int {
 	return out
 }
 
-// The engine kills a child group only while it is the group the step's
-// child started: while a member it last saw is still there, the same
-// process. So what the leader started is killed after the leader exited,
-// and a group that took the id after the original ended is never
-// signalled, whether its own leader is alive or already gone (review
-// round 2, finding 3; round 3, finding 1). Ids that cannot name a group
-// are never signalled (round 2, finding 2).
+// TestChildGroupIdentity checks that the engine kills a child group only
+// while it is the group the step's child started: while a member it last
+// saw is still there, the same process. So what the leader started is
+// killed after the leader exited, and a group that took the id after the
+// original ended is never signalled, whether its own leader is alive or
+// already gone. Ids that cannot name a group are never signalled.
 func TestChildGroupIdentity(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
@@ -217,7 +216,7 @@ func TestChildGroupIdentity(t *testing.T) {
 		}
 	})
 	t.Run("a replacement whose leader already exited", func(t *testing.T) {
-		// The review's sequence: the original (4242, started at 1) ends; a
+		// The sequence: the original (4242, started at 1) ends; a
 		// new group takes the id (4242, started at 2) and its leader exits,
 		// leaving a member of its own, all between two looks.
 		f.set(4242, m(4242, 1))
@@ -257,12 +256,12 @@ func TestChildGroupIdentity(t *testing.T) {
 	})
 }
 
-// A group started with its guardian stays the original while the guardian
-// lives, whatever its other members do: what a child left when it exited
-// is killed though the engine never saw it beside the child, a group with
-// only its guardian left is released (dropped, then its guardian killed),
-// and a group that took the id has no guardian, so it is never signalled
-// (review round 3, finding 1).
+// TestChildGroupGuardian checks that a group started with its guardian
+// stays the original while the guardian lives, whatever its other members
+// do: what a child left when it exited is killed though the engine never
+// saw it beside the child, a group with only its guardian left is released
+// (its guardian killed, then the group dropped), and a group that took the
+// id has no guardian, so it is never signalled.
 func TestChildGroupGuardian(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
@@ -314,7 +313,7 @@ func TestChildGroupGuardian(t *testing.T) {
 	})
 	// The leader carries the prologue's script, and so the token, until it
 	// execs the step's command: alone in its group, it is not a guardian
-	// left alone, and is not released (review round 5's CI).
+	// left alone, and is not released.
 	t.Run("the leader before its exec", func(t *testing.T) {
 		f.scripts[4242] = "tk"
 		defer delete(f.scripts, 4242)
@@ -329,7 +328,7 @@ func TestChildGroupGuardian(t *testing.T) {
 	})
 	// The first listing started before the prologue forked anything and
 	// read the leader after it exited, so it shows no member; the second
-	// shows the guardian and what the command left (review round 5's CI).
+	// shows the guardian and what the command left.
 	t.Run("a listing that missed the prologue", func(t *testing.T) {
 		f.set(4242)
 		f.mu.Lock()
@@ -347,7 +346,7 @@ func TestChildGroupGuardian(t *testing.T) {
 	// The engine first finds the prologue's subshell, which carries the
 	// token; it exits, and so does the step's command, at once, before the
 	// engine saw the guardian: the guardian, which carries the token from
-	// its fork, keeps the group the original (review round 5's CI).
+	// its fork, keeps the group the original.
 	t.Run("a copy of the prologue, then the guardian", func(t *testing.T) {
 		f.scripts[6001] = "tk"
 		defer delete(f.scripts, 6001)
@@ -368,13 +367,14 @@ func TestChildGroupGuardian(t *testing.T) {
 	})
 }
 
-// A look that finds neither the guardian nor a member it saw before, in a
-// group started with a guardian, while a member other than the leader runs
-// and reads no arguments, as in its exec, is undecided: the watcher keeps
-// the group as it was, and a kill looks again a few milliseconds later,
-// for a while, before it gives the group up. A group started without a
-// guardian is never undecided (review round 5's CI: a guardian whose exec
-// of sleep the look caught midway).
+// TestChildGroupUndecided checks when a look is undecided: in a group
+// started with a guardian, it finds neither the guardian nor a member it
+// saw before, while a member other than the leader runs and reads no
+// arguments, as it does in its exec. Such a member may be the guardian,
+// caught midway through its exec of sleep. The watcher then keeps the
+// group as it was, and a kill looks again a few milliseconds later, for a
+// while, before it gives the group up. A group started without a guardian
+// is never undecided.
 func TestChildGroupUndecided(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
@@ -449,10 +449,10 @@ func TestChildGroupUndecided(t *testing.T) {
 	execing(true)
 }
 
-// The watcher's release of a group with only its guardian left and a
-// cancellation of the same group kill it once, whichever comes first, and
-// the release never acts on a look that is out of date (review round 4,
-// finding 1):
+// TestChildGroupEndsOnce checks that the watcher's release of a group with
+// only its guardian left and a cancellation of the same group kill it
+// once, whichever comes first, and that the release never acts on a look
+// that is out of date:
 //
 //   - the watcher looks and finds only the guardian, then a cancellation
 //     kills the group, which ends the guardian that kept the id reserved,
@@ -531,15 +531,15 @@ func TestChildGroupEndsOnce(t *testing.T) {
 	})
 }
 
-// The engine reaps the members of the groups it owns that it is the parent
-// of, as when it runs as PID 1 or a subreaper and adopted them, each by its
-// own pid and only while it is still the process the engine saw: a
-// released guardian, what a cancellation killed, a process forked as the
-// kill landed, and a descendant that exits while its group still runs.
-// It leaves another's child to its parent, never waits for a pid another
-// process took, does not trust a listing once no member it holds is left
-// in the group, and never waits for a harness's own pid (review round 5,
-// finding 1).
+// TestReapChildGroups checks that the engine reaps the members of the
+// groups it owns that it is the parent of, as when it runs as PID 1 or a
+// subreaper and adopted them, each by its own pid and only while it is
+// still the process the engine saw: a released guardian, what a
+// cancellation killed, a process forked as the kill landed, and a
+// descendant that exits while its group still runs. It leaves another's
+// child to its parent, never waits for a pid another process took, does not
+// trust a listing once no member it holds is left in the group, and never
+// waits for a harness's own pid.
 func TestReapChildGroups(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
@@ -664,11 +664,11 @@ func TestReapChildGroups(t *testing.T) {
 	})
 }
 
-// A guardian the engine is the parent of, as when it adopted the guardian
-// as PID 1 or a subreaper, is reaped once its group is retired: here a real
-// guardian, the test's own child in a group of its own, released by the
-// engine's watcher, leaves the process table without the test waiting for
-// it (review round 5, finding 1: the reviewer's probe).
+// TestReviewOwnedGuardianReaped checks that a guardian the engine is the
+// parent of, as when it adopted the guardian as PID 1 or a subreaper, is
+// reaped once its group is retired: here a real guardian, the test's own
+// child in a group of its own, released by the engine's watcher, leaves
+// the process table without the test waiting for it.
 func TestReviewOwnedGuardianReaped(t *testing.T) {
 	// spec: WR-55
 	resetReaper()
@@ -714,11 +714,11 @@ func retire(t *testing.T, g *childGroup) {
 	p.retireChildren()
 }
 
-// The engine retires the child groups that no longer continue: one that
-// ended, and one whose id a later group took, so that cancelling the
-// invocation afterwards cannot signal the id's new owner; a group that
-// outlived its leader is kept, and its members renewed (review round 2,
-// finding 3).
+// TestRetireChildren checks that the engine retires the child groups that
+// no longer continue: one that ended, and one whose id a later group took,
+// so that cancelling the invocation afterwards cannot signal the id's new
+// owner; a group that outlived its leader is kept, and its members
+// renewed.
 func TestRetireChildren(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
@@ -827,9 +827,10 @@ func TestGroupMembersOf(t *testing.T) {
 	}
 }
 
-// The engine forgets a step's child group once it has ended, while the
-// invocation is still in flight, so a later cancel of that invocation
-// cannot signal whatever takes the id (review round 2, finding 3).
+// TestBunWarmRetiresEndedChildren checks that the engine forgets a step's
+// child group once it has ended, while the invocation is still in flight,
+// so a later cancel of that invocation cannot signal whatever takes the
+// id.
 func TestBunWarmRetiresEndedChildren(t *testing.T) {
 	// spec: WR-55
 	p := spawn(t, childrenConfig(t))
@@ -863,11 +864,11 @@ func TestBunWarmRetiresEndedChildren(t *testing.T) {
 	cancel(engine.CancelTimeout)
 }
 
-// A shell that backgrounds a daemon and exits at once hands its group to
-// the daemon, which the engine may never have seen beside it. The group's
-// guardian keeps it the original, so the settlement's kill reaches the
-// daemon, and then nothing is left in the group (review round 3,
-// finding 1).
+// TestBunWarmGuardedHandoff covers a shell that backgrounds a daemon and
+// exits at once, which hands its group to the daemon, which the engine may
+// never have seen beside it. The group's guardian keeps it the original,
+// so the settlement's kill reaches the daemon, and then nothing is left in
+// the group.
 func TestBunWarmGuardedHandoff(t *testing.T) {
 	// spec: WR-55
 	p := spawn(t, childrenConfig(t))

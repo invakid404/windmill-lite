@@ -93,9 +93,9 @@ type Pool struct {
 	affinity runMap
 	// fresh holds a fresh pool's processes until they exit.
 	fresh map[*Process]struct{}
-	// plugin is the host plugin declaration of the pool's first process,
-	// which every later one must carry (F2c); nil until one loaded a
-	// plugin.
+	// plugin is the host plugin declaration of the first process that
+	// started with one; a spawn that begins after it is recorded must
+	// carry the same declaration. nil until then.
 	plugin []byte
 }
 
@@ -390,8 +390,8 @@ func (pl *Pool) inServiceLocked() int {
 
 func (pl *Pool) spawnLocked() *spawnAttempt {
 	att := &spawnAttempt{done: make(chan struct{}), cfg: pl.cfg.Process}
-	// A pool whose first process loaded a host plugin holds the later ones
-	// to its declaration (F2c).
+	// A spawn that begins after the pool has recorded a host plugin
+	// declaration is held to it; spawns already under way are not.
 	if pl.plugin != nil {
 		att.cfg.ExpectPlugin = pl.plugin
 	}

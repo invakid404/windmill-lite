@@ -17,11 +17,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The cases of conformance/protocol/host/versions.json (ADR 0009,
-// milestone F3b), which the host SDK's tests run too
-// (harnesses/bun/test/host.test.ts): VersionsPair gives each its answer,
-// and in a host's handshake an SDK that does not pair is refused with
-// version_mismatch.
+// TestVersionPairingCases runs the cases of
+// conformance/protocol/host/versions.json (ADR 0009), which the host SDK's
+// tests run too (harnesses/bun/test/host.test.ts): VersionsPair gives each
+// its answer, and in a host's handshake an SDK that does not pair is
+// refused with version_mismatch.
 func TestVersionPairingCases(t *testing.T) {
 	b, err := os.ReadFile("../../conformance/protocol/host/versions.json")
 	if err != nil {
@@ -349,10 +349,10 @@ func TestHostRunSettled(t *testing.T) {
 	}
 }
 
-// Review round 1, finding 1: bye waits behind every run_done queued before
-// it, whole, however large, so a host that exits on bye has the outcome of
-// every run the engine took; the run that arrived after drain is refused
-// at once, ahead of them.
+// TestHostDrainWaitsForLargeOutcomes checks that bye waits behind every
+// run_done queued before it, whole, however large, so a host that exits on
+// bye has the outcome of every run the engine took; the run that arrived
+// after drain is refused at once, ahead of them.
 func TestHostDrainWaitsForLargeOutcomes(t *testing.T) {
 	release := make(chan struct{})
 	h, _, err := attach(t, HostConfig{Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
@@ -406,10 +406,11 @@ func TestHostDrainWaitsForLargeOutcomes(t *testing.T) {
 	}
 }
 
-// Review round 1, finding 2: a host may submit a run as soon as it reads
-// the welcome, before AttachHost has returned on the engine's side; the
-// run's invocation already has its args.json in the host's working
-// directory. Each try sends the run at once from a host played here.
+// TestHostRunRightAfterWelcome checks that a host can submit a run as soon
+// as it reads the welcome, before AttachHost has returned on the engine's
+// side; the run's invocation already has its args.json in the host's
+// working directory. Each try sends the run at once from a host played
+// here.
 func TestHostRunRightAfterWelcome(t *testing.T) {
 	for i := range 20 {
 		dir := t.TempDir()
@@ -483,15 +484,16 @@ func TestHostRunRightAfterWelcome(t *testing.T) {
 	}
 }
 
-// pluginHello is a host's hello that declares a host plugin (F2c).
+// pluginHello is a host's hello that declares a host plugin.
 func pluginHello() Hello {
 	h := hostHello()
 	h.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
 	return h
 }
 
-// A host_call goes to the harness's plugin and returns its reply (F2c):
-// an answer, or an error the plugin gave, as a *HostCallError.
+// TestHostCallReplies checks that a host_call goes to the harness's plugin
+// and returns its reply: an answer, or an error the plugin gave, as a
+// *HostCallError.
 func TestHostCallReplies(t *testing.T) {
 	h, p, err := attach(t, HostConfig{Run: echoRun}, pluginHello())
 	if err != nil {
@@ -560,12 +562,12 @@ func TestHostCallLateAndStrayReplies(t *testing.T) {
 	}
 }
 
-// Every host_call the engine stopped waiting for is remembered until its
-// reply comes, however many others ended meanwhile (F2c review R1-4): a
-// late reply is dropped and closes its call's Done, which tells a run's
-// settlement that the hook has finished (R1-2); a second reply to it
-// answers no call; and the harness's exit closes the Done of every call
-// still unanswered.
+// TestHostCallManyLateReplies checks that every host_call the engine
+// stopped waiting for is remembered until its reply comes, however many
+// others ended meanwhile: a late reply is dropped and closes its call's
+// Done, which tells a run's settlement that the hook has finished; a second
+// reply to it answers no call; and the harness's exit closes the Done of
+// every call still unanswered.
 func TestHostCallManyLateReplies(t *testing.T) {
 	h, p, err := attach(t, HostConfig{Run: echoRun}, pluginHello())
 	if err != nil {

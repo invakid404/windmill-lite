@@ -21,10 +21,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// The Q-WA-4 test, W1's exit gate "the Q-WA-4 env-view test 16/16": does
-// the per-invocation isolation of WA-31 hold on the pinned Bun 1.4.3 with
-// the stock pinned windmill-client? It runs the experiment design of WA-31
-// and Q-WA-4 on the real harness:
+// TestQWA4EnvView is the Q-WA-4 test: does the per-invocation isolation of
+// WA-31 hold on the pinned Bun 1.4.3 with the stock pinned windmill-client?
+// It runs the experiment design of WA-31 and Q-WA-4 on the real harness:
 //
 //   - the stock windmill-client@1.862.0 (WL_WINDMILL_CLIENT names a
 //     directory whose node_modules holds it; CI fetches it by its npm

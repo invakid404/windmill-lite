@@ -102,9 +102,9 @@ try {
   fail(`cannot register the bundle's host-provided modules: ${(e as Error).message}`);
 }
 
-// The host plugin the engine named (ADR 0008, F2c), loaded once the
+// The host plugin the engine named (ADR 0008), loaded once the
 // runtime's process-wide hooks are in place and before the harness greets
-// the engine, whose hello carries its declaration.
+// the engine: the harness's hello carries the plugin's declaration.
 if (pluginPath !== undefined) {
   try {
     runtime.usePlugin(await loadPlugin(pathToFileURL(pluginPath).href));

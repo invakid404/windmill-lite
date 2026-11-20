@@ -1,5 +1,5 @@
 // Developer checks of the settle-time fence and the per-invocation views
-// of milestone C3b (runtime/context.ts): timers, the fetch view, the log
+// (runtime/context.ts): timers, the fetch view, the log
 // view, the Bun.env write trap and child processes. The gate is the step
 // suite (cmd/wltest) and the protocol exchanges (internal/harness), which
 // run them in the real harness; these pin the rules in one process.
@@ -293,7 +293,7 @@ test("a child started without an environment gets the invocation's; one given an
     out.push(JSON.stringify(c.resources.pending()));
     return out;
   });
-  // promisify(exec) keeps Node's {stdout, stderr} form (c3b review).
+  // promisify(exec) keeps Node's {stdout, stderr} form.
   expect(got).toEqual(["inv", "inv", "inv", "", "inv", "inv", '{"child":1}', "{}"]);
   expect(process.env.WL_FENCE_TEST_CHILD).toBeUndefined();
 });
@@ -842,8 +842,8 @@ test("a read that fails without reading, or a branch canceled while another read
         return { active: reading };
       }),
     ).toEqual([{ fetch: 1 }, "AbortError"]);
-    // c3b review 3, R3-1: no stream operation ends the request. A cancel
-    // that fails because a reader holds the body:
+    // No stream operation ends the request. A cancel that fails because a
+    // reader holds the body:
     expect(
       await settled("/gate/locked-cancel", async (res) => {
         const reading = res.text();
@@ -968,7 +968,7 @@ test("the response of the fetch view is Bun's own: locking, disturbance, bodyUse
     "pipeThrough while locked": async (res) => (res.body!.getReader(), [call(() => res.body!.pipeThrough(new TransformStream()))]),
     "pipeThrough of no pair": async (res) => [call(() => res.body!.pipeThrough({} as TransformStream))],
     "pipeTo while locked": async (res) => (res.body!.getReader(), [await settle(res.body!.pipeTo(new WritableStream()))]),
-    // c3b review 3, R3-2: the pipes are Bun's own, their option checks too.
+    // The pipes are Bun's own, their option checks too.
     "pipeThrough with a signal that is not one": async (res) => [call(() => res.body!.pipeThrough(new TransformStream(), { signal: {} as AbortSignal }))],
     "pipeTo with a signal that is not one": async (res) => [await settle(res.body!.pipeTo(new WritableStream(), { signal: {} as AbortSignal }))],
     "pipeThrough, read": async (res) => [await settle(new Response(res.body!.pipeThrough(new TransformStream())).text())],
@@ -1021,7 +1021,7 @@ test("a grouped child starts with its group's guardian, which holds none of its 
     expect(out).toEqual({ text: String(pids[0]), code: 3 });
     expect(tokens.length).toBe(1);
     // The guardian is no child of the command, so a command that waits for
-    // all its children does not wait for it (review round 4, finding 2).
+    // all its children does not wait for it.
     const guardian = parents!.filter(([, cmd]) => cmd === `sleep 999999999.${tokens[0]}`);
     expect(guardian.length).toBe(1);
     expect(guardian[0][0]).not.toBe(String(pids[0]));

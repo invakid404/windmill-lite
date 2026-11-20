@@ -85,7 +85,6 @@ func TestRunCommand(t *testing.T) {
 			len(out.Trace.Steps) != 1 || out.Trace.Steps[0].Site.String() != "m:a" || out.Trace.Steps[0].Job == "" {
 			t.Fatalf("%s: %s", mode, stdout.String())
 		}
-		// -cpuprofile (milestone G1) wrote the engine's CPU profile.
 		if err := checkCPUProfile(prof); err != nil {
 			t.Fatalf("%s: -cpuprofile: %v", mode, err)
 		}

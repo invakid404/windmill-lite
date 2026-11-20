@@ -586,9 +586,11 @@ export class Builder {
     try {
       if (annotations.npm) throw new BuildProblem("unsupported_feature", "unsupported: npm");
       const dir = this.depDir(e.deps);
-      // The env rewrite is for the shared Bun process (WA-31); native and
-      // Node-target scripts do not run there with Bun's globals, and their
-      // environment is the native boundary's (C3n).
+      // The env rewrite is for Bun-target bundles in the shared Bun
+      // process (WA-31). A native script's environment is the native
+      // boundary's, a `//nodejs` one included; a Node-target script that is
+      // not native runs on the Bun harness, whose environment view covers
+      // it at run time.
       const env = target === "bun";
       const text = transformSource(source, e.path);
       const entry = this.materialise(dir, join("entry", e.id + ".ts"), env ? withEnvImport(text) : text);
@@ -716,8 +718,8 @@ export class Builder {
     return this.client;
   }
 
-  // What a codebase script's source records, which esbuild bundles in Go
-  // (C2b): its annotations and bundler target, the workflow-as-code
+  // What a codebase script's source records, which esbuild bundles in Go:
+  // its annotations and bundler target, the workflow-as-code
   // markers, the packages it imports, and a signature for each export of
   // its bundle (e.exports, which the Go build reads from esbuild, or the
   // source's own exports without it). As for any Bun script, a function the
@@ -1178,9 +1180,8 @@ function normaliseMetafile(m: unknown, dir: string): Record<string, unknown> {
 
 // Whether text spells the identifier name, as written or through Unicode
 // escapes (`\u0075`, `\u{75}`), which an identifier may use for any of its
-// characters (c2a review 2, finding 6). Escapes are decoded everywhere, in
-// strings and comments too: a false match only moves the build to another
-// name.
+// characters. Escapes are decoded everywhere, in strings and comments too:
+// a false match only moves the build to another name.
 export function spells(text: string, name: string): boolean {
   if (text.includes(name)) return true;
   if (!text.includes("\\u")) return false;

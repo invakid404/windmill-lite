@@ -16,7 +16,7 @@ import (
 
 // TestBuildCancelsInstallTree times a build out while a lifecycle script
 // of its install runs, and checks that the script's process is gone when
-// BuildBun returns (c2a review 3).
+// BuildBun returns.
 func TestBuildCancelsInstallTree(t *testing.T) {
 	bun := bunPath(t)
 	reg := newRegistry(t, map[string]map[string]string{"fixture-pkg@1.2.3": {"index.js": "export const tag = 1;\n"}})

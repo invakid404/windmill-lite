@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// outsideFiles is the synthetic folder of milestone F3h: a codebase entry
+// outsideFiles is a synthetic folder: a codebase entry
 // whose relative_path, ../lib, lies outside the sync root (WR-49) holds a
 // module with an AsyncLocalStorage store, which a codebase script imports
 // from outside the folder (WR-47). Paths are from the directory above the
@@ -110,11 +110,11 @@ func TestOutsideID(t *testing.T) {
 	}
 }
 
-// A file of the folder that only an outside module's copy reads is a
-// source of the bundle, as a codebase script's inputs are (ADR 0010, the
-// manifest's sources): it is listed, and an edit that leaves the copy's
-// bytes alone (a comment) still changes the digest (milestone F3h, review
-// round 1).
+// TestBuildOutsideHostModuleSources checks that a file of the folder that
+// only an outside module's copy reads is a source of the bundle, as a
+// codebase script's inputs are (ADR 0010, the manifest's sources): it is
+// listed, and an edit that leaves the copy's bytes alone (a comment) still
+// changes the digest.
 func TestBuildOutsideHostModuleSources(t *testing.T) {
 	bun := bunPath(t)
 	dir := writeFolder(t, map[string]string{
@@ -153,11 +153,13 @@ func TestBuildOutsideHostModuleSources(t *testing.T) {
 	}
 }
 
-// loaderFor picks a file's loader as esbuild 0.28.2 does (WR-47): the
-// longest suffix of its name that starts at a dot, over esbuild's own
-// loaders with the entry's loader map on top (milestone F3h, review round
-// 2). The D12 codebase-outside-compound cases check the same picks
-// against esbuild's builds.
+// TestLoaderFor checks that loaderFor picks a file's loader as esbuild
+// 0.28.2 does (WR-47): the longest suffix of its name that starts at a
+// dot, over esbuild's own loaders with the entry's loader map on top, or
+// with the CLI's ".node" default when the entry has no map; a name
+// without a dot takes the loader of the empty suffix. The D12
+// codebase-outside-compound cases check the same picks against esbuild's
+// builds.
 func TestLoaderFor(t *testing.T) {
 	for _, c := range []struct {
 		loader map[string]string

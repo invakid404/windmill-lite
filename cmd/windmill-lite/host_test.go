@@ -38,9 +38,8 @@ import (
 // bundle.Build builds from the synthetic sync folder testdata/hostfolder
 // and its host contract. A supervisor that only restarts the host when it
 // exits stands in for the host's own, as ADR 0004's validation asks. They
-// are the host-mode half of W1's exit gate, C2b's host-mode gate and F3a's
-// exit gate, and need the pinned Bun (WL_BUN) and the build helper's
-// dependencies; without WL_BUN they skip, unless WL_REQUIRE_BUN is set.
+// need the pinned Bun (WL_BUN) and the build helper's dependencies;
+// without WL_BUN they skip, unless WL_REQUIRE_BUN is set.
 
 // TestMain lets the test binary serve as the engine: the SDK starts it
 // with the host command, and WL_TEST_ENGINE, which the supervisor sets,
@@ -417,13 +416,13 @@ func TestHostArgsFileReaders(t *testing.T) {
 	}
 }
 
-// W1's exit gate: "the host-provided-module ALS test 16/16 in a compiled
-// host" (ADR 0008 H11, ADR 0010, D12), on a built bundle (F3a). Sixteen
-// concurrent runs, each submitted inside its own tenant scope; the step
-// reads the scope through the host-provided module, by the shim the build
-// generated, before and after awaits. The second step reads it through a
-// separately bundled copy of the same module and sees nothing: the shim
-// and the host's registration are what make it work.
+// TestHostScopesThroughAHostProvidedModule is the AsyncLocalStorage test of
+// a host-provided module in a compiled host (ADR 0008 H11, ADR 0010, D12),
+// on a built bundle. Sixteen concurrent runs, each submitted inside its own
+// tenant scope; the step reads the scope through the host-provided module,
+// by the shim the build generated, before and after awaits. The second step
+// reads it through a separately bundled copy of the same module and sees
+// nothing: the shim and the host's registration are what make it work.
 func TestHostScopesThroughAHostProvidedModule(t *testing.T) {
 	s := supervise(t, 30000)
 	type res struct {
@@ -472,14 +471,14 @@ func TestHostScopesThroughAHostProvidedModule(t *testing.T) {
 	}
 }
 
-// C2b's exit gate (ADR 0012): "an esbuild CJS codebase script that imports
-// a host-provided module reads the host's store 16/16 on Bun 1.3.10", now
-// on the pinned Bun, in host mode on wl and a built bundle (F3a). The script,
-// testdata/hostfolder/f/hostcb/cb_scope.ts, is the CommonJS codebase
-// script of the folder, its import of f/host/scopes.ts resolved to the
-// module's generated shim. Sixteen concurrent runs, each submitted inside
-// its own tenant scope, read the host's scope through it before and after
-// awaits, on Bun's CommonJS loader (D13).
+// TestHostScopesThroughACodebaseScript checks that an esbuild CommonJS
+// codebase script that imports a host-provided module reads the host's
+// store (ADR 0012), on the pinned Bun, in host mode on wl and a built
+// bundle. The script, testdata/hostfolder/f/hostcb/cb_scope.ts, is the
+// CommonJS codebase script of the folder, its import of f/host/scopes.ts
+// resolved to the module's generated shim. Sixteen concurrent runs, each
+// submitted inside its own tenant scope, read the host's scope through it
+// before and after awaits, on Bun's CommonJS loader (D13).
 func TestHostScopesThroughACodebaseScript(t *testing.T) {
 	s := supervise(t, 30000)
 	type res struct {
@@ -523,12 +522,13 @@ func TestHostScopesThroughACodebaseScript(t *testing.T) {
 	}
 }
 
-// F3h's host-mode case: a codebase script imports a host-provided module
-// outside the sync folder (testdata/hostlib/tenant.ts, in the codebases
-// entry ../hostlib), which the host contract lists by its path from the
-// sync root. The host registers its own instance under that key, and
-// sixteen concurrent runs, each submitted inside its own tenant scope of
-// the module, read it before and after awaits.
+// TestHostScopesThroughAnOutsideModule runs in host mode a codebase script
+// that imports a host-provided module outside the sync folder
+// (testdata/hostlib/tenant.ts, in the codebases entry ../hostlib), which
+// the host contract lists by its path from the sync root. The host
+// registers its own instance under that key, and sixteen concurrent runs,
+// each submitted inside its own tenant scope of the module, read it before
+// and after awaits.
 func TestHostScopesThroughAnOutsideModule(t *testing.T) {
 	s := supervise(t, 30000)
 	type res struct {
@@ -591,9 +591,10 @@ func TestHostLazyImportCycle(t *testing.T) {
 	}
 }
 
-// W1's exit gate: "one detached rejection does not end the host" (ADR 0004,
-// the shared-process failure model, item 1). The step returns, the host
-// lives on and serves the next run, and the error is counted in health.
+// TestHostSurvivesADetachedRejection checks that one detached rejection
+// does not end the host (ADR 0004, the shared-process failure model, item
+// 1). The step returns, the host lives on and serves the next run, and the
+// error is counted in health.
 func TestHostSurvivesADetachedRejection(t *testing.T) {
 	s := supervise(t, 30000)
 	r, err := s.run("f/host/reject", "t", map[string]any{}, nil)
@@ -615,11 +616,12 @@ func TestHostSurvivesADetachedRejection(t *testing.T) {
 	}
 }
 
-// W1's exit gate: the never-settling-step test of ADR 0004 (host mode,
-// validation). Two concurrent runs, one of whose steps never settles:
-// after that step's timeout, the other run's next step completes, a new
-// run afterwards succeeds, and health reports one abandoned invocation.
-// The host is never restarted (host mode item 1: no taint, no recycle).
+// TestHostNeverSettlingStep is the never-settling-step test of ADR 0004
+// (host mode, validation). Two concurrent runs, one of whose steps never
+// settles: after that step's timeout, the other run's next step completes,
+// a new run afterwards succeeds, and health reports one abandoned
+// invocation. The host is never restarted (host mode item 1: no taint, no
+// recycle).
 func TestHostNeverSettlingStep(t *testing.T) {
 	s := supervise(t, 30000)
 	type res struct {
@@ -662,13 +664,13 @@ func TestHostNeverSettlingStep(t *testing.T) {
 	}
 }
 
-// WR-55 in host mode under backpressure (FU6, review round 2): a step
-// backs up the host's socket to the engine with a large log, starts a
-// child and blocks the host's event loop. The child's group still reaches
-// the engine, on the host's child channel, written synchronously, so the
-// step's timeout kills the child although the host can neither handle the
-// cancel nor write its socket, and long before the watchdog would end the
-// host.
+// TestHostChildUnderBackpressure checks WR-55 in host mode under
+// backpressure: a step backs up the host's socket to the engine with a
+// large log, starts a child and blocks the host's event loop. The child's
+// group still reaches the engine, on the host's child channel, written
+// synchronously, so the step's timeout kills the child although the host
+// can neither handle the cancel nor write its socket, and long before the
+// watchdog would end the host.
 func TestHostChildUnderBackpressure(t *testing.T) {
 	// spec: WR-55, WR-37
 	s := supervise(t, 30000)
@@ -693,7 +695,7 @@ func TestHostChildUnderBackpressure(t *testing.T) {
 		// A killed child of the blocked host stays unreaped. Its state is
 		// field 3 of /proc/<pid>/stat, after the command name's last ')',
 		// where there is a /proc, so a slim Linux image without ps can run
-		// this (FU7); ps elsewhere.
+		// this; ps elsewhere.
 		if st, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
 			i := bytes.LastIndexByte(st, ')')
 			return i >= 0 && i+2 < len(st) && st[i+2] == 'Z'
@@ -716,11 +718,11 @@ func TestHostChildUnderBackpressure(t *testing.T) {
 	}
 }
 
-// W1's exit gate: the watchdog test of ADR 0004 (host mode item 4,
-// validation), with review item cl P4-3: a step that spins forever, with a
-// second run active. The engine kills the host within watchdog.killAfter
-// plus one second, naming the runs in flight on its stderr; the second
-// run's caller sees the host's exit; a run on the restarted host succeeds.
+// TestHostWatchdog is the watchdog test of ADR 0004 (host mode item 4,
+// validation): a step that spins forever, with a second run active. The
+// engine kills the host within watchdog.killAfter plus one second, naming
+// the runs in flight on its stderr; the second run's caller sees the host's
+// exit; a run on the restarted host succeeds.
 func TestHostWatchdog(t *testing.T) {
 	const killAfter = time.Second
 	s := supervise(t, int(killAfter/time.Millisecond))
@@ -731,7 +733,7 @@ func TestHostWatchdog(t *testing.T) {
 		other <- err
 	}()
 	// The second run's step must be in flight before the spin blocks the
-	// host (W1 review, finding 2).
+	// host.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		if h := s.health(t); h.InFlight == 1 && h.Runs == 1 {
 			break
@@ -770,7 +772,7 @@ func TestHostWatchdog(t *testing.T) {
 		}
 	}
 	// The run list ends where the invocations begin; it must name two
-	// distinct runs (W1 review, finding 2).
+	// distinct runs.
 	uuid := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`)
 	_, runs, _ := strings.Cut(line, "in-flight runs:")
 	runs, _, _ = strings.Cut(runs, "; invocations:")
@@ -789,12 +791,13 @@ func TestHostWatchdog(t *testing.T) {
 	t.Logf("watchdog: the host was killed %v after the spinning run was sent (killAfter %v)", first.exitAt.Sub(sent).Round(time.Millisecond), killAfter)
 }
 
-// Case watchdog/finite-cpu of ADR 0004 in host mode (F3b's gate): a step
-// computes synchronously for 2 s and returns, with watchdog.killAfter 1 s
-// and a step timeout of 10 s. The engine kills the host after about 1 s,
-// and its in-flight runs end with it, a second run's included; a run on
-// the restarted host succeeds. With the watchdog disabled (killAfter 0),
-// the step completes with its result, on the first generation.
+// TestHostWatchdogFiniteCPU runs case watchdog/finite-cpu of ADR 0004 in
+// host mode: a step computes synchronously for 2 s and returns, with
+// watchdog.killAfter 1 s and a step timeout of 10 s. The engine kills the
+// host after about 1 s, and its in-flight runs end with it, a second run's
+// included; a run on the restarted host succeeds. With the watchdog
+// disabled (killAfter 0), the step completes with its result, on the first
+// generation.
 func TestHostWatchdogFiniteCPU(t *testing.T) {
 	t.Run("killAfter 1 s", func(t *testing.T) {
 		const killAfter = time.Second
@@ -892,9 +895,9 @@ func TestHostStaticIntercept(t *testing.T) {
 	}
 }
 
-// Milestone G1: `windmill-lite host -cpuprofile <file>`, which the SDK
-// passes among its engine flags, writes the engine's CPU profile once the
-// host's connection ends, on the real topology.
+// TestHostCPUProfile checks that `windmill-lite host -cpuprofile <file>`,
+// which the SDK passes among its engine flags, writes the engine's CPU
+// profile once the host's connection ends, on the real topology.
 func TestHostCPUProfile(t *testing.T) {
 	prof := filepath.Join(t.TempDir(), "engine.pprof")
 	s := supervise(t, 30000, "WL_ENGINE_FLAGS=-cpuprofile "+prof)
@@ -917,7 +920,7 @@ func TestHostCPUProfile(t *testing.T) {
 	t.Fatalf("no CPU profile after the host exited: %v", err)
 }
 
-// W1's exit gate: "a first per-step latency figure", in host mode: a
+// TestHostStepLatency gives a per-step latency figure in host mode: a
 // one-step flow run by the compiled host, timed around host.run. Report
 // only.
 func TestHostStepLatency(t *testing.T) {
@@ -952,12 +955,13 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-// F3a's exit gate (ADR 0012): "a codebase script reads its extracted asset
-// in host mode". The host SDK extracts the bundle's assets into the host's
-// working directory before any step loads (ADR 0009, D10), where Windmill
-// unpacks a codebase entry's assets beside its bundle (WR-49, WR-50): the
-// script reads its asset by a relative path and beside its own module,
-// and reads the arguments file the engine wrote there (WR-5).
+// TestHostCodebaseAsset checks that a codebase script reads its extracted
+// asset in host mode (ADR 0012). The host SDK extracts the bundle's assets
+// into the host's working directory before any step loads (ADR 0009, D10),
+// where Windmill unpacks a codebase entry's assets beside its bundle
+// (WR-49, WR-50): the script reads its asset by a relative path and beside
+// its own module, and reads the arguments file the engine wrote there
+// (WR-5).
 func TestHostCodebaseAsset(t *testing.T) {
 	s := supervise(t, 30000)
 	r, err := s.run("f/host/cb_asset", "t", map[string]any{"tag": "asset"}, nil)
@@ -981,11 +985,11 @@ func TestHostCodebaseAsset(t *testing.T) {
 	t.Logf("F3a: a codebase script read its extracted asset in host mode: %q", got.Relative)
 }
 
-// F3a's exit gate: the workdir_not_writable and workdir_mismatch cases,
-// end to end through the host SDK, which refuses before it starts the
-// engine (ADR 0004, the shared-process failure model, item 5): a host that
-// passes another directory than its own, and one whose working directory
-// it cannot write.
+// TestHostWorkdirRefusedBySDK runs the workdir_not_writable and
+// workdir_mismatch cases end to end through the host SDK, which refuses
+// before it starts the engine (ADR 0004, the shared-process failure model,
+// item 5): a host that passes another directory than its own, and one whose
+// working directory it cannot write.
 func TestHostWorkdirRefusedBySDK(t *testing.T) {
 	bin := compiledHost(t)
 	engineBin, err := os.Executable()
@@ -1025,13 +1029,14 @@ func TestHostWorkdirRefusedBySDK(t *testing.T) {
 	}
 }
 
-// F3a's exit gate, from the engine's side: `windmill-lite host` checks the
-// directory it was passed against the workdir of the host's hello, and
-// refuses the host in the handshake, so that a host that does not use the
-// SDK is held to the same rule (harness.CheckWorkdir). The test plays the
-// host itself: it starts the engine as its child with a socketpair as file
-// descriptor 3 and greets it. An engine that cannot open the bundle
-// refuses the host too, with its reason.
+// TestHostWorkdirRefusedByEngine checks the same rule from the engine's
+// side: `windmill-lite host` checks the directory it was passed against the
+// workdir of the host's hello, and refuses the host in the handshake, so
+// that a host that does not use the SDK is held to the same rule
+// (harness.CheckWorkdir). The test plays the host itself: it starts the
+// engine as its child with a socketpair as file descriptor 3 and greets it.
+// An engine that cannot open the bundle refuses the host too, with its
+// reason.
 func TestHostWorkdirRefusedByEngine(t *testing.T) {
 	compiledHost(t) // builds the bundle
 	manifest, err := os.ReadFile(filepath.Join(hostBundle, "manifest.json"))
@@ -1046,7 +1051,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		other    bool
 		flags    []string
 		code     string
-		plugin   string // the host plugin declaration of the hello (F2c)
+		plugin   string // the host plugin declaration of the hello
 		redisURL string // the engine's WL_REDIS_URL
 	}{
 		{"its own working directory", false, false, nil, "", "", ""},
@@ -1209,9 +1214,10 @@ func TestHostDrain(t *testing.T) {
 	}
 }
 
-// Review round 1, finding 1, end to end: a drain that starts while a run
-// whose outcome is larger than one frame is in flight ends only after that
-// run's caller has its whole outcome; the engine's bye waits for it.
+// TestHostDrainAfterALargeOutcome checks, end to end, that a drain that
+// starts while a run whose outcome is larger than one frame is in flight
+// ends only after that run's caller has its whole outcome; the engine's
+// bye waits for it.
 func TestHostDrainAfterALargeOutcome(t *testing.T) {
 	s := supervise(t, 30000)
 	const size = 3 << 20
@@ -1248,8 +1254,8 @@ func TestHostRunSettled(t *testing.T) {
 	if r.DoneAt < 900 || r.DoneAt > 1450 || r.SettledAt < 1450 || r.SettledAt > 5000 {
 		t.Fatalf("the outcome at %.0f ms, settled at %.0f ms; want about 1000 and 1500", r.DoneAt, r.SettledAt)
 	}
-	// onSettled runs in the run's own scope (H11; review round 1, finding
-	// 3), after a timeout abandoned its step and its outcome went out.
+	// onSettled runs in the run's own scope (H11), after a timeout
+	// abandoned its step and its outcome went out.
 	if r.SettledTenant == nil || *r.SettledTenant != "linger" {
 		t.Fatalf("onSettled read the tenant %v; want the run's, linger", r.SettledTenant)
 	}
@@ -1261,14 +1267,14 @@ func TestHostRunSettled(t *testing.T) {
 	}
 }
 
-// The resource-release test of ADR 0004 (host mode item 5, F3b's gate): a
-// resource that an abandoned invocation holds is not released before
-// onRunSettled. A step takes a lease of the host's pool (a host-provided
-// module) for its run's tenant and uses it every 10 ms for 1.5 s, while
-// its timeout of 1 s abandons it; the host releases the run's leases at
-// its onSettled. The outcome comes at about 1 s, the step goes on using the
-// lease, and the run settles, and the lease is released, only after the
-// step's last use: the step never sees it released.
+// TestHostResourceRelease is the resource-release test of ADR 0004 (host
+// mode item 5): a resource that an abandoned invocation holds is not
+// released before onRunSettled. A step takes a lease of the host's pool (a
+// host-provided module) for its run's tenant and uses it every 10 ms for
+// 1.5 s, while its timeout of 1 s abandons it; the host releases the run's
+// leases at its onSettled. The outcome comes at about 1 s, the step goes on
+// using the lease, and the run settles, and the lease is released, only
+// after the step's last use: the step never sees it released.
 func TestHostResourceRelease(t *testing.T) {
 	s := supervise(t, 30000)
 	r, err := s.post("/lease", map[string]any{"path": "f/host/lease", "tenant": "lease", "args": map[string]any{"ms": 1500}})
@@ -1350,10 +1356,11 @@ func TestHostRecycleModules(t *testing.T) {
 	}
 }
 
-// The retired-entry recycle trigger (F3b, F3a's follow-up): it trips once
-// the host's pooled-connection layer reports more entries retired and not
-// released than the host allows, which only the process's exit frees (ADR
-// 0004 host mode item 5); health reports it and onRecycle hears it.
+// TestHostRecycleRetired checks the retired-entry recycle trigger (ADR
+// 0004 host mode item 3): with a cap of two, health reports no trigger
+// after two entries retired, and after a third it reports the "retired"
+// trigger, which onRecycle hears too. The host decides what a trigger
+// means, so it still serves a run.
 func TestHostRecycleRetired(t *testing.T) {
 	s := supervise(t, 30000, "WL_RECYCLE_RETIRED=2")
 	retire := func() {
@@ -1386,9 +1393,10 @@ func TestHostRecycleRetired(t *testing.T) {
 	}
 }
 
-// F2c's exit gate in host mode: the plugin cases of
+// TestHostPluginCases runs in host mode the plugin cases of
 // conformance/plugins/hooks.yaml, answered by the host's own TypeScript
-// plugin (the host SDK's plugin option) over host_call. Every case gives
+// plugin (the host SDK's plugin option): its hooks and providers over
+// host_call, its around wrappers in the harness. Every case gives
 // its expected status, result, latched error, log and warnings, as through
 // wl in warm processes; and every hook runs in the scope of the run it
 // serves (H11), which the host's onRunEnd reports as the tenant it reads.
@@ -1616,12 +1624,13 @@ func buildPluginBundle(t *testing.T, f *conformance.PluginFile) string {
 	return out
 }
 
-// The SDK–engine version pairing (ADR 0009, milestone F3b): a host takes
-// the SDK of its engine's release. A host whose SDK is stamped with another
-// release than its engine (bun run --define WL_RELEASE, as a release
-// stamps it; the engine's version as -X main.version sets it) is refused
-// in the handshake with version_mismatch, and its connect rejects with
-// that code; one stamped with the engine's release is welcomed and runs.
+// TestHostVersionPairing checks the SDK–engine version pairing (ADR 0009):
+// a host takes the SDK of its engine's release. A host whose SDK is stamped
+// with another release than its engine (bun run --define WL_RELEASE, as a
+// release stamps it; the engine's version as -X main.version sets it) is
+// refused in the handshake with version_mismatch, and its connect rejects
+// with that code; one stamped with the engine's release is welcomed and
+// runs.
 func TestHostVersionPairing(t *testing.T) {
 	compiledHost(t)
 	bun := os.Getenv("WL_BUN")

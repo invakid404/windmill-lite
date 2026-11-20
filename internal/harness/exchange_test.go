@@ -20,7 +20,7 @@ import (
 // An exchange is a protocol transcript in conformance/protocol/exchanges:
 // the frames the engine sends and the frames the harness must answer with.
 // TestExchanges plays the engine's side, frame by frame, against the real
-// Bun harness on the pinned Bun; it is milestone C1's exit gate.
+// Bun harness on the pinned Bun.
 type exchange struct {
 	Case       string   `json:"case"`
 	Title      string   `json:"title"`

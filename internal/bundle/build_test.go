@@ -222,10 +222,10 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// TestBuildTwiceGivesOneDigest is F4's exit gate (ADR 0012): two builds of
-// one fixture, from copies of it in different directories, with different
-// work and output directories, give one bundle digest, the same manifest
-// and the same .wlb archive, byte for byte.
+// TestBuildTwiceGivesOneDigest checks that the build is reproducible
+// (ADR 0012): two builds of one fixture, from copies of it in different
+// directories, with different work and output directories, give one bundle
+// digest, the same manifest and the same .wlb archive, byte for byte.
 func TestBuildTwiceGivesOneDigest(t *testing.T) {
 	bun := bunPath(t)
 	var digests []string
@@ -384,10 +384,9 @@ func TestBuildOutput(t *testing.T) {
 	}
 }
 
-// TestBuildRefusesUnbuilt checks what the build refuses before bundling:
-// a codebase script (esbuild bundling is C2b's) and a host-provided module
-// that is not a Bun script of the folder (packages need a lock the
-// contract cannot give).
+// TestBuildRefusesUnbuilt checks what the build refuses before bundling: a
+// host-provided module whose script metadata does not read, and a
+// host-provided package (packages need a lock the contract cannot give).
 func TestBuildRefusesUnbuilt(t *testing.T) {
 	bun := bunPath(t)
 	for name, c := range map[string]struct {

@@ -162,7 +162,7 @@ func (c *conn) send(m Message) error {
 // invocationOf returns the invocation a message is about, for the
 // ordering rule, or "" for one that is about none: a platform call is
 // about the invocation its Inv names, so a result never overtakes a large
-// platform call made before it (milestone PF1). A host's runs are ordered
+// platform call made before it. A host's runs are ordered
 // the same way, under a key of their own: a run_cancel never overtakes the
 // large run it cancels.
 func invocationOf(m Message) string {
@@ -460,8 +460,8 @@ func (c *conn) writeLoop() {
 // rather than a failed connection: EOF, a connection the engine closed, or
 // ECONNRESET, with which Linux ends the reads of a stream socket whose peer
 // closed it with data it had not read, as a harness does that exits right
-// after its last frame while a pong to its heartbeat is still on its way
-// (FU8). Whether the peer itself failed is its exit status's to tell.
+// after its last frame while a pong to its heartbeat is still on its way.
+// Whether the peer itself failed is its exit status's to tell.
 func endOfStream(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET)
 }

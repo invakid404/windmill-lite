@@ -160,7 +160,7 @@ func fakeHarness(mode string) int {
 	heartbeat := time.Duration(w.Config.HeartbeatMS) * time.Millisecond
 	switch mode {
 	case "plugin":
-		// Answers every host_call with the hook it was for (F2c).
+		// Answers every host_call with the hook it was for.
 		for {
 			switch m := recv().(type) {
 			case HostCall:
@@ -395,13 +395,13 @@ func dripChild(id string) int {
 	return 0
 }
 
-// A fresh process that exits right after its result, while a pong the
-// engine sent in answer to its heartbeat is still unread, has its result
-// delivered, settled completed. On Linux a stream socket closed with unread
-// data ends its peer's reads with ECONNRESET instead of EOF; that is the
-// harness's end of stream, not a failed connection, which would discard
-// the held result as killed by SIGKILL (FU8: the 3 s steps of
-// TestFlowSuite/fresh failed that way on ubuntu under -race).
+// TestFreshExitWithAnUnreadPong checks that a fresh process that exits
+// right after its result, while a pong the engine sent in answer to its
+// heartbeat is still unread, has its result delivered, settled completed.
+// On Linux a stream socket closed with unread data ends its peer's reads
+// with ECONNRESET instead of EOF; that is the harness's end of stream, not
+// a failed connection, which would discard the held result as killed by
+// SIGKILL.
 func TestFreshExitWithAnUnreadPong(t *testing.T) {
 	cfg, diag := fakeConfig(t, "fresh-unread-pong")
 	cfg.ModuleState = engine.ModuleStateFresh
@@ -767,9 +767,10 @@ func TestFreshCancelWithBlockedDiagnostics(t *testing.T) {
 	}
 }
 
-// cl P4-3: silence is measured from frames received, so a harness that
-// keeps sending heartbeats is not killed while the engine's own writes are
-// blocked behind a large message it does not read.
+// TestWatchdogIgnoresEngineWriteBackpressure checks that silence is
+// measured from frames received, so a harness that keeps sending
+// heartbeats is not killed while the engine's own writes are blocked
+// behind a large message it does not read.
 func TestWatchdogIgnoresEngineWriteBackpressure(t *testing.T) {
 	cfg, diag := fakeConfig(t, "silent-reader")
 	cfg.KillAfter = 400 * time.Millisecond
@@ -1041,7 +1042,7 @@ func TestPoolCloseDuringStart(t *testing.T) {
 	}
 	go pool.Start(context.Background())
 	// Closed once the process has started, which it shows by its private
-	// directory, and while it has not said hello (FU2: no timing sleep).
+	// directory, and while it has not said hello (no timing sleep).
 	waitFor(t, "the process to start", func() bool { entries, _ := os.ReadDir(root); return len(entries) == 1 })
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()

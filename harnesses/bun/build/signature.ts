@@ -24,9 +24,8 @@ export type Syntax = "ts" | "tsx" | "js" | "jsx";
 // The parser accepts what Bun bundles: TypeScript with its decorators
 // (class, member and parameter ones) and auto-accessors. Babel 8 has
 // dropped the deprecated `import … assert {}` form, so that fails to parse.
-// Another syntax (a codebase module outside the folder, which esbuild
-// bundles with its loader, milestone F3h) keeps the decorators and adds
-// JSX or drops the types.
+// Another syntax (a host-provided module that esbuild bundles with its
+// loader) keeps the decorators and adds JSX or drops the types.
 export function parseModule(source: string, syntax: Syntax = "ts"): Parsed {
   const plugins: ("typescript" | "jsx" | "decorators-legacy" | "decoratorAutoAccessors")[] = [];
   if (syntax === "ts" || syntax === "tsx") plugins.push("typescript");

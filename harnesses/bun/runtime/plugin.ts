@@ -1,10 +1,13 @@
-// Host plugins (ADR 0008, milestone F2c): TypeScript hooks that the
-// engine calls over host_call frames, answered here, in the harness. A
-// plugin declares its hooks and their selectors up front; the harness
-// sends that declaration in its hello, and the engine builds its Go hook
-// seams from it (F2a), asking the plugin only for the sites the selectors
-// match. Selector matching stays in Go, written once: a host_call names
-// the declared entry it is for by its index.
+// Host plugins (ADR 0008): TypeScript hooks and providers that the engine
+// calls over host_call frames, answered here, in the harness, and around
+// wrappers, which the harness runs around a step when an invoke names
+// them. A plugin declares its hooks and their selectors up front; the
+// harness sends that declaration in its hello, and the engine builds its
+// Go hook seams from it, asking the plugin only for the sites the
+// selectors match. Selector matching stays in Go, written once: a
+// host_call for an interception or an argument rewrite names the declared
+// entry by its index, as an invoke names its around wrappers; the other
+// hooks and the providers go by name.
 //
 // In host mode the plugin is an object the host passes to the host SDK's
 // connect; in a warm harness the engine spawned, it is the default export

@@ -227,7 +227,7 @@ func readJSON(name string, v any) error {
 }
 
 // runOutput is what `run` prints. Its trace is a summary for debugging, not
-// the trace's wire form, which belongs to the adapters (F5).
+// the trace's wire form, which belongs to the host adapters (ADR 0009).
 type runOutput struct {
 	ID             string          `json:"id"`
 	Status         string          `json:"status"`

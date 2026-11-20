@@ -27,7 +27,7 @@ func TestScriptArgs(t *testing.T) {
 		{`{"_MODULES":`, `{"_MODULES":`},
 		// An object that does not close with its own brace, or that a
 		// value follows, is not valid either, though a dropped key would
-		// leave the rest looking whole (PF2 review round 2, P3).
+		// leave the rest looking whole.
 		{`{"_MODULES":1]`, `{"_MODULES":1]`},
 		{`{"a":1,"_MODULES":1`, `{"a":1,"_MODULES":1`},
 		{`{"_MODULES":1} true`, `{"_MODULES":1} true`},

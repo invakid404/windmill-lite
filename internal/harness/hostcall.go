@@ -10,7 +10,7 @@ import (
 )
 
 // HostCallError is the error of a host_call the host plugin answered with
-// an error (ADR 0008, milestone F2c): its hook threw, answered something
+// an error (ADR 0008): its hook threw, answered something
 // the hook does not answer (HostErrorPlugin), or is not declared
 // (HostErrorUnknownHook).
 type HostCallError struct {
@@ -44,7 +44,7 @@ func (e *LateHostCallError) Unwrap() error { return e.Err }
 
 // HostCall asks the harness's host plugin to answer hook for run at site
 // with payload, a JSON object, and returns its answer, a JSON object
-// (ADR 0008, milestone F2c). It waits until the harness replies, ctx ends
+// (ADR 0008). It waits until the harness replies, ctx ends
 // (it then returns a *LateHostCallError with ctx's cause, and the reply
 // that comes later is dropped), or the connection does. A plugin's error
 // reply is a *HostCallError.

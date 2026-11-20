@@ -3,7 +3,7 @@
 // It reports its version, builds a bundle from a Windmill sync folder,
 // verifies a bundle against its manifest or a release manifest, checks that
 // its expression engine starts, and serves host mode for a host such as
-// the Bun host SDK with package wl (`windmill-lite host`, milestone F3a).
+// the Bun host SDK with package wl (`windmill-lite host`).
 // It runs a bundle's flow or script with package wl and prints the outcome
 // as JSON (`windmill-lite run`, ADR 0009).
 package main
@@ -99,7 +99,7 @@ func newFlagSet(name string, stderr io.Writer) *flag.FlagSet {
 // startCPUProfile writes a CPU profile of this process, the engine, into
 // file (Go's pprof format, for `go tool pprof`) until the returned stop is
 // called; with no file it does nothing. It is the -cpuprofile switch of
-// `run` and `host` (milestone G1), which profiles the engine on a real
+// `run` and `host`, which profiles the engine on a real
 // workload: the harness or the host is another process, which it does not
 // cover.
 func startCPUProfile(file string, stderr io.Writer) (stop func(), err error) {

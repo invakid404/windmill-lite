@@ -144,10 +144,11 @@ func TestFramesAboutOneInvocationKeepOrder(t *testing.T) {
 	}
 }
 
-// Milestone PF1: a platform call is about the invocation its inv names, so
-// a result queued behind its large platform call waits for it, and the
-// facade has accepted the call when the result arrives; another
-// invocation's result is not held back.
+// TestResultWaitsForItsPlatformCall checks the order on the wire: a
+// platform call is ordered with the invocation its inv names, so a result
+// queued behind its large platform call follows it, and another
+// invocation's result is not held back. The facade relies on that order:
+// it has accepted the call by the time the result arrives.
 func TestResultWaitsForItsPlatformCall(t *testing.T) {
 	c, peer := connPair(t)
 	for _, m := range []Message{

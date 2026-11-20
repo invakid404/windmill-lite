@@ -18,10 +18,10 @@ import (
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// The boundary benchmarks of milestone G1 (ADR 0005, benchmark plan item
-// 2) split one step's round trip between the engine and its harness into
-// the parts this package and the harness runtime own, each measured on its
-// own, on the payloads of bench.Synthetic from 26 B to 4 MiB. A step's
+// The boundary benchmarks (ADR 0005, benchmark plan item 2) split one
+// step's round trip between the engine and its harness into the parts this
+// package and the harness runtime own, each measured on its own, on the
+// payloads of bench.Synthetic from 26 B to 4 MiB. A step's
 // argument is the payload ({"p": <payload>}) and its result is the
 // payload again, as the echo step of cmd/windmill-lite's end-to-end
 // benchmarks returns it:
@@ -30,8 +30,9 @@ import (
 //     script's arguments without the worker's internal keys (scriptArgs)
 //     and the invoke frame's payload (encode-invoke), and the result
 //     frame's payload decoded (decode-result);
-//   - BenchmarkArgsFile: the args.json file each invocation writes into
-//     the harness's working directory (WR-5);
+//   - BenchmarkArgsFile: the args.json file an invocation writes into the
+//     harness's working directory (WR-5), measured with the write on: the
+//     process has a directory and does not skip the file (writeArgs);
 //   - BenchmarkHarnessCodec: the harness's parse and serialise, on the
 //     pinned Bun, with the runtime's own frame.ts and wrapper.ts
 //     (testdata/bench.ts codec);

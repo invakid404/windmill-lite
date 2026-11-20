@@ -27,18 +27,18 @@ func TestBunHandshake(t *testing.T) {
 	if h.Proto != ProtocolVersion || h.Harness.Kind != "bun" || h.Runtime != PinnedBun || h.Bundle != cfg.Bundle || h.PID != p.PID() {
 		t.Fatalf("hello %+v", h)
 	}
-	// The runtime intercepts facade fetches (W1), runs fresh mode (C3b)
-	// and the native boundary (C3n); host is the host SDK's.
+	// The runtime intercepts facade fetches, runs fresh mode and the
+	// native boundary; host is the host SDK's.
 	if h.Caps != (Caps{Fetch: true, Native: true, Fresh: true}) {
 		t.Fatalf("caps %+v, want fetch, native and fresh", h.Caps)
 	}
 }
 
-// The engine refuses a native invocation, before it is dispatched, to a
-// harness whose hello does not offer the native boundary, and to a process
-// with no facade origin, which a native step must read as BASE_URL and
-// BASE_INTERNAL_URL (WR-45; c3n review r3, finding 6). A Bun invocation
-// needs neither.
+// TestCheckInvocationNeedsTheNativeCap checks that the engine refuses a
+// native invocation, before it is dispatched, to a harness whose hello
+// does not offer the native boundary, and to a process with no facade
+// origin, which a native step must read as BASE_URL and BASE_INTERNAL_URL
+// (WR-45). A Bun invocation needs neither.
 func TestCheckInvocationNeedsTheNativeCap(t *testing.T) {
 	inv := newInvocation("echo", `{}`, newRecorder())
 	inv.Boundary = engine.BoundaryNative
@@ -105,9 +105,10 @@ func TestBunHandshakeRejects(t *testing.T) {
 	}
 }
 
-// cl P4-3: the watchdog's SIGKILL must reach the process that speaks the
-// protocol. A harness started through a wrapper that forks it says hello
-// from another pid, and the engine refuses it.
+// TestBunPIDCheckRefusesAWrapper checks the pid in a harness's hello: the
+// watchdog's SIGKILL must reach the process that speaks the protocol. A
+// harness started through a wrapper that forks it says hello from another
+// pid, and the engine refuses it.
 func TestBunPIDCheckRefusesAWrapper(t *testing.T) {
 	cfg, _ := bunConfig(t)
 	script := `"$0" "$@"; exit $?`
@@ -285,11 +286,12 @@ func TestBunProcessErrorAttribution(t *testing.T) {
 	}
 }
 
-// ADR 0004, the shared-process failure model, items 2 and 4 (D9, D11): an
-// error a timer throws, or a process.exit it calls, after the invocation
-// settled changes nothing: the outcome stands, the invocation does not
-// settle again, the error is a late error that settles nothing, and the
-// process serves the next invocation (c3a review 1, finding 8).
+// TestBunWorkAfterTheResultIsLate checks items 2 and 4 of ADR 0004's
+// shared-process failure model (D9, D11): an error a timer throws, or a
+// process.exit it calls, after the invocation settled changes nothing: the
+// outcome stands, the invocation does not settle again, the error is a
+// late error that settles nothing, and the process serves the next
+// invocation.
 func TestBunWorkAfterTheResultIsLate(t *testing.T) {
 	for _, tc := range []struct{ script, body string }{
 		{"late-throw", `"message":"after the result"`},
@@ -319,16 +321,19 @@ func TestBunWorkAfterTheResultIsLate(t *testing.T) {
 	}
 }
 
-// The handlers never throw, whatever the error (c3a review 1, finding 2): a
-// rejection whose text is longer than max_message still fails nothing, and
-// the co-resident invocation's warning carries as much of it as fits.
+// TestBunLongUnattributedErrorUnderASmallMessageLimit checks a detached
+// rejection whose text is longer than max_message (1024 bytes here): it
+// fails nothing, the co-resident invocation completes, its warning
+// carries as much of the error as fits and ends with "…", and health
+// counts one unattributed error.
 //
-// The warning quotes the error's stack, which Bun 1.3.10 built without the
-// message when a garbage collection formatted it before anything had read
-// it; under load that happened in about 2% of runs (FU5). The gc variant
-// forces that collection, so every run takes that path: Bun 1.4.3 keeps the
-// message there, and the harness quotes the stack as Bun built it
-// (describe in runtime.ts).
+// The warning quotes the error's stack. The gc variant forces a garbage
+// collection to format the stack before anything has read it, the path on
+// which Bun 1.3.10 built the stack without the message. Bun 1.4.3 keeps
+// the message there, and the harness quotes the stack as Bun built it
+// (describe in runtime.ts): the warning starts with the event and the
+// error's type ("unhandledRejection: Error: "), then the start of the
+// message, until the cut at max_message.
 func TestBunLongUnattributedErrorUnderASmallMessageLimit(t *testing.T) {
 	for _, tc := range []struct{ name, args string }{
 		{"rejected at once", `{"ms":20,"size":5000}`},
@@ -373,10 +378,10 @@ func TestBunLongUnattributedErrorUnderASmallMessageLimit(t *testing.T) {
 	}
 }
 
-// ADR 0004, the shared-process failure model, item 1 (W1's exit gate): one
-// detached rejection does not end the process; it fails no invocation, the
-// co-resident one completes, and it is counted in health as an error no
-// invocation owned (item 3; attribution is C3a's).
+// TestBunDetachedRejectionDoesNotEndTheProcess checks item 1 of ADR 0004's
+// shared-process failure model: one detached rejection does not end the
+// process; it fails no invocation, the co-resident one completes, and it
+// is counted in health as an error no invocation owned (item 3).
 func TestBunDetachedRejectionDoesNotEndTheProcess(t *testing.T) {
 	cfg, diag := bunConfig(t)
 	p := spawn(t, cfg)
@@ -424,7 +429,7 @@ func TestBunKillGivesTheSignal(t *testing.T) {
 		done <- out
 	}()
 	// Killed once the invocation is in flight, so that it fails with the
-	// process rather than finding it gone (FU2: no timing sleep).
+	// process rather than finding it gone (no timing sleep).
 	waitFor(t, "the invocation in flight", func() bool { n, _ := p.Load(); return n == 1 })
 	p.Kill()
 	out := <-done
@@ -477,16 +482,16 @@ func TestBunCancelAbandonsAndSettlesLate(t *testing.T) {
 	}
 }
 
-// A cancel queued while a large invoke is still being written follows its
-// last part, so the harness knows the invocation when the cancel arrives
-// and abandons it. Ahead of the invoke it would name an unknown invocation
-// and be ignored, and the harness would report the call as in flight (ADR
-// 0004: messages about one invocation keep their order). The test holds
-// the invoke's delivery after its first part, so the cancel comes while
-// its stream is open, and the step is a gate, which runs until the test
-// opens it, so the invocation is still abandoned when the harness answers
-// the ping that follows the cancel (FU7: no deadline and no sleep that a
-// slow run could outlast).
+// TestBunCancelDuringLargeInvoke checks that a cancel queued while a large
+// invoke is still being written follows its last part, so the harness knows
+// the invocation when the cancel arrives and abandons it. Ahead of the
+// invoke it would name an unknown invocation and be ignored, and the
+// harness would report the call as in flight (ADR 0004: messages about one
+// invocation keep their order). The test holds the invoke's delivery after
+// its first part, so the cancel comes while its stream is open, and the
+// step is a gate, which runs until the test opens it, so the invocation is
+// still abandoned when the harness answers the ping that follows the cancel
+// (no deadline and no sleep that a slow run could outlast).
 func TestBunCancelDuringLargeInvoke(t *testing.T) {
 	dir := t.TempDir()
 	cfg, _ := bunConfig(t)
@@ -647,7 +652,7 @@ func TestBunWorkingDirectoryAndStdio(t *testing.T) {
 		t.Fatalf("got %+v, %v", out, err)
 	}
 	// What the step writes through console and process.stdout and
-	// process.stderr goes to its log frames (C3b); only Bun.stdout, which
+	// process.stderr goes to its log frames; only Bun.stdout, which
 	// no invocation owns, reaches the process's stdout, through a pipe,
 	// asynchronously to the frames.
 	pid := strconv.Itoa(p.PID())
@@ -686,11 +691,11 @@ func sameDir(t *testing.T, a, b string) bool {
 	return err1 == nil && err2 == nil && os.SameFile(sa, sb)
 }
 
-// Case watchdog/finite-cpu of ADR 0004, warm mode, which C3b gates: a step
-// that computes for 2 s with killAfter 1 s gets its process killed after
-// about 1 s; it and a co-resident invocation awaiting a timer fail as
-// escaped by SIGKILL; the next invocation runs on a replacement. With the
-// watchdog off the step completes.
+// TestBunWatchdogFiniteCPU runs case watchdog/finite-cpu of ADR 0004 in
+// warm mode: a step that computes for 2 s with killAfter 1 s gets its
+// process killed after about 1 s; it and a co-resident invocation awaiting
+// a timer fail as escaped by SIGKILL; the next invocation runs on a
+// replacement. With the watchdog off the step completes.
 func TestBunWatchdogFiniteCPU(t *testing.T) {
 	t.Run("killAfter 1s", func(t *testing.T) {
 		cfg, diag := bunConfig(t)
@@ -738,7 +743,7 @@ func TestBunWatchdogFiniteCPU(t *testing.T) {
 			t.Fatalf("got %+v, %v", out, err)
 		}
 	})
-	// Fresh mode (C3b): the process is the invocation, so the watchdog does
+	// In fresh mode the process is the invocation, so the watchdog does
 	// not apply, with killAfter 1 s or with it off; only the step's own
 	// timeout (10 s here) could end it.
 	for _, killAfter := range []time.Duration{time.Second, WatchdogOff} {
@@ -767,11 +772,11 @@ func freshInvocation(script, args string, rep engine.Reporter) engine.Invocation
 // gone reports whether no process has pid any more.
 func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
 
-// A fresh process.exit ends the process at the call, as the job's process
-// ends on Windmill (WR-2, c3b review 1, R1-1): no catch or finally block of
-// the step runs afterwards, whether its log goes out at once or has to wait
-// for the socket, and the log still reaches the engine. In a warm process
-// both blocks run (D11), the control.
+// TestBunFreshExitRunsNoMoreCode checks that a fresh process.exit ends the
+// process at the call, as the job's process ends on Windmill (WR-2): no
+// catch or finally block of the step runs afterwards, whether its log goes
+// out at once or has to wait for the socket, and the log still reaches the
+// engine. In a warm process both blocks run (D11), the control.
 func TestBunFreshExitRunsNoMoreCode(t *testing.T) {
 	cfg, _ := bunConfig(t)
 	fresh := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
@@ -896,8 +901,8 @@ func TestBunFreshEndsWithTheProcess(t *testing.T) {
 		}
 	})
 	// The process ends only once its frames are written, however much the
-	// socket takes at once (c3b review: a result above the socket's buffer
-	// was cut off).
+	// socket takes at once, so a result larger than the socket's buffer
+	// arrives whole.
 	for _, bytes := range []int{200_000, 3 << 20} {
 		t.Run(fmt.Sprintf("a result of %d bytes", bytes), func(t *testing.T) {
 			rec := newRecorder()
@@ -1336,7 +1341,7 @@ func TestBunPoolClose(t *testing.T) {
 		out, _ := execute(t, pool, newInvocation("sleep", `{"ms":300}`, newRecorder()), 10*time.Second)
 		done <- out
 	}()
-	// Closed once the invocation holds its slot (FU2: no timing sleep).
+	// Closed once the invocation holds its slot (no timing sleep).
 	waitFor(t, "the invocation's slot", func() bool { s := pool.Stats(); return len(s) == 1 && s[0].Active == 1 })
 	if err := pool.Close(context.Background()); err != nil {
 		t.Fatal(err)

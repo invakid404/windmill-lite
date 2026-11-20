@@ -234,16 +234,14 @@ func (s *CodebaseSettings) CLIBundle(root, file string) (map[string][]byte, erro
 // esbuild links the modules. A CommonJS bundle's module.exports takes the
 // same names, so they are read from the metafile of an ES module build of
 // the same entry, with the same plugin as the real build, so that an
-// import of a host-provided module resolves to its shim there too (c2b
-// review 2, finding 2).
+// import of a host-provided module resolves to its shim there too.
 //
 // known is false when no static list exists: the entry is CommonJS source,
-// whose names are its exports object's properties, known only when it
-// runs (an ES module build would list only its wrapper's default; c2b
-// review 2, finding 4), or the build failed, and err says why. The
-// harness then gives any callable export the metadata does not sign an
-// empty parameter list, as Windmill gives a function its parser does not
-// find in the source (WR-6, WR-7).
+// whose names are its exports object's properties, known only when it runs
+// (an ES module build would list only its wrapper's default), or the build
+// failed, and err says why. The harness then gives any callable export the
+// metadata does not sign an empty parameter list, as Windmill gives a
+// function its parser does not find in the source (WR-6, WR-7).
 //
 // The helper records a signature for each name: the entry source's own
 // parameter list for a function it declares, and none (an empty list) for
@@ -457,7 +455,7 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 	for _, e := range cfg.Entries {
 		h := helperEntry{ID: e.ID, Path: e.Path, File: e.File}
 		// The signatures cover what the bundle exports, re-exports through
-		// export * included (c2b review 1, finding 2).
+		// export * included.
 		if s, err := ParseCodebaseSettings(e.Settings); err == nil {
 			names, known, err := cfg.bundleExports(e, s, shims)
 			switch {
@@ -479,8 +477,7 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 	// An entry that fails is reported, and the others are still built:
 	// each entry whose module and assets succeed gets its metadata and
 	// assets written, as BuildBun writes the metadata of every script that
-	// built, so a caller that runs the scripts that built can run them
-	// (c2b review 3, finding 5).
+	// built, so a caller that runs the scripts that built can run them.
 	var problems []ItemProblem
 	var built []CodebaseScript
 	assets := map[string]assetSource{} // to → where it came from
@@ -665,7 +662,7 @@ const pluginNamespace = "windmill-lite"
 // second resolution of every import, which esbuild runs without its
 // directory cache, so a build with any listed module read every directory
 // of its dependency tree once per import, tens of times slower than the
-// same build without (milestone F3h). esbuild resolves the import itself,
+// same build without. esbuild resolves the import itself,
 // as in a build with no listed module, so every other module keeps its
 // resolution, its package's sideEffects included.
 func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]string, entry string, record func(key string)) api.Plugin {

@@ -19,14 +19,14 @@ import (
 	"github.com/invakid404/windmill-lite/internal/engine"
 )
 
-// The engine reaps what it adopts as a subreaper, as it does as PID 1
-// without an init, which adopts orphans alike: the guardians of the child
-// groups it releases, kills on a cancellation and kills at the process's
-// end, what a group's members leave, a descendant that exits while its
-// group still runs, and a fresh job's orphans; repeated spawns leave no
-// zombie of its (review round 5, finding 1). The test runs in a subprocess
-// of this test binary, which makes itself a child subreaper (prctl
-// PR_SET_CHILD_SUBREAPER) and runs the real Bun harness.
+// TestReapAdoptedOrphans checks that the engine reaps what it adopts as a
+// subreaper, as it does as PID 1 without an init, which adopts orphans
+// alike: the guardians of the child groups it releases, kills on a
+// cancellation and kills at the process's end, what a group's members
+// leave, a descendant that exits while its group still runs, and a fresh
+// job's orphans; repeated spawns leave no zombie of its. The test runs in a
+// subprocess of this test binary, which makes itself a child subreaper
+// (prctl PR_SET_CHILD_SUBREAPER) and runs the real Bun harness.
 func TestReapAdoptedOrphans(t *testing.T) {
 	// spec: WR-55
 	if os.Getenv("WL_SUBREAPER") != "" {

@@ -241,7 +241,6 @@ export function decode(payload: Uint8Array): Message {
       checkNested(m.t, m, "caps", { fetch: "bool", native: "bool", fresh: "bool", host: "bool" });
       // A host's working directory, in host mode (ADR 0004, item 5).
       if (m.workdir != null) checkField(m.t, m, "workdir", "string");
-      // The host plugin's declaration (F2c).
       if (m.plugin != null && (typeof m.plugin !== "object" || Array.isArray(m.plugin))) throw new ProtocolError("bad_field", "hello plugin is not an object");
       break;
     case "invoke":
@@ -433,9 +432,9 @@ export class FrameReader {
   // The bytes read and not yet returned are buf[from, to). The buffer
   // grows by doubling and is compacted before it grows, so each byte is
   // copied a bounded number of times however finely a frame arrives: a
-  // copy of the whole partial frame at every read made a large invoke's
-  // delivery quadratic, about 2 GB copied for 24 MiB read 8 KiB at a time
-  // (FU7, TestBunCancelDuringLargeInvoke).
+  // copy of the whole partial frame at every read would make a large
+  // invoke's delivery quadratic, about 2 GB copied for 24 MiB read 8 KiB at
+  // a time (TestBunCancelDuringLargeInvoke).
   private buf = new Uint8Array(0);
   private from = 0;
   private to = 0;

@@ -1330,14 +1330,17 @@ func BenchmarkStepBoundary(b *testing.B) {
 // all kept fit in memory.
 var retainedRuns = map[int]int{64 << 10: 200, 16 << 20: 8}
 
-// BenchmarkRetainedHeap is lever J5's probe: sequential runs of
+// BenchmarkRetainedHeap estimates how much of the engine's heap finished
+// runs keep. After one warm-up run, it makes sequential runs of
 // f/bench/pair, two steps that each return a payload of the size, on one
 // long-lived runtime, in host and subprocess mode, and on the host whose
-// plugin provides resources and variables (host-plugin), whose providers once kept finished runs reachable,
-// with the engine's Go heap read after two collections before and after
-// them. heap-mib/run is what each finished run leaves reachable; it is
-// flat when finished runs are released. Run it with -benchtime 1x: it
-// makes retainedRuns runs.
+// plugin provides resources and variables (host-plugin), so that the
+// plugin's providers are measured too. It reads the engine's Go heap
+// (HeapAlloc, the whole process's) after two collections before and after
+// those runs. heap-mib/run is the difference divided by the number of
+// runs: the average net growth per run, which can be negative, and which
+// stays near zero when finished runs are released. Run it with
+// -benchtime 1x: it makes retainedRuns runs.
 func BenchmarkRetainedHeap(b *testing.B) {
 	bun := benchSetup(b)
 	heap := func() uint64 {

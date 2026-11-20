@@ -6,20 +6,25 @@
 // it submits runs, and each invocation of a run re-enters the scope the
 // host had when it submitted it (H11).
 //
-// The step runner applies Windmill's Bun wrapper rules (wrapper.ts,
-// milestone C3a): the entrypoint's signature from the bundle, binding and
-// Date hydration, the result and error serialisation, the missing-export
-// error, process.exit interception (D11) and the attribution of
-// process-level errors to the invocation whose context raised them. The
-// walking skeleton (W1) added the per-invocation environment, the facade
-// fetch, the process-level handlers and host mode. A step invoked with the
-// native boundary runs in a realm of its own with the native runtime's
-// rules instead (native.ts, milestone C3n). Milestone C3b added
-// per-invocation logs, child-process wrapping, the settle-time fence (D9)
-// with its report of the work an invocation leaves behind, and fresh mode:
-// one invocation per process, which ends with it as Windmill's job process
-// does. Milestone FU6 gave each invocation's children a process group,
-// which a timeout, a cancellation and settlement kill (WR-55).
+// The step runner applies Windmill's Bun wrapper rules (wrapper.ts): the
+// entrypoint's signature from the bundle, binding and Date hydration, the
+// result and error serialisation, the missing-export error, process.exit
+// interception (D11) and the attribution of process-level errors to the
+// invocation whose context raised them. The runtime also provides the
+// per-invocation environment and logs, the facade fetch, child-process
+// wrapping, the process-level handlers, the settle-time fence (D9) with
+// its report of the work an invocation leaves behind, and host mode. A
+// step invoked with the native boundary runs in a realm of its own with
+// the native runtime's rules instead (native.ts). In fresh mode each
+// process runs one invocation and ends with it, as Windmill's job process
+// does, and leads its job's process group. In a warm process, an
+// asynchronous child that an invocation's code starts through the wrapped
+// child-process calls (not Bun.$), unless the step starts it detached,
+// leads a process group of its own, which a timeout, a cancellation and
+// settlement kill (WR-55). A synchronous call's child stays in the
+// harness's group, unless the step starts it detached: then it leads a
+// group of its own, which outlives it while another member remains
+// (context.ts).
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
@@ -167,7 +172,7 @@ export type Options = {
    * the runtime's own timer, outside every invocation (the host SDK's
    * recycle triggers). */
   onHeartbeat?: (h: HostHealth) => void;
-  /** The host plugin (ADR 0008, milestone F2c), whose declaration the
+  /** The host plugin (ADR 0008), whose declaration the
    * hello carries and whose hooks answer the engine's host_calls. */
   plugin?: Plugin;
 };
@@ -239,10 +244,10 @@ export class RunError extends Error {
  * which the host SDK's health() exposes. */
 export type HostHealth = Health & { oldest_abandoned_ms: number; modules: number };
 
-/** The warning code of a host plugin's around wrapper that failed (F2c),
+/** The warning code of a host plugin's around wrapper that failed,
  * which latches the run (engine.WarningPluginError). */
 const PLUGIN_ERROR = "plugin_error";
-/** The warning code of a step's wl.latch (F2c), which latches the run
+/** The warning code of a step's wl.latch, which latches the run
  * (engine.WarningLatch). */
 const LATCH = "latch";
 
@@ -322,7 +327,7 @@ export class Runtime {
     const diag = opts.diag ?? ((line: string) => realStderr(line + "\n"));
     this.diag = (line) => invocations.exit(() => diag(line));
     // A fresh process is not told the facade, which it reaches over TCP at
-    // the BASE_URL it was spawned with (ADR 0007, milestone PF1); a native
+    // the BASE_URL it was spawned with (ADR 0007); a native
     // realm reads that origin then.
     const spawnedBase = process.env.BASE_URL;
     this.native = new Native({
@@ -371,7 +376,6 @@ export class Runtime {
       // The host's working directory, which the engine checks against the
       // directory the host passed it (ADR 0004, item 5).
       workdir: this.opts.host ? process.cwd() : undefined,
-      // The host plugin's hooks and selectors (F2c).
       plugin: this.opts.plugin ? new Raw(JSON.stringify(declaration(this.opts.plugin))) : undefined,
     });
   }
@@ -568,7 +572,7 @@ export class Runtime {
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
     // submitted the run; inside the host plugin's around wrappers, when
-    // the engine names any (F2c).
+    // the engine names any.
     const go = () => invocations.run(ctx, () => (Array.isArray(m.around) && m.around.length > 0 ? this.runAround(m, inv) : this.run(m)));
     const scope = this.scopes.get(m.run);
     // Nothing that goes wrong while one invocation ends may end the
@@ -582,7 +586,7 @@ export class Runtime {
   }
 
   /** Runs one invocation inside the host plugin's around wrappers that
-   * m.around names, outermost first (ADR 0008 H1, F2c). Each wrapper calls
+   * m.around names, outermost first (ADR 0008 H1). Each wrapper calls
    * next() once to run what is inside it; the step's outcome is its own,
    * whatever a wrapper returns. A wrapper that throws, or that never calls
    * next(), is reported in a plugin_error warning, ahead of the frame that
@@ -632,7 +636,7 @@ export class Runtime {
     return result ?? { outcome: "error", body: JSON.stringify({ name: "PluginError", message: "a host plugin's around wrapper did not run the step" }), origin: "harness" };
   }
 
-  /** Answers a host_call with the host plugin's hook (F2c): outside every
+  /** Answers a host_call with the host plugin's hook: outside every
    * invocation, and in host mode inside the scope the host had when it
    * submitted the run (H11). The reply goes out whatever happens; a
    * failure is its error. */
@@ -1224,7 +1228,7 @@ export class Runtime {
     const on = this.settledHandlers.get(m.id);
     this.settledHandlers.delete(m.id);
     // The run's scope was kept for its host plugin's hooks, onRunSettled
-    // among them, which come before this frame (F2c).
+    // among them, which come before this frame.
     this.scopes.delete(m.id);
     if (on) this.guard("a run's onSettled", on);
   }
@@ -1562,14 +1566,14 @@ export function installClosures(bundleDir: string): void {
 }
 
 /** Whether a script's metadata is a codebase script's, which esbuild
- * bundled (milestone C2b). */
+ * bundled. */
 function isCodebase(meta: unknown): boolean {
   return (meta as { bundler?: unknown } | null)?.bundler === "esbuild";
 }
 
 /** The file a script's module loads from. A module of the Bun build is
  * scripts/bun/<id>.mjs in the bundle. A codebase script's (its metadata's
- * bundler is esbuild, milestone C2b) is scripts/bun/<id>.cjs for CommonJS,
+ * bundler is esbuild) is scripts/bun/<id>.cjs for CommonJS,
  * which Bun's CommonJS loader runs (D13), or .mjs for ESM; it loads from a
  * copy in the working directory, as Windmill places a codebase bundle as
  * main.js in the job directory beside its assets (WR-50), so its

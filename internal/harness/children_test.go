@@ -128,10 +128,11 @@ func waitAll() int {
 	return 0
 }
 
-// A program a step starts that waits for all its children before it exits
-// finishes as it does outside the harness, in both modes: in a warm
-// process the guardian of the program's group is no child of the program,
-// so the program does not wait for it (WR-55; review round 4, finding 2).
+// TestBunWaitAllChild checks that a program a step starts that waits for
+// all its children before it exits finishes as it does outside the
+// harness, in both modes: in a warm process the guardian of the program's
+// group is no child of the program, so the program does not wait for it
+// (WR-55).
 func TestBunWaitAllChild(t *testing.T) {
 	// spec: WR-55
 	bin, err := os.Executable()
@@ -353,8 +354,8 @@ func ended(pid int) bool {
 	return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 }
 
-// ended tells a zombie from a running process without ps: here with no
-// PATH to find one (FU7; a slim Linux image has none).
+// TestEnded checks that ended tells a zombie from a running process
+// without ps: here with no PATH to find one (a slim Linux image has none).
 func TestEnded(t *testing.T) {
 	t.Setenv("PATH", "")
 	live := exec.Command("/bin/sleep", "5")
@@ -390,14 +391,14 @@ func readPID(t *testing.T, pidFile string) int {
 	return pid
 }
 
-// WR-55, WR-37 in a warm process whose event loop the step blocks: the
-// harness cannot handle the cancel, so the engine kills the child groups
-// the step announced (child frames) itself, at once on the invocation's
-// timeout, and when the watchdog ends the process every group still
-// announced, so no child of the step outlives the process. A synchronous
+// TestBunWarmStalledChildren checks WR-55 and WR-37 in a warm process
+// whose event loop the step blocks: the harness cannot handle the cancel,
+// so the engine itself kills the child groups the step announced (child
+// frames), at once on the invocation's timeout, and every group still
+// announced when the watchdog ends the process, so none of the children
+// the test starts outlives the process. A synchronous
 // child call's child stays in the harness's group, which the engine
-// spawned as its leader and kills with the process (review round 1,
-// finding 1).
+// spawned as its leader and kills with the process.
 func TestBunWarmStalledChildren(t *testing.T) {
 	// spec: WR-55, WR-37, D2
 	t.Run("the timeout kills the group though the loop is blocked", func(t *testing.T) {
@@ -469,11 +470,11 @@ func TestBunWarmStalledChildren(t *testing.T) {
 	})
 }
 
-// WR-55: a fresh job's result, held while its group runs, is released only
-// when the group empties by itself. A kill meanwhile that is not the
-// invocation's own timeout or cancellation (Kill, a pool's close at its
-// deadline) kills the group and fails the job, settled with the process,
-// though its script returned (review round 1, finding 2).
+// TestBunFreshKilledHeldResult checks that a fresh job's result, held
+// while its group runs, is released only when the group empties by itself
+// (WR-55). A kill meanwhile that is not the invocation's own timeout or
+// cancellation (Kill, a pool's close at its deadline) kills the group and
+// fails the job, settled with the process, though its script returned.
 func TestBunFreshKilledHeldResult(t *testing.T) {
 	// spec: WR-55/b, WR-37
 	cfg := childrenConfig(t)
