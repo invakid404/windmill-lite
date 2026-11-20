@@ -7,5 +7,7 @@
 // it imports no other windmill-lite package. Code that drives windmill-lite
 // to produce an observation lives with its caller, never here.
 //
-// Fixture loading and the comparator are later milestones (E1, E2).
+// It also loads the conformance cases (LoadFixture, LoadStepFile,
+// LoadExprFile, LoadPluginFile) and compares an observation with a case's
+// expectation (Compare, CheckClaims, CompareStep).
 package conformance
