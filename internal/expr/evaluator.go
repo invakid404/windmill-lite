@@ -7,8 +7,8 @@ import (
 )
 
 // Evaluator evaluates compiled expressions for the flow interpreter: the
-// whole pipeline, from the shortcuts to the engine and the error texts
-// (milestones B2a and B2b). It is safe for concurrent use.
+// whole pipeline, from the shortcuts to the engine and the error texts. It
+// is safe for concurrent use.
 //
 // Eval returns the expression's value as producer text: a shortcut's text
 // verbatim (JE-6 to JE-9), or the engine's JSON.stringify output (JE-15).

@@ -1,7 +1,7 @@
 // Package quickjs is windmill-lite's expression engine: QuickJS-ng at
 // revision be664ca1 (the engine Windmill's expressions run on, JE-1),
 // vendored as C source under quickjs-ng/ and embedded natively through cgo
-// (ADR 0003, milestone B1a). *Engine implements expr.Engine.
+// (ADR 0003). *Engine implements expr.Engine.
 //
 // An Engine owns a pool of slots. A slot is a thread created in C with a
 // stack of its own size, on which a Go loop drives one prepared runtime at a

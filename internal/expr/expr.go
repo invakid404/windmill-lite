@@ -3,19 +3,21 @@
 // Every flow expression is evaluated in Go: a textual pipeline (trimming,
 // the shortcuts of JE-6 to JE-9, the rewrite of JE-11, the static results
 // reads of JE-12, statement-mode detection, binding analysis) and, when no
-// shortcut answers, QuickJS-ng embedded through cgo. This package defines
-// the contracts the two halves meet at:
+// shortcut answers, an answer in Go for a member path or for arithmetic, a
+// template or a predicate that QuickJS-ng would answer the same way, else
+// QuickJS-ng embedded through cgo. This package defines the contracts the
+// two halves meet at:
 //
 //   - Expr, the compiled expression the IR carries (ADR 0002);
 //   - Engine, the JavaScript engine behind a Go interface; package
-//     internal/expr/quickjs implements it (milestone B1a);
+//     internal/expr/quickjs implements it;
 //   - Evaluator and Scope, what the flow interpreter calls at each
-//     expression site (milestones B2a and B2b implement it).
+//     expression site.
 //
-// Compile runs the textual stages and Pipeline is the Evaluator (milestone
-// B2a). On the engine, an expression runs as Windmill's program: preludes
-// that bind its scope, its source, and the serialisation of its value; its
-// failures carry Windmill's error texts (milestone B2b, program.go).
+// Compile runs the textual stages and Pipeline is the Evaluator. On the
+// engine, an expression runs as Windmill's program: preludes that bind its
+// scope, its source, and the serialisation of its value; its failures
+// carry Windmill's error texts (program.go).
 package expr
 
 import "fmt"

@@ -274,12 +274,12 @@ func TestAttemptEndWinsOverALateCompletion(t *testing.T) {
 	}
 }
 
-// A cancellation that lands while the evaluation waits on a host call ends
-// it with the caller's cause and counts as a canceled attempt; the code
-// after the call does not run. The cancel comes from that host call, so it
-// always lands during the evaluation: a timer could fire while the job
-// still waited for its slot to be prepared, which counts no canceled
-// attempt (FU7: a loaded runner prepared the slot in more than 2 ms).
+// TestCancellationDuringAHostCall checks that a cancellation that lands
+// while the evaluation waits on a host call ends it with the caller's cause
+// and counts as a canceled attempt; the code after the call does not run.
+// The cancel comes from that host call, so it always lands during the
+// evaluation: a timer could fire while the job still waited for its slot
+// to be prepared, which counts no canceled attempt.
 func TestCancellationDuringAHostCall(t *testing.T) {
 	e := newEngine(t, Options{Slots: 1})
 	p := compile(t, e, `(async () => { await stop(); return String("x".repeat(100 << 20).length); })()`)

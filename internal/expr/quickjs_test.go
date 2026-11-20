@@ -8,8 +8,8 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
 )
 
-// The tests of package expr that run on the real engine (milestone B2b)
-// get it from here: package expr cannot import internal/expr/quickjs, which
+// The tests of package expr that run on the real engine get it from
+// here: package expr cannot import internal/expr/quickjs, which
 // imports it, but this external test package of the same test binary can.
 func init() {
 	expr.RegisterTestEngine(quickjs.CLibrary(), func(l expr.Limits, slots int) (expr.Engine, func() error, error) {

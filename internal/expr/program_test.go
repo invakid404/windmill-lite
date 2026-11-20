@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-// The program around an expression's source, on the real engine (milestone
-// B2b): the preludes, the serialisation and Windmill's error texts. The
-// E3a recordings are TestE3aOnEngine's; these cases are source-derived,
-// from the findings each names.
+// The program around an expression's source, on the real engine: the
+// preludes, the serialisation and Windmill's error texts. The recorded
+// cases are TestE3aOnEngine's; the cases here are source-derived, from the
+// findings each names, except that TestRecordedFramesOnEngine checks the
+// stack frames of two oracle recordings.
 
 // evalOn evaluates text at site in s on p, and returns the producer text or
 // the error's.
@@ -332,11 +333,11 @@ func TestRecordedFramesOnEngine(t *testing.T) {
 	}
 }
 
-// TestJE8KeyOrderOnEngine extends ADR 0003's JE-8 example (review item
-// cx R16) to the engine's routes: step p returns {"b":1,"a":2}. On the
-// engine, the proxy answers the previous step from memory (JE-18 rule 1),
-// so its keys keep the producer's order, while a step read through the
-// database has jsonb's (JE-44, JE-V6).
+// TestJE8KeyOrderOnEngine extends ADR 0003's JE-8 example to the engine's
+// routes: step p returns {"b":1,"a":2}. On the engine, the proxy answers
+// the previous step from memory (JE-18 rule 1), so its keys keep the
+// producer's order, while a step read through the database has jsonb's
+// (JE-44, JE-V6).
 func TestJE8KeyOrderOnEngine(t *testing.T) {
 	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
 	producer := `{"b":1,"a":2}`
@@ -583,9 +584,9 @@ func TestJE11OnEngine(t *testing.T) {
 
 // TestReadbackRunsNoCode: reading a thrown value back runs none of the
 // program's code beyond what Windmill's embedding runs, an Error's message
-// and stack (JE-21; review round 1, R1-1). Each hook here would loop until
-// the attempt limit if it were called, so an evaluation that ends with the
-// value's text shows that none was.
+// and stack (JE-21). Each hook here would loop until the attempt limit if
+// it were called, so an evaluation that ends with the value's text shows
+// that none was.
 func TestReadbackRunsNoCode(t *testing.T) {
 	l := DefaultLimits()
 	l.Attempt = 200 * time.Millisecond
@@ -628,7 +629,7 @@ func TestReadbackRunsNoCode(t *testing.T) {
 
 // TestReadbackOfALargeBigInt: a thrown BigInt's debug form is the constant
 // BigInt"BigInt" (JE-21), so reading it back writes no decimal text, which
-// for a large BigInt takes longer than an attempt (review round 2, R2-1).
+// for a large BigInt takes longer than an attempt.
 // The control builds the same BigInt well within the limit.
 func TestReadbackOfALargeBigInt(t *testing.T) {
 	l := DefaultLimits()
