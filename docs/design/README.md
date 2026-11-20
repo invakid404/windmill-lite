@@ -12,7 +12,8 @@ This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.862.0`, the Go package layout and the implementation
 milestones. They build on the
-[semantics reference](../semantics/README.md) and cite its finding IDs.
+[semantics reference](../semantics/README.md) and cite its
+[finding](../glossary.md#finding) IDs.
 
 ## How the records are written
 
@@ -37,12 +38,12 @@ A Go **engine** loads a **bundle** built from a `wmill sync` folder and is the
 only flow interpreter: it runs Windmill's decision list, containers, retries,
 waits, failure modules and cancellation, and evaluates every expression in
 QuickJS-ng (the engine Windmill uses), embedded natively.
-Steps run in warm **language harnesses** (Bun first), which are step runners:
+Steps run in warm **language harnesses** ([Bun](../glossary.md#bun) first), which are step runners:
 they bind arguments, hydrate, call the entrypoint, and serialise results and
 errors with the language's rules, one framed message per step over a
 socketpair. Step code reaches the platform through the stock `windmill-client`,
 which talks to a Go facade, intercepted in-process for Bun. Hosts drive the
-engine through a Go library and thin adapters (go-plugin, a Bun host mode,
+engine through a Go library and thin adapters (go-plugin, a Bun [host mode](../glossary.md#host-mode),
 gRPC, HTTP, a CLI) and change runs through a fixed set of hooks.
 
 ```mermaid
@@ -62,7 +63,7 @@ adapters are planned ([host adapters](0009-host-adapters.md)).
 | [Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE, and reject out-of-scope features at load. Twenty-four named deviations (D1–D24), six of which `fresh` mode removes, and eleven restrictions. Contested findings are recorded on the oracle early, with a stated default until then and no permanent switches. Rust location suffixes are stripped only from generated messages. |
 | [IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; a sync-folder loader that reads each item on demand; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
 | [Where semantics live](0003-semantics-placement.md) | One flow interpreter and one expression pipeline, in Go; harnesses are step runners, with no segments. Expressions run on QuickJS-ng `be664ca1`, embedded natively and built static: a fresh runtime per evaluation from a bounded pool, its heap on mimalloc and destroyed whole. Member paths, templates, arithmetic, comparisons and predicates over JSON values are answered in Go with the program's exact answer. One conformance suite of flow, step, expression and format cases runs in every mode. |
-| [Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and base64 part streams for large messages. A shared-process failure model attributes errors through each invocation's async context, intercepts `process.exit`, and fences an invocation when it settles. `fetch` is the only platform transport in warm processes. Host mode is never tainted: the host drains it, its working directory is checked (on tmpfs, as recommended on Linux), and a watchdog kills a host that stops answering. |
+| [Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and base64 part streams for large messages. A shared-process failure model attributes errors through each [invocation](../glossary.md#invocation)'s async context, intercepts `process.exit`, and fences an invocation when it settles. `fetch` is the only platform transport in warm processes. Host mode is never tainted: the host drains it, its working directory is checked (on tmpfs, as recommended on Linux), and a watchdog kills a host that stops answering. |
 | [JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
 | [Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition, and shared code added by [shared module code](0013-shared-module-code.md). |
 | [Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements; one interpolation walker with three modes and a host secret layer; a facade reached by intercepted `fetch` (warm) or per-invocation tokens (`fresh`), never by a shared token; unsupported routes fail with `UnsupportedPlatformCall`; hybrid dispatch built behind interfaces, its remote adapter held for a licence decision. |
