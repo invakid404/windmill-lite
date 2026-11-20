@@ -1,15 +1,29 @@
-# 0012 · Go package layout and implementation milestones
+# Go package layout and implementation milestones
 
-**Status:** proposed · **Topic:** where code goes, and the sequence of
+**Status:** Accepted · **Topic:** where code goes, and the sequence of
 pull-request-sized milestones to the first release, with what can run in
 parallel.
+
+The public Go packages are `wl/`, `wl/storetest`, `wl/redisstore` and the
+planned `wl/plugin`; the commands live under `cmd/`, the other Go packages
+under `internal/`, and the harnesses and shared conformance cases under
+`harnesses/` and `conformance/`. The work is split into milestones, each one
+reviewed pull request, ordered by the interfaces and exit gates that each
+one needs.
+
+**Not built yet:** the packages of the milestones that have no code yet:
+`wl/plugin/` and `proto/` (the go-plugin adapter), `internal/host` (the gRPC
+and HTTP adapters), `internal/gen` (typed clients), `internal/pack` (the
+single executable and the image) and `internal/platform/remote` (hybrid
+dispatch).
 
 ## Context
 
 [AGENTS.md](../../AGENTS.md) holds back new packages until the design decides
-the layout. Records [0001](0001-equivalence-contract.md) to
-[0011](0011-differential-testing.md) fix the components; this record places
-them and orders the work. Each milestone is one reviewed pull request: one
+the layout. The design records from the
+[equivalence contract](0001-equivalence-contract.md) to
+[differential testing](0011-differential-testing.md) fix the components;
+this record places them and orders the work. Each milestone is one reviewed pull request: one
 component or one slice of one, its README (the documentation gate requires
 one per module directory), its tests, and the conformance cases it can
 already pass.
@@ -56,7 +70,7 @@ conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolde
 Everything except `wl/`, `wl/plugin/`, `wl/storetest/` and `wl/redisstore/` is internal, so the engine can change
 without breaking hosts. The Bun host SDK is published to npm as the package
 `windmill-lite`, whose root is `harnesses/`
-([0009](0009-host-adapters.md#the-npm-package)); a host can also vendor it
+([host adapters](0009-host-adapters.md#the-npm-package)); a host can also vendor it
 from this repository.
 
 ### Milestones
@@ -136,625 +150,152 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F8b | **shared code** ([0013](0013-shared-module-code.md)): one closure per build group, an instance per step module in `warm` and host mode, the manifest and trace fields, D18; the runtime keeps only the metadata fields it reads | F8a | 0013's D18 step and build cases in `warm`, host mode and `fresh`; the flow suite in `warm` and host mode from bundles built with shared code; 0013's memory gate (the embedder-shaped closure at most 650 MiB peak with 34 modules and eight concurrent runs over 1,000 runs, at most 16 MiB per further module; the synthetic reproduction at most 1.5 MiB per further module) | 13 | yes |
 | R1 | `internal/platform/remote` (hybrid dispatch) | PF3, **H-b** | — | — | no |
 
-**L1, further harnesses** (Python, then Deno, Go, Bash) and the remaining
-`later` findings, is a placeholder for a programme, not a milestone. It is
-planned through its own records and split into milestones then.
+**Further harnesses** (Python, then Deno, Go, Bash) and the remaining
+`later` findings are a programme, not a milestone. It is planned through
+its own records and split into milestones then.
 
-**Critical path to the first host integration:** K1 and A2, A3 → A4 → A5;
-K1, A1 and E2 → E3a → B2a, with B1a → B2b; C1 → C2a and W1 → C3a → E1; all of
-them, with E3b, into N1a → N1b (with E3c), N3a and N3b (with E3d) → N3c and
-NI → F1 → F2a, and F3a (with C2b) → F2c → F3b → F8a → F8b, since the first
-host's memory budget needs shared code ([0013](0013-shared-module-code.md)). W1 retires the process-model and
-pinned-Bun risks in wave 2, before the engine milestones build on them. A
-host whose flows use native steps also waits for S1 and C3n; nothing else
-waits on an external gate except R1.
+**Critical path to the first host integration.** The table's "Needs merged"
+column gives the order, with its joins: read the path from the table. The
+path ends at the host-mode integration gate and shared code, since the first
+host's memory budget needs shared code
+([shared module code](0013-shared-module-code.md)).
+
+- The walking skeleton retires the process-model and pinned-Bun risks two
+  waves after the contracts, before the engine milestones build on them.
+- A host whose flows use native steps also waits for the semantics team's
+  request on native steps and for the native boundary mode.
+- Nothing else waits on an external gate, except hybrid dispatch, which
+  waits for the human decision.
 
 **Deferred out of the first edition:** a wazero (no-cgo) expression backend
-([0003](0003-semantics-placement.md)), and L1 below.
+([where semantics live](0003-semantics-placement.md)), and the further
+harnesses above.
 
 ## Consequences
 
-- K1 is the first pull request after this design; six milestones (A1 to A3,
-  B1a, C1 and E2) can merge in wave 1 behind it.
 - The riskiest integration (host mode, the shared process, the pinned Bun)
-  is exercised by W1 in wave 2 and gated again by F3b, instead of surfacing
-  last.
+  is exercised early by the walking skeleton and gated again by the
+  host-mode integration gate, instead of surfacing last.
 - Every component lands with its README and its conformance cases, so the
   documentation gate and the suite grow together.
 - The hybrid adapter is the only milestone held by a human decision; native
   steps are the only ones held by a semantics request.
-- `conformance/openflow/` holds the OpenFlow decode cases, a level that
-  [0003](0003-semantics-placement.md) added with milestone A3, and
-  `conformance/jsonb/` the stored-form cases, a level added with milestone A1.
-- `conformance/syncfolder/` holds the sync-folder load cases, a level that
-  [0003](0003-semantics-placement.md) added with milestone A4.
-- E3c's row names the executor part of FX-37 as well as FX-36's.
-  `early_return` changes only the synchronous run-and-wait response, which
-  the oracle harness never calls ([OR-10](../semantics/oracle.md#or-10)). So
-  E3c records that the flow's own final result is unaffected, and FX-37/a's
-  early response joins FX-36's HTTP cases in E3e, gating F7b.
-- `conformance/ir/` holds the compile cases, a level that
-  [0003](0003-semantics-placement.md) added with milestone A5; they are the
-  exit gate's IR cases, with the golden programs in `internal/ir/testdata/`.
-- A recording batch's manifest, `internal/oracle/testdata/batches/<batch>.json`,
-  can name in `gates` the milestone whose exit gate runs each of its runs:
-  the one that implements the last feature the run's flow needs. Milestone
-  E3b added gates because its FX core cases reach beyond N1a: about half of them need
-  `continue_on_error`, a failure module, an error shape or chaining error, a
-  retry or a sleep, a branch or a variable. A case that needs two milestones
-  neither of which depends on the other gates the first milestone that needs
-  both: NI for N1b with N2, and F1 for N2 with PF2, where E3a's JE-V2/b is.
-  A milestone's exit gate includes the runs a manifest assigns to it.
-- Milestone PF1 put job identity, which the engine and the facade share,
-  in `internal/platform` beside the service interfaces PF2 and PF3 add;
-  the facade's route table is generated from the Apache-2.0 schema that
-  E2 vendored in `internal/oracle/openapi`, so the schema is vendored once.
-- `conformance/protocol/` holds the harness protocol's golden frames and
-  exchange transcripts, a level that [0003](0003-semantics-placement.md)
-  added with milestone C1; C1's exit gate is the exchanges passing against
-  the Bun harness on Bun 1.3.10.
-- `conformance/build/` holds the Bun build cases, a level that
-  [0003](0003-semantics-placement.md) added with milestone C2a. C2a placed
-  the shared build transforms (the define table, its support module and the shim
-  generator) in `internal/bundle`, which F4 extends with the bundle format,
-  and the Bun build helper in `harnesses/bun/build`.
-- `conformance/steps/` holds the step cases, the level of
-  [0003](0003-semantics-placement.md) that milestone C3a gave its format
-  and its runner, `wltest check`; C3a runs them in `warm`, and C3b adds
-  `fresh`.
-- C2b placed codebase bundling in `internal/bundle` (`BuildCodebase`,
-  esbuild through its Go API) beside the Bun build, and gave the step
-  cases a `codebase` field and a per-run `node` check: `wltest check` runs
-  each CommonJS codebase bundle on Node as well, which is how its D13
-  cases compare Node against Bun. Its CLI parity check runs the pinned CLI
-  in a workflow of its own, `parity.yml`, which branch protection does not
-  require; the fallback runs in the Go jobs.
-- C3n's exit gate, the native cases of the reference, is the step files
-  `conformance/steps/bun/wr-40.yaml` to `wr-45.yaml`: each catalogue case of
-  WR-40 to WR-46 is a step case, run as `nativets` and as `//native` where
-  the catalogue says both kinds, or is listed in the level's `deferred.yaml`
-  with its reason. A step case gives its `language` and its `timeout` for
-  that; the native build cases are `conformance/build/d5.json`.
-- F4 added `windmill-lite selfcheck`, which starts the expression engine and
-  runs a few probes, to the CLI: it is how its exit gate starts the static
-  Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).
-- E1 made `wltest check` run the flow fixtures on windmill-lite, in `warm`,
-  on W1's walking skeleton, which runs sequential flows of Bun steps only.
-  Its first fixtures per area are the runs that skeleton can run: the E3b
-  and E3c runs of `execution` and the E3a runs of `je/sites` that already
-  pass, and new fixtures of two areas that had none, `languages`
-  (`flows/languages/bun-results`, `flows/languages/codebase`) and
-  `client-api` (`flows/client-api/job-env`), recorded on the oracle.
-  `control-flow` has none until N3a and N3b, since the skeleton runs no
-  container. `cmd/wltest/testdata/flowsuite.json` lists the runs the flow
-  suite requires, each with the milestone that first made it pass, and
-  names the milestones whose batch gates it also requires; an engine
-  milestone adds itself there, and a required run stays required. A run the
-  engine cannot run yet is reported as unsupported and never compared.
-  `flows/languages/codebase` is the codebase-script fixture that C2b drops
-  its esbuild bundles into: E1 built codebase scripts with the Bun build
-  helper as ordinary Bun scripts, and since C2b `wltest check` builds them
-  with esbuild (`bundle.BuildCodebase`), the CommonJS one running on Bun's
-  CommonJS loader (D13). The `diff`
-  verb of [0011](0011-differential-testing.md) is in no milestone's row,
-  and E1 left it out.
-- N1a's engine core runs a compiled program (`engine.New`, `Engine.Run`
-  on an `ir.Program`); the compiler runs every expression's textual stages,
-  and the engine compiles their bytecode when it opens the program. W1's
-  skeleton became a loader of its own test layout over that engine, which
-  `windmill-lite host` serves until F3a. The engine refuses at open, with
-  the milestone's name, what later milestones implement. The "sequential,
-  context-free subset of E3a" in N1a's row is read as both of E3a's kinds
-  of case: its flow fixtures whose flows use only the features the row
-  lists, and its context-free expression cases end to end, which
-  `wltest check` runs as the one-step flows `wltest record` lifts them
-  into and compares with their recordings (B2a's row asks for the same
-  fixtures "end to end in N1a's gate"); `flowsuite.json` keys such a run
-  `<file>/<case>`. Nine of the 69 expression cases are not required: the
-  four transcendental `Math` cases of JE-1 can differ in their last digit
-  with the C library (D16), on either CI runner (pow-roots on the Linux
-  runner's glibc, hyperbolic and trig on macOS), and JE-48/a by D17, as at
-  unit level, where B2b holds them; JE-2/a recorded
-  the oracle's own cancellation of a hanging flow; JE-11/a reads a
-  variable (PF2); and JE-24/b and /d fail the root at its first pickup,
-  whose recorded messages carry Rust locations that ADR 0011's location
-  rule does not strip yet, which is N1b's, with the chaining errors and
-  JE-35/b. Until PF2, the flow runner reported a run that read the
-  platform as unsupported; since PF2 it serves every fixture's resources
-  and variables, and reports as unsupported only a run whose flow calls
-  `flow_user_state()`, which needs PF3.
-- N3a runs for loops on frames: the engine runs the root flow and each
-  non-collapsed iteration's child flow with one interpreter, each with
-  its own results scope where CF-19 starts one, and a collapsed iteration
-  as a job of its loop's flow. "The E3d for-loop cases" in its row are
-  E3d's runs whose flows hold a for loop and no while loop, branch,
-  failure module or subflow: those of `cf-2` to `cf-9`, `cf-11`, `cf-13`
-  and runs `a`, `c-fail`, `c-skip`, `f` and `f-skip` of `cf-12`; `cf-12`'s
-  `b` needs a failure module in a body (N3c), and `fx-40`'s loop runs need
-  caching (N4, as ADR 0001 §6 says). Their recorded messages end in Rust
-  locations at the pickup and chaining routes, which N1b's location rule
-  strips, and in `stop_after_all_iters_if`'s error stop, for which N3a
-  added a template to the rule of [0011](0011-differential-testing.md);
-  the trace points to the generated errors inside a loop's array
-  (`ResultNested`), at any depth, so that the rule reaches them and a
-  user's error beside them keeps its difference. Of E3a's cross-scope
-  cases the flow suite also requires JE-19/b, a parallel iteration's
-  scope. The trace lists the child flows a run created
-  (`Trace.Children`), from which `wltest check` writes a body module that
-  never got a job as `not_run` and names a child flow's job id by its
-  iteration's site, as the walker does. With N1b merged first, the engine
-  refuses a for loop in a flow with a failure module, since every body
-  then runs as a child flow that carries a copy of it, which is N3c's;
-  it also refuses a path script's own `cache_ttl` (N4), which a loop body
-  made reachable.
-- PF2 put the resource, variable and secret services, their local
-  default store (`platform.Store`, filled from a bundle's `data/` by
-  `platform.LoadData`) and the interpolation walker in
-  `internal/platform`, as the layout says, and their routes in the facade.
-  The engine takes the same `platform.Services` as the facade
-  (`engine.Config.Platform`): it resolves a leaf's arguments when the job
-  is picked up, `flow_env` on every transition, into the frame that starts
-  the module, so parallel iterations share none, and the expression
-  helpers. FX-42/h's run `args_file` reads the arguments file, so the
-  harness writes `args.json` into each step's working directory
-  (WR-5, core), the latest invocation's in a warm process (D10). "The
-  WA-10 to WA-12 and WA-40 to WA-42 cases" in PF2's row are read as each
-  catalogue case of those findings at the level that can run it: the step
-  cases (`conformance/steps/bun/wa-*.yaml`, through the real harness in
-  `warm` and `fresh`), the walker's unit cases
-  (`internal/platform/testdata/interpolation.json`), the stock client
-  (`TestProvidersOnTheClient`) and, for WA-40/a and /b, the flow fixture
-  `client-api/providers`, recorded on the oracle, whose runs the flow suite
-  requires; WA-11/b is a write (`later`), deferred with the reason.
-
-- PF3 put the job registry, flow user state, the object store and the
-  dispatcher's interface in `internal/platform`, as the layout says, their
-  routes in the facade, and the default dispatcher in `internal/engine`
-  (`engine.Dispatcher`, with `engine.RunScript` for a root script's run as
-  a script job), since it runs the engine's program and the engine
-  imports `internal/platform`. A flow fixture may list `roots` in its
-  `fixture.yaml`, the bundle's other roots (the targets its steps
-  dispatch, which a host contract lists), which `wltest check` compiles as
-  the default dispatcher's program. "The WA-5, WA-6, WA-14 and WA-16
-  cases" in PF3's row are read as PF2's are, each catalogue case at the
-  level that can run it: WA-5/a and /c as step cases (PF1's `wa-5.yaml`)
-  and, inside bodies, in the flow fixture `client-api/flow-path`, WA-5/b
-  deferred while schedules are out of scope; WA-6/a, /c and /d as that
-  fixture's runs `seq`, `par`, `branch` and `branch_default`, whose
-  recordings the flow suite requires (/d since N3b's branches, which
-  merged first); WA-14/a as step cases (`wa-14.yaml`), on the stock client
-  (`TestFlowUserStateOnTheClient`) and in the flow fixture
-  `client-api/user-state`, recorded on the oracle, whose runs the flow
-  suite requires, WA-14/c by internal/platform's `TestFlowUserState`, and
-  WA-14/b (Python) deferred; WA-16/a and /c as step cases (`wa-16.yaml`)
-  and on the stock client (`TestObjectsOnTheClient`, which checks WA-16/b,
-  the client's own refusal, too), WA-16/d (a CE observation) deferred.
-  WA-6/b needs a retry inside a container's body, which N2 left to NI;
-  PF3 does not need NI merged, and the job identity it observes is PF1's,
-  so by the rule above it gates NI, the milestone that implements the
-  last feature it needs: the oracle recorded it with the fixture, and NI
-  adds it to `flowsuite.json`. "The dispatch-target restriction
-  case" is `wa-15.yaml`, whose cases a step case's bundle, which has no
-  root to dispatch, refuses, and `TestDispatchRefusedOnTheClient` on the
-  stock client. The flow fixture `client-api/dispatch`, on the oracle's
-  second session (two workers, OR-5), records what the reference leaves
-  out of a dispatched job: its identity, which the engine reproduces.
-
-- N4 runs `cache_ttl` on the result cache of
-  [0007](0007-platform-interface.md): `platform.ResultCache`, a host's
-  store or the services' in-memory default (D4), in which the engine
-  looks a job up before it runs and stores its result when it succeeds
-  (`internal/engine/cache.go`). The TTL follows FX-40's matrix: an inline
-  step's module, a collapsed iteration's loop, a path script's own, a
-  subflow's or the root's flow-level `cache_ttl`, and a script root's own
-  for its script job. The key leaves out any path that differs between
-  jobs, so a collapsed loop's iterations share an entry (FX-40/d).
-  "The E3d FX-40 cases" in its row are read as `execution/fx-40`'s seven
-  runs (FX-40/a to /d), which pass in `warm` (the flow suite) and in
-  `fresh` (`TestCacheFixturesFreshAndWarm`). For that, `wltest check` now
-  runs flow fixtures in `fresh` too, on a pool of one process per
-  invocation, with the engine's new `Config.ModuleState`; the flow suite
-  through `wl` in both modes stays F1's. `execution/fx-40-hash`'s two
-  runs stay unsupported: the compiler refuses a hash-pinned script, which
-  a folder cannot supply, so the IR has no hash-pinned row of the matrix
-  to run. A flow job stores its result when its completion counts as a
-  success before the recover check, as the store table of
-  [FX-40](../semantics/execution.md#fx-40) says: an error stop that ends
-  the flow stores nothing, and a failure tolerated at its last module
-  stores. An S3 object argument is hashed with its object's ETag when the
-  object store holds the object, and `cache_ignore_s3_path` leaves its
-  text out of the key.
-
-- N3c runs subflows by path as child flows at their step's site
-  (`internal/engine/subflow.go`), each its own results scope (whose
-  lookups still walk up, Q-CF-12 matched), its own innermost flow scope
-  and path, with its own failure module and `flow_env`; each frame now
-  carries its flow, its stored `flow_env` and its start, which replace
-  the run-wide ones. Every loop iteration and branch of a flow with a
-  failure module runs a copy of it, and a container whose child ran its
-  copy no longer runs the flow's own failure module again (CF-16 item 4),
-  through a clean stop that keeps the failure or the stop a branch
-  forwards for it too, except across a subflow boundary. "CF-16 to CF-20, CF-29 and CF-V
-  cases" in its row are read as CF-19's cases, recorded by E3a and E3d
-  (`cf/cf-19`), plus the cases of CF-16 to CF-18, CF-20, CF-29 and CF-V1
-  to CF-V5. N3c records the latter with its own fixtures under
-  `conformance/flows/control-flow` (cf-16 to cf-v5), whose manifest is
-  `internal/oracle/testdata/batches/n3c.json`. CF-V6's cases are CF-19's
-  and already required since N1a. CF-V4/b and CF-V5/b need an inline or
-  raw-preview submission, which windmill-lite never runs, so they are
-  deferred to `none` (and CF-16/d's inline half with them). CF-19/c passes
-  through a new run field, `not_found_locs`: it is FX-50 rule 3, the
-  case declaring where the parenthesised not-found location is generated.
-  A run can declare the values that copy, through user code, a site's
-  generated error (`copies`, ADR 0011 amended), which makes JE-35/d and
-  FX-15/b pass; so FX-15/b, which N2 left to NI, is required under N3c. E3a's JE-19/b
-  has been required since N3a; its run `je19-d`, a subflow's read of its
-  caller's results, passes too. The E3c runs of the row (FX-15/c, FX-33's
-  parent view, FX-34/a's `loop` and `step_id`) and `cf-12`'s `b` are
-  required under N3c. An empty container's error stop now fails its
-  record's status, as the walker reads a container with no child
-  (CF-29/a). A container as the failure module (CF-30, source-traced only)
-  and a retry on a subflow step (whose attempts' subflows NI places under
-  the attempt's site) are refused; N5 runs the latter. The N2 and N3b
-  merge resolution (2dfbae10) was reviewed with this milestone.
-
-- N3b runs while loops on N3a's sequential loop, with no iterator, and
-  `branchone` and `branchall` on frames: each branch that runs is a child
-  flow of its own, which the trace lists under `b:<n>` or `b:default`.
-  "The E3d while and branch cases" in its row are E3d's runs whose flows
-  hold a while loop or a branch and no failure module or subflow: `cf-10`'s
-  `a`, `cf-12`'s `d`, `e-fail` and `e-skip`, `cf-14`'s and `cf-15`'s runs;
-  `cf-12`'s `b` needs a failure module in a body (N3c). The flow suite
-  also requires the runs N3b first made pass: CF-9/b, CF-19/a, the two
-  `branchall` runs of `oracle/workers2`, and FX-36's failed `branchall`,
-  which NI's row names but which needs nothing of N2 (a sequential
-  `branchall` whose second branch fails). FX-20's error-stop run gained
-  the carried `EarlyStopError` in its expect, which its recording cannot
-  show. With N1b merged, the engine refuses any container, not only a for
-  loop, in a flow with a failure module (N3c). A `branchone` that ran no
-  branch has a nil job, whose engine read fails with the server's
-  not-found text; CF-19/c's recording has that text end in the server's
-  source location in the middle of a transform error, which ADR 0011's
-  location rule does not reach, so that run stays N3c's. N2 merged first,
-  so its refusal of waits and retries for NI covers every container, not
-  only for loops: a sleep, a retry or a javascript or negative timeout on
-  a while loop, a `branchone` or a `branchall`, in any container's body,
-  or as the sleep before any container; and a branch's child flow keeps
-  its own transition monitor, whose completion refreshes its flow's
-  ping, as a loop iteration's does.
-
-- N1b gave the engine core Windmill's continue decision for a flow
-  without retries: `continue_on_error`, the error stops, the
-  unrecoverable stop and the failure module at `s:failure` with its
-  recovery, chaining errors routed by context, the storage failure of a
-  job's result (FX-48 case 1), `wm_failure` (FX-13, WR-17) and the
-  cancellation outcome, whose reason and canceler a host passes as the
-  context's cause (`engine.Cancellation`). The location rule of ADR 0011
-  (`conformance.StripLocations`) now strips the `<loc>` suffixes of
-  FX-50's templates, one per `Error: ` prefix, of the chaining errors and
-  of FX-21's string, where windmill-lite generated the value; a trace
-  records the origin of a carried value the engine sets apart from the
-  job's result, so that rule reaches it too. "The E3c cases" in N1b's row
-  is read as N1a's row reads E3b's: the E3c runs whose flows need nothing
-  a later milestone implements, which `flowsuite.json` lists under N1b.
-  E3c has no `gates`, because two of its runs need features no milestone
-  of the first edition implements, so the rows say where its other runs
-  go: FX-12's Deno variant (L1) and FX-35's preprocessor run (`later`)
-  gate no milestone; the runs that need a subflow by path or a body's
-  failure module gate N3c, which implements both; those that need a retry
-  or a javascript `timeout` gate NI, the first milestone that needs both
-  E3c and N2, and so does FX-36's failed `branchall`, a failure inside a
-  container. By the same rule, E3a's JE-35/d
-  (a subflow by path) moved from N1b's row to N3c's, and JE-26/b–c, whose
-  flows configure a `retry` that the unrecoverable stop never uses, moved
-  to NI's, as E3b gates its FX-19/h (an error stop with an unused `retry`)
-  on N2. The root-pickup expression cases JE-24/b and JE-24/d, which N1a
-  left to N1b's location rule, are N1b's. The failure module runs with its
-  own id at the top level; its copy inside an inline body (FX-34) comes
-  with bodies, in N3c.
-
-- E3e, the last recording batch, holds what the earlier batches left to it
-  and the contested `later` rows of [0001](0001-equivalence-contract.md)
-  §6: FX-36's HTTP part with FX-37/a's early response, for which the
-  harness gained a run-and-wait submission and gates F7b; FX-49, WR-16 and
-  WR-28, whose implementing milestones belong to L1; the probe catalogue
-  rebuilt as executable fixtures (Q-OR-16); codebase scripts in CommonJS
-  and ESM; FX-10/c, which the reference added after E3b; and the pull
-  read-back of CF-6/b and SY-6/c. Its manifest,
-  [`internal/oracle/testdata/batches/e3e.json`](../../internal/oracle/testdata/batches/e3e.json),
-  has no `gates`: only F7b needs E3e merged. Cases outside the equivalence
-  contract (a restart, a preview, the CLI's push-and-version decisions for
-  codebase scripts) and a concurrency count that needs three workers are
-  deferred to `none`, with the reason. The oracle workflow runs a second
-  session with two workers, for the fixtures that need them and for the
-  smoke fixture under another `LISTEN_NEW_EVENTS_INTERVAL_SEC`.
-
-- E3f, a recording batch after E3e, holds what semantics revisions SC3 and
-  SC4 asked the oracle for (the [README](README.md)'s Recording requests
-  for batch E3f) and an oracle session whose worker serves the `nativets`
-  tag, so that `//native` and `nativets` steps record: pure values, a
-  throw, a fetch of the loopback sink, and two codebase scripts under
-  `//native`, the CommonJS one failing at its first use of `module` as
-  WR-50 predicts. A fixture names the oracle configuration it needs
-  (`oracle.session`), the workflow runs one session per configuration
-  (`native`, `long` for runs that wait on the server's monitors,
-  `result_size`, `flow_script_off`), and a session refuses or skips
-  another's fixtures. Its manifest,
-  [`internal/oracle/testdata/batches/e3f.json`](../../internal/oracle/testdata/batches/e3f.json),
-  has no `gates`; the runs windmill-lite already matches join the flow
-  suite, and every mismatch and contradiction is listed for the next
-  semantics revision. Expects stay the reference's predictions; where the
-  oracle disagreed, the expect holds the recording, with a note, and the
-  manifest lists the contradiction.
-
-- N2 gave the engine Windmill's waits and time: `sleep` (FX-23,
-  JE-28), the step timeout evaluated for every module with the texts of
-  its failures (FX-24, FX-25, JE-29), `retry` and `retry_if` with
-  FX-26's 16-bit delay arithmetic, the flow-wide retry state of FX-27 and
-  FX-29 and the reuse of the failed attempt's arguments (JE-V2), H10's
-  clock (`RunRequest.Clock`, with a recording clock) and jitter source
-  (`RunRequest.Jitter`, else the run's seed), H4's pre-write deadline, and
-  the monitor of flows that hang between steps (JE-2), which cancels a
-  run whose transition spends 60 s evaluating, as Windmill's server
-  cancels it. A failed attempt's record is the site `<module>/r:<k>`, and
-  a module's record lists the flow-wide failed attempts, which the
-  walker meets again under every module whose status lists them; `wltest
-  check` now checks a run's `delays` on the trace's job times and runs
-  JE-2/a, with a run timeout of 150 s. "FX-23 to FX-29 cases" in N2's
-  row is read as the catalogue cases N2's features decide, recorded on
-  the oracle by N2's own fixtures `conformance/flows/execution/fx-23` to
-  `fx-29`, whose manifest is `internal/oracle/testdata/batches/n2.json`:
-  FX-24/d–e need a loop, so they gate NI; FX-24/g is `later`; the delays
-  of FX-26/c–e, hours long, are checked at unit level on the recording
-  clock, since the walker does not capture a queued job's scheduled time.
-  FX-25/a, FX-28/b–c and FX-29/a–b also need N1b's features, which merged
-  first, so N2's gate runs them. JE-V2/a moved from N2's row to F1's,
-  beside JE-V2/b: its transform reads a variable and its script writes one
-  through the job API, which need PF1 and PF2; `fx-27/reuses_args`
-  records the rule it shows, that a retry does not evaluate its
-  transforms again. The E3b and E3c runs that NI's row gates and N2 can
-  run because N1b merged first (FX-6's retry variant, FX-8/b, FX-14/b,
-  FX-19/d, FX-32/b) and E3a's JE-26/b–c are required by `flowsuite.json`
-  under N2; FX-15/b still differs only by the `<loc>` suffix its failure
-  module copies from a generated error, which ADR 0011's location rule
-  does not reach, and stays NI's. N3a merged first, so the engine
-  refuses N2's waits and retries in a for loop's body, on a loop, and as
-  the sleep that delays a loop's start, naming NI, which integrates them
-  with containers (a loop module's retry restarts it, a collapsed loop
-  evaluates its timeout per iteration); each flow, the root and every
-  child flow, keeps its own retry state and transition monitor, so
-  parallel iterations share none.
-
-- NI replaced the engine's refusal of N2's waits and retries in, on and
-  before containers with their behaviour, recorded on the oracle by NI's
-  own fixtures `conformance/flows/control-flow/cf-21` to `cf-28` and
-  `waits`, whose manifest is `internal/oracle/testdata/batches/ni.json`.
-  "CF-21 to CF-28 cases" in its row is read as N2's row reads FX-23 to
-  FX-29: the catalogue cases of those findings, written as runs with an
-  `expect` from the reference before recording, and corrected with a
-  `note` where the oracle disagreed. Four go to `none` (CF-24/c and CF-27/d
-  are raw submissions, CF-25/b is EE) or to N3c (CF-23/c is CF-V3/a).
-  CF-23/a and /b put a failure module beside a container, which the engine
-  refused until N3c; N3c merged first, so NI requires them. The recordings settled what the reference left
-  open, among them that a container's timeout is evaluated for each child
-  in the container's own scope, a collapsed loop's too; that a retried
-  loop's re-entry starts only its first push from its last failed child's
-  input; that the sleep before a parallel container delays every child of
-  its push; and that a canceled container completes as a failure of
-  `Canceled` entries. The oracle contradicted CF-25/a, which holds only
-  for a build without the `private` feature: the CE image completed every
-  recorded squashed loop with its unsquashed result (CF-25/d), and the
-  manifest lists the contradiction. The recordings do not show whether CE
-  reuses one runtime across iterations (Q-CF-19), so the engine accepts
-  `squash` and ignores it, running the loop unsquashed. FX-15/b, which N2
-  left to NI, passed first under N3c, which merged first, through its
-  declared `copies`. PF3 merged first
-  with WA-6/b's `client-api/flow-path/retry`, a retry in a loop's body,
-  which NI's engine runs, so NI requires it. N3c left a retry on a subflow
-  step refused for NI; no case of NI's row covers it, so it stayed refused,
-  as `later`, until N5. The E3b runs that `e3b.json`
-  gates on NI (FX-6's retry variant, FX-8/b, FX-19/d) keep that gate, by
-  the rule that a case needing two milestones gates the first that needs
-  both; `flowsuite.json` already requires them under N2.
-
-- F1 opens a built bundle with `wl.Open` and runs it with `Runtime.Run`;
-  `windmill-lite run` and `wltest check` are both transports over these
-  calls, so the flow suite runs the code path a host runs. `wltest check`
-  builds each fixture with `bundle.Build`, whose contract's roots are the
-  targets the compiler and the engine accept, and opens the bundle once
-  per mode; the whole suite passes the same runs in `warm` and in `fresh`.
-  JE-V2/a and /b and FX-17/b each have a step write a variable through the
-  job API, a route that was `later` until F1 ([WA-11](../semantics/client-api.md#wa-11)'s
-  `updateVariable`); the runtime owns its variable store, the bundle's
-  `data/` with the host's variables over it, so a later run reads the
-  write. ADR 0009 puts the module-state override in `runOptions`; F1
-  takes it in `Options`, once per runtime, because the harness pool and
-  the engine hold one mode, and a run's override can be added later as a
-  run option without breaking a host. N4 merged first, and `Options.Results`
-  passes its result cache store, in memory per runtime by default. The
-  trace carries the platform calls each step made (`Trace.PlatformCalls`),
-  which the runtime collects from the facade's records. PF3's job registry still registers no loop
-  iteration, branch or subflow, so a dispatch from inside one gets no
-  parent path; no case of F1's row needs it, and it stays open. A retry
-  on a subflow step stayed refused until N5.
-
-- N5 is a milestone added after the first plan. A host flow on the MVP
-  path retries a flow step that runs a flow by path, which the engine
-  refused (N3c, NI). CF-17 says the caller's `retry` applies to a failed
-  subflow, but no catalogue case records it. So N5 wrote the fixture
-  `conformance/flows/control-flow/subflow-retry` and recorded it on the
-  oracle without an expectation first, letting the recordings decide.
-  The runs are: a subflow step that fails once; one that runs out of
-  retries, plain, under `continue_on_error` and with a failure module; a
-  2 s delay; the step in a sequential and in a parallel loop; and above a
-  child that retries its own step. Every recording puts a failed
-  attempt's subflow job at the step's `r:<k>`, with that subflow's modules
-  below it (its own retried modules' attempts below those). A failure
-  module, or the step after a tolerated failure, lists the step's failed
-  attempts again with that subtree (FX-29), and a later step's `results`
-  read the last attempt's result. A run whose step's input transform
-  throws (FX-14) showed that the step's subflow job still launches and
-  fails with none of its modules run, and that the retry runs the
-  subflow with an empty input; the engine now lists that never-run child
-  flow, retried or not.
-  The engine moves a failed attempt's child flow to that site, as it
-  moves a retried sequential container's last failed child; a parallel
-  loop's or a `branchall`'s failed attempt has no site
-  ([CF-22](../semantics/control-flow.md#cf-22) rule 5). The same fixture
-  records a retry on a while loop and on a branchone, which NI's engine
-  already ran and which no case had recorded; N5 requires them.
-  Stub mode accepts a retry on a flow step. A failed sequential container
-  attempt is walked as its last failed child alone, under `r:<k>` without the
-  child's `i:` or `b:` segment, so none of its calls matches the site the
-  replay service resolved; a retry on a loop or branch step stays
-  refused there. The replay service resolves a subflow's step at its
-  site without the caller's attempt and counts its jobs across the
-  attempts, which `conformance.CheckReplay` holds to the walk's order
-  among the jobs that execute a script, so that a skipped step's
-  identity job takes no place (ADR 0011). `stub/subflow_retry` records
-  both, with a step skipped on the first attempt in its run `skipped`. No catalogue case gates
-  N5, so it has no recording-batch manifest; `flowsuite.json` requires
-  its runs.
-
-- F2a exposes the engine's hook seams to Go hosts as `wl.Hooks` and runs
-  the host contract's mandatory provided sites with `wl.Options.Providers`.
-  `wltest check` gives its runs the effect sink and run groups through the
-  same `wl.Hooks`, so the runner takes no path a host does not have.
-  ADR 0008 does not say which loop or branching module a selector's
-  `iterations` or `branches` narrow to; F2a reads them as the innermost
-  one around the site. A provided site's record says it ran, with
-  `provided` among its hooks and no job, since the host's value stands for
-  the job its target would have run, while an H1-intercepted site's record
-  keeps saying it did not. Per-run providers (H13) are a run's own
-  resources, variables and resolver over the runtime's, and its steps'
-  API reads answer from them; a variable chain now updates the service a
-  read answers from, so a step's update in such a run changes the run's
-  own variable. The runs a step dispatches still read the runtime's
-  providers. Fixtures declare a host contract's provided sites and named
-  providers (`provided`, `providers`), and `host/provided` holds the
-  run-time half of ADR 0002's policy case as expects, since the oracle
-  would run the real targets. F1's open gap is closed: the engine registers
-  every loop iteration, branch and subflow as a flow job of the run's tree
-  while it runs, so a dispatch whose `parent_job` names one gets its path.
-
-- F2b exposes H3, H4, H5, H7 and H10 through `wl`: write-capable selectors
-  and `BeforeFirstWrite`, and `FatalErrorNames`, on `wl.Hooks`; the
-  pre-write deadline, the clock (`RecordClock` for quick waits) and the
-  jitter on `wl.RunOptions`; the latch through `RunHandle.Latch` and every
-  hook's error. All of them are off by default. Its exit gate's
-  latch-precedence cases are data files of a new conformance level,
-  `conformance/hooks` ([0003](0003-semantics-placement.md)), run through
-  `wl`'s public hooks on flows of identity modules; H3, which only a job
-  that runs a step reaches, is checked by `wl`'s tests on the Bun harness.
-  H3 applies to a write-capable subflow call as to a leaf's launch, asked
-  before its child flow starts, and its approval is the commit point: the
-  run reports `MayHaveMutated` and the pre-write deadline stops applying
-  from it on, even when the launch it approved is then stopped by H12 or
-  by its arguments' resolution, a conservative reading of H4's "until H3
-  fires". The cases read FX-19's error stop as a `stop_after_if` with an
-  `error_message`, which is the only completion the cancellation's
-  exception lets through; a plain failure under cancellation never starts
-  the failure module. A passed deadline, hard or pre-write, names
-  Windmill's default reason and canceler, since a deadline has neither.
-
-- F3a makes host mode a runtime of `wl`: `Options.Host` opens a bundle
-  directory in host mode, completes the handshake with the host, and
-  serves its `run` frames with `Runtime.Run`, so `windmill-lite host`, the
-  engine the Bun host SDK starts, runs real bundles on the code path every
-  other adapter runs. It replaces the walking skeleton's loader in host
-  mode; the loader stays in `internal/engine` for its own tests until a
-  cleanup removes it. The working-directory checks run on both sides, the
-  SDK's and the engine's, on the shared cases of
-  `conformance/protocol/host`; those cases, with the engine's own refusal
-  through `windmill-lite host` and a codebase script that reads its asset
-  in a compiled host, are the exit gate. ADR 0004 records the protocol
-  F3a added (`workdir`, `run_settled`, the host's `drain`, `run_done`'s
-  new fields) and ADR 0009 the engine path's pairing. The recycle
-  triggers of host mode (resident memory, modules loaded) are reported by
-  the SDK's `health()` and left to the host; a retired-entry trigger waits
-  for the pooled-connection layer it would count.
-
-- F2c gives TypeScript hosts F2a's seams over `host_call`: a host plugin
-  declares its hooks and their selectors in its harness's hello, and the
-  runtime turns the declaration into the same `wl.Hooks` and providers a
-  Go host passes, whose callbacks send `host_call` frames, so selectors
-  match in Go only and both kinds of host take one path through the
-  engine. ADR 0012 gave the row no exit gate; F2c defined the one above,
-  whose cases (`conformance/plugins`, a level ADR 0003 records) run three
-  ways with one expected outcome. In `warm` the plugin is a module the
-  runtime names at `Open` (`wl.Options.Plugin`), which every harness
-  process loads; bundling plugins into a bundle's `plugins/` (ADR 0010)
-  waits for a milestone that needs it. `around` runs in the harness,
-  around the invocations whose sites its selectors match, which the
-  engine names on the `invoke`. A plugin's platform calls outside an
-  invocation, and cacheable provider answers (ADR 0007), are not in F2c.
-  F2b's settings reach TypeScript hosts here too: a plugin declares
-  write-capable selectors, `beforeFirstWrite` and fatal error names; a
-  host-mode `run` frame carries the run's budgets and latches; and step
-  code calls `wl.latch` and `wl.signal`, added to the gate because F2b
-  left them to F2c. F3a's two follow-ups, the SDK–engine version pairing and the
-  retired-entry recycle trigger, are not `host_call` matters and go to
-  F3b.
-
-- F3b is the host-mode integration gate. The flow suite runs in host mode
-  through `wltest check --mode host`: each fixture's runs go to a Bun host
-  that embeds the SDK and runs their steps in its own process, over the
-  host-mode transport. The checker keeps the engine (`wl.Options.Host`) in
-  its own process, so that it reads each run's trace and gives it the
-  hooks it gives warm and fresh runs; the SDK's spawned engine is the
-  checker's binary, which hands the host's sockets over and waits, and the
-  watchdog is off there. The watchdog, `watchdog/finite-cpu`,
-  never-settling-step and resource-release tests, and the H11 policy case,
-  run the real topology, a compiled host spawning `windmill-lite host`,
-  under a supervisor that only restarts it on exit. F3b also closed F3a's
-  two follow-ups: the SDK–engine version pairing
-  ([0009](0009-host-adapters.md)) and the `retired` recycle trigger, which
-  counts through the host's pooled-connection layer since windmill-lite
-  has none yet. F2c's two open questions are not the gate's: an abort
-  signal for plugin hooks needs a `host_call` cancel frame, and a seed in
-  the host's run frame matters to replay, neither of which the gate's
-  cases use, so both stay follow-ups.
-
-- F3h came from an embedder building its real folder. A host contract can
-  list a file of a codebase entry's `relative_path` outside the sync root,
-  which esbuild builds as `outside/<n>/...` ([0010](0010-packaging.md)).
-  The esbuild plugin now loads a listed file's shim in place of the file
-  instead of resolving every import a second time, which had made a
-  codebase build 16 to 60 times slower with any module listed. The lost
-  load effects were Bun 1.3.10's: its bundler drops a module that a
-  `sideEffects: false` package re-exports when a plugin's resolve filter
-  matches the package's import, which hit a listed module's copy, so the
-  Bun helper's filter now matches only the specifiers it resolves.
-
-- F8a is a design milestone, added after F3b when an embedder measured that
-  `warm` does not fit its memory budget: a compiled host serving 53
-  CommonJS codebase scripts that bundle one large dependency closure each
-  peaked at about 2.3 GiB with 34 modules loaded, against 650 MiB. Its
-  record, [0013](0013-shared-module-code.md), weighs shared chunks
-  ([0006](0006-module-state.md)'s option 4), host-provided packages, one
-  instance per package and shared code with an instance per script, and
-  chooses the last (D18), which keeps each script's module state its own.
-  Its tests are the record's evidence: `TestModuleMemory` in
-  [cmd/windmill-lite](../../cmd/windmill-lite/README.md) runs the public
-  synthetic reproduction in host mode in three layouts, and
-  `TestModuleMemoryClosure` the closure shaped like the embedder's, behind
-  `WL_MEMORY_PROBE`; F8b replaces their shared-code prototype with the real
-  layout.
-
-- G1 put the benchmarks of [0004](0004-harness-protocol.md) and
-  [0005](0005-json-step-boundaries.md) beside the code they measure, as
-  Go benchmarks in `internal/jsonval`, `internal/harness` and
-  `cmd/windmill-lite`, with their Bun sides in those packages' `testdata`.
-  What they share (payloads, percentiles, concurrent workers) is in
-  `internal/bench`, a package only test files use. Its baseline is in
-  0005, which records why the benchmarks run locally rather than in CI.
-  `windmill-lite run` and `host` gained `-cpuprofile`.
-- G1 read "run spans" as the spans the engine already records, module and
-  harness, with readings of each invocation's clock on both sides for the
-  stages inside the harness call. `harness.SetTimesHook` and the runtime's
-  benchmark timings take those readings, off unless a benchmark turns them
-  on. The trace's queue, serialise and platform spans stay unfilled,
-  because the step executor reports no timings to the engine.
+- **Conformance levels.** Each level of
+  [where semantics live](0003-semantics-placement.md) has a directory of its
+  own under `conformance/`, such as `openflow/` for the OpenFlow decode
+  cases, `jsonb/` for the stored-form cases, `syncfolder/` for the
+  sync-folder load cases and `ir/` for the compile cases.
+- **Recording batches and gates.** A recording batch's manifest,
+  `internal/oracle/testdata/batches/<batch>.json`, can name in `gates` the
+  milestone whose exit gate runs each of its runs: the one that implements
+  the last feature the run's flow needs.
+  - A case that needs two milestones, neither of which depends on the
+    other, gates the first milestone that needs both.
+  - A milestone's exit gate includes the runs that a manifest assigns to
+    it.
+- **The flow suite's list.** `cmd/wltest/testdata/flowsuite.json` lists the
+  runs that the flow suite requires, each with the milestone that requires
+  it, and the milestones whose manifest gates it also requires
+  ([the flow suite](../../cmd/wltest/README.md#the-flow-suite)). Do not
+  remove a required run: no test stops it, and it then stays required only
+  while a manifest gate requires it. The file keys a run of a context-free
+  expression case `<file>/<case>`.
+  - A run that the engine cannot run yet is reported as unsupported and
+    never compared.
+  - The `diff` verb of [differential testing](0011-differential-testing.md)
+    is in no milestone's row.
+- **Job identity** is in `internal/platform`, beside the service
+  interfaces, because the engine and the facade share it. The facade's
+  route table is generated from the Apache-2.0 schema vendored in
+  `internal/oracle/openapi`, so the schema is vendored once.
+- **The platform services.** The resource, variable and secret services,
+  their local default store (`platform.Store`, filled from a bundle's
+  `data/` by `platform.LoadData`) and the interpolation walker are in
+  `internal/platform`, and their routes in the facade. The engine takes the
+  same `platform.Services` as the facade (`engine.Config.Platform`).
+- **The default dispatcher** is in `internal/engine` (`engine.Dispatcher`,
+  with `Engine.RunScript` for a root script's run as a script job), not in
+  `internal/platform` beside the dispatcher's interface. It runs the
+  engine's program, and the engine imports `internal/platform`. The job
+  registry, flow user state and the object store are in `internal/platform`,
+  with their routes in the facade.
+- **The result cache.** The engine runs `cache_ttl` on the result cache of
+  the [platform interface](0007-platform-interface.md),
+  `platform.ResultCache`: a host's store, or the services' in-memory
+  default (`internal/engine/cache.go`).
+- **The build.** The shared build transforms (the define table, its support
+  module and the shim generator) are in `internal/bundle`, beside the
+  bundle format, and the Bun build helper is in `harnesses/bun/build`.
+  Codebase bundling (`BuildCodebase`, esbuild through its Go API) is in
+  `internal/bundle` too, beside the Bun build.
+- **Codebase step cases.** A step case can name a `codebase`. When
+  `wltest check` has a Node executable (`--node` or `WL_NODE`), it also runs
+  each CommonJS codebase case on Node, except one at the native boundary:
+  that is how the cases of
+  [D13](0001-equivalence-contract.md#5-named-deviations) compare Node
+  against Bun.
+- **The CLI parity check** runs the pinned CLI in a workflow of its own,
+  `parity.yml`, which branch protection does not require. Its fallback runs
+  in the Go jobs.
+- **Native step cases.** The step files `conformance/steps/bun/wr-40.yaml`
+  to `wr-45.yaml` hold the native cases of the reference. Each catalogue
+  case of the native findings, [WR-40](../semantics/languages.md#wr-40) to
+  [WR-46](../semantics/languages.md#wr-46), is a step case, run as `nativets` and as
+  `//native` where the catalogue says both kinds, or is listed in the
+  level's `deferred.yaml` with its reason.
+  - A step case gives its `language` and its `timeout` for that.
+  - The native build cases are `conformance/build/d5.json`.
+- **The engine runs a compiled program** (`engine.New`, `Engine.Run` on an
+  `ir.Program`). The compiler runs every expression's textual stages, and
+  the engine compiles their bytecode when it opens the program.
+- **One code path for every transport.** `windmill-lite run` and
+  `wltest check` are both transports over `wl` (`wl.Open`, `Runtime.Run`),
+  so the flow suite runs the code path that a host runs. `wltest check`
+  gives its runs the effect sink and run groups through the same
+  `wl.Hooks`, so the runner takes no path that a host does not have.
+- **Benchmarks.** The benchmarks of the
+  [harness protocol](0004-harness-protocol.md) and of
+  [JSON at step boundaries](0005-json-step-boundaries.md) are Go benchmarks
+  beside the code they measure, in `internal/jsonval`, `internal/harness`
+  and `cmd/windmill-lite`, with their Bun sides in those packages'
+  `testdata`.
+  - What they share (payloads, percentiles, concurrent workers) is in
+    `internal/bench`, a package that only test files use.
+  - Their baseline is in
+    [JSON at step boundaries](0005-json-step-boundaries.md#baseline), which
+    records why they run locally, never in CI. Its large-value figures come
+    from GitHub's hosted runners, through the `Benchmarks` workflow, which
+    is started by hand and gates nothing.
+- **Two host-plugin follow-ups stay open.** An abort signal for plugin
+  hooks needs a `host_call` cancel frame. A seed in the host's `run` frame
+  matters to replay.
+- **Where the details live.** Each part's behaviour is described beside its
+  code:
+  - [internal/engine](../../internal/engine/README.md): loops, branches and
+    subflows as child flows (`Trace.Children`), the error routes, waits and
+    retries, the transition monitor, the result cache (`cache_ttl`), and
+    `squash`, which the engine accepts and ignores;
+  - [internal/conformance](../../internal/conformance/README.md) and
+    [cmd/wltest](../../cmd/wltest/README.md): the location rule
+    (`StripLocations`), declared `copies` and `not_found_locs`, the flow
+    suite in each mode, and a fixture's `roots`, `delays` and
+    `oracle.session`;
+  - [conformance](../../conformance/README.md): the fixtures, the recording
+    batches' manifests and the deferred cases;
+  - [internal/platform](../../internal/platform/README.md),
+    [wl](../../wl/README.md), [harnesses/bun](../../harnesses/bun/README.md)
+    and [cmd/windmill-lite](../../cmd/windmill-lite/README.md): the services
+    and dispatch, the library's hooks and options, host mode with its
+    plugins and recycle triggers, and the commands and memory tests;
+  - the records on hosts: [host hooks](0008-host-hooks.md) (host plugins)
+    and [host adapters](0009-host-adapters.md) (host mode as a runtime of
+    `wl`);
+  - the records on the build and the oracle: [packaging](0010-packaging.md)
+    (`selfcheck`, files outside the sync folder, a listed file's shim),
+    [differential testing](0011-differential-testing.md) (the run-and-wait
+    submission, stub mode's retries, job ids the walk cannot map) and
+    [shared module code](0013-shared-module-code.md) (the memory
+    measurements).
 
 ## Spec IDs relied on
 

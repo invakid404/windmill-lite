@@ -1,8 +1,21 @@
-# 0010 · Packaging, build identity and drift guard
+# Packaging, build identity and drift guard
 
-**Status:** proposed · **Topic:** the bundle format, the single executable
+**Status:** Accepted · **Topic:** the bundle format, the single executable
 for single-harness selections, the OCI image, build identity, and the guards
 that keep what runs equal to what was built.
+
+A [bundle](../glossary.md#bundle), a directory or a `.wlb` archive, carries a
+manifest of the engine version that built it and the digests of its other
+files and inputs; the SHA-256 of that manifest's canonical bytes, the
+bundle digest, identifies the build. A runtime opens only a bundle that its
+own engine version built, and
+[host-provided modules](../glossary.md#host-provided-module) give the host
+and every script in a process one shared instance of a listed module
+([D12](0001-equivalence-contract.md#5-named-deviations)).
+
+**Not built yet:** the single executable (`windmill-lite pack --single`), the
+OCI image (`windmill-lite image`), and a build that writes host plugins into
+`plugins/`.
 
 ## Context
 
@@ -23,13 +36,13 @@ A bundle is a directory, or the same tree as one `.wlb` file (a tar archive):
 
 | Path | Content |
 |---|---|
-| `manifest.json` | format version; the exact engine version that built it; the digest of every other file; the source inventory (every input file of the sync folder with its digest, locks included); the host contract (roots, provided sites, host-provided modules); the Bun and esbuild versions; deviations in effect ([0001](0001-equivalence-contract.md)); module-state mode; harness runtime digest |
-| `ir.json` | the compiled program ([0002](0002-ir-and-loader.md)), a cache for that exact engine version, not an exchange format |
+| `manifest.json` | format version; the exact engine version that built it; the digest of every other file; the source inventory (every input file of the sync folder with its digest, locks included); the host contract (roots, provided sites, host-provided modules); the Bun and esbuild versions; deviations in effect ([equivalence contract](0001-equivalence-contract.md#5-named-deviations)); module-state mode; harness runtime digest |
+| `ir.json` | the compiled program ([IR, loader and validation](0002-ir-and-loader.md)), a cache for that exact engine version, not an exchange format |
 | `scripts/bun/<id>.mjs` | one bundled module per Bun script (`<id>.cjs` for a codebase script built as CommonJS), plus `<id>.meta.json` (the bundler's metafile and the parsed signatures of every export) |
 | `scripts/bun/provided/<id>.mjs` | a bundled copy of each host-provided module, used when no host registers its own |
-| `assets/` | codebase assets, extracted into a harness process's working directory at start ([0002](0002-ir-and-loader.md)) |
+| `assets/` | codebase assets, extracted into a harness process's working directory at start ([IR, loader and validation](0002-ir-and-loader.md)) |
 | `data/` | resources, resource types and non-secret variables from the folder |
-| `plugins/` | host plugins, when the host ships any ([0008](0008-host-hooks.md)); milestone F2c loads a `warm` runtime's plugin from a module the runtime names at open, and a host-mode plugin is the host's own, so no build writes this directory yet |
+| `plugins/` | host plugins, when the host ships any ([host hooks](0008-host-hooks.md)); a `warm` runtime loads its plugin from a module the runtime names at open, and a host-mode plugin is the host's own, so no build writes this directory yet |
 
 Secrets are never written into a bundle unless the host passes them
 explicitly. A runtime opens a bundle only if the manifest's engine version is
@@ -40,7 +53,7 @@ host upgrades the engine and rebuilds the bundle together.
 
 `windmill-lite build <folder> -o <bundle>`:
 
-1. loads and compiles the folder ([0002](0002-ir-and-loader.md));
+1. loads and compiles the folder ([IR, loader and validation](0002-ir-and-loader.md));
 2. runs the **Bun build helper** on the pinned Bun, refusing any other
    version unless `--bun-mismatch` is given, which marks the manifest
    `nonconformant_runtime`;
@@ -52,7 +65,7 @@ host upgrades the engine and rebuilds the bundle together.
    ([WR-29](../semantics/languages.md#wr-29)); relative imports resolved from
    the folder; `//nobundling` scripts bundled too (deviation D7). Codebase
    scripts are bundled with esbuild instead, through its Go API, with the
-   settings of [0002](0002-ir-and-loader.md) (WR-30, SY-8);
+   settings of [IR, loader and validation](0002-ir-and-loader.md) (WR-30, SY-8);
 4. parses each script's signature and annotations into its metafile
    ([WR-6](../semantics/languages.md#wr-6), [WR-8](../semantics/languages.md#wr-8),
    [WR-31](../semantics/languages.md#wr-31), [WR-32](../semantics/languages.md#wr-32),
@@ -82,7 +95,7 @@ host upgrades the engine and rebuilds the bundle together.
    reads the real environment: imports of the `bun` module, optional
    chaining or reflection through the global object, and code built at run
    time. The Bun helper applies the rewrite to Bun-target bundles only. A
-   `//native` script runs at the native boundary (C3n), whose `process.env`
+   `//native` script runs at the native boundary, whose `process.env`
    is its preamble's; a `//nodejs` one runs on Node on Windmill, with Bun's
    environment ([WR-50](../semantics/languages.md#wr-50)), and on the Bun
    harness in windmill-lite, whose environment view covers it at run time
@@ -93,7 +106,7 @@ host upgrades the engine and rebuilds the bundle together.
 
 **One implementation for both bundlers.** Ordinary scripts are bundled by
 `Bun.build` in the Bun helper and codebase scripts by esbuild in Go
-([0002](0002-ir-and-loader.md)). The windmill-lite-specific transforms are
+([IR, loader and validation](0002-ir-and-loader.md)). The windmill-lite-specific transforms are
 written once: the Bun helper scans the export names of each host-provided
 module (`Bun.Transpiler().scan`, the one scanner); the Go build generates
 one shim source file per module into the bundle tree; and each bundler
@@ -305,8 +318,9 @@ the host was a compiled Bun executable.
    build filters every specifier that ends in `.ts`. So it drops such a
    module behind a package's bare import that ends in `.ts`, a package
    named `*.ts` or a deep `pkg/index.ts`, where windmill-lite keeps it
-   ([WR-27](../semantics/languages.md#wr-27)): deviation D19 of
-   [0001](0001-equivalence-contract.md). Whether CE `v1.862.0`, whose image
+   ([WR-27](../semantics/languages.md#wr-27)): deviation D19 of the
+   [equivalence contract](0001-equivalence-contract.md#5-named-deviations).
+   Whether CE `v1.862.0`, whose image
    runs Bun 1.4.4, still drops it is open until WR-27 is checked at that
    release.
 
@@ -326,36 +340,40 @@ change to a flow (one `stop_after_if`, say), a script, a lock, a pin or the
 host contract changes the digest. It appears in:
 
 - `GetBuildInfo` and `/healthz`, with engine, harness and Bun versions;
-- the harness handshake, which fails on a mismatch ([0004](0004-harness-protocol.md));
+- the harness handshake, which fails on a mismatch ([harness protocol](0004-harness-protocol.md));
 - every run trace;
-- generated typed clients ([0009](0009-host-adapters.md)).
+- generated typed clients ([host adapters](0009-host-adapters.md#typed-methods)).
 
 ### Single executable
 
-For a bundle with one harness class, `windmill-lite pack --single` writes one
-file per platform (`linux/amd64`, `linux/arm64`, `darwin/arm64`):
+For a bundle with one harness class, `windmill-lite pack --single` is
+planned to write one file per platform (`linux/amd64`, `linux/arm64`, `darwin/arm64`):
 
 - the Go engine with the bundle appended;
 - the Bun harness compiled with `bun build --compile`, the script modules
   embedded, appended as well.
 
 On start the executable extracts the harness into a private directory
-(mode 0700), checks its digest against the manifest, and spawns it. `pack
+(mode `0700`), checks its digest against the manifest, and spawns it. `pack
 --single --host bun` builds the mirror image for host mode: a compiled Bun
 host program that carries the engine binary and starts it
-([0009](0009-host-adapters.md)).
+([host adapters](0009-host-adapters.md)).
 
 ### OCI image
 
-`windmill-lite image <bundle>` writes an OCI image layout (or pushes it) with
-a pure-Go image library, so no Docker daemon is needed. The image holds the
-single executable and its manifest, with the chosen adapter as entrypoint,
-on the smallest base that runs it: an empty base is enough for the static
-engine, while the compiled Bun harness inside the single executable links a
-C library, so the base must provide one. F6's exit gate runs the image and
-records the base in the manifest. No windmill-lite image is ever based on, or contains, a
-Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
-([0011](0011-differential-testing.md)).
+`windmill-lite image <bundle>` is planned to write an OCI image layout (or
+push it) with a pure-Go image library, so that no Docker daemon is needed.
+The image holds the single executable and its manifest, with the chosen
+adapter as entrypoint, on the smallest base that runs it.
+
+An empty base is enough for the static engine, while the compiled Bun
+harness inside the single executable links a C library, so the base must
+provide one. A check is to run the image on its base and record the base
+in the manifest.
+
+No windmill-lite image is ever based on, or contains, a Windmill image
+([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
+([differential testing](0011-differential-testing.md#ci)).
 
 ### Drift guard
 
@@ -368,34 +386,39 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
    compares `GetBuildInfo` with its release record catches a swapped binary
    and a swapped bundle.
 5. The Linux engine binaries are static (built with `zig cc` against musl,
-   [0003](0003-semantics-placement.md)); F4's exit check starts each one on an
-   empty base and fails the release if it does not run there.
+   [where semantics live](0003-semantics-placement.md)); a check starts each
+   one on an empty base and fails the release if it does not run there.
 
 ## Consequences
 
 - A deployed worker can prove which flows it runs, not just which code.
-- Milestone C2a built the Bun side (`internal/bundle`, `harnesses/bun/build`)
-  and found that Bun 1.3.10's global `Bun` and its `env` are read-only and
-  non-configurable, so step 5 gained the support module: the define table
-  alone missed aliases and destructuring of `Bun`. A first version put the
-  proxy in a banner, where a script's own `Object`, `process` or
-  `globalThis` captured its names; the support module and a binding name no
-  input spells replaced it in the first fix round. A script that
-  Windmill would fail to bundle at every run fails the build instead
-  (`bundle_failed`, [0001](0001-equivalence-contract.md) §5a). The build
-  helper's one dependency is its TypeScript parser, `@babel/parser` (MIT),
-  installed from its lockfile; the signature parse needs an AST, and Bun
-  exposes none. `Bun.build` inlines `process.env.NODE_ENV` from its own
-  environment, so the helper runs without one, and every bundle reads
-  `"development"` there; which value Windmill's worker build sees is a
-  question for the semantics team.
+- **The Bun side** of the build is `internal/bundle` and
+  `harnesses/bun/build`.
+  - Step 5 needs its support module because the global `Bun` and its `env`
+    are read-only and non-configurable, as Bun 1.3.10 showed, so the define
+    table alone misses aliases and destructuring of `Bun`.
+  - A proxy in a banner is rejected: a script's own `Object`, `process` or
+    `globalThis` captured its names. The support module and a binding name
+    that no input spells replace it.
+  - A script that Windmill would fail to bundle at every run fails the
+    build instead (`bundle_failed`,
+    [§5a of the equivalence contract](0001-equivalence-contract.md#5a-restrictions)).
+  - The build helper's TypeScript parser is `@babel/parser` (MIT),
+    installed from its lockfile. The signature parse needs an AST, and Bun
+    exposes none.
+  - `Bun.build` inlines `process.env.NODE_ENV` from its own environment, so
+    the helper runs without one, and every bundle reads `"development"`
+    there. The reference states the same for Windmill's bundled mode, whose
+    builds run without `NODE_ENV` ([WR-53](../semantics/languages.md#wr-53),
+    drafted and verified at `v1.767.0` only; Bun's inlining was observed on
+    Bun 1.3.10 outside Windmill).
 - The pinned Bun is the reference's; a host on another Bun gets a visible
   `nonconformant_runtime` flag, not a silent difference.
-- One-file deployment is available for the common case of a single language.
-- Milestone F4 built the bundle (`internal/bundle`, `windmill-lite build`,
-  `verify` and `selfcheck`) and settled what this record left open:
+- One-file deployment is planned for the common case of a single language.
+- **The bundle** (`internal/bundle`, `windmill-lite build`, `verify` and
+  `selfcheck`) settles what the decision above leaves open:
   - **Names.** A script's files are named by its inventory id
-    ([0002](0002-ir-and-loader.md)), whose `/`-separated segments become
+    ([IR, loader and validation](0002-ir-and-loader.md)), whose `/`-separated segments become
     directories (`scripts/bun/f/app/report.mjs`), as the harness runtime
     already resolved an id; a host-provided module's by its script path.
   - **Canonical form.** `manifest.json` is written in its canonical form:
@@ -404,7 +427,7 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     the SHA-256 of those bytes, which the harness computes from the file. A
     manifest in any other form is refused.
   - **Manifest.** Beyond the table above, it records the expression
-    engine's stack limit ([0003](0003-semantics-placement.md)), the
+    engine's stack limit ([where semantics live](0003-semantics-placement.md)), the
     host-provided modules in registration order, and the harness runtime
     as the digest of its directory tree, which refuses a symbolic link
     below the runtime's directory. Its deviations are the program's,
@@ -432,17 +455,17 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     against the bundle's own: alone, that proves a bundle intact, not that
     it is the one released.
   - **Refusals.** The build applies validation rule 5 of
-    [0002](0002-ir-and-loader.md) (`missing_lock`) and refuses
-    workflow-as-code (`unsupported: workflow_as_code`, from the helper's
-    markers). Until their milestones, it also refuses codebase scripts
-    (C2b) and host-provided packages: a package needs a lock to install
-    from, and the host contract has no place for one yet.
+    [IR, loader and validation](0002-ir-and-loader.md) (`missing_lock`) and
+    refuses workflow-as-code (`unsupported: workflow_as_code`, from the
+    helper's markers). It also refuses host-provided packages: a package
+    needs a lock to install from, and the host contract has no place for
+    one.
   - **Drift guard 5** is the `Static Linux engine` CI job: it builds the
     engine with `zig cc` against musl for `amd64` and `arm64`, checks that
     it is static, and runs `windmill-lite selfcheck`, which starts the
     expression engine, and `verify` in an image built `FROM scratch`.
-- Milestone C2b built the esbuild side (`internal/bundle`, `BuildCodebase`)
-  and settled what step 3 left to it:
+- **The esbuild side** (`internal/bundle`, `BuildCodebase`) settles what
+  step 3 leaves to it:
   - **The CLI's settings** are WR-47's table, through esbuild 0.28.0's Go
     API, from the sync root as the CLI's working directory (so `inject`
     paths and asset sources resolve as they do for the CLI). The parity
@@ -457,18 +480,19 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     entry's own `inject` files, from the plugin's `windmill-lite`
     namespace, as are the shims of listed packages, so no codebase bundle
     depends on where it was built. The define table's keys take precedence
-    over the entry's own `define`. Milestone F3h loads a listed file's
-    shim in place of the file, under its path from the sync root, when
-    esbuild loads it: mapping each import to the shim by resolving it a
-    second time, outside esbuild's directory cache, had made a build that
-    imports a package of many modules 16 to 60 times slower.
+    over the entry's own `define`.
+  - **A listed file's shim.** The plugin loads a listed file's shim in
+    place of the file, under its path from the sync root, when esbuild
+    loads it. Mapping each import to the shim by resolving it a second
+    time, outside esbuild's directory cache, is rejected: it made a build
+    that imports a package of many modules 16 to 60 times slower.
   - **The module** of a CommonJS codebase script is `<id>.cjs`. The
     harness loads a codebase module from a copy in its working directory,
     as Windmill places the bundle as `main.js` in the job directory beside
     its assets (WR-50), so its `__dirname`, `__filename`, `import.meta`
     and run-time `require` of relative paths agree with Windmill's; a
     spawned harness extracts `assets/` there before any module loads (in
-    host mode, F3a). The metadata records `bundler: "esbuild"` and the
+    host mode, the Bun host SDK does). The metadata records `bundler: "esbuild"` and the
     `format`; the signatures cover every export of the bundle (those an
     entry re-exports with `export *` included, read from an ES module build
     with the same plugin, so imports of host-provided modules resolve to
@@ -477,13 +501,14 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     content, or none when the source does not declare it. CommonJS source
     has no static export list, and a build that cannot read the names
     warns; in both cases the harness calls a callable export the metadata
-    does not sign with an empty parameter list ([0004](0004-harness-protocol.md)).
+    does not sign with an empty parameter list ([harness protocol](0004-harness-protocol.md)).
   - **Refusals:** several output files (`unsupported_feature`), an asset
     that leaves the working directory or does not read (`invalid_asset`),
-    and a `format` other than `cjs` and `esm` ([0001](0001-equivalence-contract.md) §5a).
+    and a `format` other than `cjs` and `esm`
+    ([§5a of the equivalence contract](0001-equivalence-contract.md#5a-restrictions)).
     A codebase script needs no lock: esbuild inlines its packages from the
     folder's `node_modules`.
-- Milestone C3n built native scripts in their **native form**,
+- Native scripts are built in their **native form**,
   `scripts/bun/<id>.native.js`: the source of one async function, which the
   harness compiles in the invocation's realm with the environment preamble
   inserted at a recorded offset, and calls with the static imports it
@@ -514,10 +539,11 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     `scripts/native/windmill.js` when the bundle has a nativets script.
     Like Windmill 1.862.0's bundle of that version, it lacks
     `WorkspaceService.editDeployTo` ([WR-40](../semantics/languages.md#wr-40)).
-- Milestone W1 measured on Bun 1.3.10 that the harness's environment view
+- A measurement on Bun 1.3.10 showed that the harness's environment view
   isolates `Bun.env` and `import.meta.env` reads at run time even without
-  the env rewrite of step 5 ([0004](0004-harness-protocol.md)), including
-  in unbundled code. Step 5 stays: it keeps a bundle's reads on
+  the env rewrite of step 5
+  ([harness protocol](0004-harness-protocol.md#per-invocation-identity-logs-and-environment)),
+  including in unbundled code. Step 5 stays: it keeps a bundle's reads on
   `process.env`, the one name the view replaces, so their isolation does
   not depend on the run-time mechanism alone.
 - The retarget to Bun 1.4.3 measured that its `process.env` object takes
@@ -527,15 +553,15 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   name. Code the rewrite does not reach that enumerates `Bun.env` no longer
   lists a claimed variable; step 5 makes a bundle enumerate `process.env`,
   the view, instead.
-- Milestone F8a's record, [0013](0013-shared-module-code.md), adds
+- The [shared module code](0013-shared-module-code.md) record adds
   **shared code**, a build setting. With it, the bundle carries one closure
   per build group (the Bun-built scripts, and each codebase entry) and a
   module per script whose imports of dependency modules resolve to its own
   instance of that closure. Both are built from the same sources and
   settings, through a plugin that only maps paths. The per-script bundles
   stay byte for byte as without it, so the parity check is unchanged.
-  Host-provided packages stay refused: 0013 weighed them and chose not to
-  add them. Its probes found two limits of host-provided modules as they
+  Host-provided packages stay refused: that record weighed them and chose
+  not to add them. Its probes found two limits of host-provided modules as they
   stand:
   - a listed Bun script inside the folder that imports packages fails to
     build. Its shared copy is the Bun build's, which resolves no package
@@ -544,7 +570,7 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - a host compiled with `bun build --compile` resolves no package from
     disk at run time, so a listed module that imports packages must be
     compiled into the host.
-- **Shared code in the bundle** ([0013](0013-shared-module-code.md)).
+- **Shared code in the bundle** ([shared module code](0013-shared-module-code.md#decision)).
   - A bundle built with shared code holds one closure per group,
     `scripts/bun/closures/<id>.cjs` (`<id>.mjs` for an ES module codebase
     group). Beside each script's per-script bundle it holds the script's
@@ -564,7 +590,7 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 - The manifest sets `no_args_file_reader` when no script of the bundle
   can read `args.json` ([WR-5](../semantics/languages.md#wr-5)). Host
   mode leaves the file out only for such a bundle, and only when its host
-  opts in ([0004](0004-harness-protocol.md), host mode item 7).
+  opts in ([host mode](0004-harness-protocol.md#host-mode), item 7).
   - The search is conservative. It reads each script's built module after
     the build's own leading sections, and counts the script as no reader
     only when the module holds no way to a file, a process or code made

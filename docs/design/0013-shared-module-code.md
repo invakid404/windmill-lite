@@ -1,13 +1,24 @@
-# 0013 · Shared module code
+# Shared module code
 
-**Status:** proposed · **Topic:** what a `warm` or host-mode process does
+**Status:** Accepted · **Topic:** what a `warm` or host-mode process does
 when its step modules carry the same dependencies, so that its memory grows
-by one dependency closure per module loaded: the `shared` record that
-[0006](0006-module-state.md) left for a host's measurement.
+by one dependency closure per module loaded. It is the `shared` record
+that the [module state](0006-module-state.md) record left for a host's
+measurement.
+
+With shared code (`windmill-lite build -shared-code`), a
+[`warm`](../glossary.md#warm) or [host-mode](../glossary.md#host-mode)
+process compiles each build group's dependency modules once and gives each
+eligible step module an instance; a script that falls back runs its
+per-script bundle, and native scripts are in no group. Each step keeps its
+own module state, as on Windmill; what differs is stack text, names and
+source text, default exports and unused code
+([D18](0001-equivalence-contract.md#5-named-deviations)), and shared code is
+not the default.
 
 ## Context
 
-[0006](0006-module-state.md) keeps one instance of each script's bundle per
+The [module state](0006-module-state.md) record keeps one instance of each script's bundle per
 process (`warm`, D1). Each bundle inlines its own copy of everything it
 imports, as Windmill's bundles do
 ([WR-27](../semantics/languages.md#wr-27),
@@ -15,7 +26,7 @@ imports, as Windmill's bundles do
 state, as on Windmill, where every job runs in a process of its own
 ([WR-1](../semantics/languages.md#wr-1)). The cost is memory: a process
 holds one copy of a shared dependency for each script module it has loaded.
-0006 left a `shared` mode out of the first edition until a host measured
+That record left a `shared` mode out of the first edition until a host measured
 that `warm` does not fit.
 
 A host has measured it.
@@ -155,9 +166,9 @@ C's packages:
 - **Packages behind a host-provided file.** Listing a file inside the sync
   folder that imports npm packages fails the build: `Could not resolve:
   "@babel/types"`. The shared copy of a listed module inside the folder is
-  the Bun build's ([0010](0010-packaging.md)), and that build resolves no
+  the Bun build's ([packaging](0010-packaging.md#host-provided-modules)), and that build resolves no
   package from the folder's `node_modules`. The same file outside the
-  folder builds, with esbuild, as milestone F3h made it.
+  folder builds, with esbuild.
 - **A compiled host at run time.** A compiled host imports at run time only
   files that need no package. It resolves no package from disk at run time
   (`Cannot find package`), so a module that imports packages must be
@@ -175,8 +186,8 @@ that was swapping.
   - per-script: 1.07 to 3.44 s, at about 1.9 GiB.
 
   No consistent difference shows. The slow rounds came with the larger
-  live heaps, so collections are the likely cause; G1's benchmarks in host
-  mode measure it properly (F8b).
+  live heaps, so collections are the likely cause. The in-repository
+  benchmarks, run in host mode, are to measure the throughput.
 
 **On Linux, with Bun 1.3.10 and 1.4.3.** The two tests ran again in the
 workflow `Benchmarks`, group `memory`
@@ -261,13 +272,13 @@ yet.
 
 | Option | S, per further module | C, 34 modules | Module state between scripts | CommonJS codebase scripts |
 |---|---|---|---|---|
-| per-script (today, 0006) | 6.3–6.7 MiB (host) | 1,911 MiB with 8 concurrent runs (host) | separate | the CLI's format |
-| (a) shared chunks (0006 option 4) | 0.5–0.6 MiB (model) | 120–129 MiB (model) | shared | become ES modules |
+| per-script (today, [module state](0006-module-state.md)) | 6.3–6.7 MiB (host) | 1,911 MiB with 8 concurrent runs (host) | separate | the CLI's format |
+| (a) shared chunks ([module state](0006-module-state.md) option 4) | 0.5–0.6 MiB (model) | 120–129 MiB (model) | shared | become ES modules |
 | (b) host-provided packages | none: S's module is a file, not a package (listing it as a file, D12 today: 0.11 MiB, host) | 127 MiB (model) | shared, with the host too | unchanged |
 | (c1) one instance per package | none: S's module is a file, not a package | 132 MiB (model) | shared for packages | unchanged |
 | (c2) shared code, instance per script | 0.15–0.17 MiB (host, prototype) | 475–492 MiB with 8 concurrent runs (host, prototype) | separate | unchanged |
 
-### (a) Shared chunks: [0006](0006-module-state.md)'s option 4
+### (a) Shared chunks: option 4 of [module state](0006-module-state.md)
 
 The build bundles the scripts of one bundler and one set of settings
 together, with code splitting. A module that two scripts import becomes one
@@ -298,7 +309,7 @@ chunk, evaluated once per process.
   would run the per-script bundles.
 - **Fence:** a chunk evaluates in the context of the first invocation that
   loads a script needing it. Its load-time timers and connections are module
-  state (milestone C3b), which then serves every script sharing the chunk.
+  state, which then serves every script sharing the chunk.
 - **Host-provided modules:** their imports become shims inside chunks, as
   they are inside bundles.
 
@@ -325,17 +336,17 @@ serves every script: the host's own in host mode.
 - **Deviation:** D12 widened. A listed package is one instance shared by
   the host and every script, so the `Order` probe fails. The host's version
   of the package, and its import-time configuration, reach the steps
-  ([0010](0010-packaging.md), host-provided modules, items 5 and 6).
+  ([packaging](0010-packaging.md#host-provided-modules), items 5 and 6).
 - **Opt-in:** packages in the host contract's `host_modules`. The contract
-  would need each package's version and lock: 0010 refuses host-provided
+  would need each package's version and lock: the packaging record refuses host-provided
   packages today because the contract has no place for a lock.
 - **Trace and manifest:** the listed packages and their versions. The SDK
   would check the host's instances against them.
 - **CLI parity:** unchanged; the runtime's bundles carry shims, as with D12
   today.
 - **Fresh mode:** the bundled copy loads once per process, at registration
-  rather than when the step's module loads (D12's load effects, 0010 item
-  7).
+  rather than when the step's module loads (D12's load effects,
+  [packaging](0010-packaging.md#host-provided-modules) item 7).
 - **Fence:** listed packages load at registration, outside every
   invocation, so nothing they start is fenced, as with D12 today.
 - **Host-provided modules:** this option is D12 extended, and it needs two
@@ -390,7 +401,7 @@ decision below, which describes it in full.
 
 ### (d) Other routes
 
-1. **Recycling on a module count** (F3a's `modules` trigger) bounds memory
+1. **Recycling on a module count** (host mode's `modules` recycle trigger) bounds memory
    by restarting the process. It cannot keep a working set of 34 modules
    under the budget without reloading them over and over: the first load of
    C's 34 modules took 3.6 to 3.8 s. It stays the backstop.
@@ -402,7 +413,7 @@ decision below, which describes it in full.
 4. **An uncompiled host** costs 42 rather than 55 MiB per module in the
    model. Hosts compile for deployment, so the target below is set on a
    compiled host.
-5. **`fresh`** is not available in host mode ([0006](0006-module-state.md)).
+5. **`fresh`** is not available in host mode ([module state](0006-module-state.md)).
 
 ## Decision
 
@@ -415,7 +426,8 @@ instance of every module it imports, as on Windmill.
    - Scripts form a group exactly when their per-script bundles agree on
      four things:
      - **one bundler with the same effective settings:** target, format,
-       `define`, `inject`, `loader`, and the transforms of 0010 that apply
+       `define`, `inject`, `loader`, and the transforms of
+       [packaging](0010-packaging.md#the-build) that apply
        to them;
      - **one installation:** the folder's files for a codebase entry, and
        one lock's install for Bun-built scripts;
@@ -474,12 +486,12 @@ instance of every module it imports, as on Windmill.
      `"use strict"`, as every module of an ES module bundle is strict.
    - **Settings.** The closure is built with the group's settings: the
      entry's `define`, `inject` and `loader`, and the define table and env
-     rewrite of 0010, applied as for the group's own output format.
+     rewrite of [packaging](0010-packaging.md#the-build), applied as for the group's own output format.
 3. **One instance per script.**
    - **The script's module.** Each script's module in the shared layout is
      its own code, with every import of a dependency module resolved to its
      instance's table. A plugin that only maps paths does this, as for
-     0010's other transforms.
+     the other transforms of [packaging](0010-packaging.md#the-build).
    - **Injected modules.** The script's own code and its dependencies reach
      one instance of each injected module, as each module of a per-script
      bundle imports the one copy that esbuild injects. The script's module
@@ -501,7 +513,7 @@ instance of every module it imports, as on Windmill.
      dependency, at its top level or as a function's parameter, would
      capture `import.meta`. The closure's parameter is therefore the first
      of `__wl_meta`, `__wl_meta_2`, … that no input of the closure spells,
-     as 0010 chooses the env rewrite's binding.
+     as the [packaging](0010-packaging.md#the-build) record chooses the env rewrite's binding.
    - **`import.meta.env`.** For an ES module group, the define table's
      rewrite of `import.meta.env` applies to dependency code as it does to
      an ES module bundle.
@@ -553,7 +565,7 @@ instance of every module it imports, as on Windmill.
    - **The cost.** The closure's code is read and compiled once per process.
      What a further step module costs is the state its dependencies make
      when they load.
-4. **What differs: D18** ([0001](0001-equivalence-contract.md)).
+4. **What differs: D18** ([equivalence contract](0001-equivalence-contract.md#5-named-deviations)).
    - **Stack text and messages.** Stack frames of dependency code name the
      closure file and its lines, not the step's module. That includes the
      log tail that an error at module load leaves in the step's
@@ -692,7 +704,7 @@ instance of every module it imports, as on Windmill.
    - Making an instance is part of loading the step's module, which runs in
      the loading invocation's context. The timers and connections that
      dependency code starts while loading are module state, which the fence
-     leaves alone (milestone C3b).
+     leaves alone.
    - A dependency that a running invocation first reaches later initialises
      in that invocation's context, as a lazily required module does in a
      per-script bundle.
@@ -722,7 +734,7 @@ instance of every module it imports, as on Windmill.
   Bun 1.4.3, the Bun this design pins, keeps more memory per module, and
   its soak raises the peak by 153 MiB against 73 MiB on Bun 1.3.10. The
   engine is the same code, and its own peaks do not change
-  ([0005](0005-json-step-boundaries.md#large-values)).
+  ([JSON at step boundaries](0005-json-step-boundaries.md#large-values)).
 - **On Bun 1.4.3,** C peaks at 712.8 MiB on amd64 and 585.3 MiB on arm64
   (medians of five, [Measurements](#measurements),
   [run](https://github.com/invakid404/windmill-lite/actions/runs/42608859496)).
@@ -784,9 +796,10 @@ instance of every module it imports, as on Windmill.
 - **Conformance** gains a configuration: the step cases of deviation
   [D18](0001-equivalence-contract.md#5-named-deviations) run in `warm`
   from a bundle built with shared code, and the flow suite in `warm` and
-  host mode from bundles built with it. That is the cost 0006 named for
+  host mode from bundles built with it. That is the cost the
+  [module state](0006-module-state.md) record named for
   `shared`, accepted here for a host that needs it.
-- **Two findings for 0010** come from the probes:
+- **Two findings for the [packaging](0010-packaging.md) record** come from the probes:
   - a host-provided file inside the folder that imports packages fails to
     build;
   - a compiled host resolves no package at run time.
@@ -880,4 +893,5 @@ cases of the semantics catalogue:
 ## Spec IDs relied on
 
 WR-1, WR-2, WR-27, WR-28, WR-47, WR-49, WR-50, Q-WR-19, and deviations D1,
-D9, D10, D12, D13 and D18 of 0001.
+D9, D10, D12, D13 and D18 of the
+[equivalence contract](0001-equivalence-contract.md#5-named-deviations).
