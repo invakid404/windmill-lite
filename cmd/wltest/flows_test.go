@@ -1172,13 +1172,6 @@ func TestCompactJSON(t *testing.T) {
 	}
 }
 
-// TestFlowCheckerIsolatesCodebaseFailures, below, checks that a codebase
-// script that fails to build fails only the flows that reach it: the
-// codebase build writes the metadata and assets of every script that built,
-// so an unrelated flow whose codebase script reads its asset still runs and
-// passes. A script whose asset collides with one an earlier script took
-// fails its own flow.
-
 // TestAsOracleBase: the runtime's platform origin in an observation reads
 // as the oracle's base URL in every value, the stack line of WR-43/c's
 // nativets run included, and nowhere a further digit of a port follows it.
@@ -1227,6 +1220,12 @@ func TestAsOracleBase(t *testing.T) {
 	}
 }
 
+// TestFlowCheckerIsolatesCodebaseFailures checks that a codebase script
+// that fails to build fails only the flows that reach it: the codebase
+// build writes the metadata and assets of every script that built, so an
+// unrelated flow whose codebase script reads its asset still runs and
+// passes. A script whose asset collides with one an earlier script took
+// fails its own flow.
 func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "flows", "c2b", "isolation")

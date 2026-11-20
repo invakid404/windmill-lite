@@ -1,5 +1,5 @@
 // Command wltest is windmill-lite's conformance and oracle runner (ADR
-// 0011). It has four verbs so far:
+// 0011). It has four verbs:
 //
 //	wltest record [flags] <fixture, expression file or directory>...
 //	wltest stub --out <dir> <sync tree>
