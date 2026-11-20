@@ -1362,7 +1362,7 @@ independent check of the draft. Open questions are `Q-OR-n`.
 - **Conformance:** [OR-15/a, OR-15/b](conformance.md#or-15)
 - **Note:** the format as implemented has more options than the table, for
   example `submit: run_wait_result`, `delays`, `variables`, `oracle.setup`
-  and the `compare` masks; [`conformance/README.md`](../../conformance/README.md)
+  and the `compare` masks; [`internal/conformance/README.md`](../../internal/conformance/README.md#fixtures)
   and the [differential testing](../design/0011-differential-testing.md) design record describe them. The format was accepted as sound and
   needed evidence only because the probe catalogue that should populate it
   was not an exact executable reconstruction of run 1's fixtures
