@@ -180,8 +180,13 @@ func (s *refusingStore) UpdateValue(context.Context, string, string, string, jso
 // store that checks the type and writes in two steps, and one whose
 // competing updates fail, which would otherwise leave the replacer
 // unopposed.
+//
+// The two-step store's gap is a yield, so whether a cycle hits it depends
+// on the scheduler: a loaded machine with few CPUs can go a second without
+// one. The test stops at its fifth finding, so the longer limit costs time
+// only when the typed-write test cannot find the race at all.
 func TestTypedWriteTestCatchesTwoSteps(t *testing.T) {
-	problems, cycles := typedWriteProblems(&twoStepStore{brokenStore{entries: map[string]wl.Resource{}}}, time.Second)
+	problems, cycles := typedWriteProblems(&twoStepStore{brokenStore{entries: map[string]wl.Resource{}}}, 15*time.Second)
 	if len(problems) == 0 {
 		t.Errorf("the typed-write test found nothing wrong in %d cycles of a store that checks and writes in two steps", cycles)
 	}
