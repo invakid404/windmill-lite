@@ -287,7 +287,7 @@ sees them.
 | Option | Type | Default | What it sets |
 |---|---|---|---|
 | `engine` | `string` | Required | The path of the `windmill-lite` engine binary |
-| `bundle` | `string` | Required | The bundle directory, which the engine and this process both load. Give an absolute path: in versions 0.2.0, 0.3.0 and 0.4.0, `connect()` fails on a relative one. |
+| `bundle` | `string` | Required | The bundle directory, which the engine and this process both load. Give an absolute path: in versions 0.2.0, 0.3.0, 0.4.0 and 0.4.1, `connect()` fails on a relative one. |
 | `workdir` | `string` | Required | A writable directory that is already this process's working directory. The assets go there, and the engine writes each step's `args.json` there. |
 | `engineArgs` | `string[]` | `[]` | Arguments before the engine's `host` command |
 | `engineFlags` | `string[]` | `[]` | Flags after the `host` command's own, such as `-variables`, `-resources` or `-cpuprofile` |

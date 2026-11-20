@@ -144,22 +144,22 @@ Take the SDK, the engine and the bundle from the same version:
 | The host runs on a Bun other than 1.4.3 | Refuses the host with `runtime_mismatch` |
 | Another engine version built the bundle | Does not open the bundle, and refuses the host with `engine_refused` |
 
-These steps install version 0.4.0 on Linux amd64. For another version or
+These steps install version 0.4.1 on Linux amd64. For another version or
 platform, change it in each step.
 
 1. Install the package at that exact version:
-   `bun add --exact windmill-lite@0.4.0`.
+   `bun add --exact windmill-lite@0.4.1`.
 2. Download the engine from the release
-   [v0.4.0](https://github.com/invakid404/windmill-lite/releases/tag/v0.4.0):
+   [v0.4.1](https://github.com/invakid404/windmill-lite/releases/tag/v0.4.1):
 
    ```sh
-   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.0/windmill-lite-linux-amd64
+   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.1/windmill-lite-linux-amd64
    ```
 
 3. Download the release's sums:
 
    ```sh
-   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.0/SHA256SUMS
+   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.1/SHA256SUMS
    ```
 
 4. Check the engine against its sum:
