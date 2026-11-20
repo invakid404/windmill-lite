@@ -130,12 +130,12 @@ console.log("ready " + process.pid);
 	t.Fatalf("onRunEnd answered no reading: %+v", r.Warnings)
 }
 
-// TestHostSkipArgsFile checks lever 2's rule (ADR 0004 host mode item 7):
-// host mode writes no args.json only for a bundle none of whose scripts
-// can read it (the manifest's no_args_file_reader) whose host opted in
-// (wl.Host.SkipArgsFile). The plain bundle has no reader, the benchmarks'
-// bundle has readers; the plain one runs with the option on and off, the
-// benchmarks' with it on.
+// TestHostSkipArgsFile checks when host mode skips args.json (ADR 0004
+// host mode item 7): host mode writes no args.json only for a bundle none
+// of whose scripts can read it (the manifest's no_args_file_reader) whose
+// host opted in (wl.Host.SkipArgsFile). The plain bundle has no reader,
+// the benchmarks' bundle has readers; the plain one runs with the option
+// on and off, the benchmarks' with it on.
 func TestHostSkipArgsFile(t *testing.T) {
 	bun := benchSetup(t)
 	if !manifestOf(t, benchPlainBundle).NoArgsFileReader || manifestOf(t, benchBundle).NoArgsFileReader {
