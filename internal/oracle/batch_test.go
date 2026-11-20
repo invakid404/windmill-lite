@@ -18,9 +18,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
-// A batch is a recording batch of ADR 0012 (E3a to E3e): the catalogue
-// cases it records on the oracle, the fixtures that record them, and what
-// it leaves to a later milestone. testdata/batches/<id>.json holds one.
+// A batch is a recording batch, named by a row of ADR 0012's milestone
+// table: the catalogue cases it records on the oracle, the fixtures that
+// record them, and the cases and parts that its runs do not record, each
+// with the reason and the milestone its entry names, which may be "none".
+// testdata/batches/<id>.json holds one.
 type batch struct {
 	About string `json:"about"`
 	Batch string `json:"batch"`
@@ -37,8 +39,11 @@ type batch struct {
 		Milestone string `json:"milestone"`
 		Reason    string `json:"reason"`
 	} `json:"deferred"`
-	// Parts are halves of recorded cases that the oracle cannot observe
-	// and a later milestone checks.
+	// Parts are halves of cases that the batch's runs do not observe,
+	// though a run of the batch records the case's other half: each with
+	// the reason, such as a half outside the contract or one that another
+	// fixture records, and the milestone its entry names, which may be
+	// "none".
 	Parts []struct {
 		Case      string `json:"case"`
 		Part      string `json:"part"`
@@ -55,8 +60,8 @@ type batch struct {
 		Prefix  string `json:"prefix"`
 	} `json:"prefixes"`
 	// Texts are the catalogue's other partial assertions about a recorded
-	// text: substrings it contains, and ones it must not contain (batch
-	// E3f), checked against the recorded observation as Prefixes are.
+	// text: substrings it contains, and ones it must not contain, checked
+	// against the recorded observation as Prefixes are.
 	Texts []struct {
 		Case     string   `json:"case"`
 		Run      string   `json:"run"`
@@ -74,8 +79,8 @@ type batch struct {
 		Pointer   string          `json:"pointer"`
 		Observed  json.RawMessage `json:"observed"`
 	} `json:"contradictions"`
-	// Deployments are the catalogue's claims about a deployed flow value
-	// (batch E3f), checked against a recorded run's deployment evidence
+	// Deployments are the catalogue's claims about a deployed flow value,
+	// checked against a recorded run's deployment evidence
 	// (Provenance.Deployment: the submitted value, the materialized one):
 	// the value at the pointer, or, with absent, no member there.
 	Deployments []struct {
@@ -504,7 +509,7 @@ func needsMerged(plan map[string]*milestone, id, batch string) bool {
 // checkBatchRow requires the batch to cover what its ADR 0012 row names:
 // each finding of an "X-n to X-m" range that has catalogue cases is one of
 // its findings, and each "X-n/l" case is one of its cases or a case of one
-// of its findings. A batch may cover more, as E3c does with FX-10/a.
+// of its findings. A batch may cover more, as e3c.json does with FX-10/a.
 func checkBatchRow(t *testing.T, b batch, title string, inCatalogue map[string]bool) {
 	t.Helper()
 	findings := map[string]bool{}

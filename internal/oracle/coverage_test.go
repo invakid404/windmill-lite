@@ -14,8 +14,10 @@ import (
 
 // TestCatalogueCoverage accounts for every oracle case and every LIC-1
 // case of the conformance catalogue: each is cited by a test or a data case
-// of this milestone, checked live by every oracle session, or deferred to
-// the milestone that records or implements it (testdata/coverage.json).
+// of internal/oracle or internal/conformance or by a flow fixture, checked
+// live by an oracle session or by the oracle workflow, as its live entry
+// says, or deferred with a reason and the milestone its entry names
+// (testdata/coverage.json).
 func TestCatalogueCoverage(t *testing.T) {
 	root := repoRoot(t)
 	catalogue, err := os.ReadFile(filepath.Join(root, "docs/semantics/conformance.md"))
@@ -31,8 +33,8 @@ func TestCatalogueCoverage(t *testing.T) {
 		t.Fatalf("found only %d oracle and LIC-1 cases in the catalogue", len(cases))
 	}
 
-	// The texts that cite cases: tests and data files of the milestone's
-	// packages, and the flow fixtures.
+	// The texts that cite cases: tests and data files of internal/oracle
+	// and internal/conformance, and the flow fixtures.
 	var cited bytes.Buffer
 	for _, dir := range []string{"internal/oracle", "internal/conformance", "conformance/flows"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d fs.DirEntry, err error) error {

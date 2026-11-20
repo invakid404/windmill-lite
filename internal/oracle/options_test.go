@@ -16,9 +16,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
-// The session options of recording batch E3e, against the fake oracle of
-// record_test.go: the run-and-wait submission, the setup policies, skipped
-// fixtures, the listen-interval knob and the pull read-back.
+// The session options, against the fake oracle of record_test.go: the
+// run-and-wait submission, the setup policies, skipped fixtures, the
+// listen-interval knob and the pull read-back.
 
 // editFixture replaces old with new in a file of the rig's fixture, once.
 func editFixture(t *testing.T, rig *sessionRig, name, old, new string) {
@@ -209,10 +209,11 @@ func TestSessionSkipsUnmetWorkers(t *testing.T) {
 	}
 }
 
-// TestSessionSkipsProvidedSites skips a fixture with host-provided sites
-// (milestone F2a): windmill-lite replaces them with the host's providers,
-// while the oracle would run their real targets, so its runs are reported
-// skipped, nothing is deployed, and nothing fails.
+// TestSessionSkipsProvidedSites skips a fixture with host-provided sites:
+// windmill-lite replaces them with what the host configures, a static
+// value as here or a named provider, while the oracle would run their real
+// targets, so its runs are reported skipped, nothing is deployed, and
+// nothing fails.
 func TestSessionSkipsProvidedSites(t *testing.T) {
 	rig := newRig(t)
 	editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}",
