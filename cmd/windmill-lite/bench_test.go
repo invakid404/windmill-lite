@@ -130,8 +130,8 @@ const benchChainSteps = 8
 // input; the others do, step k writing k mod 4 log lines and making k mod
 // 3 platform reads, alternately a variable and a resource.
 //
-// A shape with res set is the brief's example A instead, on a host whose
-// plugin provides the resources (the topology host-plugin): step k takes
+// A shape with res set is a resource-reading chain instead, on a host
+// whose plugin provides the resources (the topology host-plugin): step k takes
 // two resources as $res: arguments, res/r<k mod 4 + 1> and the next, and
 // three expressions: the previous result and an expression that binds the
 // flow input, as the other shapes, and results.s<k-1>.n, the previous
@@ -375,7 +375,7 @@ func (s benchShape) flow() string {
 	return b.String()
 }
 
-// resFlow is the flow of a shape with res: the brief's example A.
+// resFlow is the flow of a shape with res: the resource-reading chain.
 func (s benchShape) resFlow() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "summary: Resource shape %s\nvalue:\n  modules:\n", s.name)
