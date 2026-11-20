@@ -415,8 +415,11 @@ No windmill-lite image is ever based on, or contains, a Windmill image
 - The pinned Bun is the reference's; a host on another Bun gets a visible
   `nonconformant_runtime` flag, not a silent difference.
 - One-file deployment is planned for the common case of a single language.
-- **The bundle** (`internal/bundle`, `windmill-lite build`, `verify` and
-  `selfcheck`) settles what the decision above leaves open:
+- **Bundle format and checks** (`internal/bundle`, `windmill-lite build`,
+  `verify` and `selfcheck`). These points settle what the decision above
+  leaves open: the file names, the manifest's canonical form and contents,
+  the source inventory, the data files, the archive, verification, the
+  build's refusals and the static-engine check:
   - **Names.** A script's files are named by its inventory id
     ([IR, loader and validation](0002-ir-and-loader.md)), whose `/`-separated segments become
     directories (`scripts/bun/f/app/report.mjs`), as the harness runtime
